@@ -3,6 +3,7 @@
 __DOC__
 Exits 0 when the bug no longer reproduces.
 Reproduces when __AFFECTED_TEXT__.
+Exits 2 if affected rows were not tested and no tested row reproduces.
 
 Requires: pip install qdk qirrunner__REQUIRES_EXTRA__
 """
@@ -20,7 +21,7 @@ SOURCE = """__SOURCE__"""
 __PROJECT_BLOCK__EXPECTED = "__EXPECTED__"  # the correct output
 AFFECTED = __AFFECTED__  # runs that show the bug
 SHOTS = 10
-PROFILES = ["Base", "Adaptive_RI", "Adaptive_RIF", "Adaptive"]
+PROFILES = __PROFILES__
 
 
 __BUILD__
@@ -137,6 +138,10 @@ def main():
     if wrong:
         print(f"REPRODUCED: {', '.join(wrong)} differ from {EXPECTED}")
         return 1
+    missing = [name for name in AFFECTED if name not in rows]
+    if missing:
+        print(f"INCONCLUSIVE: affected rows not run: {', '.join(missing)}")
+        return 2
     print("NOT REPRODUCED")
     return 0
 

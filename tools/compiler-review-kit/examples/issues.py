@@ -15,7 +15,7 @@ ISSUES = [
     dict(
         slug="loop_result_slot",
         title="[Miscompile] Adaptive: a Result kept from an earlier loop iteration reads the last iteration's measurement",
-        kind="Miscompile on Adaptive only; Base, Adaptive_RI and Adaptive_RIF return the correct value.",
+        kind="Miscompile on Adaptive only; Base and Adaptive_RIF return the correct value.",
         affects="Adaptive",
         regression="no",
         found_in="exploratory testing of Result by-reference behavior.",

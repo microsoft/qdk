@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 import re
 
-from harness.common import KIT, ReviewError, resolve_ref, write_json
+from harness.common import DEFAULT_PROFILES, KIT, ReviewError, resolve_ref, write_json
 from harness.execution import exec_script
 
 TEMPLATE = KIT / "templates" / "issue_repro.py.template"
@@ -67,7 +67,7 @@ def project_block(files):
     )
 
 
-def render(issue):
+def render(issue, profiles=None):
     """The standalone repro script for one issue; exits 0 when the bug no longer reproduces."""
     title = issue.get("title_text") or re.sub(r"^\[[^\]]*\]\s*", "", issue["title"])
     replacements = {
@@ -80,6 +80,7 @@ def render(issue):
         "__PROJECT_BLOCK__": project_block(issue["project"]) if issue.get("project") else "",
         "__EXPECTED__": issue["expected"],
         "__AFFECTED__": repr(issue["affected"]),
+        "__PROFILES__": repr(DEFAULT_PROFILES if profiles is None else profiles),
         "__BUILD__": issue.get("build", SIMPLE_BUILD).strip(),
         "__CONTEXT__": PROJECT_CONTEXT if issue.get("project") else SIMPLE_CONTEXT,
     }
@@ -190,7 +191,7 @@ def draft_issues(config, definitions, output, revisions=None, only=(), cached=Fa
     labels_for = getattr(module, "COLUMNS", {})
     sections, status = [], {}
     for index, issue in enumerate(issues, 1):
-        script_text = render(issue)
+        script_text = render(issue, config["profiles"])
         path = scripts / f"{index:02d}_{issue['slug']}.py"
         path.write_text(script_text)
         wanted = issue.get("revisions") or default

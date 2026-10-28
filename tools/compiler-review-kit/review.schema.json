@@ -7,7 +7,11 @@
   "properties": {
     "reference": { "type": "string", "minLength": 1 },
     "candidate": { "type": "string", "minLength": 1 },
-    "previously_reviewed": { "type": "string", "minLength": 1 },
+    "previously_reviewed": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Previous candidate for explicitly requested lost-fix tracking; omitted by default."
+    },
     "historical_reference": { "type": "string", "minLength": 1 },
     "layers": {
       "type": "array",
@@ -25,13 +29,17 @@
     "cache_budget_mb": { "type": "integer", "minimum": 1 },
     "profiles": {
       "type": "array",
+      "default": ["Base", "Adaptive_RIF", "Adaptive"],
       "minItems": 1,
       "uniqueItems": true,
       "items": {
         "enum": ["Base", "Adaptive_RI", "Adaptive_RIF", "Adaptive"]
       }
     },
-    "debug_validation": { "enum": ["targeted", "all", "none"] },
+    "debug_validation": {
+      "enum": ["targeted", "all", "none"],
+      "default": "none"
+    },
     "keep_qir": { "type": "boolean" },
     "issues": {
       "type": "object",

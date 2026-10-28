@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -30,7 +31,7 @@ from harness import evidence  # noqa: E402
 from harness.issue_drafts import draft_issues, load_definitions, markdown as issue_markdown, render  # noqa: E402
 from harness.tables import cell as table_cell, format_value, run_table  # noqa: E402
 from harness.timing import aggregate, ratios  # noqa: E402
-from harness.variants import variant_lines  # noqa: E402
+from harness.variants import run_variants, variant_lines  # noqa: E402
 from harness.variants_worker import load_variants  # noqa: E402
 from harness.discovery import discover_samples, infer_entry, snapshot_issues  # noqa: E402
 from harness.execution import (  # noqa: E402
@@ -45,7 +46,7 @@ from harness.records import encode, parse_output, validate_value  # noqa: E402
 from harness.report import generate_report, source_repro  # noqa: E402
 from harness.runner import compare, create_run, endpoint, prune_qir, run_case  # noqa: E402
 from harness.statecheck import check as statecheck  # noqa: E402
-from harness import worker  # noqa: E402
+from harness import variants_worker, worker  # noqa: E402
 
 sys.path.insert(0, str(KIT / "generators"))
 import callable_chains  # noqa: E402
@@ -102,6 +103,22 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(config["build_dir"], "/work/compiler-review-kit/build")
             self.assertEqual(config["cache_dir"], "/work/cache/compiler-review-kit")
             self.assertEqual(config["report"], "/exchange/from_copilot/review.md")
+            self.assertEqual(config["profiles"], ["Base", "Adaptive_RIF", "Adaptive"])
+            self.assertEqual(config["debug_validation"], "none")
+
+    def test_explicit_debug_and_adaptive_ri_remain_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review.json"
+            for mode in ("targeted", "all"):
+                with self.subTest(mode=mode):
+                    write_json(path, {"reference": "old", "candidate": "new",
+                                      "profiles": ["Adaptive_RI"], "debug_validation": mode})
+                    with patch("harness.common.git", return_value=""), patch(
+                        "harness.common.resolve_ref", side_effect=lambda repo, ref: ref
+                    ):
+                        config = load_config(path)
+                    self.assertEqual(config["profiles"], ["Adaptive_RI"])
+                    self.assertEqual(config["debug_validation"], mode)
 
     def test_path_overrides_remain_config_relative(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1012,6 +1029,44 @@ class TimingTests(unittest.TestCase):
 
 
 class VariantTests(unittest.TestCase):
+    def test_worker_profile_defaults_and_explicit_selection(self):
+        defaults = ["Base", "Adaptive_RIF", "Adaptive"]
+        scenarios = [(None, None, defaults), (None, ["Adaptive"], ["Adaptive"]),
+                     (["Adaptive_RI"], ["Adaptive"], ["Adaptive_RI"])]
+        for requested, module_profiles, expected in scenarios:
+            with self.subTest(requested=requested, module_profiles=module_profiles):
+                module = SimpleNamespace()
+                if module_profiles is not None:
+                    module.PROFILES = module_profiles
+                job = {"variants": "variants.py", "profiles": requested, "shots": 2, "seed": 1, "runner": "runner"}
+                output = io.StringIO()
+                with patch.dict(sys.modules, {"qdk": SimpleNamespace(__file__="qdk/__init__.py")}), patch(
+                    "harness.variants_worker.load_variants", return_value=(module, [{"name": "v"}])
+                ), patch("harness.variants_worker.run_variant", return_value={"name": "v"}) as run, patch(
+                    "sys.stdin", io.StringIO(json.dumps(job))
+                ), patch("sys.stdout", output):
+                    variants_worker.main()
+                self.assertEqual(json.loads(output.getvalue())["profiles"], expected)
+                self.assertEqual(run.call_args.args[3], expected)
+
+    def test_explicit_config_profiles_reach_variant_worker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "variants.py"
+            path.write_text("VARIANTS = [{'name': 'v'}]\n")
+            config = {"work_dir": str(root), "venv": "/opt/qdk-venv",
+                      "profiles": ["Adaptive_RI"], "input": {"profiles": ["Adaptive_RI"]},
+                      "limits": {"shots": 2, "seed": 1, "compile_seconds": 10}}
+            build = {"overlay": str(root), "worktree": str(root)}
+            for requested, expected in ((None, ["Adaptive_RI"]), (["Base"], ["Base"])):
+                with self.subTest(requested=requested), patch("harness.variants.preflight", return_value={}), patch(
+                    "harness.variants.build_revision", return_value=build
+                ), patch("harness.variants.isolated", return_value={
+                    "status": "ok", "profiles": expected, "variants": [],
+                }) as execute:
+                    run_variants(config, path, [("candidate", "a" * 40)], requested, "release")
+                self.assertEqual(execute.call_args.kwargs["payload"]["profiles"], expected)
+
     def test_matrix_marks_wrong_and_differences(self):
         def column(label, value):
             return {"label": label, "sha": label * 8, "panics": [], "variants": [
@@ -1032,6 +1087,17 @@ class VariantTests(unittest.TestCase):
 
 
 class IssueDraftTests(unittest.TestCase):
+    def test_repro_profiles_follow_defaults_and_explicit_selection(self):
+        _, issues = load_definitions(KIT / "examples" / "issues.py")
+        for profiles, expected in ((None, ["Base", "Adaptive_RIF", "Adaptive"]),
+                                   (["Adaptive_RI"], ["Adaptive_RI"])):
+            with self.subTest(profiles=profiles):
+                tree = ast.parse(render(issues[0], profiles))
+                value = next(node.value for node in tree.body if isinstance(node, ast.Assign)
+                             and any(isinstance(target, ast.Name) and target.id == "PROFILES"
+                                     for target in node.targets))
+                self.assertEqual(ast.literal_eval(value), expected)
+
     def test_render_and_markdown_from_executions(self):
         _, issues = load_definitions(KIT / "examples" / "issues.py")
         issue = issues[0]
@@ -1062,11 +1128,13 @@ class IssueDraftTests(unittest.TestCase):
         _, issues = load_definitions(KIT / "examples" / "issues.py")
         tree = ast.parse(render(issues[0]))
         main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
-        for value, expected_exit, verdict in (("1", 0, "NOT REPRODUCED"), ("0", 1, "REPRODUCED:")):
+        scenarios = [("1", ["Adaptive"], 0, "NOT REPRODUCED"), ("0", ["Adaptive"], 1, "REPRODUCED:"),
+                     ("1", ["Adaptive_RI"], 2, "INCONCLUSIVE:")]
+        for value, affected, expected_exit, verdict in scenarios:
             with self.subTest(value=value), patch("sys.stdout", io.StringIO()) as output:
                 namespace = {
                     "outputs": lambda: {"Adaptive": {value}},
-                    "EXPECTED": "1", "AFFECTED": ["Adaptive"], "json": json,
+                    "EXPECTED": "1", "AFFECTED": affected, "json": json,
                 }
                 exec(compile(ast.Module(body=[main], type_ignores=[]), "<repro>", "exec"), namespace)
                 self.assertEqual(namespace["main"](), expected_exit)
@@ -1086,6 +1154,7 @@ class IssueDraftTests(unittest.TestCase):
                 )
             ]
             config = {"work_dir": str(root / "work"),
+                      "profiles": ["Base", "Adaptive_RIF", "Adaptive"],
                       "refs": {row["label"]: row["sha"] for row in rows}}
             with patch("harness.issue_drafts.exec_script", return_value=rows):
                 _, status = draft_issues(config, KIT / "examples" / "issues.py", root / "issues.md",
@@ -1186,11 +1255,14 @@ class NewGeneratorTests(unittest.TestCase):
             cases = dynamic_recursion.generate(first, 30, 15, 8, seed=4)
             dynamic_recursion.generate(second, 30, 15, 8, seed=4)
             self.assertEqual((Path(first) / "cases.json").read_text(), (Path(second) / "cases.json").read_text())
+            explicit = dynamic_recursion.generate(Path(first) / "explicit", 1, 1, 1, seed=4, profiles=["Adaptive_RI"])
         validate(cases, read_json(KIT / "cases.schema.json"))
         for case in cases:
             validate_value(case["oracle"]["expected"])
         classical = [c for c in cases if c["id"].startswith("dc-")]
         self.assertTrue(classical and all("Base" not in c["profiles"] for c in classical))
+        self.assertTrue(all("Adaptive_RI" not in c["profiles"] for c in cases))
+        self.assertTrue(all(c["profiles"] == ["Adaptive_RI"] for c in explicit))
         self.assertTrue(any("Hop(" in c["source"] for c in cases))
 
 

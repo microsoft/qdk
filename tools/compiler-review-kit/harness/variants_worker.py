@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness.common import ReviewError  # noqa: E402
+from harness.common import DEFAULT_PROFILES, ReviewError  # noqa: E402
 from harness.records import encode, parse_output  # noqa: E402
 from harness.tables import format_value  # noqa: E402
 
@@ -103,7 +103,7 @@ def main():
             path = Path(project_root) / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
-    profiles = job["profiles"] or getattr(module, "PROFILES", None) or ["Base", "Adaptive_RI", "Adaptive_RIF", "Adaptive"]
+    profiles = job["profiles"] or getattr(module, "PROFILES", None) or DEFAULT_PROFILES
     results = []
     with contextlib.redirect_stdout(io.StringIO()):
         for variant in variants:

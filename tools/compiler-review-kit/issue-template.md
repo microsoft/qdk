@@ -19,6 +19,8 @@ State the revisions the tables were generated at (`main` and the candidate, with
 SHAs and PR numbers), how each repro works (simulator, then compile per profile and
 qir-runner), and that every Reproduce script exits 0 when the bug no longer
 reproduces, and 1 when it reproduces.
+If an affected row was not tested and no tested row reproduces, the script exits
+2 and reports an inconclusive result.
 
 ## Meta-issue summary
 
@@ -38,7 +40,8 @@ A few paragraphs, no tables required:
 
 **Kind:** <panic in `crate` ([`path:line`](link), in `function`) / wrong result / internal error> on <profiles>; the simulator is <correct>.  
 **Affects:** <profiles, and which variants do or don't reproduce>  
-**Regression:** <no, or yes: which revision was correct, and the introducing commit established on its actual parent>  
+**Regression:** <no, or yes: correct revision; responsible PR for stacks; individual commit only if requested>
+
 **Found in:** <suite, generator and seed, client scenario; how reduced>  
 **Related:** #<n> (<how it overlaps; related is not duplicate>), ...
 
@@ -62,10 +65,12 @@ QIR, which is run with qir-runner. Wrong outputs and panics are in bold.
 | ------------ | ----------------------------------- | --------------------- |
 | Simulator    | `<value>`                           | `<value>`             |
 | Base         | `<value>` / **panics: `<message>`** | ...                   |
-| Adaptive_RI  | ...                                 | ...                   |
 | Adaptive_RIF | ...                                 | ...                   |
 | Adaptive     | ...                                 | ...                   |
 | **Correct**  | `<expected>`                        | `<expected>`          |
+
+Add an Adaptive_RI row only if the user requested that profile. Use release builds
+unless the user requested debug.
 
 Messages:
 
@@ -102,7 +107,8 @@ Requires: pip install qdk qirrunner
 ## Comment for #<n> (<existing issue title>)
 
 **<What changed with the reviewed PRs, or the new trigger>:** a short table of the
-issue's repro at `main` and the candidate, the attributed commit, newly affected
+issue's repro at `main` and the candidate, the responsible PR for a stack (commit
+only if requested), newly affected
 shapes or clients, and a minimal repro only when the trigger is new. Keep it to what
 a maintainer of that issue needs.
 

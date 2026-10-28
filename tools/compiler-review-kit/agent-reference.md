@@ -107,25 +107,25 @@ The repository defaults to `/work/qdk`, even when the configuration is outside
 the checkout. All supplied relative paths resolve from the configuration file.
 Use path overrides only when the review requires a different owned location.
 
-| Optional field                 | Meaning/default                                                                                    |
-| ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `previously_reviewed`          | Previous review's candidate: built and run as an extra column to find lost fixes; not the baseline |
-| `historical_reference`         | Additional explicitly labeled baseline                                                             |
-| `layers`                       | Intermediate heads of a PR stack, oldest first; run as columns `layer1`, `layer2`, ...             |
-| `issues`                       | Author/minimum-number sweep plus explicit issue includes; both open and closed issues              |
-| `clients`                      | Named local Git checkouts to investigate; no chemistry checkout is assumed                         |
-| `exclusions`                   | Case ID/origin/path globs, each with a reason                                                      |
-| `report`                       | Output path; defaults to `/exchange/from_copilot/<name>.md`                                        |
-| `profiles`                     | Base, Adaptive_RI, Adaptive_RIF, Adaptive                                                          |
-| `debug_validation`             | `targeted` by default; `all` runs both modes, `none` opts out                                      |
-| `keep_qir`                     | `false`: retain failure/uncertain QIR, discard uncomplicated successful QIR; `true` retains all    |
-| `limits`                       | Stage timeouts, memory, concurrency, shots, seed                                                   |
-| `name`                         | Review name for scratch/evidence; defaults to the explicit report's stem, or `review`              |
-| `cache_dir`, `cache_budget_mb` | Evidence cache root; `$REVIEW_KIT_CACHE` or `/work/cache/compiler-review-kit`; 50 MiB              |
-| `venv`                         | Python environment; `/opt/qdk-venv`                                                                |
-| `work_dir`                     | Temporary review data; `/tmp/compiler-review-kit/<name>` (honors `TMPDIR`)                         |
-| `build_dir`                    | Executable build state; `/work/compiler-review-kit/build`                                          |
-| `repository`                   | Compiler checkout; `/work/qdk`                                                                     |
+| Optional field                 | Meaning/default                                                                                 |
+| ------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `previously_reviewed`          | Extra previous-candidate column, only for user-requested lost-fix tracking; omitted by default  |
+| `historical_reference`         | Additional explicitly labeled baseline                                                          |
+| `layers`                       | Intermediate heads of a PR stack, oldest first; run as columns `layer1`, `layer2`, ...          |
+| `issues`                       | Author/minimum-number sweep plus explicit issue includes; both open and closed issues           |
+| `clients`                      | Named local Git checkouts to investigate; no chemistry checkout is assumed                      |
+| `exclusions`                   | Case ID/origin/path globs, each with a reason                                                   |
+| `report`                       | Output path; defaults to `/exchange/from_copilot/<name>.md`                                     |
+| `profiles`                     | Base, Adaptive_RIF, Adaptive by default; Adaptive_RI only when requested                        |
+| `debug_validation`             | `none` by default; only when requested, `targeted` replays findings or `all` runs both modes    |
+| `keep_qir`                     | `false`: retain failure/uncertain QIR, discard uncomplicated successful QIR; `true` retains all |
+| `limits`                       | Stage timeouts, memory, concurrency, shots, seed                                                |
+| `name`                         | Review name for scratch/evidence; defaults to the explicit report's stem, or `review`           |
+| `cache_dir`, `cache_budget_mb` | Evidence cache root; `$REVIEW_KIT_CACHE` or `/work/cache/compiler-review-kit`; 50 MiB           |
+| `venv`                         | Python environment; `/opt/qdk-venv`                                                             |
+| `work_dir`                     | Temporary review data; `/tmp/compiler-review-kit/<name>` (honors `TMPDIR`)                      |
+| `build_dir`                    | Executable build state; `/work/compiler-review-kit/build`                                       |
+| `repository`                   | Compiler checkout; `/work/qdk`                                                                  |
 
 Defaults: two concurrent cases; compile 300 seconds; simulator and runner 120
 seconds each; 16 GiB address-space limit per worker; eight shots; seed 1.
@@ -159,17 +159,23 @@ Results never resume from an old JSONL file: every run is fresh. A run contains
 resolved configuration/tools/build identities, case snapshots, stage results,
 raw output, and retained unmodified QIR. The main checkout is never switched.
 
-Release is the primary mode. With `debug_validation=targeted`, the reviewer must
-assemble a findings manifest and explicitly replay it:
+Release is the only default build mode. Do not build debug unless the user asks,
+including for assertion-sensitive findings. If the user requests targeted debug
+validation, set `debug_validation=targeted`, assemble a findings manifest, and
+explicitly replay it:
 
 ```bash
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py run /tmp/compiler-review-kit/REVIEW/review.json /tmp/compiler-review-kit/REVIEW/findings.json --mode debug
 ```
 
+Only when the user requests debug validation of every case,
 `debug_validation=all` runs release and debug for every selected case.
+Adaptive_RI is also opt-in: add it to the configuration's `profiles` only when
+requested. Existing support for all four profiles remains available.
 
 Generate an **evidence draft** from a run, then complete it using the report
-template. The generated draft does not establish root causes or commit attribution.
+template. The generated draft does not establish root causes or PR attribution.
+Individual-commit attribution is not required unless requested.
 
 ```bash
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py report /tmp/compiler-review-kit/REVIEW/runs/RUN_DIRECTORY
@@ -187,8 +193,6 @@ look stalled; `results.jsonl` is rewritten in manifest order when the run ends.
 ```bash
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py summarize /tmp/compiler-review-kit/REVIEW/runs/RUN [--json summary.json]
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py compare /tmp/compiler-review-kit/REVIEW/runs/OLD /tmp/compiler-review-kit/REVIEW/runs/NEW
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py compare OLD NEW --select 'a=validated,b!=validated' \
-  --output /tmp/compiler-review-kit/REVIEW/lost-fixes.json
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py subset A.json B.json --match 'i38*' --ids extra-case \
   --output /tmp/compiler-review-kit/REVIEW/subset.json
 ```
@@ -196,16 +200,19 @@ look stalled; `results.jsonl` is rewritten in manifest order when the run ends.
 `summarize` cross-tabulates reference→candidate outcomes per profile, groups
 candidate failures by normalized signature (numbers replaced by `N`) with their
 reference outcomes, lists flagged regressions, and checks the **profile hierarchy**:
-a program validated on a lower profile (Base ⊂ Adaptive_RI ⊂ Adaptive_RIF ⊂ Adaptive)
-should not fail on a higher one. Violations new at the candidate are listed, and all
+a program validated on a lower tested profile should not fail on a higher one.
+The full supported hierarchy is Base ⊂ Adaptive_RI ⊂ Adaptive_RIF ⊂ Adaptive;
+Adaptive_RI is not tested by default. Violations new at the candidate are listed, and all
 candidate violations are grouped by the higher profile's failure signature. It also lists:
 
 - **loud → silent**: the reference panicked, crashed or rejected the program and the
   candidate returns a wrong result. Not a regression verdict, but a bug that stopped
   announcing itself; report it explicitly.
-- **lost fixes** against `previously_reviewed`, and **intermediate-layer hazards**: a
+- **intermediate-layer hazards**: a
   `layerN` that breaks a program both endpoints get right (or silences a loud
   reference failure). Stacked PRs merge one at a time, so these ship if a layer lands alone.
+- **lost fixes** against `previously_reviewed`, only when that optional column was
+  configured in response to a user request. Do not investigate them by default.
 - **the candidate's own extracted test programs that fail end to end**: their cargo
   tests pass, so the test helpers skip part of the user pipeline.
 - **identical QIR** at both endpoints, which is the only evidence for observe-only cases.
@@ -216,14 +223,22 @@ Compile-time medians come from concurrent sweeps and are only a hint.
 
 `compare` diffs two runs case by case (candidate outcomes by default; `--side
 reference` compares reference columns). Use it after every PR update: rerun the
-same manifests and compare, or compare a previous candidate's run with the new one
-to find **lost fixes**. `--select` terms (`a=STATUS`, `b!=STATUS`, ...) must all
+same manifests and compare reference-relative regressions and fixes. Investigating
+**lost fixes** is opt-in. `--select` terms (`a=STATUS`, `b!=STATUS`, ...) must all
 hold for one shared profile; `--output` copies the selected cases' original entries
 from run B's manifest. A change from a loud failure to a wrong result is labelled
 `worse (silent)`. `subset` merges manifests by ID or glob and rewrites
 `source_file`, `project_root` and `adapter` paths for the new location. An ID that
 appears again with the same content (provenance fields aside) is merged; the same ID
 with different content is an error.
+
+Only when the user requests lost-fix analysis, configure `previously_reviewed`
+or select differences between earlier and current candidate runs:
+
+```bash
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py compare OLD NEW --select 'a=validated,b!=validated' \
+  --output /tmp/compiler-review-kit/REVIEW/lost-fixes.json
+```
 
 ```bash
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py table RUN [RUN ...] [--profiles Adaptive_RIF Adaptive] \
@@ -262,6 +277,9 @@ separate compilation unit). Every variant runs in the simulator and on each prof
 (compile + qir-runner) at each revision. The matrix marks wrong results and lists
 the variants whose outcome differs between revisions. Use it to narrow a finding to
 the one ingredient that matters (see `tools/compiler-review-kit/examples/variants.py`).
+Profile selection uses `--profiles`, then an explicit configuration `profiles`,
+then the variants module's `PROFILES`, then Base/Adaptive_RIF/Adaptive. Include
+Adaptive_RI only when the user asks.
 
 ### Executing standalone repros on each revision
 
@@ -337,13 +355,16 @@ and `COLUMNS` (column labels). Each repro is rendered from
 `templates/issue_repro.py.template`, executed with `exec` at every revision, and the
 issue's Outputs table, messages and panic links come from those executions. The
 scripts exit 0 when the bug no longer reproduces, and 1 when it reproduces.
+Generated scripts use the configuration's profiles, omitting Adaptive_RI by
+default. If no tested row reproduces but an affected row was omitted, the script
+exits 2 with an inconclusive result, not a claim that the bug is fixed.
 See `issue-template.md` for the format.
 
 ### Generators and oracle tools
 
 ```bash
 /opt/qdk-venv/bin/python tools/compiler-review-kit/generators/callable_chains.py /tmp/compiler-review-kit/REVIEW/gen \
-  --inline 1600 --layout 800 --python 400 --seed 2 --profiles Adaptive_RI Adaptive_RIF Adaptive
+  --inline 1600 --layout 800 --python 400 --seed 2 --profiles Adaptive_RIF Adaptive
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py oracle-check /tmp/compiler-review-kit/REVIEW/review.json /tmp/compiler-review-kit/REVIEW/gen/cases.json
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py run /tmp/compiler-review-kit/REVIEW/review.json /tmp/compiler-review-kit/REVIEW/gen/cases.json
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py stages /tmp/compiler-review-kit/REVIEW/fir-tests.json /tmp/compiler-review-kit/REVIEW/gen/cases.json
@@ -415,14 +436,16 @@ whole-repository overlap searches.
 
 ### Attribution and reduction
 
+For a PR stack, put intermediate PR heads in `layers` and compare those columns
+to identify introducing/fixing PRs. Record which PR each layer represents. Do not
+search individual commits by default.
+
+Only if the user requests individual-commit attribution:
+
 ```bash
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py attribute /tmp/compiler-review-kit/REVIEW/review.json \
   /tmp/compiler-review-kit/REVIEW/findings.json --case CASE_ID \
   --output /tmp/compiler-review-kit/REVIEW/attribution.json
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py reduce /tmp/compiler-review-kit/REVIEW/review.json \
-  /tmp/compiler-review-kit/REVIEW/findings.json --case CASE_ID --profile Adaptive \
-  --kind panic --needle 'failure signature' \
-  --output /tmp/compiler-review-kit/REVIEW/reduced.json
 ```
 
 Attribution evaluates every commit in the range, not a presumed-monotonic binary
@@ -430,6 +453,16 @@ search. Results include parents. Neighboring topologically ordered rows are not
 necessarily parent/child: confirm the responsible transition on actual parents.
 For rebased/non-ancestral comparisons use an explicit ordered `--refs REF ...`.
 Failures abort with partial progress saved; an unbuilt commit is not a good commit.
+
+Source reduction is independent of attribution and remains part of finding
+minimization by default:
+
+```bash
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py reduce /tmp/compiler-review-kit/REVIEW/review.json \
+  /tmp/compiler-review-kit/REVIEW/findings.json --case CASE_ID --profile Adaptive \
+  --kind panic --needle 'failure signature' \
+  --output /tmp/compiler-review-kit/REVIEW/reduced.json
+```
 
 Reduction deletes lines while preserving a specified candidate failure and, by
 default, a semantically validated reference. `--allow-preexisting` removes that
@@ -494,8 +527,9 @@ Oracle policies:
 - `compile_only`: capability/compilation coverage, not a correctness oracle.
 
 Typed values distinguish `result`, `bool`, `int`, `double`, `array`, `tuple`,
-`unit`, and (simulator-only) `string`. Doubles use Python's canonical `float.hex()` spelling (including signed
-zero); NaN payload distinctions are not represented. Pure `Unit` return values
+`unit`, and (simulator-only) `string`. Doubles use Python's canonical `float.hex()`
+spelling. These are serialization details, not a request to investigate Q# string
+literals, signed zero, NaN, or infinities. Pure `Unit` return values
 never establish semantic equivalence. The kit does not compare messages, quantum
 states, or side effects as an oracle.
 
@@ -569,9 +603,10 @@ earlier findings should be rechecked at the start of an updated review.
 The bundled smoke config compares `HEAD^` with `HEAD`; this tests plumbing, not
 arbitrary branch correctness. Supply an owned config with the revisions you
 intend to validate if those defaults are unsuitable.
-Fixtures cover all profiles, typed/nested outputs, signed zero, stochastic
+Fixtures cover the default profiles, typed/nested finite numeric outputs, stochastic
 observations, callable arguments, and separate local project dependencies.
-`tests/smoke.py --mode debug` exercises debug builds. It asserts the expected
+Only when debug is requested, `tests/smoke.py --mode debug` exercises debug builds.
+The smoke test asserts the expected
 profile/status matrix and exact shot counts, rather than accepting exit zero alone.
 `statecheck` covers straight-line QIR only; no chemistry-specific trace interpreter
 is included.

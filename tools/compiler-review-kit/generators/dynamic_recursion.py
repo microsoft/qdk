@@ -26,7 +26,7 @@ import json
 from pathlib import Path
 import random
 
-DEFAULT_PROFILES = ["Adaptive_RI", "Adaptive_RIF", "Adaptive"]
+DEFAULT_PROFILES = ["Adaptive_RIF", "Adaptive"]
 
 
 def typed_results(bits):

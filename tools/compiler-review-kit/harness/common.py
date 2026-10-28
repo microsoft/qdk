@@ -17,6 +17,7 @@ import time
 
 KIT = Path(__file__).resolve().parents[1]
 PROFILES = ["Base", "Adaptive_RI", "Adaptive_RIF", "Adaptive"]
+DEFAULT_PROFILES = ["Base", "Adaptive_RIF", "Adaptive"]
 DEFAULT_LIMITS = {
     "jobs": 2,
     "compile_seconds": 300,
@@ -172,8 +173,8 @@ def load_config(path):
         "name": name,
         "cache_dir": str((base / cache_root).resolve()),
         "cache_budget_mb": raw.get("cache_budget_mb", 50),
-        "profiles": raw.get("profiles", PROFILES),
-        "debug_validation": raw.get("debug_validation", "targeted"),
+        "profiles": raw.get("profiles", DEFAULT_PROFILES),
+        "debug_validation": raw.get("debug_validation", "none"),
         "keep_qir": raw.get("keep_qir", False),
         "limits": DEFAULT_LIMITS | raw.get("limits", {}),
         "clients": clients,

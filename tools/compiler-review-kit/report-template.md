@@ -7,9 +7,15 @@ Candidate: `<full SHA>`
 Historical baseline: `<full SHA or none>`  
 Previously reviewed / rebase mapping: `<details or none>`
 
-| Finding      | Classification                      | Profiles     | Introducing/fixing commit | Related issue              | Client impact           |
-| ------------ | ----------------------------------- | ------------ | ------------------------- | -------------------------- | ----------------------- |
-| `<ID/title>` | `<regression/fixed/non-regression>` | `<profiles>` | `<SHA or unestablished>`  | `<issue/new trigger/none>` | `<client and evidence>` |
+Use release builds and Base/Adaptive_RIF/Adaptive by default. Include debug and
+Adaptive_RI results only when requested. Attribute stack findings to individual
+PRs; individual-commit attribution and lost-fix analysis are only required when
+requested. Omit string-literal and special floating-point investigations from
+default coverage.
+
+| Finding      | Classification                      | Profiles     | Responsible PR / requested commit        | Related issue              | Client impact           |
+| ------------ | ----------------------------------- | ------------ | ---------------------------------------- | -------------------------- | ----------------------- |
+| `<ID/title>` | `<regression/fixed/non-regression>` | `<profiles>` | `<PR / requested commit / not narrowed>` | `<issue/new trigger/none>` | `<client and evidence>` |
 
 ## Changes since the previous review
 
@@ -18,8 +24,8 @@ current) and keep that terminology throughout.
 
 - New or changed commits (from `git range-diff`); stacks with identical trees.
 - Rerun results versus the previous candidate (`review.py compare`): unchanged
-  suites, new fixes, new failures.
-- Status of every earlier finding: resolved, unchanged, or changed shape, from
+  suites, new fixes, new regressions against the reference.
+- Status of earlier unresolved findings: resolved, unchanged, or changed shape, from
   `review.py recheck` (cached cases and scripts, or the previous report's repros).
 
 For a follow-up PR reviewed on top of the candidate, put a dated update section
@@ -32,7 +38,8 @@ evidence. Leave the earlier findings below intact.
 
 **Expected / observed:** `<precise results or failure>`  
 **Affected profiles/builds:** `<matrix>`  
-**Introduced by:** `<commit and parent evidence, or incomplete attribution>`  
+**Introduced by:** `<responsible PR for stacks; commit only if requested; otherwise not narrowed>`
+
 **Related issues:** `<links and relationship>`  
 **Client impact:** `<demonstrated effect or explicitly untested>`  
 **Cause/confidence:** `<mechanism, locations, uncertainty>`
@@ -46,9 +53,9 @@ evidence. Leave the earlier findings below intact.
 # Derive qir-runner from the interpreter directory; retain raw exit/error output.
 ```
 
-| Revision | Mode              | Profile     | Simulator    | Compilation  | Runner       | Outcome            |
-| -------- | ----------------- | ----------- | ------------ | ------------ | ------------ | ------------------ |
-| `<SHA>`  | `<release/debug>` | `<profile>` | `<observed>` | `<observed>` | `<observed>` | `<interpretation>` |
+| Revision | Mode        | Profile     | Simulator    | Compilation  | Runner       | Outcome            |
+| -------- | ----------- | ----------- | ------------ | ------------ | ------------ | ------------------ |
+| `<SHA>`  | `<release>` | `<profile>` | `<observed>` | `<observed>` | `<observed>` | `<interpretation>` |
 
 Observed output:
 
@@ -65,13 +72,14 @@ for a self-contained repro.
 
 Only for stacked PRs reviewed with `layers`: programs an intermediate layer breaks or
 silently miscompiles that the full stack gets right (`summarize`'s intermediate-layer
-hazards), the layer, the repairing layer, and the client impact if that layer merges
-alone.
+hazards), the PR represented by that layer, the repairing PR, and the client impact
+if that PR merges alone. Use the same PR-boundary evidence to attribute other
+stack findings.
 
 ## 2. Fixed issues
 
 For each: original repro, reference failure, candidate's validated correct
-behavior, profiles/modes, fixing commit, tested variants, remaining limitations,
+behavior, profiles/modes, fixing PR for stacks (commit only if requested), tested variants, remaining limitations,
 and whether commits/PRs reference the issue. Separate partial fixes and acceptance
 without semantic validation.
 
@@ -86,11 +94,12 @@ root cause. Include configured-client impact.
 
 ## 4. Lost fixes
 
-Only for updated reviews: behavior an earlier candidate fixed that the current
+Only when the user requests lost-fix analysis; omit this section otherwise.
+This covers behavior an earlier candidate fixed that the current
 candidate no longer fixes. These are not regressions against the reference. For
 each: the earlier and current behavior, the affected programs/issues, and the
-commit responsible established by bisecting the current stack (not inferred from
-which commit was dropped).
+responsible PR established on the current stack (not inferred from which commit
+was dropped). Narrow to an individual commit only if the user requests it.
 
 ## Issue status table
 
@@ -107,10 +116,11 @@ which commit was dropped).
   the change's own tests.
 - Profile-hierarchy violations (lower profile validates, higher profile fails) at
   both endpoints, new ones called out.
-- Release/debug coverage; stochastic/Unit/state checks and oracle limitations.
+- Release coverage; debug and Adaptive_RI coverage only when requested.
+  Stochastic/Unit/state checks and oracle limitations.
 - Full client projects versus explicitly named subsets; client revisions/edits.
 - Exclusions with reasons, pending discovery, unsupported profiles, failed builds,
-  infrastructure errors, timeouts, and incomplete attribution.
+  infrastructure errors, timeouts, and incomplete attribution at the requested granularity.
 - Final inline repro execution evidence.
 
 Do not interpret “no observed regression” as exhaustive correctness.

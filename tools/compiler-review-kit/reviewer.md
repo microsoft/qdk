@@ -8,6 +8,13 @@ or an archived corpus.
 Run inside the QDK Copilot sandbox, not on the host: the review writes and
 executes arbitrary Python, and the kit's workers are not a security sandbox.
 
+Default budget: release builds, Base/Adaptive_RIF/Adaptive, and whole-change
+comparison. Do not build debug, test Adaptive_RI, or narrow findings to individual
+commits unless the user asks. For a PR stack, do narrow findings to the responsible
+individual PRs. Lost-fix tracking is also opt-in. Do not spend default review
+coverage on Q# string literals, signed zero, NaN, or infinities; ordinary finite
+numeric behavior remains relevant where it affects the changed mechanism.
+
 ## Establish scope and prerequisites
 
 Read [agent-reference.md](agent-reference.md) for configuration fields, commands,
@@ -43,7 +50,8 @@ Do not ask the user to supply a collection of executable paths.
 
 `reference` defines regression/fix classification. `historical_reference` is an
 additional labeled comparison. `previously_reviewed` identifies already-reviewed
-work, not a replacement baseline. Inspect merge bases, production diffs, commit
+work for explicitly requested lost-fix tracking, not a replacement baseline.
+Do not configure that extra run column by default. Inspect merge bases, production diffs, commit
 messages, tests, and relevant PR discussions. If previous work was rebased, use
 `git range-diff` to map the stacks. Do not claim every rewritten SHA is new work.
 Ask if the intended comparison remains ambiguous.
@@ -51,19 +59,22 @@ Ask if the intended comparison remains ambiguous.
 When a PR is updated during a review, first check whether the new head's tree
 equals a reviewed tree (`git diff --quiet OLD NEW`); identical trees need no new
 review. Otherwise rerun the _same_ manifests at the new candidate and
-`review.py compare` against the previous candidate's runs. Report three groups
-separately: regressions against the reference, new fixes, and **lost fixes**
-(fixed by an earlier candidate, broken again; not regressions against the
-reference). Keep programs from tests that a force-push removed: extract tests at
-every reviewed revision and merge the manifests. Name the candidates explicitly
-(first, previous, current) in the report.
+`review.py compare` against the previous candidate's runs. Focus on regressions
+against the reference and new fixes. Do not investigate **lost fixes** (fixed by
+an earlier candidate, broken again; not regressions against the reference) unless
+the user requests them. Only for that request, retain programs from tests removed
+by force-pushes and compare earlier candidates specifically for lost fixes.
+Name the compared candidates explicitly in the report.
 
 If the candidate is a local composition (for example a stacked PR merged onto its
 base, or several PRs merged together), record every input SHA and the merge commit,
 keep it on a separately named branch, and do not move the user's branches.
 
 For a stack of PRs that will merge one at a time, list each intermediate head in
-`layers` (oldest first) so every run includes them. `summarize` then reports
+`layers` (oldest first), record the PR-to-layer mapping, and compare the PR
+boundaries to identify which PR introduces or fixes each finding. Keep the final
+PR head as `candidate`. Do not test every commit within those PRs.
+`summarize` also reports
 intermediate-layer hazards: programs a layer breaks (or silently miscompiles) that the
 full stack gets right. Report them as merge-order findings; they ship if a layer lands
 alone.
@@ -71,7 +82,8 @@ alone.
 At the start of an updated review, run `review.py recheck` with the previous
 review's name: it reruns that review's cached cases and repro scripts, or, if the
 cache was wiped, the repro scripts embedded in the previous report. Use its output
-for the "status of earlier findings" table rather than reconstructing old probes.
+for the status of earlier unresolved findings rather than reconstructing old
+probes; do not launch a separate lost-fix investigation unless requested.
 
 Default scope: compiler/evaluator panics and process crashes; wrong answers,
 invalid generated QIR and newly rejected valid programs; logical errors in the
@@ -118,7 +130,7 @@ panic sites with valid input, and confirm removed codes are handled, not silentl
    measurement directions using X/no-X; zero/one/multiple loop iterations;
    continuation after branches/loops/early returns; aliases, copies, swaps and
    nested aggregates; helper calls versus inlining; captures and callable arguments;
-   entry-expression versus Python callable API; signed zero/NaN where relevant;
+   entry-expression versus Python callable API;
    unrelated-declaration and statement-order permutations for map-order dependence.
    Do not apply every family indiscriminately to every review.
 6. Use bounded, seeded generators for the relevant semantic space. Store the
@@ -148,10 +160,13 @@ source of coverage. Give every omission/exclusion a reason.
 
 ## Execute and interpret
 
-Use the shared harness rather than inventing another runner. Release is primary;
-replay confirmed findings/assertion-sensitive shapes in debug by default, or the
-whole manifest when configured. Test all four profiles unless explicitly narrowed.
-Unavailable profiles are a coverage/compatibility question, never an implicit pass.
+Use the shared harness rather than inventing another runner. Use release builds
+and Base, Adaptive_RIF, and Adaptive by default. Do not make debug builds, even for
+assertion-sensitive findings, unless the user requests them. Likewise, only add
+Adaptive_RI when requested; do not infer untested results from Adaptive_RIF.
+Only set `debug_validation=targeted` or `all` in response to a user request.
+Unavailable requested profiles are a coverage/compatibility question, never an
+implicit pass.
 
 The helper pins matching native/Python overlays and tests simulator/compiler/runner
 stages in separate subprocesses. Verify actual package/native origins before
@@ -185,7 +200,8 @@ section, not only the flagged regressions:
 
 - **Loud → silent** cases (a reference panic or rejection that becomes a wrong result)
   are not regression verdicts, but each one is a miscompile that stopped announcing itself.
-- **Lost fixes** and **intermediate-layer hazards** need their own report sections.
+- **Intermediate-layer hazards** need their own report section.
+  Investigate/report **lost fixes** only if the user requested that analysis.
 - **Extracted test programs that fail end to end** mean the PR's tests check a different
   pipeline than users run.
 - **Compile-time outliers** must be confirmed with `review.py timing` (isolated,
@@ -217,12 +233,17 @@ functor set, number of captured callables, array lengths, direct versus helper
 application, one compilation unit versus a project plus a later `eval`) and run them
 with `review.py variants` at both endpoints; include the variant table in the finding.
 
-Use `review.py attribute` or selected intermediate builds to identify introducing
-and fixing commits. Confirm behavior on the actual parent, not just the preceding
-row of a topological matrix. Non-monotonic results and merges invalidate naive
-bisection. If attribution is incomplete, say which commits were tested and why.
-After a rebase or force-push, do not attribute a lost fix to a dropped commit by
-inference: bisect the new stack. Retained commits can also undo earlier fixes.
+For a stack, identify introducing/fixing PRs by replaying the finding at its PR
+boundaries using `layers`. Check all relevant boundaries: a later PR can repair an
+earlier PR's failure. For a single PR/change, stop at the reference/candidate
+comparison unless the user asks for more detailed attribution.
+
+Only when the user requests individual-commit attribution, use `review.py attribute`
+or selected intermediate commit builds. Confirm behavior on the actual parent,
+not just the preceding row of a topological matrix. Non-monotonic results and
+merges invalidate naive bisection. If lost-fix analysis was requested, establish
+it on the current stack at the requested granularity, not by assuming a dropped
+commit caused it. Report incomplete attribution at that granularity explicitly.
 
 Classify with evidence:
 
@@ -246,7 +267,8 @@ instrumentation/report files. The lead owns adjudication and final integration.
 Generate an evidence draft if useful, then complete `report-template.md` at the
 configured report path. Each unresolved issue needs inline runnable Q# and Python,
 expected and actual output, affected profiles/build modes, exact endpoint SHAs,
-issue relationship, attribution, and explicit configured-client impact. Minimize
+issue relationship, responsible PR for stacks, and explicit configured-client
+impact. Add individual-commit attribution only if requested. Minimize
 project/API cases or provide an honestly labeled dependency bundle; do not claim an
 absolute local project path is a self-contained repro.
 
@@ -263,11 +285,11 @@ to draft issues for filing, follow `issue-template.md` and generate them with
 that already exist, and a meta-issue summary. Draft issues for non-regressions as
 well as regressions when asked; say which is which.
 
-Record native suites, sample/issue/generator/client coverage, debug validation,
+Record native suites, sample/issue/generator/client coverage, requested debug validation,
 exclusions, missing profiles/tools and unresolved uncertainty. Include an issue
 status table separating repro, fixed, partial, newly accepted, unsupported,
 no-runnable-repro, and not tested. For updated reviews, add the "Changes since the
-previous review" and "Lost fixes" sections from the template; for a follow-up PR
+previous review" section from the template, and "Lost fixes" only if requested. For a follow-up PR
 reviewed on top of the candidate, add a dated update section at the top rather than
 rewriting the earlier findings.
 

@@ -17,6 +17,8 @@ def run_variants(config, path, targets, profiles, mode, shots=None):
         raise ReviewError(f"Missing variants file: {path}")
     tools = preflight(config)
     shots = shots or config["limits"]["shots"]
+    if profiles is None and "profiles" in config["input"]:
+        profiles = config["profiles"]
     columns = []
     for label, sha in targets:
         build = build_revision(config, sha, mode, tools)

@@ -13,7 +13,8 @@ for the same objective or make agents share mutable case/output directories.
 - Known findings and issue candidates: `<context; not conclusions to assume>`
 - Owned case/output directory: `<relative kit-owned directory>`
 - Pinned run config and build locations: `<paths supplied by lead>`
-- Profiles/build modes and exclusions: `<explicit selection>`
+- Profiles/build modes and exclusions: `<release; Base/Adaptive_RIF/Adaptive unless user requested otherwise; exclusions with reasons>`
+- Attribution scope: `<responsible PR for stacks; individual commits only if user requested>`
 - Permissions: `<normally no production edits, commits, GitHub writes, or nesting>`
 
 ## Procedure
@@ -39,9 +40,13 @@ validated independently. Pure Unit outputs and QIR text differences are not
 semantic evidence. Check simulator/compiler/runner stages separately. Distinguish
 native panics, signals, runner/parser failures, diagnostics, and timeouts.
 
-Minimize findings, preserve reference behavior, test relevant profiles, and replay
-assertion-sensitive findings in debug. Matching panic sites do not prove duplicate
+Minimize findings, preserve reference behavior, and test the assigned profiles in
+release mode. Only build debug or test Adaptive_RI when the lead's brief records
+the user's request. Narrow stack findings to PRs, not individual commits unless
+requested. Matching panic sites do not prove duplicate
 root causes. Report new triggers even if the underlying issue is known.
+Do not investigate lost fixes unless the brief records the user's request.
+Do not add string-literal, signed-zero, NaN, or infinity probe families.
 
 Communicate scope changes/blockers to the lead rather than expanding to unrelated
 subsystems. Do not re-investigate another reviewer's assigned area. Do not modify
@@ -56,7 +61,8 @@ For each finding provide:
 - SHA/profile/build-mode matrix and raw stage results.
 - Issue relationship: original repro, new trigger, suspected duplicate, or new bug.
 - Suspected root cause and supporting source locations.
-- Attribution evidence, or which intermediate commits still need checking.
+- PR attribution evidence for stacks; intermediate PR heads still needing checks.
+  Include individual-commit attribution only when requested.
 - Configured-client impact: demonstrated, likely with rationale, or untested.
 
 Also return tested hypotheses that did not yield findings, exact coverage and

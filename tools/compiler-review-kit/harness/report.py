@@ -67,7 +67,8 @@ def generate_report(run, output, overwrite=False):
         "# Compiler review evidence draft",
         "",
         "**This is harness evidence, not a completed review.** Confirm intent, minimize cases, "
-        "attribute commits, match issues, and fill in root causes/client impact before publishing.",
+        "identify responsible PRs in stacks, match issues, and fill in root causes/client impact before publishing. "
+        "Individual-commit attribution and debug builds are only needed if the user requests them.",
         "",
         f"Reference: `{refs['reference']}`  ",
         f"Candidate: `{refs['candidate']}`  ",
@@ -121,7 +122,7 @@ def generate_report(run, output, overwrite=False):
                 f"Notes: {case.get('notes', '')}",
                 f"Oracle: `{json.dumps(case['oracle'])}`",
                 "",
-                "**Commit attribution:** not yet established.  ",
+                "**Attribution:** identify the responsible PR for stacks; individual commits only if requested.  ",
                 "**Client impact:** not yet established.  ",
                 "**Root cause / relationship to existing issues:** not yet established.",
                 "",
@@ -165,7 +166,7 @@ def generate_report(run, output, overwrite=False):
         lines.append(f"- Excluded `{skipped['id']}`: {skipped['reason']}")
     lines += [
         "",
-        "Native compiler suites, issue coverage, debug coverage, generated variants, and client "
+        "Native compiler suites, issue coverage, requested debug coverage, generated variants, and client "
         "coverage must be described by the reviewer. `observe`, `compile_only`, and `Unit` output "
         "are not semantic validation. Compiler/runner failures and timeouts require investigation.",
         "",

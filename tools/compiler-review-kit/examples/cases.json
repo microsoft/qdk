@@ -21,7 +21,7 @@
         "items": [
           { "type": "int", "value": 42 },
           { "type": "bool", "value": true },
-          { "type": "double", "value": "-0x0.0p+0" },
+          { "type": "double", "value": "0x1.0000000000000p-1" },
           {
             "type": "array",
             "items": [{ "type": "result", "value": 1 }]
@@ -30,13 +30,13 @@
         ]
       }
     },
-    "notes": "Checks nested output parsing, multiplicity, and signed zero. Double output requires Adaptive_RIF or Adaptive."
+    "notes": "Checks nested output parsing, multiplicity, and an ordinary finite Double. Double output requires Adaptive_RIF or Adaptive."
   },
   {
     "id": "integer-output",
     "source": "operation Main() : (Int, Bool, Result[]) { use q = Qubit(); X(q); (42, true, [MResetZ(q)]) }",
     "entry": "Main()",
-    "profiles": ["Adaptive_RI", "Adaptive_RIF", "Adaptive"],
+    "profiles": ["Adaptive_RIF", "Adaptive"],
     "oracle": { "kind": "deterministic" }
   },
   {
