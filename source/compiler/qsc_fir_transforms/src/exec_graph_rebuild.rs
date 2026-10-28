@@ -102,8 +102,7 @@ struct CallableSpecs {
 /// # Panics
 ///
 /// Panics if reachable bodies still contain FIR variants eliminated by earlier
-/// transforms, such as `ExprKind::Struct`, `ExprKind::Closure`, or
-/// `ExprKind::Hole`.
+/// transforms, such as `ExprKind::Struct` or `ExprKind::Closure`.
 pub fn rebuild_exec_graphs(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -713,12 +712,14 @@ fn rebuild_expr(
             ));
         }
 
-        // Eliminated variant
-        //
-        // A hole is not valid post-defunctionalization residue, so it is
-        // unreachable at this pipeline stage.
+        // A hole is valid at this stage for discards, so match the lowerer behavior
+        // and treat it as a leaf in the execution graph.
+        #[allow(clippy::match_same_arms)]
         ExprKind::Hole => {
-            panic!("Hole expressions should have been eliminated by post_defunc");
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::Expr(expr_id),
+                expr_span.span,
+            ));
         }
     }
 

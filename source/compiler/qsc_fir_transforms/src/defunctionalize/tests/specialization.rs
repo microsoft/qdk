@@ -13,6 +13,1006 @@ use super::*;
 use expect_test::expect;
 
 #[test]
+fn specialization_preserves_partial_nested_removal_batches() {
+    for reversed in [false, true] {
+        for unit in [false, true] {
+            let (pair_ty, unpack, pair, value) = if unit {
+                (
+                    "((Int -> Int, Int -> Int), Unit)",
+                    "let ((f, g), unit) = pair;",
+                    "((Inc, Twice), ())",
+                    "if unit == () { 3 } else { 9 }",
+                )
+            } else {
+                (
+                    "((Int -> Int, Int -> Int), Int)",
+                    "let ((f, g), n) = pair;",
+                    "((Inc, Twice), 3)",
+                    "n",
+                )
+            };
+            let (signature, arguments) = if reversed {
+                (
+                    format!("pair : {pair_ty}, ops : (Int -> Int)[]"),
+                    format!("{pair}, [Inc, Twice]"),
+                )
+            } else {
+                (
+                    format!("ops : (Int -> Int)[], pair : {pair_ty}"),
+                    format!("[Inc, Twice], {pair}"),
+                )
+            };
+            let source = indoc::formatdoc! {r#"
+                function Inc(x : Int) : Int {{ x + 1 }}
+                function Twice(x : Int) : Int {{ 2 * x }}
+                function Run({signature}) : Int {{
+                    {unpack}
+                    let value = {value};
+                    ops[0](value) + f(value) + g(value)
+                }}
+                @EntryPoint() operation Main() : Int {{ Run({arguments}) }}
+            "#};
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(14),
+            );
+            assert_specialization_call_abis(&source);
+            assert_specialized_int_qir(&source, 14);
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_consumed_nested_array_payload() {
+    for capturing in [false, true] {
+        let array = if capturing {
+            "[Add(first, _), Add(second, _)]"
+        } else {
+            "[Inc, Twice]"
+        };
+        let source = indoc::formatdoc! {r#"
+            function Inc(x : Int) : Int {{ x + 1 }}
+            function Twice(x : Int) : Int {{ 2 * x }}
+            function Add(offset : Int, x : Int) : Int {{ offset + x }}
+            function Run(pair : ((Int -> Int)[], Int -> Int), n : Int) : Int {{
+                let (ops, f) = pair;
+                ops[1](n) + f(n)
+            }}
+            function Pick(first : Int, second : Int) : Int {{ Run(({array}, Inc), 3) }}
+            @EntryPoint() operation Main() : Int {{ Pick(1, 3) }}
+        "#};
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(10),
+        );
+        assert_specialization_call_abis(&source);
+        assert_specialized_int_qir(&source, 10);
+    }
+}
+
+#[test]
+fn specialization_preserves_single_slot_unit_data() {
+    let source = r#"
+        function Run(pair : (Int -> Int, Unit)) : Int {
+            let (f, unit) = pair;
+            if unit == () { f(3) } else { 0 }
+        }
+        function Pick(offset : Int) : Int { Run((x -> x + offset, ())) }
+        @EntryPoint() operation Main() : Int { Pick(10) }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(13),
+    );
+    assert_specialization_call_abis(source);
+    assert_specialized_int_qir(source, 13);
+}
+
+#[test]
+fn specialization_preserves_single_slot_unit_effects() {
+    let source = r#"
+        function Run(pair : (Int -> Int, Unit)) : Int { let (f, _) = pair; f(3) }
+        function Pick(offset : Int) : Int {
+            mutable marker = 0;
+            let result = Run((x -> x + offset, { set marker = 1; () }));
+            1000 * marker + result
+        }
+        @EntryPoint() operation Main() : Int { Pick(10) }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(1013),
+    );
+    assert_specialization_call_abis(source);
+    assert_specialized_int_qir(source, 1013);
+}
+
+#[test]
+fn specialization_preserves_recursive_nested_removal_paths() {
+    for (signature, unpack, argument, result) in [
+        (
+            "(Int -> Int, Int -> Int)",
+            "let (f, g) = pair;",
+            "(f, g)",
+            "f(1) + g(1)",
+        ),
+        (
+            "(Int -> Int, Int -> Int, Int -> Int)",
+            "let (f, g, h) = pair;",
+            "(f, g, h)",
+            "f(1) + g(1) + h(1)",
+        ),
+        (
+            "(Int -> Int, Int -> Int, Unit)",
+            "let (f, g, unit) = pair;",
+            "(f, g, unit)",
+            "if unit == () { f(1) + g(1) } else { 0 }",
+        ),
+    ] {
+        let entry = if signature.ends_with("Unit)") {
+            "(Inc, Twice, ())"
+        } else if signature.matches("Int -> Int").count() == 3 {
+            "(Inc, Twice, Inc)"
+        } else {
+            "(Inc, Twice)"
+        };
+        let expected = if entry == "(Inc, Twice, Inc)" { 6 } else { 4 };
+        let source = indoc::formatdoc! {r#"
+            function Inc(x : Int) : Int {{ x + 1 }}
+            function Twice(x : Int) : Int {{ 2 * x }}
+            function Recur(pair : {signature}, n : Int) : Int {{
+                {unpack}
+                if n == 0 {{ {result} }} else {{ Recur({argument}, n - 1) }}
+            }}
+            @EntryPoint() operation Main() : Int {{ Recur({entry}, 2) }}
+        "#};
+        let (store, package_id) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        let mut recursive_calls = 0;
+        for item in collect_reachable_from_entry(&store, package_id) {
+            let package = store.get(item.package);
+            let ItemKind::Callable(decl) = &package.get_item(item.item).kind else {
+                continue;
+            };
+            crate::invariants::check_local_var_consistency(package, decl);
+            crate::walk_utils::for_each_expr_in_callable_impl(
+                package,
+                &decl.implementation,
+                &mut |_, expr| {
+                    let fir::ExprKind::Call(callee, args) = expr.kind else {
+                        return;
+                    };
+                    let fir::ExprKind::Var(fir::Res::Item(target), _) =
+                        package.get_expr(callee).kind
+                    else {
+                        return;
+                    };
+                    let owner = store.get(target.package);
+                    let ItemKind::Callable(target) = &owner.get_item(target.item).kind else {
+                        return;
+                    };
+                    if target.name.name.starts_with("Recur") {
+                        let expected = &owner.get_pat(target.input).ty;
+                        let qsc_fir::ty::Ty::Arrow(arrow) = &package.get_expr(callee).ty else {
+                            panic!("callee")
+                        };
+                        assert_eq!(arrow.input.as_ref(), expected, "{source}");
+                        assert_eq!(&package.get_expr(args).ty, expected, "{source}");
+                        recursive_calls += 1;
+                    }
+                },
+            );
+        }
+        assert!(recursive_calls > 0, "source exercises recursive call ABI");
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+        assert_specialized_int_qir(&source, expected);
+    }
+}
+
+#[test]
+fn specialization_layout_callee_effects_precede_control_argument_prefix() {
+    let source = r#"
+        operation Check(tag : Int, value : Int) : Unit is Ctl {
+            body (...) { if tag + value != 13 { fail "body payload"; } }
+            controlled (controls, ...) { if tag + value != 13 { fail "controlled payload"; } }
+        }
+        function Make(tag : Int) : Int => Unit is Ctl { Message("callee"); Check(tag, _) }
+        @EntryPoint() operation Main() : Int {
+            mutable order = 0;
+            let args : (Qubit[], Int) = ([], 3);
+            Controlled (Make({ set order = 10 * order + 1; 10 }))(
+                { Message("argument"); set order = 10 * order + 2; args }
+            );
+            order
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(12),
+    );
+    assert_specialized_int_qir(source, 12);
+}
+
+#[test]
+fn specialization_preserves_control_shell_evaluation_order() {
+    let source = r#"
+        operation Check(tag : Int, value : Int) : Unit is Ctl {
+            body (...) { if tag + value != 13 { fail "body payload"; } }
+            controlled (controls, ...) { if tag + value != 13 { fail "controlled payload"; } }
+        }
+        operation Run(ops : (Int => Unit is Ctl)[]) : Int {
+            mutable marker = 0;
+            let inner : (Qubit[], Int) = ([], 3);
+            Controlled Controlled ops[1](
+                { set marker = 10 * marker + 1; [] },
+                { set marker = 10 * marker + 2; inner }
+            );
+            100 * marker + 42
+        }
+        operation Pick(first : Int, second : Int) : Int { Run([Check(first, _), Check(second, _)]) }
+        @EntryPoint() operation Main() : Int { Pick(20, 10) }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(1242),
+    );
+    assert_specialization_call_abis(source);
+    assert_specialized_int_qir(source, 1242);
+}
+
+#[test]
+fn specialization_layout_preserves_consumed_payload_failure_order() {
+    let source = r#"
+        struct Only { F : Int -> Int }
+        function Inc(x : Int) : Int { x + 1 }
+        function Run(g : Int -> Int, p : Only, n : Int) : Int { g(n) + p.F(n) }
+        @EntryPoint() operation Main() : Int {
+            Run(Inc, new Only { ...({ fail "copy first" }), F = Inc }, { fail "argument first" })
+        }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source).expect_err("copy source must fail");
+    assert!(error.contains("copy first"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn specialization_layout_preserves_consumed_payload_effects() {
+    for (call, expected) in [
+        ("Run(Inc, payload, 3)", 708),
+        ("RunWithData(marker, Inc, payload, 3, marker)", 1408),
+        ("Run(if flag { Inc } else { Twice }, payload, 3)", 710),
+        ("Run(Add(2, _), payload, 3)", 709),
+    ] {
+        let payload = r#"new Only {
+            ...({ Message("copy"); set marker = 7; new Only { F = Inc } }), F = Inc
+        }"#;
+        let call = call.replace("payload", payload);
+        let source = indoc::formatdoc! {r#"
+            struct Only {{ F : Int -> Int }}
+            function Inc(x : Int) : Int {{ x + 1 }}
+            function Twice(x : Int) : Int {{ 2 * x }}
+            function Add(offset : Int, x : Int) : Int {{ offset + x }}
+            function Run(g : Int -> Int, p : Only, n : Int) : Int {{ g(n) + p.F(n) }}
+            function RunWithData(before : Int, g : Int -> Int, p : Only, n : Int, after : Int) : Int {{
+                1000 * before + g(n) + p.F(n) + 100 * after
+            }}
+            function Pick(flag : Bool) : Int {{
+                mutable marker = 0;
+                Message("before");
+                let value = {call};
+                Message("after");
+                100 * marker + value
+            }}
+            @EntryPoint() operation Main() : Int {{ Pick(false) }}
+        "#};
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+        assert_specialization_call_abis(&source);
+        assert_specialized_int_qir(&source, expected);
+    }
+}
+
+#[test]
+fn specialization_layout_preserves_consumed_payload_quantum_trace() {
+    let source = r#"
+        struct Only { F : Int -> Int }
+        function Inc(x : Int) : Int { x + 1 }
+        function Run(g : Int -> Int, p : Only, n : Int) : Int { g(n) + p.F(n) }
+        @EntryPoint() operation Main() : Int {
+            use q = Qubit();
+            let value = Run(Inc, new Only {
+                ...({ X(q); Message("copy"); new Only { F = Inc } }), F = Inc
+            }, 3);
+            X(q);
+            Reset(q);
+            value
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(8),
+    );
+    assert_specialization_call_abis(source);
+}
+
+#[test]
+fn specialization_preserves_dispatched_parameter_positions() {
+    for nested in [false, true] {
+        for reversed in [false, true] {
+            for flag in [false, true] {
+                let (signature, unpack, first, second) = if nested {
+                    (
+                        "pair : (Int -> Int, Int -> Int), x : Int",
+                        "let (f, g) = pair;",
+                        "Compose((selected, Inc), 3)",
+                        "Compose((Inc, selected), 3)",
+                    )
+                } else {
+                    (
+                        "f : Int -> Int, g : Int -> Int, x : Int",
+                        "",
+                        "Compose(selected, Inc, 3)",
+                        "Compose(Inc, selected, 3)",
+                    )
+                };
+                let calls = if reversed {
+                    format!("let second = {second}; let first = {first};")
+                } else {
+                    format!("let first = {first}; let second = {second};")
+                };
+                let source = indoc::formatdoc! {r#"
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Compose({signature}) : Int {{ {unpack} f(g(x)) }}
+                    @EntryPoint() operation Main() : Int {{
+                        use flagQubit = Qubit();
+                        if {flag} {{ X(flagQubit); }}
+                        let flag = MResetZ(flagQubit) == One;
+                        let selected = if flag {{ Inc }} else {{ Twice }};
+                        {calls}
+                        100 * first + second
+                    }}
+                "#};
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(if flag { 505 } else { 807 }),
+                );
+                assert_specialization_call_abis(&source);
+            }
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_foreign_udt_layouts() {
+    use std::fmt::Write as _;
+
+    let library = r#"
+        namespace Lib {
+            struct Payload { F : Int -> Int, G : Int -> Int, N : Int }
+            function Read(p : Payload) : Int { 100 * p.F(p.N) + p.G(p.N) }
+            export Payload, Read;
+        }
+    "#;
+    for padding in 0..8 {
+        let mut declarations = String::new();
+        for index in 0..padding {
+            writeln!(
+                declarations,
+                "function Padding{index}() : Int {{ {index} }}"
+            )
+            .expect("writing to a String is infallible");
+        }
+        for reversed in [false, true] {
+            let different = "struct Different { F : Int -> Int, G : Int -> Int }";
+            let functions = "function Inc(n : Int) : Int { n + 1 }
+                function Twice(n : Int) : Int { 2 * n }";
+            let items = if reversed {
+                format!("{functions}\n{different}")
+            } else {
+                format!("{different}\n{functions}")
+            };
+            for call in ["Lib.Read(p)", "Relay(p)"] {
+                let source = indoc::formatdoc! {r#"
+                    {declarations}
+                    {items}
+                    function Relay(p : Lib.Payload) : Int {{ Lib.Read(p) }}
+                    @EntryPoint() operation Main() : Int {{
+                        let p = new Lib.Payload {{ F = Inc, G = Twice, N = 3 }};
+                        {call}
+                    }}
+                "#};
+                assert_eq!(
+                    crate::test_utils::eval_qsharp_original_with_library(library, &source),
+                    Ok(qsc_eval::val::Value::Int(406)),
+                );
+                let (store, package_id) =
+                    crate::test_utils::compile_and_run_pipeline_to_with_library(
+                        library,
+                        &source,
+                        crate::PipelineStage::Defunc,
+                    );
+                for item in collect_reachable_from_entry(&store, package_id) {
+                    let package = store.get(item.package);
+                    if let ItemKind::Callable(decl) = &package.get_item(item.item).kind {
+                        crate::invariants::check_local_var_consistency(package, decl);
+                    }
+                }
+                crate::test_utils::check_semantic_equivalence_with_library(library, &source);
+            }
+        }
+    }
+}
+
+fn assert_specialization_call_abis(source: &str) {
+    let (store, package_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    let mut checked = 0;
+    for item in collect_reachable_from_entry(&store, package_id) {
+        let package = store.get(item.package);
+        let ItemKind::Callable(decl) = &package.get_item(item.item).kind else {
+            continue;
+        };
+        crate::invariants::check_local_var_consistency(package, decl);
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |_, expression| {
+                let fir::ExprKind::Call(callee, args) = expression.kind else {
+                    return;
+                };
+                let (base, functor) =
+                    crate::defunctionalize::types::peel_body_functors(package, callee);
+                let target = match package.get_expr(base).kind {
+                    fir::ExprKind::Var(fir::Res::Item(target), _) => target,
+                    fir::ExprKind::Closure(ref captures, target) if captures.is_empty() => {
+                        fir::ItemId {
+                            package: item.package,
+                            item: target,
+                        }
+                    }
+                    _ => return,
+                };
+                let target_package = store.get(target.package);
+                let ItemKind::Callable(target) = &target_package.get_item(target.item).kind else {
+                    return;
+                };
+                if !target.name.name.contains('{') && !target.name.name.starts_with(".lambda") {
+                    return;
+                }
+                let mut expected = target_package.get_pat(target.input).ty.clone();
+                for _ in 0..functor.controlled {
+                    expected = qsc_fir::ty::Ty::Tuple(vec![
+                        qsc_fir::ty::Ty::Array(Box::new(qsc_fir::ty::Ty::Prim(
+                            qsc_fir::ty::Prim::Qubit,
+                        ))),
+                        expected,
+                    ]);
+                }
+                let qsc_fir::ty::Ty::Arrow(arrow) = &package.get_expr(callee).ty else {
+                    panic!("specialized callee must be arrow-typed");
+                };
+                assert_eq!(*arrow.input, expected, "callee metadata:\n{source}");
+                assert_eq!(
+                    package.get_expr(args).ty,
+                    expected,
+                    "call arguments:\n{source}"
+                );
+                checked += 1;
+            },
+        );
+    }
+    assert!(
+        checked > 0,
+        "source must exercise a specialized call:\n{source}"
+    );
+}
+
+/// These classical fixtures fully evaluate during QIR generation. Require one
+/// integer output call with the expected literal value, not just any output call.
+fn assert_specialized_int_qir(source: &str, expected: i64) {
+    let qir = crate::test_utils::generate_qir(source);
+    let records: Vec<_> = qir
+        .lines()
+        .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+        .collect();
+    assert_eq!(records.len(), 1, "{source}\n{qir}");
+    assert!(
+        records[0].contains(&format!("i64 {expected},")),
+        "{source}\n{qir}",
+    );
+}
+
+#[test]
+fn nested_factory_captures_refresh_after_inner_rewrites_introduce_locals() {
+    for (body, expected) in [
+        ("Apply(Compose(h::G, Twice(Adder(3))), Mark(2))", [12, 12]),
+        ("Twice(Compose(h::G, Adder(3)))(Mark(2))", [16, 16]),
+        (
+            "let f = if flag { Compose(h::G, Adder(3)) } else { Adder(8) }; Apply(f, 2)",
+            [10, 9],
+        ),
+        (
+            "let holder = new Holder { F = Compose(h::G, Adder(3)), Tag = 5 }; Apply(holder.F, 2)",
+            [9, 9],
+        ),
+        ("let f = Compose(h::G, Adder(3)); Apply(f, f(2))", [16, 16]),
+        (
+            "mutable f = h::G; if flag { set f = Compose(h::G, Adder(3)); } else { set f = Adder(8); } f(2)",
+            [10, 9],
+        ),
+    ] {
+        for (flag, expected) in [(false, expected[0]), (true, expected[1])] {
+            for padding in ["", "function Unused(x : Int) : (Int, Int) { (x+1,x+2) }"] {
+                let source = format!(
+                    r#"
+                    {padding}
+                    function Add(a : Int, b : Int) : Int {{ a + b }}
+                    function Adder(k : Int) : Int -> Int {{ x -> k + x }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    function Twice(f : Int -> Int) : Int -> Int {{ x -> f(f(x)) }}
+                    function Compose(f : Int -> Int, g : Int -> Int) : Int -> Int {{ x -> f(g(x)) }}
+                    function Mark(x : Int) : Int {{ Message($"argument {{x}}"); x }}
+                    newtype Box = (G : Int -> Int, Tag : Int);
+                    struct Holder {{ F : Int -> Int, Tag : Int }}
+                    function Run(flag : Bool) : Int {{ let h = Box(Add(4, _), 7); {body} }}
+                    @EntryPoint() operation Main() : Int {{ Run({flag}) }}
+                "#
+                );
+                // An inner Compose rewrite saves h::G in a new local. The outer
+                // use must refresh capture facts even if its own callee is an alias.
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(expected),
+                );
+                assert_specialization_call_abis(&source);
+                assert_specialized_int_qir(&source, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn nested_higher_order_arguments_preserve_inner_layouts_and_captures() {
+    for (source, expected) in [
+        (
+            r#"
+            function Add(a : Int, b : Int) : Int { a + b }
+            function Dbl(x : Int) : Int { 2 * x }
+            operation Main() : Int {
+                Std.Arrays.Fold(Add, 0, Std.Arrays.Mapped(Dbl, [1, 1, 2]))
+            }
+        "#,
+            8,
+        ),
+        (
+            r#"
+            newtype T = (G : Int -> Int, M : Int);
+            function ApplyTwice(f : Int -> Int, x : Int) : Int { f(f(x)) }
+            function Dec(x : Int) : Int { x - 2 }
+            function CapT(t : T) : (Int -> Int) { x -> t::G(x) }
+            operation Main() : Int { ApplyTwice(CapT(T(Dec, 2)), 0) }
+        "#,
+            -4,
+        ),
+        (
+            r#"
+            function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+            function Adder(k : Int) : (Int -> Int) { x -> x + k }
+            operation Main() : Int { Apply(Adder(1), Adder(2)(3)) }
+        "#,
+            6,
+        ),
+        (
+            r#"
+            function Mul(a : Int, b : Int) : Int { a * b }
+            operation Main() : Int {
+                let c4 = 4;
+                let pr3 = x -> x * c4;
+                mutable f5 = Mul(2, _);
+                pr3(f5(1))
+            }
+        "#,
+            8,
+        ),
+    ] {
+        for padding in ["", "function Unused(x : Int) : Int { (x + 1) * 3 }"] {
+            let source = format!("{padding}\n{source}");
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(expected),
+            );
+            assert_specialization_call_abis(&source);
+            assert_specialized_int_qir(&source, expected);
+        }
+    }
+}
+
+#[test]
+fn nested_quantum_higher_order_arguments_preserve_mapped_qubits_and_sorted_comparator() {
+    for (source, expected) in [
+        (
+            r#"
+            import Std.Arrays.*;
+            operation Main() : Result[] {
+                use qs = Qubit[3];
+                ApplyToEach(X, Mapped(q -> q, qs));
+                MResetEachZ(qs)
+            }
+        "#,
+            qsc_eval::val::Value::Array(
+                vec![qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)); 3].into(),
+            ),
+        ),
+        (
+            r#"
+            function ByRemainder(remainders : Double[]) : Int[] {
+                Std.Arrays.Sorted(
+                    (i, j) -> remainders[i] > remainders[j] or
+                        (remainders[i] == remainders[j] and i <= j),
+                    Std.Arrays.MappedOverRange(i -> i, 0..Length(remainders) - 1)
+                )
+            }
+            operation Main() : Result {
+                use q = Qubit();
+                let order = ByRemainder([0.25, 0.75, 0.5]);
+                if order[0] == 1 and order[1] == 2 and order[2] == 0 { X(q); }
+                MResetZ(q)
+            }
+        "#,
+            qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)),
+        ),
+    ] {
+        crate::test_utils::check_semantic_equivalence_with_expected(source, expected);
+        assert_specialization_call_abis(source);
+    }
+}
+
+#[test]
+fn nested_higher_order_rewrites_preserve_effects_and_controlled_preparation() {
+    for (body, expected, output) in [
+        (
+            "Apply(Adder(1), Adder(2)(Mark(3)))",
+            6,
+            "argument 3\napply\n",
+        ),
+        (
+            "Apply(Adder(1), Apply(Adder(2), Apply(Adder(3), Mark(4))))",
+            10,
+            "argument 4\napply\napply\napply\n",
+        ),
+    ] {
+        let source = format!(
+            r#"
+            function Apply(f : Int -> Int, x : Int) : Int {{ Message("apply"); f(x) }}
+            function Adder(k : Int) : (Int -> Int) {{ x -> x + k }}
+            function Mark(k : Int) : Int {{ Message($"argument {{k}}"); k }}
+            operation Main() : Int {{ {body} }}
+        "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+            output,
+        );
+        assert_specialization_call_abis(&source);
+        assert_specialized_int_qir(&source, expected);
+    }
+    let source = r#"
+        operation UserPrep(register : Qubit[]) : Unit is Adj + Ctl {
+            body ... { Std.Canon.ApplyToEach(X, Std.Arrays.Mapped(q -> q, register)); }
+            adjoint self;
+            controlled (controls, ...) {
+                for q in Std.Arrays.Mapped(q -> q, register) { Controlled X(controls, q); }
+            }
+            controlled adjoint self;
+        }
+        @EntryPoint() operation Main() : Result[] {
+            use qs = Qubit[2];
+            use control = Qubit();
+            UserPrep(qs);
+            Adjoint UserPrep(qs);
+            X(control);
+            Controlled UserPrep([control], qs);
+            Reset(control);
+            MResetEachZ(qs)
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Array(
+            vec![qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)); 2].into(),
+        ),
+    );
+    assert_specialization_call_abis(source);
+}
+
+#[test]
+fn call_rewrite_postorder_visits_shared_block_children_before_lower_numbered_parents() {
+    use crate::fir_builder::{alloc_block, alloc_expr, alloc_expr_stmt, alloc_unit_expr};
+    use qsc_fir::{assigner::Assigner, fir::ExprKind, ty::Ty};
+
+    let mut package = fir::Package::default();
+    let mut assigner = Assigner::new();
+    let span = package.synthetic_span();
+    let parent = alloc_unit_expr(&mut package, &mut assigner, span);
+    let child = alloc_unit_expr(&mut package, &mut assigner, span);
+    let stmt = alloc_expr_stmt(&mut package, &mut assigner, child, span);
+    let block = alloc_block(&mut package, &mut assigner, vec![stmt], Ty::UNIT, span);
+    let nested = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::UNIT,
+        ExprKind::Block(block),
+        span,
+    );
+    package.exprs.get_mut(parent).expect("parent").kind = ExprKind::Tuple(vec![nested, child]);
+    let ordered = crate::walk_utils::expressions_in_postorder(&package);
+    assert_eq!(ordered, vec![child, nested, parent]);
+}
+
+#[test]
+fn church_numeral_composition_preserves_values_and_messages() {
+    // Church numerals encode repeated function application. Keep the complete
+    // composition and assert its numeric results through exact messages even
+    // though Main itself returns Unit.
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function ChurchZero() : (Int -> Int) -> (Int -> Int) {
+            f -> (x -> x)
+        }
+        function Succ(n : (Int -> Int) -> (Int -> Int)) : (Int -> Int) -> (Int -> Int) {
+            f -> (x -> f(n(f)(x)))
+        }
+        function Add(m : (Int -> Int) -> (Int -> Int), n : (Int -> Int) -> (Int -> Int)) : (Int -> Int) -> (Int -> Int) {
+            f -> (x -> m(f)(n(f)(x)))
+        }
+        function Mult(m : (Int -> Int) -> (Int -> Int), n : (Int -> Int) -> (Int -> Int)) : (Int -> Int) -> (Int -> Int) {
+            f -> m(n(f))
+        }
+        function ToInt(n : (Int -> Int) -> (Int -> Int)) : Int { (n(i -> i + 1))(0) }
+        @EntryPoint()
+        function Main() : Unit {
+            let two = Succ(Succ(ChurchZero()));
+            let three = Succ(two);
+            let five = Add(two, three);
+            let six = Mult(two, three);
+            Message($"two   = {ToInt(two)}");
+            Message($"three = {ToInt(three)}");
+            Message($"2 + 3 = {ToInt(five)}");
+            Message($"2 * 3 = {ToInt(six)}");
+            Message($"three(double)(1) = {(three(x -> x * 2))(1)}");
+        }
+    "#,
+        qsc_eval::val::Value::unit(),
+        "two   = 2\nthree = 3\n2 + 3 = 5\n2 * 3 = 6\nthree(double)(1) = 8\n",
+    );
+}
+
+#[test]
+fn live_factory_closure_remains_invocable_after_another_use_is_specialized() {
+    let source = r#"
+            function Neg(x : Int) : Int { -x }
+            function Twice(f : Int -> Int) : (Int -> Int) { x -> f(f(x)) }
+            function Ap2(f : (Int, Int) -> Int, x : Int) : Int { f(x, 1) }
+            operation Main() : Result {
+                let g = Neg;
+                use q = Qubit();
+                if Ap2((a, b) -> Twice(g)(a) + b, 5) == 6 { X(q); }
+                MResetZ(q)
+            }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+    assert_specialization_call_abis(source);
+}
+
+#[test]
+fn composed_partial_captures_preserve_caller_scope_and_return_negative_one() {
+    let source = r#"
+            function Add(a : Int, b : Int) : Int { a + b }
+            function Twice(f : Int -> Int) : (Int -> Int) { x -> f(f(x)) }
+            function Compose(f : Int -> Int, g : Int -> Int) : (Int -> Int) { x -> f(g(x)) }
+            function MakeAdder(k : Int) : (Int -> Int) { x -> x + k }
+            newtype NBox = (G : Int -> Int, J : Int);
+            operation Main() : Int {
+                let bx1 = NBox(Add(4, _), 5);
+                Compose(bx1::G, Twice(MakeAdder(-3)))(1)
+            }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(-1),
+    );
+    assert_specialization_call_abis(source);
+    assert_specialized_int_qir(source, -1);
+}
+
+#[test]
+fn branch_local_callable_guard_preserves_scope_and_selection() {
+    for n in [0, 1, 3] {
+        let source = format!(
+            r#"
+            operation Apply(n : Int, q : Qubit) : Unit {{
+                mutable op = X;
+                if n > 0 {{
+                    let b = n > 2;
+                    if b {{ set op = H; }}
+                }}
+                op(q);
+            }}
+            @EntryPoint() operation Main() : Result {{
+                use q = Qubit();
+                Apply({n}, q);
+                {undo}
+                MResetZ(q)
+            }}
+        "#,
+            undo = if n > 2 { "H(q);" } else { "X(q);" }
+        );
+        // Undo the selected gate so the expected result is deterministic even
+        // for the original H branch; the trace still checks the actual choice.
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)),
+        );
+        let qir = crate::test_utils::generate_qir(&source);
+        let gate = if n > 2 {
+            "__quantum__qis__h__body"
+        } else {
+            "__quantum__qis__x__body"
+        };
+        assert_eq!(
+            qir.matches(&format!("call void @{gate}")).count(),
+            2,
+            "{qir}"
+        );
+    }
+}
+
+#[test]
+fn foreign_factory_callees_keep_live_closures_and_branch_guard_scope() {
+    let library = r#"
+        namespace Lib {
+            function Neg(x : Int) : Int { -x }
+            function Twice(f : Int -> Int) : (Int -> Int) { x -> f(f(x)) }
+            function Ap2(f : (Int, Int) -> Int, x : Int) : Int { f(x, 1) }
+            function Compute() : Int {
+                let g = Neg;
+                Ap2((a, b) -> Twice(g)(a) + b, 5)
+            }
+            operation Apply(n : Int, q : Qubit) : Unit {
+                mutable selected = X;
+                if n > 0 {
+                    let enabled = n > 2;
+                    if enabled { set selected = H; }
+                }
+                selected(q);
+            }
+            export Compute, Apply;
+        }
+    "#;
+    let source = r#"
+        @EntryPoint() operation Main() : Result {
+            use q = Qubit();
+            if Lib.Compute() != 6 { fail "lost factory capture"; }
+            Lib.Apply(3, q);
+            H(q);
+            Lib.Apply(0, q);
+            X(q);
+            MResetZ(q)
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
+    let (store, package) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        library,
+        source,
+        crate::PipelineStage::Full,
+    );
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(
+            false
+        ))),
+    );
+}
+
+#[test]
+fn nested_branch_guards_keep_each_iterations_selection_without_escaping_locals() {
+    let source = r#"
+        operation Apply(q : Qubit) : Unit {
+            for n in [0, 1, 3, 1, 0] {
+                mutable op = X;
+                if n > 0 {
+                    let (enabled, unrelated) = (n > 2, 11);
+                    if enabled { set op = H; }
+                }
+                op(q);
+                if n > 2 { H(q); } else { X(q); }
+            }
+        }
+        @EntryPoint() operation Main() : Result {
+            use q = Qubit();
+            Apply(q);
+            MResetZ(q)
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+    let qir = crate::test_utils::generate_qir(source);
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        2,
+        "{qir}"
+    );
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        8,
+        "{qir}"
+    );
+}
+
+#[test]
+fn captured_operation_array_preserves_loop_uncomputation_and_unused_declaration_layout() {
+    let source = r#"
+        struct QP { cu : ((Qubit, Qubit[]) => Unit is Adj)[] }
+        operation RunQ(p : QP, qs : Qubit[]) : Unit is Adj {
+            for i in 0..Length(p.cu) - 1 { p.cu[i](qs[i], qs[2..3]); }
+        }
+        function MkQ(cu : ((Qubit, Qubit[]) => Unit is Adj)[]) : (Qubit[] => Unit is Adj) {
+            RunQ(new QP { cu = cu }, _)
+        }
+        operation Mark(qpe : Qubit[] => Unit is Adj, system : Qubit[], target : Qubit) : Unit is Adj {
+            use phase = Qubit[2];
+            within { qpe(phase + system); } apply { CNOT(phase[0], target); }
+        }
+        function MarkOp(qpe : Qubit[] => Unit is Adj) : ((Qubit[], Qubit) => Unit is Adj) {
+            Mark(qpe, _, _)
+        }
+        operation AARun(oracle : (Qubit[], Qubit) => Unit is Adj) : Result[] {
+            use reg = Qubit[2];
+            for _ in 1..1 {
+                use flag = Qubit();
+                oracle(reg, flag); Adjoint oracle(reg, flag);
+            }
+            MResetEachZ(reg)
+        }
+        operation PrepI(k : Int, qs : Qubit[]) : Unit is Adj + Ctl { X(qs[0]); }
+        function MkPrep(k : Int) : (Qubit[] => Unit is Adj + Ctl) { PrepI(k, _) }
+        operation CUI(k : Int, c : Qubit, t : Qubit[]) : Unit is Adj + Ctl { CNOT(c, t[0]); }
+        function MkCU(k : Int) : ((Qubit, Qubit[]) => Unit is Adj + Ctl) { CUI(k, _, _) }
+        operation Main() : Result[] { AARun(MarkOp(MkQ([MkCU(1)]))) }
+    "#;
+    // Keep PrepI/MkPrep: these unused declarations perturb lifted item IDs in
+    // the original failing composition. The oracle and adjoint must cancel.
+    // This whole-source case is a compatibility control; the original failure
+    // was on the incremental entry path.
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Array(
+            vec![qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)); 2].into(),
+        ),
+    );
+    assert_specialization_call_abis(source);
+    let qir = crate::test_utils::generate_qir(source);
+    assert_eq!(
+        qir.matches("call void @__quantum__rt__result_record_output")
+            .count(),
+        2,
+        "{qir}"
+    );
+}
+
+#[test]
 fn recursive_capture_calls_match_specialized_signatures() {
     for (source, _) in crate::defunctionalize::test_cases::recursive_capture_cases() {
         let (store, pkg_id) =
@@ -5359,8 +6359,7 @@ fn single_element_callable_array_into_struct_field_survives_as_array() {
     // specialization as a one-element array literal. Collapsing the forwarded
     // array to the scalar callable would leave `arr[0]` indexing a non-array
     // value, so the specialized body keeps `[AddOne][0]`.
-    check_rewrite(
-        r#"
+    let source = r#"
         struct Holder { Cb : (Int => Int) }
         operation Pick(arr : (Int => Int)[]) : Holder {
             let f = arr[0];
@@ -5372,7 +6371,13 @@ fn single_element_callable_array_into_struct_field_survives_as_array() {
             h.Cb(3)
         }
         operation AddOne(x : Int) : Int { x + 1 }
-        "#,
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(4),
+    );
+    check_rewrite(
+        source,
         &expect![[r#"
             BEFORE:
             newtype Holder = ((Int => Int), );
@@ -5413,7 +6418,7 @@ fn single_element_callable_array_into_struct_field_survives_as_array() {
             operation Main() : Int {
                 let ops : (Int => Int)[] = [AddOne];
                 let h : __UDT_Item_1__Package_2_ = Pick_Empty__AddOne_();
-                h::Cb(3)
+                AddOne(3)
             }
             operation AddOne(x : Int) : Int {
                 x + 1
@@ -5887,4 +6892,1360 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
             Main()
         "#]],
     );
+}
+
+#[test]
+fn specialization_capability_compatible_array_capture_is_packed_once() {
+    let source = r#"
+        operation Target(value : Int) : Unit is Adj + Ctl {}
+        function Make() : ((Int => Unit is Adj + Ctl), Int) {
+            (Target, 7)
+        }
+        operation Run(ops : (Int => Unit)[]) : Unit {
+            ops[0](5);
+        }
+        operation Consume(factory : Unit -> ((Int => Unit), Int)) : Unit {
+            let (op, tag) = factory();
+            let f = value => {
+                if tag != 7 { fail "wrong tag"; }
+                op(value);
+            };
+            Run([f]);
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            Consume(Make);
+            42
+        }
+    "#;
+    check_capability_dispatch(source);
+}
+
+#[test]
+fn specialization_capability_capture_orders_and_control_layers_preserve_abi() {
+    for (requirement, invocation) in [
+        ("", "ops[0](5)"),
+        ("is Adj", "Adjoint ops[0](5)"),
+        ("is Ctl", "Controlled ops[0]([], 5)"),
+        ("is Ctl", "Controlled Controlled ops[0]([], ([], 5))"),
+    ] {
+        for tag_first in [false, true] {
+            let (output, required, values, bindings) = if tag_first {
+                (
+                    "(Int, (Int => Unit is Adj + Ctl))".to_string(),
+                    format!("(Int, (Int => Unit {requirement}))"),
+                    "(7, Target)",
+                    "(tag, op)",
+                )
+            } else {
+                (
+                    "((Int => Unit is Adj + Ctl), Int)".to_string(),
+                    format!("((Int => Unit {requirement}), Int)"),
+                    "(Target, 7)",
+                    "(op, tag)",
+                )
+            };
+            for entries in ["[f]", "[f, f]"] {
+                let source = indoc::formatdoc! {r#"
+                    operation Target(value : Int) : Unit is Adj + Ctl {{}}
+                    function Make() : {output} {{ {values} }}
+                    operation Run(ops : (Int => Unit {requirement})[]) : Unit {{
+                        {invocation};
+                    }}
+                    operation Consume(factory : Unit -> {required}) : Unit {{
+                        let {bindings} = factory();
+                        let f = value => {{
+                            if tag != 7 {{ fail "wrong tag"; }}
+                            op(value);
+                        }};
+                        Run({entries});
+                    }}
+                    @EntryPoint() operation Main() : Int {{
+                        Consume(Make);
+                        42
+                    }}
+                "#};
+                check_capability_dispatch(&source);
+            }
+        }
+    }
+}
+
+#[test]
+fn specialization_dispatch_copy_watermark_preserves_nested_capture_values() {
+    let source = dispatch_copy_source(
+        "ops[0]({ let n = 1; ops[1](n) })",
+        "Run([Make(10), Make(100)])",
+    );
+    check_dispatch_copy_watermark(&source, 111);
+}
+
+#[test]
+fn specialization_dispatch_copy_watermark_preserves_deeper_and_repeated_calls() {
+    for (body, entry, expected) in [
+        (
+            "ops[0]({ let n = 1; ops[1]({ let m = n + 1; ops[0](m) }) })",
+            "Run([Make(10), Make(100)])",
+            122,
+        ),
+        (
+            "ops[0]({ let n = 1; ops[1](n) })",
+            "1000 * Run([Make(10), Make(100)]) + Run([Make(20), Make(200)])",
+            111_221,
+        ),
+        (
+            "ops[0]({ let n = 1; ops[1](n) }) + ops[1]({ let n = 2; ops[0](n) })",
+            "Run([Make(10), Make(100)])",
+            223,
+        ),
+        (
+            "ops[0]({ mutable n = 1; set n += 1; ops[1](n) })",
+            "Run([Make(10), Make(100)])",
+            112,
+        ),
+    ] {
+        check_dispatch_copy_watermark(&dispatch_copy_source(body, entry), expected);
+    }
+}
+
+#[test]
+fn specialization_dispatch_copy_watermark_preserves_single_specialization_captures() {
+    let source = r#"
+        function Make(offset : Int, scale : Int) : Int -> Int {
+            x -> offset + scale * x
+        }
+        function Run(ops : (Int -> Int)[]) : Int {
+            let bias = 0;
+            ops[0]({ let n = bias + 1; ops[0](n) })
+        }
+        @EntryPoint() operation Main() : Int {
+            Run([Make(10, 100)])
+        }
+    "#;
+    check_dispatch_copy_watermark(source, 11010);
+}
+
+#[test]
+fn specialization_layout_snapshot_and_embedded_capture_identity_record_507() {
+    let source = r#"
+        function Inc(x : Int) : Int { x + 1 }
+        function Twice(x : Int) : Int { x * 2 }
+        function Wrap(f : Int -> Int) : Int -> Int { x -> f(x) + 1 }
+        @EntryPoint()
+        operation Main() : Int {
+            let first = Wrap(Inc);
+            let second = Wrap(Twice);
+            mutable selected = first;
+            let earlier = ({ selected })({ set selected = second; 3 });
+            earlier * 100 + selected(3)
+        }
+    "#;
+    let mut mismatches = Vec::new();
+    for stage in [crate::PipelineStage::Defunc, crate::PipelineStage::Full] {
+        let (store, package_id) = crate::test_utils::compile_and_run_pipeline_to(source, stage);
+        let mut closures = 0;
+        for owner in collect_reachable_from_entry(&store, package_id) {
+            let package = store.get(owner.package);
+            let ItemKind::Callable(decl) = &package.get_item(owner.item).kind else {
+                continue;
+            };
+            crate::walk_utils::for_each_expr_in_callable_impl(
+                package,
+                &decl.implementation,
+                &mut |_, expr| {
+                    let fir::ExprKind::Closure(captures, target) = &expr.kind else {
+                        return;
+                    };
+                    if !captures.is_empty() {
+                        return;
+                    }
+                    closures += 1;
+                    let qsc_fir::ty::Ty::Arrow(arrow) = &expr.ty else {
+                        panic!("closure must have an arrow type");
+                    };
+                    let ItemKind::Callable(target) = &package.get_item(*target).kind else {
+                        panic!("closure target must be callable");
+                    };
+                    let expected = qsc_fir::ty::Ty::Tuple(vec![arrow.input.as_ref().clone()]);
+                    let actual = &package.get_pat(target.input).ty;
+                    if *actual != expected {
+                        mismatches.push(format!(
+                            "{stage:?}: {} returns closure {} with public input {:?}, \
+                             runtime argument {expected:?}, declared input {actual:?}",
+                            decl.name.name, target.name.name, arrow.input
+                        ));
+                    }
+                },
+            );
+        }
+        assert_eq!(
+            closures, 2,
+            "both returned closures must survive at {stage:?}"
+        );
+    }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    assert_specialization_call_abis(source);
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(507),
+    );
+    assert_specialized_int_qir(source, 507);
+}
+
+#[test]
+fn specialization_layout_preserves_nominal_data() {
+    for stored in [false, true] {
+        for (input, body, value, expected) in [
+            (
+                "(Int -> Int, Data)",
+                "let (f, data) = p; f(data.N) + data.Tail",
+                "(selected, new Data { N = 3, Tail = 10 })",
+                30,
+            ),
+            (
+                "Payload",
+                "p.F(p.D.N) + p.Values[0].Tail",
+                "new Payload { F = selected, D = new Data { N = 3, Tail = 0 }, Values = [new Data { N = 0, Tail = 10 }] }",
+                30,
+            ),
+            (
+                "ScalarPayload",
+                "p.F(p.D.N)",
+                "new ScalarPayload { F = selected, D = new ScalarData { N = 3 } }",
+                10,
+            ),
+        ] {
+            let invocation = if stored {
+                format!("let held = {value}; Read(held)")
+            } else {
+                format!("Read({value})")
+            };
+            let source = indoc::formatdoc! {r#"
+                struct Data {{ N : Int, Tail : Int }}
+                struct Payload {{ F : Int -> Int, D : Data, Values : Data[] }}
+                struct ScalarData {{ N : Int }}
+                struct ScalarPayload {{ F : Int -> Int, D : ScalarData }}
+                function Inc(x : Int) : Int {{ x + 1 }}
+                function Twice(x : Int) : Int {{ 2 * x }}
+                function Read(p : {input}) : Int {{ {body} }}
+                function Pick(flag : Bool) : Int {{
+                    let selected = if flag {{ Inc }} else {{ Twice }};
+                    {invocation}
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick(true) + Pick(false) }}
+            "#};
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(expected),
+            );
+            assert_specialization_call_abis(&source);
+            assert_specialized_int_qir(&source, expected);
+        }
+    }
+}
+
+#[test]
+fn specialization_layout_empty_path_extraction_preserves_direct_values() {
+    check_empty_path_nominal_extraction(false);
+}
+
+#[test]
+fn specialization_layout_empty_path_extraction_preserves_scalar_captures() {
+    check_empty_path_nominal_extraction(true);
+}
+
+#[test]
+fn specialization_preserves_forwarded_controlled_values() {
+    use std::fmt::Write as _;
+
+    for (functor, layers) in [
+        ("Controlled", 1),
+        ("Controlled Controlled", 2),
+        ("Adjoint Controlled", 1),
+    ] {
+        for array in [false, true] {
+            let mut input = "Int".to_string();
+            let mut argument = "7".to_string();
+            for _ in 0..layers {
+                input = format!("(Qubit[], {input})");
+                argument = format!("([], {argument})");
+            }
+            let mut unpack = String::new();
+            let mut payload = "value".to_string();
+            for layer in 0..layers {
+                write!(unpack, "let (controls{layer}, value{layer}) = {payload};")
+                    .expect("writing to a String is infallible");
+                payload = format!("value{layer}");
+            }
+            for layer in (0..layers).rev() {
+                payload = format!("(controls{layer}, {payload})");
+            }
+            let (parameter, call, forwarded) = if array {
+                (
+                    format!("ops : ({input} => Unit is Adj + Ctl)[]"),
+                    format!("ops[1]{payload}"),
+                    "[f, f]",
+                )
+            } else {
+                (
+                    format!("f : {input} => Unit is Adj + Ctl"),
+                    format!("f{payload}"),
+                    "f",
+                )
+            };
+            let source = indoc::formatdoc! {r#"
+                operation Target(value : Int) : Unit is Adj + Ctl {{
+                    body (...) {{ if value != 7 {{ fail "body"; }} }}
+                    adjoint (...) {{ if value != 7 {{ fail "adjoint"; }} }}
+                    controlled (controls, ...) {{ if value != 7 {{ fail "controlled"; }} }}
+                    controlled adjoint (controls, ...) {{ if value != 7 {{ fail "controlled adjoint"; }} }}
+                }}
+                operation Consume({parameter}, value : {input}) : Unit {{ {unpack} {call}; }}
+                operation Relay(f : {input} => Unit is Adj + Ctl, value : {input}) : Unit {{
+                    Consume({forwarded}, value);
+                }}
+                @EntryPoint() operation Main() : Int {{
+                    Relay({functor} Target, {argument});
+                    42
+                }}
+            "#};
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(42),
+            );
+            assert_specialization_call_abis(&source);
+            assert_specialized_int_qir(&source, 42);
+        }
+    }
+}
+
+#[test]
+fn specialization_layout_capture_free_arrays_match_declared_inputs() {
+    for (input, entries, argument, values) in [
+        ("Int", "[x -> x + 1, x -> 2 * x]", "3", [4, 6]),
+        (
+            "(Int, Int)",
+            "[(x, y) -> x + y, (x, y) -> 2 * x + 2 * y]",
+            "(3, 4)",
+            [7, 14],
+        ),
+    ] {
+        for (index, expected) in [
+            (0, values[0]),
+            (1, values[1]),
+            (-2, values[0]),
+            (-1, values[1]),
+        ] {
+            let source = indoc::formatdoc! {r#"
+                function Run(ops : ({input} -> Int)[], index : Int) : Int {{
+                    ops[index]({argument})
+                }}
+                @EntryPoint() operation Main() : Int {{ Run({entries}, {index}) }}
+            "#};
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(expected),
+            );
+            assert_specialization_call_abis(&source);
+            assert_specialized_int_qir(&source, expected);
+        }
+    }
+}
+
+#[test]
+fn specialization_layout_deep_arrays_preserve_data_ancestors() {
+    for capturing in [false, true] {
+        for stored in [false, true] {
+            let entries = if capturing {
+                "[Add(first, _), Add(second, _)]"
+            } else {
+                "[Inc, Twice]"
+            };
+            for (input, unpack, argument, result, expected) in [
+                (
+                    "(((Int -> Int)[], Int), Int)",
+                    "let ((ops, n), tail) = pair;",
+                    format!("(({entries}, 3), 100)"),
+                    "ops[1](n) + tail",
+                    106,
+                ),
+                (
+                    "(Int, ((Int -> Int)[], Int))",
+                    "let (tail, (ops, n)) = pair;",
+                    format!("(100, ({entries}, 3))"),
+                    "ops[1](n) + tail",
+                    106,
+                ),
+                (
+                    "((Int, ((Int -> Int)[], Int)), Unit)",
+                    "let ((tail, (ops, n)), unit) = pair;",
+                    format!("((100, ({entries}, 3)), ())"),
+                    "if unit == () { ops[1](n) + tail } else { 0 }",
+                    106,
+                ),
+                (
+                    "(((Int -> Int)[], Int), (Int -> Int, Int))",
+                    "let ((ops, n), (f, m)) = pair;",
+                    format!("(({entries}, 3), (Inc, 5))"),
+                    "ops[1](n) + f(m)",
+                    12,
+                ),
+            ] {
+                let call = if stored {
+                    format!("let args = {argument}; let alias = args; Run(alias)")
+                } else {
+                    format!("Run({argument})")
+                };
+                let source = indoc::formatdoc! {r#"
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Add(offset : Int, x : Int) : Int {{ offset + x }}
+                    function Run(pair : {input}) : Int {{ {unpack} {result} }}
+                    function Pick(first : Int, second : Int) : Int {{ {call} }}
+                    @EntryPoint() operation Main() : Int {{ Pick(1, 3) }}
+                "#};
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(expected),
+                );
+                assert_specialization_call_abis(&source);
+                assert_specialized_int_qir(&source, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn specialization_layout_preserves_existing_packing_routes() {
+    for (source, expected, require_specialization) in [
+        (
+            r#"
+            struct Leaf { F : Int -> Int }
+            struct Root { Leaf : Leaf }
+            function Run(p : Root) : Int { p.Leaf.F(3) }
+            function Pick(offset : Int) : Int {
+                Run(new Root { Leaf = new Leaf { F = x -> x + offset } })
+            }
+            @EntryPoint() operation Main() : Int { Pick(10) }
+        "#,
+            13,
+            false,
+        ),
+        (
+            r#"
+            function Inc(x : Int) : Int { x + 1 }
+            function Run(f : Int -> Int, g : Int -> Int) : Int { f(1) + g(2) }
+            function Pick(offset : Int) : Int {
+                let args = (x -> x + offset, Inc);
+                Run(args)
+            }
+            @EntryPoint() operation Main() : Int { Pick(10) }
+        "#,
+            14,
+            true,
+        ),
+        (
+            r#"
+            struct Payload { Ops : (Int -> Int)[], Head : Int, Tail : Int }
+            function Inc(x : Int) : Int { x + 1 }
+            function Run(p : Payload) : Int {
+                100 * p.Head + p.Ops[0](p.Tail) + p.Ops[1](p.Tail)
+            }
+            function Pick(offset : Int) : Int {
+                Run(new Payload { Ops = [x -> x + offset, Inc], Head = 4, Tail = 3 })
+            }
+            @EntryPoint() operation Main() : Int { Pick(10) }
+        "#,
+            417,
+            true,
+        ),
+    ] {
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            source,
+            qsc_eval::val::Value::Int(expected),
+        );
+        // The nominal factory probe is a Full-pipeline guard, not evidence
+        // that its callable argument was specialized at the Defunc boundary.
+        if require_specialization {
+            assert_specialization_call_abis(source);
+        }
+        assert_specialized_int_qir(source, expected);
+    }
+}
+
+#[test]
+fn specialization_layout_controls_keep_tuple_parameter_and_capture() {
+    let source = r#"
+        operation Flip(tag : Int, q : Qubit) : Unit is Adj + Ctl {
+            if tag == 7 { X(q); }
+        }
+        operation Run(f : Qubit => Unit is Adj + Ctl, pair : (Int, Qubit)) : Unit is Adj + Ctl {
+            let (tag, q) = pair;
+            if tag == 4 { f(q); }
+        }
+        operation Pick(offset : Int, control : Qubit, target : Qubit) : Unit {
+            Controlled Run([control], (Flip(offset, _), (4, target)));
+        }
+        @EntryPoint() operation Main() : Int {
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            Pick(7, control, target);
+            Reset(control);
+            if MResetZ(target) == One { 1 } else { 0 }
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(1),
+    );
+    assert_specialization_call_abis(source);
+}
+
+#[test]
+fn stored_selection_cleanup_preserves_guard_effects() {
+    for flag in [false, true] {
+        for other in ["A", "B"] {
+            for call in [
+                "selected({ set visits = 10 * visits + 2; 0 })",
+                "Apply(selected, { set visits = 10 * visits + 2; 0 })",
+            ] {
+                let source = indoc::formatdoc! {r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable visits = 0;
+                        let selected = if {{ set visits = 10 * visits + 1; {flag} }} {{
+                            A
+                        }} else {{ {other} }};
+                        let result = {call};
+                        100 * visits + result
+                    }}
+                "#};
+                let expected = if flag || other == "A" { 1201 } else { 1202 };
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(expected),
+                );
+                assert_specialized_int_qir(&source, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn stored_selection_cleanup_preserves_guard_failure() {
+    for call in [
+        "selected({ fail \"argument ran first\" })",
+        "Apply(selected, { fail \"argument ran first\" })",
+    ] {
+        let source = indoc::formatdoc! {r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function Guard() : Bool {{ fail "guard must run" }}
+            @EntryPoint() operation Main() : Int {{
+                let selected = if Guard() {{ A }} else {{ A }};
+                {call}
+            }}
+        "#};
+        let error = crate::test_utils::eval_qsharp_original(&source)
+            .expect_err("the selection guard must fail before the call argument");
+        assert!(error.contains("guard must run"), "{error}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn specialization_preserves_stored_controlled_array_arguments() {
+    for layers in [1, 2] {
+        for tuple_payload in [false, true] {
+            for computed in [false, true] {
+                let (payload_ty, payload, check) = if tuple_payload {
+                    (
+                        "(Int, Int)",
+                        "(value, 0)",
+                        "let (left, right) = value; tag + left + right",
+                    )
+                } else {
+                    ("Int", "value", "tag + value")
+                };
+                let mut input = payload_ty.to_string();
+                let mut argument = payload.to_string();
+                for _ in 0..layers {
+                    input = format!("(Qubit[], {input})");
+                    argument = format!("([], {argument})");
+                }
+                let functor = "Controlled ".repeat(layers);
+                let invoke_args = if computed {
+                    "{ set marker = 10 * marker + 2; args }"
+                } else {
+                    "args"
+                };
+                let index = if computed { -1 } else { 1 };
+                let expected = if computed { 1242 } else { 142 };
+                let source = indoc::formatdoc! {r#"
+                    operation Check(tag : Int, value : {payload_ty}) : Unit is Ctl {{
+                        body (...) {{ let sum = {{ {check} }}; if sum != 13 {{ fail "body payload"; }} }}
+                        controlled (controls, ...) {{
+                            let sum = {{ {check} }};
+                            if sum != 13 {{ fail "controlled payload"; }}
+                        }}
+                    }}
+                    operation Run(ops : ({payload_ty} => Unit is Ctl)[], index : Int) : Int {{
+                        mutable marker = 0;
+                        mutable value = 3;
+                        let args : {input} = {{ set marker = 1; {argument} }};
+                        set value = 99;
+                        {functor}ops[index]({invoke_args});
+                        100 * marker + 42
+                    }}
+                    operation Pick(first : Int, second : Int) : Int {{
+                        Run([Check(first, _), Check(second, _)], {index})
+                    }}
+                    @EntryPoint() operation Main() : Int {{ Pick(20, 10) }}
+                "#};
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(expected),
+                );
+                assert_specialization_call_abis(&source);
+                assert_specialized_int_qir(&source, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_mutable_destructured_callables() {
+    for capturing in [false, true] {
+        for (update, last) in [
+            ("set f = Twice;", 6),
+            ("set (f, n) = (Twice, 4);", 8),
+            ("if flag { set f = Twice; }", 6),
+            ("for _ in 0..1 { set f = Twice; }", 6),
+        ] {
+            let entry = if capturing { "x -> x + offset" } else { "Inc" };
+            let first = if capturing { 13 } else { 4 };
+            let expected = 100 * first + last;
+            let source = indoc::formatdoc! {r#"
+                function Inc(x : Int) : Int {{ x + 1 }}
+                function Twice(x : Int) : Int {{ 2 * x }}
+                function Run(pair : (Int -> Int, Int), flag : Bool) : Int {{
+                    mutable (f, n) = pair;
+                    let first = f(n);
+                    {update}
+                    100 * first + f(n)
+                }}
+                function Pick(offset : Int) : Int {{ Run(({entry}, 3), true) }}
+                @EntryPoint() operation Main() : Int {{ Pick(10) }}
+            "#};
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(expected),
+            );
+            assert_specialization_call_abis(&source);
+            assert_specialized_int_qir(&source, expected);
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_controlled_array_environments() {
+    for (functor, layers) in [
+        ("Controlled", 1),
+        ("Controlled Controlled", 2),
+        ("Adjoint Controlled", 1),
+    ] {
+        for same_target in [false, true] {
+            for enabled in [false, true] {
+                for index in [0, 1, -1, -2] {
+                    let entries = if same_target {
+                        "Make(first), Make(second)"
+                    } else {
+                        "FlipWhen(first, _), FlipWhen(second, _)"
+                    };
+                    let args = if layers == 2 {
+                        "[controls[0]], ([controls[1]], q)"
+                    } else {
+                        "[controls[0]], q"
+                    };
+                    let source = indoc::formatdoc! {r#"
+                        operation FlipWhen(tag : Int, q : Qubit) : Unit is Adj + Ctl {{
+                            if tag == 1 {{ X(q); }}
+                        }}
+                        function Make(tag : Int) : Qubit => Unit is Adj + Ctl {{
+                            FlipWhen(tag, _)
+                        }}
+                        operation Run(
+                            ops : (Qubit => Unit is Adj + Ctl)[],
+                            index : Int, controls : Qubit[], q : Qubit
+                        ) : Unit {{
+                            {functor} ops[index]({args});
+                        }}
+                        operation Pick(first : Int, second : Int) : Int {{
+                            use controls = Qubit[{layers}];
+                            use q = Qubit();
+                            if {enabled} {{ for control in controls {{ X(control); }} }}
+                            Run([{entries}], {index}, controls, q);
+                            for control in controls {{ let _ = MResetZ(control); }}
+                            if MResetZ(q) == One {{ 1 }} else {{ 0 }}
+                        }}
+                        @EntryPoint() operation Main() : Int {{ Pick(0, 1) }}
+                    "#};
+                    crate::test_utils::check_semantic_equivalence_with_expected(
+                        &source,
+                        qsc_eval::val::Value::Int(i64::from(
+                            enabled && (index == 1 || index == -1),
+                        )),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_nested_index_evaluation() {
+    for capturing in [false, true] {
+        for depth in 1..=3 {
+            let mut index = "0".to_string();
+            for _ in 0..depth {
+                index = format!("ops[{index}](-1)");
+            }
+            let entry = if capturing {
+                "value -> Logged(value + offset - 1)"
+            } else {
+                "Logged"
+            };
+            let source = indoc::formatdoc! {r#"
+                function Logged(value : Int) : Int {{ Message($"call:{{value}}"); value + 1 }}
+                function Run(ops : (Int -> Int)[]) : Int {{
+                    mutable marker = 0;
+                    let result = ops[{{ Message("index"); set marker = 1; {index} }}](
+                        {{ Message("argument"); set marker = 10 * marker + 2; 41 }}
+                    );
+                    100 * marker + result
+                }}
+                function Pick(offset : Int) : Int {{ Run([{entry}]) }}
+                @EntryPoint() operation Main() : Int {{ Pick(1) }}
+            "#};
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(1242),
+            );
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_array_sibling_payloads() {
+    for reversed in [false, true] {
+        for capturing in [false, true] {
+            for unit in [false, true] {
+                let (signature, unpack, pair) = if unit {
+                    (
+                        "(Int -> Int, Unit)",
+                        "let (f, unit) = pair; let n = if unit == () { 3 } else { 9 };",
+                        "(Inc, ())",
+                    )
+                } else {
+                    ("(Int -> Int, Int)", "let (f, n) = pair;", "(Inc, 3)")
+                };
+                let entries = if capturing {
+                    "[Add(first, _), Add(second, _)]"
+                } else {
+                    "[Inc, Twice]"
+                };
+                let (params, args) = if reversed {
+                    (
+                        format!("pair : {signature}, ops : (Int -> Int)[]"),
+                        format!("{pair}, {entries}"),
+                    )
+                } else {
+                    (
+                        format!("ops : (Int -> Int)[], pair : {signature}"),
+                        format!("{entries}, {pair}"),
+                    )
+                };
+                let source = indoc::formatdoc! {r#"
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Add(offset : Int, x : Int) : Int {{ offset + x }}
+                    function Run({params}) : Int {{ {unpack} ops[1](n) + f(n) }}
+                    function Pick(first : Int, second : Int) : Int {{ Run({args}) }}
+                    @EntryPoint() operation Main() : Int {{ Pick(1, 3) }}
+                "#};
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(10),
+                );
+                assert_specialized_int_qir(&source, 10);
+            }
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_indexed_functors() {
+    // Each row names creation functors, invocation functors, and total controls.
+    for (creation, body, controls) in [
+        ("", "", 0),
+        ("", "Adjoint", 0),
+        ("Adjoint", "", 0),
+        ("Adjoint", "Adjoint", 0),
+        ("", "Controlled", 1),
+        ("", "Adjoint Controlled", 1),
+        ("", "Controlled Controlled", 2),
+        ("Controlled", "", 1),
+        ("Controlled", "Adjoint", 1),
+        ("Controlled", "Controlled", 2),
+        ("Adjoint Controlled", "Controlled", 2),
+        ("Controlled", "Adjoint Controlled Controlled", 3),
+    ] {
+        for capturing in [false, true] {
+            for enabled in [false, true] {
+                // With no controls there is no distinct disabled case.
+                if controls == 0 && !enabled {
+                    continue;
+                }
+                // A stored Controlled operation already accepts (controls, q);
+                // invocation-side controls add further wrappers around that input.
+                let input = if creation.contains("Controlled") {
+                    "(Qubit[], Qubit)"
+                } else {
+                    "Qubit"
+                };
+                let mut args = "q".to_string();
+                // Build outer-to-inner control tuples, e.g. ([c0], ([c1], q)).
+                for index in (0..controls).rev() {
+                    args = format!("[controls[{index}]], ({args})");
+                }
+                // Equal captured tags select S; unequal tags select T. Keeping
+                // both entries exercises array dispatch and capture forwarding.
+                let (first, second) = if capturing {
+                    ("Phase(7, 7, _)", "Phase(2, 3, _)")
+                } else {
+                    ("S", "T")
+                };
+                // An effective Adjoint S needs S as its inverse preparation;
+                // an effective S needs Adjoint S. Two Adjoints cancel.
+                let prepare = if controls != 0 && !enabled {
+                    ""
+                } else if creation.contains("Adjoint") != body.contains("Adjoint") {
+                    "S(target);"
+                } else {
+                    "Adjoint S(target);"
+                };
+                let source = indoc::formatdoc! {r#"
+                    operation Phase(a : Int, b : Int, q : Qubit) : Unit is Adj + Ctl {{
+                        if a == b {{ S(q); }} else {{ T(q); }}
+                    }}
+                    operation Run(
+                        ops : ({input} => Unit is Adj + Ctl)[],
+                        index : Int, controls : Qubit[], q : Qubit
+                    ) : Unit {{
+                        {body} ops[index]({args});
+                    }}
+                    @EntryPoint() operation Main() : Int {{
+                        use controls = Qubit[{controls}];
+                        use target = Qubit();
+                        if {enabled} {{ for control in controls {{ X(control); }} }}
+                        H(target);
+                        {prepare}
+                        Run([{creation} ({first}), {creation} ({second})], 0, controls, target);
+                        H(target);
+                        for control in controls {{ let _ = MResetZ(control); }}
+                        if MResetZ(target) == Zero {{ 0 }} else {{ 1 }}
+                    }}
+                "#};
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(0),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_parallel_parameter_uses() {
+    for (callable, result) in [("Inc", 4), ("value -> value + offset", 10)] {
+        for (body, expected) in [
+            // Body only; limit only; both; then a nested closure capturing f.
+            ("parallel { f(x) }", result),
+            ("parallel within f(x) { 42 }", 42),
+            ("parallel within f(x) { f(x) + 1 }", result + 1),
+            ("parallel { let again = y -> f(y); again(x) }", result),
+        ] {
+            let source = indoc::formatdoc! {r#"
+                function Inc(x : Int) : Int {{ x + 1 }}
+                operation ApplyParallel(f : Int -> Int, x : Int) : Int {{ {body} }}
+                @EntryPoint() operation Main() : Int {{
+                    let offset = 7;
+                    ApplyParallel({callable}, 3)
+                }}
+            "#};
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(expected),
+            );
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_foreign_callee_identity() {
+    use std::fmt::Write as _;
+
+    for padding in 0..8 {
+        let mut declarations = String::new();
+        for index in 0..padding {
+            writeln!(
+                declarations,
+                "function Padding{index}() : Int {{ {index} }}"
+            )
+            .expect("writing to a String is infallible");
+        }
+        let library = indoc::formatdoc! {r#"
+            namespace Lib {{
+                {declarations}
+                function Foreign(x : Int) : Int {{ 10 * x }}
+                export Foreign;
+            }}
+        "#};
+        for body in [
+            "1000 * Lib.Foreign(x) + f(x)",
+            "let value = f(x); 1000 * Lib.Foreign(x) + value",
+        ] {
+            let source = indoc::formatdoc! {r#"
+                function Use(f : Int -> Int, x : Int) : Int {{ {body} }}
+                @EntryPoint() operation Main() : Int {{
+                    let offset = 7;
+                    Use(x -> x + offset, 3)
+                }}
+            "#};
+            assert_eq!(
+                crate::test_utils::eval_qsharp_original_with_library(&library, &source),
+                Ok(qsc_eval::val::Value::Int(30010)),
+            );
+            crate::test_utils::check_semantic_equivalence_with_library(&library, &source);
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_mixed_partial_inputs() {
+    for nested in [false, true] {
+        for top_first in [false, true] {
+            for flag in [false, true] {
+                let (pair_type, pair, unpack, prefix) = if nested {
+                    (
+                        "(Int, (Int -> Int, Int))",
+                        "(100, (chosen, 3))",
+                        "let (prefix, (f, n)) = pair;",
+                        "prefix + ",
+                    )
+                } else {
+                    ("(Int -> Int, Int)", "(chosen, 3)", "let (f, n) = pair;", "")
+                };
+                let (signature, args) = if top_first {
+                    (
+                        format!("other : Int -> Int, pair : {pair_type}"),
+                        format!("x -> x + offset, {pair}"),
+                    )
+                } else {
+                    (
+                        format!("pair : {pair_type}, other : Int -> Int"),
+                        format!("{pair}, x -> x + offset"),
+                    )
+                };
+                let source = indoc::formatdoc! {r#"
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Run({signature}) : Int {{ {unpack} {prefix}f(n) + other(n) }}
+                    function Pick(flag : Bool) : Int {{
+                        let offset = 10;
+                        let chosen = if flag {{ Inc }} else {{ Twice }};
+                        Run({args})
+                    }}
+                    @EntryPoint() operation Main() : Int {{ Pick({flag}) }}
+                "#};
+                let expected = (if flag { 17 } else { 19 }) + if nested { 100 } else { 0 };
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(expected),
+                );
+                assert_specialized_int_qir(&source, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_controlled_mixed_partial_inputs() {
+    for functor in ["Controlled", "Controlled Controlled", "Adjoint Controlled"] {
+        for enabled in [false, true] {
+            for flag in [false, true] {
+                let args = if functor == "Controlled Controlled" {
+                    "[outer], ([inner], ((chosen, 3), FlipWhen(7, _), target))"
+                } else {
+                    "[outer], ((chosen, 3), FlipWhen(7, _), target)"
+                };
+                let source = indoc::formatdoc! {r#"
+                    operation FlipWhen(tag : Int, q : Qubit) : Unit is Adj + Ctl {{
+                        if tag == 7 {{ X(q); }}
+                    }}
+                    operation Run(
+                        pair : (Qubit => Unit is Adj + Ctl, Int),
+                        other : Qubit => Unit is Adj + Ctl, q : Qubit
+                    ) : Unit is Adj + Ctl {{
+                        let (op, n) = pair;
+                        if n == 3 {{ op(q); other(q); }}
+                    }}
+                    operation Pick(flag : Bool) : Int {{
+                        use outer = Qubit();
+                        use inner = Qubit();
+                        use target = Qubit();
+                        if {enabled} {{ X(outer); X(inner); }}
+                        let chosen = if flag {{ X }} else {{ I }};
+                        {functor} Run({args});
+                        let _ = MResetZ(outer);
+                        let _ = MResetZ(inner);
+                        if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+                    }}
+                    @EntryPoint() operation Main() : Int {{ Pick({flag}) }}
+                "#};
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(i64::from(enabled && !flag)),
+                );
+                // This is an output-shape smoke check, not a QIR value oracle:
+                // measurement remains dynamic. The helper above checks values
+                // and quantum traces before and after the FIR pipeline.
+                let qir = crate::test_utils::generate_qir(&source);
+                assert_eq!(
+                    qir.lines()
+                        .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+                        .count(),
+                    1,
+                    "{source}\n{qir}",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn specialization_preserves_mixed_payload_grouping_and_unit_fields() {
+    for (declaration, call, false_result, true_result) in [
+        // Keep n=3 and m=4 together in the single surviving bundle:
+        // 300 + chosen(3) + 14 gives 320 or 318.
+        (
+            "function Run(bundle : (Int -> Int, Int, Int -> Int, Int)) : Int {
+                let (f, n, g, m) = bundle;
+                100 * n + f(n) + g(m)
+            }",
+            "Run((chosen, 3, x -> x + offset, 4))",
+            320,
+            318,
+        ),
+        // Both bundle fields disappear; only the closure capture remains:
+        // 100 * chosen(3) + 14 gives 614 or 414.
+        (
+            "function Run(bundle : (Int -> Int, Int -> Int)) : Int {
+                let (f, g) = bundle;
+                100 * f(3) + g(4)
+            }",
+            "Run((chosen, x -> x + offset))",
+            614,
+            414,
+        ),
+        // The original Unit field is real data, so pair is not fully removed.
+        // It selects n=3: chosen(3) + 13 gives 19 or 17.
+        (
+            "function Run(pair : (Int -> Int, Unit), other : Int -> Int) : Int {
+                let (f, unit) = pair;
+                let n = if unit == () { 3 } else { 9 };
+                f(n) + other(n)
+            }",
+            "Run((chosen, ()), x -> x + offset)",
+            19,
+            17,
+        ),
+        // Keep pair's n=3, but remove the all-callable sibling tuple:
+        // chosen(3) + 13 + Inc(3) gives 23 or 21.
+        (
+            "function Run(pair : (Int -> Int, Int), only : (Int -> Int, Int -> Int)) : Int {
+                let (f, n) = pair;
+                let (g, h) = only;
+                f(n) + g(n) + h(n)
+            }",
+            "Run((chosen, 3), (x -> x + offset, Inc))",
+            23,
+            21,
+        ),
+        // The same whole-slot rule must remove a single-field UDT containing
+        // a global callable, while the separate closure still passes its capture.
+        (
+            "struct Holder { Apply : Int -> Int }
+            function Run(pair : (Int -> Int, Int), holder : Holder, other : Int -> Int) : Int {
+                let (f, n) = pair;
+                f(n) + holder.Apply(n) + other(n)
+            }",
+            "Run((chosen, 3), new Holder { Apply = Inc }, x -> x + offset)",
+            23,
+            21,
+        ),
+    ] {
+        for (flag, expected) in [(false, false_result), (true, true_result)] {
+            let source = indoc::formatdoc! {r#"
+                function Inc(x : Int) : Int {{ x + 1 }}
+                function Twice(x : Int) : Int {{ 2 * x }}
+                {declaration}
+                function Pick(flag : Bool) : Int {{
+                    let offset = 10;
+                    let chosen = if flag {{ Inc }} else {{ Twice }};
+                    {call}
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}) }}
+            "#};
+            // Check immediately after Defunc, before later tuple/argument passes
+            // can hide a mismatch. Compare each generated Run call's arguments
+            // with its declaration, not merely with the callee expression's type.
+            let (store, package_id) = crate::test_utils::compile_and_run_pipeline_to(
+                &source,
+                crate::PipelineStage::Defunc,
+            );
+            let reachable = collect_reachable_from_entry(&store, package_id);
+            for item in reachable {
+                let package = store.get(item.package);
+                let ItemKind::Callable(decl) = &package.get_item(item.item).kind else {
+                    continue;
+                };
+                crate::walk_utils::for_each_expr_in_callable_impl(
+                    package,
+                    &decl.implementation,
+                    &mut |_, expr| {
+                        let fir::ExprKind::Call(callee, args) = expr.kind else {
+                            return;
+                        };
+                        let fir::ExprKind::Var(fir::Res::Item(target), _) =
+                            package.get_expr(callee).kind
+                        else {
+                            return;
+                        };
+                        let target_package = store.get(target.package);
+                        let ItemKind::Callable(target) = &target_package.get_item(target.item).kind
+                        else {
+                            return;
+                        };
+                        if target.name.name.starts_with("Run") && target.name.name.contains('{') {
+                            assert_eq!(
+                                package.get_expr(args).ty,
+                                target_package.get_pat(target.input).ty,
+                                "mixed payload call arguments must match the specialized input:\n{source}"
+                            );
+                        }
+                    },
+                );
+            }
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(expected),
+            );
+            assert_specialized_int_qir(&source, expected);
+        }
+    }
+}
+
+fn check_capability_dispatch(source: &str) {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(42),
+    );
+    assert_specialization_call_abis(source);
+    assert_specialized_int_qir(source, 42);
+}
+
+fn dispatch_copy_source(body: &str, entry: &str) -> String {
+    indoc::formatdoc! {r#"
+        function Make(offset : Int) : Int -> Int {{ x -> offset + x }}
+        function Run(ops : (Int -> Int)[]) : Int {{ {body} }}
+        @EntryPoint() operation Main() : Int {{ {entry} }}
+    "#}
+}
+
+fn check_dispatch_copy_watermark(source: &str, expected: i64) {
+    use crate::walk_utils::{CallableNode, for_each_node_in_callable};
+    use rustc_hash::FxHashSet;
+
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(expected),
+    );
+    let (store, package_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    let mut specializations = 0;
+    for owner in collect_reachable_from_entry(&store, package_id) {
+        let package = store.get(owner.package);
+        let ItemKind::Callable(decl) = &package.get_item(owner.item).kind else {
+            continue;
+        };
+        if decl.name.name.starts_with("Run") && decl.name.name.contains('{') {
+            specializations += 1;
+        }
+        let mut patterns = FxHashSet::default();
+        let mut bindings = FxHashSet::default();
+        for_each_node_in_callable(package, decl, &mut |node| {
+            if let CallableNode::Pat(id) = node
+                && patterns.insert(id)
+                && let fir::PatKind::Bind(binding) = &package.get_pat(id).kind
+            {
+                assert!(
+                    bindings.insert(binding.id),
+                    "{} reuses local {} for binding {}:\n{source}",
+                    decl.name.name,
+                    binding.id,
+                    binding.name,
+                );
+            }
+        });
+    }
+    assert_eq!(
+        specializations, 1,
+        "Run must specialize and repeated calls must share its declaration:\n{source}"
+    );
+    assert_specialization_call_abis(source);
+    assert_specialized_int_qir(source, expected);
+}
+
+fn check_empty_path_nominal_extraction(capturing: bool) {
+    for (definition, value, extract) in [
+        ("newtype Data = (N : Int);", "Data(10)", "let n = data::N;"),
+        (
+            "newtype Inner = (N : Int); newtype Data = (Value : Inner);",
+            "Data(Inner(10))",
+            "let n = (data::Value)::N;",
+        ),
+        (
+            "newtype Data = (Value : (Int, Int));",
+            "Data((10, 2))",
+            "let (n, _) = data::Value;",
+        ),
+        (
+            "newtype Data = (Value : (Int,));",
+            "Data((10,))",
+            "let (n,) = data::Value;",
+        ),
+    ] {
+        for keep_tail in [false, true] {
+            for held in [false, true] {
+                let extra_field = if keep_tail { ", Tail : Int" } else { "" };
+                let extra_value = if keep_tail { ", Tail = 0" } else { "" };
+                let extra_result = if keep_tail { " + p.Tail" } else { "" };
+                let extract = if held {
+                    format!("let data = p.D; {extract}")
+                } else {
+                    extract.replace("data", "(p.D)")
+                };
+                let (body, expected) = if capturing {
+                    ("let g = x -> n + x; Apply(g, 3) + p.F(0)", 14)
+                } else {
+                    ("p.F(n)", 11)
+                };
+                let source = indoc::formatdoc! {r#"
+                    {definition}
+                    struct Payload {{ F : Int -> Int, D : Data{extra_field} }}
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    function Read(p : Payload) : Int {{ {extract} {body}{extra_result} }}
+                    @EntryPoint() operation Main() : Int {{
+                        Read(new Payload {{ F = Inc, D = {value}{extra_value} }})
+                    }}
+                "#};
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(expected),
+                );
+                assert_specialization_call_abis(&source);
+                assert_nominal_extraction_types(&source, keep_tail);
+                assert_specialized_int_qir(&source, expected);
+            }
+        }
+    }
+}
+
+fn assert_nominal_extraction_types(source: &str, keep_tail: bool) {
+    use qsc_fir::ty::{Prim, Ty};
+
+    let (store, package_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    let mut checked = 0;
+    for owner in collect_reachable_from_entry(&store, package_id) {
+        let package = store.get(owner.package);
+        let ItemKind::Callable(decl) = &package.get_item(owner.item).kind else {
+            continue;
+        };
+        if !decl.name.name.starts_with("Read{") {
+            continue;
+        }
+        checked += 1;
+        let input = &package.get_pat(decl.input).ty;
+        let nominal = if keep_tail {
+            let Ty::Tuple(fields) = input else {
+                panic!("retained data and tail need a tuple: {input:?}");
+            };
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[1], Ty::Prim(Prim::Int));
+            &fields[0]
+        } else {
+            input
+        };
+        let Ty::Udt(fir::Res::Item(data)) = nominal else {
+            panic!("the retained Data must remain nominal: {nominal:?}");
+        };
+        let ItemKind::Ty(_, udt) = &store.get(data.package).get_item(data.item).kind else {
+            panic!("Data must be a type");
+        };
+        assert_eq!(udt.name.as_ref(), "Data");
+
+        let mut extractions = 0;
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |_, expr| {
+                if let fir::ExprKind::Field(base, fir::Field::Path(path)) = &expr.kind
+                    && path.indices.is_empty()
+                {
+                    extractions += 1;
+                    let Ty::Udt(fir::Res::Item(item)) = &package.get_expr(*base).ty else {
+                        panic!("empty-path extraction must read a nominal value: {expr:?}");
+                    };
+                    let ItemKind::Ty(_, udt) = &store.get(item.package).get_item(item.item).kind
+                    else {
+                        panic!("projection base must have a type declaration");
+                    };
+                    assert_eq!(expr.ty, udt.get_pure_ty(), "{source}");
+                }
+                if let fir::ExprKind::Call(callee, args) = expr.kind
+                    && let fir::ExprKind::Var(fir::Res::Item(item), _) =
+                        package.get_expr(callee).kind
+                    && let ItemKind::Callable(target) =
+                        &store.get(item.package).get_item(item.item).kind
+                {
+                    assert_eq!(
+                        package.get_expr(args).ty,
+                        store.get(item.package).get_pat(target.input).ty,
+                        "arguments must match the actual declaration: {source}",
+                    );
+                }
+            },
+        );
+        assert!(
+            extractions > 0,
+            "Read must retain nominal extraction: {source}"
+        );
+    }
+    assert_eq!(checked, 1, "Read must actually be specialized: {source}");
 }

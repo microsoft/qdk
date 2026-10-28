@@ -668,3 +668,48 @@ fn check_rca_for_indirect_length_on_array_with_dynamic_length() {
                 dynamic_param_applications: <empty>"#]],
     );
 }
+
+#[test]
+fn check_rca_for_array_mutation_in_short_circuit_and_expr() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        mutable values = [1];
+        MResetZ(q) == One and (if true { values = [2]; true } else { false });
+        values"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_array_mutation_in_short_circuit_assign_and_expr() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        mutable values = [1];
+        mutable b = MResetZ(q) == One;
+        b and= (if true { values = [2]; true } else { false });
+        values"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}

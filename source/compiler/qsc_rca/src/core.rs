@@ -150,10 +150,34 @@ impl<'a> Analyzer<'a> {
         &mut self,
         assignee_expr_id: ExprId,
         value_expr_id: ExprId,
+        short_circuit: bool,
     ) -> ComputeKind {
         // Visit the assignee and value expressions to determine their compute kind.
         self.visit_expr(assignee_expr_id);
+        let within_dynamic_scope = short_circuit
+            && self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression")
+                .is_variable_value_kind();
+        if within_dynamic_scope {
+            self.get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .push(assignee_expr_id);
+        }
         self.visit_expr(value_expr_id);
+        let value_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
+        if within_dynamic_scope {
+            let dynamic_scope_expr = self
+                .get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .pop()
+                .expect("at least one dynamic scope should exist");
+            assert_eq!(dynamic_scope_expr, assignee_expr_id);
+        }
 
         // Since this is an assignment, update the local variables on the assignee expression with the compute kind of
         // the value expression.
@@ -167,6 +191,11 @@ impl<'a> Analyzer<'a> {
         // The compute kind of an assign expression is determined by the runtime features of the updated compute kind
         // associated to the local variable.
         compute_kind.aggregate_runtime_features(updated_compute_kind, default_value_kind);
+
+        // The runtime features of the value expression must also be aggregated, since they are not necessarily reflected
+        // in the updated compute kind (e.g. when the assignee is the unit tuple `()`, no local is updated even though
+        // evaluating the value expression might have dynamic side effects).
+        compute_kind.aggregate_runtime_features(value_expr_compute_kind, default_value_kind);
         compute_kind
     }
 
@@ -259,6 +288,16 @@ impl<'a> Analyzer<'a> {
             .last_analyzed_compute_kind
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
+
+        // If the LHS expression is dynamic and this is a short-circuit binary operator, we push a new dynamic scope.
+        let within_dynamic_scope = (bin_op == BinOp::AndL || bin_op == BinOp::OrL)
+            && lhs_compute_kind.is_variable_value_kind();
+        if within_dynamic_scope {
+            self.get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .push(lhs_expr_id);
+        }
+
         self.visit_expr(rhs_expr_id);
         let rhs_compute_kind = self
             .last_analyzed_compute_kind
@@ -316,6 +355,15 @@ impl<'a> Analyzer<'a> {
                 // this runtime feature.
                 *runtime_features |= RuntimeFeatureFlags::UseOfDynamicString;
             }
+        }
+
+        if within_dynamic_scope {
+            let dynamic_scope_expr = self
+                .get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .pop()
+                .expect("at least one dynamic scope should exist");
+            assert_eq!(dynamic_scope_expr, lhs_expr_id);
         }
 
         compute_kind
@@ -395,10 +443,15 @@ impl<'a> Analyzer<'a> {
             self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
         };
 
-        // Cache the `MustBeInlined` runtime feature flag if it was set on the compute kind of the call expression.
-        // This allows it to be added again later after aggregating the runtime features of the callee and arguments expressions,
-        // which may have cleared that flag.
-        let must_inline = matches!(compute_kind, ComputeKind::Dynamic { runtime_features, .. } if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
+        // Recursive and unresolved calls bypass the resolved-callee eligibility
+        // check. Their expression types still prohibit callable-valued QIR ABIs.
+        // Reapply this call-site flag after aggregation, which does not propagate it.
+        let must_inline = matches!(compute_kind, ComputeKind::Dynamic { runtime_features, .. } if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined))
+            || (self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::CallSupport)
+                && (self.type_contains_callable(expr_type)
+                    || self.type_contains_callable(&self.get_expr(args_expr_id).ty)));
 
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
         let application_instance = self.get_current_application_instance();
@@ -518,16 +571,20 @@ impl<'a> Analyzer<'a> {
         let ir_function_compute_kind =
             application_generator_set.generate_ir_function_application_compute_kind();
 
-        // If the target capabitlies allow for emitting IR functions, we need to check if the callable can be emitted or must be inlined.
+        let input_ty = &self.package_store.get_pat(callee_input_pattern_id).ty;
+        // Check the signature before considering an IR-function application:
+        // making callable arguments dynamic would introduce spurious capabilities.
         let must_inline = self
             .target_capabilities
             .contains(TargetCapabilityFlags::CallSupport)
-            && self.check_must_inline(
-                callable_decl,
-                &arg_compute_kinds,
-                &mut compute_kind,
-                ir_function_compute_kind,
-            );
+            && (self.type_contains_callable(input_ty)
+                || self.type_contains_callable(&callable_decl.output)
+                || self.check_must_inline(
+                    callable_decl,
+                    &arg_compute_kinds,
+                    &mut compute_kind,
+                    ir_function_compute_kind,
+                ));
 
         // Aggregate the runtime features of the qubit controls expressions.
         let mut has_variable_controls = false;
@@ -592,6 +649,26 @@ impl<'a> Analyzer<'a> {
         }
 
         compute_kind
+    }
+
+    fn type_contains_callable(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Arrow(_) => true,
+            Ty::Array(element) => self.type_contains_callable(element),
+            Ty::Tuple(elements) => elements.iter().any(|ty| self.type_contains_callable(ty)),
+            Ty::Udt(Res::Item(item)) => {
+                let ItemKind::Ty(_, udt) = &self
+                    .package_store
+                    .get(item.package)
+                    .get_item(item.item)
+                    .kind
+                else {
+                    panic!("UDT type must refer to a type item");
+                };
+                self.type_contains_callable(&udt.get_pure_ty())
+            }
+            Ty::Prim(_) | Ty::Param(_) | Ty::Infer(_) | Ty::Udt(_) | Ty::Err => false,
+        }
     }
 
     fn check_must_inline(
@@ -1844,6 +1921,7 @@ impl<'a> Analyzer<'a> {
         let assignee_expr = self.get_expr(assignee_expr_id);
         let value_expr = self.get_expr(value_expr_id);
         match &assignee_expr.kind {
+            ExprKind::Hole => ComputeKind::Static,
             ExprKind::Var(res, _) => {
                 let Res::Local(local_var_id) = res else {
                     panic!("expected a local variable");
@@ -1949,7 +2027,7 @@ impl<'a> Analyzer<'a> {
                     updated_compute_kind
                 }
             }
-            _ => panic!("expected a local variable or a tuple"),
+            _ => panic!("expected a local variable, a tuple, or a discard"),
         }
     }
 
@@ -2159,10 +2237,13 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ExprKind::ArrayRepeat(value_expr_id, size_expr_id) => {
                 self.analyze_expr_array_repeat(*value_expr_id, *size_expr_id)
             }
+            ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, assignee_expr_id, value_expr_id) => {
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, true)
+            }
             ExprKind::Assign(assignee_expr_id, value_expr_id)
             | ExprKind::AssignField(assignee_expr_id, _, value_expr_id)
             | ExprKind::AssignOp(_, assignee_expr_id, value_expr_id) => {
-                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id)
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, false)
             }
             ExprKind::AssignIndex(array_expr_id, index_expr_id, replacement_value_expr_id) => self
                 .analyze_expr_assign_index(

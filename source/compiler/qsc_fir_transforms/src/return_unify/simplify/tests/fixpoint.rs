@@ -448,6 +448,7 @@ fn single_branch_via_run_to_fixpoint() {
                         __ret_val = 1;
                         __has_returned = true;
                     };
+                    __ret_val
                 } else {
                     2
                 };

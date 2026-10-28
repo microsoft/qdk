@@ -667,7 +667,7 @@ fn struct_with_unit_field_decomposes() {
 }
 
 #[test]
-fn mutable_tuple_partial_field_modification() {
+fn partial_tuple_update_saves_unmodified_fields_before_stores() {
     // After UDT erasure, `set t w/= A <- 10` becomes a whole assignment
     // `set t = (10, t.1, t.2)`. tuple-decompose now recognizes this Assign-Tuple
     // pattern as decomposable and splits it into per-element assignments.
@@ -681,7 +681,10 @@ fn mutable_tuple_partial_field_modification() {
         source,
         &expect![[r#"
             Callable Main: input=Tuple()
-              local: mutable Tuple(Bind(t.0: Int), Bind(t.1: Int), Bind(t.2: Int))"#]],
+              local: mutable Tuple(Bind(t.0: Int), Bind(t.1: Int), Bind(t.2: Int))
+              local: Bind(_.tuple_rhs_0: Int)
+              local: Bind(_.tuple_rhs_1: Int)
+              local: Bind(_.tuple_rhs_2: Int)"#]],
     );
     check_before_after_tuple_decompose(
         source,
@@ -700,9 +703,12 @@ fn mutable_tuple_partial_field_modification() {
             newtype Triple = (Int, Int, Int);
             function Main() : Int {
                 mutable (t_0 : Int, t_1 : Int, t_2 : Int) = (1, 2, 3);
-                t_0 = 10;
-                t_1 = t_1;
-                t_2 = t_2;
+                let __tuple_rhs_0 : Int = 10;
+                let __tuple_rhs_1 : Int = t_1;
+                let __tuple_rhs_2 : Int = t_2;
+                t_0 = __tuple_rhs_0;
+                t_1 = __tuple_rhs_1;
+                t_2 = __tuple_rhs_2;
                 (t_0 + t_1) + t_2
             }
             // entry
@@ -1269,7 +1275,7 @@ fn nested_tuple_decomposes_to_nested_scalar_binds() {
 }
 
 #[test]
-fn mutable_tuple_literal_reassignment_decomposes() {
+fn tuple_literal_assignment_snapshots_rhs_before_scalar_stores() {
     // `set x = (3, 4)` with a tuple literal RHS is recognized as
     // decomposable, so `x` is decomposed into `x_0`, `x_1`.
     let source = "struct Pair { A : Int, B : Int }
@@ -1283,7 +1289,9 @@ fn mutable_tuple_literal_reassignment_decomposes() {
         source,
         &expect![[r#"
             Callable Main: input=Tuple()
-              local: mutable Tuple(Bind(x.0: Int), Bind(x.1: Int))"#]],
+              local: mutable Tuple(Bind(x.0: Int), Bind(x.1: Int))
+              local: Bind(_.tuple_rhs_0: Int)
+              local: Bind(_.tuple_rhs_1: Int)"#]],
     );
     check_before_after_tuple_decompose(
         source,
@@ -1302,8 +1310,10 @@ fn mutable_tuple_literal_reassignment_decomposes() {
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable (x_0 : Int, x_1 : Int) = (1, 2);
-                x_0 = 3;
-                x_1 = 4;
+                let __tuple_rhs_0 : Int = 3;
+                let __tuple_rhs_1 : Int = 4;
+                x_0 = __tuple_rhs_0;
+                x_1 = __tuple_rhs_1;
                 x_0 + x_1
             }
             // entry
@@ -1314,7 +1324,7 @@ fn mutable_tuple_literal_reassignment_decomposes() {
 }
 
 #[test]
-fn mutable_tuple_var_reassignment_decomposes() {
+fn tuple_copy_assignment_saves_source_fields_before_scalar_stores() {
     // `set x = other` copies a whole tuple local. Copy-assignment normalization
     // rewrites the bare `Var` RHS into a projection tuple `set x = (other::0,
     // other::1)`, so both `x` and `other` become field-only and decompose into
@@ -1332,7 +1342,9 @@ fn mutable_tuple_var_reassignment_decomposes() {
         &expect![[r#"
             Callable Main: input=Tuple()
               local: Tuple(Bind(other.0: Int), Bind(other.1: Int))
-              local: mutable Tuple(Bind(x.0: Int), Bind(x.1: Int))"#]],
+              local: mutable Tuple(Bind(x.0: Int), Bind(x.1: Int))
+              local: Bind(_.tuple_rhs_0: Int)
+              local: Bind(_.tuple_rhs_1: Int)"#]],
     );
     check_before_after_tuple_decompose(
         source,
@@ -1353,8 +1365,10 @@ fn mutable_tuple_var_reassignment_decomposes() {
             function Main() : Int {
                 let (other_0 : Int, other_1 : Int) = (5, 6);
                 mutable (x_0 : Int, x_1 : Int) = (1, 2);
-                x_0 = other_0;
-                x_1 = other_1;
+                let __tuple_rhs_0 : Int = other_0;
+                let __tuple_rhs_1 : Int = other_1;
+                x_0 = __tuple_rhs_0;
+                x_1 = __tuple_rhs_1;
                 x_0
             }
             // entry

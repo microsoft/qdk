@@ -230,10 +230,7 @@ class ParityAnalysis:
                 continue
             row = next(outcome_rows)
             rows[path] = row
-            deltas[path] = [
-                bool(frames.outcome_deltas[row - len(initial_rows), index])
-                for index in range(len(frame_basis))
-            ]
+            deltas[path] = frames.outcome_delta_row(row - len(initial_rows))
 
         output_operators: dict[str, Pauli] = {}
         for entry, encoding in enumerate(gadget.outputs):
@@ -327,10 +324,7 @@ class ParityAnalysis:
 
         for path, pauli in output_operators.items():
             frame_row = frames.measure(pauli)
-            deltas[path] = [
-                bool(frames.outcome_deltas[frame_row, index])
-                for index in range(len(frame_basis))
-            ]
+            deltas[path] = frames.outcome_delta_row(frame_row)
 
         expected_rows = {}
         observe_actions = [

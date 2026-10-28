@@ -21,12 +21,13 @@
 //!   the value is ever passed whole (argument, return, closure capture), it is
 //!   left intact. `Bind(t)` becomes `Tuple([Bind(t_0), Bind(t_1), ...])`, field
 //!   accesses become direct var refs, and whole-tuple assigns split per element.
+//!   Every RHS element is snapshotted before any of those stores.
 //! - **Iterative fixed point.** Each iteration peels one nesting level; a
 //!   newly exposed tuple-typed leaf (`t_0: (Int, Int)`) is decomposed on the
 //!   next round. Terminates when no candidates remain. `tuple_compare_lower`
 //!   must run first to remove whole-value comparison uses.
 //! - **Aliased `ExprId`s from `tuple_compare_lower` (cross-pass contract).**
-//!   The preceding pass can leave a single element `ExprId` under multiple
+//!   The preceding pass can leave a single local-read `ExprId` under multiple
 //!   parent edges. `replace_expr_references` (used by `rewrite_field_accesses`)
 //!   redirects parent edges by walking every reachable edge in the owning
 //!   callable rather than shared-mutating child nodes, so redirecting one edge
@@ -42,8 +43,8 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::fir_builder::{
-    alloc_assign_expr, alloc_field_path_expr, alloc_local_var_expr, alloc_semi_stmt,
-    decompose_binding, functored_specs, reachable_local_callables,
+    alloc_assign_expr, alloc_field_path_expr, alloc_local_var, alloc_local_var_expr,
+    alloc_semi_stmt, decompose_binding, functored_specs, reachable_local_callables,
 };
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::{
@@ -54,8 +55,8 @@ use crate::walk_utils::{UseClass, classify_block_use, collect_expr_ids_in_local_
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, ItemKind,
-    LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind,
-    Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId,
+    LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore, Pat,
+    PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId,
 };
 use qsc_fir::ty::Ty;
 use qsc_fir::visit::{self, Visitor};
@@ -315,11 +316,11 @@ fn find_tuple_bindings_in_block(package: &Package, block_id: BlockId) -> Vec<Tup
 }
 
 /// Returns `true` if every use of `local_id` in the block is a field access
-/// (`ExprKind::Field(Var(Local(id)), Path(_))`) or a field assignment
-/// (`ExprKind::AssignField(Var(Local(id)), _, _)`).
+/// (`ExprKind::Field(Var(Local(id)), Path(_))`), field assignment, or a
+/// whole-tuple assignment with a tuple-literal RHS.
 ///
 /// Returns `false` if `local_id` is used in any other context: passed as an
-/// argument, returned, captured by closure, assigned whole, etc.
+/// argument, returned, captured by closure, or assigned from a non-literal RHS.
 fn all_uses_are_field_access(package: &Package, block_id: BlockId, local_id: LocalVarId) -> bool {
     classify_block_use(package, block_id, local_id) != UseClass::GeneralUse
 }
@@ -379,7 +380,7 @@ fn decompose_candidate(
 }
 
 /// Rewrites all `ExprKind::Field(Var(Local(old)), Path([i, ...]))` uses across
-/// the entire package so they target the decomposed scalar or nested aggregate
+/// the owning callable so they target the decomposed scalar or nested aggregate
 /// for the first path segment.
 ///
 /// # Before
@@ -681,7 +682,9 @@ pub(crate) fn collect_all_block_ids_in_callable(
 }
 
 /// Splits `Assign(Var(Local(old)), Tuple([e0, e1, ...]))` into per-element
-/// assignments across the containing block.
+/// assignments across the containing block. Evaluate every RHS element before
+/// the first store: directly lowering a swap to `old_0 = old_1; old_1 = old_0`
+/// would lose the original `old_0` value.
 ///
 /// # Before
 /// ```text
@@ -689,14 +692,17 @@ pub(crate) fn collect_all_block_ids_in_callable(
 /// ```
 /// # After
 /// ```text
-/// set old_0 = a;   // original stmt rewritten in-place
-/// set old_1 = b;   // new stmt inserted after
+/// let rhs_0 = a;
+/// let rhs_1 = b;
+/// set old_0 = rhs_0;
+/// set old_1 = rhs_1;
 /// ```
 ///
 /// # Mutations
 /// - Rewrites the original `Assign` `ExprKind` in-place for element 0.
-/// - Allocates new `Expr` and `Stmt` nodes for elements 1..n-1.
-/// - Inserts new statements into the containing block after the original.
+/// - Allocates temporary bindings for every RHS element and additional stores
+///   for elements 1..n-1.
+/// - Inserts snapshots before and remaining stores after the original statement.
 fn rewrite_assign_tuples(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -731,9 +737,33 @@ fn rewrite_assign_tuples(
     }
 
     for (stmt_id, assign_expr_id, elements) in rewrites {
-        let n = elements.len().min(new_locals.len());
+        let n = elements.len();
+        assert_eq!(n, new_locals.len(), "assignment tuple arity must match");
         if n == 0 {
             continue;
+        }
+        let span = package.get_expr(assign_expr_id).span;
+        // Bind every RHS in source order before appending stores, preserving
+        // both saved values and the order of side effects and failures.
+        let mut new_stmt_ids = Vec::with_capacity(2 * n);
+        let mut values = Vec::with_capacity(n);
+        for (i, &element) in elements.iter().enumerate() {
+            let (local, binding) = alloc_local_var(
+                package,
+                assigner,
+                &format!("_.tuple_rhs_{i}"),
+                &elem_types[i],
+                element,
+                Mutability::Immutable,
+            );
+            new_stmt_ids.push(binding);
+            values.push(alloc_local_var_expr(
+                package,
+                assigner,
+                local,
+                elem_types[i].clone(),
+                span,
+            ));
         }
 
         // Rewrite the original Assign in-place to target the first element.
@@ -751,12 +781,12 @@ fn rewrite_assign_tuples(
                 .exprs
                 .get_mut(assign_expr_id)
                 .expect("assign expr exists");
-            assign.kind = ExprKind::Assign(new_lhs_id, elements[0]);
+            assign.kind = ExprKind::Assign(new_lhs_id, values[0]);
             assign.ty = Ty::UNIT;
         }
+        new_stmt_ids.push(stmt_id);
 
         // For elements 1..n, create new Assign exprs and Semi stmts.
-        let mut new_stmt_ids: Vec<StmtId> = Vec::with_capacity(n - 1);
         for i in 1..n {
             let lhs_id = alloc_local_var_expr(
                 package,
@@ -769,7 +799,7 @@ fn rewrite_assign_tuples(
                 package,
                 assigner,
                 lhs_id,
-                elements[i],
+                values[i],
                 package.synthetic_span(),
             );
             let new_stmt_id =
@@ -777,7 +807,7 @@ fn rewrite_assign_tuples(
             new_stmt_ids.push(new_stmt_id);
         }
 
-        // Insert the new stmts into the containing block after the original stmt.
+        // Snapshot every RHS value before the first destination is written.
         let block_id = stmt_block_map
             .get(&stmt_id)
             .expect("stmt_id is always valid");
@@ -790,8 +820,6 @@ fn rewrite_assign_tuples(
             .iter()
             .position(|&s| s == stmt_id)
             .expect("stmt_id should be in block");
-        for (offset, new_id) in new_stmt_ids.into_iter().enumerate() {
-            block.stmts.insert(pos + 1 + offset, new_id);
-        }
+        block.stmts.splice(pos..=pos, new_stmt_ids);
     }
 }

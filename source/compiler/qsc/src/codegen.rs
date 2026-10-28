@@ -1694,12 +1694,11 @@ pub mod qir {
 
     /// Lowers a closure value to a FIR expression for the synthetic entry.
     ///
-    /// A captureless closure becomes a `Var` reference to its underlying callable.
-    /// A capturing closure becomes an `ExprKind::Closure` value: each captured value
-    /// is lowered and bound to a fresh local (collected in `pending_stmts`), and the
-    /// closure expression references those locals so partial evaluation rebuilds the
-    /// captured arguments in their original leading order. The runtime functor
-    /// application is preserved in both cases.
+    /// Captures are bound to fresh locals and referenced by an `ExprKind::Closure`.
+    /// A capture-free value can be a direct item reference only when its public
+    /// input matches the implementation input. Lifted lambdas retain the closure
+    /// wrapper that packs the explicit input into the implementation's tuple.
+    /// Runtime functors are preserved in either representation.
     fn lower_closure_to_expr(
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
@@ -1707,24 +1706,15 @@ pub mod qir {
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
-        // Full type of the underlying lifted callable, whose input is the tuple
-        // `(captures.., explicit_input)` when the closure has captures.
+        // Lifted lambdas use `(captures.., explicit_input)`, even with no captures.
         let full_ty = callable_types
             .get(&closure.id)
             .expect("Closure callable type must be pre-computed")
             .ty
             .clone();
 
-        if closure.fixed_args.is_empty() {
-            // Captureless closure: a direct `Var` reference to the callable suffices;
-            // defunctionalization specializes it without any capture context.
-            let kind = qsc_fir::fir::ExprKind::Var(
-                qsc_fir::fir::Res::Item(qsc_fir::fir::ItemId {
-                    package: closure.id.package,
-                    item: closure.id.item,
-                }),
-                Vec::new(),
-            );
+        let closure_ty = partial_applied_closure_ty(&full_ty, closure.fixed_args.len());
+        if closure.fixed_args.is_empty() && closure_ty == full_ty {
             let expr_id = assigner.next_expr();
             package.exprs.insert(
                 expr_id,
@@ -1732,7 +1722,13 @@ pub mod qir {
                     id: expr_id,
                     span: package.synthetic_span(),
                     ty: full_ty.clone(),
-                    kind,
+                    kind: qsc_fir::fir::ExprKind::Var(
+                        qsc_fir::fir::Res::Item(qsc_fir::fir::ItemId {
+                            package: closure.id.package,
+                            item: closure.id.item,
+                        }),
+                        Vec::new(),
+                    ),
                     exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
                         ..qsc_fir::fir::ExecGraphIdx::ZERO,
                 },
@@ -1746,10 +1742,8 @@ pub mod qir {
             );
         }
 
-        // Capturing closure: materialize each capture as an in-scope local, then
-        // build an `ExprKind::Closure` value referencing those locals. The capture
-        // bindings are emitted in their original leading order so partial evaluation
-        // reconstructs the closure's fixed arguments correctly.
+        // Materialize each capture as an in-scope local, then build an
+        // `ExprKind::Closure` value referencing those locals.
         let capture_ty_hints = closure_capture_ty_hints(&full_ty, closure.fixed_args.len());
         let mut capture_locals = Vec::with_capacity(closure.fixed_args.len());
         for (idx, capture) in closure.fixed_args.iter().enumerate() {
@@ -1757,9 +1751,7 @@ pub mod qir {
                 package,
                 assigner,
                 capture,
-                capture_ty_hints
-                    .as_ref()
-                    .map(|capture_tys| &capture_tys[idx]),
+                capture_ty_hints.as_ref().map(|types| &types[idx]),
                 callable_types,
                 pending_stmts,
             );
@@ -1777,7 +1769,6 @@ pub mod qir {
 
         // The closure value's type is the partially applied arrow that drops the
         // leading captures from the lifted callable's input.
-        let closure_ty = partial_applied_closure_ty(&full_ty, closure.fixed_args.len());
         let expr_id = assigner.next_expr();
         package.exprs.insert(
             expr_id,
@@ -1860,7 +1851,7 @@ pub mod qir {
         (stmt_id, local_var_id)
     }
 
-    /// Computes the externally visible arrow type for a capturing closure value.
+    /// Computes the externally visible arrow type for a closure value.
     ///
     /// The lifted callable's input is the tuple `(captures.., explicit_input)`;
     /// dropping the leading captures yields the closure type the target parameter
@@ -1870,9 +1861,6 @@ pub mod qir {
         full_ty: &qsc_fir::ty::Ty,
         capture_count: usize,
     ) -> qsc_fir::ty::Ty {
-        if capture_count == 0 {
-            return full_ty.clone();
-        }
         let qsc_fir::ty::Ty::Arrow(arrow) = full_ty else {
             // A closure value with captures should always have an arrow type; a
             // non-arrow here signals an upstream lowering invariant break.
@@ -1891,6 +1879,7 @@ pub mod qir {
                     qsc_fir::ty::Ty::Tuple(rest.to_vec())
                 }
             }
+            other if capture_count == 0 => other.clone(),
             other => {
                 // The arrow input must be a tuple with at least one slot left
                 // after dropping the captured prefix; anything else means the
@@ -1984,12 +1973,10 @@ pub mod qir {
             ));
         }
 
-        // Runtime identities (allocated qubits, dynamic values, and closures
-        // that capture them) cannot be reconstructed as FIR literals, so they
-        // keep the pin-based approach where partial evaluation supplies the
-        // original values at QIR generation time. Fully lowerable values flow
-        // into the self-contained synthetic entry below.
-        if !value_is_fir_lowerable(args) {
+        // Runtime identities and foreign closures keep their original values
+        // through reinvocation. FIR closures have package-local targets, so
+        // reconstructing a foreign closure in this package would change its identity.
+        if !value_is_fir_lowerable(args, target_callable.package) {
             let codegen_fir = prepare_codegen_fir_from_callable_args_pinned(
                 package_store,
                 callable,
@@ -2137,8 +2124,9 @@ pub mod qir {
     /// as FIR literals and callable references.
     ///
     /// Runtime identities such as allocated qubits and dynamic measurement results
-    /// have no classical literal form and therefore cannot be lowered.
-    fn value_is_fir_lowerable(value: &Value) -> bool {
+    /// have no classical literal form and therefore cannot be lowered. Foreign
+    /// closures also require reinvocation: FIR closure targets are package-local.
+    fn value_is_fir_lowerable(value: &Value, package: qsc_fir::fir::PackageId) -> bool {
         match value {
             Value::Int(_)
             | Value::Double(_)
@@ -2149,9 +2137,18 @@ pub mod qir {
             | Value::Range(_)
             | Value::Result(qsc_eval::val::Result::Val(_))
             | Value::Global(..) => true,
-            Value::Tuple(vs, _) => vs.iter().all(value_is_fir_lowerable),
-            Value::Array(vs) => vs.iter().all(value_is_fir_lowerable),
-            Value::Closure(c) => c.fixed_args.iter().all(value_is_fir_lowerable),
+            Value::Tuple(vs, _) => vs
+                .iter()
+                .all(|value| value_is_fir_lowerable(value, package)),
+            Value::Array(vs) => vs
+                .iter()
+                .all(|value| value_is_fir_lowerable(value, package)),
+            Value::Closure(c) => {
+                c.id.package == package
+                    && c.fixed_args
+                        .iter()
+                        .all(|value| value_is_fir_lowerable(value, package))
+            }
             _ => false,
         }
     }
