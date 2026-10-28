@@ -75,21 +75,71 @@ fn conditional_join_declines_unresolved_index_alternatives() {
             CalleeLattice::Dynamic
         );
     }
+    for (left, right) in [
+        (
+            vec![(global(1), vec![])],
+            vec![
+                (global(2), vec![]),
+                (global(3), vec![]),
+                (global(2), vec![]),
+            ],
+        ),
+        (
+            vec![(global(1), vec![]), (global(2), vec![])],
+            vec![
+                (global(3), vec![]),
+                (global(1), vec![]),
+                (global(3), vec![]),
+            ],
+        ),
+        (
+            vec![(global(1), vec![ExprId::from(10_u32)]), (global(2), vec![])],
+            vec![
+                (global(3), vec![ExprId::from(20_u32)]),
+                (global(1), vec![]),
+                (global(3), vec![]),
+            ],
+        ),
+        (
+            vec![(global(1), vec![])],
+            vec![(global(2), vec![]); MULTI_CAP],
+        ),
+    ] {
+        let left = CalleeLattice::Multi(left);
+        let right = CalleeLattice::Multi(right);
+        assert_eq!(
+            left.clone().join_with_condition(right.clone(), cond()),
+            CalleeLattice::Dynamic
+        );
+        assert_eq!(
+            right.join_with_condition(left, cond()),
+            CalleeLattice::Dynamic
+        );
+    }
 }
 
 #[test]
 fn conditional_join_preserves_unchanged_index_alternatives() {
-    let indexed = CalleeLattice::Multi(vec![(global(1), vec![]), (global(2), vec![])]);
-    assert_eq!(
-        indexed.clone().join_with_condition(indexed.clone(), cond()),
-        indexed
-    );
-    assert_eq!(
-        indexed
-            .clone()
-            .join_with_condition(CalleeLattice::Bottom, cond()),
-        indexed
-    );
+    for entries in [
+        vec![(global(1), vec![]), (global(2), vec![])],
+        vec![
+            (global(1), vec![]),
+            (global(2), vec![]),
+            (global(1), vec![]),
+        ],
+    ] {
+        let indexed = CalleeLattice::Multi(entries);
+        assert_eq!(
+            indexed.clone().join_with_condition(indexed.clone(), cond()),
+            indexed
+        );
+        assert_eq!(
+            indexed
+                .clone()
+                .join_with_condition(CalleeLattice::Bottom, cond()),
+            indexed
+        );
+    }
 }
 
 #[test]
@@ -381,6 +431,7 @@ fn compose_functors_adj_and_ctl() {
 fn spec_key_equality() {
     let key1 = SpecKey {
         hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
+        param_positions: vec![(0, vec![])],
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
@@ -391,6 +442,7 @@ fn spec_key_equality() {
     };
     let key2 = SpecKey {
         hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
+        param_positions: vec![(0, vec![])],
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
@@ -406,6 +458,7 @@ fn spec_key_equality() {
 fn spec_key_different() {
     let key1 = SpecKey {
         hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
+        param_positions: vec![(0, vec![])],
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
@@ -416,6 +469,7 @@ fn spec_key_different() {
     };
     let key2 = SpecKey {
         hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
+        param_positions: vec![(0, vec![])],
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
