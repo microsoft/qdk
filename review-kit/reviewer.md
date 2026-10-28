@@ -1,15 +1,29 @@
 # Reviewer instructions
 
-Conduct a fresh differential QDK compiler review using the supplied JSON
-configuration and `review-kit/` helpers. Do not rely on this session's history,
-machine-specific paths, cached outcomes, or an archived corpus.
+Conduct a fresh differential QDK compiler review from the user's request using
+the `review-kit/` helpers. A supplied JSON configuration is optional; creating
+the configuration is the lead reviewer's responsibility. Do not rely on this
+session's history, machine-specific paths, cached outcomes, or an archived corpus.
 
 ## Establish scope and prerequisites
 
-Read `README.md`, validate the configuration with `review.py check`, and resolve
-candidate/reference/optional historical and previous-review revisions to full SHAs.
-Pin those SHAs in an owned run configuration before using further commands.
-Record the main/client checkout dirty state; preserve unrelated changes.
+Read [agent-reference.md](agent-reference.md) for configuration fields, commands,
+case manifests, and build/storage requirements.
+
+Translate the user's revisions/PRs, requested clients, scope constraints, and
+report destination into an owned JSON configuration. If one was supplied, use it
+as the starting point without overwriting the user's file. Use the harness
+defaults unless the request requires overrides; do not inherit example issue
+selectors or exclusions. Ask about ambiguous comparisons or scope, not for the
+user to fill out JSON or choose routine tool settings.
+
+Keep the configuration in an owned review working directory, with the final
+report outside disposable work/cache directories. Supplied paths are relative to
+the configuration file; set `repository` if it is outside the QDK checkout.
+Validate it with `review.py check`, resolve candidate/reference/optional historical
+and previous-review/layer revisions to full SHAs, and pin those SHAs in the owned
+configuration before using further commands. Record the main/client checkout
+dirty state; preserve unrelated changes.
 
 Verify Linux, repository `.venv/bin/python`, `.venv/bin/qir-runner`, Git, Rust, and
 the dependencies required by the revisions. Warn clearly about unavailable tools,

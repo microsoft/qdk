@@ -2,7 +2,8 @@
 
 Use this when the user asks for issues to file. Draft only; never file issues or post
 comments unless separately authorized. Generate the drafts with
-`review.py draft-issues` (see the README): it renders each repro from
+`review.py draft-issues` (see
+[agent-reference.md](agent-reference.md#drafting-issues)): it renders each repro from
 `templates/issue_repro.py.template`, executes it at every revision, and fills in the
 Outputs table, the messages and the panic links from those executions. Never type
 outputs by hand.
