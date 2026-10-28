@@ -1012,7 +1012,8 @@ fn cast_to_bitarray(cast: &Cast, ctx: &mut Lowerer) -> Option<LiteralKind> {
             Bitstring(val, size)
         }),
         Type::Int(..) | Type::UInt(..) => rewrap_lit!(lit, Int(val), {
-            let actual_bits = number_of_bits(val);
+            let is_signed = matches!(cast.expr.ty, Type::Int(..));
+            let actual_bits = number_of_bits(val, is_signed);
             if actual_bits > size {
                 ctx.push_const_eval_error(ConstEvalError::ValueOverflow(
                     cast.expr.ty.to_string(),
@@ -1021,19 +1022,27 @@ fn cast_to_bitarray(cast: &Cast, ctx: &mut Lowerer) -> Option<LiteralKind> {
                 ));
                 return None;
             }
-            Bitstring(BigInt::from(val), size)
+            // Bitstrings hold non-negative values, so negative ints are
+            // converted to their two's complement representation in `size` bits.
+            let mask = (BigInt::from(1) << size) - 1;
+            Bitstring(BigInt::from(val) & mask, size)
         }),
         _ => None,
     }
 }
 
-fn number_of_bits(mut val: i64) -> u32 {
-    let mut bits = 0;
-    while val != 0 {
-        val >>= 1;
-        bits += 1;
+/// Returns the minimum number of bits needed to represent `val`.
+/// Signed values use their two's complement representation, and
+/// unsigned values are reinterpreted as `u64`.
+fn number_of_bits(val: i64, is_signed: bool) -> u32 {
+    if is_signed && val < 0 {
+        // One sign bit plus the significant bits below the leading ones.
+        i64::BITS - val.leading_ones() + 1
+    } else {
+        #[allow(clippy::cast_sign_loss)]
+        let val = val as u64;
+        u64::BITS - val.leading_zeros()
     }
-    bits
 }
 
 /// +---------------+-----------------------------------------+
