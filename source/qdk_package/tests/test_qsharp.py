@@ -400,6 +400,78 @@ def test_compiled_recursive_retry_preserves_budget_outcomes(
     assert compiled == [expected] * 4
 
 
+@pytest.mark.parametrize("depth", [0, 1, 2])
+@pytest.mark.parametrize("allocation_operand", ["index", "replacement"])
+def test_compiled_array_update_finishes_local_qubit_scope_before_recursion(
+    depth: int, allocation_operand: str
+) -> None:
+    local_scope = """
+        use local = Qubit();
+        X(local);
+        if MResetZ(local) == One { X(target); }
+    """
+    index = f"{{ {local_scope} 0 }}" if allocation_operand == "index" else "0"
+    replacement = (
+        f"{{ {local_scope} true }}" if allocation_operand == "replacement" else "true"
+    )
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(f"""
+        operation Rec(depth : Int, target : Qubit) : Unit {{
+            let ignored = {{
+                if depth > 0 {{ Rec(depth - 1, target); }}
+                Reset(target);
+                [false]
+            }}
+                w/ {index} <- {replacement};
+        }}
+        operation Main() : Result {{
+            use (flag, target) = (Qubit(), Qubit()); X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Rec(depth, target);
+            MResetZ(target)
+        }}
+    """)
+
+    assert qsharp.eval("Main()") == qsharp.Result.Zero
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [qsharp.Result.Zero]
+
+
+@pytest.mark.parametrize("index,replacement", [("0", "value"), ("0..0", "[value]")])
+def test_compiled_array_update_captures_replacement_before_container(
+    index: str, replacement: str
+) -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(f"""
+        operation Main() : Bool[] {{
+            use q = Qubit();
+            mutable value = MResetZ(q) == One;
+            let updated = {{ set value = not value; [false] }} w/ {index} <- {replacement};
+            updated
+        }}
+    """)
+
+    assert qsharp.eval("Main()") == [False]
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [[False]]
+
+
+def test_compiled_array_update_assignment_preserves_index_effects() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Bool[] {
+            use q = Qubit();
+            mutable values = [false, false];
+            set values w/= { set values w/= 1 <- MResetZ(q) == Zero; 0 } <- false;
+            values
+        }
+    """)
+
+    assert qsharp.eval("Main()") == [False, True]
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [[False, True]]
+
+
 def test_compile_qir_str_from_python_callable() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")

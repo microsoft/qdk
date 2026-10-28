@@ -4828,6 +4828,81 @@ fn assert_array_update_reentry_before_release_is_rejected(
 }
 
 #[test]
+fn array_update_evaluates_index_then_replacement_then_container() {
+    let expected = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            H(q); X(q); Z(q);
+            MResetZ(q)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    for (index, replacement) in [("0", "true"), ("0..0", "[true]")] {
+        let source = format!(
+            r#"
+            operation Main() : Result {{
+                use q = Qubit();
+                let ignored = {{ Z(q); [false] }}
+                    w/ {{ H(q); {index} }} <- {{ X(q); {replacement} }};
+                MResetZ(q)
+            }}
+            "#
+        );
+        assert_eq!(
+            compile_source_to_qir(&source, *CAPABILITIES),
+            expected,
+            "index {index}: operand effects must run in source order"
+        );
+    }
+}
+
+#[test]
+fn recursive_array_update_finishes_local_qubit_scope_before_reentry() {
+    let program = |statement: &str| {
+        format!(
+            r#"
+            operation Rec(depth : Int, target : Qubit) : Unit {{
+                {statement}
+            }}
+            operation Main() : Result {{
+                use (flag, target) = (Qubit(), Qubit()); X(flag);
+                let depth = if MResetZ(flag) == One {{ 1 }} else {{ 0 }};
+                Rec(depth, target);
+                MResetZ(target)
+            }}
+            "#
+        )
+    };
+    let local_scope = "use local = Qubit(); X(local);
+        if MResetZ(local) == One { X(target); }";
+    for (index, replacement) in [
+        (format!("{{ {local_scope} 0 }}"), "true".to_string()),
+        ("0".to_string(), format!("{{ {local_scope} true }}")),
+    ] {
+        let source = program(&format!(
+            "let ignored = {{ if depth > 0 {{ Rec(depth - 1, target); }} Reset(target); [false] }}
+                w/ {index} <- {replacement};"
+        ));
+        let qir = compile_source_to_qir(&source, *CAPABILITIES);
+        assert_static_resource_management(&qir, 3, 3);
+        let body = recursive_emitted_dataflow(&qir, &["Rec"]);
+        let (before_reentry, after_reentry) = body
+            .split_once("call void @Rec(")
+            .expect("the recursive call must be emitted");
+        assert!(
+            before_reentry.contains("call void @__quantum__qis__mresetz__body("),
+            "the local qubit must be measured and reset before recursive reentry:\n{body}"
+        );
+        assert!(
+            after_reentry.contains("call void @Reset("),
+            "the container must reset the target after recursive reentry:\n{body}"
+        );
+    }
+}
+
+#[test]
 fn qubit_release_in_array_update_index_precedes_recursive_replacement() {
     assert_array_update_release_preserves_direct_release_qir(
         r#"let ignored = [false]

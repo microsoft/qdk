@@ -587,14 +587,12 @@ impl<'a> PartialEvaluator<'a> {
         )
     }
 
-    fn eval_array_update_index(
+    fn eval_array_update_operands(
         &mut self,
-        array: &[Value],
         index_expr_id: ExprId,
         update_expr_id: ExprId,
-    ) -> Result<Value, Error> {
-        // Try to evaluate the index and update expressions to get their value, short-circuiting execution if any of the
-        // expressions is a return.
+    ) -> Result<(Value, Value), Error> {
+        // Capture both operands before reading the array, matching the execution graph.
         let index_expr_package_span = self.get_expr_package_span(index_expr_id);
         let index_control_flow = self.try_eval_expr(index_expr_id)?;
         let EvalControlFlow::Continue(index_value) = index_control_flow else {
@@ -603,6 +601,7 @@ impl<'a> PartialEvaluator<'a> {
                 index_expr_package_span,
             ));
         };
+        let index_value = self.copy_value_if_needed(index_value);
         let update_control_flow = self.try_eval_expr(update_expr_id)?;
         let EvalControlFlow::Continue(update_value) = update_control_flow else {
             return Err(Error::Unexpected(
@@ -610,13 +609,19 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(update_expr_id),
             ));
         };
+        let update_value = self.copy_value_if_needed(update_value);
+        Ok((index_value, update_value))
+    }
 
-        // Set the value at the specified index or range.
+    fn apply_array_update(
+        array: &[Value],
+        index_value: Value,
+        update_value: Value,
+        index_expr_package_span: PackageSpan,
+    ) -> Result<Value, Error> {
         let update_result = match index_value {
             Value::Int(index) => {
-                let elem_value = self.copy_value_if_needed(update_value);
-
-                update_index_single(array, index, elem_value, index_expr_package_span)
+                update_index_single(array, index, update_value, index_expr_package_span)
             }
             Value::Range(range) => update_index_range(
                 array,
@@ -1516,6 +1521,8 @@ impl<'a> PartialEvaluator<'a> {
         index_expr_id: ExprId,
         update_expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
+        let (index_value, update_value) =
+            self.eval_array_update_operands(index_expr_id, update_expr_id)?;
         // Get the value of the array to use it as the basis to perform the update.
         let array_expr = self.get_expr(array_expr_id);
         let ExprKind::Var(Res::Local(array_loc_id), _) = &array_expr.kind else {
@@ -1529,8 +1536,12 @@ impl<'a> PartialEvaluator<'a> {
             .unwrap_array();
 
         // Evaluate the updated array and update the corresponding bindings.
-        let new_array_value =
-            self.eval_array_update_index(&array, index_expr_id, update_expr_id)?;
+        let new_array_value = Self::apply_array_update(
+            &array,
+            index_value,
+            update_value,
+            self.get_expr_package_span(index_expr_id),
+        )?;
         self.update_bindings(array_expr_id, new_array_value)?;
         Ok(EvalControlFlow::Continue(Value::unit()))
     }
@@ -3079,6 +3090,8 @@ impl<'a> PartialEvaluator<'a> {
         index_expr_id: ExprId,
         update_expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
+        let (index_value, update_value) =
+            self.eval_array_update_operands(index_expr_id, update_expr_id)?;
         // Get the value of the array expression to use it as the basis to perform a replacement on.
         let array_control_flow = self.try_eval_expr(array_expr_id)?;
         let EvalControlFlow::Continue(array_value) = array_control_flow else {
@@ -3088,7 +3101,12 @@ impl<'a> PartialEvaluator<'a> {
             ));
         };
         let array = array_value.unwrap_array();
-        let updated_array = self.eval_array_update_index(&array, index_expr_id, update_expr_id)?;
+        let updated_array = Self::apply_array_update(
+            &array,
+            index_value,
+            update_value,
+            self.get_expr_package_span(index_expr_id),
+        )?;
         Ok(EvalControlFlow::Continue(updated_array))
     }
 
