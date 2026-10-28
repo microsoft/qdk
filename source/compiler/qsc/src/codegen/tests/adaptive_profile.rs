@@ -459,26 +459,26 @@ fn recursive_static_budget_emits_guarded_retry_body() {
 
 #[test]
 fn recursive_static_budgets_preserve_entry_arguments_and_preparation() {
-    let source = r#"
-        operation Rus(budget : Int, q : Qubit, out : Qubit) : Unit {
-            if budget > 0 {
-                if MResetZ(q) == Zero { X(q); Rus(budget - 1, q, out); } else { X(out); }
-            }
-        }
-        operation Main() : Result {
-            use q = Qubit();
-            use out = Qubit();
-            PREPARATION
-            Rus(BUDGET, q, out);
-            Reset(q);
-            MResetZ(out)
-        }
-    "#;
     for budget in [0, 1, 3] {
         for prepared in [false, true] {
-            let source = source
-                .replace("BUDGET", &budget.to_string())
-                .replace("PREPARATION", if prepared { "X(q);" } else { "" });
+            let preparation = if prepared { "X(q);" } else { "" };
+            let source = format!(
+                r#"
+                operation Rus(budget : Int, q : Qubit, out : Qubit) : Unit {{
+                    if budget > 0 {{
+                        if MResetZ(q) == Zero {{ X(q); Rus(budget - 1, q, out); }} else {{ X(out); }}
+                    }}
+                }}
+                operation Main() : Result {{
+                    use q = Qubit();
+                    use out = Qubit();
+                    {preparation}
+                    Rus({budget}, q, out);
+                    Reset(q);
+                    MResetZ(out)
+                }}
+                "#
+            );
             let qir = compile_source_to_qir(&source, *CAPABILITIES);
             assert_static_resource_management(&qir, 2, 2);
             let entry = super::qir_entry_body(&qir);
