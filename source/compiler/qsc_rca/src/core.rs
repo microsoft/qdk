@@ -2658,9 +2658,13 @@ fn derive_intrinsic_function_application_generator_set(
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
             _ => ParamApplication::Element(ElementParamApplication {
-                constant: ComputeKind::Dynamic {
-                    runtime_features: RuntimeFeatureFlags::empty(),
-                    value_kind: ValueKind::Constant,
+                constant: if is_any_result(&param.ty) {
+                    param_compute_kind
+                } else {
+                    ComputeKind::Dynamic {
+                        runtime_features: RuntimeFeatureFlags::empty(),
+                        value_kind: ValueKind::Constant,
+                    }
                 },
                 variable: param_compute_kind,
             }),
