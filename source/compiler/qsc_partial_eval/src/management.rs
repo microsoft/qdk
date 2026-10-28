@@ -35,7 +35,8 @@ pub(crate) struct QubitStateSnapshot {
 }
 
 impl ResourceManager {
-    /// Register a qubit supplied by the caller of partial evaluation.
+    /// Register a caller-supplied qubit before evaluating any statements.
+    /// This is an input boundary, not a way to revive released allocations.
     pub(crate) fn register_input_qubit(&mut self, q: &QubitRef) -> bool {
         let Some(q) = q.try_deref() else {
             return false;

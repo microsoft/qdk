@@ -86,6 +86,13 @@ pub fn partially_evaluate(
 }
 
 /// Partially evaluates a callable with the specified arguments.
+///
+/// The caller must supply live qubit arguments, including qubits captured by
+/// closures. Their identities are registered as inputs to this evaluation;
+/// releases performed by this evaluation are tracked independently. A
+/// `QubitRef` carries no source-manager liveness information beyond its weak
+/// reference, so a reference retained by another owner cannot establish that
+/// the source manager has not released it.
 pub fn partially_evaluate_call(
     package_store: &PackageStore,
     compute_properties: &PackageStoreComputeProperties,
@@ -549,6 +556,9 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn invoke(mut self, callable: StoreItemId, args: Value) -> Result<Program, Error> {
+        // Import caller-owned identities once, before evaluating the body.
+        // Later uses must pass the manager's allocation-aware liveness check;
+        // an external strong reference must not mask a release in this call.
         for qubit in args.qubits() {
             if !self.resource_manager.register_input_qubit(&qubit) {
                 return Err(

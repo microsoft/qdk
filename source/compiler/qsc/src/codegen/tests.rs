@@ -4866,6 +4866,46 @@ fn early_return_in_dynamic_branch_reinvoke_original_compiles_parity_target() {
 }
 
 #[test]
+fn callable_input_qubit_release_is_not_hidden_by_external_owner() {
+    let caps = TargetCapabilityFlags::from(Profile::AdaptiveRIF)
+        | TargetCapabilityFlags::DynamicQubitAllocation;
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Run(q : Qubit) : Unit {
+                QIR.Runtime.__quantum__rt__qubit_release(q);
+                let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                X(q);
+                QIR.Runtime.__quantum__rt__qubit_release(fresh);
+            }
+        }
+    "#};
+    let (store, pkg, items) = compile_and_locate_items(source, &[("Run", true)], caps);
+    let external = Rc::new(qsc_eval::val::Qubit(0));
+    let args = Value::Qubit((&external).into());
+    let (codegen_fir, backend) =
+        prepare_codegen_fir_from_callable_args(&store, hir_id_for(pkg, items["Run"]), &args, caps)
+            .unwrap_or_else(|errors| {
+                panic!("preparation failed: {}", format_interpret_errors(errors))
+            });
+    let CallableArgsBackend::ReinvokeOriginal { callable, args } = backend else {
+        panic!("qubit arguments must use reinvocation");
+    };
+    let error = qsc_codegen::qir::fir_to_qir_from_callable(
+        &codegen_fir.fir_store,
+        caps,
+        &codegen_fir.compute_properties,
+        callable,
+        args,
+    )
+    .expect_err("a caller-owned Rc must not hide release and numeric-ID reuse");
+    assert!(matches!(
+        error,
+        qsc_partial_eval::Error::EvaluationFailed(message, _)
+            if message == "qubit used after release"
+    ));
+}
+
+#[test]
 fn synthetic_path_udt_wrapped_controlled_callable_preserves_functor() {
     let source = indoc::indoc! {r#"
         namespace Test {
