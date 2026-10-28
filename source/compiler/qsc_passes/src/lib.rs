@@ -26,6 +26,7 @@ mod test_attribute;
 
 use callable_limits::CallableLimits;
 use capabilitiesck::{check_supported_capabilities_for_callable, lower_store, run_rca_pass};
+pub use entry_point::Error as EntryPointError;
 use entry_point::generate_entry_expr;
 use index_assignment::ConvertToWSlash;
 use loop_control::LoopControl;

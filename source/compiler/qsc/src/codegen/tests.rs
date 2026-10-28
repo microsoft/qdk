@@ -5258,6 +5258,246 @@ fn check_runtime_controlled_generic_callable(
 }
 
 #[test]
+fn runtime_callable_entry_rejects_uninferred_type_arguments() {
+    use miette::Diagnostic;
+
+    let source = r#"
+        function Produce<'T>() : 'T { fail "must not run"; }
+        operation Run<'T>(read : Unit -> 'T) : Result {
+            use q = Qubit();
+            MResetZ(q)
+        }
+        operation RunEmpty<'T>(values : 'T[], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            op(q);
+            MResetZ(q)
+        }
+    "#;
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let produce = runtime_argument_global(&interpreter, "Produce");
+        let empty_and_op = Value::Tuple(
+            vec![
+                Value::Array(Vec::new().into()),
+                eval_fragments(&mut interpreter, "X"),
+            ]
+            .into(),
+            None,
+        );
+        for (name, args) in [("Run", produce), ("RunEmpty", empty_and_op)] {
+            let errors = interpreter
+                .qirgen_from_callable(&runtime_argument_global(&interpreter, name), args)
+                .expect_err("missing type evidence must not be replaced with Unit");
+            assert_eq!(errors.len(), 1, "{profile:?}, {name}: {errors:?}");
+            assert_eq!(
+                errors[0].code().expect("diagnostic code").to_string(),
+                "Qdk.Qsc.EntryPoint.MissingTypeArguments",
+                "{profile:?}, {name}"
+            );
+            let labels: Vec<_> = errors[0].labels().expect("callable source label").collect();
+            assert_eq!(labels.len(), 1);
+            let span = labels[0].inner();
+            assert_eq!(&source[span.offset()..span.offset() + span.len()], name);
+            assert!(errors[0].source_code().is_some());
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_entry_accepts_concrete_type_evidence() {
+    let source = r#"
+        function ProduceInt() : Int { 7 }
+        function ReadInt(value : Int) : Int { value }
+        operation Run<'T>(read : Unit -> 'T) : Result {
+            let _ = read();
+            use q = Qubit();
+            MResetZ(q)
+        }
+        operation RunEmpty<'T>(values : 'T[], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            op(q);
+            MResetZ(q)
+        }
+        operation RunInferred<'T>(values : 'T[], read : 'T -> Int) : Result {
+            use q = Qubit();
+            MResetZ(q)
+        }
+        operation RunInferredReverse<'T>(read : 'T -> Int, values : 'T[]) : Result {
+            use q = Qubit();
+            MResetZ(q)
+        }
+    "#;
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        for (name, expression) in [
+            ("Run", "ProduceInt"),
+            ("RunEmpty", "([7], X)"),
+            (
+                "RunInferred",
+                "({ let values : Int[] = []; values }, ReadInt)",
+            ),
+            (
+                "RunInferredReverse",
+                "(ReadInt, { let values : Int[] = []; values })",
+            ),
+        ] {
+            let argument = eval_fragments(&mut interpreter, expression);
+            let actual = interpreter
+                .qirgen_from_callable(&runtime_argument_global(&interpreter, name), argument)
+                .unwrap_or_else(|errors| {
+                    panic!("{profile:?}, {name}: {}", format_interpret_errors(errors));
+                });
+            let expected = interpreter
+                .qirgen(&format!("{name}({expression})"))
+                .expect("source call has concrete type evidence");
+            assert_eq!(
+                actual, expected,
+                "{profile:?}, {name}: preserve inferred types"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_functor_generic_callable_without_bound_matches_source_qir() {
+    check_runtime_functor_generic_callable("", 0, true, "", false);
+}
+
+#[test]
+fn runtime_functor_generic_callable_with_adjoint_bound_matches_source_qir() {
+    check_runtime_functor_generic_callable("", 0, true, "is Adj", false);
+}
+
+#[test]
+fn runtime_functor_generic_callable_with_controlled_bound_matches_source_qir() {
+    check_runtime_functor_generic_callable("", 0, true, "is Ctl", false);
+}
+
+#[test]
+fn runtime_functor_generic_callable_with_both_bounds_matches_source_qir() {
+    check_runtime_functor_generic_callable("", 0, true, "is Adj + Ctl", false);
+}
+
+#[test]
+fn runtime_functor_generic_adjoint_matches_source_qir() {
+    check_runtime_functor_generic_callable("Adjoint", 0, false, "is Adj + Ctl", false);
+}
+
+#[test]
+fn runtime_functor_generic_controlled_matches_source_qir() {
+    check_runtime_functor_generic_callable("Controlled", 1, true, "is Adj + Ctl", false);
+}
+
+#[test]
+fn runtime_functor_generic_nested_controlled_adjoint_matches_source_qir() {
+    check_runtime_functor_generic_callable(
+        "Controlled Controlled Adjoint",
+        2,
+        false,
+        "is Adj + Ctl",
+        false,
+    );
+}
+
+#[test]
+fn runtime_mixed_type_and_functor_generic_callable_matches_source_qir() {
+    check_runtime_functor_generic_callable("Controlled Adjoint", 1, false, "is Adj + Ctl", true);
+}
+
+fn check_runtime_functor_generic_callable(
+    functor: &str,
+    controlled_depth: usize,
+    expected_result: bool,
+    bound: &str,
+    generic_type: bool,
+) {
+    let (generics, operand_type) = if generic_type {
+        ("<'T>", "'T")
+    } else {
+        ("", "Qubit")
+    };
+    let mut input = format!("((Qubit => Unit {bound}), Qubit)");
+    let mut argument = "(S, q)".to_string();
+    for index in (0..controlled_depth).rev() {
+        input = format!("(Qubit[], {input})");
+        argument = format!("([controls[{index}]], {argument})");
+    }
+    let source = format!(
+        r#"
+        operation ApplyOp{generics}(op : {operand_type} => Unit {bound}, value : {operand_type}) : Unit {bound} {{
+            op(value);
+        }}
+        operation Run(f : {input} => Unit) : Result {{
+            use controls = Qubit[{controlled_depth}];
+            for control in controls {{ X(control); }}
+            use q = Qubit();
+            H(q);
+            S(q);
+            f{argument};
+            H(q);
+            for control in controls {{ Reset(control); }}
+            MResetZ(q)
+        }}
+        "#
+    );
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let context = format!(
+            "{profile:?}, functor={functor:?}, bound={bound:?}, generic_type={generic_type}"
+        );
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, &source);
+        let target = eval_fragments(&mut interpreter, "Run");
+        let argument = eval_fragments(
+            &mut interpreter,
+            &format!("{{ let f : {input} => Unit {bound} = {functor} ApplyOp; f }}"),
+        );
+        assert!(
+            matches!(argument, Value::Global(_, _)),
+            "{context}: must exercise a runtime generic global"
+        );
+        let mut output = Cursor::new(Vec::new());
+        assert_eq!(
+            interpreter
+                .invoke(
+                    &mut CursorReceiver::new(&mut output),
+                    target.clone(),
+                    argument.clone(),
+                )
+                .unwrap_or_else(|errors| {
+                    panic!(
+                        "{context}: source execution: {}",
+                        format_interpret_errors(errors)
+                    );
+                }),
+            Value::Result(qsc_eval::val::Result::Val(expected_result)),
+            "{context}: preserve the phase of the applied operation"
+        );
+        let actual = interpreter
+            .qirgen_from_callable(&target, argument)
+            .unwrap_or_else(|errors| {
+                panic!(
+                    "{context}: runtime codegen: {}",
+                    format_interpret_errors(errors)
+                );
+            });
+        let expected = interpreter
+            .qirgen(&format!("Run({functor} ApplyOp)"))
+            .unwrap_or_else(|errors| {
+                panic!(
+                    "{context}: source codegen: {}",
+                    format_interpret_errors(errors)
+                );
+            });
+        assert_eq!(
+            actual, expected,
+            "{context}: preserve implicit functor arguments"
+        );
+    }
+}
+
+#[test]
 fn runtime_callable_argument_preserves_nominal_udt_identity() {
     let source = r#"
         namespace Test {
