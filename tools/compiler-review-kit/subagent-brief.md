@@ -34,6 +34,9 @@ Python callable-API cases with `review.py reduce-adapter`.
 Read the assigned production changes and adjacent tests/callers. Derive runnable
 cases and bounded variants from the changed invariant. Inspect issue repros before
 execution. Do not assume an old corpus exists or silently guess entry expressions.
+For resource, loop, callable, aggregate, or capture changes, use the
+[Result/Qubit handle scenarios](reviewer.md#result-and-qubit-handle-aliasing) to
+derive bounded exploratory cases within your assignment, not just known repros.
 
 Justify deterministic oracles; keep stochastic observations inconclusive until
 validated independently. Pure Unit outputs and QIR text differences are not

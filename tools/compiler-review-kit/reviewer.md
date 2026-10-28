@@ -132,6 +132,8 @@ panic sites with valid input, and confirm removed codes are handled, not silentl
    nested aggregates; helper calls versus inlining; captures and callable arguments;
    entry-expression versus Python callable API;
    unrelated-declaration and statement-order permutations for map-order dependence.
+   Prioritize the [Result/Qubit handle scenarios](#result-and-qubit-handle-aliasing)
+   when the changed mechanism can affect resource identity, reuse, or captures.
    Do not apply every family indiscriminately to every review.
 6. Use bounded, seeded generators for the relevant semantic space. Store the
    generator, parameters and seeds, not gigabytes of programs. Minimize findings
@@ -157,6 +159,54 @@ Test the _same curated input_ at both endpoints. Cases using newly introduced AP
 may legitimately fail on the reference; decide intended support before calling it
 a regression. Retain small known repros if present, but do not make them the sole
 source of coverage. Give every omission/exclusion a reason.
+
+### Result and Qubit handle aliasing
+
+`Result` and `Qubit` are particularly valuable targets for exploratory testing.
+In resource-indexed QIR they denote runtime handles, often indices into
+preallocated result/qubit slots. Copying a binding into an array, passing it
+through a callable, or capturing it in a lambda can copy the handle without
+creating an independent resource. Reusing the underlying slot while an earlier
+value is still observable can therefore miscompile otherwise valid Q#.
+
+Distinguish lowering behavior from source semantics: an earlier measurement's
+`Result` must not retroactively change after another measurement. Operations on
+aliases of the same live `Qubit`, however, should affect that same quantum state.
+Rebinding a callee's local variable is not permission to rebind the caller's
+variable. Look for accidental resource aliasing as well as lost intended aliases.
+
+Derive bounded, fresh variants from these hypotheses, especially around loops,
+call lowering, resource allocation, aggregate handling, and closure conversion:
+
+- Repeat one measurement site in a loop or helper call with alternating known
+  outcomes. Retain the first result and accumulate results in arrays, tuples, or
+  records; read them after later iterations. A reused slot must not make all
+  retained outcomes change together or read as the last measurement.
+- Pass and return Results, Qubits, and aggregates holding them across callable
+  boundaries. Observe retained Results in the caller after the callee performs
+  more measurements, and in the callee after intervening caller operations.
+  Contrast a retained Result with a Bool/Int computed from it immediately, so
+  delayed reads of a shared result slot become visible.
+- Capture Results and Qubits in lambdas, including returned closures, nested
+  closures, and arrays of closures from the same factory. Vary whether captures
+  refer to the same or different resources; invoke closures before and after
+  later measurements, resets, or gates. Check both captured identity and timing
+  of Result reads, rather than only whether the lambda compiles.
+- Copy, swap, select, and nest handles in aggregates. Exercise dynamic indices,
+  helper calls versus inline code, and repeated invocation. For Qubits, compare
+  two aliases of one qubit with two distinct qubits; observe gate effects through
+  both paths so collapsed identities or broken aliases cannot hide behind Unit.
+- Vary zero/one/multiple iterations and legal allocation/reuse boundaries.
+  Keep qubits live for every use; deliberately using a released qubit is not a
+  valid-program miscompile oracle.
+
+Use deterministic X/no-X measurements with hand-derived expectations, and compare
+both endpoint simulators with compiled execution under the default profiles.
+Inspect unmodified QIR to correlate a failure with resource slots and read/write
+order. Slot reuse alone is not a bug when lifetimes do not overlap; require an
+observable semantic mismatch. The loop-result example in
+[`examples/issues.py`](examples/issues.py) is a starting point, not the extent of
+the search: compose neighboring shapes rather than just replaying that repro.
 
 ## Execute and interpret
 
