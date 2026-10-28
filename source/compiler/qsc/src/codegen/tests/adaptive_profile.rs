@@ -3870,6 +3870,1179 @@ fn runtime_depth_recursive_boolean_helper_preserves_saved_frames() {
     }
 }
 
+#[test]
+fn finite_recursion_in_measurement_branch_keeps_repeated_array_length_known() {
+    let source = r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            { use q = Qubit(); X(q); X(q); }
+            if n > 0 {
+                if MResetZ(target) == Zero { Rec(n - 1, target); }
+            }
+            let values = [true, size = n];
+            if Length(values) == 2 { X(target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            Rec(2, target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 2, 3);
+    assert_inlined(&qir, "Rec");
+    expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+        call void @__quantum__rt__initialize(ptr null)
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+        %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        %var_3 = icmp eq i1 %var_2, false
+        br i1 %var_3, label %block_1, label %block_4
+        block_1:
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+        %var_5 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+        %var_6 = icmp eq i1 %var_5, false
+        br i1 %var_6, label %block_2, label %block_3
+        block_2:
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        br label %block_3
+        block_3:
+        br label %block_4
+        block_4:
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @0)
+        ret i64 0
+        }
+        define internal void @X(ptr %var_1) {
+        block_5:
+        call void @__quantum__qis__x__body(ptr %var_1)
+        ret void
+        }
+    "#]].assert_eq(&recursive_emitted_dataflow(&qir, &["ENTRYPOINT__main", "X"]));
+}
+
+#[test]
+fn finite_recursion_keeps_repeated_array_length_known() {
+    let source = r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            { use q = Qubit(); X(q); X(q); }
+            let values = [true, size = n];
+            if Length(values) == 2 { X(target); }
+            if n > 0 { Rec(n - 1, target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            Rec(2, target);
+            MResetZ(target)
+        }
+    "#;
+    let unrolled = r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            { use q = Qubit(); X(q); X(q); }
+            { use q = Qubit(); X(q); X(q); }
+            MResetZ(target)
+        }
+    "#;
+    let expected = compile_source_to_qir(unrolled, *CAPABILITIES);
+    assert_static_resource_management(&expected, 2, 1);
+    assert_eq!(compile_source_to_qir(source, *CAPABILITIES), expected);
+}
+
+#[test]
+fn finite_recursion_keeps_range_bounds_known() {
+    let source = r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            { use q = Qubit(); X(q); X(q); }
+            for _ in 1..n { X(target); }
+            if n > 0 { Rec(n - 1, target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            Rec(2, target);
+            MResetZ(target)
+        }
+    "#;
+    let unrolled = r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            { use q = Qubit(); X(q); X(q); }
+            for _ in 1..2 { X(target); }
+            { use q = Qubit(); X(q); X(q); }
+            for _ in 1..1 { X(target); }
+            { use q = Qubit(); X(q); X(q); }
+            for _ in 1..0 { X(target); }
+            MResetZ(target)
+        }
+    "#;
+    let expected = compile_source_to_qir(unrolled, *CAPABILITIES);
+    assert_static_resource_management(&expected, 2, 1);
+    assert_eq!(compile_source_to_qir(source, *CAPABILITIES), expected);
+}
+
+#[test]
+fn finite_recursion_does_not_evaluate_unreachable_fail() {
+    let source = r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            { use q = Qubit(); X(q); X(q); }
+            if n < 0 { fail "negative depth"; }
+            X(target);
+            if n > 0 { Rec(n - 1, target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            Rec(2, target);
+            MResetZ(target)
+        }
+    "#;
+    let unrolled = r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            { use q = Qubit(); X(q); X(q); } X(target);
+            { use q = Qubit(); X(q); X(q); } X(target);
+            { use q = Qubit(); X(q); X(q); } X(target);
+            MResetZ(target)
+        }
+    "#;
+    let expected = compile_source_to_qir(unrolled, *CAPABILITIES);
+    assert_static_resource_management(&expected, 2, 1);
+    assert_eq!(compile_source_to_qir(source, *CAPABILITIES), expected);
+}
+
+#[test]
+fn finite_recursion_keeps_array_size_with_unused_runtime_integer() {
+    let source = r#"
+        operation Size(n : Int, unused : Int) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            if n > 0 { let ignored = Size(n - 1, unused); }
+            2
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit(); X(flag);
+            let unused = if MResetZ(flag) == One { 1 } else { 0 };
+            let size = Size(2, unused);
+            use qs = Qubit[size];
+            MResetZ(qs[0])
+        }
+    "#;
+    let unrolled = r#"
+        operation Unrolled(_ : Int, unused : Int) : Unit {
+            { use q = Qubit(); X(q); X(q); }
+            { use q = Qubit(); X(q); X(q); }
+            { use q = Qubit(); X(q); X(q); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit(); X(flag);
+            let unused = if MResetZ(flag) == One { 1 } else { 0 };
+            Unrolled(2, unused);
+            use qs = Qubit[2];
+            MResetZ(qs[0])
+        }
+    "#;
+    let expected = compile_source_to_qir(unrolled, *CAPABILITIES);
+    assert_static_resource_management(&expected, 3, 2);
+    assert_eq!(compile_source_to_qir(source, *CAPABILITIES), expected);
+}
+
+#[test]
+fn finite_recursion_keeps_array_size_with_unused_runtime_boolean() {
+    let source = r#"
+        operation Size(n : Int, unused : Bool) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            if n > 0 { let ignored = Size(n - 1, unused); }
+            2
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit(); X(flag);
+            let unused = MResetZ(flag) == One;
+            let size = Size(2, unused);
+            use qs = Qubit[size];
+            MResetZ(qs[0])
+        }
+    "#;
+    let unrolled = r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit(); X(flag);
+            let unused = MResetZ(flag) == One;
+            { use q = Qubit(); X(q); X(q); }
+            { use q = Qubit(); X(q); X(q); }
+            { use q = Qubit(); X(q); X(q); }
+            use qs = Qubit[2];
+            MResetZ(qs[0])
+        }
+    "#;
+    let expected = compile_source_to_qir(unrolled, *CAPABILITIES);
+    assert_static_resource_management(&expected, 3, 2);
+    assert_eq!(compile_source_to_qir(source, *CAPABILITIES), expected);
+}
+
+#[test]
+fn finite_recursion_with_released_local_qubit_keeps_array_size_constant() {
+    let source = r#"
+        operation Size(n : Int) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            if n > 0 { let ignored = Size(n - 1); }
+            2
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            let size = Size(2);
+            use qs = Qubit[size];
+            MResetZ(qs[0])
+        }
+    "#;
+    let unrolled = r#"
+        @EntryPoint()
+        operation Main() : Result {
+            { use q = Qubit(); X(q); X(q); }
+            { use q = Qubit(); X(q); X(q); }
+            { use q = Qubit(); X(q); X(q); }
+            use qs = Qubit[2];
+            MResetZ(qs[0])
+        }
+    "#;
+    let expected = compile_source_to_qir(unrolled, *CAPABILITIES);
+    assert_static_resource_management(&expected, 2, 1);
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_eq!(qir, expected);
+}
+
+#[test]
+fn finite_recursion_with_released_local_qubit_keeps_computed_integer_constant() {
+    let source = r#"
+        operation Count(n : Int, target : Qubit) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            if n > 0 { Count(n - 1, target) + 1 } else { 0 }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            let count = Count(2, target);
+            if count == 2 { X(target); }
+            MResetZ(target)
+        }
+    "#;
+    let unrolled = r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            X(target);
+            MResetZ(target)
+        }
+    "#;
+    let expected = compile_source_to_qir(unrolled, *CAPABILITIES);
+    assert_static_resource_management(&expected, 2, 1);
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_eq!(qir, expected);
+}
+
+#[test]
+fn finite_integer_recursion_with_qubit_parameter_inside_runtime_recursion_is_inlined() {
+    let source = r#"
+        operation Count(n : Int, target : Qubit) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            if n > 0 { Count(n - 1, target) + 1 } else { 0 }
+        }
+        operation Parent(n : Int, target : Qubit) : Unit {
+            let count = Count(2, target);
+            if count == 2 { X(target); }
+            if n > 0 { Parent(n - 1, target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit()); X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 0 };
+            Parent(depth, target);
+            MResetZ(target)
+        }
+    "#;
+    let unrolled = r#"
+        operation Last(n : Int, target : Qubit) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            0
+        }
+        operation Middle(n : Int, target : Qubit) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            Last(n - 1, target) + 1
+        }
+        operation First(n : Int, target : Qubit) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            Middle(n - 1, target) + 1
+        }
+        operation Parent(n : Int, target : Qubit) : Unit {
+            let count = First(2, target);
+            if count == 2 { X(target); }
+            if n > 0 { Parent(n - 1, target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit()); X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 0 };
+            Parent(depth, target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 3, 2);
+    assert!(qir.contains("define internal void @Parent("), "{qir}");
+    assert!(!qir.contains("@Count("), "{qir}");
+    assert_eq!(qir, compile_source_to_qir(unrolled, *CAPABILITIES));
+}
+
+#[test]
+fn finite_recursion_with_unused_result_argument_keeps_computed_integer_constant() {
+    let source = r#"
+        operation Count(n : Int, unused : Result, target : Qubit) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            if n > 0 { Count(n - 1, unused, target) + 1 } else { 0 }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit()); X(flag);
+            let saved = MResetZ(flag);
+            let count = Count(2, saved, target);
+            if count == 2 { X(target); }
+            MResetZ(target)
+        }
+    "#;
+    let unrolled = r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit()); X(flag);
+            let saved = MResetZ(flag);
+            { use q = Qubit(); X(q); X(q); } X(target);
+            { use q = Qubit(); X(q); X(q); } X(target);
+            { use q = Qubit(); X(q); X(q); } X(target);
+            X(target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 3, 2);
+    assert!(!qir.contains("@Count("), "{qir}");
+    assert_eq!(qir, compile_source_to_qir(unrolled, *CAPABILITIES));
+}
+
+#[test]
+fn runtime_recursion_with_known_integer_argument_keeps_unit_calls_emitted() {
+    let source = r#"
+        operation Rec(n : Int, unused : Int, target : Qubit) : Unit {
+            { use q = Qubit(); X(q); X(q); }
+            X(target);
+            if n > 0 { Rec(n - 1, unused, target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit()); X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(depth, 7, target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 4, 2);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+    assert_eq!(qir.matches("call void @Rec(").count(), 2, "{qir}");
+    expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+        %var_3 = alloca i64
+        %var_4 = alloca i64
+        %var_5 = alloca i64
+        %var_6 = alloca i64
+        %var_8 = alloca i64
+        call void @__quantum__rt__initialize(ptr null)
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+        %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        br i1 %var_1, label %block_1, label %block_2
+        block_1:
+        store i64 2, ptr %var_3
+        br label %block_3
+        block_2:
+        store i64 0, ptr %var_3
+        br label %block_3
+        block_3:
+        %var_22 = load i64, ptr %var_3
+        store i64 %var_22, ptr %var_4
+        %var_24 = load i64, ptr %var_4
+        store i64 %var_24, ptr %var_5
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        %var_26 = load i64, ptr %var_5
+        store i64 %var_26, ptr %var_6
+        %var_28 = load i64, ptr %var_6
+        %var_7 = icmp sgt i64 %var_28, 0
+        br i1 %var_7, label %block_4, label %block_5
+        block_4:
+        %var_29 = load i64, ptr %var_5
+        store i64 %var_29, ptr %var_8
+        %var_31 = load i64, ptr %var_8
+        %var_9 = sub i64 %var_31, 1
+        call void @Rec(i64 %var_9, i64 7, ptr inttoptr (i64 1 to ptr))
+        br label %block_5
+        block_5:
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
+        ret i64 0
+        }
+        define internal void @Rec(i64 %var_11, i64 %var_12, ptr %var_13) {
+        block_7:
+        %var_14 = alloca i64
+        %var_16 = alloca i64
+        %var_20 = alloca ptr
+        call void @X(ptr inttoptr (i64 3 to ptr))
+        call void @X(ptr inttoptr (i64 3 to ptr))
+        call void @X(ptr %var_13)
+        store i64 %var_11, ptr %var_14
+        %var_34 = load i64, ptr %var_14
+        %var_15 = icmp sgt i64 %var_34, 0
+        br i1 %var_15, label %block_8, label %block_9
+        block_8:
+        store i64 %var_11, ptr %var_16
+        %var_36 = load i64, ptr %var_16
+        %var_17 = sub i64 %var_36, 1
+        store ptr %var_13, ptr %var_20
+        %var_38 = load ptr, ptr %var_20
+        call void @Rec(i64 %var_17, i64 %var_12, ptr %var_38)
+        br label %block_9
+        block_9:
+        ret void
+        }
+        define internal void @X(ptr %var_0) {
+        block_6:
+        call void @__quantum__qis__x__body(ptr %var_0)
+        ret void
+        }
+    "#]].assert_eq(&recursive_emitted_dataflow(
+        &qir,
+        &["ENTRYPOINT__main", "Rec", "X"],
+    ));
+}
+
+#[test]
+fn runtime_recursion_with_known_integer_argument_preserves_integer_return() {
+    let source = r#"
+        operation Rec(n : Int, unused : Int) : Int {
+            { use q = Qubit(); X(q); X(q); }
+            if n > 0 { let ignored = Rec(n - 1, unused); }
+            2
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            use flag = Qubit(); X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(depth, 7)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 3, 1);
+    let body = recursive_emitted_dataflow(&qir, &["Rec"]);
+    assert!(body.contains("define internal i64 @Rec("), "{body}");
+    assert!(body.contains("ret i64 2"), "{body}");
+    assert_eq!(qir.matches("call i64 @Rec(").count(), 2, "{qir}");
+}
+
+#[test]
+fn measurement_controlled_recursion_with_known_argument_keeps_runtime_calls() {
+    let source = r#"
+        operation Rec(unused : Int, stop : Qubit, target : Qubit) : Unit {
+            { use q = Qubit(); X(q); X(q); }
+            let again = MResetZ(stop) == One;
+            if again { Rec(unused, stop, target); }
+            X(target);
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use (stop, target) = (Qubit(), Qubit()); X(stop);
+            Rec(7, stop, target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 4, 3);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+    assert_eq!(qir.matches("call void @Rec(").count(), 2, "{qir}");
+    expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+        call void @__quantum__rt__initialize(ptr null)
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+        %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        br i1 %var_1, label %block_1, label %block_2
+        block_1:
+        call void @Rec(i64 7, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+        br label %block_2
+        block_2:
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @0)
+        ret i64 0
+        }
+        define internal void @Rec(i64 %var_4, ptr %var_5, ptr %var_6) {
+        block_4:
+        %var_11 = alloca ptr
+        %var_12 = alloca ptr
+        call void @X(ptr inttoptr (i64 3 to ptr))
+        call void @X(ptr inttoptr (i64 3 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr %var_5, ptr inttoptr (i64 1 to ptr))
+        %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+        br i1 %var_7, label %block_5, label %block_6
+        block_5:
+        store ptr %var_5, ptr %var_11
+        store ptr %var_6, ptr %var_12
+        %var_15 = load ptr, ptr %var_11
+        %var_16 = load ptr, ptr %var_12
+        call void @Rec(i64 %var_4, ptr %var_15, ptr %var_16)
+        br label %block_6
+        block_6:
+        call void @X(ptr %var_6)
+        ret void
+        }
+        define internal void @X(ptr %var_0) {
+        block_3:
+        call void @__quantum__qis__x__body(ptr %var_0)
+        ret void
+        }
+    "#]].assert_eq(&recursive_emitted_dataflow(
+        &qir,
+        &["ENTRYPOINT__main", "Rec", "X"],
+    ));
+}
+
+#[test]
+fn runtime_recursion_with_released_local_qubit_preserves_integer_return() {
+    let source = r#"
+        operation Rec(n : Int) : Int {
+            { use fresh = Qubit(); X(fresh); X(fresh); }
+            if n > 0 { let ignored = Rec(n - 1); }
+            2
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            use flag = Qubit(); X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(depth)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 2, 1);
+    let body = recursive_emitted_dataflow(&qir, &["Rec"]);
+    assert!(body.contains("define internal i64 @Rec("), "{body}");
+    assert!(body.contains("ret i64 2"), "{body}");
+    assert!(qir.contains("call i64 @Rec("), "{qir}");
+}
+
+#[test]
+fn runtime_recursion_reuses_released_local_qubit_without_dynamic_management() {
+    let source = r#"
+        operation Rec(n : Int) : Unit {
+            { use fresh = Qubit(); X(fresh); X(fresh); }
+            if n > 0 { Rec(n - 1); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit();
+            X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(n);
+            MResetZ(flag)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 2, 2);
+    expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+        %var_3 = alloca i64
+        %var_4 = alloca i64
+        call void @__quantum__rt__initialize(ptr null)
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+        %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        br i1 %var_1, label %block_1, label %block_2
+        block_1:
+        store i64 2, ptr %var_3
+        br label %block_3
+        block_2:
+        store i64 0, ptr %var_3
+        br label %block_3
+        block_3:
+        %var_11 = load i64, ptr %var_3
+        store i64 %var_11, ptr %var_4
+        %var_13 = load i64, ptr %var_4
+        call void @Rec(i64 %var_13)
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
+        ret i64 0
+        }
+        define internal void @Rec(i64 %var_5) {
+        block_5:
+        %var_6 = alloca i64
+        %var_8 = alloca i64
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        store i64 %var_5, ptr %var_6
+        %var_16 = load i64, ptr %var_6
+        %var_7 = icmp sgt i64 %var_16, 0
+        br i1 %var_7, label %block_6, label %block_7
+        block_6:
+        store i64 %var_5, ptr %var_8
+        %var_18 = load i64, ptr %var_8
+        %var_9 = sub i64 %var_18, 1
+        call void @Rec(i64 %var_9)
+        br label %block_7
+        block_7:
+        ret void
+        }
+        define internal void @X(ptr %var_0) {
+        block_4:
+        call void @__quantum__qis__x__body(ptr %var_0)
+        ret void
+        }
+    "#]].assert_eq(&recursive_emitted_dataflow(&qir, &["ENTRYPOINT__main", "Rec", "X"]));
+}
+
+#[test]
+fn recursive_local_qubit_is_isolated_from_caller_qubits_before_between_and_after_calls() {
+    let source = r#"
+        operation Rec(n : Int) : Unit {
+            { use fresh = Qubit(); X(fresh); X(fresh); }
+            if n > 0 { Rec(n - 1); }
+        }
+        @EntryPoint()
+        operation Main() : Result[] {
+            use flag = Qubit(); X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            use before = Qubit(); X(before);
+            Rec(n);
+            use between = Qubit(); X(between);
+            Rec(n);
+            use after = Qubit(); X(after);
+            Rec(n);
+            [MResetZ(before), MResetZ(between), MResetZ(after)]
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 5, 4);
+    expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+        %var_3 = alloca i64
+        %var_4 = alloca i64
+        call void @__quantum__rt__initialize(ptr null)
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+        %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        br i1 %var_1, label %block_1, label %block_2
+        block_1:
+        store i64 2, ptr %var_3
+        br label %block_3
+        block_2:
+        store i64 0, ptr %var_3
+        br label %block_3
+        block_3:
+        %var_11 = load i64, ptr %var_3
+        store i64 %var_11, ptr %var_4
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        %var_13 = load i64, ptr %var_4
+        call void @Rec(i64 %var_13)
+        call void @X(ptr inttoptr (i64 3 to ptr))
+        call void @Rec(i64 %var_13)
+        call void @X(ptr inttoptr (i64 4 to ptr))
+        call void @Rec(i64 %var_13)
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 2 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 3 to ptr))
+        call void @__quantum__rt__array_record_output(i64 3, ptr @0)
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @1)
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @2)
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 3 to ptr), ptr @3)
+        ret i64 0
+        }
+        define internal void @Rec(i64 %var_5) {
+        block_5:
+        %var_6 = alloca i64
+        %var_8 = alloca i64
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        store i64 %var_5, ptr %var_6
+        %var_16 = load i64, ptr %var_6
+        %var_7 = icmp sgt i64 %var_16, 0
+        br i1 %var_7, label %block_6, label %block_7
+        block_6:
+        store i64 %var_5, ptr %var_8
+        %var_18 = load i64, ptr %var_8
+        %var_9 = sub i64 %var_18, 1
+        call void @Rec(i64 %var_9)
+        br label %block_7
+        block_7:
+        ret void
+        }
+        define internal void @X(ptr %var_0) {
+        block_4:
+        call void @__quantum__qis__x__body(ptr %var_0)
+        ret void
+        }
+    "#]].assert_eq(&recursive_emitted_dataflow(&qir, &["ENTRYPOINT__main", "Rec", "X"]));
+}
+
+#[test]
+fn runtime_depth_mutual_recursion_reuses_released_fixed_arrays_without_caller_aliases() {
+    let source = r#"
+        operation A(n : Int) : Unit {
+            { use qs = Qubit[2]; X(qs[0]); X(qs[0]); }
+            if n > 0 { B(n - 1); }
+        }
+        operation B(n : Int) : Unit {
+            { use qs = Qubit[2]; X(qs[1]); X(qs[1]); }
+            if n > 0 { A(n - 1); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit(); X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            use caller = Qubit(); X(caller);
+            A(n);
+            B(n);
+            MResetZ(caller)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 6, 2);
+    expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+        %var_3 = alloca i64
+        %var_4 = alloca i64
+        call void @__quantum__rt__initialize(ptr null)
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+        %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        br i1 %var_1, label %block_1, label %block_2
+        block_1:
+        store i64 2, ptr %var_3
+        br label %block_3
+        block_2:
+        store i64 0, ptr %var_3
+        br label %block_3
+        block_3:
+        %var_18 = load i64, ptr %var_3
+        store i64 %var_18, ptr %var_4
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        %var_20 = load i64, ptr %var_4
+        call void @A(i64 %var_20)
+        call void @B(i64 %var_20)
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
+        ret i64 0
+        }
+        define internal void @A(i64 %var_5) {
+        block_5:
+        %var_7 = alloca i64
+        %var_9 = alloca i64
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        store i64 %var_5, ptr %var_7
+        %var_23 = load i64, ptr %var_7
+        %var_8 = icmp sgt i64 %var_23, 0
+        br i1 %var_8, label %block_6, label %block_7
+        block_6:
+        store i64 %var_5, ptr %var_9
+        %var_25 = load i64, ptr %var_9
+        %var_10 = sub i64 %var_25, 1
+        call void @B(i64 %var_10)
+        br label %block_7
+        block_7:
+        ret void
+        }
+        define internal void @B(i64 %var_11) {
+        block_8:
+        %var_13 = alloca i64
+        %var_15 = alloca i64
+        call void @X(ptr inttoptr (i64 5 to ptr))
+        call void @X(ptr inttoptr (i64 5 to ptr))
+        store i64 %var_11, ptr %var_13
+        %var_27 = load i64, ptr %var_13
+        %var_14 = icmp sgt i64 %var_27, 0
+        br i1 %var_14, label %block_9, label %block_10
+        block_9:
+        store i64 %var_11, ptr %var_15
+        %var_29 = load i64, ptr %var_15
+        %var_16 = sub i64 %var_29, 1
+        call void @A(i64 %var_16)
+        br label %block_10
+        block_10:
+        ret void
+        }
+        define internal void @X(ptr %var_0) {
+        block_4:
+        call void @__quantum__qis__x__body(ptr %var_0)
+        ret void
+        }
+    "#]].assert_eq(&recursive_emitted_dataflow(&qir, &["ENTRYPOINT__main", "A", "B", "X"]));
+}
+
+#[test]
+fn runtime_recursion_with_inlined_qubit_allocating_helper_preserves_target_updates() {
+    let source = r#"
+        operation Scratch(qs : Qubit[]) : Unit {
+            use own = Qubit(); X(own); X(own); X(qs[0]);
+        }
+        operation Rec(n : Int, target : Qubit) : Unit {
+            { use qs = Qubit[2]; X(qs[0]); X(qs[0]); }
+            Scratch([target]);
+            if n > 0 { Rec(n - 1, target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit()); X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(n, target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_static_resource_management(&qir, 4, 2);
+    assert_inlined(&qir, "Scratch");
+    expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+        %var_3 = alloca i64
+        %var_4 = alloca i64
+        call void @__quantum__rt__initialize(ptr null)
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+        %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        br i1 %var_1, label %block_1, label %block_2
+        block_1:
+        store i64 2, ptr %var_3
+        br label %block_3
+        block_2:
+        store i64 0, ptr %var_3
+        br label %block_3
+        block_3:
+        %var_18 = load i64, ptr %var_3
+        store i64 %var_18, ptr %var_4
+        %var_20 = load i64, ptr %var_4
+        call void @Rec(i64 %var_20, ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
+        ret i64 0
+        }
+        define internal void @Rec(i64 %var_6, ptr %var_7) {
+        block_5:
+        %var_9 = alloca ptr
+        %var_11 = alloca i64
+        %var_13 = alloca i64
+        %var_16 = alloca ptr
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        store ptr %var_7, ptr %var_9
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        %var_23 = load ptr, ptr %var_9
+        call void @X(ptr %var_23)
+        store i64 %var_6, ptr %var_11
+        %var_25 = load i64, ptr %var_11
+        %var_12 = icmp sgt i64 %var_25, 0
+        br i1 %var_12, label %block_6, label %block_7
+        block_6:
+        store i64 %var_6, ptr %var_13
+        %var_27 = load i64, ptr %var_13
+        %var_14 = sub i64 %var_27, 1
+        store ptr %var_7, ptr %var_16
+        %var_29 = load ptr, ptr %var_16
+        call void @Rec(i64 %var_14, ptr %var_29)
+        br label %block_7
+        block_7:
+        ret void
+        }
+        define internal void @X(ptr %var_0) {
+        block_4:
+        call void @__quantum__qis__x__body(ptr %var_0)
+        ret void
+        }
+    "#]].assert_eq(&recursive_emitted_dataflow(&qir, &["ENTRYPOINT__main", "Rec", "X"]));
+}
+
+fn assert_static_resource_management(qir: &str, qubits: usize, results: usize) {
+    assert!(
+        qir.contains(&format!("\"required_num_qubits\"=\"{qubits}\"")),
+        "{qir}"
+    );
+    assert!(
+        qir.contains(&format!("\"required_num_results\"=\"{results}\"")),
+        "{qir}"
+    );
+    for flag in ["dynamic_qubit_management", "dynamic_result_management"] {
+        assert!(qir.contains(&format!("!\"{flag}\", i1 false")), "{qir}");
+    }
+    assert!(
+        !qir.contains("call ptr @__quantum__rt__qubit_allocate("),
+        "{qir}"
+    );
+}
+
+#[test]
+fn runtime_recursion_with_qubit_release_skipped_by_logical_operators_is_rejected() {
+    let release = "{ Reset(fresh); QIR.Runtime.__quantum__rt__qubit_release(fresh); true }";
+    for (name, statement) in [
+        ("and", "let ignored = false and RELEASE;"),
+        ("or", "let ignored = true or RELEASE;"),
+        (
+            "and assignment",
+            "mutable ignored = false; set ignored and= RELEASE;",
+        ),
+        (
+            "or assignment",
+            "mutable ignored = true; set ignored or= RELEASE;",
+        ),
+    ] {
+        let statement = statement.replace("RELEASE", release);
+        for preparation in ["", "X(flag);"] {
+            let source = format!(
+                r#"
+                operation Rec(n : Int, target : Qubit) : Unit {{
+                    let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                    if MResetZ(fresh) == One {{ X(target); }}
+                    X(fresh);
+                    {statement}
+                    if n > 0 {{ Rec(n - 1, target); }}
+                }}
+                @EntryPoint()
+                operation Main() : Result {{
+                    use (flag, target) = (Qubit(), Qubit());
+                    {preparation}
+                    let depth = if MResetZ(flag) == One {{ 1 }} else {{ 0 }};
+                    Rec(depth, target);
+                    Rec(depth, target);
+                    MResetZ(target)
+                }}
+                "#
+            );
+            let errors = super::compile_source_to_qir_result(&source, *CAPABILITIES)
+                .expect_err("a skipped release cannot justify recursive reuse of a local qubit");
+            let errors = super::format_interpret_errors(errors);
+            assert!(
+                errors.contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"),
+                "{name}, preparation {preparation:?}: {errors}"
+            );
+        }
+    }
+}
+
+#[test]
+fn qubit_release_in_logical_left_operand_remains_unconditional() {
+    let source = r#"
+        operation Rec(n : Int) : Unit {
+            let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+            X(fresh); X(fresh);
+            RELEASE
+            if n > 0 { Rec(n - 1); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit(); X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(depth);
+            MResetZ(flag)
+        }
+    "#;
+    let expected = compile_source_to_qir(
+        &source.replace(
+            "RELEASE",
+            "QIR.Runtime.__quantum__rt__qubit_release(fresh);",
+        ),
+        *CAPABILITIES,
+    );
+    assert_static_resource_management(&expected, 2, 2);
+    for statement in [
+        "let ignored = { QIR.Runtime.__quantum__rt__qubit_release(fresh); true } and false;",
+        "let ignored = { QIR.Runtime.__quantum__rt__qubit_release(fresh); false } or true;",
+    ] {
+        let qir = compile_source_to_qir(&source.replace("RELEASE", statement), *CAPABILITIES);
+        assert_eq!(qir, expected, "{statement}");
+    }
+}
+
+#[test]
+fn runtime_recursion_in_array_update_index_before_local_qubit_release_is_rejected() {
+    assert_array_update_reentry_before_release_is_rejected(
+        "QIR.Runtime.__quantum__rt__qubit_allocate()",
+        "fresh",
+        r#"let ignored = { Reset(fresh); QIR.Runtime.__quantum__rt__qubit_release(fresh); [false] }
+            w/ { if n > 0 { Rec(n - 1, target); } 0 } <- true;"#,
+    );
+}
+
+#[test]
+fn runtime_recursion_in_array_update_replacement_before_local_qubit_release_is_rejected() {
+    assert_array_update_reentry_before_release_is_rejected(
+        "QIR.Runtime.__quantum__rt__qubit_allocate()",
+        "fresh",
+        r#"let ignored = { Reset(fresh); QIR.Runtime.__quantum__rt__qubit_release(fresh); [false] }
+            w/ 0 <- { if n > 0 { Rec(n - 1, target); } true };"#,
+    );
+}
+
+#[test]
+fn runtime_recursion_in_array_update_index_before_local_qubit_array_release_is_rejected() {
+    assert_array_update_reentry_before_release_is_rejected(
+        "QIR.Runtime.AllocateQubitArray(1)",
+        "fresh[0]",
+        r#"let ignored = { Reset(fresh[0]); QIR.Runtime.ReleaseQubitArray(fresh); [false] }
+            w/ { if n > 0 { Rec(n - 1, target); } 0 } <- true;"#,
+    );
+}
+
+#[test]
+fn runtime_recursion_in_array_update_replacement_before_local_qubit_array_release_is_rejected() {
+    assert_array_update_reentry_before_release_is_rejected(
+        "QIR.Runtime.AllocateQubitArray(1)",
+        "fresh[0]",
+        r#"let ignored = { Reset(fresh[0]); QIR.Runtime.ReleaseQubitArray(fresh); [false] }
+            w/ 0 <- { if n > 0 { Rec(n - 1, target); } true };"#,
+    );
+}
+
+fn assert_array_update_reentry_before_release_is_rejected(
+    allocation: &str,
+    qubit: &str,
+    statement: &str,
+) {
+    for preparation in ["", "X(flag);"] {
+        let source = format!(
+            r#"
+            operation Rec(n : Int, target : Qubit) : Unit {{
+                let fresh = {allocation};
+                if MResetZ({qubit}) == One {{ X(target); }}
+                X({qubit});
+                {statement}
+            }}
+            @EntryPoint()
+            operation Main() : Result {{
+                use (flag, target) = (Qubit(), Qubit());
+                {preparation}
+                let depth = if MResetZ(flag) == One {{ 1 }} else {{ 0 }};
+                Rec(depth, target);
+                MResetZ(target)
+            }}
+            "#
+        );
+        let errors = super::compile_source_to_qir_result(&source, *CAPABILITIES)
+            .expect_err("a local qubit must be released before recursive reentry");
+        let errors = super::format_interpret_errors(errors);
+        assert!(
+            errors.contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"),
+            "{statement}, preparation {preparation:?}: {errors}"
+        );
+    }
+}
+
+#[test]
+fn qubit_release_in_array_update_index_precedes_recursive_replacement() {
+    assert_array_update_release_preserves_direct_release_qir(
+        r#"let ignored = [false]
+            w/ { QIR.Runtime.__quantum__rt__qubit_release(fresh); 0 }
+            <- { X(target); if n > 0 { Rec(n - 1, target); } true };"#,
+    );
+}
+
+#[test]
+fn qubit_release_in_array_update_replacement_precedes_recursive_container() {
+    assert_array_update_release_preserves_direct_release_qir(
+        r#"let ignored = { X(target); if n > 0 { Rec(n - 1, target); } [false] }
+            w/ 0 <- { QIR.Runtime.__quantum__rt__qubit_release(fresh); true };"#,
+    );
+}
+
+fn assert_array_update_release_preserves_direct_release_qir(statement: &str) {
+    let source = r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+            X(fresh); X(fresh);
+            STATEMENT
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit()); X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(depth, target);
+            MResetZ(target)
+        }
+    "#;
+    let expected = compile_source_to_qir(
+        &source.replace(
+            "STATEMENT",
+            "QIR.Runtime.__quantum__rt__qubit_release(fresh);
+             X(target); if n > 0 { Rec(n - 1, target); }",
+        ),
+        *CAPABILITIES,
+    );
+    assert_static_resource_management(&expected, 3, 2);
+    let qir = compile_source_to_qir(&source.replace("STATEMENT", statement), *CAPABILITIES);
+    assert_eq!(qir, expected, "{statement}");
+}
+
+#[test]
+fn releasing_local_qubits_does_not_allow_results_to_outlive_recursive_measurement() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {
+            { use scratch = Qubit(); X(scratch); X(scratch); }
+            if n > 0 {
+                let saved = M(q);
+                X(q);
+                Rec(n - 1, q, target);
+                if saved == One { X(target); }
+            }
+        }
+        operation Main() : Unit {
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit()); X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(n, q, target);
+            Reset(q); Reset(target);
+        }
+        "#,
+    );
+}
+
 fn assert_runtime_measurement_recursion_contract(source: &str, qir: &str) {
     assert!(qir.contains("\"required_num_qubits\"=\"3\""), "{qir}");
     assert!(qir.contains("\"required_num_results\"=\"3\""), "{qir}");
