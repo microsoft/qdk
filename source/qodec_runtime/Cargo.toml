@@ -1,0 +1,20 @@
+[package]
+name = "qodec_runtime"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+qodec = { workspace = true }
+rustc-hash = { workspace = true }
+smallvec = { workspace = true }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false

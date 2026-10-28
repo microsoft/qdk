@@ -28,8 +28,6 @@ regex-lite = { workspace = true }
 rustc-hash = { workspace = true }
 paulimer = { workspace = true }
 pauliverse = { workspace = true }
-qodec = { workspace = true }
-smallvec = { workspace = true }
 index_map = { path = "../index_map" }
 noisy_simulator = { path = "../noisy_simulator" }
 

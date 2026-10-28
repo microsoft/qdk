@@ -17,6 +17,7 @@
 /source/language_service @billti @idavis @amcasey
 /source/simulators @billti @idavis @orpuente-MS
 /source/noisy_simulator @swernli @orpuente-MS
+/source/qodec_runtime @orpuente-MS @swernli @joao-boechat
 /library @swernli @orpuente-MS
 /source/npm @billti @amcasey
 /source/qdk_package @billti @idavis

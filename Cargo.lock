@@ -1887,12 +1887,10 @@ dependencies = [
  "num-traits",
  "paulimer",
  "pauliverse",
- "qodec",
  "qsc_data_structures",
  "rand 0.10.2",
  "regex-lite",
  "rustc-hash",
- "smallvec",
  "wgpu",
 ]
 
@@ -1907,6 +1905,15 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "unsafe-libyaml",
+]
+
+[[package]]
+name = "qodec_runtime"
+version = "0.0.0"
+dependencies = [
+ "qodec",
+ "rustc-hash",
+ "smallvec",
 ]
 
 [[package]]

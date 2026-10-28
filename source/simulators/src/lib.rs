@@ -6,7 +6,6 @@ pub mod cpu_full_state_simulator;
 #[cfg(feature = "gpu")]
 mod gpu_full_state_simulator;
 pub mod noise_config;
-pub mod qodec_runtime;
 pub mod sparse_state_simulator;
 pub mod stabilizer_simulator;
 
