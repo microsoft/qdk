@@ -104,6 +104,40 @@ fn qir_entry_body(qir: &str) -> &str {
 }
 
 #[test]
+fn callable_assignment_expression_cleanup_generates_expected_qir_on_every_profile() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        operation Main() : Result {
+            mutable f = A;
+            let ignored = (set f = B);
+            use q = Qubit();
+            if f(10) == 12 { X(q); }
+            MResetZ(q)
+        }
+    "#;
+    let expected = r#"
+        operation Main() : Result {
+            use q = Qubit();
+            X(q);
+            MResetZ(q)
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        assert_eq!(
+            compile_source_to_qir(source, profile.into()),
+            compile_source_to_qir(expected, profile.into()),
+            "{profile:?}: removing the assignment must preserve the selected callable",
+        );
+    }
+}
+
+#[test]
 fn evaluation_order_logical_and_rhs_assignment_remains_conditional() {
     check_conditional_rhs_assignment(
         "let _ = (MResetZ(q) == One) and { set v = 0; false };",

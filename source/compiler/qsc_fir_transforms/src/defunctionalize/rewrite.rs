@@ -3219,7 +3219,7 @@ fn local_index_source_array_local(
 /// blocks via [`remove_write_only_callable_local_from_block`].
 ///
 /// Unlike [`remove_dead_callable_local_from_callable`], this handles `mutable`
-/// bindings and assignment statements, which arise when a callable local is
+/// bindings and assignment expressions, which arise when a callable local is
 /// initialized (and possibly reassigned) from partial applications but is only
 /// ever consumed through a call site that direct-dispatch rewriting has already
 /// replaced. Removal requires a discard-safe initializer and whole-local
@@ -3348,13 +3348,23 @@ fn remove_write_only_callable_local_from_block(
     }
 }
 
-/// Recurses through an expression subtree removing write-only local assignments
-/// found inside nested `Block` and `While` bodies.
+/// Removes remaining discard-safe stores, preserving their Unit result when
+/// used as expressions, and recurses into nested blocks to remove bindings.
+/// Observable stores have already been replaced with RHS-evaluation blocks.
 fn remove_write_only_callable_local_from_expr(
     package: &mut Package,
     expr_id: ExprId,
     local_var: LocalVarId,
 ) {
+    if expr_is_assign_to_local(package, expr_id, local_var) {
+        package
+            .exprs
+            .get_mut(expr_id)
+            .expect("assignment should exist")
+            .kind = ExprKind::Tuple(Vec::new());
+        return;
+    }
+
     let expr_kind = package.get_expr(expr_id).kind.clone();
     match expr_kind {
         ExprKind::Block(block_id) => {

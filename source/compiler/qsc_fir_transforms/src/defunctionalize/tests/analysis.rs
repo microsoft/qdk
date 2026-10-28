@@ -8357,6 +8357,81 @@ fn flow_tuple_declarations_observe_ordered_initializer_values() {
     }
 }
 
+fn check_callable_assignment_expression_cleanup(statement: &str, reached: bool) {
+    for (replacement, marker, output) in [
+        ("B", 0, "before\nafter\n"),
+        (
+            r#"{ Message("replacement"); set marker += 7; B }"#,
+            if reached { 7 } else { 0 },
+            if reached {
+                "before\nreplacement\nafter\n"
+            } else {
+                "before\nafter\n"
+            },
+        ),
+    ] {
+        let statement = statement.replace("replacement", replacement);
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            function Consume(value : Unit) : Unit {{}}
+            @EntryPoint() operation Main() : Int {{
+                mutable f = A;
+                mutable marker = 0;
+                Message("before");
+                {statement}
+                Message("after");
+                f(10) * 100 + marker
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(if reached { 1200 + marker } else { 1100 }),
+            output,
+        );
+    }
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_local_initializer() {
+    check_callable_assignment_expression_cleanup("let ignored = (set f = replacement);", true);
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_tuple() {
+    check_callable_assignment_expression_cleanup("let pair = ((set f = replacement), 42);", true);
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_call_argument() {
+    check_callable_assignment_expression_cleanup("Consume((set f = replacement));", true);
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_lazy_operand() {
+    for reached in [false, true] {
+        for expression in [
+            format!("{reached} and ((set f = replacement) == ())"),
+            format!("{} or ((set f = replacement) == ())", !reached),
+        ] {
+            check_callable_assignment_expression_cleanup(
+                &format!("let ignored = {expression};"),
+                reached,
+            );
+        }
+    }
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_nested_write() {
+    check_callable_assignment_expression_cleanup(
+        "let ignored = (set f = { let inner = (set f = B); replacement });",
+        true,
+    );
+}
+
 /// The saved closure always uses A, while the current callable may become B.
 /// Ordered messages and an increment expose dropped, duplicated or moved RHS
 /// evaluation, including the skipped side of each short-circuit operator.
