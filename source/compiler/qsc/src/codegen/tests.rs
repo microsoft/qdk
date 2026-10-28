@@ -5594,6 +5594,106 @@ fn runtime_callable_captures_adjoint_reverses_captured_operations() {
     );
 }
 
+fn check_runtime_captured_adjoint_phases(controlled: bool) {
+    let (input, invocation, expected_invocation, functor, controls) = if controlled {
+        (
+            "(Qubit[], Qubit[])",
+            "f([control], [q]); Reset(control);",
+            "Controlled Adjoint H([control], q); Controlled Adjoint S([control], q); Reset(control);",
+            "Controlled Adjoint",
+            "use control = Qubit(); X(control);",
+        )
+    } else {
+        (
+            "Qubit[]",
+            "f([q]);",
+            "Adjoint H(q); Adjoint S(q);",
+            "Adjoint",
+            "",
+        )
+    };
+    // The captured S-H adjoint must undo S-H preparation, including S's phase.
+    // Reversing the operations without inverting S would return One, not Zero.
+    let body = |invocation: &str| {
+        format!(
+            "{{ use q = Qubit(); {controls}
+                H(q); S(q); H(q);
+                {invocation}
+                H(q); MResetZ(q)
+            }}"
+        )
+    };
+    for factory in ["Seq(a, b, _)", "qs => { a(qs); b(qs); }"] {
+        let source = format!(
+            r#"
+            operation Phase(qs : Qubit[]) : Unit is Adj + Ctl {{ S(qs[0]); }}
+            operation Basis(qs : Qubit[]) : Unit is Adj + Ctl {{ H(qs[0]); }}
+            operation Seq(a : Qubit[] => Unit is Adj + Ctl, b : Qubit[] => Unit is Adj + Ctl, qs : Qubit[]) : Unit is Adj + Ctl {{
+                a(qs); b(qs);
+            }}
+            function Make(a : Qubit[] => Unit is Adj + Ctl, b : Qubit[] => Unit is Adj + Ctl) : Qubit[] => Unit is Adj + Ctl {{
+                {factory}
+            }}
+            operation Run(f : {input} => Unit is Adj + Ctl) : Result {}
+            operation Expected() : Result {}
+            "#,
+            body(invocation),
+            body(expected_invocation),
+        );
+        for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+            let context = format!("{profile:?}, factory={factory}, functor={functor}");
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, &source);
+            let target = eval_fragments(&mut interpreter, "Run");
+            let captured =
+                eval_fragments(&mut interpreter, &format!("{functor} (Make(Phase, Basis))"));
+            assert!(
+                matches!(&captured, Value::Closure(closure) if closure.fixed_args.len() == 2),
+                "{context}: must exercise two runtime callable captures"
+            );
+            let mut cursor = Cursor::new(Vec::new());
+            assert_eq!(
+                interpreter
+                    .invoke(
+                        &mut CursorReceiver::new(&mut cursor),
+                        target.clone(),
+                        captured.clone(),
+                    )
+                    .unwrap_or_else(|errors| {
+                        panic!("{context}: {}", format_interpret_errors(errors));
+                    }),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+                "{context}: the captured adjoint must undo the preparation"
+            );
+            let qir = interpreter
+                .qirgen_from_callable(&target, captured)
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                });
+            let expected_qir = interpreter.qirgen("Expected()").unwrap_or_else(|errors| {
+                panic!(
+                    "{context}: reference QIR: {}",
+                    format_interpret_errors(errors)
+                );
+            });
+            assert_eq!(
+                qir, expected_qir,
+                "{context}: captured adjoints must invert each operation and reverse their order"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_captures_adjoint_inverts_noncommuting_operations() {
+    check_runtime_captured_adjoint_phases(false);
+}
+
+#[test]
+fn runtime_callable_captures_controlled_adjoint_inverts_noncommuting_operations() {
+    check_runtime_captured_adjoint_phases(true);
+}
+
 #[test]
 fn runtime_callable_captures_forwarding_lambda() {
     check_runtime_callable_captures(
