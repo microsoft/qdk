@@ -44,7 +44,7 @@
     "github-markdown-css": "^5.9.0",
     "globals": "^17.5.0",
     "jsdom": "^29.0.2",
-    "markdown-it": "^14.3.1",
+    "markdown-it": "^14.3.3",
     "mocha": "^11.7.5",
     "modern-normalize": "^3.0.1",
     "monaco-editor": "^0.53.0",
