@@ -387,7 +387,7 @@ fn recursive_inline_static_depth_three_preserves_measurement_guarded_target_orde
 }
 
 #[test]
-fn recursive_static_budget_three_preserves_retry_and_failure_paths() {
+fn recursive_static_budget_emits_guarded_retry_body() {
     let source = r#"
         operation Rus(budget : Int, q : Qubit, out : Qubit) : Unit {
             if budget > 0 {
@@ -402,8 +402,7 @@ fn recursive_static_budget_three_preserves_retry_and_failure_paths() {
             MResetZ(out)
         }
     "#;
-    let expected = [
-        expect![[r#"
+    let expected = expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
             block_0:
             call void @__quantum__rt__initialize(ptr null)
@@ -450,73 +449,16 @@ fn recursive_static_budget_three_preserves_retry_and_failure_paths() {
             block_6:
             ret void
             }
-        "#]],
-        expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-            call void @__quantum__rt__initialize(ptr null)
-            call void @X(ptr inttoptr (i64 0 to ptr))
-            call void @Rus(i64 3, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
-            ret i64 0
-            }
-            define internal void @Rus(i64 %var_1, ptr %var_2, ptr %var_3) {
-            block_2:
-            %var_4 = alloca i1
-            %var_5 = alloca i64
-            %var_9 = alloca i64
-            %var_12 = alloca ptr
-            %var_13 = alloca ptr
-            store i1 false, ptr %var_4
-            store i64 %var_1, ptr %var_5
-            %var_16 = load i64, ptr %var_5
-            %var_6 = icmp sgt i64 %var_16, 0
-            br i1 %var_6, label %block_3, label %block_7
-            block_3:
-            call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 0 to ptr))
-            %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-            %var_8 = icmp eq i1 %var_7, false
-            store i1 %var_8, ptr %var_4
-            %var_18 = load i1, ptr %var_4
-            br i1 %var_18, label %block_4, label %block_5
-            block_4:
-            call void @X(ptr %var_2)
-            store i64 %var_1, ptr %var_9
-            %var_20 = load i64, ptr %var_9
-            %var_10 = sub i64 %var_20, 1
-            store ptr %var_2, ptr %var_12
-            store ptr %var_3, ptr %var_13
-            %var_23 = load ptr, ptr %var_12
-            %var_24 = load ptr, ptr %var_13
-            call void @Rus(i64 %var_10, ptr %var_23, ptr %var_24)
-            br label %block_6
-            block_5:
-            call void @X(ptr %var_3)
-            br label %block_6
-            block_6:
-            br label %block_7
-            block_7:
-            ret void
-            }
-        "#]],
-    ];
-    for (prepared, expected) in [false, true].into_iter().zip(expected) {
-        let source = if prepared {
-            source.replace("Rus(3, q, out);", "X(q); Rus(3, q, out);")
-        } else {
-            source.to_owned()
-        };
-        let qir = compile_source_to_qir(&source, *CAPABILITIES);
-        expected.assert_eq(&recursive_emitted_dataflow(
-            &qir,
-            &["ENTRYPOINT__main", "Rus"],
-        ));
-    }
+        "#]];
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    expected.assert_eq(&recursive_emitted_dataflow(
+        &qir,
+        &["ENTRYPOINT__main", "Rus"],
+    ));
 }
 
 #[test]
-fn recursive_static_budget_zero_skips_retry_measurements_and_gates() {
+fn recursive_static_budgets_preserve_entry_arguments_and_preparation() {
     let source = r#"
         operation Rus(budget : Int, q : Qubit, out : Qubit) : Unit {
             if budget > 0 {
@@ -526,254 +468,35 @@ fn recursive_static_budget_zero_skips_retry_measurements_and_gates() {
         operation Main() : Result {
             use q = Qubit();
             use out = Qubit();
-            Rus(0, q, out);
+            PREPARATION
+            Rus(BUDGET, q, out);
             Reset(q);
             MResetZ(out)
         }
     "#;
-    let expected = [
-        expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-            call void @__quantum__rt__initialize(ptr null)
-            call void @Rus(i64 0, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @Reset(ptr inttoptr (i64 0 to ptr))
-            call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
-            ret i64 0
-            }
-            define internal void @Rus(i64 %var_0, ptr %var_1, ptr %var_2) {
-            block_1:
-            %var_3 = alloca i1
-            %var_4 = alloca i64
-            %var_9 = alloca i64
-            %var_12 = alloca ptr
-            %var_13 = alloca ptr
-            store i1 false, ptr %var_3
-            store i64 %var_0, ptr %var_4
-            %var_16 = load i64, ptr %var_4
-            %var_5 = icmp sgt i64 %var_16, 0
-            br i1 %var_5, label %block_2, label %block_6
-            block_2:
-            call void @__quantum__qis__mresetz__body(ptr %var_1, ptr inttoptr (i64 0 to ptr))
-            %var_6 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-            %var_7 = icmp eq i1 %var_6, false
-            store i1 %var_7, ptr %var_3
-            %var_18 = load i1, ptr %var_3
-            br i1 %var_18, label %block_3, label %block_4
-            block_3:
-            call void @X(ptr %var_1)
-            store i64 %var_0, ptr %var_9
-            %var_20 = load i64, ptr %var_9
-            %var_10 = sub i64 %var_20, 1
-            store ptr %var_1, ptr %var_12
-            store ptr %var_2, ptr %var_13
-            %var_23 = load ptr, ptr %var_12
-            %var_24 = load ptr, ptr %var_13
-            call void @Rus(i64 %var_10, ptr %var_23, ptr %var_24)
-            br label %block_5
-            block_4:
-            call void @X(ptr %var_2)
-            br label %block_5
-            block_5:
-            br label %block_6
-            block_6:
-            ret void
-            }
-        "#]],
-        expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-            call void @__quantum__rt__initialize(ptr null)
-            call void @X(ptr inttoptr (i64 0 to ptr))
-            call void @Rus(i64 0, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @Reset(ptr inttoptr (i64 0 to ptr))
-            call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
-            ret i64 0
-            }
-            define internal void @Rus(i64 %var_1, ptr %var_2, ptr %var_3) {
-            block_2:
-            %var_4 = alloca i1
-            %var_5 = alloca i64
-            %var_9 = alloca i64
-            %var_12 = alloca ptr
-            %var_13 = alloca ptr
-            store i1 false, ptr %var_4
-            store i64 %var_1, ptr %var_5
-            %var_16 = load i64, ptr %var_5
-            %var_6 = icmp sgt i64 %var_16, 0
-            br i1 %var_6, label %block_3, label %block_7
-            block_3:
-            call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 0 to ptr))
-            %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-            %var_8 = icmp eq i1 %var_7, false
-            store i1 %var_8, ptr %var_4
-            %var_18 = load i1, ptr %var_4
-            br i1 %var_18, label %block_4, label %block_5
-            block_4:
-            call void @X(ptr %var_2)
-            store i64 %var_1, ptr %var_9
-            %var_20 = load i64, ptr %var_9
-            %var_10 = sub i64 %var_20, 1
-            store ptr %var_2, ptr %var_12
-            store ptr %var_3, ptr %var_13
-            %var_23 = load ptr, ptr %var_12
-            %var_24 = load ptr, ptr %var_13
-            call void @Rus(i64 %var_10, ptr %var_23, ptr %var_24)
-            br label %block_6
-            block_5:
-            call void @X(ptr %var_3)
-            br label %block_6
-            block_6:
-            br label %block_7
-            block_7:
-            ret void
-            }
-        "#]],
-    ];
-    for (prepared, expected) in [false, true].into_iter().zip(expected) {
-        let source = if prepared {
-            source.replace("Rus(0, q, out);", "X(q); Rus(0, q, out);")
-        } else {
-            source.to_owned()
-        };
-        let qir = compile_source_to_qir(&source, *CAPABILITIES);
-        expected.assert_eq(&recursive_emitted_dataflow(
-            &qir,
-            &["ENTRYPOINT__main", "Rus"],
-        ));
-    }
-}
-
-#[test]
-fn recursive_static_budget_one_stops_after_first_attempt() {
-    let source = r#"
-        operation Rus(budget : Int, q : Qubit, out : Qubit) : Unit {
-            if budget > 0 {
-                if MResetZ(q) == Zero { X(q); Rus(budget - 1, q, out); } else { X(out); }
-            }
+    for budget in [0, 1, 3] {
+        for prepared in [false, true] {
+            let source = source
+                .replace("BUDGET", &budget.to_string())
+                .replace("PREPARATION", if prepared { "X(q);" } else { "" });
+            let qir = compile_source_to_qir(&source, *CAPABILITIES);
+            assert_static_resource_management(&qir, 2, 2);
+            let entry = super::qir_entry_body(&qir);
+            let call = format!(
+                "call void @Rus(i64 {budget}, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))"
+            );
+            assert_eq!(entry.matches("call void @Rus(").count(), 1, "{entry}");
+            let (before_call, _) = entry
+                .split_once(&call)
+                .expect("entry must pass the selected budget and qubits");
+            assert_eq!(
+                before_call
+                    .matches("call void @X(ptr inttoptr (i64 0 to ptr))")
+                    .count(),
+                usize::from(prepared),
+                "budget {budget}, prepared {prepared}:\n{entry}"
+            );
         }
-        operation Main() : Result {
-            use q = Qubit();
-            use out = Qubit();
-            Rus(1, q, out);
-            Reset(q);
-            MResetZ(out)
-        }
-    "#;
-    let expected = [
-        expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-            call void @__quantum__rt__initialize(ptr null)
-            call void @Rus(i64 1, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @Reset(ptr inttoptr (i64 0 to ptr))
-            call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
-            ret i64 0
-            }
-            define internal void @Rus(i64 %var_0, ptr %var_1, ptr %var_2) {
-            block_1:
-            %var_3 = alloca i1
-            %var_4 = alloca i64
-            %var_9 = alloca i64
-            %var_12 = alloca ptr
-            %var_13 = alloca ptr
-            store i1 false, ptr %var_3
-            store i64 %var_0, ptr %var_4
-            %var_16 = load i64, ptr %var_4
-            %var_5 = icmp sgt i64 %var_16, 0
-            br i1 %var_5, label %block_2, label %block_6
-            block_2:
-            call void @__quantum__qis__mresetz__body(ptr %var_1, ptr inttoptr (i64 0 to ptr))
-            %var_6 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-            %var_7 = icmp eq i1 %var_6, false
-            store i1 %var_7, ptr %var_3
-            %var_18 = load i1, ptr %var_3
-            br i1 %var_18, label %block_3, label %block_4
-            block_3:
-            call void @X(ptr %var_1)
-            store i64 %var_0, ptr %var_9
-            %var_20 = load i64, ptr %var_9
-            %var_10 = sub i64 %var_20, 1
-            store ptr %var_1, ptr %var_12
-            store ptr %var_2, ptr %var_13
-            %var_23 = load ptr, ptr %var_12
-            %var_24 = load ptr, ptr %var_13
-            call void @Rus(i64 %var_10, ptr %var_23, ptr %var_24)
-            br label %block_5
-            block_4:
-            call void @X(ptr %var_2)
-            br label %block_5
-            block_5:
-            br label %block_6
-            block_6:
-            ret void
-            }
-        "#]],
-        expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-            call void @__quantum__rt__initialize(ptr null)
-            call void @X(ptr inttoptr (i64 0 to ptr))
-            call void @Rus(i64 1, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @Reset(ptr inttoptr (i64 0 to ptr))
-            call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-            call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
-            ret i64 0
-            }
-            define internal void @Rus(i64 %var_1, ptr %var_2, ptr %var_3) {
-            block_2:
-            %var_4 = alloca i1
-            %var_5 = alloca i64
-            %var_9 = alloca i64
-            %var_12 = alloca ptr
-            %var_13 = alloca ptr
-            store i1 false, ptr %var_4
-            store i64 %var_1, ptr %var_5
-            %var_16 = load i64, ptr %var_5
-            %var_6 = icmp sgt i64 %var_16, 0
-            br i1 %var_6, label %block_3, label %block_7
-            block_3:
-            call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 0 to ptr))
-            %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-            %var_8 = icmp eq i1 %var_7, false
-            store i1 %var_8, ptr %var_4
-            %var_18 = load i1, ptr %var_4
-            br i1 %var_18, label %block_4, label %block_5
-            block_4:
-            call void @X(ptr %var_2)
-            store i64 %var_1, ptr %var_9
-            %var_20 = load i64, ptr %var_9
-            %var_10 = sub i64 %var_20, 1
-            store ptr %var_2, ptr %var_12
-            store ptr %var_3, ptr %var_13
-            %var_23 = load ptr, ptr %var_12
-            %var_24 = load ptr, ptr %var_13
-            call void @Rus(i64 %var_10, ptr %var_23, ptr %var_24)
-            br label %block_6
-            block_5:
-            call void @X(ptr %var_3)
-            br label %block_6
-            block_6:
-            br label %block_7
-            block_7:
-            ret void
-            }
-        "#]],
-    ];
-    for (prepared, expected) in [false, true].into_iter().zip(expected) {
-        let source = if prepared {
-            source.replace("Rus(1, q, out);", "X(q); Rus(1, q, out);")
-        } else {
-            source.to_owned()
-        };
-        let qir = compile_source_to_qir(&source, *CAPABILITIES);
-        expected.assert_eq(&recursive_emitted_dataflow(
-            &qir,
-            &["ENTRYPOINT__main", "Rus"],
-        ));
     }
 }
 

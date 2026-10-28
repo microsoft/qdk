@@ -4,6 +4,7 @@
 from textwrap import dedent
 import pytest
 from qdk import qsharp
+from qdk.simulation import run_qir
 import qdk.code
 from contextlib import redirect_stdout
 import io
@@ -356,6 +357,47 @@ def test_compile_qir_str() -> None:
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
+
+
+@pytest.mark.parametrize(
+    "budget,prepared,expected",
+    [
+        (0, False, qsharp.Result.Zero),
+        (0, True, qsharp.Result.Zero),
+        (1, False, qsharp.Result.Zero),
+        (1, True, qsharp.Result.One),
+        (3, False, qsharp.Result.One),
+        (3, True, qsharp.Result.One),
+    ],
+)
+def test_compiled_recursive_retry_preserves_budget_outcomes(
+    budget: int, prepared: bool, expected: qsharp.Result
+) -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Rus(budget : Int, q : Qubit, target : Qubit) : Unit {
+            if budget > 0 {
+                if MResetZ(q) == Zero {
+                    X(q);
+                    Rus(budget - 1, q, target);
+                } else { X(target); }
+            }
+        }
+        operation Retry(budget : Int, prepared : Bool) : Result {
+            use (q, target) = (Qubit(), Qubit());
+            if prepared { X(q); }
+            Rus(budget, q, target);
+            Reset(q);
+            MResetZ(target)
+        }
+    """)
+    expression = f"Retry({budget}, {str(prepared).lower()})"
+
+    interpreted = qsharp.eval(expression)
+    compiled = run_qir(str(qsharp.compile(expression)), shots=4, type="cpu")
+
+    assert interpreted == expected
+    assert compiled == [expected] * 4
 
 
 def test_compile_qir_str_from_python_callable() -> None:
