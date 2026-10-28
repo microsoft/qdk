@@ -68,7 +68,7 @@ def project_block(files):
 
 
 def render(issue):
-    """The standalone repro script for one issue; exits 0 while the bug reproduces."""
+    """The standalone repro script for one issue; exits 0 when the bug no longer reproduces."""
     title = issue.get("title_text") or re.sub(r"^\[[^\]]*\]\s*", "", issue["title"])
     replacements = {
         "__TITLE__": title,
@@ -96,7 +96,8 @@ def _results(rows):
         log = Path(row["log"]).read_text() if Path(row["log"]).is_file() else ""
         match = re.search(r"^JSON: (.*)$", log, re.M)
         results[row["label"]] = {"exit": row["exit"], "rows": json.loads(match.group(1)) if match else None,
-                                 "panics": row["panics"], "sha": row["sha"]}
+                                 "panics": row["panics"], "sha": row["sha"],
+                                 "reproduction": row["reproduction"]}
     return results
 
 
@@ -204,7 +205,7 @@ def draft_issues(config, definitions, output, revisions=None, only=(), cached=Fa
             write_json(cache, {"script": script_text, "results": results})
         labels = [label for label, _ in targets]
         columns = {label: labels_for.get(label) or f"{label} (`{sha[:8]}`)" for label, sha in targets}
-        status[issue["slug"]] = {label: results[label]["exit"] == 0 for label in labels}
+        status[issue["slug"]] = {label: results[label]["reproduction"] for label in labels}
         sections.append(markdown(issue, labels, columns, results, script_text))
     text = getattr(module, "HEADER", "").rstrip()
     text = (text + "\n\n---\n\n" if text else "") + "\n\n---\n\n".join(sections)

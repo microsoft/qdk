@@ -348,8 +348,7 @@ def run_command(args):
         output, status = draft_issues(config, args.definitions, args.output, args.revisions, args.only, args.cached,
                                       args.mode)
         for slug, columns in status.items():
-            print(f"{slug}: " + ", ".join(f"{label} {'reproduces' if ok else 'does NOT reproduce'}"
-                                          for label, ok in columns.items()))
+            print(f"{slug}: " + ", ".join(f"{label} {result}" for label, result in columns.items()))
         print(output)
     elif args.command == "save-evidence":
         saved, size, total, removed = save_evidence(config, args.findings, args.runs, args.files, args.name, args.note)

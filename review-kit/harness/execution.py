@@ -41,6 +41,15 @@ def last_exception(output):
     return f"{matches[-1][0]}: {matches[-1][1]}".strip() if matches else None
 
 
+def reproduction_status(stdout, exit_code):
+    """Prefer the last printed verdict, including repros using the legacy exit convention."""
+    for line in reversed(stdout.splitlines()):
+        match = re.fullmatch(r"(NOT REPRODUCED|REPRODUCED)(?:[: ].*)?", line.strip())
+        if match:
+            return "not reproduced" if match.group(1) == "NOT REPRODUCED" else "reproduces"
+    return "not reproduced" if exit_code == 0 else f"exit {exit_code}"
+
+
 def resolve_targets(config, roles=None, refs=None):
     if refs:
         return [(ref, resolve_ref(config["repository"], ref)) for ref in refs]
@@ -89,6 +98,7 @@ def exec_script(config, script, targets, mode, output_dir, timeout, args=()):
         )
         rows.append({
             "label": label, "sha": sha, "mode": mode, "exit": status,
+            "reproduction": reproduction_status(stdout, status),
             "exception": last_exception(stderr), "panics": panics, "log": str(log),
             "stdout_tail": stdout[-2000:],
         })
@@ -110,4 +120,3 @@ def print_exec(rows):
             tail = row["stdout_tail"].strip().splitlines()
             print("  stdout: " + (tail[-1][:200] if tail else "(empty)"))
         print(f"  log: {row['log']}")
-

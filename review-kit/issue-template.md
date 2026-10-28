@@ -16,7 +16,8 @@ Draft non-regressions as well as regressions when asked, and say which is which.
 
 State the revisions the tables were generated at (`main` and the candidate, with
 SHAs and PR numbers), how each repro works (simulator, then compile per profile and
-qir-runner), and that every Reproduce script exits 0 while the bug reproduces.
+qir-runner), and that every Reproduce script exits 0 when the bug no longer
+reproduces, and 1 when it reproduces.
 
 ## Meta-issue summary
 
@@ -85,13 +86,14 @@ Messages:
 """<title>
 
 <what the script does>
-Exits 0 while the bug reproduces: <rows> return something other than <expected>.
+Exits 0 when the bug no longer reproduces.
+Reproduces when <rows> return something other than <expected>.
 
 Requires: pip install qdk qirrunner
 """
 # Generated from templates/issue_repro.py.template: builds the program (or callable-API
 # argument), runs the simulator and each profile's QIR through qir-runner, prints the rows
-# and "REPRODUCED"/"NOT REPRODUCED", and exits 0 while the bug reproduces.
+# and "REPRODUCED"/"NOT REPRODUCED", and exits 0 when the bug no longer reproduces.
 ```
 
 ---

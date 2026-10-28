@@ -3,11 +3,13 @@
 
 """Fast self-tests; no compiler build, installed qdk, or network is required."""
 
+import ast
 import json
 import io
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -25,13 +27,15 @@ from harness.common import (  # noqa: E402
 )
 from harness.diffscan import scan_diff_text  # noqa: E402
 from harness import evidence  # noqa: E402
-from harness.issue_drafts import load_definitions, markdown as issue_markdown, render  # noqa: E402
+from harness.issue_drafts import draft_issues, load_definitions, markdown as issue_markdown, render  # noqa: E402
 from harness.tables import cell as table_cell, format_value, run_table  # noqa: E402
 from harness.timing import aggregate, ratios  # noqa: E402
 from harness.variants import variant_lines  # noqa: E402
 from harness.variants_worker import load_variants  # noqa: E402
 from harness.discovery import infer_entry, snapshot_issues  # noqa: E402
-from harness.execution import enclosing_function, last_exception, parse_panics  # noqa: E402
+from harness.execution import (  # noqa: E402
+    enclosing_function, exec_script, last_exception, parse_panics, reproduction_status,
+)
 from harness.extraction import convert_dump, insert_at_function_start, instrument  # noqa: E402
 from harness.investigate import (  # noqa: E402
     adapter_variants, ddmin, qsharp_constants, render_adapter, replace_constant,
@@ -546,6 +550,46 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(enclosing_function(text, 8), "other")
         self.assertIsNone(enclosing_function(text, 1))
 
+    def test_reproduction_verdict_precedes_exit_code(self):
+        scenarios = [
+            ("REPRODUCED\n", 0, "reproduces"),
+            ("REPRODUCED: Adaptive differs\n", 1, "reproduces"),
+            ("NOT REPRODUCED\n", 1, "not reproduced"),
+            ("NOT REPRODUCED\n", 0, "not reproduced"),
+            ("REPRODUCED\nNOT REPRODUCED\n", 1, "not reproduced"),
+            ("NOT REPRODUCED\nREPRODUCED\n", 0, "reproduces"),
+            ("", 0, "not reproduced"),
+            ("Traceback: failure\n", 1, "exit 1"),
+            ("", -9, "exit -9"),
+            ("", "timeout", "exit timeout"),
+            ("example: NOT REPRODUCED\n", 1, "exit 1"),
+        ]
+        for stdout, exit_code, expected in scenarios:
+            with self.subTest(stdout=stdout, exit_code=exit_code):
+                self.assertEqual(reproduction_status(stdout, exit_code), expected)
+
+    def test_exec_and_recheck_preserve_verdict_outside_stdout_tail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / "repro.py"
+            script.write_text("")
+            stdout = "REPRODUCED: original trigger\n" + "detail\n" * 500
+            proc = subprocess.CompletedProcess([], 0, stdout=stdout, stderr="")
+            build = {"overlay": str(root), "worktree": str(root)}
+            with patch("harness.execution.preflight", return_value={}), patch(
+                "harness.execution.build_revision", return_value=build
+            ), patch("harness.execution.subprocess.run", return_value=proc):
+                rows = exec_script({"venv": str(root)}, script, [("candidate", "a" * 40)],
+                                   "release", root / "exec", 5)
+            self.assertNotIn("REPRODUCED", rows[0]["stdout_tail"])
+            self.assertEqual(rows[0]["reproduction"], "reproduces")
+            with patch("harness.evidence.exec_script", return_value=rows):
+                table = evidence.recheck_scripts({}, [script], [], "release", root / "exec")
+            output = io.StringIO()
+            with patch("sys.stdout", output):
+                evidence.print_recheck(table, ["candidate"])
+            self.assertIn("reproduces", output.getvalue())
+
 
 class ExtractionTests(unittest.TestCase):
     def test_hook_insertion(self):
@@ -863,7 +907,8 @@ class IssueDraftTests(unittest.TestCase):
         _, issues = load_definitions(KIT / "examples" / "issues.py")
         issue = issues[0]
         script = render(issue)
-        self.assertIn("Exits 0 while the bug reproduces: Adaptive return something other than 1.", script)
+        self.assertIn("Exits 0 when the bug no longer reproduces.", script)
+        self.assertIn("Reproduces when Adaptive return something other than 1.", script)
         self.assertNotRegex(script, r"__[A-Z_]+__")
         results = {
             "main": {"exit": 0, "sha": "a" * 40, "rows": {"simulator": ["1"], "Adaptive": ["0"]},
@@ -883,6 +928,41 @@ class IssueDraftTests(unittest.TestCase):
             path.write_text("ISSUES = [{'slug': 'x'}]\n")
             with self.assertRaisesRegex(ReviewError, "lacks"):
                 load_definitions(path)
+
+    def test_rendered_repro_exits_zero_only_when_not_reproduced(self):
+        _, issues = load_definitions(KIT / "examples" / "issues.py")
+        tree = ast.parse(render(issues[0]))
+        main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+        for value, expected_exit, verdict in (("1", 0, "NOT REPRODUCED"), ("0", 1, "REPRODUCED:")):
+            with self.subTest(value=value), patch("sys.stdout", io.StringIO()) as output:
+                namespace = {
+                    "outputs": lambda: {"Adaptive": {value}},
+                    "EXPECTED": "1", "AFFECTED": ["Adaptive"], "json": json,
+                }
+                exec(compile(ast.Module(body=[main], type_ignores=[]), "<repro>", "exec"), namespace)
+                self.assertEqual(namespace["main"](), expected_exit)
+                self.assertTrue(output.getvalue().splitlines()[-1].startswith(verdict))
+
+    def test_draft_status_uses_verdict_instead_of_exit_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "repro.log"
+            log.write_text('JSON: {"Adaptive": ["0"]}\n')
+            rows = [
+                {"label": label, "sha": "a" * 40, "exit": exit_code, "panics": [],
+                 "log": str(log), "reproduction": status}
+                for label, exit_code, status in (
+                    ("legacy", 0, "reproduces"), ("current", 1, "reproduces"),
+                    ("error", 1, "exit 1"), ("absent", 0, "not reproduced"),
+                )
+            ]
+            config = {"work_dir": str(root / "work"),
+                      "refs": {row["label"]: row["sha"] for row in rows}}
+            with patch("harness.issue_drafts.exec_script", return_value=rows):
+                _, status = draft_issues(config, KIT / "examples" / "issues.py", root / "issues.md",
+                                         revisions=list(config["refs"]))
+            self.assertEqual(status["loop_result_slot"],
+                             {row["label"]: row["reproduction"] for row in rows})
 
 
 class EvidenceTests(unittest.TestCase):
@@ -922,11 +1002,12 @@ class EvidenceTests(unittest.TestCase):
             root = Path(directory)
             report = root / "report.md"
             report.write_text('# R\n\n```python\n"""Bug one\n\nExits 0 while the bug reproduces: A."""\n```\n\n'
+                              '```python\n"""Bug two\n\nExits 0 when the bug no longer reproduces."""\n```\n\n'
                               '```python\nprint("not a repro")\n```\n')
             (root / "work").mkdir()
             config = {"cache_dir": str(root / "cache"), "name": "gone", "work_dir": str(root / "work")}
             manifests, scripts, source = evidence.recheck_inputs(config, report=report)
-            self.assertEqual((manifests, [p.name for p in scripts]), ([], ["01_bug_one.py"]))
+            self.assertEqual((manifests, [p.name for p in scripts]), ([], ["01_bug_one.py", "02_bug_two.py"]))
             self.assertIn("embedded", source)
             with self.assertRaisesRegex(ReviewError, "No evidence"):
                 evidence.recheck_inputs(config)

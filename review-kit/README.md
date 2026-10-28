@@ -273,7 +273,8 @@ Optional module-level `HEADER`, `COMMENTS` (Markdown for existing issues), `REVI
 and `COLUMNS` (column labels). Each repro is rendered from
 `templates/issue_repro.py.template`, executed with `exec` at every revision, and the
 issue's Outputs table, messages and panic links come from those executions. The
-scripts exit 0 while the bug reproduces. See `issue-template.md` for the format.
+scripts exit 0 when the bug no longer reproduces, and 1 when it reproduces.
+See `issue-template.md` for the format.
 
 ### Generators and oracle tools
 
@@ -487,8 +488,11 @@ automatically. The cache's total size is kept under `cache_budget_mb` by deletin
 whole reviews, oldest first; the current review is never deleted.
 
 `recheck` reruns a cached review: its cases at the configured roles, printed as a
-`table`, and its repro scripts at each revision. A script's exit 0 means the bug
-still reproduces. If the cached review is gone, `recheck` extracts and runs the
+`table`, and its repro scripts at each revision. The last printed `REPRODUCED` or
+`NOT REPRODUCED` verdict takes precedence over the exit code, including for older
+scripts using the opposite exit convention. Without a verdict, exit 0 means
+not reproduced; other exits are reported without claiming reproduction or a fix.
+If the cached review is gone, `recheck` extracts and runs the
 repro scripts embedded in `--report` (default: the configured report), which is how
 earlier findings should be rechecked at the start of an updated review.
 

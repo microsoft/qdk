@@ -1,7 +1,8 @@
 """__TITLE__
 
 __DOC__
-Exits 0 while the bug reproduces: __AFFECTED_TEXT__.
+Exits 0 when the bug no longer reproduces.
+Reproduces when __AFFECTED_TEXT__.
 
 Requires: pip install qdk qirrunner__REQUIRES_EXTRA__
 """
@@ -135,9 +136,9 @@ def main():
     wrong = [name for name in AFFECTED if name in rows and rows[name] != {EXPECTED}]
     if wrong:
         print(f"REPRODUCED: {', '.join(wrong)} differ from {EXPECTED}")
-        return 0
+        return 1
     print("NOT REPRODUCED")
-    return 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ from harness.analysis import load_run, summarize_run
 from harness.common import ReviewError, read_json, write_json
 from harness.execution import exec_script
 
-REPRO_MARKER = "Exits 0 while the bug reproduces"
+REPRO_MARKER = re.compile(r"Exits 0 (?:when the bug no longer reproduces|while the bug reproduces)")
 GZIP_ABOVE = 1024 * 1024
 QUIET = {"validated_unchanged", "simulator_observed"}
 
@@ -157,13 +157,13 @@ def save_evidence(config, findings=(), runs=(), files=(), name=None, note=None):
 
 
 def report_scripts(report, directory):
-    """Extract the self-checking repro scripts (python blocks marked 'Exits 0 while the bug reproduces')."""
+    """Extract self-checking repro scripts with either the current or legacy exit convention."""
     text = Path(report).read_text()
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     paths = []
     for index, block in enumerate(re.findall(r"```python\n(.*?)^```", text, re.S | re.M), 1):
-        if REPRO_MARKER not in block:
+        if not REPRO_MARKER.search(block):
             continue
         title = block.strip().splitlines()[0].strip('"').strip() if block.strip() else f"script {index}"
         slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")[:50] or f"script_{index}"
@@ -198,28 +198,27 @@ def merged_manifest(manifests, output):
 
 
 def recheck_scripts(config, scripts, targets, mode, output):
-    """Exit 0 means the bug still reproduces (the convention of the drafted repro scripts)."""
+    """Use printed verdicts, falling back to not reproduced for exit 0."""
     table = []
     for script in scripts:
         rows = exec_script(config, script, targets, mode, output, timeout=900)
-        table.append((Path(script).name, {row["label"]: row["exit"] for row in rows}))
+        table.append((Path(script).name, {row["label"]: row["reproduction"] for row in rows}))
     return table
 
 
 def print_recheck(table, labels):
-    word = {0: "reproduces", 1: "fixed"}
     width = max([len(name) for name, _ in table] + [10])
     print(f"{'script':<{width}}  " + "  ".join(f"{label[:14]:14}" for label in labels))
-    for name, exits in table:
-        print(f"{name:<{width}}  " + "  ".join(f"{word.get(exits.get(label), f'exit {exits.get(label)}'):14}"
-                                             for label in labels))
+    for name, results in table:
+        print(f"{name:<{width}}  " + "  ".join(f"{results.get(label, 'not run'):14}" for label in labels))
 
 
 def recheck_inputs(config, name=None, report=None):
     """(manifests, scripts, source description); falls back to the report when the cache is gone."""
     destination = review_dir(config, name)
     manifests = evidence_manifests(destination) if destination.is_dir() else []
-    scripts = [p for p in sorted((destination / "files").rglob("*.py")) if REPRO_MARKER in p.read_text()] \
+    scripts = [p for p in sorted((destination / "files").rglob("*.py"))
+               if REPRO_MARKER.search(p.read_text())] \
         if destination.is_dir() else []
     if manifests or scripts:
         return manifests, scripts, f"evidence cache {destination}"
