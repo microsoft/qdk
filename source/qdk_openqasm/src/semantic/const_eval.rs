@@ -853,15 +853,12 @@ fn cast_to_int(cast: &Cast, ctx: &mut Lowerer) -> Option<LiteralKind> {
             let Type::Int(width, _) = &cast.ty else {
                 unreachable!("we got here after matching Type::Int in Cast::const_eval");
             };
+            // An unsized `int` has a target-defined width, and the compiler
+            // stores it as an `i64`, so we treat it as 64 bits wide. As a
+            // result, `int(b)` with `b = "10"` gives `2`, while `int[2](b)`
+            // gives `-2`.
             let width = width.unwrap_or(i64::BITS);
-            // Bitstrings hold non-negative values, so we reinterpret them as
-            // two's complement integers of the target width.
-            let val = if width > 0 && val.bit(u64::from(width - 1)) {
-                val - (BigInt::from(1) << width)
-            } else {
-                val
-            };
-            Int(i64::try_from(val).ok()?)
+            Int(i64::try_from(bit_pattern_to_signed_int(val, width)).ok()?)
         }),
         // UInt Overflowing behavior.
         // This is tricky because the inner representation of UInt
@@ -1024,35 +1021,82 @@ fn cast_to_bitarray(cast: &Cast, ctx: &mut Lowerer) -> Option<LiteralKind> {
         }),
         Type::Int(..) | Type::UInt(..) => rewrap_lit!(lit, Int(val), {
             let is_signed = matches!(cast.expr.ty, Type::Int(..));
-            let actual_bits = number_of_bits(val, is_signed);
-            if actual_bits > size {
+            let Some(bits) = int_to_bit_pattern(val, is_signed, size) else {
                 ctx.push_const_eval_error(ConstEvalError::ValueOverflow(
                     cast.expr.ty.to_string(),
                     cast.ty.to_string(),
                     cast.span,
                 ));
                 return None;
-            }
-            // Bitstrings hold non-negative values, so negative ints are
-            // converted to their two's complement representation in `size` bits.
-            let mask = (BigInt::from(1) << size) - 1;
-            Bitstring(BigInt::from(val) & mask, size)
+            };
+            Bitstring(bits, size)
         }),
         _ => None,
     }
 }
 
-/// Returns the minimum number of bits needed to represent `val`.
-/// Signed values use their two's complement representation, and
-/// unsigned values are reinterpreted as `u64`.
-fn number_of_bits(val: i64, is_signed: bool) -> u32 {
-    if is_signed && val < 0 {
-        // One sign bit plus the significant bits below the leading ones.
-        i64::BITS - val.leading_ones() + 1
+/// Returns the `width`-bit pattern that encodes `val`, or `None` if `val`
+/// is out of range for a `width`-bit integer of the given signedness.
+///
+/// In OpenQASM, `bit[n]` behaves as a packed sequence of `n` bits, and
+/// casting an `int[n]` or `uint[n]` to `bit[n]` reinterprets the integer's
+/// bits as that sequence. So the cast doesn't preserve the numeric value; it
+/// preserves the bits the integer is stored as. For example, `bit[2](-1)`
+/// is `"11"`, and casting it back with `int[2]` gives `-1` again.
+///
+/// The compiler stores a `bit[n]` constant as a non-negative [`BigInt`] whose
+/// binary digits are the bits of the register, so the integer's bits have to
+/// be turned into that number:
+/// - Non-negative values are already their own bit pattern in plain binary.
+/// - Negative values use two's complement, the standard encoding for signed
+///   integers, where `-x` is stored as `2^width - x`. For example, with
+///   `width = 4`, `-3` is stored as `16 - 3 = 13 = 0b1101`.
+///
+/// See the OpenQASM spec for the casting rules:
+/// <https://github.com/openqasm/openqasm/blob/a7bdfe6a1dc6cb7dbf87eeb711c913d15b903510/source/language/types.rst#L215-L249>
+fn int_to_bit_pattern(val: i64, is_signed: bool, width: u32) -> Option<BigInt> {
+    let val = if is_signed {
+        BigInt::from(val)
     } else {
+        // Unsigned values are stored in an `i64` that holds their bits.
         #[allow(clippy::cast_sign_loss)]
-        let val = val as u64;
-        u64::BITS - val.leading_zeros()
+        BigInt::from(val as u64)
+    };
+    let modulus = BigInt::from(1) << width;
+
+    // A signed `width`-bit integer holds `-2^(width - 1) <= val < 2^(width - 1)`,
+    // and an unsigned one holds `0 <= val < 2^width`.
+    let (min, max) = if is_signed {
+        let half: BigInt = &modulus >> 1u32;
+        (-half.clone(), half)
+    } else {
+        (BigInt::ZERO, modulus.clone())
+    };
+    if val < min || val >= max {
+        return None;
+    }
+
+    if val < BigInt::ZERO {
+        Some(val + modulus)
+    } else {
+        Some(val)
+    }
+}
+
+/// Interprets `bits` as a `width`-bit two's complement integer.
+/// This is the inverse of [`int_to_bit_pattern`] for signed values.
+fn bit_pattern_to_signed_int(bits: BigInt, width: u32) -> BigInt {
+    // In two's complement, the top bit is the sign bit. A zero-width pattern
+    // has no bits, so it's never negative.
+    let is_negative = width > 0 && bits.bit(u64::from(width - 1));
+    if is_negative {
+        // `int_to_bit_pattern` stores a negative `-x` as `2^width - x`,
+        // so subtracting `2^width` gives back `-x`.
+        // For example, with `width = 4`, `0b1101 = 13` decodes to `13 - 16 = -3`.
+        let modulus = BigInt::from(1) << width;
+        bits - modulus
+    } else {
+        bits
     }
 }
 
