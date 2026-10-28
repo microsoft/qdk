@@ -53,6 +53,8 @@ RUN --mount=type=bind,from=qdk,target=/qdk,readonly \
     && chown -R agent:agent /opt/qdk-venv /opt/cargo /opt/npm-cache /opt/pyright \
     && chmod -R a-w /opt/sandbox/copilot
 
+RUN git clone https://github.com/microsoft/qdk-chemistry.git /opt/qdk-chemistry
+
 # Lock things down (proxy, copilot hooks, etc)
 FROM prepared AS runtime-base
 COPY --chmod=0444 runtime/policy/copilot-sandbox.json /etc/github-copilot/policy.d/copilot-sandbox.json
