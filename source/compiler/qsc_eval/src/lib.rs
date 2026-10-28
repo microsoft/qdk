@@ -2276,7 +2276,7 @@ fn eval_binop_eq(
             // failure.
             Err(Error::ResultLossComparisonUnsupported(rhs_span))
         }
-        (lhs, rhs) => Ok(Value::Bool(lhs == rhs)),
+        (lhs, rhs) => Ok(Value::Bool(lhs.payload_eq(&rhs))),
     }
 }
 
@@ -2312,7 +2312,7 @@ fn eval_binop_neq(
             Err(Error::ResultLossComparisonUnsupported(rhs_span))
         }
 
-        (lhs, rhs) => Ok(Value::Bool(lhs != rhs)),
+        (lhs, rhs) => Ok(Value::Bool(!lhs.payload_eq(&rhs))),
     }
 }
 

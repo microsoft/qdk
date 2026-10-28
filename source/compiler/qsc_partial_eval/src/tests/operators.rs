@@ -70,6 +70,64 @@ fn unit_inequality_preserves_quantum_operand_effects() {
 }
 
 #[test]
+fn unwrapped_unit_equality_preserves_quantum_effects() {
+    for expression in ["({ X(q); wrapped! }) == ()", "() == ({ X(q); wrapped! })"] {
+        let program = get_rir_program(&format!(
+            "newtype UnitBox = Unit;
+             @EntryPoint()
+             operation Main() : Bool {{
+                 use q = Qubit();
+                 let wrapped = UnitBox();
+                 {expression}
+             }}"
+        ));
+        assert_eq!(
+            program.get_callable(CallableId(2)).name,
+            "__quantum__qis__x__body"
+        );
+        assert_blocks(
+            &program,
+            &expect![[r#"
+                Blocks:
+                Block 0:Block:
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), )
+                    Call id(3), args( Bool(true), Tag(0, 3), )
+                    Return Integer(0)"#]],
+        );
+    }
+}
+
+#[test]
+fn unwrapped_unit_inequality_preserves_quantum_effects() {
+    for expression in ["({ X(q); wrapped! }) != ()", "() != ({ X(q); wrapped! })"] {
+        let program = get_rir_program(&format!(
+            "newtype UnitBox = Unit;
+             @EntryPoint()
+             operation Main() : Bool {{
+                 use q = Qubit();
+                 let wrapped = UnitBox();
+                 {expression}
+             }}"
+        ));
+        assert_eq!(
+            program.get_callable(CallableId(2)).name,
+            "__quantum__qis__x__body"
+        );
+        assert_blocks(
+            &program,
+            &expect![[r#"
+                Blocks:
+                Block 0:Block:
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), )
+                    Call id(3), args( Bool(false), Tag(0, 3), )
+                    Return Integer(0)"#]],
+        );
+    }
+}
+
+#[test]
 fn unit_comparison_preserves_rhs_failure() {
     for operator in ["==", "!="] {
         let error = get_partial_evaluation_error(&format!(

@@ -622,6 +622,52 @@ fn unit_comparisons_preserve_quantum_effects_on_every_profile() {
 }
 
 #[test]
+fn unwrapped_unit_comparisons_match_interpreter_and_qir() {
+    for effects in ["", "X(q); Reset(q);"] {
+        for (comparison, expected_result, expected_gate) in
+            [("==", true, "X(q);"), ("!=", false, "")]
+        {
+            let source = format!(
+                "newtype UnitBox = Unit;
+                 operation Main() : Result {{
+                     use q = Qubit();
+                     let wrapped = UnitBox();
+                     if ({{ {effects} wrapped! }}) {comparison} () {{ X(q); }}
+                     MResetZ(q)
+                 }}"
+            );
+            let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+            eval_fragments(&mut interpreter, &source);
+            assert_eq!(
+                eval_fragments(&mut interpreter, "Main()"),
+                Value::Result(qsc_eval::val::Result::Val(expected_result)),
+                "{comparison}, effects={effects:?}: compare the unwrapped payload"
+            );
+            let reference = format!(
+                "operation Main() : Result {{
+                    use q = Qubit();
+                    {effects}
+                    {expected_gate}
+                    MResetZ(q)
+                }}"
+            );
+            for profile in [
+                Profile::Base,
+                Profile::AdaptiveRI,
+                Profile::AdaptiveRIF,
+                Profile::Adaptive,
+            ] {
+                assert_eq!(
+                    compile_source_to_qir(&source, profile.into()),
+                    compile_source_to_qir(&reference, profile.into()),
+                    "{profile:?}, {comparison}, effects={effects:?}: preserve effects and comparison result"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn evaluation_order_short_circuit_double_assignment_then_arithmetic() {
     let template = r#"
         operation Main() : Double {

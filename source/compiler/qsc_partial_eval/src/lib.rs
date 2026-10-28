@@ -757,8 +757,8 @@ impl<'a> PartialEvaluator<'a> {
             "expected Unit value from RHS expression"
         );
         let result = match bin_op {
-            BinOp::Eq => lhs_value == &rhs_value,
-            BinOp::Neq => lhs_value != &rhs_value,
+            BinOp::Eq => lhs_value.payload_eq(&rhs_value),
+            BinOp::Neq => !lhs_value.payload_eq(&rhs_value),
             _ => panic!("unsupported binary operation for Unit: {bin_op:?}"),
         };
         Ok(EvalControlFlow::Continue(Value::Bool(result)))

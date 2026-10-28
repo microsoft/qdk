@@ -3636,6 +3636,90 @@ fn udt_unwrap() {
 }
 
 #[test]
+fn payload_equality_does_not_change_representation_equality() {
+    let tag = fir::StoreItemId {
+        package: PackageId::from(2usize),
+        item: fir::LocalItemId::from(0usize),
+    };
+    let tagged = Value::Tuple(Vec::new().into(), Some(tag.into()));
+    let plain = Value::unit();
+    assert!(tagged.payload_eq(&plain));
+    assert!(plain.payload_eq(&tagged));
+    assert_ne!(tagged, plain, "Rust equality must retain tuple metadata");
+    assert!(!tagged.payload_eq(&Value::Array(Vec::new().into())));
+    assert!(!tagged.payload_eq(&Value::Tuple(vec![Value::unit()].into(), None)));
+}
+
+#[test]
+fn payload_equality_preserves_nested_nan_inequality() {
+    let value = Value::Array(vec![Value::Tuple(vec![Value::Double(f64::NAN)].into(), None)].into());
+    assert!(!value.payload_eq(&value));
+}
+
+#[test]
+fn udt_unwrap_unit_equality_uses_payload() {
+    check_expr(
+        "",
+        "{
+            newtype Foo = Unit;
+            newtype Bar = Unit;
+            let foo = Foo();
+            let bar = Bar();
+            (foo! == (), () == foo!, foo! != (), () != foo!, foo! == bar!)
+        }",
+        &expect!["(true, true, false, false, true)"],
+    );
+}
+
+#[test]
+fn udt_unwrap_tuple_equality_uses_payload() {
+    check_expr(
+        "",
+        "{
+            newtype Foo = (Int, Bool);
+            newtype Bar = (Int, Bool);
+            let foo = Foo(1, true);
+            let bar = Bar(1, true);
+            (foo! == (1, true), (1, true) == foo!, foo! != (1, true),
+             foo! == bar!, foo! == (2, true), foo! != (1, false))
+        }",
+        &expect!["(true, true, false, true, false, true)"],
+    );
+}
+
+#[test]
+fn udt_unwrap_equality_recurses_into_tuples_and_arrays() {
+    check_expr(
+        "",
+        "{
+            newtype Pair = (Int, Bool);
+            let pair = Pair(1, true);
+            (([pair!], 7) == ([(1, true)], 7),
+             [([pair!], 7)] == [([(1, true)], 7)],
+             [pair!] != [(1, true)],
+             [pair!] == [(2, true)],
+             [pair!] != [(1, true), (1, true)])
+        }",
+        &expect!["(true, true, false, false, true)"],
+    );
+}
+
+#[test]
+fn udt_unwrap_equality_preserves_nested_complex_values() {
+    check_expr(
+        "",
+        "{
+            newtype Box = (Unit, Complex);
+            let box = Box((), 3.0 + 4.0i);
+            let (_, z) = box!;
+            (box! == ((), 3.0 + 4.0i), box! != ((), 3.0 - 4.0i),
+             z + (1.0 + 0.0i), -z, +z)
+        }",
+        &expect!["(true, true, (4.0, 4.0), (-3.0, -4.0), (3.0, 4.0))"],
+    );
+}
+
+#[test]
 fn udt_fields() {
     check_expr(
         "",
