@@ -46,6 +46,11 @@ Names follow three domains:
                      LayerRuntime, DecoderRuntime.  Built with plan.instantiate().
 So Qodec → QodecPlan → QodecRuntime, Layer → LayerPlan → LayerRuntime, and a
 chosen Decoder → DecoderPlan (one per layer) → DecoderRuntime (one per shot).
+A plan is independent of any program, and so is its runtime: layer runtimes
+allocate lower block ids on demand, so a program need not know its size
+upfront.  A caller that does know it can ask
+qodecPlan.requiredResources(topResources) how large the bottom backend must be
+(§10.1).
 
 Deliberate differences from the Python reference implementation
 (qdk/simulation/_qodec).  Each fixes a bug found by formal verification or
@@ -153,7 +158,7 @@ It never wraps.
 
 Block ids are names chosen by whoever issues the instruction.  At the top, the
 classical runtime chooses them.  Below layer k, they are the lower block ids that
-layer k allocates, in 0..N-1 (§8.2).
+layer k allocates on demand, densely from 0: the lowest free id first (§8.6).
 
 ── 0.4 Results (R) ────────────────────────────────────────────────────
 
@@ -190,7 +195,6 @@ Unrecoverable (in Err):
         Protocol,            // the backend below broke the result contract: wrong
                              // number of Rs, or an R of the wrong shape
         InvalidInstruction,  // unknown Id, bad operands or arguments, block not live
-        Capacity,            // a gadget does not fit the reserved lower blocks
         NoImplementation,    // an instruction has no gadget and no native handling
         Poisoned,            // a previous Err left the layer inconsistent
     }
@@ -202,11 +206,12 @@ nested, one level per layer (an implementation may flatten it).
 
 Neither the trait nor the layers have lifecycle methods.  A QodecRuntime lives
 for exactly one shot:
-  - A QodecPlan does the shot-independent work once: layer plans, decoder
-    plans and sizing (§5, §8.2, §10.1).
-  - qodecPlan.instantiate(backend) builds a QodecRuntime: fresh layer runtimes,
-    each with a fresh decoder runtime, on top of a bottom backend supplied by
-    the caller.  A layer runtime is constructed ready to run (§8.3).
+  - A QodecPlan does the program-independent work once: layer plans and
+    decoder plans (§5, §10.1).
+  - qodecPlan.instantiate(backend) builds a QodecRuntime: fresh layer
+    runtimes, each with a fresh decoder runtime, on top of a bottom backend
+    supplied by the caller.  A layer runtime is constructed ready to run
+    (§8.3), and allocates lower block ids on demand (§8.6).
   - Dropping the QodecRuntime ends the shot.  There is no start(), close() or
     reset.
 The caller owns the bottom backend's lifecycle: it hands over one in its
@@ -309,7 +314,8 @@ FrameKey        = "out[e].x[k]" | "out[e].z[k]"     // exactly one output logica
 ══════════════════════════════════════════════════════════════════════
 
 Label           = u64                              // upper block id (Block param above)
-LowerId         = u64                              // lower block id, 0..N-1 (Block param below)
+LowerId         = u64                              // lower block id, allocated densely
+                                                   // from 0 (Block param below)
 BlockRef        = (label: Label, generation: Int, type: BlockType)
 Resources       = (qubits: Int, blocks: Map<BlockType, Int>)
 
@@ -792,10 +798,9 @@ function runBody(layer, body, inv, placement) -> (record: List<LazyBit>, selects
 ── 8.1 State ──────────────────────────────────────────────────────────
 
 blocks         : Map<Label, LiveBlock>
-free           : MinHeap<LowerId>
-typeOf         : Map<LowerId, BlockType>
-typeCount      : Map<BlockType, Int>     // allocated lower blocks per type (incremental)
-capacityByType : Map<BlockType, Int>
+free           : MinHeap<LowerId>        // released lower ids, reused lowest first
+nextFresh      : LowerId                 // ids below it have been allocated before
+typeOf         : Map<LowerId, BlockType> // lower type of every allocated id
 generation     : Map<Label, Int>
 nextInvocation : Int
 decoder        : DecoderRuntime          // decoderPlan.instantiate(), in new()
@@ -820,12 +825,15 @@ decoderLog     : Queue<DecoderEvent>     // deferred decoder work, in program or
 // resumed).  Release-fallback results are never kept.  `results` therefore
 // holds only buffered or not-yet-decoded work.
 
-// sideEffects rule: every call to emit(), every write to blocks, free, typeOf,
-// generation, and every decoder call or queued DecoderEvent increments
-// sideEffects.  It decides whether an Err poisons the layer (§8.4).
+// sideEffects rule: every call to emit(), every write to blocks, free,
+// nextFresh, typeOf, generation, and every decoder call or queued DecoderEvent
+// increments sideEffects.  It decides whether an Err poisons the layer (§8.4).
 
-── 8.2 Sizing (a LayerPlan method: it needs no runtime state) ─────────
+── 8.2 Sizing (optional; a LayerPlan method) ──────────────────────────
 
+// Layer runtimes do not need it: they allocate lower ids on demand (§8.6).  It
+// tells a caller whose program knows its size how many blocks the layer below
+// needs: blocks per encoding for every upper block, plus gadget scratch.
 function LayerPlan.requiredResources(upper) -> Resources:
     need = copy(upper.blocks)
     if upper.qubits > 0:
@@ -841,20 +849,14 @@ function LayerPlan.requiredResources(upper) -> Resources:
 
 ── 8.3 Construction (one layer runtime per shot) ──────────────────────
 
-// `res` is this layer's LOWER resources (§10.1).  The layer runtime is ready to
-// run; dropping it ends the shot.
-function LayerRuntime::new(plan: LayerPlan, decoderPlan, lower, res):
-    require keys(res.blocks) ⊆ keys(plan.lowerCaps)
-    capacityByType = copy(res.blocks)
-    if res.qubits > 0:
-        require size(plan.lowerCaps) == 1 and onlyValue(plan.lowerCaps) == 1
-        capacityByType[onlyKey(plan.lowerCaps)] += res.qubits
-    free = heap(0 .. res.qubits + Σ values(res.blocks) - 1)
-    blocks, typeOf, typeCount, generation, buffer, bufferSlots, results, decoderLog = empty
+// The layer runtime is ready to run; dropping it ends the shot.  It needs no
+// resources: lower ids are allocated on demand (§8.6).
+function LayerRuntime::new(plan: LayerPlan, decoderPlan, lower):
+    blocks, free, typeOf, generation, buffer, bufferSlots, results, decoderLog = empty
     // Generations start over in every shot, so BlockRefs repeat across shots:
     // a decoder runtime must never outlive its shot.
     decoder = decoderPlan.instantiate()
-    nextInvocation = 0;  nextSlot = 0;  sideEffects = 0
+    nextFresh = 0;  nextInvocation = 0;  nextSlot = 0;  sideEffects = 0
     status = Status{};  failed = false
 
 ── 8.4 execute_batch, buffering and flushing ──────────────────────────
@@ -961,17 +963,6 @@ function prepareInvocation(gp, call):
             placement[lab] = lb
     // Placement is injective because live blocks never share lower blocks:
     // inputs are distinct live blocks and outputs are disjoint (§4.6).
-
-    outOnly  = call.operands[len(gp.g.in):]
-    replaced = [blocks[t] for t in outOnly if t ∈ blocks]
-    require count(lab ∉ placement for lab in gp.labels)
-            ≤ size(free) + Σ len(b.support) for b in replaced          else Err(Capacity)
-    after = copy(typeCount)                                // O(#types), not O(N)
-    for b in replaced: for lb in b.support: after[typeOf[lb]] -= 1
-    for lab in gp.labels:
-        if lab ∈ placement: after[typeOf[placement[lab]]] -= 1
-        after[gp.labelType[lab]] += 1
-    require ∀t: after[t] ≤ capacityByType[t]                           else Err(Capacity)
     return (gp, call, outOps, placement)
 
 function runInvocation(prepared, id) -> Sink:
@@ -992,9 +983,7 @@ function runInvocation(prepared, id) -> Sink:
 
     placement = prepared.placement
     for lab in gp.labels:
-        if lab ∉ placement:
-            placement[lab] = free.popMin()
-            typeOf[placement[lab]] = gp.labelType[lab];  typeCount[gp.labelType[lab]] += 1
+        if lab ∉ placement: placement[lab] = allocateLower(gp.labelType[lab])
 
     (raw, selects, slots) = runBody(this, gp.body, inv, placement)   // lazy circuit.readouts
 
@@ -1081,7 +1070,6 @@ function release(label):
 //     `unresolved` if stale signs remain on the reset qubits (§9.2).
 //     A body that reads a scratch block before preparing it is malformed
 //     either way.
-// Capacity below is unaffected, because ids stay within 0..N-1.
 function releaseLower(lb):
     id = plan.lowerRelease.get(typeOf[lb])
     if id ≠ None: emit(id, [Block(lb)])      // no observe, no flags: no result
@@ -1089,7 +1077,16 @@ function releaseLower(lb):
 
 // Return a lower block id to the free list without emitting anything.
 function forgetLower(lb):
-    typeCount[typeOf[lb]] -= 1;  typeOf.remove(lb);  free.push(lb)
+    typeOf.remove(lb);  free.push(lb)
+
+// Allocate a lower block id on demand: the lowest released id first, otherwise
+// a fresh one.  Ids therefore stay dense, so the bottom backend needs only as
+// many blocks as the shot keeps live at once.  There is no limit here: a
+// backend that cannot hold the id fails it (§10.2).
+function allocateLower(type) -> LowerId:
+    lb = free.popMin() or (nextFresh++)
+    typeOf[lb] = type
+    return lb
 
 ── 8.7 Corrections (decoder → lower layer) ────────────────────────────
 
@@ -1254,28 +1251,31 @@ function actionTransport(inv, sys) -> Map<(e, x|z, k), Parity>:
 
 ── 10.1 The qodec plan and its runtimes ───────────────────────────────
 
-// Plan: shot-independent work, done once.
-function QodecPlan::new(manifest, decoder, topResources):
+// Plan: program-independent work, done once per qodec and decoder.
+function QodecPlan::new(manifest, decoder):
     require len(manifest.layers) ≥ 2
     n = len(manifest.layers) - 1                    // layers 0..n-1 have gadgets
     layerPlans   = [LayerPlan::new(manifest.layers[k], manifest.layers[k+1].isa,
                                    decoderDeferrable = decoder.deferrable)
                     for k in 0..n-1]
     decoderPlans = [decoder.plan(layerPlans[k]) for k in 0..n-1]      // e.g. §9
-    res[0] = topResources
-    for k in 0..n-1: res[k+1] = layerPlans[k].requiredResources(res[k])
-    return QodecPlan(layerPlans, decoderPlans, res)
+    return QodecPlan(layerPlans, decoderPlans)
 
-qodecPlan.bottomResources() = res[n]                // what the bottom backend must hold
+// Optional sizing, for a caller whose program knows its size: the resources at
+// every boundary, so the bottom backend can be built large enough.  res[k] is
+// layer k's UPPER resources; it runs on res[k+1].  Nothing else needs it.
+function qodecPlan.requiredResources(topResources) -> List<Resources>:
+    res[0] = topResources
+    for k in 0..n-1: res[k+1] = layerPlans[k].requiredResources(res[k])   // §8.2
+    return res                                      // res[n]: the bottom backend
 
 // Runtime: the QodecRuntime of one shot, with fresh layer and decoder runtimes
-// over the caller's bottom backend.  res[k] is layer k's UPPER resources, so
-// layer k is built with res[k+1].
+// over the caller's bottom backend.  Layer runtimes allocate lower ids on
+// demand (§8.6), so no program size is needed.
 function qodecPlan.instantiate(backend) -> QodecRuntime:
     runtime = backend
     for k in n-1 down to 0:
-        runtime = LayerRuntime::new(layerPlans[k], decoderPlans[k], lower = runtime,
-                                    res[k+1])
+        runtime = LayerRuntime::new(layerPlans[k], decoderPlans[k], lower = runtime)
     return runtime                                  // : impl Backend<Id, P, R>
 
 // `backend` is any Backend for the bottom ISA: a simulator, a profiler,
@@ -1285,7 +1285,7 @@ function qodecPlan.instantiate(backend) -> QodecRuntime:
 // A backend whose setup is expensive (e.g. a GPU simulator or a hardware
 // connection) is therefore never rebuilt.
 //
-//     qodecPlan = QodecPlan::new(manifest, FrameDecoder, topResources)
+//     qodecPlan = QodecPlan::new(manifest, FrameDecoder)          // per qodec
 //     for each shot:
 //         runtime = qodecPlan.instantiate(bottom backend in its initial state)
 //         runtime.execute_batch(...) ...
@@ -1294,12 +1294,17 @@ function qodecPlan.instantiate(backend) -> QodecRuntime:
 ── 10.2 Bottom backend contract ───────────────────────────────────────
 
 The bottom backend implements Backend<Id, P, R> for the bottom ISA:
-  - It starts every shot in its initial state, with room for
-    qodecPlan.bottomResources().  Whether it is built for the shot or reset and
-    reused is the caller's choice (§10.1).
+  - It starts every shot in its initial state.  Whether it is built for the
+    shot or reset and reused is the caller's choice (§10.1).
+  - Block ids are allocated on demand, densely from 0 (§8.6), so the backend
+    needs only as many blocks as the shot keeps live at once.  It either holds
+    enough blocks upfront (qodecPlan.requiredResources(top) gives the count
+    when the program's size is known) or grows on demand.  An id it cannot
+    hold is an unrecoverable failure: it returns Err.
   - Id is the index of a bottom-ISA instruction, whose action defines it (a
     simulator executes it; a profiler or a device may count, forward or run it).
-  - parameters follow §0.3: Block(q) operands with q < the bottom resources,
+  - parameters follow §0.3: Block(q) operands, then arguments in declaration
+    order.
     then arguments in declaration order.
   - It returns exactly one R per instruction with needsResult, in order.  Each R
     holds that instruction's observe outcomes, then its flags.  Status is
