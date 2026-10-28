@@ -5336,19 +5336,10 @@ fn assert_x_targets_with_context(qir: &str, expected: &[usize], context: &str) {
     }
 }
 
-#[test]
-fn nested_selectors_emit_selected_operation() {
-    for (selection, target) in [
-        ("Choose(1 < 2, A, B)", 0),
-        ("Choose(1 < 2, Choose(1 < 2, A, B), B)", 0),
-        ("Choose(1 < 2, Choose(1 > 2, A, B), B)", 2),
-        ("Choose(1 > 2, Choose(1 < 2, A, B), B)", 2),
-        ("Choose(true, Choose(true, A, B), B)", 0),
-        ("Choose(1 < 2, Make(), B)", 0),
-    ] {
-        for invocation in ["ApplyOne(f, qs)", "f(qs)"] {
-            let source = format!(
-                r#"
+fn check_nested_selector_qir(selection: &str, target: usize) {
+    for invocation in ["ApplyOne(f, qs)", "f(qs)"] {
+        let source = format!(
+            r#"
                 operation A(qs : Qubit[]) : Unit is Adj + Ctl {{ X(qs[0]); }}
                 operation B(qs : Qubit[]) : Unit is Adj + Ctl {{ X(qs[2]); }}
                 operation ApplyOne(op : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl {{
@@ -5365,20 +5356,47 @@ fn nested_selectors_emit_selected_operation() {
                     MResetEachZ(qs)
                 }}
                 "#
-            );
-            for profile in [Profile::Base, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
-                let mut interpreter = interpreter_with_capabilities(profile.into());
-                eval_fragments(&mut interpreter, &source);
-                let qir = interpreter.qirgen("Main()").unwrap_or_else(|errors| {
-                    panic!(
-                        "{profile:?}: {selection}, {invocation}:\n{}",
-                        format_interpret_errors(errors)
-                    )
-                });
-                assert_x_targets(&qir, &[target]);
-            }
+        );
+        for profile in [Profile::Base, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+            let context = format!("{profile:?}, selection={selection}, invocation={invocation}");
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, &source);
+            let qir = interpreter
+                .qirgen("Main()")
+                .unwrap_or_else(|errors| panic!("{context}:\n{}", format_interpret_errors(errors)));
+            assert_x_targets_with_context(&qir, &[target], &context);
         }
     }
+}
+
+#[test]
+fn nested_selectors_single_comparison_selects_first_operation() {
+    check_nested_selector_qir("Choose(1 < 2, A, B)", 0);
+}
+
+#[test]
+fn nested_selectors_nested_comparisons_select_first_operation() {
+    check_nested_selector_qir("Choose(1 < 2, Choose(1 < 2, A, B), B)", 0);
+}
+
+#[test]
+fn nested_selectors_inner_false_selects_second_operation() {
+    check_nested_selector_qir("Choose(1 < 2, Choose(1 > 2, A, B), B)", 2);
+}
+
+#[test]
+fn nested_selectors_outer_false_selects_second_operation() {
+    check_nested_selector_qir("Choose(1 > 2, Choose(1 < 2, A, B), B)", 2);
+}
+
+#[test]
+fn nested_selectors_boolean_literals_select_first_operation() {
+    check_nested_selector_qir("Choose(true, Choose(true, A, B), B)", 0);
+}
+
+#[test]
+fn nested_selectors_factory_result_selects_first_operation() {
+    check_nested_selector_qir("Choose(1 < 2, Make(), B)", 0);
 }
 
 const RUNTIME_CALLABLE_CAPTURE_PROFILES: [Profile; 4] = [
