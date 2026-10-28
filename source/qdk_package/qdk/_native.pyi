@@ -1204,6 +1204,21 @@ def run_clifford_adaptive(
     """
     ...
 
+def run_clifford_adaptive_and_get_tableau(
+    input: dict,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> Optional[Tuple[List[str], List[str], List[Result]]]:
+    """
+    Testing hook: run one shot of an adaptive profile QIR program on the stabilizer
+    simulator and return its final tableau and measurement record.
+
+    Returns `(destabilizers, stabilizers, measurements)`, with Paulis as dense
+    strings (e.g. "XIZ" or "-XIZ") indexed by QIR qubit id, or `None` if the final
+    state is not a stabilizer state.
+    """
+    ...
+
 def try_create_gpu_adapter() -> str:
     """
     Checks if a compatible GPU adapter is available on the system.
