@@ -208,6 +208,39 @@ impl EvaluationContext {
             scope.matches_callable(callable, functor) && scope.is_currently_evaluating_branch()
         })
     }
+
+    /// Checks whether a known classical input differs from the nearest active invocation.
+    pub fn has_changed_static_input(
+        &self,
+        callable: StoreItemId,
+        functor: FunctorApp,
+        args: &[Arg],
+    ) -> bool {
+        let Some(scope) = self
+            .scopes
+            .iter()
+            .rev()
+            .find(|scope| scope.matches_callable(callable, functor))
+        else {
+            return false;
+        };
+        args.iter().any(|arg| {
+            let Arg::Var(id, var) = arg else {
+                return false;
+            };
+            is_static_value(&var.value)
+                && !matches!(var.value, Value::Qubit(_))
+                && scope
+                    .hybrid_vars
+                    .get(id)
+                    .is_some_and(|previous| match (&var.value, previous) {
+                        (Value::Double(value), Value::Double(previous)) => {
+                            value.to_bits() != previous.to_bits()
+                        }
+                        _ => &var.value != previous,
+                    })
+        })
+    }
 }
 
 /// Struct that represents a block node when we interpret an RIR program as a graph.
