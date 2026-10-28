@@ -713,7 +713,9 @@ bitflags! {
         const QubitAllocation = 1 << 29;
         /// A dynamic release of a qubit.
         const UseOfDynamicQubitRelease = 1 << 30;
-        /// A callable whose required features mean it must be inlined rather than emitted as an IR function.
+        /// A dynamic call site whose signature or required features prevent IR-function emission.
+        /// Callable-valued inputs/outputs require inlining even with constant arguments.
+        /// This flag is local to the call site and does not propagate to its callers.
         const MustBeInlined = 1 << 31;
         /// Use of dynamic branching in a parallel expression.
         const UseOfDynamicBranchingInParallelExpr = 1 << 32;

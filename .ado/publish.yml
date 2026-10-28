@@ -36,8 +36,20 @@ resources:
       type: git
       name: 1ESPipelineTemplates/1ESPipelineTemplates
       ref: refs/tags/release
+  containers:
+    - container: qdkBuild
+      image: ${{ parameters.ACR_SERVER }}/qdk-build:${{ parameters.qdkBuildTag }}
+      endpoint: qdkacr
 
 parameters:
+  - name: ACR_SERVER
+    displayName: Azure Container Registry server
+    type: string
+    default: "qdkacr-cfgqhwddajdaebhg.azurecr.io"
+  - name: qdkBuildTag
+    displayName: Tag for the qdk-build container image
+    type: string
+    default: "latest"
   - name: matrix
     type: object
     default:
@@ -356,6 +368,10 @@ extends:
                       ${{ envVar.key }}: ${{ envVar.value }}
                 timeoutInMinutes: 90
                 templateContext:
+                  # For Linux targets, build in a container image to support the targeted `manylinux` wheels
+                  ${{ if eq(target.os, 'linux') }}:
+                    authenticatedContainerRegistries:
+                      - serviceConnection: qdkacr
                   outputs:
                     - output: pipelineArtifact
                       displayName: "Upload Python Artifacts Mac"
@@ -373,25 +389,68 @@ extends:
                       targetPath: $(System.DefaultWorkingDirectory)/target/wheels
                       artifactName: Wheels.Linux.${{ target.arch }}
                 steps:
-                  # common init steps
-                  # if we have additional rust targets, we need to install them
-                  - task: RustInstaller@1
-                    inputs:
-                      rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
-                      additionalTargets: wasm32-unknown-unknown
-                      cratesIoFeedOverride: $(cratesIoFeedOverride)
-                      toolchainFeed: $(toolchainFeed)
-                    displayName: Install Rust toolchain
-
-                  - script: |
-                      rustc --version
-                      rustc --print target-list
-                    displayName: View rust target info
-
                   - task: PipAuthenticate@1
                     displayName: Pip Authenticate
                     inputs:
                       artifactFeeds: "AzureQuantum/azure-quantum"
+
+                  # Build before installing host tools, whose PATH entries can leak into the container.
+                  - ${{ if eq(target.os, 'linux') }}:
+                      - bash: |
+                          set -euo pipefail
+
+                          python3.11 -m venv .venv-manylinux
+                          source .venv-manylinux/bin/activate
+                          python - <<'PY'
+                          import subprocess
+                          import sys
+                          import tomllib
+
+                          with open("source/qdk_package/pyproject.toml", "rb") as f:
+                              requires = tomllib.load(f)["build-system"]["requires"]
+                          subprocess.run([sys.executable, "-m", "pip", "install", *requires], check=True)
+                          PY
+
+                          export CARGO_HOME="$(pwd)/.cargo-manylinux"
+                          mkdir -p "$CARGO_HOME"
+                          cat > "$CARGO_HOME/config.toml" <<EOF
+                          [source.crates-io]
+                          replace-with = "ms-crates-io"
+
+                          [source.ms-crates-io]
+                          registry = "$(cratesIoFeedOverride)"
+                          EOF
+
+                          rustc --version
+                          python ./version.py
+                          maturin build \
+                            --manifest-path source/qdk_package/Cargo.toml \
+                            --release \
+                            --interpreter python3.11 \
+                            --compatibility manylinux_2_28 \
+                            --auditwheel check \
+                            --out target/wheels
+                        displayName: Build manylinux_2_28 wheel
+                        target: qdkBuild
+                        env:
+                          PIP_INDEX_URL: $(PIP_INDEX_URL)
+                          CARGO_REGISTRIES_MS_CRATES_IO_INDEX: $(cratesIoFeedOverride)
+                          CARGO_REGISTRIES_MS_CRATES_IO_TOKEN: Bearer $(System.AccessToken)
+                          CARGO_REGISTRIES_MS_CRATES_IO_CREDENTIAL_PROVIDER: cargo:token
+
+                  - ${{ if ne(target.os, 'linux') }}:
+                      - task: RustInstaller@1
+                        inputs:
+                          rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                          additionalTargets: wasm32-unknown-unknown
+                          cratesIoFeedOverride: $(cratesIoFeedOverride)
+                          toolchainFeed: $(toolchainFeed)
+                        displayName: Install Rust toolchain
+
+                      - script: |
+                          rustc --version
+                          rustc --print target-list
+                        displayName: View rust target info
 
                   - task: UsePythonVersion@0
                     inputs:
@@ -417,22 +476,6 @@ extends:
                   - template: /.ado/templates/create-authenticated-npmrc.yml@self
 
                   - script: |
-                      sudo apt update
-                      sudo apt install -y patchelf
-                    displayName: Install Linux x86_64 prereqs
-                    condition: and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'x86_64'))
-
-                  # on Azure Linux 3.0 aarch64 we need to install:
-                  # ld with binutils
-                  # crt1.o and others with glibc-devel
-                  # std lib headers with kernel-headers
-                  # patchelf for modifying ELF files via auditwheel
-                  - script: |
-                      sudo tdnf install binutils glibc-devel kernel-headers patchelf gcc -y
-                    displayName: Install c++ build tools on Azure Linux 3.0 aarch64
-                    condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
-
-                  - script: |
                       python ./prereqs.py --skip-wasm
                     displayName: Install Prereqs
                     condition: and(ne(variables['Agent.OS'], 'Linux'), ne(variables['arch'], 'aarch64'))
@@ -440,6 +483,19 @@ extends:
                   - script: |
                       python ./version.py
                     displayName: Set version
+                    condition: and(succeeded(), ne(variables['Agent.OS'], 'Linux'))
+
+                  - ${{ if eq(target.os, 'linux') }}:
+                      - bash: |
+                          set -euo pipefail
+                          shopt -s nullglob
+                          wheels=(target/wheels/qdk-*.whl)
+                          if [ "${#wheels[@]}" -ne 1 ]; then
+                            echo "Expected exactly one QDK wheel, found ${#wheels[@]}" >&2
+                            exit 1
+                          fi
+                          python build.py --qdk --qdk-wheel "${wheels[0]}" --no-check-prereqs --integration-tests
+                        displayName: Check and test Linux wheel on host
 
                   # Windows arm64
                   # Skip checking because that would force npm install, which won't work properly until UseNode supports arm64
@@ -449,11 +505,11 @@ extends:
                     displayName: Build Platform-Dependent Py Packages (Windows ARM64)
                     condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
-                  # every other platform
+                  # Windows x86_64 and macOS
                   - script: |
                       python build.py --qdk --no-check-prereqs --integration-tests
                     displayName: Build Platform-Dependent Py Packages (Other)
-                    condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
+                    condition: and(succeeded(), ne(variables['Agent.OS'], 'Linux'), not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))))
 
                   - script: |
                       dir target\wheels\*

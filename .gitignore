@@ -1,4 +1,5 @@
 /target
+/.cargo-manylinux/
 /source/widgets/dist/
 /source/widgets/src/qsharp_widgets/static/
 node_modules/

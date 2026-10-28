@@ -8,6 +8,68 @@ use indoc::indoc;
 use proptest::prelude::*;
 
 #[test]
+fn struct_assignment_reads_original_fields_before_writing() {
+    // The swap and aliased-source cases fail without RHS snapshots.
+    // Repeated reads are controls: writing one field must not disturb another.
+    for (replacement, expected) in [
+        ("new P { A = s.B, B = s.A }", 21),
+        ("new P { A = s.B, B = s.B }", 22),
+        ("new P { A = s.A, B = s.A }", 11),
+        ("new P { A = alias.B, B = s.A }", 21),
+    ] {
+        let source = format!(
+            r#"
+            struct P {{ A : Int, B : Int }}
+            @EntryPoint() operation Main() : Int {{
+                mutable s = new P {{ A = 1, B = 2 }};
+                let alias = s;
+                set s = {replacement};
+                10 * s.A + s.B
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn nested_struct_assignment_preserves_original_rhs_values_and_effect_order() {
+    // Plain field reads exercise scalarization directly. The logged variant
+    // already passed before the fix and remains an effect-order control.
+    for (first, second, last) in [
+        ("s.Last", "s.First.A", "s.First.B"),
+        (
+            r#"Log("first", s.Last)"#,
+            r#"Log("second", s.First.A)"#,
+            r#"Log("last", s.First.B)"#,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            struct P {{ A : Int, B : Int }}
+            struct Outer {{ First : P, Last : Int }}
+            function Log(label : String, value : Int) : Int {{ Message(label); value }}
+            @EntryPoint() operation Main() : Int {{
+                mutable s = new Outer {{ First = new P {{ A = 1, B = 2 }}, Last = 3 }};
+                set s = new Outer {{
+                    First = new P {{ A = {first}, B = {second} }},
+                    Last = {last}
+                }};
+                100 * s.First.A + 10 * s.First.B + s.Last
+            }}
+        "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(312),
+        );
+    }
+}
+
+#[test]
 fn tuple_local_split_preserves_semantics() {
     crate::test_utils::check_semantic_equivalence(indoc! {r#"
         namespace Test {

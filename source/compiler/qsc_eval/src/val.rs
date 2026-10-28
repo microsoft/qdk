@@ -507,7 +507,9 @@ pub fn index_allowing_negative(
     let i = if index >= 0 {
         index.as_index(span)?
     } else {
-        len.checked_sub((-index).as_index(span)?)
+        let distance =
+            usize::try_from(index.unsigned_abs()).map_err(|_| Error::InvalidIndex(index, span))?;
+        len.checked_sub(distance)
             .ok_or(Error::IndexOutOfRange(index, span))?
     };
     Ok(i)

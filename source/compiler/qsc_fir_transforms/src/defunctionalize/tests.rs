@@ -979,7 +979,8 @@ fn cross_package_return_stmt_is_analyzed() {
     // package; its body still ends in `return LibStep;` (`Semi(Return)`),
     // since this test does not run return unification.
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     // Precondition: a reachable callable (in whichever package owns the
     // specialization) now ends in `Semi(Return)` of a callable-typed value —

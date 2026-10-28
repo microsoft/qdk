@@ -1663,6 +1663,13 @@ impl<'a> PartialEvaluator<'a> {
             spec_decl
                 .filter(|spec_decl| {
                     self.is_ir_function_eligible(store_item_id, spec_decl, callable_decl)
+                        // Resolve calls with the actual arguments before promoting
+                        // static inputs to runtime parameters.
+                        && !matches!(
+                            self.spec_inherent_compute_kind(store_item_id, functor_app),
+                            Some(ComputeKind::Dynamic { runtime_features, .. })
+                                if runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
+                        )
                 })
                 .map(|_| {
                     args.iter()
@@ -1687,7 +1694,10 @@ impl<'a> PartialEvaluator<'a> {
                     // emitted when the callable carries quantum/runtime content (`Dynamic` inherent) or
                     // when at least one argument is a runtime variable, so classical callables are still
                     // emitted as functions whenever they are actually invoked with runtime values.
-                    self.spec_inherent_is_dynamic(store_item_id, functor_app)
+                    matches!(
+                        self.spec_inherent_compute_kind(store_item_id, functor_app),
+                        Some(ComputeKind::Dynamic { .. })
+                    )
                         || arg_operands
                             .iter()
                             .any(|operand| matches!(operand, Operand::Variable(_)))
@@ -2182,10 +2192,8 @@ impl<'a> PartialEvaluator<'a> {
 
     /// Determines whether a resolved callable specialization is eligible to be emitted as a QIR
     /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
-    /// of being inlined. The base phase emits VOID (Unit-returning) and scalar-returning
-    /// (Int/Double/Bool) user-package specializations with non-composite scalar/qubit signatures.
-    /// Every callable that does not satisfy ALL of the criteria below continues to inline exactly as
-    /// before, preserving behavior.
+    /// of being inlined. Inputs must have runtime-representable leaves; outputs must be Unit
+    /// or a supported scalar (Int/Double/Bool). Ineligible specializations use the inline path.
     fn is_ir_function_eligible(
         &self,
         store_item_id: StoreItemId,
@@ -2229,10 +2237,20 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // Every flattened input-parameter leaf must be a non-composite scalar/qubit type that can
-        // be threaded as an RIR variable operand. Composite (tuple/array/arrow) leaves, as well as
-        // `Result` leaves (which have no evaluator-variable representation), force the whole callable
-        // to inline.
+        // Validate the resolved return ABI independently of call-site RCA.
+        // Callable values and aggregates cannot be returned as RIR variables
+        // and must be resolved by inlining.
+        if callable_decl.output != Ty::UNIT
+            && !matches!(
+                callable_decl.output,
+                Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
+            )
+        {
+            return false;
+        }
+
+        // Every flattened input leaf must map to both an RIR operand and an
+        // evaluator variable. Callable and composite leaves force inlining.
         let callable_package = self.package_store.get(store_item_id.package);
         for param in callable_package.derive_callable_input_params(callable_decl) {
             let Ok(rir_ty) = map_fir_type_to_rir_type(&param.ty) else {
@@ -2252,23 +2270,19 @@ impl<'a> PartialEvaluator<'a> {
         true
     }
 
-    /// Reports whether the resolved specialization has a `Dynamic` inherent compute kind, i.e.
-    /// whether it carries quantum or other runtime content even when all of its parameters are
-    /// bound to static values. A `Static` inherent compute kind means the callable is purely
-    /// classical and can be constant-folded whenever its arguments are compile-time constants.
-    /// This is used to decide whether a call should be emitted as an IR function: emitting a
-    /// purely-classical callable with all-constant arguments would discard its statically-known
-    /// result as an opaque IR variable, so such calls must be folded instead.
-    fn spec_inherent_is_dynamic(
+    /// Returns the resolved specialization's compute kind with static parameters.
+    /// Unresolved calls in its body force inlining; genuinely runtime bodies may
+    /// be emitted as IR functions, while static bodies can be constant-folded.
+    fn spec_inherent_compute_kind(
         &self,
         store_item_id: StoreItemId,
         functor_app: FunctorApp,
-    ) -> bool {
+    ) -> Option<ComputeKind> {
         let ItemComputeProperties::Callable(callable_compute_properties) = self
             .compute_properties
             .get_item(store_item_id, self.in_parallel_scope())
         else {
-            return false;
+            return None;
         };
         let generator_set = match (functor_app.adjoint, functor_app.controlled) {
             (false, 0) => Some(&callable_compute_properties.body),
@@ -2276,10 +2290,7 @@ impl<'a> PartialEvaluator<'a> {
             (true, 0) => callable_compute_properties.adj.as_ref(),
             (true, _) => callable_compute_properties.ctl_adj.as_ref(),
         };
-        matches!(
-            generator_set.map(|gen_set| gen_set.inherent),
-            Some(ComputeKind::Dynamic { .. })
-        )
+        generator_set.map(|gen_set| gen_set.inherent)
     }
 
     /// Scans a specialization block for any residual FIR `Return` expression. After the
@@ -2296,7 +2307,7 @@ impl<'a> PartialEvaluator<'a> {
         scanner.found
     }
 
-    /// Emits an eligible user-package specialization as a QIR "IR function": a `Regular` RIR callable
+    /// Emits an eligible specialization as a QIR "IR function": a `Regular` RIR callable
     /// with a body, evaluated once with its parameters threaded as RIR variable operands, and
     /// deduplicated per `(StoreItemId, FunctorSetValue)`. At the call site an `Instruction::Call` to
     /// the emitted callable is generated instead of inlining the body.
@@ -2405,8 +2416,7 @@ impl<'a> PartialEvaluator<'a> {
 
         // Map the callable's return type to the RIR output type. VOID (Unit-returning) IR functions
         // have no output type; scalar (Int/Double/Bool) returns carry a typed output that is bound to
-        // a call-site output variable. Eligibility (criterion 5) guarantees the return type is Unit
-        // or one of these scalars, so the mapping below cannot fail for an eligible callable.
+        // a call-site output variable. is_ir_function_eligible validates this return ABI.
         let output_type = if callable_decl.output == Ty::UNIT {
             None
         } else {
@@ -2483,8 +2493,8 @@ impl<'a> PartialEvaluator<'a> {
         let callable_id = self.resource_manager.next_callable();
         self.program.callables.insert(callable_id, callable);
         // Cache the emitted callable before evaluating its body so that any structural self-reference
-        // observes the reserved id rather than re-entering emission. The IR-function eligibility
-        // predicate already excludes recursive specializations, so this is defense-in-depth.
+        // observes the reserved id rather than re-entering emission. Eligible recursive
+        // specializations refer back to this reserved callable.
         self.ir_function_callables
             .insert((store_item_id, functor_set_value), callable_id);
 
