@@ -1253,7 +1253,8 @@ function actionTransport(inv, sys) -> Map<(e, x|z, k), Parity>:
 
 // Plan: program-independent work, done once per qodec and decoder.
 function QodecPlan::new(manifest, decoder):
-    require len(manifest.layers) ≥ 2
+    require len(manifest.layers) ≥ 1                // one layer: a pass-through to the
+                                                    // bottom backend (no layer runtimes)
     n = len(manifest.layers) - 1                    // layers 0..n-1 have gadgets
     layerPlans   = [LayerPlan::new(manifest.layers[k], manifest.layers[k+1].isa,
                                    decoderDeferrable = decoder.deferrable)
