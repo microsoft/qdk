@@ -44,8 +44,8 @@ use qsc_fir::{
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 use qsc_lowerer::{map_fir_package_span_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
-    ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    RuntimeFeatureFlags, ValueKind,
+    ApplicationGeneratorSet, ComputeKind, ComputePropertiesLookup, ItemComputeProperties,
+    PackageStoreComputeProperties, RuntimeFeatureFlags, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -1713,11 +1713,27 @@ impl<'a> PartialEvaluator<'a> {
                     {
                         return false;
                     }
+                    // Proving reusable local-qubit storage does not make unsupported runtime parameters safe.
+                    if has_static_qubit_layout
+                        && !matches!(
+                            self.spec_application_generator_set(store_item_id, functor_app)
+                                .map(ApplicationGeneratorSet::generate_ir_function_application_compute_kind),
+                            Some(ComputeKind::Dynamic { runtime_features, .. })
+                                if !runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
+                                    && get_missing_runtime_features(
+                                        runtime_features,
+                                        self.program.config.capabilities,
+                                    ).is_empty()
+                        )
+                    {
+                        return false;
+                    }
                     (!must_inline || has_static_qubit_layout)
                         // Resolve calls inside the body with the actual arguments
                         // before promoting static inputs to runtime parameters.
                         && !matches!(
-                            self.spec_inherent_compute_kind(store_item_id, functor_app),
+                            self.spec_application_generator_set(store_item_id, functor_app)
+                                .map(|generator_set| generator_set.inherent),
                             Some(ComputeKind::Dynamic { runtime_features, .. })
                                 if runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
                         )
@@ -1746,7 +1762,8 @@ impl<'a> PartialEvaluator<'a> {
                     // when at least one argument is a runtime variable, so classical callables are still
                     // emitted as functions whenever they are actually invoked with runtime values.
                     matches!(
-                        self.spec_inherent_compute_kind(store_item_id, functor_app),
+                        self.spec_application_generator_set(store_item_id, functor_app)
+                            .map(|generator_set| generator_set.inherent),
                         Some(ComputeKind::Dynamic { .. })
                     )
                         || arg_operands
@@ -2377,27 +2394,24 @@ impl<'a> PartialEvaluator<'a> {
         safe
     }
 
-    /// Returns the resolved specialization's compute kind with static parameters.
-    /// Unresolved calls in its body force inlining; genuinely runtime bodies may
-    /// be emitted as IR functions, while static bodies can be constant-folded.
-    fn spec_inherent_compute_kind(
+    /// Returns the selected specialization's compute properties for both static and runtime inputs.
+    fn spec_application_generator_set(
         &self,
         store_item_id: StoreItemId,
         functor_app: FunctorApp,
-    ) -> Option<ComputeKind> {
+    ) -> Option<&ApplicationGeneratorSet> {
         let ItemComputeProperties::Callable(callable_compute_properties) = self
             .compute_properties
             .get_item(store_item_id, self.in_parallel_scope())
         else {
             return None;
         };
-        let generator_set = match (functor_app.adjoint, functor_app.controlled) {
+        match (functor_app.adjoint, functor_app.controlled) {
             (false, 0) => Some(&callable_compute_properties.body),
             (false, _) => callable_compute_properties.ctl.as_ref(),
             (true, 0) => callable_compute_properties.adj.as_ref(),
             (true, _) => callable_compute_properties.ctl_adj.as_ref(),
-        };
-        generator_set.map(|gen_set| gen_set.inherent)
+        }
     }
 
     /// Scans a specialization block for any residual FIR `Return` expression. After the

@@ -4255,6 +4255,60 @@ fn finite_recursion_with_unused_result_argument_keeps_computed_integer_constant(
 }
 
 #[test]
+fn recursive_local_qubit_storage_preserves_known_array_size_requirement() {
+    assert_recursive_local_qubit_storage_preserves_static_requirement(
+        "let values = [true, size = known]; if Length(values) == 2 { X(target); }",
+    );
+}
+
+#[test]
+fn recursive_local_qubit_storage_preserves_known_string_requirement() {
+    assert_recursive_local_qubit_storage_preserves_static_requirement(
+        r#"let label = $"{known}"; if label == "2" { X(target); }"#,
+    );
+}
+
+fn assert_recursive_local_qubit_storage_preserves_static_requirement(statement: &str) {
+    let source = format!(
+        r#"
+        operation Rec(depth : Int, known : Int, target : Qubit) : Unit {{
+            {{ use local = Qubit(); X(local); X(local); }}
+            {statement}
+            if depth > 0 {{ Rec(depth - 1, known, target); }}
+        }}
+        @EntryPoint()
+        operation Main() : Result {{
+            use (flag, target) = (Qubit(), Qubit());
+            let depth = if MResetZ(flag) == One {{ 1 }} else {{ 0 }};
+            Rec(depth, 2, target);
+            MResetZ(target)
+        }}
+        "#
+    );
+    let static_source = source.replace("if MResetZ(flag) == One { 1 } else { 0 }", "1");
+    let unrolled_source = static_source.replace(
+        "Rec(depth, 2, target);",
+        "{ use local = Qubit(); X(local); X(local); } X(target);
+         { use local = Qubit(); X(local); X(local); } X(target);",
+    );
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let errors = super::compile_source_to_qir_result(&source, profile.into()).expect_err(
+            "local-qubit storage cannot make a required constant into a runtime parameter",
+        );
+        let diagnostics = super::format_interpret_errors(errors);
+        assert!(
+            diagnostics.contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"),
+            "{profile:?}: {diagnostics}"
+        );
+        assert_eq!(
+            compile_source_to_qir(&static_source, profile.into()),
+            compile_source_to_qir(&unrolled_source, profile.into()),
+            "{profile:?}: known recursion depth must retain the finite inline fallback"
+        );
+    }
+}
+
+#[test]
 fn runtime_recursion_with_known_integer_argument_keeps_unit_calls_emitted() {
     let source = r#"
         operation Rec(n : Int, unused : Int, target : Qubit) : Unit {
