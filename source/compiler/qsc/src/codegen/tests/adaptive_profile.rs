@@ -4407,7 +4407,7 @@ fn runtime_recursion_with_known_integer_argument_keeps_unit_calls_emitted() {
 }
 
 #[test]
-fn runtime_recursion_with_known_integer_argument_preserves_integer_return() {
+fn runtime_recursion_with_known_integer_argument_emits_constant_integer_return() {
     let source = r#"
         operation Rec(n : Int, unused : Int) : Int {
             { use q = Qubit(); X(q); X(q); }
@@ -4427,6 +4427,69 @@ fn runtime_recursion_with_known_integer_argument_preserves_integer_return() {
     assert!(body.contains("define internal i64 @Rec("), "{body}");
     assert!(body.contains("ret i64 2"), "{body}");
     assert_eq!(qir.matches("call i64 @Rec(").count(), 2, "{qir}");
+    let entry = super::qir_entry_body(&qir);
+    assert!(
+        entry.contains("call void @__quantum__rt__int_record_output(i64 2,"),
+        "{entry}"
+    );
+}
+
+#[test]
+fn finite_recursion_preserves_child_integer_return_and_parent_value() {
+    let source = r#"
+        operation Rec(depth : Int) : Int {
+            { use local = Qubit(); X(local); X(local); }
+            let parentDigit = depth + 1;
+            if depth > 0 {
+                let child = Rec(depth - 1);
+                child * 10 + parentDigit
+            } else { parentDigit }
+        }
+        @EntryPoint()
+        operation Main() : Int { Rec(DEPTH) }
+    "#;
+    // Unwinding appends each parent's digit to its child's result: 1 -> 12 -> 123 -> 1234.
+    for (depth, expected) in [(0, 1), (3, 1234)] {
+        let source = source.replace("DEPTH", &depth.to_string());
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert_inlined(&qir, "Rec");
+            let entry = super::qir_entry_body(&qir);
+            assert!(
+                entry.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{profile:?}, depth {depth}: expected integer {expected}\n{entry}"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_recursion_with_child_dependent_integer_return_is_rejected() {
+    let source = r#"
+        operation Rec(depth : Int) : Int {
+            { use local = Qubit(); X(local); X(local); }
+            let parentDigit = depth + 1;
+            if depth > 0 {
+                let child = Rec(depth - 1);
+                child * 10 + parentDigit
+            } else { parentDigit }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            use flag = Qubit();
+            let depth = if MResetZ(flag) == One { 3 } else { 0 };
+            Rec(depth)
+        }
+    "#;
+    let errors = super::compile_source_to_qir_result(source, *CAPABILITIES)
+        .expect_err("runtime-dependent recursive return values are not supported yet");
+    let diagnostics = super::format_interpret_errors(errors);
+    assert!(
+        diagnostics.contains("Qdk.Qsc.PartialEval.UnexpectedDynamicValue"),
+        "{diagnostics}"
+    );
 }
 
 #[test]
@@ -4500,7 +4563,7 @@ fn measurement_controlled_recursion_with_known_argument_keeps_runtime_calls() {
 }
 
 #[test]
-fn runtime_recursion_with_released_local_qubit_preserves_integer_return() {
+fn runtime_recursion_with_released_local_qubit_emits_constant_integer_return() {
     let source = r#"
         operation Rec(n : Int) : Int {
             { use fresh = Qubit(); X(fresh); X(fresh); }
@@ -4520,6 +4583,18 @@ fn runtime_recursion_with_released_local_qubit_preserves_integer_return() {
     assert!(body.contains("define internal i64 @Rec("), "{body}");
     assert!(body.contains("ret i64 2"), "{body}");
     assert!(qir.contains("call i64 @Rec("), "{qir}");
+    let entry = super::qir_entry_body(&qir);
+    let result = entry
+        .lines()
+        .find_map(|line| line.trim().split_once(" = call i64 @Rec("))
+        .expect("entry must capture the recursive call's return value")
+        .0;
+    assert!(
+        entry.contains(&format!(
+            "call void @__quantum__rt__int_record_output(i64 {result},"
+        )),
+        "{entry}"
+    );
 }
 
 #[test]
