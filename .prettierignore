@@ -10,7 +10,7 @@ __pycache__/
 .venv*/
 /katas/**/*.md
 /library/
-/review-kit/.work/
+/tools/compiler-review-kit/.work/
 /source/allocator/
 /source/compiler/
 /source/jupyterlab/lib/

@@ -32,7 +32,7 @@ def infer_entry(source):
 
 
 def discover_samples(config, output, revision="candidate"):
-    work = Path(config["work_dir"])
+    work = Path(config["build_dir"])
     work.mkdir(parents=True, exist_ok=True)
     with (work / "build.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

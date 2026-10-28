@@ -1,7 +1,0 @@
-{
-  "reference": "HEAD^",
-  "candidate": "HEAD",
-  "repository": "../..",
-  "report": "../.work/smoke-report.md",
-  "limits": { "jobs": 2, "shots": 2 }
-}

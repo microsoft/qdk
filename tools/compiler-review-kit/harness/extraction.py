@@ -192,7 +192,8 @@ def extract_tests(config, sha, crate, output, hooks_path=None, test_filter=None)
         raise ReviewError(f"No extraction hooks for {crate}; supply --hooks")
     spec = specs[crate]
     work = Path(config["work_dir"])
-    worktree = work / "extract" / sha
+    builds = Path(config["build_dir"])
+    worktree = builds / "extract" / sha
     if not worktree.exists():
         worktree.parent.mkdir(parents=True, exist_ok=True)
         git(config["repository"], "worktree", "add", "--detach", str(worktree), sha)
@@ -200,6 +201,7 @@ def extract_tests(config, sha, crate, output, hooks_path=None, test_filter=None)
         raise ReviewError(f"Extraction worktree is not a clean checkout of {sha}: {worktree}")
     dump = work / "extract" / f"{sha[:12]}-{crate}.jsonl"
     log = work / "extract" / f"{sha[:12]}-{crate}.log"
+    dump.parent.mkdir(parents=True, exist_ok=True)
     dump.unlink(missing_ok=True)
     try:
         edited = instrument(worktree, spec)
@@ -207,7 +209,7 @@ def extract_tests(config, sha, crate, output, hooks_path=None, test_filter=None)
         env = dict(
             os.environ,
             REVIEW_DUMP=str(dump),
-            CARGO_TARGET_DIR=str(work / "extract-target"),
+            CARGO_TARGET_DIR=str(builds / "extract-target"),
             CARGO_INCREMENTAL="0",
             PYO3_PYTHON=str(Path(config["venv"]) / "bin/python"),
         )

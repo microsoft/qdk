@@ -1,9 +1,12 @@
 # Reviewer instructions
 
 Conduct a fresh differential QDK compiler review from the user's request using
-the `review-kit/` helpers. A supplied JSON configuration is optional; creating
-the configuration is the lead reviewer's responsibility. Do not rely on this
-session's history, machine-specific paths, cached outcomes, or an archived corpus.
+the `tools/compiler-review-kit/` helpers. A supplied JSON configuration is
+optional; creating the configuration is the lead reviewer's responsibility.
+Do not rely on this session's history, machine-specific paths, cached outcomes,
+or an archived corpus.
+Run inside the QDK Copilot sandbox, not on the host: the review writes and
+executes arbitrary Python, and the kit's workers are not a security sandbox.
 
 ## Establish scope and prerequisites
 
@@ -12,25 +15,31 @@ case manifests, and build/storage requirements.
 
 Translate the user's revisions/PRs, requested clients, scope constraints, and
 report destination into an owned JSON configuration. If one was supplied, use it
-as the starting point without overwriting the user's file. Use the harness
+as the starting point without overwriting the user's file. Use the harness's
 defaults unless the request requires overrides; do not inherit example issue
 selectors or exclusions. Ask about ambiguous comparisons or scope, not for the
 user to fill out JSON or choose routine tool settings.
 
-Keep the configuration in an owned review working directory, with the final
-report outside disposable work/cache directories. Supplied paths are relative to
-the configuration file; set `repository` if it is outside the QDK checkout.
+Use the [sandbox paths](agent-reference.md#sandbox-paths):
+keep generated inputs/configuration in owned `/tmp` scratch, executable build
+state outside the repo on `/work`, compact cross-session evidence on the `/work`
+volume, and deliverables in `/exchange/from_copilot`. The harness defaults
+implement this layout: choose a unique `name` for scratch/evidence and set path
+overrides only when needed. `work_dir` holds temporary data; `build_dir` holds
+executable build state and Git-registered worktrees. Supplied relative paths
+resolve from the configuration file, not the repository.
 Validate it with `review.py check`, resolve candidate/reference/optional historical
 and previous-review/layer revisions to full SHAs, and pin those SHAs in the owned
 configuration before using further commands. Record the main/client checkout
 dirty state; preserve unrelated changes.
 
-Verify Linux, repository `.venv/bin/python`, `.venv/bin/qir-runner`, Git, Rust, and
-the dependencies required by the revisions. Warn clearly about unavailable tools,
-profiles, layouts, clients, and incomplete coverage. Do not silently downgrade a
+Verify the sandbox's `/opt/qdk-venv/bin/python`, `/opt/qdk-venv/bin/qir-runner`,
+Git, Rust, and the dependencies required by the revisions. Warn clearly about
+unavailable tools, profiles, layouts, clients, and incomplete coverage. Do not silently downgrade a
 miscompile review to compilation-only work. Ask for approval before accepting a
-scope reduction or installing missing dependencies. Cross-platform support is out
-of scope. Do not ask the user to supply a collection of executable paths.
+scope reduction. Missing dependencies need a suitable sandbox image; do not try
+to bypass the blocked package feeds. Running outside the sandbox is out of scope.
+Do not ask the user to supply a collection of executable paths.
 
 `reference` defines regression/fix classification. `historical_reference` is an
 additional labeled comparison. `previously_reviewed` identifies already-reviewed
@@ -263,7 +272,8 @@ reviewed on top of the candidate, add a dated update section at the top rather t
 rewriting the earlier findings.
 
 Retain compact manifests/evidence, minimal repros and generator seeds. Keep native
-builds, bulk generated programs and routine QIR under ignored `.work`. Remove only
+builds under `build_dir` and routine run artifacts/bulk generated programs under
+the temporary `work_dir`. Remove only
 specifically identified owned temporary files/worktrees; preserve other work.
 
 Before finishing, run `review.py save-evidence` with the findings manifests, client

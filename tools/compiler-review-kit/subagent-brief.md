@@ -22,6 +22,9 @@ Read the relevant sections of [reviewer.md](reviewer.md) for review policy and
 [agent-reference.md](agent-reference.md) for commands, case manifests, build
 integrity, and storage requirements. Use the pinned configuration supplied by the lead; do not
 create a replacement configuration or change the overall review scope. Use
+the [sandbox paths](agent-reference.md#sandbox-paths)
+and your assigned directories; do not write working files into the repository
+or execute repros outside the sandbox. Use
 `review.py run` and shared immutable build overlays. Build fixtures in your context;
 do not reuse Q# callable objects across contexts. Start analysis with
 `review.py summarize`, run standalone repros with `review.py exec`, and reduce

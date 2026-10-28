@@ -136,7 +136,7 @@ def generate_report(run, output, overwrite=False):
                     case["source"].rstrip(),
                     "```",
                     "",
-                    "Run with the selected revision's package in `.venv`:",
+                    "Run with the selected revision's pinned overlay using `review.py exec`:",
                     "",
                     "```python",
                     source_repro(case).rstrip(),

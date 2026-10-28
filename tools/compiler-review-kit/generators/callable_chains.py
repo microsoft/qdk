@@ -25,7 +25,7 @@ Callable arrays appear plainly, nested (one factory, inner closures capturing ar
 different lengths), held in structs, and as arrays of closures over captured loop counts.
 
 Usage:
-    python review-kit/generators/callable_chains.py OUT_DIR --inline 1600 --layout 800 \
+    python tools/compiler-review-kit/generators/callable_chains.py OUT_DIR --inline 1600 --layout 800 \
         --python 400 --seed 2 --profiles Adaptive_RI Adaptive_RIF Adaptive
 then run OUT_DIR/cases.json with review.py. Store the command and seed, not the output.
 """

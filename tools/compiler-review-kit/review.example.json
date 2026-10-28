@@ -1,5 +1,5 @@
 {
-  "reference": "upstream/main",
+  "reference": "origin/main",
   "candidate": "HEAD",
   "issues": {
     "author": "amcasey",
@@ -12,5 +12,5 @@
       "reason": "Slow; excluded from this review"
     }
   ],
-  "report": ".work/review.md"
+  "report": "/exchange/from_copilot/review.md"
 }

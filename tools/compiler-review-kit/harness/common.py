@@ -11,6 +11,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -129,11 +130,7 @@ def load_config(path):
     raw = read_json(path)
     validate(raw, read_json(KIT / "review.schema.json"))
     base = path.parent
-    repo = (
-        (base / raw["repository"]).resolve()
-        if "repository" in raw
-        else Path(git(base, "rev-parse", "--show-toplevel"))
-    )
+    repo = (base / raw.get("repository", "/work/qdk")).resolve()
     refs = {
         name: resolve_ref(repo, raw[name])
         for name in ("reference", "candidate", "historical_reference", "previously_reviewed")
@@ -145,8 +142,12 @@ def load_config(path):
         role = f"layer{index}"
         refs[role] = resolve_ref(repo, ref)
         layers.append({"role": role, "ref": ref, "sha": refs[role]})
-    report = (base / raw.get("report", "review.md")).resolve()
-    cache_root = raw.get("cache_dir") or os.environ.get("REVIEW_KIT_CACHE") or str(repo.parent / "cache" / "review-kit")
+    name = raw.get("name") or re.sub(r"[^A-Za-z0-9_.-]", "-", Path(raw.get("report", "review.md")).stem) or "review"
+    if name in (".", ".."):
+        raise ReviewError("Cannot derive a review name from the report path; set name explicitly.")
+    report = (base / raw.get("report", f"/exchange/from_copilot/{name}.md")).resolve()
+    cache_root = raw.get("cache_dir") or os.environ.get("REVIEW_KIT_CACHE") or "/work/cache/compiler-review-kit"
+    work_root = Path(tempfile.gettempdir()) / "compiler-review-kit" / name
     clients = []
     for client in raw.get("clients", []):
         root = (base / client["path"]).resolve()
@@ -163,11 +164,12 @@ def load_config(path):
         "config_path": str(path),
         "repository": str(repo),
         "refs": refs,
-        "venv": str((base / raw.get("venv", str(repo / ".venv"))).resolve()),
-        "work_dir": str((base / raw.get("work_dir", str(KIT / ".work"))).resolve()),
+        "venv": str((base / raw.get("venv", "/opt/qdk-venv")).resolve()),
+        "work_dir": str((base / raw.get("work_dir", str(work_root))).resolve()),
+        "build_dir": str((base / raw.get("build_dir", "/work/compiler-review-kit/build")).resolve()),
         "report": str(report),
         "layers": layers,
-        "name": raw.get("name") or re.sub(r"[^A-Za-z0-9_.-]", "-", report.stem) or "review",
+        "name": name,
         "cache_dir": str((base / cache_root).resolve()),
         "cache_budget_mb": raw.get("cache_budget_mb", 50),
         "profiles": raw.get("profiles", PROFILES),

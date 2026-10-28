@@ -18,7 +18,7 @@ The ancilla is always measured in a known basis state, so every program is deter
 generator computes its result. Run ``review.py oracle-check`` once before trusting the model.
 
 Usage:
-    python review-kit/generators/dynamic_recursion.py OUT_DIR --inner 300 --outer 150 --classical 50 --seed 1
+    python tools/compiler-review-kit/generators/dynamic_recursion.py OUT_DIR --inner 300 --outer 150 --classical 50 --seed 1
 """
 
 import argparse

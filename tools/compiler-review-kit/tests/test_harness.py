@@ -19,7 +19,7 @@ from harness.analysis import (  # noqa: E402
     callable_stages, compare_runs, hierarchy_violations, match_issues, normalize_signature,
     parse_selection, select_cases, summarize_run,
 )
-from harness.builds import refresh_timestamps, verify_build  # noqa: E402
+from harness.builds import build_revision, refresh_timestamps, verify_build  # noqa: E402
 from harness.cases import load_cases, snapshot_project  # noqa: E402
 from harness.common import (  # noqa: E402
     KIT, ReviewError, isolated, load_config, ordered_roles, read_json, select_roles, tree_digest, validate,
@@ -32,11 +32,11 @@ from harness.tables import cell as table_cell, format_value, run_table  # noqa: 
 from harness.timing import aggregate, ratios  # noqa: E402
 from harness.variants import variant_lines  # noqa: E402
 from harness.variants_worker import load_variants  # noqa: E402
-from harness.discovery import infer_entry, snapshot_issues  # noqa: E402
+from harness.discovery import discover_samples, infer_entry, snapshot_issues  # noqa: E402
 from harness.execution import (  # noqa: E402
     enclosing_function, exec_script, last_exception, parse_panics, reproduction_status,
 )
-from harness.extraction import convert_dump, insert_at_function_start, instrument  # noqa: E402
+from harness.extraction import convert_dump, extract_tests, insert_at_function_start, instrument  # noqa: E402
 from harness.investigate import (  # noqa: E402
     adapter_variants, ddmin, qsharp_constants, render_adapter, replace_constant,
 )
@@ -82,17 +82,63 @@ def frame(*records):
 
 
 class ConfigurationTests(unittest.TestCase):
-    def test_minimal_config_and_relative_defaults(self):
+    def test_bundled_smoke_config_resolves_repository(self):
+        with patch("harness.common.resolve_ref", side_effect=lambda repo, ref: ref):
+            config = load_config(KIT / "tests" / "smoke.json")
+        self.assertEqual(Path(config["repository"]), KIT.parents[1])
+
+    def test_config_outside_checkout_uses_sandbox_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "review.json"
-            write_json(path, {"reference": "old", "candidate": "new", "report": "report.md"})
-            with patch("harness.common.git", return_value=directory), patch(
+            write_json(path, {"reference": "old", "candidate": "new"})
+            with patch("harness.common.git", return_value=""), patch(
                 "harness.common.resolve_ref", side_effect=lambda repo, ref: ref + "-sha"
-            ):
+            ), patch.dict(os.environ, {"REVIEW_KIT_CACHE": ""}):
                 config = load_config(path)
             self.assertEqual(config["refs"], {"reference": "old-sha", "candidate": "new-sha"})
-            self.assertEqual(config["venv"], str(Path(directory) / ".venv"))
-            self.assertEqual(config["report"], str(Path(directory) / "report.md"))
+            self.assertEqual(config["repository"], "/work/qdk")
+            self.assertEqual(config["venv"], "/opt/qdk-venv")
+            self.assertEqual(config["work_dir"], str(Path(tempfile.gettempdir()) / "compiler-review-kit/review"))
+            self.assertEqual(config["build_dir"], "/work/compiler-review-kit/build")
+            self.assertEqual(config["cache_dir"], "/work/cache/compiler-review-kit")
+            self.assertEqual(config["report"], "/exchange/from_copilot/review.md")
+
+    def test_path_overrides_remain_config_relative(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config" / "review.json"
+            overrides = {"repository": "../repo", "venv": "../python", "work_dir": "scratch",
+                         "build_dir": "../builds", "cache_dir": "../evidence", "report": "out/report.md"}
+            write_json(path, {"reference": "old", "candidate": "new", **overrides})
+            with patch("harness.common.git", return_value=""), patch(
+                "harness.common.resolve_ref", side_effect=lambda repo, ref: ref
+            ), patch.dict(os.environ, {"REVIEW_KIT_CACHE": "/other-cache"}):
+                config = load_config(path)
+            for field, value in overrides.items():
+                with self.subTest(field=field):
+                    self.assertEqual(config[field], str((path.parent / value).resolve()))
+
+    def test_named_reviews_isolate_scratch_and_reports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review.json"
+            configs = []
+            with patch("harness.common.git", return_value=""), patch(
+                "harness.common.resolve_ref", side_effect=lambda repo, ref: ref
+            ):
+                for name in ("first", "second"):
+                    write_json(path, {"reference": "old", "candidate": "new", "name": name})
+                    configs.append(load_config(path))
+            self.assertNotEqual(configs[0]["work_dir"], configs[1]["work_dir"])
+            self.assertEqual(configs[0]["report"], "/exchange/from_copilot/first.md")
+            self.assertEqual(configs[1]["report"], "/exchange/from_copilot/second.md")
+            self.assertEqual(configs[0]["build_dir"], configs[1]["build_dir"])
+
+    def test_derived_name_cannot_escape_scratch_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review.json"
+            write_json(path, {"reference": "old", "candidate": "new", "report": ".."})
+            with patch("harness.common.resolve_ref", side_effect=lambda repo, ref: ref):
+                with self.assertRaisesRegex(ReviewError, "set name explicitly"):
+                    load_config(path)
 
     def test_unknown_field(self):
         with self.assertRaisesRegex(ReviewError, "unknown"):
@@ -725,6 +771,89 @@ class BuildFreshnessTests(unittest.TestCase):
             self.assertGreater((root / "src/lib.rs").stat().st_mtime, 1)
             self.assertEqual((root / ".git").stat().st_mtime, 1)
 
+    def test_native_build_and_reuse_stay_outside_scratch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            builds, scratch, sha = root / "build-store", root / "scratch", "a" * 40
+            worktree = builds / "worktrees" / sha
+            package = worktree / "source/qdk_package/qdk"
+            package.mkdir(parents=True)
+            (package / "__init__.py").write_text("")
+            (worktree / "library").mkdir()
+            config = {"build_dir": str(builds), "work_dir": str(scratch),
+                      "repository": str(root), "venv": "/opt/qdk-venv"}
+
+            def cargo(args, *, cwd, env, stdout, stderr):
+                self.assertEqual(Path(cwd), worktree)
+                self.assertEqual(Path(env["CARGO_TARGET_DIR"]), builds / "cargo-target")
+                native = Path(env["CARGO_TARGET_DIR"]) / "release/libqdk.so"
+                native.parent.mkdir(parents=True)
+                native.write_bytes(b"native fixture")
+                return subprocess.CompletedProcess(args, 0)
+
+            def git(repo, *args):
+                if args == ("rev-parse", "HEAD"):
+                    return sha
+                self.assertEqual(args, ("status", "--porcelain"))
+                return ""
+
+            with patch("harness.builds.git", side_effect=git), patch(
+                "harness.builds.subprocess.run", side_effect=cargo
+            ) as compile_build, patch("sys.stdout", io.StringIO()):
+                build = build_revision(config, sha, "release", {})
+                self.assertEqual(build_revision(config, sha, "release", {}), build)
+            self.assertEqual(compile_build.call_count, 1)
+            self.assertEqual(Path(build["overlay"]), builds / "builds" / f"{sha}-release")
+            self.assertTrue((Path(build["overlay"]) / "qdk/_native.abi3.so").is_file())
+            self.assertTrue((builds / "build.lock").is_file())
+            self.assertFalse(scratch.exists())
+
+    def test_discovery_uses_the_build_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            builds, scratch = root / "build-store", root / "scratch"
+            checkout = root / "checkout"
+            (checkout / "samples").mkdir(parents=True)
+            (checkout / "samples/Main.qs").write_text("operation Main() : Result { Zero }")
+            config = {"build_dir": str(builds), "work_dir": str(scratch), "refs": {"candidate": "a" * 40}}
+
+            def checkout_revision(config, sha):
+                self.assertTrue((builds / "build.lock").is_file())
+                self.assertFalse((scratch / "build.lock").exists())
+                return checkout
+
+            with patch("harness.discovery.checkout_revision", side_effect=checkout_revision):
+                found, pending = discover_samples(config, scratch / "samples.json")
+            self.assertEqual((found, pending), (1, 0))
+
+    def test_extraction_separates_native_target_from_dump_and_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            builds, scratch, sha = root / "build-store", root / "scratch", "a" * 40
+            worktree = builds / "extract" / sha
+            worktree.mkdir(parents=True)
+            config = {"build_dir": str(builds), "work_dir": str(scratch),
+                      "repository": str(root), "venv": "/opt/qdk-venv"}
+            record = {"kind": "semantic", "test": "test", "source": "operation Main() : Int { 1 }",
+                      "expected": {"type": "int", "value": 1}}
+
+            def cargo(args, *, cwd, env, stdout, stderr):
+                self.assertEqual(Path(cwd), worktree)
+                self.assertEqual(Path(env["CARGO_TARGET_DIR"]), builds / "extract-target")
+                dump = Path(env["REVIEW_DUMP"])
+                self.assertEqual(dump.parent, scratch / "extract")
+                dump.write_text(json.dumps(record) + "\n")
+                return subprocess.CompletedProcess(args, 0)
+
+            with patch("harness.extraction.git", side_effect=lambda repo, *args: sha if args == (
+                "rev-parse", "HEAD"
+            ) else ""), patch("harness.extraction.instrument", return_value=["test.rs"]), patch(
+                "harness.extraction.subprocess.run", side_effect=cargo
+            ), patch("sys.stdout", io.StringIO()):
+                count, _, status = extract_tests(config, sha, "qsc_fir_transforms", scratch / "cases.json")
+            self.assertEqual((count, status), (1, 0))
+            self.assertTrue((scratch / "extract" / f"{sha[:12]}-qsc_fir_transforms.log").is_file())
+
 
 class RunOrderingTests(unittest.TestCase):
     def test_results_are_rewritten_in_manifest_order(self):
@@ -773,7 +902,7 @@ class RolesAndCacheTests(unittest.TestCase):
             with self.assertRaisesRegex(ReviewError, "no layer9"):
                 select_roles(config, ["layer9"])
             self.assertEqual(config["name"], "ian20261023")
-            self.assertEqual(config["cache_dir"], str(Path(directory) / "cache" / "review-kit"))
+            self.assertEqual(config["cache_dir"], "/work/cache/compiler-review-kit")
             self.assertEqual(config["cache_budget_mb"], 50)
 
 
@@ -1004,7 +1133,6 @@ class EvidenceTests(unittest.TestCase):
             report.write_text('# R\n\n```python\n"""Bug one\n\nExits 0 while the bug reproduces: A."""\n```\n\n'
                               '```python\n"""Bug two\n\nExits 0 when the bug no longer reproduces."""\n```\n\n'
                               '```python\nprint("not a repro")\n```\n')
-            (root / "work").mkdir()
             config = {"cache_dir": str(root / "cache"), "name": "gone", "work_dir": str(root / "work")}
             manifests, scripts, source = evidence.recheck_inputs(config, report=report)
             self.assertEqual((manifests, [p.name for p in scripts]), ([], ["01_bug_one.py", "02_bug_two.py"]))

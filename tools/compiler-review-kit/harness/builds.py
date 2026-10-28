@@ -21,7 +21,7 @@ from harness.common import (
 
 
 def checkout_revision(config, sha):
-    worktree = Path(config["work_dir"]) / "worktrees" / sha
+    worktree = Path(config["build_dir"]) / "worktrees" / sha
     if not worktree.exists():
         worktree.parent.mkdir(parents=True, exist_ok=True)
         git(config["repository"], "worktree", "add", "--detach", str(worktree), sha)
@@ -51,7 +51,7 @@ def refresh_timestamps(worktree):
 def verify_build(build, tools):
     root = Path(build["overlay"])
     if build["tools"] != tools:
-        raise ReviewError(f"Build environment changed for {root}; use a new work_dir.")
+        raise ReviewError(f"Build environment changed for {root}; use a new build_dir.")
     if tree_digest(root / "qdk") != build["package_digest"]:
         raise ReviewError(f"Build package changed: {root}")
     worktree = Path(build["worktree"])
@@ -65,7 +65,7 @@ def verify_build(build, tools):
 
 
 def build_revision(config, sha, mode, tools):
-    work = Path(config["work_dir"])
+    work = Path(config["build_dir"])
     work.mkdir(parents=True, exist_ok=True)
     with (work / "build.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

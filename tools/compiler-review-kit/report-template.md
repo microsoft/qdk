@@ -42,7 +42,7 @@ evidence. Leave the earlier findings below intact.
 ```
 
 ```python
-# Replace with a standalone executed repro using .venv's selected QDK build.
+# Replace with a standalone executed repro using the selected QDK build overlay.
 # Derive qir-runner from the interpreter directory; retain raw exit/error output.
 ```
 

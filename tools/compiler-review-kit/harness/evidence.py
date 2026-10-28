@@ -223,7 +223,9 @@ def recheck_inputs(config, name=None, report=None):
     if manifests or scripts:
         return manifests, scripts, f"evidence cache {destination}"
     if report and Path(report).is_file():
-        extracted = report_scripts(report, Path(tempfile.mkdtemp(prefix="recheck-", dir=config["work_dir"])))
+        work = Path(config["work_dir"])
+        work.mkdir(parents=True, exist_ok=True)
+        extracted = report_scripts(report, Path(tempfile.mkdtemp(prefix="recheck-", dir=work)))
         if extracted:
             return [], extracted, f"repro scripts embedded in {report} (cache {destination} is gone)"
     raise ReviewError(f"No evidence at {destination} and no report with embedded repro scripts")
