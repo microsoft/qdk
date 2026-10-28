@@ -22,6 +22,10 @@ For this reason, the dependencies required to build `--qdk` are built into the i
 In order to be able to have Copilot work on unpublished branches, the container read-only mounts your local `.git` folder (`/seed.git` and remote `seed` in the container).
 It works from its own clone (`/work/qdk`), which won't include any of your uncommitted work.
 
+The image also includes a clone of `microsoft/qdk-chemistry`, without building it.
+On first use, startup copies that checkout into `/work/qdk-chemistry`; no network access is needed.
+This ordinary clone has no seed or outbox integration, and later launches leave it unchanged.
+
 In order to be able to expose the work Copilot has done, the container mounts a read-write clone (`~/qdk-copilot-sandbox/NAME/outbox.git`).
 Its branches will be available as `sandbox-INSTANCENAME/*` tracking branches in your local clone, which will be updated at the end of a session or on explicit `sandbox.py fetch`.
 For added security, the host pauses or stops the agent and creates a temporary, host-configured view of the outbox’s branches and objects.

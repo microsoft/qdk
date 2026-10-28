@@ -17,7 +17,6 @@ configure_git() {
     git config --global user.email "${QDK_GIT_EMAIL:-agent@localhost}"
     git config --global --replace-all safe.directory "$SEED"
     git config --global --add safe.directory "$OUTBOX"
-    git config --global remote.pushDefault outbox
 }
 
 select_branch() {
@@ -62,6 +61,7 @@ setup_repo() {
     git config remote.outbox.url DISABLED-push-only
     git config remote.outbox.pushurl "$OUTBOX"
     git config --unset-all remote.outbox.fetch || true
+    git config remote.pushDefault outbox
     git config core.hooksPath "$SANDBOX/runtime/hooks"
     git fetch --quiet --no-tags --prune seed '+refs/heads/*:refs/remotes/seed/*'
     if $initial; then
@@ -95,6 +95,17 @@ setup_repo() {
         fi
         [[ $current != main ]] || break
     done
+}
+
+setup_chemistry_repo() {
+    local source=${1:-/opt/qdk-chemistry} chemistry=${REPO%/*}/qdk-chemistry
+    if [[ ! -e $chemistry/.git ]]; then
+        [[ ! -e $chemistry || ( -d $chemistry && -z $(ls -A "$chemistry") ) ]] || {
+            info "Refusing to copy qdk-chemistry over a nonempty directory."
+            return 1
+        }
+        cp -R "$source/." "$chemistry"
+    fi
 }
 
 load_token() {
@@ -140,6 +151,7 @@ main() {
     configure_git
     trap sync_outbox EXIT
     setup_repo
+    setup_chemistry_repo
     load_token
     run_child "$@"
 }
