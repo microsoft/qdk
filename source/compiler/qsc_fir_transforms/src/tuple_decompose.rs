@@ -17,8 +17,7 @@
 //!   decompose.
 //! - **Conservative eligibility.** A `Bind` of non-empty `Ty::Tuple` is
 //!   decomposed only when *every* use is `Field`, `AssignField`, or
-//!   `Assign(Var, Tuple)` (whole-tuple reassignment with a tuple literal, as a
-//!   `;`-terminated statement; [`rewrite_assign_tuples`] splits only those). If
+//!   `Assign(Var, Tuple)` (whole-tuple reassignment with a tuple literal). If
 //!   the value is ever passed whole (argument, return, closure capture), it is
 //!   left intact. `Bind(t)` becomes `Tuple([Bind(t_0), Bind(t_1), ...])`, field
 //!   accesses become direct var refs, and whole-tuple assigns split per element.
@@ -76,8 +75,8 @@ use std::rc::Rc;
 ///   rewritten by [`rewrite_field_accesses`] into a direct
 ///   `Var(t_i)` reference (or `Field(Var(t_i), Path(..))` for nested
 ///   paths).
-/// - `Assign(Var(t), Tuple([e0, e1, ...]))` as a `StmtKind::Semi`
-///   statement — a whole-tuple reassignment whose RHS is a tuple literal, split by
+/// - `Assign(Var(t), Tuple([e0, e1, ...]))` — a whole-tuple
+///   reassignment whose RHS is a tuple literal, split by
 ///   [`rewrite_assign_tuples`] into per-element `Assign(Var(t_i), ei)`
 ///   statements.
 ///
@@ -720,7 +719,7 @@ fn rewrite_assign_tuples(
     for &stmt_id in stmt_block_map.keys() {
         let stmt = package.stmts.get(stmt_id).expect("stmt should exist");
         let semi_expr_id = match &stmt.kind {
-            StmtKind::Semi(e) => *e,
+            StmtKind::Semi(e) | StmtKind::Expr(e) => *e,
             _ => continue,
         };
         let expr = package.exprs.get(semi_expr_id).expect("expr should exist");
@@ -785,6 +784,8 @@ fn rewrite_assign_tuples(
             assign.kind = ExprKind::Assign(new_lhs_id, values[0]);
             assign.ty = Ty::UNIT;
         }
+        // Unconditionally update the statement to be a `Semi` statement with the original assignment.
+        package.stmts.get_mut(stmt_id).expect("stmt exists").kind = StmtKind::Semi(assign_expr_id);
         new_stmt_ids.push(stmt_id);
 
         // For elements 1..n, create new Assign exprs and Semi stmts.

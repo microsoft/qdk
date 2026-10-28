@@ -52,13 +52,9 @@
 //!   `Var(Res::Local(local))` read, a [`Closure`](ExprKind::Closure)
 //!   capture, or an assignment whose left-hand side resolves to the local.
 //! - **Decomposable assignment.** When the right-hand side of an
-//!   `Assign(Var(local), Tuple(..))` is a tuple literal and the assignment is
-//!   the whole expression of a `StmtKind::Semi` statement, the classifier
+//!   `Assign(Var(local), Tuple(..))` is a tuple literal, the classifier
 //!   treats it as a field-only use: each tuple element flows into a
-//!   separate field so the local's whole value is not reconstituted. In any
-//!   other position (for example a block's trailing expression) it is a
-//!   whole-value use, because `tuple_decompose::rewrite_assign_tuples` only
-//!   splits `Semi` statements.
+//!   separate field so the local's whole value is not reconstituted.
 //! - **Closure captures are whole-value.** [`ExprKind::Closure`] captures
 //!   carry the local by value, so the walkers never attempt to split them
 //!   even when the captured type is a tuple.
@@ -458,14 +454,12 @@ where
 enum UseEvent {
     /// A `Field::Path` or `Field::Prim` projection over the local.
     FieldAccess,
-    /// A whole-tuple assignment whose right-hand side is a tuple literal, as
-    /// the whole expression of a `StmtKind::Semi` statement.
+    /// A whole-tuple assignment whose right-hand side is a tuple literal.
     Decomposable,
     /// A bare `Var(Res::Local(local))` read at the given expression.
     WholeValueRead(ExprId),
-    /// A use that prevents promotion: a whole-value reassignment that is not
-    /// [`UseEvent::Decomposable`], a closure capture, or a non-`Path`/`Prim`
-    /// field projection.
+    /// A use that prevents promotion: a non-tuple whole-value reassignment, a
+    /// closure capture, or a non-`Path`/`Prim` field projection.
     HardBlock,
 }
 
@@ -571,19 +565,7 @@ fn for_each_use_event_in_block<F: FnMut(UseEvent)>(
     for &stmt_id in &block.stmts {
         let stmt = package.get_stmt(stmt_id);
         match &stmt.kind {
-            StmtKind::Semi(e) => {
-                // `tuple_decompose::rewrite_assign_tuples` splits a tuple-literal
-                // reassignment only in this position, so it is decomposable only here.
-                if let Some(elements) = tuple_literal_assigned_to(package, *e, local_id) {
-                    visit(UseEvent::Decomposable);
-                    for &element in elements {
-                        for_each_use_event(package, element, local_id, false, visit);
-                    }
-                } else {
-                    for_each_use_event(package, *e, local_id, false, visit);
-                }
-            }
-            StmtKind::Expr(e) => {
+            StmtKind::Expr(e) | StmtKind::Semi(e) => {
                 for_each_use_event(package, *e, local_id, false, visit);
             }
             StmtKind::Local(_, _, expr) => {
@@ -591,27 +573,6 @@ fn for_each_use_event_in_block<F: FnMut(UseEvent)>(
             }
             StmtKind::Item(_) => {}
         }
-    }
-}
-
-/// Returns the elements of `expr_id` when it is `Assign(Var(local_id), Tuple(elements))`.
-fn tuple_literal_assigned_to(
-    package: &Package,
-    expr_id: ExprId,
-    local_id: LocalVarId,
-) -> Option<&[ExprId]> {
-    let ExprKind::Assign(lhs, rhs) = &package.get_expr(expr_id).kind else {
-        return None;
-    };
-    let ExprKind::Var(Res::Local(var_id), _) = &package.get_expr(*lhs).kind else {
-        return None;
-    };
-    if *var_id != local_id {
-        return None;
-    }
-    match &package.get_expr(*rhs).kind {
-        ExprKind::Tuple(elements) => Some(elements),
-        _ => None,
     }
 }
 
@@ -656,14 +617,21 @@ fn for_each_use_event<F: FnMut(UseEvent)>(
         }
         ExprKind::Assign(a, b) => {
             let lhs_expr = package.get_expr(*a);
+            let rhs_expr = package.get_expr(*b);
             if let ExprKind::Var(Res::Local(var_id), _) = &lhs_expr.kind
                 && *var_id == local_id
             {
-                // Whole-value reassignment. A tuple-literal one that is a `Semi`
-                // statement is reported as `Decomposable` by
-                // `for_each_use_event_in_block` and never reaches here.
-                visit(UseEvent::HardBlock);
-                for_each_use_event(package, *b, local_id, false, visit);
+                if let ExprKind::Tuple(elements) = &rhs_expr.kind {
+                    // Tuple-literal RHS: each element flows to its own field.
+                    visit(UseEvent::Decomposable);
+                    for &e in elements {
+                        for_each_use_event(package, e, local_id, false, visit);
+                    }
+                } else {
+                    // Non-tuple whole-value reassignment: block.
+                    visit(UseEvent::HardBlock);
+                    for_each_use_event(package, *b, local_id, false, visit);
+                }
             } else {
                 for_each_use_event(package, *a, local_id, false, visit);
                 for_each_use_event(package, *b, local_id, false, visit);
