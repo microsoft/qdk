@@ -10,6 +10,101 @@ use indoc::indoc;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
+fn unit_equality_preserves_quantum_operand_effects() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Bool {
+            use q = Qubit();
+            X(q) == Reset(q)
+        }
+    "#});
+    assert_eq!(
+        program.get_callable(CallableId(2)).name,
+        "__quantum__qis__x__body"
+    );
+    assert_eq!(
+        program.get_callable(CallableId(3)).name,
+        "__quantum__qis__reset__body"
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), )
+                Call id(4), args( Bool(true), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn unit_inequality_preserves_quantum_operand_effects() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Bool {
+            use q = Qubit();
+            X(q) != Reset(q)
+        }
+    "#});
+    assert_eq!(
+        program.get_callable(CallableId(2)).name,
+        "__quantum__qis__x__body"
+    );
+    assert_eq!(
+        program.get_callable(CallableId(3)).name,
+        "__quantum__qis__reset__body"
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), )
+                Call id(4), args( Bool(false), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn unit_comparison_preserves_rhs_failure() {
+    for operator in ["==", "!="] {
+        let error = get_partial_evaluation_error(&format!(
+            r#"
+            @EntryPoint()
+            operation Main() : Bool {{
+                use q = Qubit();
+                X(q) {operator} {{ fail "RHS failure"; () }}
+            }}
+            "#
+        ));
+        let crate::Error::EvaluationFailed(message, _) = error else {
+            panic!("{operator}: expected the RHS failure, got {error:?}");
+        };
+        assert_eq!(message, "program failed: RHS failure");
+    }
+}
+
+#[test]
+fn nonempty_tuple_comparison_remains_unsupported() {
+    let error = get_partial_evaluation_error(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Bool {
+            use q = Qubit();
+            let result = MResetZ(q);
+            (result, 1) == (result, 1)
+        }
+    "#});
+    let crate::Error::Unexpected(message, _) = error else {
+        panic!("expected unsupported tuple comparison, got {error:?}");
+    };
+    assert!(message.starts_with("unsupported LHS value: ("), "{message}");
+}
+
+#[test]
 fn evaluation_order_short_circuit_assignment_then_arithmetic() {
     let program = get_rir_program(indoc! {r#"
         namespace Test {

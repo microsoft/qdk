@@ -520,6 +520,107 @@ fn evaluation_order_static_short_circuit_and_eager_equality_are_preserved() {
     }
 }
 
+fn check_unit_comparison_qir(
+    logical: &str,
+    comparison: &str,
+    comparison_result: bool,
+    expected: [(bool, i64); 2],
+) {
+    let comparison_expression =
+        format!("((set trace = 10 * trace + 1) {comparison} (set trace = 10 * trace + 2))");
+    let reference_expression = format!(
+        "{{ set trace = 10 * trace + 1; set trace = 10 * trace + 2; {comparison_result} }}"
+    );
+    for (prepare, (expected_comparison, expected_trace)) in ["", "X(q);"].into_iter().zip(expected)
+    {
+        let source = |expression: &str| {
+            format!(
+                "operation Main() : (Bool, Int) {{
+                    use q = Qubit();
+                    {prepare}
+                    mutable trace = 0;
+                    let condition = MResetZ(q) == One;
+                    let comparison = condition {logical} {expression};
+                    (comparison, trace)
+                }}"
+            )
+        };
+        let actual_source = source(&comparison_expression);
+        let reference_source = source(&reference_expression);
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &actual_source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Tuple(
+                vec![Value::Bool(expected_comparison), Value::Int(expected_trace)].into(),
+                None,
+            ),
+            "{logical}, {comparison}, prepare={prepare:?}: source result"
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            assert_eq!(
+                compile_source_to_qir(&actual_source, profile.into()),
+                compile_source_to_qir(&reference_source, profile.into()),
+                "{profile:?}, {logical}, {comparison}, prepare={prepare:?}: operand effects must remain ordered and conditional"
+            );
+        }
+    }
+}
+
+#[test]
+fn unit_equality_in_and_preserves_conditional_operand_effects() {
+    check_unit_comparison_qir("and", "==", true, [(false, 0), (true, 12)]);
+}
+
+#[test]
+fn unit_inequality_in_and_preserves_conditional_operand_effects() {
+    check_unit_comparison_qir("and", "!=", false, [(false, 0), (false, 12)]);
+}
+
+#[test]
+fn unit_equality_in_or_preserves_conditional_operand_effects() {
+    check_unit_comparison_qir("or", "==", true, [(true, 12), (true, 0)]);
+}
+
+#[test]
+fn unit_inequality_in_or_preserves_conditional_operand_effects() {
+    check_unit_comparison_qir("or", "!=", false, [(false, 12), (true, 0)]);
+}
+
+#[test]
+fn unit_comparisons_preserve_quantum_effects_on_every_profile() {
+    for (comparison, expected_gate) in [("==", "X(q);"), ("!=", "")] {
+        let source = format!(
+            "operation Main() : Result {{
+                use q = Qubit();
+                if X(q) {comparison} Reset(q) {{ X(q); }}
+                MResetZ(q)
+            }}"
+        );
+        let reference = format!(
+            "operation Main() : Result {{
+                use q = Qubit();
+                X(q);
+                Reset(q);
+                {expected_gate}
+                MResetZ(q)
+            }}"
+        );
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            assert_eq!(
+                compile_source_to_qir(&source, profile.into()),
+                compile_source_to_qir(&reference, profile.into()),
+                "{profile:?}, {comparison}: both Unit operands must execute before branching"
+            );
+        }
+    }
+}
+
 #[test]
 fn evaluation_order_short_circuit_double_assignment_then_arithmetic() {
     let template = r#"

@@ -650,6 +650,9 @@ impl<'a> PartialEvaluator<'a> {
                 rhs_expr_id,
                 bin_op_expr_span,
             ),
+            Value::Tuple(ref values, _) if values.is_empty() => {
+                self.eval_bin_op_with_lhs_unit_operand(bin_op, &lhs_value, rhs_expr_id)
+            }
             Value::Result(_) => self.eval_bin_op_with_lhs_result_operand(
                 bin_op,
                 &lhs_value,
@@ -733,6 +736,32 @@ impl<'a> PartialEvaluator<'a> {
                 lhs_span,
             )),
         }
+    }
+
+    fn eval_bin_op_with_lhs_unit_operand(
+        &mut self,
+        bin_op: BinOp,
+        lhs_value: &Value,
+        rhs_expr_id: ExprId,
+    ) -> Result<EvalControlFlow, Error> {
+        // Unit has no runtime payload, but evaluating the RHS can still have effects.
+        let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
+        let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
+            return Err(Error::Unexpected(
+                "embedded return in RHS expression".to_string(),
+                self.get_expr_package_span(rhs_expr_id),
+            ));
+        };
+        assert!(
+            matches!(&rhs_value, Value::Tuple(values, _) if values.is_empty()),
+            "expected Unit value from RHS expression"
+        );
+        let result = match bin_op {
+            BinOp::Eq => lhs_value == &rhs_value,
+            BinOp::Neq => lhs_value != &rhs_value,
+            _ => panic!("unsupported binary operation for Unit: {bin_op:?}"),
+        };
+        Ok(EvalControlFlow::Continue(Value::Bool(result)))
     }
 
     fn eval_bin_op_with_lhs_array_operand(
