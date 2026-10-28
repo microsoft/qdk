@@ -91,6 +91,26 @@ fn compile_source_to_qir_result(
     )
 }
 
+fn qir_entry_body(qir: &str) -> &str {
+    qir.split_once("define i64 @ENTRYPOINT__main()")
+        .expect("entry point should exist")
+        .1
+        .split_once("{\n")
+        .expect("entry body should exist")
+        .1
+        .split_once("\n}")
+        .expect("entry body should terminate")
+        .0
+}
+
+#[test]
+fn qir_entry_body_excludes_other_functions() {
+    let qir = "declare void @helper()\n\
+               define i64 @ENTRYPOINT__main() #0 {\n  ret i64 0\n}\n\
+               define internal void @other() {\n  ret void\n}\n";
+    assert_eq!(qir_entry_body(qir), "  ret i64 0");
+}
+
 #[test]
 fn expanding_polymorphic_recursion_reports_source_errors_on_every_compile_profile() {
     let sources = [
