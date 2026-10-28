@@ -17,6 +17,80 @@ use qsc_fir::fir::{LocalVarId, Package, PatKind};
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
 
+fn check_flow_value(source: &str, expected: i64) {
+    // Residual struct values need erasure before their exec graphs can be rebuilt.
+    let (mut store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::UdtErase);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(expected)),
+        "defunctionalization must preserve the value:\n{source}"
+    );
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(expected),
+    );
+}
+
+#[test]
+fn unresolved_factory_captures_defer_whole_dispatch_without_losing_known_candidates() {
+    // A mutable capture can be unresolved before factory specialization. The
+    // whole dispatch must then stay dynamic, whichever producer branch holds it.
+    // The immutable-capture control must retain both statically known choices.
+    for (binding, body, unresolved) in [
+        ("mutable", "x -> f(f(x))", true),
+        ("mutable", "if true { x -> f(f(x)) } else { Inc }", true),
+        ("mutable", "if false { Inc } else { x -> f(f(x)) }", true),
+        ("let", "x -> f(f(x))", false),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(x : Int) : Int {{ x + 1 }}
+            function Dbl(x : Int) : Int {{ 2 * x }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function Twice(f : Int -> Int) : Int -> Int {{ {body} }}
+            @EntryPoint() operation Main() : Int {{
+                mutable f = Inc;
+                {binding} g = Dbl;
+                if true {{ set f = Twice(g); }}
+                Apply(f, 3)
+            }}
+            "#
+        );
+        let (mut store, package) = compile_to_monomorphized_fir(&source);
+        let apply = crate::test_utils::callable_id_by_name(store.get(package), "Apply");
+        let result = super::run_prepass_and_analysis(&mut store, package);
+        let sites: Vec<_> = result
+            .call_sites
+            .iter()
+            .filter(|site| site.hof_item_id.package == package && site.hof_item_id.item == apply)
+            .collect();
+        if unresolved {
+            assert_eq!(
+                sites.len(),
+                1,
+                "an unresolved alternative must defer the entire dispatch"
+            );
+            assert!(matches!(sites[0].callable_arg, ConcreteCallable::Dynamic));
+        } else {
+            assert_eq!(
+                sites.len(),
+                2,
+                "both the factory closure and original Inc must remain known"
+            );
+            assert!(
+                sites
+                    .iter()
+                    .all(|site| !matches!(site.callable_arg, ConcreteCallable::Dynamic))
+            );
+        }
+        // Full lowering also checks that producer-owned guards were copied,
+        // rather than sharing ExprIds with the generated dispatch.
+        check_flow_value(&source, 12);
+    }
+}
+
 #[test]
 fn analysis_no_callable_params() {
     let source = "operation Main() : Unit { }";

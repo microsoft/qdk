@@ -140,6 +140,11 @@ const TUPLE_DECOMPOSE_ARG_PROMOTE_FIXPOINT_CAP: usize = 64;
 /// [`run_pipeline_to_with_diagnostics`], and other warning-aware result APIs.
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum PipelineError {
+    /// Recursive generic specialization exceeded a compiler resource limit.
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    Monomorphize(#[from] monomorphize::Error),
+
     /// A return-unification error or warning (e.g., unsupported return type).
     #[error(transparent)]
     #[diagnostic(transparent)]
@@ -181,6 +186,7 @@ impl PipelineError {
     #[must_use]
     pub fn owner(&self) -> PackageId {
         match self {
+            Self::Monomorphize(error) => error.owner(),
             Self::ReturnUnify(error) => error.owner(),
             Self::Defunctionalize(error) => error.owner(),
             Self::IntrinsicPrecheck(error) => error.owner(),
@@ -264,13 +270,16 @@ pub enum PipelineStage {
 ///    before any structural rewrites and short-circuits with
 ///    [`PipelineError::IntrinsicPrecheck`] when an intrinsic callable has an
 ///    unsupported parameter or return type.
-/// 2. [`return_unify::unify_returns`] reports fatal diagnostics that abort
+/// 2. [`monomorphize::monomorphize`] reports fatal specialization-count or
+///    type-expansion diagnostics before post-monomorphization invariants or
+///    any later pass may consume the intermediate store.
+/// 3. [`return_unify::unify_returns`] reports fatal diagnostics that abort
 ///    the schedule before defunctionalization runs.
-/// 3. [`defunctionalize::defunctionalize`] reports fatal diagnostics that
+/// 4. [`defunctionalize::defunctionalize`] reports fatal diagnostics that
 ///    abort the schedule before UDT erasure runs. Non-fatal defunctionalization
 ///    warnings are preserved on [`PipelineResult::warnings`] and the schedule
 ///    continues to the requested stage.
-/// 4. Pinned-item validation runs before seed-expanded UDT erasure, item DCE,
+/// 5. Pinned-item validation runs before seed-expanded UDT erasure, item DCE,
 ///    and exec graph rebuild. Missing or non-callable pins are fatal diagnostics
 ///    because pinned items are explicit preservation requests from callers.
 ///
@@ -303,7 +312,10 @@ fn run_pipeline_to_impl(
 
     let mut result = PipelineResult::default();
 
-    monomorphize::monomorphize(store, package_id, &mut assigners);
+    if let Err(error) = monomorphize::monomorphize(store, package_id, &mut assigners) {
+        result.errors.push(error.into());
+        return result;
+    }
     invariants::check(store, package_id, invariants::InvariantLevel::PostMono);
     if matches!(stage, PipelineStage::Mono) {
         return result;
@@ -375,6 +387,7 @@ fn run_pipeline_to_impl(
         &mut result,
         &mut assigners,
         &exemptions,
+        pinned_items,
     ) {
         return result;
     }
@@ -497,8 +510,9 @@ fn run_arg_promote_stages(
     result: &mut PipelineResult,
     assigners: &mut PackageAssigners,
     exemptions: &invariants::InvariantExemptions,
+    pinned_items: &[StoreItemId],
 ) -> bool {
-    arg_promote::arg_promote(store, package_id, assigners);
+    arg_promote::arg_promote_with_pins(store, package_id, assigners, pinned_items);
     invariants::check_with_exemptions(
         store,
         package_id,
@@ -509,13 +523,20 @@ fn run_arg_promote_stages(
         return true;
     }
 
-    tuple_decompose_arg_promote_fixed_point(store, package_id, result, assigners, exemptions);
+    tuple_decompose_arg_promote_fixed_point(
+        store,
+        package_id,
+        result,
+        assigners,
+        exemptions,
+        pinned_items,
+    );
 
     // Call-argument-type normalization is idempotent and candidate-neutral, so
     // it is hoisted to run exactly once after the loop converges rather than
     // per round (per-round runs cause `(T,)` wrapping churn that pollutes
     // change detection).
-    arg_promote::normalize_reachable_call_arg_types(store, package_id, assigners);
+    arg_promote::normalize_reachable_call_arg_types(store, package_id, assigners, pinned_items);
     invariants::check_with_exemptions(
         store,
         package_id,
@@ -738,6 +759,7 @@ fn tuple_decompose_arg_promote_fixed_point(
     result: &mut PipelineResult,
     assigners: &mut PackageAssigners,
     exemptions: &invariants::InvariantExemptions,
+    pinned_items: &[StoreItemId],
 ) {
     let mut rounds = 0;
     let mut arg_promote_tmp_counter = 0;
@@ -749,6 +771,7 @@ fn tuple_decompose_arg_promote_fixed_point(
             package_id,
             assigners,
             &mut arg_promote_tmp_counter,
+            pinned_items,
         );
         // One PostArgPromote check per round, after both passes have run.
         // tuple-decompose preserves the PostArgPromote invariants (it only
@@ -860,15 +883,15 @@ fn run_item_dce_and_gc(
     let _ =
         item_dce::eliminate_unreachable_foreign_items(store, package_id, &reachable, pinned_items);
 
-    // Node-level GC runs across the whole reachable package closure, not just
-    // the entry package. Structural passes rewrite reachable callables in every
+    // Node-level GC runs across every package, not just the entry-reachable
+    // closure. Structural passes rewrite reachable callables in every
     // package and leave orphaned blocks/stmts/exprs/pats behind in those foreign
     // packages. GC never removes items (pinned items kept by item DCE keep their
     // nodes), but it is required: RCA's top-level statement scan
     // (`unanalyzed_stmts`) treats any package statement not reached through an
     // item body as a top-level statement, so orphaned synthesized statements in
     // foreign packages would otherwise be analyzed out of context and panic.
-    let gc_packages = reachability::collect_reachable_package_closure(package_id, &reachable);
+    let gc_packages: Vec<_> = store.iter().map(|(id, _)| id).collect();
     for gc_pkg in gc_packages {
         let _ = gc_unreachable::gc_unreachable(store.get_mut(gc_pkg));
     }
@@ -973,8 +996,9 @@ pub fn run_pipeline_with_diagnostics(
 /// `monomorphize`, `defunctionalize`, `udt_erase`, or `arg_promote`: the pinned
 /// target's signature (arrow params, and any residual UDT/struct shape the main
 /// pipeline already erased consistently) must be preserved so the runtime
-/// `ReinvokeOriginal` value still matches it. `arg_promote` already skips the
-/// pinned target because it is not entry-reachable; the remaining passes are
+/// `ReinvokeOriginal` value still matches it. The main argument-promotion pass
+/// explicitly preserves pinned root signatures while updating calls inside
+/// their bodies to shared promoted callees; the remaining passes are
 /// simply not invoked here. Validation therefore uses the off-axis
 /// [`InvariantLevel::PostSignaturePreserving`](invariants::InvariantLevel::PostSignaturePreserving)
 /// level, which forbids residual `Return` while allowing the preserved

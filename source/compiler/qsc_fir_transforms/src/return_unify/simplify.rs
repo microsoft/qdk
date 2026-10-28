@@ -554,6 +554,10 @@ pub(super) fn match_flag_set(
 /// * `[Semi(slot_assign), Semi(flag_assign)]` — the flat form, accepted
 ///   for robustness against pretty-printer-equivalent shape drift.
 ///
+/// Either shape may end in a read of the same return slot, appended when the
+/// enclosing conditional must yield a value. No other trailing value or effect
+/// can be discarded by this match.
+///
 /// Returns `None` when `arm_expr_id` is not a `Block` carrying one of
 /// those shapes, or when the slot/flag references don't match the
 /// supplied identities.
@@ -568,21 +572,23 @@ pub(super) fn match_slot_set_arm(
     let ExprKind::Block(outer_bid) = &arm_expr.kind else {
         return None;
     };
-    let outer_stmts = package.get_block(*outer_bid).stmts.clone();
-
-    let assign_stmts: Vec<StmtId> = if outer_stmts.len() == 1 {
-        let StmtKind::Semi(inner_expr_id) = package.get_stmt(outer_stmts[0]).kind else {
-            return None;
-        };
-        let ExprKind::Block(inner_bid) = &package.get_expr(inner_expr_id).kind else {
-            return None;
-        };
-        package.get_block(*inner_bid).stmts.clone()
-    } else if outer_stmts.len() == 2 {
-        outer_stmts
-    } else {
-        return None;
-    };
+    let mut assign_stmts = package.get_block(*outer_bid).stmts.as_slice();
+    loop {
+        if let Some((&last, prefix)) = assign_stmts.split_last()
+            && let StmtKind::Expr(value) = package.get_stmt(last).kind
+            && extract_local_read(package, value, Some(return_ty)) == Some(return_slot)
+        {
+            assign_stmts = prefix;
+        }
+        if let [only] = assign_stmts
+            && let StmtKind::Semi(inner) = package.get_stmt(*only).kind
+            && let ExprKind::Block(block) = package.get_expr(inner).kind
+        {
+            assign_stmts = &package.get_block(block).stmts;
+        } else {
+            break;
+        }
+    }
 
     if assign_stmts.len() != 2 {
         return None;
@@ -612,8 +618,9 @@ pub(super) fn match_slot_set_arm(
 /// Used as a conservative bailout: the `both_branches` rule moves the
 /// slot-write RHS into the value position of a structured `if`, and we
 /// refuse to do so if the value can carry a qubit reference. In
-/// practice user-written Q# can never return qubits, so this walker
-/// almost never fires; it exists to keep direct-IR consumers safe.
+/// practice Q# can return existing qubit references; allocating a new qubit as
+/// a stand-in would change its lifetime, so this bailout applies to source
+/// programs as well as direct-IR consumers.
 pub(super) fn expr_tree_contains_qubit_type(package: &Package, expr_id: ExprId) -> bool {
     let mut found = false;
     walk_utils::for_each_expr(package, expr_id, &mut |_id, expr| {

@@ -126,6 +126,36 @@ fn assert_foreign_wrap_operand_collisions(
     );
 }
 
+#[test]
+fn captured_foreign_callable_array_preserves_results() {
+    let library = r#"
+        namespace Lib {
+            function Inc(value : Int) : Int { value + 1 }
+            function Twice(value : Int) : Int { value * 2 }
+            export Inc, Twice;
+        }
+        "#;
+    let source = r#"
+        namespace Test {
+            function Capture(actions : (Int -> Int)[]) : Unit -> Int { () -> Read(actions) }
+            function Read(actions : (Int -> Int)[]) : Int {
+                mutable answer = 0;
+                for action in actions { set answer = answer * 100 + action(3); }
+                answer
+            }
+            function Apply(action : Unit -> Int) : Int { action() }
+            @EntryPoint()
+            operation Main() : Int { Apply(Capture([Lib.Inc, Lib.Twice])) }
+        }
+        "#;
+    let (store, package) = crate::test_utils::compile_to_fir_with_library(library, source);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(406))
+    );
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
+}
+
 /// Regression guard: two call sites that differ only in the package owning the
 /// closure body (`call_pkg_id`) must produce distinct `SpecKey`s. The closure
 /// dispatch key is package-qualified via `StoreItemId`, so closures sharing the
@@ -155,6 +185,7 @@ fn closure_spec_key_distinguishes_packages() {
             functor: FunctorApp::default(),
         },
         arg_expr_id: ExprId::from(0u32),
+        dispatch_source: None,
         condition: vec![],
     };
 
@@ -199,7 +230,8 @@ fn cross_package_hof_body_with_nested_lambda_clones_into_target() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     // Snapshot entry-package callable ids so the relocated lambda can be
     // identified after specialization.
@@ -281,7 +313,8 @@ fn cross_package_nested_lambda_relocated_with_remapped_id_and_defunctionalized()
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     // The entry package starts with no lifted lambdas; the only one is defined
     // in the library package.
@@ -411,7 +444,8 @@ fn cross_package_foreign_hof_without_nested_lambda_specializes_into_entry() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     let entry_items_before = callable_item_ids(fir_store.get(fir_pkg_id));
 
@@ -487,7 +521,8 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
     let cross_package_errors =
         defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
@@ -580,7 +615,8 @@ fn cross_package_function_typed_return_flows_across_packages() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
@@ -642,7 +678,8 @@ fn foreign_factory_capturing_callable_field_is_defunctionalized() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
@@ -701,7 +738,8 @@ fn unresolved_foreign_projected_callee_emits_dynamic_callable() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_eq!(
@@ -870,9 +908,9 @@ fn analysis_apply_operation_power_ca_consumer() {
                 apply_power_of_u(1, target);
             }
             operation Consume_AdjCtl__closure_(target : Qubit[]) : Unit {
-                _lambda_4(1, target);
+                _lambda_4((1, target), );
             }
-            operation _lambda_4(hole : Int, hole_1 : Qubit[]) : Unit is Adj + Ctl {
+            operation _lambda_4((hole : Int, hole_1 : Qubit[]), ) : Unit is Adj + Ctl {
                 body ... {
                     ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole_1)
                 }

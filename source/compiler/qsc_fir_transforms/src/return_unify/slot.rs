@@ -461,6 +461,8 @@ pub(super) enum UnsupportedDefaultSite {
     ReturnSlot,
     /// Default needed when guarding a local initializer in place.
     GuardedLocalInitializer,
+    /// Value needed after a returning arm of a non-Unit conditional.
+    ConditionalReturnBranch,
 }
 
 impl UnsupportedDefaultSite {
@@ -469,6 +471,7 @@ impl UnsupportedDefaultSite {
         match self {
             Self::ReturnSlot => "flag-lowering return-slot (__ret_val) initialization",
             Self::GuardedLocalInitializer => "flag-lowering guarded Local initializer",
+            Self::ConditionalReturnBranch => "flag-lowering conditional return branch",
         }
     }
 }

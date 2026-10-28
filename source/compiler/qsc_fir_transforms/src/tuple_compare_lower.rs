@@ -5,8 +5,12 @@
 //! tuple-decompose.
 //!
 //! Rewrites `BinOp(Eq/Neq)` on non-empty tuple-typed operands into
-//! element-wise scalar comparisons joined by `AndL`/`OrL`. Nested tuple
-//! operands recurse through `lower_single_cmp` before being folded.
+//! element-wise scalar comparisons joined by `AndL`/`OrL`. Literal tuples
+//! are flattened without materializing aggregates. Operand effects and mutable
+//! reads are snapshotted in source order before any comparison, so short-circuiting
+//! cannot skip or replay their evaluation.
+//! A balanced boolean tree keeps comparison depth logarithmic while retaining
+//! left-to-right short-circuit order.
 //!
 //! # What to know before diving in
 //!
@@ -18,10 +22,9 @@
 //! - **Empty tuples (Unit) are excluded** — no elements means no element-wise
 //!   comparison and no identity to seed the join, so `lower_single_cmp`
 //!   returns early. Whole-Unit equality is left for downstream passes.
-//! - **Aliased `ExprId`s by design (cross-pass contract).** When a comparison
-//!   operand is itself a tuple literal, `extract_or_field` reuses the literal's
-//!   element `ExprId`s directly instead of synthesizing `Field(..)` nodes, so a
-//!   single element `ExprId` can appear under multiple parent edges. The
+//! - **Aliased `ExprId`s by design (cross-pass contract).** Field projections
+//!   share references to stable operand values, so a local-read `ExprId`
+//!   can appear under multiple parent edges. The
 //!   immediately-following [`crate::tuple_decompose`] `replace_expr_references`
 //!   walk must tolerate this: redirecting one occurrence must not break the
 //!   others, and the original aggregate may become dead once all parents are
@@ -36,18 +39,23 @@ mod tests;
 #[cfg(test)]
 mod semantic_equivalence_tests;
 
-use crate::fir_builder::{alloc_bin_op_expr, alloc_field_expr, reachable_local_callables};
+use crate::fir_builder::{
+    alloc_bin_op_expr, alloc_block, alloc_expr_stmt, alloc_field_expr, alloc_local_var,
+    alloc_local_var_expr, reachable_local_callables,
+};
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::{
     collect_reachable_from_entry, collect_reachable_package_closure, collect_reachable_with_seeds,
 };
 use crate::walk_utils::{
-    collect_expr_ids_in_entry_and_local_callables, collect_expr_ids_in_local_callables,
+    assignment_written_locals, collect_expr_ids_in_entry_and_local_callables,
+    collect_expr_ids_in_local_callables,
 };
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::PackageSpan;
 use qsc_fir::fir::{
-    BinOp, ExprId, ExprKind, Package, PackageId, PackageLookup, PackageStore, StoreItemId,
+    BinOp, ExprId, ExprKind, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+    PackageStore, Res, StmtId, StoreItemId,
 };
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
@@ -133,29 +141,36 @@ fn lower_tuple_comparisons_in_reachable(
             collect_expr_ids_in_local_callables(package, &local_item_ids)
         };
 
+        let written_locals = expr_ids
+            .iter()
+            .flat_map(|id| assignment_written_locals(package, package.get_expr(*id)))
+            .collect();
         let package = store.get_mut(pkg);
         for expr_id in expr_ids {
-            lower_single_cmp(package, assigner, expr_id);
+            lower_single_cmp(package, assigner, expr_id, &written_locals);
         }
     }
 }
 
-/// Rewrites a single `BinOp(Eq/Neq)` expression with tuple-typed operands
-/// into element-wise comparisons.
+/// Lowers tuple equality or inequality without changing operand evaluation order.
 ///
-/// # Before
+/// For example, `(a(), b()) == (c(), d())` becomes:
 /// ```text
-/// BinOp(Eq, lhs: (A, B), rhs: (A, B))
-/// ```
-/// # After
-/// ```text
-/// BinOp(AndL, BinOp(Eq, lhs.0, rhs.0), BinOp(Eq, lhs.1, rhs.1))
+/// let lhs_0 = a();
+/// let lhs_1 = b();
+/// let rhs_0 = c();
+/// let rhs_1 = d();
+/// (lhs_0 == rhs_0) and (lhs_1 == rhs_1)
 /// ```
 ///
-/// # Mutations
-/// - Rewrites `expr_id`'s `ExprKind` in place.
-/// - Allocates field-access and comparison `Expr` nodes through `assigner`.
-fn lower_single_cmp(package: &mut Package, assigner: &mut Assigner, expr_id: ExprId) {
+/// All four calls run before comparison can short-circuit. Constants and
+/// unwritten locals need no temporary. The original comparison's ID is retained.
+fn lower_single_cmp(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    expr_id: ExprId,
+    written_locals: &FxHashSet<LocalVarId>,
+) {
     let expr = package.get_expr(expr_id);
     let (op, lhs_id, rhs_id) = match &expr.kind {
         ExprKind::BinOp(op @ (BinOp::Eq | BinOp::Neq), lhs, rhs) => (*op, *lhs, *rhs),
@@ -163,11 +178,9 @@ fn lower_single_cmp(package: &mut Package, assigner: &mut Assigner, expr_id: Exp
     };
     let span = expr.span;
 
-    let lhs_ty = package.get_expr(lhs_id).ty.clone();
-    let elem_tys = match &lhs_ty {
-        Ty::Tuple(elems) if !elems.is_empty() => elems.clone(),
-        _ => return,
-    };
+    if !matches!(&package.get_expr(lhs_id).ty, Ty::Tuple(elems) if !elems.is_empty()) {
+        return;
+    }
 
     let joiner = match op {
         BinOp::Eq => BinOp::AndL,
@@ -178,87 +191,155 @@ fn lower_single_cmp(package: &mut Package, assigner: &mut Assigner, expr_id: Exp
         _ => unreachable!(),
     };
 
-    // Extract element ExprIds: use existing Tuple element IDs when available,
-    // otherwise synthesize Field accesses. This avoids creating Field
-    // expressions with empty exec graph ranges on static tuple literals,
-    // which would cause issues in the partial evaluator's static-classical
-    // entry-eval path
-    let lhs_elems = extract_or_field(package, assigner, lhs_id, &elem_tys, span);
-    let rhs_elems = extract_or_field(package, assigner, rhs_id, &elem_tys, span);
+    let mut stmts = Vec::new();
+    let mut lhs_elems = Vec::new();
+    snapshot_operand(
+        package,
+        assigner,
+        lhs_id,
+        "_.cmp_lhs",
+        written_locals,
+        &mut stmts,
+        &mut lhs_elems,
+    );
+    let mut rhs_elems = Vec::new();
+    snapshot_operand(
+        package,
+        assigner,
+        rhs_id,
+        "_.cmp_rhs",
+        written_locals,
+        &mut stmts,
+        &mut rhs_elems,
+    );
+    assert_eq!(
+        lhs_elems.len(),
+        rhs_elems.len(),
+        "comparison tuple shapes must match"
+    );
 
     // Build element-wise comparisons.
-    let mut cmp_ids: Vec<ExprId> = Vec::with_capacity(elem_tys.len());
-    for i in 0..elem_tys.len() {
-        let elem_cmp = {
-            let lhs = lhs_elems[i];
-            let rhs = rhs_elems[i];
-            let ty = Ty::Prim(Prim::Bool);
-            alloc_bin_op_expr(package, assigner, op, lhs, rhs, ty, span)
-        };
-        // Recursively lower nested tuple comparisons.
-        lower_single_cmp(package, assigner, elem_cmp);
+    let mut cmp_ids = Vec::with_capacity(lhs_elems.len());
+    for (lhs, rhs) in lhs_elems.into_iter().zip(rhs_elems) {
+        let elem_cmp =
+            alloc_bin_op_expr(package, assigner, op, lhs, rhs, Ty::Prim(Prim::Bool), span);
         cmp_ids.push(elem_cmp);
     }
 
-    // Fold element comparisons left-to-right with the joiner.
-    let result_id = fold_left(package, assigner, &cmp_ids, joiner, span);
+    let result_id = join_comparisons(package, assigner, &cmp_ids, joiner, span);
+    let kind = if stmts.is_empty() {
+        package.get_expr(result_id).kind.clone()
+    } else {
+        stmts.push(alloc_expr_stmt(package, assigner, result_id, span));
+        let block = alloc_block(package, assigner, stmts, Ty::Prim(Prim::Bool), span);
+        ExprKind::Block(block)
+    };
 
     // Rewrite the original expression in-place.
-    let result_expr = package.get_expr(result_id);
-    let result_kind = result_expr.kind.clone();
     let target = package.exprs.get_mut(expr_id).expect("expr exists");
-    target.kind = result_kind;
+    target.kind = kind;
     target.ty = Ty::Prim(Prim::Bool);
 }
 
-/// Extracts element `ExprId`s from a tuple-typed expression.
-///
-/// If the expression is `ExprKind::Tuple(es)`, returns the element IDs
-/// directly. Otherwise, synthesizes `Field(expr, Path([i]))` for each
-/// element.
-fn extract_or_field(
+/// Flattens literal tuples, eagerly saving any leaves whose evaluation cannot
+/// move past later operands. Computed tuples are saved once before projection.
+fn snapshot_operand(
     package: &mut Package,
     assigner: &mut Assigner,
-    tuple_expr_id: ExprId,
-    elem_tys: &[Ty],
-    span: PackageSpan,
-) -> Vec<ExprId> {
-    let expr = package.get_expr(tuple_expr_id);
-    if let ExprKind::Tuple(es) = &expr.kind {
-        assert_eq!(
-            es.len(),
-            elem_tys.len(),
-            "tuple expression arity must match type arity"
+    expr_id: ExprId,
+    name: &str,
+    written_locals: &FxHashSet<LocalVarId>,
+    stmts: &mut Vec<StmtId>,
+    leaves: &mut Vec<ExprId>,
+) {
+    let expr = package.get_expr(expr_id).clone();
+    let elements = if let ExprKind::Tuple(elements) = expr.kind
+        && !elements.is_empty()
+    {
+        elements
+    } else {
+        // Purity alone is insufficient: reads may observe later writes, and
+        // side-effect-free expressions may fail on a short-circuited path.
+        let mut base = expr_id;
+        while let ExprKind::Field(target, _) = package.get_expr(base).kind {
+            base = target;
+        }
+        let stable = match package.get_expr(base).kind {
+            ExprKind::Lit(_) => true,
+            ExprKind::Var(Res::Local(local), _) => !written_locals.contains(&local),
+            ExprKind::Tuple(ref elements) => elements.is_empty(),
+            _ => false,
+        };
+        let value = if stable {
+            expr_id
+        } else {
+            let (local, binding) = alloc_local_var(
+                package,
+                assigner,
+                name,
+                &expr.ty,
+                expr_id,
+                Mutability::Immutable,
+            );
+            stmts.push(binding);
+            alloc_local_var_expr(package, assigner, local, expr.ty.clone(), expr.span)
+        };
+
+        if let Ty::Tuple(types) = &expr.ty
+            && !types.is_empty()
+        {
+            types
+                .iter()
+                .enumerate()
+                .map(|(index, ty)| {
+                    alloc_field_expr(package, assigner, value, index, ty.clone(), expr.span)
+                })
+                .collect()
+        } else {
+            leaves.push(value);
+            return;
+        }
+    };
+    for (index, element) in elements.into_iter().enumerate() {
+        snapshot_operand(
+            package,
+            assigner,
+            element,
+            &format!("{name}_{index}"),
+            written_locals,
+            stmts,
+            leaves,
         );
-        return es.clone();
     }
-    elem_tys
-        .iter()
-        .enumerate()
-        .map(|(i, ty)| {
-            let elem_ty = ty.clone();
-            alloc_field_expr(package, assigner, tuple_expr_id, i, elem_ty, span)
-        })
-        .collect()
 }
 
-/// Folds expressions left-to-right with a joiner operator.
-///
-/// `[a, b, c]` with `AndL` becomes `AndL(AndL(a, b), c)`.
-fn fold_left(
+/// Balances the boolean tree without reordering comparisons or changing
+/// short-circuit behavior. A linear fold would turn shallow, wide tuples into
+/// deeply nested FIR for recursive downstream consumers.
+fn join_comparisons(
     package: &mut Package,
     assigner: &mut Assigner,
     exprs: &[ExprId],
     joiner: BinOp,
     span: PackageSpan,
 ) -> ExprId {
-    assert!(!exprs.is_empty(), "fold_left requires at least one expr");
-    let mut acc = exprs[0];
-    for &e in &exprs[1..] {
-        acc = {
-            let ty = Ty::Prim(Prim::Bool);
-            alloc_bin_op_expr(package, assigner, joiner, acc, e, ty, span)
-        };
+    assert!(
+        !exprs.is_empty(),
+        "comparison must have at least one element"
+    );
+    if let [expr] = exprs {
+        return *expr;
     }
-    acc
+    let (left, right) = exprs.split_at(exprs.len() / 2);
+    let left = join_comparisons(package, assigner, left, joiner, span);
+    let right = join_comparisons(package, assigner, right, joiner, span);
+    alloc_bin_op_expr(
+        package,
+        assigner,
+        joiner,
+        left,
+        right,
+        Ty::Prim(Prim::Bool),
+        span,
+    )
 }

@@ -1598,11 +1598,12 @@ fn captured_closure_forwarded_to_nested_hof_converges() {
 /// capture into the lifted body while retaining the classical `Int` capture,
 /// allowing the recursive specialization chain to converge.
 ///
-/// The `check_rewrite` snapshot locks the full converged specialization chain so
-/// a zero-error miscompile with wrong downstream routing (wrong callable,
-/// orphaned/duplicated specialization, or wrong recursion target) fails the test.
+/// The `check_rewrite` snapshot locks the converged specialization routing;
+/// the trace assertion checks semantics after monomorphization and the full pipeline.
 /// The routing is `{H}` -> `{closure}` -> lifted lambda -> `{H}`, so `Repeat(H, 2, q)`
 /// applies `H` exactly twice.
+/// The partial application has no functors, so its recursive edge targets
+/// `Repeat<Empty>` rather than reusing the initial `Repeat<AdjCtl>` clone.
 #[test]
 fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
     let source = r#"
@@ -1618,17 +1619,23 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
         }
         "#;
     check_invariants(source);
+    assert_recursive_partial_application_trace(source);
     check(
         source,
         &expect![[r#"
             .lambda_3: input_ty=(Int, Qubit)
             .lambda_3: input_ty=(Int, Qubit)
             .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
             Main: input_ty=Unit
             Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)"#]],
     );
     check_rewrite(
         source,
@@ -1656,7 +1663,7 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
                 if n > 0 {
                     op(q);
-                    Repeat_AdjCtl_({
+                    Repeat_Empty_({
                         let arg : (Qubit => Unit is Adj + Ctl) = H;
                         let arg_1 : Int = 1;
                         / * closure item = 5 captures = [arg, arg_1] * / _lambda_3
@@ -1679,7 +1686,7 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
 
             }
             operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
-                Repeat_Empty_(arg, arg_1, hole)
+                Repeat_AdjCtl_(arg, arg_1, hole)
             }
             // entry
             Main()
@@ -1707,7 +1714,7 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
                 if n > 0 {
                     op(q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
@@ -1717,48 +1724,68 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
             operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
                 if n > 0 {
                     op(q);
-                    Repeat_Empty_({
-                        let arg : (Qubit => Unit is Adj + Ctl) = H;
-                        let arg_1 : Int = 1;
-                        / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
-                    }, n - 1, q);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
-            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
-                Repeat_Empty_(arg, arg_1, hole)
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(arg, hole)
             }
             operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
                 if n > 0 {
                     H(q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
             operation _lambda_3(arg : Int, hole : Qubit) : Unit {
-                Repeat_AdjCtl__H_(H, arg, hole)
+                Repeat_AdjCtl__H_(arg, hole)
             }
-            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
                 if n > 0 {
                     _lambda_3(__capture_0, q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
             operation _lambda_3(arg : Int, hole : Qubit) : Unit {
-                Repeat_AdjCtl__closure_(H, arg, hole)
+                Repeat_AdjCtl__H_(arg, hole)
             }
-            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
                 if n > 0 {
                     _lambda_3(__capture_0, q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
-            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(arg, hole)
+            }
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
                 if n > 0 {
                     _lambda_3(__capture_0, q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    Repeat_Empty__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_Empty__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
@@ -1775,9 +1802,11 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
 /// lifted lambda target. Static closure-capture inlining must recognize that
 /// the copies make an identical target rewrite, inline `H` once in the shared
 /// target, and remove the corresponding capture from both closure occurrences.
-/// The invariant and pipeline checks ensure the resulting body and adjoint
-/// specialization chains converge without `DynamicCallable` diagnostics or
-/// stale callable arguments.
+/// The invariant and pipeline checks establish convergence without
+/// `DynamicCallable` diagnostics. The runtime oracle covers Mono only, not
+/// execution after all later transforms.
+/// The recursive partial application retains only `Adj`, requiring a distinct
+/// concrete target from the initial `H` argument's `AdjCtl` target.
 #[test]
 fn adjoint_recursive_hof_partial_app_shared_target_converges() {
     let source = r#"
@@ -1794,18 +1823,76 @@ fn adjoint_recursive_hof_partial_app_shared_target_converges() {
         "#;
     check_invariants(source);
     check_pipeline(source);
+    assert_recursive_partial_application_trace(source);
     check(
         source,
         &expect![[r#"
             .lambda_3: input_ty=(Int, Qubit)
             .lambda_3: input_ty=(Int, Qubit)
             .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
             Main: input_ty=Unit
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
             Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)"#]],
     );
+}
+
+/// Two H gates return the qubit to zero; both intermediate and full transforms
+/// must preserve the complete gate/allocation trace and successful release.
+fn assert_recursive_partial_application_trace(source: &str) {
+    use crate::test_utils::{
+        TraceOp, compile_to_fir, compile_to_monomorphized_fir, try_eval_fir_entry_with_trace,
+    };
+    let (original, package) = compile_to_fir(source);
+    let expected = try_eval_fir_entry_with_trace(&original, package);
+    assert_eq!(expected.0, Ok(qsc_eval::val::Value::unit()));
+    assert_eq!(
+        expected
+            .1
+            .iter()
+            .filter(|op| matches!(op, TraceOp::Gate { name, .. } if name == "H"))
+            .count(),
+        2,
+    );
+    let (transformed, package) = compile_to_monomorphized_fir(source);
+    assert_eq!(
+        try_eval_fir_entry_with_trace(&transformed, package),
+        expected
+    );
+    let (transformed, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Full);
+    assert_eq!(
+        try_eval_fir_entry_with_trace(&transformed, package),
+        expected
+    );
+}
+
+#[test]
+fn recursive_partial_application_preserves_scalar_arguments() {
+    for (depth, expected) in [(0, 3), (1, 6), (4, 9)] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Double(value : Int) : Int {{ value * 2 }}
+            function Repeat(action : Int -> Int, depth : Int, value : Int) : Int {{
+                if depth <= 0 {{ value }}
+                else {{ Repeat(Repeat(Inc, 1, _), depth - 1, action(value)) }}
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Repeat(Double, {depth}, 3) }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
 }
 
 /// Regression for a recursive HOF with an auto-generated controlled body.
@@ -2058,6 +2145,1063 @@ fn progress_tracking_allows_multi_iteration_convergence() {
             Main()
         "#]],
     );
+}
+
+#[test]
+fn nested_callable_return_preserves_runtime_guards() {
+    let source = r#"
+        function Choose(first : Bool, second : Bool) : Qubit => Unit {
+            if first { I } else { if second { X } else { Z } }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            use guard = Qubit();
+            let first = M(guard) == One;
+            let second = M(guard) == Zero;
+            let selected = Choose(first, second);
+            selected(target);
+            Reset(guard);
+            MResetZ(target)
+        }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn aliased_guards_preserve_branch_order() {
+    for first in [false, true] {
+        for second in [false, true] {
+            for (selection, expected) in [
+                (
+                    "if first { Inc } else { if first { Twice } else { Minus } }",
+                    if first { 4 } else { 2 },
+                ),
+                (
+                    "if first { if first { Inc } else { Twice } } else { Minus }",
+                    if first { 4 } else { 2 },
+                ),
+                (
+                    "if first { Inc } else { if second { Twice } else { if first { Minus } else { Offset } } }",
+                    if first {
+                        4
+                    } else if second {
+                        6
+                    } else {
+                        13
+                    },
+                ),
+                (
+                    "if first { if second { Inc } else { Twice } } else { if first { Minus } else { Offset } }",
+                    if first {
+                        if second { 4 } else { 6 }
+                    } else {
+                        13
+                    },
+                ),
+                (
+                    "if first { if second { Inc } else { Twice } } else { if first { Minus } else { if second { Offset } else { Inc } } }",
+                    if first {
+                        if second { 4 } else { 6 }
+                    } else if second {
+                        13
+                    } else {
+                        4
+                    },
+                ),
+                (
+                    "if first { if first { Inc } else { if second { Twice } else { Minus } } } else { Offset }",
+                    if first { 4 } else { 13 },
+                ),
+            ] {
+                for invocation in ["action(3)", "Apply(action)"] {
+                    let source = format!(
+                        r#"
+                        function Inc(value : Int) : Int {{ value + 1 }}
+                        function Twice(value : Int) : Int {{ value * 2 }}
+                        function Minus(value : Int) : Int {{ value - 1 }}
+                        function Offset(value : Int) : Int {{ value + 10 }}
+                        function Apply(action : Int -> Int) : Int {{ action(3) }}
+                        function Choose(first : Bool, second : Bool) : Int -> Int {{
+                            {selection}
+                        }}
+                        @EntryPoint()
+                        operation Main() : Int {{
+                            use left = Qubit();
+                            use right = Qubit();
+                            {prepare_left}
+                            {prepare_right}
+                            let first = MResetZ(left) == One;
+                            let second = MResetZ(right) == One;
+                            let action = Choose(first, second);
+                            {invocation}
+                        }}
+                        "#,
+                        prepare_left = if first { "X(left);" } else { "" },
+                        prepare_right = if second { "X(right);" } else { "" },
+                    );
+                    crate::test_utils::check_semantic_equivalence_with_expected(
+                        &source,
+                        qsc_eval::val::Value::Int(expected),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn aliased_guards_preserve_captures_and_effects() {
+    for flag in [false, true] {
+        for invocation in [
+            r#"action({ Message("argument"); 3 })"#,
+            r#"Apply(action, { Message("argument"); 3 })"#,
+        ] {
+            let source = format!(
+                r#"
+                function Choose(flag : Bool, offset : Int) : Int -> Int {{
+                    if flag {{
+                        value -> {{ Message("first"); value + offset }}
+                    }} else {{
+                        if flag {{
+                            value -> {{ Message("unreachable"); value + 2 * offset }}
+                        }} else {{
+                            value -> {{ Message("last"); value - offset }}
+                        }}
+                    }}
+                }}
+                function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    use guard = Qubit();
+                    {prepare}
+                    mutable offset = 10;
+                    let action = Choose(
+                        MResetZ(guard) == One,
+                        {{ Message("capture"); offset }}
+                    );
+                    set offset = 20;
+                    let first = {invocation};
+                    first * 100 + action(4)
+                }}
+                "#,
+                prepare = if flag { "X(guard);" } else { "" },
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected_output(
+                &source,
+                qsc_eval::val::Value::Int(if flag { 1314 } else { -706 }),
+                if flag {
+                    "capture\nargument\nfirst\nfirst\n"
+                } else {
+                    "capture\nargument\nlast\nlast\n"
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn aliased_guards_specialize_captures() {
+    for flag in [false, true] {
+        for invocation in ["action(3)", "Apply(action)"] {
+            let source = format!(
+                r#"
+                function Choose(flag : Bool, offset : Int) : Int -> Int {{
+                    if flag {{
+                        value -> value + offset
+                    }} else {{
+                        if flag {{ value -> value * offset }}
+                        else {{ value -> value - offset }}
+                    }}
+                }}
+                function Apply(action : Int -> Int) : Int {{ action(3) }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    use guard = Qubit();
+                    use capture = Qubit();
+                    {prepare}
+                    X(capture);
+                    let flag = MResetZ(guard) == One;
+                    let offset = if MResetZ(capture) == One {{ 10 }} else {{ 20 }};
+                    let action = Choose(flag, offset);
+                    {invocation}
+                }}
+                "#,
+                prepare = if flag { "X(guard);" } else { "" },
+            );
+            check_invariants(&source);
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(if flag { 13 } else { -7 }),
+            );
+        }
+    }
+}
+
+#[test]
+fn incomplete_guarded_dispatch_leaves_calls_unchanged() {
+    for invocation in ["action(3)", "Apply(action)"] {
+        for (selection, nested) in [
+            (
+                "if first { if second { Inc } else { Twice } } else { Minus }",
+                true,
+            ),
+            (
+                "if first { Inc } else { if second { Twice } else { Minus } }",
+                false,
+            ),
+        ] {
+            if invocation == "action(3)" && !nested {
+                continue;
+            }
+            for missing_guard_count in [0, 1] {
+                let source = format!(
+                    r#"
+                function Inc(value : Int) : Int {{ value + 1 }}
+                function Twice(value : Int) : Int {{ value * 2 }}
+                function Minus(value : Int) : Int {{ value - 1 }}
+                function Apply(action : Int -> Int) : Int {{ action(3) }}
+                function Choose(first : Bool, second : Bool) : Int -> Int {{
+                    {selection}
+                }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    use left = Qubit();
+                    use right = Qubit();
+                    let first = MResetZ(left) == One;
+                    let second = MResetZ(right) == One;
+                    let action = Choose(first, second);
+                    {invocation}
+                }}
+                "#
+                );
+                let (mut store, package_id) = compile_to_monomorphized_fir(&source);
+                let mut analysis = run_prepass_and_analysis(&mut store, package_id);
+                let mut assigners = PackageAssigners::new(&store, package_id);
+                let mut errors = Vec::new();
+                let mut warnings = Vec::new();
+                let mut specs = super::super::run_specialization(
+                    &mut store,
+                    &analysis,
+                    &mut assigners,
+                    &mut errors,
+                    &mut warnings,
+                );
+                assert_no_defunctionalization_errors("specialization", &errors);
+                assert!(warnings.is_empty(), "{warnings:?}");
+                if invocation == "action(3)" {
+                    let call = analysis
+                        .direct_call_sites
+                        .iter()
+                        .find(|site| site.condition.len() == 2)
+                        .expect("fixture must have a nested guarded direct call")
+                        .call_expr_id;
+                    let before = analysis.direct_call_sites.len();
+                    analysis.direct_call_sites.retain(|site| {
+                        site.call_expr_id != call || site.condition.len() != missing_guard_count
+                    });
+                    assert_eq!(analysis.direct_call_sites.len(), before - 1);
+                } else {
+                    let site = analysis
+                        .call_sites
+                        .iter()
+                        .find(|site| site.condition.len() == missing_guard_count)
+                        .expect("fixture must have the candidate specialization to remove");
+                    assert!(specs.remove(&super::super::build_spec_key(site)).is_some());
+                }
+                let before = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+                let mut total_foreign = crate::walk_utils::collect_total_foreign_callables(&store);
+                crate::walk_utils::extend_with_discardable_foreign_callables(
+                    &store,
+                    &mut total_foreign,
+                );
+                super::super::rewrite_call_sites(
+                    &mut store,
+                    package_id,
+                    &analysis,
+                    &specs,
+                    &Default::default(),
+                    &mut assigners,
+                    &total_foreign,
+                );
+                assert_eq!(
+                    crate::pretty::write_package_qsharp_parseable(&store, package_id),
+                    before,
+                    "{invocation} for {selection} must remain unchanged without the {missing_guard_count}-guard candidate"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn missing_dispatch_parameter_leaves_call_unchanged() {
+    for (apply, invocation, top_level_param, field_path) in [
+        (
+            "function Apply(prefix : Int -> Int, action : Int -> Int) : Int { prefix(1) * 100 + action(3) }",
+            "Apply(Offset, action)",
+            1,
+            vec![],
+        ),
+        (
+            "function Apply(actions : (Int -> Int, Int -> Int)) : Int { let (prefix, action) = actions; prefix(1) * 100 + action(3) }",
+            "Apply((Offset, action))",
+            0,
+            vec![1],
+        ),
+    ] {
+        let source = format!(
+            r#"
+        function Inc(value : Int) : Int {{ value + 1 }}
+        function Twice(value : Int) : Int {{ value * 2 }}
+        function Minus(value : Int) : Int {{ value - 1 }}
+        function Offset(value : Int) : Int {{ value + 10 }}
+        {apply}
+        function Choose(first : Bool, second : Bool) : Int -> Int {{
+            if first {{ Inc }} else {{ if second {{ Twice }} else {{ Minus }} }}
+        }}
+        @EntryPoint()
+        operation Main() : Int {{
+            use left = Qubit();
+            use right = Qubit();
+            let first = MResetZ(left) == One;
+            let second = MResetZ(right) == One;
+            let action = Choose(first, second);
+            {invocation}
+        }}
+        "#
+        );
+        let (mut store, package_id) = compile_to_monomorphized_fir(&source);
+        let mut analysis = run_prepass_and_analysis(&mut store, package_id);
+        let mut assigners = PackageAssigners::new(&store, package_id);
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let specs = super::super::run_specialization(
+            &mut store,
+            &analysis,
+            &mut assigners,
+            &mut errors,
+            &mut warnings,
+        );
+        assert_no_defunctionalization_errors("specialization", &errors);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let site = analysis
+            .call_sites
+            .iter()
+            .find(|site| {
+                site.top_level_param == top_level_param
+                    && site.field_path == field_path
+                    && !site.condition.is_empty()
+            })
+            .expect("fixture must dispatch the selected parameter path");
+        let hof = fir::StoreItemId::from((site.hof_item_id.package, site.hof_item_id.item));
+        let before_count = analysis.callable_params.len();
+        analysis.callable_params.retain(|param| {
+            param.callable_id != hof
+                || param.top_level_param != top_level_param
+                || param.field_path != field_path
+        });
+        assert_eq!(analysis.callable_params.len(), before_count - 1);
+        assert!(
+            analysis
+                .callable_params
+                .iter()
+                .any(|param| param.callable_id == hof),
+            "fixture must retain the other parameter to expose a wrong-slot fallback"
+        );
+        let before = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+        let mut total_foreign = crate::walk_utils::collect_total_foreign_callables(&store);
+        crate::walk_utils::extend_with_discardable_foreign_callables(&store, &mut total_foreign);
+        super::super::rewrite_call_sites(
+            &mut store,
+            package_id,
+            &analysis,
+            &specs,
+            &Default::default(),
+            &mut assigners,
+            &total_foreign,
+        );
+        assert_eq!(
+            crate::pretty::write_package_qsharp_parseable(&store, package_id),
+            before,
+            "missing parameter metadata must not select a different argument slot"
+        );
+    }
+}
+
+#[test]
+fn returned_callable_guards_keep_the_callers_scope() {
+    let expected = |first, second| {
+        if first {
+            4
+        } else if second {
+            6
+        } else {
+            2
+        }
+    };
+    for first in [false, true] {
+        for second in [false, true] {
+            for (selection, result) in [
+                ("Choose(first, second)", expected(first, second)),
+                ("Choose(second, first)", expected(second, first)),
+                ("Choose(second, false)", expected(second, false)),
+                (
+                    "Forward(false, Choose(first, second))",
+                    expected(first, second),
+                ),
+                (
+                    "Forward(true, Choose(second, first))",
+                    expected(second, first),
+                ),
+            ] {
+                let source = format!(
+                    r#"
+                    function Inc(value : Int) : Int {{ value + 1 }}
+                    function Twice(value : Int) : Int {{ value * 2 }}
+                    function Minus(value : Int) : Int {{ value - 1 }}
+                    function Choose(first : Bool, second : Bool) : Int -> Int {{
+                        if first {{ Inc }} else {{ if second {{ Twice }} else {{ Minus }} }}
+                    }}
+                    function Forward(decoy : Bool, action : Int -> Int) : Int -> Int {{ action }}
+                    function Run(first : Bool, second : Bool) : Int {{
+                        let action = {selection};
+                        action(3)
+                    }}
+                    @EntryPoint()
+                    operation Main() : Int {{ Run({first}, {second}) }}
+                    "#
+                );
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(result),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn returned_callable_preserves_guard_values_and_effects() {
+    for first in [false, true] {
+        for second in [false, true] {
+            for selection in [
+                "let action = Choose(first, second);",
+                "let action = Choose(first, second); set first = not first; set second = not second;",
+            ] {
+                let source = format!(
+                    r#"
+                    function Choose(first : Bool, second : Bool) : Qubit => Unit {{
+                        if first {{ I }} else {{ if second {{ X }} else {{ Z }} }}
+                    }}
+                    @EntryPoint()
+                    operation Main() : Result {{
+                        use target = Qubit();
+                        use left = Qubit();
+                        use right = Qubit();
+                        {prepare_left}
+                        {prepare_right}
+                        mutable first = MResetZ(left) == One;
+                        mutable second = MResetZ(right) == One;
+                        {selection}
+                        action(target);
+                        MResetZ(target)
+                    }}
+                    "#,
+                    prepare_left = if first { "X(left);" } else { "" },
+                    prepare_right = if second { "X(right);" } else { "" },
+                );
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(!first && second)),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn returned_callable_preserves_earlier_guard_arguments() {
+    let source = r#"
+        function Inc(value : Int) : Int { value + 1 }
+        function Twice(value : Int) : Int { value * 2 }
+        function Choose(flag : Bool, ignored : Int) : Int -> Int {
+            if flag { Inc } else { Twice }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            mutable flag = true;
+            let value = Choose(flag, { set flag = false; 0 })(3);
+            value * 10 + (if flag { 1 } else { 0 })
+        }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(40),
+    );
+}
+
+#[test]
+fn returned_callable_does_not_replay_guard_arguments() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        function Choose(first : Bool, second : Bool) : Qubit => Unit {
+            if first { I } else { if second { X } else { Z } }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            use guard = Qubit();
+            X(guard);
+            let action = Choose(MResetZ(guard) == One, MResetZ(guard) == Zero);
+            action(target);
+            MResetZ(target)
+        }
+        "#,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn foreign_returned_callable_does_not_reuse_producer_guards() {
+    crate::test_utils::check_semantic_equivalence_with_library(
+        r#"
+        namespace Library {
+            function Choose(first : Bool, second : Bool) : Qubit => Unit {
+                if first { I } else { if second { X } else { Z } }
+            }
+            export Choose;
+        }
+        "#,
+        r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            use guard = Qubit();
+            let first = M(guard) == One;
+            let second = M(guard) == Zero;
+            let action = Library.Choose(first, second);
+            action(target);
+            Reset(guard);
+            MResetZ(target)
+        }
+        "#,
+    );
+}
+
+#[test]
+fn reassigned_callable_preserves_selection() {
+    // `selected` starts as `functions[first]` (`Inc`, 4) and may be reassigned
+    // from `functions[second]` (`Twice`, 6). Each case checks that the call uses
+    // the value that actually reaches it, not the initializer's index.
+    for (selection, expected) in [
+        ("set selected = functions[second];", 6),
+        ("if flag { set selected = functions[second]; }", 4),
+        ("if not flag { set selected = functions[second]; }", 6),
+        ("let saved = functions[second]; set selected = saved;", 6),
+        (
+            "mutable other = Inc; set (selected, other) = (functions[second], selected);",
+            6,
+        ),
+        ("set selected = functions[second]; set second = 0;", 6),
+        (
+            "set selected = functions[second]; return selected({ set second = 0; 3 });",
+            6,
+        ),
+        (
+            "let saved = selected; set selected = functions[second]; return saved(3) * 10 + selected(3);",
+            46,
+        ),
+        (
+            "mutable other = functions[second]; set (selected, other) = (other, selected); return selected(3) * 10 + other(3);",
+            64,
+        ),
+        (
+            "set selected = functions[second]; let saved = selected; set selected = functions[first]; return saved(3) * 10 + selected(3);",
+            64,
+        ),
+        ("for _ in 1..2 { set selected = functions[second]; }", 6),
+        ("flag and { set selected = functions[second]; true };", 4),
+        ("flag or { set selected = functions[second]; false };", 6),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Choose(first : Int, next : Int, flag : Bool) : Int {{
+                let functions = [Inc, Twice];
+                mutable second = next;
+                mutable selected = functions[first];
+                {selection}
+                selected(3)
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Choose(0, 1, false) }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn reassigned_callable_forwarding_preserves_selection() {
+    for (invoke, expected) in [
+        ("Apply(selected, 3)", 6),
+        ("{ let saved = selected; Apply(saved, 3) }", 6),
+        ("Apply(selected, { set second = 0; 3 })", 6),
+        ("ApplyPair(selected, Identity, 3)", 63),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Identity(value : Int) : Int {{ value }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            function ApplyPair(action : Int -> Int, other : Int -> Int, value : Int) : Int {{
+                action(value) * 10 + other(value)
+            }}
+            function Choose(first : Int, next : Int) : Int {{
+                let functions = [Inc, Twice];
+                mutable second = next;
+                mutable selected = functions[first];
+                set selected = functions[second];
+                {invoke}
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Choose(0, 1) }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn reassigned_callable_preserves_index_failures() {
+    for (first, second) in [
+        (2, 1),
+        (0, 2),
+        (-3, 1),
+        (0, -3),
+        (i64::MIN, 0),
+        (i64::MAX, 0),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            function Choose(first : Int, second : Int) : Int {{
+                let actions = [Inc, Twice];
+                mutable selected = actions[first];
+                set selected = actions[second];
+                Apply(selected, 3)
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Choose({first}, {second}) }}
+            "#
+        );
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        assert!(
+            crate::test_utils::try_eval_fir_entry(&store, package).is_err(),
+            "selection ({first}, {second}) must fail"
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn forwarded_callable_array_preserves_results_and_effects() {
+    let source = r#"
+        operation RunLoop(
+            operations : ((Qubit, Qubit) => Unit is Adj)[],
+            qubits : Qubit[]
+        ) : Unit is Adj {
+            for index in 0..Length(operations) - 1 {
+                operations[index](qubits[index], qubits[2]);
+            }
+        }
+        function MakeLoop(
+            operations : ((Qubit, Qubit) => Unit is Adj)[]
+        ) : Qubit[] => Unit is Adj {
+            RunLoop(operations, _)
+        }
+        operation Forward(action : Qubit[] => Unit is Adj, qubits : Qubit[]) : Unit {
+            action(qubits);
+        }
+        operation Apply(action : Qubit[] => Unit is Adj) : Result[] {
+            use qubits = Qubit[3];
+            X(qubits[0]);
+            X(qubits[1]);
+            Forward(action, qubits);
+            MResetEachZ(qubits)
+        }
+        operation First(control : Qubit, target : Qubit) : Unit is Adj {
+            CNOT(control, target);
+        }
+        operation Second(control : Qubit, target : Qubit) : Unit is Adj {
+            CNOT(control, target);
+            X(control);
+        }
+        @EntryPoint()
+        operation Main() : Result[] {
+            Apply(MakeLoop([First, Second]))
+        }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Array(
+            [true, false, false]
+                .into_iter()
+                .map(|value| qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(value)))
+                .collect::<Vec<_>>()
+                .into(),
+        ),
+    );
+}
+
+#[test]
+fn captured_callable_array_preserves_values() {
+    // `Run` applies each element to 3 and packs the results as two-digit
+    // groups, so `[Inc, Twice]` gives 4 then 6, or 406. Every element must keep
+    // its own captures and position after the array is captured by a closure.
+    for (argument, expected) in [
+        ("[Inc, Twice]", 406),
+        ("[Twice, Inc]", 604),
+        ("[Inc, Inc, Twice]", 40406),
+        ("[Make(7), Make(19)]", 1022),
+        ("[Make(7), Twice]", 1006),
+        ("[Twice, Make(7)]", 610),
+        ("[Make(7)]", 10),
+        ("[Make(7), MakeAffine(19, 5)]", 1034),
+        ("[MakeAffine(19, 5), Make(7)]", 3410),
+        ("[Inc, size = 2]", 404),
+        ("[Make(7), size = 2]", 1010),
+        ("[Inc, size = 0]", 0),
+    ] {
+        for use_array in [
+            "for action in operations { set answer = answer * 100 + action(3); }",
+            "for index in 0..Length(operations) - 1 { set answer = answer * 100 + operations[index](3); }",
+        ] {
+            let source = format!(
+                r#"
+                function Inc(value : Int) : Int {{ value + 1 }}
+                function Twice(value : Int) : Int {{ value * 2 }}
+                function Make(offset : Int) : Int -> Int {{ value -> value + offset }}
+                function MakeAffine(offset : Int, scale : Int) : Int -> Int {{
+                    value -> offset + scale * value
+                }}
+                function Run(operations : (Int -> Int)[]) : Int {{
+                    mutable answer = 0;
+                    {use_array}
+                    answer
+                }}
+                function Capture(operations : (Int -> Int)[]) : Unit -> Int {{ () -> Run(operations) }}
+                function Forward(action : Unit -> Int) : Int {{ action() }}
+                function Apply(action : Unit -> Int) : Int {{ Forward(action) }}
+                @EntryPoint()
+                operation Main() : Int {{ Apply(Capture({argument})) }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(expected),
+            );
+        }
+    }
+}
+
+#[test]
+fn indexed_array_members_keep_their_positions() {
+    // `choices` has two slots: `actions[index]` and `Minus`. `Read` packs each
+    // result into two decimal digits, so `[Inc, Minus]` gives 402 and
+    // `[Twice, Minus]` gives 602. Treating the indexed slot's possible values as
+    // extra array elements would read three slots (40602).
+    for index in [0, 1] {
+        for invoke in ["Read(choices)", "Apply(Capture(choices))"] {
+            let source = format!(
+                r#"
+                function Inc(value : Int) : Int {{ value + 1 }}
+                function Twice(value : Int) : Int {{ value * 2 }}
+                function Minus(value : Int) : Int {{ value - 1 }}
+                function Read(actions : (Int -> Int)[]) : Int {{
+                    mutable answer = 0;
+                    for action in actions {{ set answer = answer * 100 + action(3); }}
+                    answer
+                }}
+                function Capture(actions : (Int -> Int)[]) : Unit -> Int {{ () -> Read(actions) }}
+                function Apply(action : Unit -> Int) : Int {{ action() }}
+                function Run(index : Int) : Int {{
+                    let actions = [Inc, Twice];
+                    let choices = [actions[index], Minus];
+                    {invoke}
+                }}
+                @EntryPoint()
+                operation Main() : Int {{ Run({index}) }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(if index == 0 { 402 } else { 602 }),
+            );
+        }
+    }
+}
+
+#[test]
+fn stored_closure_captures_are_evaluated_once() {
+    for binding in ["let", "mutable"] {
+        for (first, second) in [
+            ("saved(3)", "selected(4)"),
+            ("Apply(saved, 3)", "Apply(selected, 4)"),
+        ] {
+            let source = format!(
+                r#"
+                function Mark() : Int {{ Message("capture"); 10 }}
+                function Offset(offset : Int, value : Int) : Int {{ value + offset }}
+                function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    {binding} selected = Offset(Mark(), _);
+                    let saved = selected;
+                    let first = {first};
+                    let second = {second};
+                    first * 100 + second
+                }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(1314),
+            );
+        }
+    }
+}
+
+#[test]
+fn direct_indexed_callees_preserve_operand_order() {
+    for (invocation, expected) in [
+        ("[Inc, Twice][LogIndex()](3)", 61),
+        (
+            "[{ Message(\"element\"); Inc }, Twice][{ Message(\"index\"); 0 }](3)",
+            41,
+        ),
+        (
+            "[if flag { Inc } else { Twice }][{ set flag = false; Message(\"index\"); 0 }](3)",
+            40,
+        ),
+        (
+            "[if flag { Inc } else { Twice }][0]({ set flag = false; 3 })",
+            40,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function LogIndex() : Int {{ Message("index"); 1 }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable flag = true;
+                let answer = {invocation};
+                answer * 10 + (if flag {{ 1 }} else {{ 0 }})
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn inline_closure_arguments_preserve_prefixes_and_aliases() {
+    // Each closure argument is a block whose statements run before the second
+    // argument. `marker` records that order (the prefix writes 1, the second
+    // argument appends 2), and the result is `answer * 100 + marker`.
+    for (argument, expected) in [
+        (
+            "{ Message(\"prefix\"); set marker = 1; Offset(10, _) }",
+            1312,
+        ),
+        (
+            "{ let first = Mark(\"first\", 10); let second = first; value -> value + first + second }",
+            2302,
+        ),
+        (
+            "{ let second = Mark(\"second\", 20); let first = Mark(\"first\", 10); value -> value + first + second }",
+            3302,
+        ),
+        ("{ Message(\"prefix\"); value -> value + 1 }", 402),
+        (
+            "{ let action = MarkCallable(); value -> action(value) + 1 }",
+            502,
+        ),
+        ("Offset(Mark(\"capture\", 10), _)", 1302),
+    ] {
+        let source = format!(
+            r#"
+            function Mark(label : String, value : Int) : Int {{ Message(label); value }}
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function MarkCallable() : Int -> Int {{ Message("callable"); Inc }}
+            function Offset(offset : Int, value : Int) : Int {{ value + offset }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable marker = 0;
+                let answer = Apply({argument}, {{ set marker = marker * 10 + 2; 3 }});
+                answer * 100 + marker
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn write_only_callable_assignments_preserve_effects() {
+    // The reassignment's block prints and sets `marker` to 1, so the result is
+    // `value * 10 + 1`: 41 from `Inc(3)`, or 131 when `Offset(10, _)` was
+    // called before the write. Removing the write would drop the trailing 1.
+    for invoke in ["selected(3)", "Apply(selected, 3)"] {
+        for call_before_write in [false, true] {
+            let prefix = if call_before_write {
+                format!("let saved = {invoke};")
+            } else {
+                String::new()
+            };
+            let result = if call_before_write { "saved" } else { invoke };
+            let source = format!(
+                r#"
+                function Inc(value : Int) : Int {{ value + 1 }}
+                function Offset(offset : Int, value : Int) : Int {{ value + offset }}
+                function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    mutable marker = 0;
+                    mutable selected = Offset(10, _);
+                    {prefix}
+                    set selected = {{ Message("assignment"); set marker = 1; Inc }};
+                    {result} * 10 + marker
+                }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(if call_before_write { 131 } else { 41 }),
+            );
+        }
+    }
+}
+
+#[test]
+fn write_only_callable_assignments_preserve_failures() {
+    let source = r#"
+        function Inc(value : Int) : Int { value + 1 }
+        function Offset(offset : Int, value : Int) : Int { value + offset }
+        @EntryPoint()
+        operation Main() : Int {
+            mutable selected = Offset(10, _);
+            set selected = { fail "assignment failed"; Inc };
+            selected(3)
+        }
+        "#;
+    let (store, package) = crate::test_utils::compile_to_fir(source);
+    assert!(
+        crate::test_utils::try_eval_fir_entry(&store, package).is_err(),
+        "the assignment must fail before invoking the callable"
+    );
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn captured_callable_array_preserves_functors() {
+    let source = r#"
+        function Make(angle : Double) : Qubit => Unit is Adj + Ctl {
+            Ry(angle, _)
+        }
+        function MakeRepeated(angle : Double, count : Int) : Qubit => Unit is Adj + Ctl {
+            target => { for _ in 1..count { Rz(angle, target); } }
+        }
+        function Capture(actions : (Qubit => Unit is Adj + Ctl)[]) : Qubit => Unit is Adj + Ctl {
+            target => { for action in actions { action(target); } }
+        }
+        operation Apply(action : Qubit => Unit is Adj + Ctl, control : Qubit, target : Qubit) : Unit {
+            action(target);
+            Adjoint action(target);
+            Controlled action([control], target);
+            Controlled Adjoint action([control], target);
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            use control = Qubit();
+            X(control);
+            Apply(Capture([Make(0.3), MakeRepeated(0.7, 2)]), control, target);
+            X(control);
+            MResetZ(target)
+        }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn captured_callable_array_preserves_aggregate_wrappers() {
+    for (parameter, argument, call) in [
+        (
+            "operations : (Int -> Int)[]",
+            "[Inc, Twice]",
+            "Run(operations)",
+        ),
+        (
+            "config : Config",
+            "new Config { Actions = [Inc, Twice] }",
+            "Run(config.Actions)",
+        ),
+        (
+            "pair : ((Int -> Int)[], Int)",
+            "([Inc, Twice], 0)",
+            "{ let (operations, _) = pair; Run(operations) }",
+        ),
+    ] {
+        let source = format!(
+            r#"
+            struct Config {{ Actions : (Int -> Int)[] }}
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Run(operations : (Int -> Int)[]) : Int {{
+                operations[0](3) * 100 + operations[-1](3)
+            }}
+            function Capture({parameter}) : Unit -> Int {{ () -> {call} }}
+            function Forward(action : Unit -> Int) : Int {{ action() }}
+            function Apply(action : Unit -> Int) : Int {{ Forward(action) }}
+            @EntryPoint()
+            operation Main() : Int {{
+                let input = {argument};
+                Apply(Capture(input))
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(406),
+        );
+    }
 }
 
 #[test]
@@ -3484,4 +4628,93 @@ fn recursive_callable_change_targets_the_sibling_specialization() {
         !h_targets.contains(&h_specialization),
         "H specialization {h_specialization} must not self-loop, got {h_targets:?}"
     );
+}
+
+#[test]
+fn conditional_indexed_selection_calls_the_chosen_callable() {
+    // Each shape mixes a runtime-indexed array read with a guarded alternative.
+    // The branch guard cannot tell which array element was read, so the joined
+    // value must keep the original dispatch rather than pick an element.
+    let apply = |name: &str, value: i64| match name {
+        "Inc" => value + 1,
+        "Twice" => value * 2,
+        "Minus" => value - 1,
+        "Neg" => -value,
+        _ => unreachable!(),
+    };
+    let actions = ["Inc", "Twice"];
+    let other = ["Neg", "Minus"];
+    for flag in [true, false] {
+        for index in [0, 1] {
+            for (shape, selected) in [
+                (
+                    "let selected = if flag { actions[index] } else { Minus };",
+                    if flag { actions[index] } else { "Minus" },
+                ),
+                (
+                    "mutable selected = Minus; if flag { set selected = actions[index]; }",
+                    if flag { actions[index] } else { "Minus" },
+                ),
+                (
+                    "mutable selected = actions[index]; if flag { set selected = Minus; }",
+                    if flag { "Minus" } else { actions[index] },
+                ),
+                (
+                    "let selected = if flag { actions[index] } else { other[index] };",
+                    if flag { actions[index] } else { other[index] },
+                ),
+            ] {
+                let source = format!(
+                    r#"
+                    function Inc(value : Int) : Int {{ value + 1 }}
+                    function Twice(value : Int) : Int {{ value * 2 }}
+                    function Minus(value : Int) : Int {{ value - 1 }}
+                    function Neg(value : Int) : Int {{ -value }}
+                    function Run(flag : Bool, index : Int) : Int {{
+                        let actions = [Inc, Twice];
+                        let other = [Neg, Minus];
+                        {shape}
+                        selected(3)
+                    }}
+                    @EntryPoint()
+                    operation Main() : Int {{ Run({flag}, {index}) }}
+                    "#
+                );
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(apply(selected, 3)),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn block_scoped_callable_capture_keeps_initializer_effects() {
+    // The closure's only capture resolves to `Inc`, so specialization can embed
+    // `Inc` in the closure target. The block that computes the capture is then
+    // removed from the call, so embedding must not drop its message.
+    for (initializer, output) in [
+        ("Pick()", "pick\n"),
+        ("{ Message(\"capture\"); Inc }", "capture\n"),
+        ("Mark(Inc)", "mark\n"),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Pick() : Int -> Int {{ Message("pick"); Inc }}
+            function Mark(action : Int -> Int) : Int -> Int {{ Message("mark"); action }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            @EntryPoint()
+            operation Main() : Int {{
+                Apply({{ let action = {initializer}; value -> action(value) + 1 }}, 3)
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(5),
+            output,
+        );
+    }
 }

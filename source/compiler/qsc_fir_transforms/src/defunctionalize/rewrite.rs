@@ -36,7 +36,7 @@
 use super::captures::{CaptureDestination, allocate_capture_exprs, captures_belong_to_destination};
 use super::types::{
     AnalysisResult, CallSite, CallableParam, CaptureScope, CapturedVar, ConcreteCallable,
-    DirectCallSite, ScopedLocal, SpecKey, peel_body_functors,
+    DirectCallSite, ScopedLocal, SpecKey, guards_form_complete_tree, peel_body_functors,
 };
 use super::{
     apply_target_input_at_control_path, build_combined_spec_key, build_combined_spec_key_for_group,
@@ -49,7 +49,8 @@ use crate::fir_builder::{
 };
 use crate::walk_utils::{
     DirectChild, UseClass, classify_block_use, expr_is_safe_to_discard,
-    expr_is_safe_to_discard_with_total_foreign, expr_is_side_effect_free, for_each_direct_child,
+    expr_is_safe_to_discard_with_total_foreign, expr_is_side_effect_free, expressions_in_postorder,
+    for_each_direct_child,
 };
 use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::assigner::Assigner;
@@ -104,6 +105,7 @@ struct CaptureWriterContext {
 /// - If the callable argument was a closure, its runtime captures are
 ///   appended as extra arguments.
 /// - The callee expression's type is updated to reflect the new signature.
+#[allow(clippy::too_many_lines)]
 pub(super) fn rewrite(
     package: &mut Package,
     package_id: PackageId,
@@ -113,6 +115,12 @@ pub(super) fn rewrite(
     assigner: &mut Assigner,
     total_foreign: &FxHashSet<ItemId>,
 ) {
+    let capture_dependencies = capture_expression_dependencies(package, package_id, analysis);
+    let capture_expressions: FxHashMap<_, _> = capture_dependencies
+        .values()
+        .flatten()
+        .map(|&id| (id, package.get_expr(id).clone()))
+        .collect();
     let expr_owner_lookup = build_expr_owner_lookup(package, package_id, specialized_items);
     let mut rewritten_callable_arg_locals = FxHashSet::default();
 
@@ -127,19 +135,7 @@ pub(super) fn rewrite(
     // caller.
     let mut hof_consumed_source_arrays = FxHashSet::default();
 
-    // Lowest-index lookup serves the per-row and branch-split paths, where
-    // every row of a group resolves the same parameter; it cannot distinguish
-    // between separate arrow parameters.
-    let param_lookup: FxHashMap<StoreItemId, &CallableParam> = {
-        let mut map = FxHashMap::default();
-        for p in &analysis.callable_params {
-            map.entry(p.callable_id).or_insert(p);
-        }
-        map
-    };
-
-    // Precise lookup keyed by parameter position recovers the exact parameter
-    // for each distinct slot of a combined multi-argument call.
+    // Every rewrite must resolve the exact parameter slot and nested field path.
     let param_by_position: FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam> = {
         let mut map = FxHashMap::default();
         for p in &analysis.callable_params {
@@ -171,73 +167,101 @@ pub(super) fn rewrite(
             .push(call_site);
     }
 
-    for (call_expr_id, group) in &grouped {
-        // Combined multi-argument rewrite: specialize and rewrite consult the
-        // same predicate so they agree on which call sites are combined.
-        if is_combined_eligible(package, group) {
-            rewrite_combined_group(
-                package,
-                *call_expr_id,
-                group,
-                spec_map,
-                &param_by_position,
-                &expr_owner_lookup,
-                &mut rewritten_callable_arg_locals,
-                &mut hof_consumed_source_arrays,
-                assigner,
-            );
-            continue;
+    let mut grouped_direct: FxHashMap<ExprId, Vec<&DirectCallSite>> = FxHashMap::default();
+    for site in &analysis.direct_call_sites {
+        if site.call_pkg_id == package_id {
+            grouped_direct
+                .entry(site.call_expr_id)
+                .or_default()
+                .push(site);
         }
-
-        // Per-leaf producer-closure inline. The specialize side built one
-        // combined spec per dispatch candidate, formed as `[candidate] +
-        // single-valued siblings`, for this mixed branch-split group. Route the
-        // synthesized dispatch leaves through those combined specs so each leaf
-        // inlines the single-valued producer closure, consumed in the same pass
-        // before any later-iteration producer-body clearing.
-        if rewrite_mixed_branch_split_group(
-            package,
-            package_id,
-            *call_expr_id,
-            group,
-            spec_map,
-            &param_by_position,
-            &expr_owner_lookup,
-            &mut rewritten_callable_arg_locals,
-            &mut hof_consumed_source_arrays,
-            assigner,
-        ) {
-            continue;
-        }
-
-        // Specialize declined to build a spec for this shape, so there is
-        // nothing to rewrite to; leave the callable first-class.
-        if dispatched_precedes_detached_static(group) {
-            continue;
-        }
-
-        rewrite_per_row_group(
-            package,
-            package_id,
-            *call_expr_id,
-            group,
-            spec_map,
-            &param_lookup,
-            &param_by_position,
-            &expr_owner_lookup,
-            &mut rewritten_callable_arg_locals,
-            assigner,
-        );
     }
 
-    rewrite_direct_call_sites(
-        package,
-        package_id,
-        analysis,
-        &expr_owner_lookup,
-        &mut rewritten_callable_arg_locals,
-        assigner,
-    );
+    // Rewriting an outer call can copy its argument tree. Finish every inner
+    // HOF or direct closure invocation before any enclosing call copies it.
+    for call_expr_id in expressions_in_postorder(package) {
+        if capture_dependencies
+            .get(&call_expr_id)
+            .is_some_and(|dependencies| {
+                dependencies.iter().any(|id| {
+                    let before = &capture_expressions[id];
+                    let after = package.get_expr(*id);
+                    before != after
+                        && !matches!(
+                            (&before.kind, &after.kind),
+                            (ExprKind::Lit(Lit::Double(left)), ExprKind::Lit(Lit::Double(right)))
+                                if before.ty == after.ty && left.to_bits() == right.to_bits()
+                        )
+                })
+            })
+        {
+            // Inner rewrites can change a captured argument's shape or introduce
+            // block-local temporaries. Reanalyze before using stale capture facts.
+            continue;
+        }
+        if let Some(group) = grouped.get(&call_expr_id) {
+            // Combined multi-argument rewrite: specialize and rewrite consult the
+            // same predicate so they agree on which call sites are combined.
+            if is_combined_eligible(package, group) {
+                rewrite_combined_group(
+                    package,
+                    call_expr_id,
+                    group,
+                    spec_map,
+                    &param_by_position,
+                    &expr_owner_lookup,
+                    &mut rewritten_callable_arg_locals,
+                    &mut hof_consumed_source_arrays,
+                    assigner,
+                );
+            } else {
+                // Per-leaf producer-closure inline. The specialize side built one
+                // combined spec per dispatch candidate, formed as `[candidate] +
+                // single-valued siblings`, for this mixed branch-split group. Route the
+                // synthesized dispatch leaves through those combined specs so each leaf
+                // inlines the single-valued producer closure, consumed in the same pass
+                // before any later-iteration producer-body clearing.
+                let rewritten = rewrite_mixed_branch_split_group(
+                    package,
+                    package_id,
+                    call_expr_id,
+                    group,
+                    spec_map,
+                    &param_by_position,
+                    &expr_owner_lookup,
+                    &mut rewritten_callable_arg_locals,
+                    &mut hof_consumed_source_arrays,
+                    assigner,
+                );
+
+                // Specialize declined to build a spec for this shape, so there is
+                // nothing to rewrite to; leave the callable first-class.
+                if !rewritten && !dispatched_precedes_detached_static(group) {
+                    rewrite_per_row_group(
+                        package,
+                        package_id,
+                        call_expr_id,
+                        group,
+                        spec_map,
+                        &param_by_position,
+                        &expr_owner_lookup,
+                        &mut rewritten_callable_arg_locals,
+                        assigner,
+                    );
+                }
+            }
+        }
+        if let Some(entries) = grouped_direct.get(&call_expr_id) {
+            rewrite_direct_call_group(
+                package,
+                package_id,
+                entries,
+                &expr_owner_lookup,
+                &mut rewritten_callable_arg_locals,
+                assigner,
+            );
+        }
+    }
 
     prune_dead_callable_arg_locals(
         package,
@@ -246,6 +270,60 @@ pub(super) fn rewrite(
         &hof_consumed_source_arrays,
         total_foreign,
     );
+}
+
+/// Records the expression dependencies of analyzed capture operands per call.
+/// Rewriting an earlier operand can change these nodes in place, invalidating
+/// capture facts for a later direct or higher-order call. Include nested
+/// producer-to-caller substitutions, not only the outer capture expression.
+fn capture_expression_dependencies(
+    package: &Package,
+    package_id: PackageId,
+    analysis: &AnalysisResult,
+) -> FxHashMap<ExprId, Vec<ExprId>> {
+    fn add(package: &Package, captures: &[CapturedVar], reads: &mut FxHashSet<ExprId>) {
+        let mut roots = Vec::new();
+        for capture in captures {
+            roots.extend(capture.expr);
+            let mut pending: Vec<_> = capture.caller_substitutions.iter().collect();
+            while let Some(substitution) = pending.pop() {
+                roots.push(substitution.expr);
+                pending.extend(&substitution.substitutions);
+            }
+        }
+        for root in roots {
+            crate::walk_utils::for_each_expr(package, root, &mut |id, _| {
+                reads.insert(id);
+            });
+        }
+    }
+
+    let mut reads: FxHashMap<ExprId, FxHashSet<ExprId>> = FxHashMap::default();
+    for site in &analysis.call_sites {
+        if site.call_pkg_id == package_id
+            && let ConcreteCallable::Closure { captures, .. } = &site.callable_arg
+        {
+            add(
+                package,
+                captures,
+                reads.entry(site.call_expr_id).or_default(),
+            );
+        }
+    }
+    for site in &analysis.direct_call_sites {
+        if site.call_pkg_id != package_id {
+            continue;
+        }
+        let target = reads.entry(site.call_expr_id).or_default();
+        add(package, &site.captures, target);
+        if let ConcreteCallable::Closure { captures, .. } = &site.callable {
+            add(package, captures, target);
+        }
+    }
+    reads
+        .into_iter()
+        .map(|(id, expressions)| (id, expressions.into_iter().collect()))
+        .collect()
 }
 
 /// Rewrites a combined multi-argument HOF call whose arrow parameters all
@@ -316,12 +394,12 @@ fn rewrite_combined_group(
             package,
             expr_owner_lookup,
             call_expr_id,
-            call_site.arg_expr_id,
+            call_site.dispatch_expr_id(),
         ) && !dispatch_source_index_is_statically_in_bounds(
             package,
             expr_owner_lookup,
             call_expr_id,
-            call_site.arg_expr_id,
+            call_site.dispatch_expr_id(),
         )
     }) {
         return;
@@ -479,7 +557,8 @@ fn rewrite_mixed_branch_split_group(
 ///
 /// A single resolved entry uses the direct [`rewrite_one`] rewrite; multiple
 /// entries synthesize a condition-indexed dispatch via [`branch_split_rewrite`].
-/// Rows whose spec or parameter cannot be resolved are skipped.
+/// A dispatched parameter requires every candidate's specialization and parameter
+/// to resolve. Missing single-valued siblings may be left unspecialized.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn rewrite_per_row_group(
     package: &mut Package,
@@ -487,16 +566,29 @@ fn rewrite_per_row_group(
     call_expr_id: ExprId,
     group: &[&CallSite],
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
-    param_lookup: &FxHashMap<StoreItemId, &CallableParam>,
     param_by_position: &FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam>,
     expr_owner_lookup: &ExprOwnerLookup,
     rewritten_callable_arg_locals: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     assigner: &mut Assigner,
 ) {
     let mut entries: Vec<HofDispatchTarget> = Vec::with_capacity(group.len());
+    let is_dispatch_candidate = |site: &CallSite| {
+        group
+            .iter()
+            .filter(|candidate| {
+                candidate.top_level_param == site.top_level_param
+                    && candidate.field_path == site.field_path
+            })
+            .take(2)
+            .count()
+            > 1
+    };
     for call_site in group {
         let spec_key = build_spec_key(call_site);
         let Some(&spec_store_id) = spec_map.get(&spec_key) else {
+            if is_dispatch_candidate(call_site) {
+                return;
+            }
             continue;
         };
         let hof_store_id =
@@ -508,10 +600,10 @@ fn rewrite_per_row_group(
             call_site.top_level_param,
             call_site.field_path.clone(),
         );
-        let Some(&param) = param_by_position
-            .get(&position_key)
-            .or_else(|| param_lookup.get(&hof_store_id))
-        else {
+        let Some(&param) = param_by_position.get(&position_key) else {
+            if is_dispatch_candidate(call_site) {
+                return;
+            }
             continue;
         };
         entries.push((call_site, spec_store_id, param));
@@ -531,13 +623,13 @@ fn rewrite_per_row_group(
             package,
             expr_owner_lookup,
             call_expr_id,
-            call_site.arg_expr_id,
+            call_site.dispatch_expr_id(),
         );
         let statically_in_bounds = dispatch_source_index_is_statically_in_bounds(
             package,
             expr_owner_lookup,
             call_expr_id,
-            call_site.arg_expr_id,
+            call_site.dispatch_expr_id(),
         );
         let bounds_check = if statically_in_bounds {
             None
@@ -613,98 +705,96 @@ fn rewrite_per_row_group(
     }
 }
 
-/// Groups direct call sites in this package's body by call expression and
-/// rewrites those whose captures belong to the destination scope.
+/// Rewrites a group of direct call sites whose captures belong to the destination scope.
 ///
 /// A lone unconditional site is rewritten in place by [`rewrite_direct_call`];
 /// a group with multiple sites (or a conditional lone site) is lowered to a
 /// condition-indexed dispatch via [`branch_split_direct_call_rewrite`].
-fn rewrite_direct_call_sites(
+fn rewrite_direct_call_group(
     package: &mut Package,
     package_id: PackageId,
-    analysis: &AnalysisResult,
+    entries: &[&DirectCallSite],
     expr_owner_lookup: &ExprOwnerLookup,
     rewritten_callable_arg_locals: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     assigner: &mut Assigner,
 ) {
-    let mut grouped_direct: FxHashMap<ExprId, Vec<&DirectCallSite>> = FxHashMap::default();
-    for direct_call_site in &analysis.direct_call_sites {
-        // Rewrite only the direct call sites that live in this package's body.
-        if direct_call_site.call_pkg_id != package_id {
-            continue;
-        }
-        grouped_direct
-            .entry(direct_call_site.call_expr_id)
-            .or_default()
-            .push(direct_call_site);
+    let ExprKind::Call(callee, _) = package.get_expr(entries[0].call_expr_id).kind else {
+        return;
+    };
+    let (base, _) = peel_body_functors(package, callee);
+    if matches!(
+        package.get_expr(base).kind,
+        ExprKind::Block(_) | ExprKind::If(..)
+    ) {
+        // An inner rewrite introduced bindings after analysis. Reanalyze after
+        // normalizing this callee's control flow; stale capture expressions may
+        // now refer to locals owned by that block.
+        return;
     }
-
-    for entries in grouped_direct.values() {
-        if entries.len() == 1 && entries[0].condition.is_empty() {
-            if !direct_call_rewrite_is_valid(package, entries[0], expr_owner_lookup) {
-                continue;
-            }
-            let ExprKind::Call(callee_id, _) = package.get_expr(entries[0].call_expr_id).kind
-            else {
-                continue;
-            };
-            let indexed_source = dispatch_source_is_indexed(
+    if entries.len() == 1 && entries[0].condition.is_empty() {
+        if !direct_call_rewrite_is_valid(package, entries[0], expr_owner_lookup) {
+            return;
+        }
+        let ExprKind::Call(callee_id, _) = package.get_expr(entries[0].call_expr_id).kind else {
+            return;
+        };
+        let dispatch_source = entries[0].dispatch_source.unwrap_or(callee_id);
+        let indexed_source = dispatch_source_is_indexed(
+            package,
+            expr_owner_lookup,
+            entries[0].call_expr_id,
+            dispatch_source,
+        );
+        let bounds_check = synthesize_direct_index_dispatch(
+            package,
+            package_id,
+            expr_owner_lookup,
+            entries[0].call_expr_id,
+            entries,
+            assigner,
+        )
+        .map(|plan| plan.bounds_check);
+        if indexed_source && bounds_check.is_none() {
+            return;
+        }
+        rewrite_direct_call(
+            package,
+            package_id,
+            entries[0],
+            expr_owner_lookup,
+            rewritten_callable_arg_locals,
+            assigner,
+        );
+        if let Some(bounds_check) = bounds_check {
+            prepend_bounds_check_to_rewritten_call(
                 package,
-                expr_owner_lookup,
+                assigner,
                 entries[0].call_expr_id,
-                callee_id,
-            );
-            let bounds_check = synthesize_direct_index_dispatch(
-                package,
-                package_id,
-                expr_owner_lookup,
-                entries[0].call_expr_id,
-                entries,
-                assigner,
-            )
-            .map(|plan| plan.bounds_check);
-            if indexed_source && bounds_check.is_none() {
-                continue;
-            }
-            rewrite_direct_call(
-                package,
-                package_id,
-                entries[0],
-                expr_owner_lookup,
-                rewritten_callable_arg_locals,
-                assigner,
-            );
-            if let Some(bounds_check) = bounds_check {
-                prepend_bounds_check_to_rewritten_call(
-                    package,
-                    assigner,
-                    entries[0].call_expr_id,
-                    bounds_check,
-                );
-            }
-        } else {
-            let call_expr_id = entries[0].call_expr_id;
-            let call_expr = package.get_expr(call_expr_id).clone();
-            let ExprKind::Call(callee_id, _) = call_expr.kind else {
-                continue;
-            };
-
-            collect_rewritten_callable_arg_local(
-                package,
-                expr_owner_lookup,
-                call_expr_id,
-                callee_id,
-                rewritten_callable_arg_locals,
-            );
-            branch_split_direct_call_rewrite(
-                package,
-                package_id,
-                call_expr_id,
-                entries,
-                expr_owner_lookup,
-                assigner,
+                bounds_check,
             );
         }
+    } else {
+        let call_expr_id = entries[0].call_expr_id;
+        let call_expr = package.get_expr(call_expr_id).clone();
+        let ExprKind::Call(callee_id, _) = call_expr.kind else {
+            return;
+        };
+
+        collect_rewritten_callable_arg_local(
+            package,
+            expr_owner_lookup,
+            call_expr_id,
+            callee_id,
+            rewritten_callable_arg_locals,
+        );
+        branch_split_direct_call_rewrite(
+            package,
+            package_id,
+            call_expr_id,
+            entries,
+            expr_owner_lookup,
+            assigner,
+        );
     }
 }
 
@@ -942,6 +1032,11 @@ fn branch_split_direct_call_rewrite(
     expr_owner_lookup: &ExprOwnerLookup,
     assigner: &mut Assigner,
 ) {
+    if entries.iter().any(|entry| !entry.condition.is_empty())
+        && !guards_form_complete_tree(entries.iter().map(|entry| entry.condition.as_slice()))
+    {
+        return;
+    }
     let orig_call = package.get_expr(call_expr_id).clone();
     let ExprKind::Call(orig_callee_id, orig_args_id) = orig_call.kind else {
         return;
@@ -952,7 +1047,10 @@ fn branch_split_direct_call_rewrite(
         package,
         expr_owner_lookup,
         call_expr_id,
-        orig_callee_id,
+        entries
+            .first()
+            .and_then(|entry| entry.dispatch_source)
+            .unwrap_or(orig_callee_id),
         entries
             .iter()
             .map(|entry| (&entry.callable, !entry.condition.is_empty())),
@@ -1010,13 +1108,8 @@ fn branch_split_direct_call_rewrite(
         return;
     }
 
-    let default_entry = if let Some(entry) = default {
-        entry
-    } else {
-        if conditioned.is_empty() {
-            return;
-        }
-        conditioned.pop().expect("non-empty conditioned").0
+    let Some(default_entry) = default else {
+        return;
     };
 
     if conditioned.is_empty() {
@@ -1194,7 +1287,7 @@ fn synthesize_callsite_index_dispatch(
         package,
         package_id,
         expr_owner_lookup,
-        (call_expr_id, entries.first()?.0.arg_expr_id),
+        (call_expr_id, entries.first()?.0.dispatch_expr_id()),
         &callables,
         assigner,
     )?;
@@ -1332,6 +1425,10 @@ fn synthesize_direct_index_dispatch(
     let ExprKind::Call(callee_id, _) = package.get_expr(call_expr_id).kind else {
         return None;
     };
+    let dispatch_expr_id = entries
+        .first()
+        .and_then(|entry| entry.dispatch_source)
+        .unwrap_or(callee_id);
     let callables = entries
         .iter()
         .map(|entry| entry.callable.clone())
@@ -1340,7 +1437,7 @@ fn synthesize_direct_index_dispatch(
         package,
         package_id,
         expr_owner_lookup,
-        (call_expr_id, callee_id),
+        (call_expr_id, dispatch_expr_id),
         &callables,
         assigner,
     )
@@ -2269,7 +2366,13 @@ fn prune_dead_callable_arg_locals(
             // Locals bound only to plain callable references
             // (`op = H`) carry no closure tail, so they are left untouched to
             // preserve existing dead-code behavior.
-            remove_write_only_callable_local_from_callable(package, callable_id, local_var);
+            remove_write_only_callable_local_from_callable(
+                package,
+                package_id,
+                callable_id,
+                local_var,
+                total_foreign,
+            );
         }
     }
 
@@ -2281,7 +2384,13 @@ fn prune_dead_callable_arg_locals(
         if !local_var_is_read_in_callable(package, callable_id, src_var)
             && local_var_has_closure_valued_binding(package, callable_id, src_var)
         {
-            remove_write_only_callable_local_from_callable(package, callable_id, src_var);
+            remove_write_only_callable_local_from_callable(
+                package,
+                package_id,
+                callable_id,
+                src_var,
+                total_foreign,
+            );
         }
     }
 
@@ -2604,16 +2713,51 @@ fn local_index_source_array_local(
 /// bindings and assignment statements, which arise when a callable local is
 /// initialized (and possibly reassigned) from partial applications but is only
 /// ever consumed through a call site that direct-dispatch rewriting has already
-/// replaced.
+/// replaced. Removal requires a discard-safe initializer and only discard-safe
+/// whole-local assignments; partial updates or observable writes remain intact.
 fn remove_write_only_callable_local_from_callable(
     package: &mut Package,
+    package_id: PackageId,
     callable_id: LocalItemId,
     local_var: LocalVarId,
+    total_foreign: &FxHashSet<ItemId>,
 ) {
     let Some(ItemKind::Callable(decl)) = package.items.get(callable_id).map(|item| &item.kind)
     else {
         return;
     };
+
+    let Some(initializer) = find_local_init_expr_in_callable(package, callable_id, local_var)
+    else {
+        return;
+    };
+    if !expr_is_safe_to_discard_with_total_foreign(package, package_id, initializer, total_foreign)
+    {
+        return;
+    }
+    let mut writes_are_discardable = true;
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &decl.implementation,
+        &mut |id, expr| {
+            if super::analysis::assignment_written_locals(package, expr).contains(&local_var) {
+                writes_are_discardable &= match expr.kind {
+                    ExprKind::Assign(_, rhs) if expr_is_assign_to_local(package, id, local_var) => {
+                        expr_is_safe_to_discard_with_total_foreign(
+                            package,
+                            package_id,
+                            rhs,
+                            total_foreign,
+                        )
+                    }
+                    _ => false,
+                };
+            }
+        },
+    );
+    if !writes_are_discardable {
+        return;
+    }
 
     let implementation = decl.implementation.clone();
     match implementation {
@@ -2771,10 +2915,9 @@ fn expr_is_assign_to_local(package: &Package, expr_id: ExprId, local_var: LocalV
 /// Where a consumed callable expression's evaluation lives once rewriting has
 /// finished.
 ///
-/// Defunctionalization repeatedly faces the same question in two places: a
-/// `let` binding whose callable value was consumed by a call-site rewrite, and
-/// the callable argument expression that same rewrite removes from the call.
-/// Both ask whether *deleting the expression* also *drops its evaluation*.
+/// Defunctionalization asks this for bindings, higher-order arguments, and
+/// direct callees consumed by call-site rewrites: whether *deleting the
+/// expression* also *drops its evaluation*.
 /// Those are different questions. A binding whose captures have already been
 /// relocated into the specialized call can still look observable; retaining it
 /// would evaluate the capture initializer twice and apply a gate twice.
@@ -2822,9 +2965,9 @@ impl EvaluationDisposition {
     }
 }
 
-/// Which of the two consumption sites is asking for a disposition.
+/// Which consumption site is asking for a disposition.
 ///
-/// Both sites delete an expression, but the rewrite gives them different
+/// Each site deletes an expression, but the rewrite gives them different
 /// guarantees, and one rule depends on which is asking. See
 /// [`consumed_callable_expr_disposition`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2835,12 +2978,15 @@ pub(super) enum ConsumptionSite {
     /// The callable argument expression that the rewrite removes from the call
     /// it is specializing.
     Argument,
+
+    /// The callee expression replaced by direct invocation or dispatch.
+    Callee,
 }
 
 /// Classifies where a consumed callable *expression's* evaluation lives after
 /// rewriting.
 ///
-/// This is the single decision that both consumption sites share. It replaces
+/// This is the single decision that consumption sites share. It replaces
 /// the four predicates that used to be OR'd together at the binding gate, and
 /// it is applied to the argument expression itself by
 /// [`super::analysis`] before a call site is accepted for specialization, so
@@ -2851,8 +2997,9 @@ pub(super) enum ConsumptionSite {
 /// outright with no purity guard of their own; the guarantee they rely on is
 /// established here.
 ///
-/// One rule is positional. At [`ConsumptionSite::Argument`] the expression
-/// being deleted *is* the selection the analysis statically resolved, and the
+/// One rule is positional. At [`ConsumptionSite::Argument`] or
+/// [`ConsumptionSite::Callee`] the expression being deleted *is* the selection
+/// the analysis statically resolved, and the
 /// specialized call re-expresses that selection directly, so a statically
 /// resolved indexed read is [`EvaluationDisposition::Replayed`]. Rewriting must
 /// preserve its bounds check or prove the index statically in bounds. At
@@ -2873,7 +3020,7 @@ pub(super) fn consumed_callable_expr_disposition(
     if expr_is_safe_to_discard_with_total_foreign(package, package_id, expr_id, total_foreign) {
         EvaluationDisposition::Discarded
     } else if is_replayed_callable_selection(package, expr_id)
-        || (site == ConsumptionSite::Argument
+        || (site != ConsumptionSite::Binding
             && is_replayed_index_selection(package, package_id, expr_id, total_foreign))
     {
         EvaluationDisposition::Replayed
@@ -3005,29 +3152,62 @@ fn remove_dead_callable_local_from_callable(
 /// evaluation across other operands. Argument rewrites materialize captures
 /// before later arguments; cleanup must not evaluate those initializers again.
 ///
-/// Only the closure-yielding shape qualifies. A binding whose initializer
-/// merely produces a callable some other way, such as a call to an effectful
-/// producer, relocates nothing and stays protected by discard safety.
+/// Only independent capture bindings, in capture order, can be relocated.
+/// Unrelated prefix effects and dependent/aliased bindings cannot be reproduced
+/// by independently evaluating the capture expressions at the rewritten call.
 ///
 /// Evidence for [`EvaluationDisposition::Relocated`]; see
 /// [`consumed_callable_expr_disposition`].
-fn captures_relocated_into_call(package: &Package, expr_id: ExprId) -> bool {
-    match package.get_expr(expr_id).kind {
-        ExprKind::Closure(_, _) => true,
-        ExprKind::Block(block_id) => {
-            package
-                .get_block(block_id)
-                .stmts
-                .last()
-                .is_some_and(|&tail_stmt_id| {
-                    matches!(
-                        package.get_stmt(tail_stmt_id).kind,
-                        StmtKind::Expr(tail_expr_id)
-                            if captures_relocated_into_call(package, tail_expr_id)
-                    )
-                })
+fn captures_relocated_into_call(package: &Package, mut expr_id: ExprId) -> bool {
+    let mut bindings = Vec::new();
+    loop {
+        match &package.get_expr(expr_id).kind {
+            ExprKind::Closure(captures, _) => {
+                let locals: FxHashSet<_> = bindings.iter().map(|(local, _)| *local).collect();
+                if captures
+                    .iter()
+                    .copied()
+                    .filter(|local| locals.contains(local))
+                    .ne(bindings.iter().map(|(local, _)| *local))
+                {
+                    return false;
+                }
+                let mut independent = true;
+                for (_, initializer) in bindings {
+                    crate::walk_utils::for_each_expr(package, initializer, &mut |_, expr| {
+                        independent &= match &expr.kind {
+                            ExprKind::Var(Res::Local(local), _) => !locals.contains(local),
+                            ExprKind::Closure(captures, _) => {
+                                captures.iter().all(|local| !locals.contains(local))
+                            }
+                            _ => true,
+                        };
+                    });
+                }
+                return independent;
+            }
+            ExprKind::Block(block) => {
+                let Some((&tail, prefix)) = package.get_block(*block).stmts.split_last() else {
+                    return false;
+                };
+                let StmtKind::Expr(value) = package.get_stmt(tail).kind else {
+                    return false;
+                };
+                for &statement in prefix {
+                    let StmtKind::Local(Mutability::Immutable, pattern, initializer) =
+                        package.get_stmt(statement).kind
+                    else {
+                        return false;
+                    };
+                    let PatKind::Bind(ident) = &package.get_pat(pattern).kind else {
+                        return false;
+                    };
+                    bindings.push((ident.id, initializer));
+                }
+                expr_id = value;
+            }
+            _ => return false,
         }
-        _ => false,
     }
 }
 
@@ -3769,14 +3949,18 @@ fn create_direct_branch_call(
     let captures = resolve_rewrite_captures(package, orig_callee.id, capture_source);
     let (_, outer_functor) = peel_body_functors(package, orig_callee.id);
     let controlled_layers = usize::from(outer_functor.controlled);
-    let package_direct_lambda_input = match &direct_call_site.callable {
+    let target_input = match &direct_call_site.callable {
+        ConcreteCallable::Closure { target, .. } => match &package.get_item(*target).kind {
+            ItemKind::Callable(decl) => Some(package.get_pat(decl.input).ty.clone()),
+            ItemKind::Ty(..) => None,
+        },
         ConcreteCallable::Global { item_id, .. } if item_id.package == package_id => {
             direct_lambda_packaged_input(package, item_id.item)
         }
         _ => None,
     };
-    let package_direct_lambda = matches!(
-        package_direct_lambda_input.as_ref(),
+    let pack_args = matches!(
+        target_input.as_ref(),
         Some(target_input)
             if apply_target_input_at_control_path(&orig_args.ty, target_input, controlled_layers)
                 != orig_args.ty
@@ -3784,9 +3968,7 @@ fn create_direct_branch_call(
 
     let (item_id, functor, callee_ty) = match &direct_call_site.callable {
         ConcreteCallable::Global { item_id, functor } => {
-            let callee_ty = if item_id.package == package_id
-                && package_direct_lambda_input.is_some()
-            {
+            let callee_ty = if item_id.package == package_id && target_input.is_some() {
                 build_direct_global_callee_ty(package, *item_id, &orig_callee.ty, controlled_layers)
                     .unwrap_or_else(|| orig_callee.ty.clone())
             } else {
@@ -3819,7 +4001,7 @@ fn create_direct_branch_call(
         destination,
         &captures,
         controlled_layers,
-        package_direct_lambda,
+        pack_args,
         assigner,
     );
     let args_id = alloc_expr(package, assigner, args_ty, args_kind, span);
@@ -3836,13 +4018,14 @@ fn create_direct_branch_call(
 
 /// Assembles the argument-tuple expressions for a direct-call branch,
 /// including any capture values that must accompany a closure branch.
+/// `pack_args` retains the target's tuple wrapper even when it has no captures.
 fn build_direct_branch_args_data(
     package: &mut Package,
     orig_args: &Expr,
     destination: CaptureScope,
     captures: &[CapturedVar],
     controlled_layers: usize,
-    package_direct_lambda: bool,
+    pack_args: bool,
     assigner: &mut Assigner,
 ) -> (ExprKind, Ty) {
     if controlled_layers > 0 {
@@ -3853,7 +4036,7 @@ fn build_direct_branch_args_data(
                 destination,
                 captures,
                 0,
-                package_direct_lambda,
+                pack_args,
                 assigner,
             );
         };
@@ -3864,7 +4047,7 @@ fn build_direct_branch_args_data(
                 destination,
                 captures,
                 0,
-                package_direct_lambda,
+                pack_args,
                 assigner,
             );
         };
@@ -3875,7 +4058,7 @@ fn build_direct_branch_args_data(
                 destination,
                 captures,
                 0,
-                package_direct_lambda,
+                pack_args,
                 assigner,
             );
         }
@@ -3887,7 +4070,7 @@ fn build_direct_branch_args_data(
             destination,
             captures,
             controlled_layers - 1,
-            package_direct_lambda,
+            pack_args,
             assigner,
         );
 
@@ -3905,7 +4088,7 @@ fn build_direct_branch_args_data(
         );
     }
 
-    if captures.is_empty() && !package_direct_lambda {
+    if captures.is_empty() && !pack_args {
         return (orig_args.kind.clone(), orig_args.ty.clone());
     }
 
@@ -6451,7 +6634,7 @@ fn branch_split_rewrite(
             package,
             expr_owner_lookup,
             call_expr_id,
-            first.0.arg_expr_id,
+            first.0.dispatch_expr_id(),
             entries
                 .iter()
                 .map(|entry| (&entry.0.callable_arg, !entry.0.condition.is_empty())),
@@ -6621,9 +6804,9 @@ fn materialize_early_mixed_captures(
 /// empty-condition entry becomes the default. When no entry carries a condition
 /// but more than one candidate exists, a synthetic index dispatch is derived
 /// from the callee's runtime-selected index via
-/// [`synthesize_callsite_index_dispatch`]. If no default is found, the last
-/// conditioned target is promoted to serve as the `else` arm. Returns `None`
-/// when there is no entry to dispatch at all.
+/// [`synthesize_callsite_index_dispatch`]. Guarded entries must form a complete
+/// decision tree with one explicit final default. Incomplete trees are left
+/// unresolved rather than guessing a default or dropping a guard.
 fn partition_branch_split_targets<'a>(
     package: &mut Package,
     package_id: PackageId,
@@ -6636,6 +6819,11 @@ fn partition_branch_split_targets<'a>(
     HofDispatchTarget<'a>,
     Option<ExprId>,
 )> {
+    if entries.iter().any(|entry| !entry.0.condition.is_empty())
+        && !guards_form_complete_tree(entries.iter().map(|entry| entry.0.condition.as_slice()))
+    {
+        return None;
+    }
     let mut conditioned: Vec<ConditionedHofTarget> = Vec::new();
     let mut default: Option<HofDispatchTarget> = None;
     for &entry in entries {
@@ -6672,12 +6860,7 @@ fn partition_branch_split_targets<'a>(
         return None;
     }
 
-    // Must have a default for the else branch; steal last conditioned if needed.
-    let default_entry = if let Some(d) = default {
-        d
-    } else {
-        conditioned.pop()?.0
-    };
+    let default_entry = default?;
     Some((conditioned, default_entry, bounds_check))
 }
 
@@ -7499,18 +7682,26 @@ fn alloc_if_expr(
 
 /// Builds a nested `if`/`else` tree selecting one of several specialized calls,
 /// reconstructed from the flat outermost-first guard lists by contiguous
-/// leading-guard factoring. Each shared leading guard is emitted once for its
-/// contiguous run rather than repeated in a conjunction for each leaf.
+/// leading-guard factoring. Each group ends at its first entry guarded only by
+/// the leading guard, preserving later branches even when their guards alias.
+/// A group's shared leading guard is emitted once rather than repeated for each leaf.
 ///
 /// `conditioned` holds the guarded entries in front-to-back (outermost-first)
 /// order, each paired with its guard list; `default_entry` supplies the
-/// outermost `else` call. The `build_call` closure materializes the
+/// outermost `else` call. Callers validate full guarded candidate lists with
+/// [`guards_form_complete_tree`] before rewriting operands; synthetic index
+/// dispatch supplies single-guard groups. The `build_call` closure materializes the
 /// specialized `Call` expression for a given entry, receiving the package and
 /// assigner so it can allocate nodes without `&mut` aliasing; it is passed by
 /// `&mut` so the same closure threads through the recursion.
 ///
 /// Returns the `ExprId` of the root dispatch expression; callers write its
 /// `kind`/`ty` back into the original call expression.
+///
+/// Each completed leaf is deep-copied as a unit so its captures, argument
+/// subtrees, and prefix-local bindings remain owned by that branch.
+/// Guards are copied too: a returned callable can bring a condition whose
+/// expression nodes still belong to its producer.
 fn build_branch_tree<E: Copy>(
     package: &mut Package,
     span: PackageSpan,
@@ -7525,50 +7716,25 @@ fn build_branch_tree<E: Copy>(
         return build_call(package, assigner, default_entry);
     }
 
-    // The leading guard `g` of the first entry is this level's `if` condition
-    // (the first entry is non-empty; the default arm is split out by the
-    // caller). Take the maximal contiguous leading run whose first guard == `g`.
+    // A terminal entry closes this `then` subtree. Later entries belong to the
+    // `else` continuation, even if substitution gave them the same guard ID.
     let g = conditioned[0].1[0];
     let run_len = conditioned
         .iter()
         .take_while(|(_, guards)| guards.first().copied() == Some(g))
-        .count();
+        .position(|(_, guards)| guards.len() == 1)
+        .expect("build_branch_tree: leading-guard group has no terminal entry")
+        + 1;
 
     let mut iter = conditioned.into_iter();
-    let run: Vec<(E, Vec<ExprId>)> = (&mut iter).take(run_len).collect();
+    let mut run: Vec<(E, Vec<ExprId>)> = (&mut iter).take(run_len).collect();
     let rest: Vec<(E, Vec<ExprId>)> = iter.collect();
-
-    // Contiguity invariant: the leading guard `g` must not reappear in a later
-    // run. Holds for every lattice the current joins produce; assert in debug
-    // builds to catch a future join that violates it.
-    debug_assert!(
-        !rest
-            .iter()
-            .any(|(_, guards)| guards.first().copied() == Some(g)),
-        "build_branch_tree: leading guard reappears in a non-contiguous run"
-    );
-
-    // Strip the shared leading `g` from every run entry; the entry that strips
-    // to empty is the group's inner default (exactly one is guaranteed by the
-    // one-default-per-group invariant below).
-    let mut inner_default: Option<E> = None;
-    let mut inner_conditioned: Vec<(E, Vec<ExprId>)> = Vec::with_capacity(run.len());
+    let (inner_default, _) = run.pop().expect("leading-guard group must be nonempty");
+    let mut inner_conditioned = Vec::with_capacity(run.len());
     for (entry, mut guards) in run {
         guards.remove(0);
-        if guards.is_empty() {
-            inner_default = Some(entry);
-        } else {
-            inner_conditioned.push((entry, guards));
-        }
+        inner_conditioned.push((entry, guards));
     }
-
-    // The input is expected to have one inner default per leading-guard run.
-    // Assert that one was found; release builds use the outer default if absent.
-    debug_assert!(
-        inner_default.is_some(),
-        "build_branch_tree: leading-guard run has no inner default"
-    );
-    let inner_default = inner_default.unwrap_or(default_entry);
 
     // Then subtree: recurse on the stripped run, defaulting to the group else.
     let then_id = build_branch_tree(
@@ -7592,7 +7758,7 @@ fn build_branch_tree<E: Copy>(
         build_call,
     );
 
-    // `g` is referenced once here -- no AndL, no re-evaluation.
+    let g = crate::cloner::clone_expr_within_package(package, g, assigner);
     alloc_if_expr(package, span, result_ty, g, then_id, else_id, assigner)
 }
 
