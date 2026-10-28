@@ -5108,6 +5108,110 @@ fn runtime_callable_argument_functor_shapes_match_source_qir() {
 }
 
 #[test]
+fn runtime_controlled_generic_callable_matches_source_qir() {
+    check_runtime_controlled_generic_callable("Controlled", 1, true);
+}
+
+#[test]
+fn runtime_controlled_adjoint_generic_callable_matches_source_qir() {
+    check_runtime_controlled_generic_callable("Controlled Adjoint", 1, false);
+}
+
+#[test]
+fn runtime_nested_controlled_generic_callable_matches_source_qir() {
+    check_runtime_controlled_generic_callable("Controlled Controlled", 2, true);
+}
+
+#[test]
+fn runtime_nested_controlled_adjoint_generic_callable_matches_source_qir() {
+    check_runtime_controlled_generic_callable("Controlled Controlled Adjoint", 2, false);
+}
+
+fn check_runtime_controlled_generic_callable(
+    functor: &str,
+    controlled_depth: usize,
+    expected_result: bool,
+) {
+    let mut input = "(Int, Int, Qubit)".to_string();
+    let mut argument = "(7, 8, q)".to_string();
+    for index in (0..controlled_depth).rev() {
+        input = format!("(Qubit[], {input})");
+        argument = format!("([controls[{index}]], {argument})");
+    }
+    for required_functors in ["", "is Adj + Ctl"] {
+        let source = format!(
+            r#"
+            operation Generic<'T: Eq>(left : 'T, right : 'T, q : Qubit) : Unit is Adj + Ctl {{
+                if left != right {{ S(q); }}
+            }}
+            operation Run(f : {input} => Unit {required_functors}) : Result {{
+                use controls = Qubit[{controlled_depth}];
+                for control in controls {{ X(control); }}
+                use q = Qubit();
+                H(q);
+                S(q);
+                f{argument};
+                H(q);
+                for control in controls {{ Reset(control); }}
+                MResetZ(q)
+            }}
+            "#
+        );
+        for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+            let context = format!("{profile:?}, {functor}, required={required_functors:?}");
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, &source);
+            let target = eval_fragments(&mut interpreter, "Run");
+            let argument = eval_fragments(
+                &mut interpreter,
+                &format!("{{ let f : {input} => Unit is Adj + Ctl = {functor} Generic; f }}"),
+            );
+            assert!(
+                matches!(argument, Value::Global(_, _)),
+                "{context}: must exercise a runtime generic global"
+            );
+            let mut output = Cursor::new(Vec::new());
+            assert_eq!(
+                interpreter
+                    .invoke(
+                        &mut CursorReceiver::new(&mut output),
+                        target.clone(),
+                        argument.clone(),
+                    )
+                    .unwrap_or_else(|errors| {
+                        panic!(
+                            "{context}: source execution: {}",
+                            format_interpret_errors(errors)
+                        );
+                    }),
+                Value::Result(qsc_eval::val::Result::Val(expected_result)),
+                "{context}: preserve the phase of the functored operation"
+            );
+            let actual = interpreter
+                .qirgen_from_callable(&target, argument)
+                .unwrap_or_else(|errors| {
+                    panic!(
+                        "{context}: runtime codegen: {}",
+                        format_interpret_errors(errors)
+                    );
+                });
+            let expected = interpreter
+                .qirgen(&format!("Run({functor} Generic)"))
+                .unwrap_or_else(|errors| {
+                    panic!(
+                        "{context}: source codegen: {}",
+                        format_interpret_errors(errors)
+                    );
+                });
+            assert_eq!(
+                actual, expected,
+                "{context}: preserve control layers and type arguments"
+            );
+        }
+    }
+}
+
+#[test]
 fn runtime_callable_argument_preserves_nominal_udt_identity() {
     let source = r#"
         namespace Test {

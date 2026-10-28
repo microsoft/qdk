@@ -1522,9 +1522,9 @@ pub mod qir {
     /// This is used only for generic inference. Runtime identities that cannot
     /// be lowered into synthetic FIR, such as qubits or dynamic variables, can
     /// still expose enough type information to instantiate the target arrow.
-    /// Callable values prefer the expected type when it is compatible with the
-    /// callable's declared generic scheme, preserving caller-provided concrete
-    /// arrow types for generic globals.
+    /// Callable values include their runtime functor layers. Generic globals use
+    /// compatible expected input/output types to instantiate their declarations
+    /// while preserving the declarations' own functor capabilities.
     fn value_ty_for_inference(
         value: &Value,
         expected_ty: Option<&qsc_fir::ty::Ty>,
@@ -1571,20 +1571,20 @@ pub mod qir {
                     .or_else(|| expected_item.cloned())?;
                 Some(qsc_fir::ty::Ty::Array(Box::new(item_ty)))
             }
-            Value::Global(id, _) => {
+            Value::Global(id, functor) => {
                 let info = callable_types.get(id)?;
                 if let Some(expected_ty) = expected_ty
-                    && infer_global_generic_args(&info.generics, &info.ty, expected_ty).is_some()
+                    && let Some((ty, _)) = instantiate_runtime_global(info, *functor, expected_ty)
                 {
-                    return Some(expected_ty.clone());
+                    return Some(runtime_callable_ty(ty, *functor));
                 }
-                Some(info.ty.clone())
+                Some(runtime_callable_ty(info.ty.clone(), *functor))
             }
             Value::Closure(closure) => {
                 let info = callable_types.get(&closure.id)?;
-                Some(partial_applied_closure_ty(
-                    &info.ty,
-                    closure.fixed_args.len(),
+                Some(runtime_callable_ty(
+                    partial_applied_closure_ty(&info.ty, closure.fixed_args.len()),
+                    closure.functor,
                 ))
             }
             Value::Var(_) => expected_ty.cloned(),
@@ -1769,12 +1769,9 @@ pub mod qir {
         let info = callable_types
             .get(&id)
             .expect("Global callable type must be pre-computed");
-        let formal_ty = info.ty.clone();
-        let inferred_generic_args = expected_ty.and_then(|actual_ty| {
-            infer_global_generic_args(&info.generics, &formal_ty, actual_ty)
-                .map(|generic_args| (actual_ty.clone(), generic_args))
-        });
-        let (ty, generic_args) = inferred_generic_args.unwrap_or_else(|| (formal_ty, Vec::new()));
+        let (ty, generic_args) = expected_ty
+            .and_then(|expected| instantiate_runtime_global(info, functor, expected))
+            .unwrap_or_else(|| (info.ty.clone(), Vec::new()));
         let expr_id = assigner.next_expr();
         package.exprs.insert(
             expr_id,
@@ -1796,26 +1793,38 @@ pub mod qir {
         wrap_expr_with_functor_app(package, assigner, expr_id, &ty, functor)
     }
 
-    /// Infers the concrete generic arguments for a reference to a generic global
-    /// callable by matching its formal type against the `actual_ty` expected at
-    /// the use site.
+    /// Infers generic arguments through the runtime functor's input layers,
+    /// then instantiates the original declaration before those layers are added
+    /// to the FIR expression. The declaration retains its own outer functors,
+    /// independently of a consumer's weaker or parameterized functor requirement.
     ///
-    /// Returns `None` when the callable is non-generic or the two types do not
-    /// unify; otherwise returns one `GenericArg` per declared parameter in
-    /// declaration order.
-    fn infer_global_generic_args(
-        generics: &[qsc_fir::ty::TypeParameter],
-        formal_ty: &qsc_fir::ty::Ty,
-        actual_ty: &qsc_fir::ty::Ty,
-    ) -> Option<Vec<qsc_fir::ty::GenericArg>> {
-        if generics.is_empty() {
+    /// Returns `None` for nongeneric callables or incompatible input/output shapes.
+    fn instantiate_runtime_global(
+        info: &CallableValueInfo,
+        functor: FunctorApp,
+        expected_ty: &Ty,
+    ) -> Option<(Ty, Vec<qsc_fir::ty::GenericArg>)> {
+        if info.generics.is_empty() {
             return None;
         }
+        let Ty::Arrow(expected) = expected_ty else {
+            return None;
+        };
+        let Ty::Arrow(formal) = &info.ty else {
+            unreachable!("global callable should have an arrow type");
+        };
+        let Ty::Arrow(applied) = runtime_callable_ty(info.ty.clone(), functor) else {
+            unreachable!("functor-applied callable should have an arrow type");
+        };
         let mut arg_map = rustc_hash::FxHashMap::default();
-        if !infer_generic_ty_args(formal_ty, actual_ty, &mut arg_map) {
+        if applied.kind != expected.kind
+            || !infer_generic_ty_args(&applied.input, &expected.input, &mut arg_map)
+            || !infer_generic_ty_args(&applied.output, &expected.output, &mut arg_map)
+        {
             return None;
         }
-        generics
+        let generic_args = info
+            .generics
             .iter()
             .enumerate()
             .map(
@@ -1831,7 +1840,11 @@ pub mod qir {
                     _ => None,
                 },
             )
-            .collect()
+            .collect::<Option<Vec<_>>>()?;
+        let instantiated = qsc_fir::ty::Scheme::new(info.generics.clone(), formal.clone())
+            .instantiate(&generic_args)
+            .expect("inferred arguments should match the declaration's generic parameters");
+        Some((Ty::Arrow(Box::new(instantiated)), generic_args))
     }
 
     /// Structurally unifies a formal type against an actual type, recording each
