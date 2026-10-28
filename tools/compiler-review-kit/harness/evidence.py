@@ -9,6 +9,7 @@ review's "status of earlier findings" quick and exact.
 """
 
 from datetime import datetime, timezone
+import ast
 import gzip
 import json
 from pathlib import Path
@@ -17,8 +18,10 @@ import shutil
 import tempfile
 
 from harness.analysis import load_run, summarize_run
+from harness.cases import bundle_cases, write_case_manifest
 from harness.common import ReviewError, read_json, write_json
-from harness.execution import exec_script
+from harness.execution import exec_script, prepare_builds
+from harness.manifests import merge_manifests
 
 REPRO_MARKER = re.compile(r"Exits 0 (?:when the bug no longer reproduces|while the bug reproduces)")
 GZIP_ABOVE = 1024 * 1024
@@ -47,48 +50,18 @@ def _copy_file(source, destination):
     return destination
 
 
-def bundle_cases(cases, base, target):
-    """Write cases into target/cases.json with sources inlined and adapters/projects copied beside them."""
-    target = Path(target)
-    bundled, projects = [], {}
-    for case in cases:
-        case = dict(case)
-        if "source_file" in case:
-            case["source"] = (base / case.pop("source_file")).read_text()
-        if "adapter" in case:
-            source = (base / case["adapter"]).resolve()
-            copied = target / "adapters" / f"{case['id']}.py"
-            _copy_file(source, copied)
-            case["adapter"] = f"adapters/{copied.name}"
-        if "project_root" in case:
-            source = (base / case["project_root"]).resolve()
-            if source not in projects:  # many cases share one project (e.g. a client's vendored Q#)
-                projects[source] = f"projects/{len(projects) + 1:03d}-{source.name}"
-                copied = target / projects[source]
-                if copied.exists():
-                    shutil.rmtree(copied)
-                shutil.copytree(source, copied, ignore=shutil.ignore_patterns("target", "__pycache__", ".git"))
-            case["project_root"] = projects[source]
-        bundled.append(case)
-    write_json(target / "cases.json", bundled)
-    return len(bundled)
-
-
 def interesting_cases(run):
-    """Original case entries of a run whose outcome is anything but unchanged and validated/observed."""
-    manifest, cases, rows = load_run(run)
+    """Select frozen inputs, never the mutable manifest that originally supplied them."""
+    _, cases, rows = load_run(run)
     chosen = set()
     for case_id, row in rows.items():
         verdicts = {c["verdict"] for c in row["comparison"]}
         verdicts |= {c["verdict"] for c in (row.get("previous") or [])}
         layer_statuses = {s for statuses in (row.get("layers") or {}).values() for s in statuses.values()}
-        if verdicts - QUIET or layer_statuses - {"validated", "observed_unvalidated", "accepted_unvalidated",
+        if verdicts - QUIET or layer_statuses - {"ok", "validated", "observed_unvalidated", "accepted_unvalidated",
                                                   "unit_unvalidated"}:
             chosen.add(case_id)
-    source = Path(manifest["cases_path"])
-    if not source.is_file():
-        raise ReviewError(f"Original case manifest is gone: {source}")
-    return [case for case in read_json(source) if case["id"] in chosen], source.parent
+    return [case for case in cases.values() if case["id"] in chosen], Path(run).resolve()
 
 
 def prune(root, budget_bytes, keep):
@@ -165,7 +138,11 @@ def report_scripts(report, directory):
     for index, block in enumerate(re.findall(r"```python\n(.*?)^```", text, re.S | re.M), 1):
         if not REPRO_MARKER.search(block):
             continue
-        title = block.strip().splitlines()[0].strip('"').strip() if block.strip() else f"script {index}"
+        try:
+            description = ast.get_docstring(ast.parse(block))
+        except SyntaxError as error:
+            raise ReviewError(f"Invalid embedded repro {index}: {error}") from error
+        title = (description or block.strip()).splitlines()[0] or f"script {index}"
         slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")[:50] or f"script_{index}"
         path = directory / f"{len(paths) + 1:02d}_{slug}.py"
         path.write_text(block)
@@ -180,28 +157,18 @@ def evidence_manifests(destination):
 
 
 def merged_manifest(manifests, output):
-    """One manifest with unique IDs and absolute paths; later duplicates of an ID are dropped."""
-    merged, seen = [], set()
-    for manifest in manifests:
-        base = Path(manifest).resolve().parent
-        for case in read_json(manifest):
-            if case["id"] in seen:
-                continue
-            seen.add(case["id"])
-            case = dict(case)
-            for field in ("adapter", "project_root", "source_file"):
-                if field in case:
-                    case[field] = str((base / case[field]).resolve())
-            merged.append(case)
-    write_json(output, merged)
+    """Merge immutable evidence with the same conflict checks as ordinary subsets."""
+    merged = merge_manifests(manifests, patterns=["*"])
+    write_case_manifest(merged, output)
     return len(merged)
 
 
 def recheck_scripts(config, scripts, targets, mode, output):
     """Use printed verdicts, falling back to not reproduced for exit 0."""
     table = []
+    builds = prepare_builds(config, targets, mode) if scripts else {}
     for script in scripts:
-        rows = exec_script(config, script, targets, mode, output, timeout=900)
+        rows = exec_script(config, script, targets, mode, output, timeout=900, builds=builds)
         table.append((Path(script).name, {row["label"]: row["reproduction"] for row in rows}))
     return table
 

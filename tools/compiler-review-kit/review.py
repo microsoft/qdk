@@ -170,7 +170,8 @@ def parser():
     drafts.add_argument("--output", type=Path, required=True)
     drafts.add_argument("--revisions", nargs="+", metavar="ROLE_OR_REF", help="table columns (default: reference candidate)")
     drafts.add_argument("--only", nargs="+", default=[], help="rerun only these slugs; reuse cached results for others")
-    drafts.add_argument("--cached", action="store_true", help="reuse cached results whenever the script is unchanged")
+    drafts.add_argument("--cached", action="store_true",
+                        help="reuse results only when script, targets, mode, and verified build provenance match")
     drafts.add_argument("--mode", choices=("release", "debug"), default="release")
 
     save = commands.add_parser("save-evidence", help="copy findings, interesting run cases and repros to the cache")
@@ -204,7 +205,7 @@ def run_command(args):
         generate_report(args.run, destination, args.overwrite)
         print(destination)
         try:  # the cache is a convenience: never fail the report because of it
-            config = load_config(manifest["config"]["config_path"])
+            config = manifest["config"]
             saved, size, total, removed = save_evidence(config, runs=[args.run])
             print(f"Evidence cached in {saved} ({size // 1024} KiB; cache {total // 1024} KiB"
                   + (f"; pruned {', '.join(removed)}" if removed else "") + ")")
@@ -230,7 +231,7 @@ def run_command(args):
         if args.select:
             chosen = select_cases(args.run_a, args.run_b, args.select, args.side, args.profiles)
             print(f"\nSelected {len(chosen)} cases for {args.select!r}")
-            if args.output and chosen:
+            if args.output:
                 print(f"Wrote {export_run_cases(args.run_b, chosen, args.output)} cases to {args.output}")
         elif args.output:
             raise ReviewError("--output requires --select")
@@ -344,6 +345,8 @@ def run_command(args):
         for line in variant_lines(columns):
             print(line)
         print(output)
+        if read_json(output / "manifest.json")["status"] != "complete":
+            sys.exit(2)
     elif args.command == "draft-issues":
         output, status = draft_issues(config, args.definitions, args.output, args.revisions, args.only, args.cached,
                                       args.mode)

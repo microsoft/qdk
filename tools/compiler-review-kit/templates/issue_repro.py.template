@@ -1,144 +1,119 @@
-"""__TITLE__
+__DOCSTRING__
 
-__DOC__
-Exits 0 when the bug no longer reproduces.
-Reproduces when __AFFECTED_TEXT__.
-Exits 2 if affected rows were not tested and no tested row reproduces.
-
-Requires: pip install qdk qirrunner__REQUIRES_EXTRA__
-"""
-
+from collections import Counter
+import contextlib
+import hashlib
+import importlib.util
+import io
 import json
+import math
 import os
+from pathlib import Path
 import re
+import resource
+import signal
+import subprocess
 import sys
 import tempfile
+import time
+import traceback
 
-import qirrunner
-from qdk import Context, TargetProfile
-
-SOURCE = """__SOURCE__"""
-__PROJECT_BLOCK__EXPECTED = "__EXPECTED__"  # the correct output
-AFFECTED = __AFFECTED__  # runs that show the bug
-SHOTS = 10
+CASES = __CASES__
+FILES = __FILES__
+EXPECTED = __EXPECTED__
+AFFECTED = __AFFECTED__
+SUFFIXES = __SUFFIXES__
 PROFILES = __PROFILES__
+SHOTS = __SHOTS__
+SEED = __SEED__
+LIMITS = __LIMITS__
+INCOMPLETE = set()
+WRONG_TYPED = set()
+KIT = Path(__file__).parent
 
 
-__BUILD__
+class ReviewError(Exception):
+    pass
 
 
-def context(profile):
-    """A Q# context for the profile, with the program loaded."""
-    __CONTEXT__
-
-
-def fmt(value):
-    """Formats a simulator value the same way as qir-runner output below."""
-    if value is None:
-        return "()"
-    if type(value).__name__ == "Result":
-        return "1" if str(value).endswith("One") else "0"
-    if isinstance(value, bool):
-        return str(value).lower()
-    if isinstance(value, float):
-        return repr(value)
-    if isinstance(value, (tuple, list)):
-        inner = ", ".join(fmt(v) for v in value)
-        return f"({inner})" if isinstance(value, tuple) else f"[{inner}]"
-    return str(value)
-
-
-def to_text(records):
-    kind, value = next(records)
-    if kind in ("TUPLE", "ARRAY"):
-        inner = ", ".join(to_text(records) for _ in range(int(value)))
-        return f"({inner})" if kind == "TUPLE" else f"[{inner}]"
-    if kind == "DOUBLE":
-        return repr(float(value))
-    if kind == "BOOL":
-        return value.lower()
-    return value
-
-
-def parse_shots(text):
-    """Turns qir-runner's output records into one formatted value per shot."""
-    shots, records = [], None
-    for line in text.splitlines():
-        fields = line.split("\t")
-        if fields[0] == "START":
-            records = []
-        elif fields[0] == "OUTPUT" and records is not None:
-            records.append((fields[1], fields[2]))
-        elif fields[0] == "END" and records is not None:
-            shots.append(to_text(iter(records)) if records else "()")
-            if fields[1] != "0":
-                shots[-1] = f"exit code {fields[1]}"
-            records = None
-    return shots
-
-
-def run_qir(qir):
-    with tempfile.NamedTemporaryFile("w", suffix=".ll", delete=False) as file:
-        file.write(qir)
-    handler = qirrunner.OutputHandler()
-    try:
-        qirrunner.run(file.name, shots=SHOTS, rng_seed=1, output_fn=handler.handle)
-    except Exception as error:  # qir-runner rejects the module
-        message = str(error).strip().splitlines()[0]
-        if message.startswith("Failed to link"):  # valid QIR calling functions qir-runner lacks
-            return {"qir-runner can't link: " + message.split(": ", 1)[-1]}
-        return {"invalid QIR: " + re.sub(r"^\S+\.ll:\d+:\d+: (error: )?", "", message)}
-    finally:
-        os.unlink(file.name)
-    return set(parse_shots(handler.get_output()))
-
-
-def failure(error):
-    """A compiler panic surfaces as PanicException, which derives from BaseException."""
-    if isinstance(error, (KeyboardInterrupt, SystemExit)):
-        raise error
-    kind = "panics" if type(error).__name__ == "PanicException" else "does not compile"
-    lines = [line.strip() for line in str(error).strip().splitlines() if line.strip()]
-    message = lines[0] if lines else type(error).__name__
-    causes = [line[3:].strip() for line in lines if line.startswith("`->")]
-    if causes:  # a diagnostic's innermost cause, e.g. the failing check during partial evaluation
-        message += ": " + causes[-1]
-    return {f"{kind}: " + message}
+# Generated from the same functions used by the review harness.
+__RUNTIME__
 
 
 def outputs():
+    import qdk
+    import qdk._native
+
+    build = {
+        "sha": "selected", "mode": "selected",
+        "overlay": str(Path(qdk.__file__).resolve().parents[1]),
+        "native_path": qdk._native.__file__,
+        "native_digest": file_digest(qdk._native.__file__),
+        "worktree": os.environ.get("QDK_LIB_OVERRIDE_MICROSOFT_QDK"),
+    }
+    config = {
+        "venv": str(Path(sys.executable).parent.parent), "limits": LIMITS,
+        "_worker_command": [sys.executable, str(Path(__file__).resolve()), "--review-stage"],
+    }
     rows = {}
-    for suffix, build in FORMS:
-        try:
-            ctx = context(TargetProfile.Unrestricted)
-            entry, args = build(ctx)
-            rows["simulator" + suffix] = {fmt(v) for v in ctx.run(entry, SHOTS, *args, seed=1)}
-        except BaseException as error:
-            rows["simulator" + suffix] = failure(error)
-        for profile in PROFILES:
-            try:
-                ctx = context(getattr(TargetProfile, profile))
-                entry, args = build(ctx)
-                qir = str(ctx.compile(entry, *args))
-            except BaseException as error:  # the profile rejects the program, or the compiler panics
-                rows[profile + suffix] = failure(error)
-                continue
-            rows[profile + suffix] = run_qir(qir)
+
+    def observe(name, record, expected=None):
+        for field in ("stderr", "runner_stderr", "messages"):
+            if record.get(field):
+                print(record[field], end="", file=sys.stderr)
+        if record["status"] == "ok":
+            rows[name] = {format_value(value) for value in record["values"]} if "values" in record else {"compiled"}
+            if expected is not None and "values" in record:
+                for value in record["values"]:
+                    if value != expected:
+                        WRONG_TYPED.add(name)
+                        print(f"{name}: expected {expected!r}, observed {value!r}", file=sys.stderr)
+            return
+        if record["status"] in ("timeout", "infrastructure_error", "parser_error", "unsupported_profile"):
+            INCOMPLETE.add(name)
+        kind = {"panic": "panics", "diagnostic": "does not compile"}.get(record["status"], record["status"])
+        message = record.get("message") or record.get("runner_stderr") or record.get("stderr") or kind
+        rows[name] = {f"{kind}: {message.strip().splitlines()[0]}"}
+
+    with tempfile.TemporaryDirectory(prefix="review-repro-") as directory:
+        root = Path(directory)
+        for name, contents in FILES.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(contents)
+        for case, suffix in zip(CASES, SUFFIXES):
+            case = dict(case, profiles=PROFILES, shots=SHOTS, seed=SEED)
+            for field in ("adapter", "project_root"):
+                if field in case:
+                    case[field] = str(root / case[field])
+            result = run_case(config, build, case, root / "outputs" / case["id"])
+            expected = case["oracle"].get("expected")
+            if "simulator" in result:
+                observe("simulator" + suffix, result["simulator"], expected)
+            for profile, stages in result["profiles"].items():
+                compiled = stages["compile"]
+                observe(profile + suffix, stages.get("runner", compiled), expected)
     return rows
 
 
 def main():
+    INCOMPLETE.clear()
+    WRONG_TYPED.clear()
     rows = outputs()
     width = max(map(len, rows)) + 2
     for name, values in rows.items():
         print(f"{name:<{width}}{' | '.join(sorted(values))}")
     print(f"{'expected':<{width}}{EXPECTED}")
     print("JSON: " + json.dumps({name: sorted(values) for name, values in rows.items()}))
-    wrong = [name for name in AFFECTED if name in rows and rows[name] != {EXPECTED}]
+    if EXPECTED is None:
+        print("INCONCLUSIVE: no independent expected value")
+        return 2
+    wrong = [name for name in AFFECTED if name in rows and name not in INCOMPLETE
+             and (rows[name] != {EXPECTED} or name in WRONG_TYPED)]
     if wrong:
         print(f"REPRODUCED: {', '.join(wrong)} differ from {EXPECTED}")
         return 1
-    missing = [name for name in AFFECTED if name not in rows]
+    missing = [name for name in AFFECTED if name not in rows] + sorted(INCOMPLETE)
     if missing:
         print(f"INCONCLUSIVE: affected rows not run: {', '.join(missing)}")
         return 2
@@ -147,4 +122,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    def interrupted(signum, frame):
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, interrupted)
+    sys.exit(stage_main() if sys.argv[1:] == ["--review-stage"] else main())

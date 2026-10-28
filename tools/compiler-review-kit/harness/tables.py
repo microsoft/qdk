@@ -9,6 +9,7 @@ import re
 
 from harness.analysis import load_run
 from harness.common import PROFILES, ordered_roles
+from harness.records import outcome_key
 
 
 def format_value(value):
@@ -60,7 +61,9 @@ def cell(record, expected, width=60):
     if ran.get("status") != "ok":
         return f"RUN {ran.get('status')}: {_first_line(ran.get('message') or ran.get('runner_stderr'), width)}"
     text = _values(ran.get("values", []))
-    if expected is not None and expected != {"type": "unit"} and any(v != expected for v in ran.get("values", [])):
+    if expected is not None and expected != {"type": "unit"} and any(
+        (format_value(v) if isinstance(expected, str) else v) != expected for v in ran.get("values", [])
+    ):
         return f"**{text}**"
     return text
 
@@ -91,7 +94,7 @@ def run_table(run, profiles=None, roles=None, only_diff=False, patterns=(), widt
             result = row["results"][role]
             cells = [f"{p}={cell(result.get('profiles', {}).get(p), expected, width)}" for p in chosen]
             body.append((role, refs.get(role, result.get("sha", ""))[:8], simulator_cell(result), cells))
-        if only_diff and len({tuple(cells) for *_, cells in body}) <= 1:
+        if only_diff and len({outcome_key(row["results"][role], chosen) for role in shown}) <= 1:
             continue
         lines.append(f"## {case_id}  expected={format_value(expected) if expected else '?'}")
         for role, sha, sim, cells in body:

@@ -13,9 +13,39 @@ import subprocess
 import sys
 import traceback
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness.common import ReviewError, file_digest  # noqa: E402
 from harness.records import counts, encode, parse_output  # noqa: E402
+
+
+def load_case(ctx, case):
+    if "source" in case:
+        ctx.eval(case["source"])
+    args, entry = (), case.get("entry")
+    if "adapter" in case:
+        spec = importlib.util.spec_from_file_location("review_adapter", case["adapter"])
+        if spec is None or spec.loader is None:
+            raise ReviewError(f"Cannot load adapter: {case['adapter']}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        entry, args = module.prepare(ctx)
+        if not isinstance(args, (tuple, list)):
+            raise ReviewError("Adapter prepare(ctx) must return (entry, argument_sequence)")
+    if entry is None:
+        raise ReviewError("Case has no entry expression or callable")
+    return entry, args
+
+
+def failure(error):
+    if isinstance(error, (KeyboardInterrupt, SystemExit)):
+        raise error
+    name = type(error).__name__
+    if name == "PanicException":
+        return {"status": "panic", "message": str(error)}
+    if name == "QSharpError":
+        return {"status": "diagnostic", "message": str(error)}
+    return {"status": "infrastructure_error", "message": f"{name}: {error}", "traceback": traceback.format_exc()}
 
 
 def execute(job):
@@ -43,7 +73,9 @@ def execute(job):
     overlay = Path(job["build"]["overlay"]).resolve()
     if Path(qdk.__file__).resolve() != overlay / "qdk/__init__.py":
         raise ReviewError(f"Wrong qdk imported: {qdk.__file__}")
-    if Path(qdk._native.__file__).resolve() != overlay / "qdk/_native.abi3.so":
+    if Path(qdk._native.__file__).resolve() != Path(job["build"].get(
+        "native_path", str(overlay / "qdk/_native.abi3.so")
+    )).resolve():
         raise ReviewError(f"Wrong native module imported: {qdk._native.__file__}")
     if file_digest(qdk._native.__file__) != job["build"]["native_digest"]:
         raise ReviewError("Native module digest differs from the build manifest")
@@ -58,21 +90,7 @@ def execute(job):
     )
     ctx.set_classical_seed(job["seed"])
     ctx.set_quantum_seed(job["seed"])
-    if "source" in case:
-        ctx.eval(case["source"])
-    args = ()
-    entry = case.get("entry")
-    if "adapter" in case:
-        spec = importlib.util.spec_from_file_location("review_adapter", case["adapter"])
-        if spec is None or spec.loader is None:
-            raise ReviewError(f"Cannot load adapter: {case['adapter']}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        entry, args = module.prepare(ctx)
-        if not isinstance(args, (tuple, list)):
-            raise ReviewError("Adapter prepare(ctx) must return (entry, argument_sequence)")
-    if entry is None:
-        raise ReviewError("Case has no entry expression or callable")
+    entry, args = load_case(ctx, case)
     if job["stage"] == "compile":
         return {"status": "ok", "qir": str(ctx.compile(entry, *args))}
     values = ctx.run(entry, job["shots"], *args, seed=job["seed"])
@@ -92,19 +110,7 @@ def main():
         with contextlib.redirect_stdout(captured):
             result = execute(job)
     except BaseException as error:
-        if isinstance(error, (KeyboardInterrupt, SystemExit)):
-            raise
-        name = type(error).__name__
-        if name == "PanicException":
-            result = {"status": "panic", "message": str(error)}
-        elif name == "QSharpError":
-            result = {"status": "diagnostic", "message": str(error)}
-        else:
-            result = {
-                "status": "infrastructure_error",
-                "message": f"{name}: {error}",
-                "traceback": traceback.format_exc(),
-            }
+        result = failure(error)
     result["messages"] = captured.getvalue()
     print(json.dumps(result, allow_nan=False))
 

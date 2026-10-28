@@ -7,51 +7,15 @@ import json
 from pathlib import Path
 
 from harness.common import ReviewError, read_json
+from harness.cases import read_run_cases
+from harness.repros import render_repro
+from harness.tables import format_value
 
 
-def source_repro(case):
-    return f'''import pathlib
-import subprocess
-import sys
-
-SOURCE = {case["source"]!r}
-ENTRY = {case["entry"]!r}
-FEATURES = {case.get("language_features")!r}
-SHOTS = {case["shots"]}
-SEED = {case["seed"]}
-PROFILES = {case["profiles"]!r}
-CHILD = """
-import pathlib, subprocess, sys
-from qdk import Context, TargetProfile
-profile = sys.argv[1]
-ctx = Context(target_profile=getattr(TargetProfile, profile), language_features=FEATURES)
-ctx.set_classical_seed(SEED)
-ctx.set_quantum_seed(SEED)
-ctx.eval(SOURCE)
-if profile == "Unrestricted":
-    print(ctx.run(ENTRY, SHOTS, seed=SEED))
-else:
-    qir = str(ctx.compile(ENTRY))
-    runner = pathlib.Path(sys.executable).parent / "qir-runner"
-    result = subprocess.run([str(runner), "-s", str(SHOTS), "-r", str(SEED)],
-                            input=qir, text=True, capture_output=True, timeout=120)
-    print(result.stdout, end="")
-    print(result.stderr, end="", file=sys.stderr)
-    sys.exit(result.returncode)
-"""
-prefix = f"SOURCE={{SOURCE!r}}\\nENTRY={{ENTRY!r}}\\nFEATURES={{FEATURES!r}}\\nSHOTS={{SHOTS}}\\nSEED={{SEED}}\\n"
-for profile in ["Unrestricted"] + PROFILES:
-    print(f"=== {{profile}} ===", flush=True)
-    try:
-        result = subprocess.run([sys.executable, "-c", prefix + CHILD, profile],
-                                capture_output=True, text=True, timeout=300)
-    except subprocess.TimeoutExpired:
-        print("TIMEOUT")
-        continue
-    print(result.stdout, end="")
-    print(result.stderr, end="", file=sys.stderr)
-    print(f"exit={{result.returncode}}")
-'''
+def source_repro(case, limits=None):
+    expected = case["oracle"].get("expected")
+    text = format_value(expected) if expected is not None and expected != {"type": "unit"} else None
+    return render_repro([case], text, ["simulator", *case["profiles"]], case["id"], limits=limits)
 
 
 def generate_report(run, output, overwrite=False):
@@ -60,7 +24,7 @@ def generate_report(run, output, overwrite=False):
     if output.exists() and not overwrite:
         raise ReviewError(f"Report exists: {output}; use --overwrite only for an owned generated draft.")
     manifest = read_json(run / "manifest.json")
-    cases = {case["id"]: case for case in read_json(run / "cases.json")}
+    cases = {case["id"]: case for case in read_run_cases(run)}
     rows = [json.loads(line) for line in (run / "results.jsonl").read_text().splitlines() if line]
     refs = manifest["config"]["refs"]
     lines = [
@@ -131,26 +95,22 @@ def generate_report(run, output, overwrite=False):
                 "```",
                 "",
             ]
-            if "source" in case and "adapter" not in case and "project_root" not in case:
+            if "source" in case:
                 lines += [
                     "```qsharp",
                     case["source"].rstrip(),
                     "```",
                     "",
+                ]
+            expected = case["oracle"].get("expected")
+            if case["oracle"]["kind"] == "deterministic" and expected is not None and expected != {"type": "unit"}:
+                lines += [
                     "Run with the selected revision's pinned overlay using `review.py exec`:",
-                    "",
-                    "```python",
-                    source_repro(case).rstrip(),
-                    "```",
-                    "",
+                    "", "```python", source_repro(case, manifest["config"].get("limits")).rstrip(), "```", "",
                 ]
             else:
-                lines += [
-                    "**Repro incomplete for publication:** this case needs its project/adapter "
-                    "bundle. Minimize to standalone Q# plus inline Python, or explicitly document "
-                    "and bundle every dependency.",
-                    "",
-                ]
+                lines += ["Add an explicit non-Unit deterministic expectation before generating a self-checking repro. "
+                          "The frozen case bundle remains available for ordinary replay.", ""]
             lines += ["Observed evidence:", "", "```json", json.dumps(row["results"], indent=2), "```", ""]
             if row.get("historical") is not None:
                 lines += [

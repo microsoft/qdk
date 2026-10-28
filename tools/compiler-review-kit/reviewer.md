@@ -159,6 +159,8 @@ Test the _same curated input_ at both endpoints. Cases using newly introduced AP
 may legitimately fail on the reference; decide intended support before calling it
 a regression. Retain small known repros if present, but do not make them the sole
 source of coverage. Give every omission/exclusion a reason.
+Use the harness's frozen case exports for findings and rechecks, not mutable
+original manifests. Do not repair conflicting case IDs by silently dropping one.
 
 ### Result and Qubit handle aliasing
 
@@ -326,6 +328,9 @@ Actually execute the final inline repros on the reported revisions (`review.py
 exec` records outputs, panic locations and enclosing functions). Keep raw errors,
 exit statuses, and observations; do not hand-edit outputs to match expectations.
 Compile acceptance without a semantic oracle is not a verified fix.
+Use the shared report/issue repro generator rather than hand-copying another
+parser or runner. An evidence draft without an explicit deterministic expectation
+needs that oracle added before it can generate a self-checking semantic repro.
 
 Search for overlapping issues beyond the configured author (`issues --all`,
 `match-issues`; GitHub's own search may silently return nothing) and link them as

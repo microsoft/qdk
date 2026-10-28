@@ -10,7 +10,7 @@ from pathlib import Path
 import tempfile
 
 from harness.builds import build_revision, worker_environment
-from harness.cases import load_cases
+from harness.cases import case_identity, load_cases, write_case_manifest
 from harness.common import KIT, ReviewError, digest, file_digest, isolated, preflight, select_roles, write_json
 
 
@@ -28,7 +28,9 @@ def stage(config, build, case, name, profile=None, qir_path=None):
     }
     with tempfile.TemporaryDirectory(prefix="review-worker-") as cwd:
         return isolated(
-            [str(Path(config["venv"]) / "bin/python"), str(KIT / "harness/worker.py")],
+            config.get("_worker_command", [
+                str(Path(config["venv"]) / "bin/python"), str(KIT / "harness/worker.py"),
+            ]),
             payload=job,
             env=worker_environment(config, build),
             cwd=cwd,
@@ -110,6 +112,15 @@ FAILURES = {
 }
 
 
+def simulator_endpoint(case, result):
+    sim = result["simulator"]
+    expected = case["oracle"].get("expected")
+    if expected is not None and expected != {"type": "unit"} and sim["status"] == "ok":
+        if any(value != expected for value in sim["values"]):
+            return "wrong_result"
+    return sim["status"]
+
+
 def compare(case, reference, candidate):
     rows = []
     for profile in case["profiles"]:
@@ -134,15 +145,8 @@ def compare(case, reference, candidate):
             verdict = "inconclusive"
         rows.append({"profile": profile, "reference": old, "candidate": new, "verdict": verdict})
     if case["oracle"]["kind"] != "compile_only":
-        old_sim = reference["simulator"]
-        new_sim = candidate["simulator"]
-        old, new = old_sim["status"], new_sim["status"]
+        old, new = simulator_endpoint(case, reference), simulator_endpoint(case, candidate)
         expected = case["oracle"].get("expected")
-        if expected is not None and expected != {"type": "unit"}:
-            if old == "ok" and any(v != expected for v in old_sim["values"]):
-                old = "wrong_result"
-            if new == "ok" and any(v != expected for v in new_sim["values"]):
-                new = "wrong_result"
         failures = {"panic", "crash", "diagnostic", "runtime_error", "timeout", "wrong_result"}
         if old == "ok" and new in failures:
             verdict = "simulator_regression_candidate"
@@ -180,19 +184,29 @@ def prune_qir(config, case, results):
                 Path(path).unlink()
 
 
-def create_run(config, cases_path, mode, roles=None):
+def create_run(config, cases_path, mode, roles=None, targets=None):
     tools = preflight(config)
-    roles = select_roles(config, roles)
+    if targets is None:
+        roles = select_roles(config, roles)
+        targets = [(role, config["refs"][role]) for role in roles]
+    else:
+        roles = [role for role, _ in targets]
+        if len(set(roles)) != len(roles):
+            raise ReviewError("Execution target labels must be unique")
+        config = config | {"refs": dict(targets)}
     root = Path(config["work_dir"]) / "runs"
     root.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-"), dir=root))
     cases, skipped = load_cases(cases_path, config, directory / "inputs")
+    projects = {}
+    identities = {case["id"]: case_identity(case, projects) for case in cases}
     manifest = {
         "config": config,
         "tools": tools,
         "mode": mode,
         "cases_path": str(Path(cases_path).resolve()),
-        "case_digest": digest(cases),
+        "case_digest": digest(identities),
+        "case_identities": identities,
         "harness_digest": digest(
             {str(p.relative_to(KIT)): p.read_text() for p in sorted((KIT / "harness").glob("*.py"))}
         ),
@@ -201,9 +215,14 @@ def create_run(config, cases_path, mode, roles=None):
         "status": "running",
     }
     write_json(directory / "manifest.json", manifest)
-    write_json(directory / "cases.json", cases)
+    write_case_manifest(cases, directory / "cases.json")
+    (directory / "inputs/cases.json").unlink()
     try:
-        builds = {role: build_revision(config, config["refs"][role], mode, tools) for role in roles}
+        by_sha, builds = {}, {}
+        for role, sha in targets if cases else []:
+            if sha not in by_sha:
+                by_sha[sha] = build_revision(config, sha, mode, tools)
+            builds[role] = by_sha[sha]
         manifest["builds"] = builds
         manifest["roles"] = roles
         write_json(directory / "manifest.json", manifest)
@@ -213,26 +232,30 @@ def create_run(config, cases_path, mode, roles=None):
                 role: run_case(config, build, case, directory / case["id"] / role)
                 for role, build in builds.items()
             }
-            comparison = compare(case, results["reference"], results["candidate"])
+            comparison = (
+                compare(case, results["reference"], results["candidate"])
+                if "reference" in results and "candidate" in results else []
+            )
             historical = (
                 compare(case, results["historical_reference"], results["candidate"])
-                if "historical_reference" in results
+                if "historical_reference" in results and "candidate" in results
                 else None
             )
             # Lost fixes: what the previously reviewed candidate did versus the current candidate.
             previous = (
                 compare(case, results["previously_reviewed"], results["candidate"])
-                if "previously_reviewed" in results
+                if "previously_reviewed" in results and "candidate" in results
                 else None
             )
-            layers = {
-                role: {profile: endpoint(case, results[role], profile) for profile in case["profiles"]}
-                for role in results
-                if role.startswith("layer")
-            } or None
+            layers = {}
+            for role, result in results.items():
+                if role.startswith("layer"):
+                    layers[role] = {profile: endpoint(case, result, profile) for profile in case["profiles"]}
+                    if "simulator" in result:
+                        layers[role]["Unrestricted"] = simulator_endpoint(case, result)
             prune_qir(config, case, results)
             return {"case": case["id"], "results": results, "comparison": comparison, "historical": historical,
-                    "previous": previous, "layers": layers}
+                    "previous": previous, "layers": layers or None}
 
         # Rows are appended as cases finish so slow cases never hide progress; the file
         # is rewritten in manifest order once every case has completed.

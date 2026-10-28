@@ -133,6 +133,7 @@ def worker_environment(config, build):
     env.update(
         PYTHONPATH=build["overlay"],
         PYTHONNOUSERSITE="1",
-        QDK_LIB_OVERRIDE_MICROSOFT_QDK=build["worktree"],
     )
+    if build.get("worktree"):
+        env["QDK_LIB_OVERRIDE_MICROSOFT_QDK"] = build["worktree"]
     return env

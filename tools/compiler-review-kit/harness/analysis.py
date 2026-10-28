@@ -10,6 +10,7 @@ import re
 import statistics
 
 from harness.common import PROFILES, ReviewError, read_json
+from harness.cases import case_identity, read_run_cases
 
 # Base ⊂ Adaptive_RI ⊂ Adaptive_RIF ⊂ Adaptive: a program accepted by a lower
 # profile is expected to remain valid on every higher one.
@@ -17,7 +18,8 @@ HIERARCHY = PROFILES
 BAD_VERDICTS = {"regression_candidate", "simulator_regression_candidate", "new_failure_unvalidated"}
 GOOD_VERDICTS = {"fix_candidate", "simulator_fix_candidate", "newly_accepted_unvalidated"}
 # Failures that announce themselves; a change from one of these to wrong_result hides a bug.
-LOUD = {"panic", "rejected", "compiler_crash", "compile_timeout", "execution_failure", "execution_timeout"}
+LOUD = {"panic", "rejected", "compiler_crash", "compile_timeout", "execution_failure", "execution_timeout",
+        "crash", "diagnostic", "runtime_error", "timeout"}
 FAILED = LOUD | {"wrong_result"}
 # Defaults for per-case compile-time outliers (whole compile stage, including process start).
 OUTLIER_RATIO = 2.0
@@ -28,7 +30,7 @@ EXTRACTED = re.compile(r"^([0-9a-f]{12}) (\S+) test (\S+)")
 def load_run(run):
     run = Path(run)
     manifest = read_json(run / "manifest.json")
-    cases = {case["id"]: case for case in read_json(run / "cases.json")} if (run / "cases.json").exists() else {}
+    cases = {case["id"]: case for case in read_run_cases(run)} if (run / "cases.json").exists() else {}
     rows = {}
     results = run / "results.jsonl"
     if results.exists():
@@ -56,6 +58,8 @@ def stage_message(result, profile):
     """The most specific message for a non-validated endpoint, for signature grouping."""
     if profile == "Unrestricted":
         sim = result.get("simulator", {})
+        if sim.get("status") == "ok":
+            return ""
         return sim.get("message") or sim.get("stderr") or sim.get("status", "")
     record = result["profiles"].get(profile, {})
     compiled = record.get("compile", {})
@@ -87,6 +91,8 @@ def _compile_seconds(result, profile):
 
 def summarize_run(run, examples=5, outlier_ratio=OUTLIER_RATIO, outlier_seconds=OUTLIER_SECONDS):
     manifest, cases, rows = load_run(run)
+    if not {"reference", "candidate"} <= manifest["config"]["refs"].keys():
+        raise ReviewError("Summary requires reference/candidate targets; use table for other target labels.")
     candidate_sha = manifest["config"]["refs"]["candidate"]
     verdicts = Counter()
     transitions = defaultdict(Counter)
@@ -110,12 +116,12 @@ def summarize_run(run, examples=5, outlier_ratio=OUTLIER_RATIO, outlier_seconds=
                     "case": case_id, "profile": profile, "reference": old, "candidate": new,
                     "signature": normalize_signature(stage_message(candidate, profile)),
                 })
-            if profile != "Unrestricted" and old in LOUD and new == "wrong_result":
+            if old in LOUD and new == "wrong_result":
                 silenced.append({
                     "case": case_id, "profile": profile, "reference": old,
                     "signature": normalize_signature(stage_message(row["results"]["reference"], profile)),
                 })
-            if profile != "Unrestricted" and new not in ("validated", "validated_unchanged") and not new.endswith("_unvalidated"):
+            if new not in ("validated", "validated_unchanged", "ok") and not new.endswith("_unvalidated"):
                 key = (profile, new, normalize_signature(stage_message(candidate, profile)))
                 group = signatures[key]
                 group["count"] += 1
@@ -147,8 +153,9 @@ def summarize_run(run, examples=5, outlier_ratio=OUTLIER_RATIO, outlier_seconds=
         for role, statuses in (row.get("layers") or {}).items():
             for profile, status in statuses.items():
                 # A layer that breaks what both ends get right, or silences a loud reference failure.
-                if status in FAILED and candidate_status.get(profile) == "validated" and (
-                    reference_status.get(profile) == "validated" or status == "wrong_result"
+                correct = "ok" if profile == "Unrestricted" else "validated"
+                if status in FAILED and candidate_status.get(profile) == correct and (
+                    reference_status.get(profile) == correct or status == "wrong_result"
                 ):
                     layer_hazards[role][(profile, reference_status.get(profile), status)].append(case_id)
         for side in ("reference", "candidate"):
@@ -306,11 +313,27 @@ def _run_refs(manifest):
     return manifest["config"]["refs"]
 
 
+def _check_inputs(manifest_a, cases_a, manifest_b, cases_b, ids):
+    if manifest_a.get("mode") and manifest_b.get("mode") and manifest_a["mode"] != manifest_b["mode"]:
+        raise ReviewError("Cannot compare runs with different build modes")
+    projects = {}
+    for case_id in ids:
+        old = manifest_a.get("case_identities", {}).get(case_id) or case_identity(cases_a[case_id], projects)
+        new = manifest_b.get("case_identities", {}).get(case_id) or case_identity(cases_b[case_id], projects)
+        if old != new:
+            # Coverage can differ; comparisons already select shared profile columns.
+            a = {key: value for key, value in cases_a[case_id].items() if key != "profiles"}
+            b = {key: value for key, value in cases_b[case_id].items() if key != "profiles"}
+            if case_identity(a, projects) != case_identity(b, projects):
+                raise ReviewError(f"Cannot compare {case_id}: the frozen inputs or execution settings differ")
+
+
 def compare_runs(run_a, run_b, side="candidate", examples=5):
     """Case-by-case status changes between two runs that share case IDs."""
-    manifest_a, _, rows_a = load_run(run_a)
-    manifest_b, _, rows_b = load_run(run_b)
+    manifest_a, cases_a, rows_a = load_run(run_a)
+    manifest_b, cases_b, rows_b = load_run(run_b)
     common = sorted(set(rows_a) & set(rows_b))
+    _check_inputs(manifest_a, cases_a, manifest_b, cases_b, common)
     changes = defaultdict(list)
     reference_changes = []
     for case_id in common:
@@ -372,8 +395,9 @@ def parse_selection(text):
 def select_cases(run_a, run_b, selection, side="candidate", profiles=None):
     """Case IDs for which every term holds for at least one shared profile."""
     terms = parse_selection(selection)
-    _, _, rows_a = load_run(run_a)
-    _, _, rows_b = load_run(run_b)
+    manifest_a, cases_a, rows_a = load_run(run_a)
+    manifest_b, cases_b, rows_b = load_run(run_b)
+    _check_inputs(manifest_a, cases_a, manifest_b, cases_b, set(rows_a) & set(rows_b))
     chosen = []
     for case_id in sorted(set(rows_a) & set(rows_b)):
         a, b = outcomes(rows_a[case_id], side), outcomes(rows_b[case_id], side)
@@ -457,4 +481,3 @@ def match_issues(snapshot, needles, limit=10):
             {"number": i["number"], "state": i.get("state"), "title": i.get("title")} for i in hits[:limit]
         ], "total": len(hits)}
     return results
-

@@ -159,6 +159,13 @@ Results never resume from an old JSONL file: every run is fresh. A run contains
 resolved configuration/tools/build identities, case snapshots, stage results,
 raw output, and retained unmodified QIR. The main checkout is never switched.
 
+`cases.json` and its bundled inputs are the authority for what ran. Sources are
+inlined; adapters and complete local dependency graphs are snapshotted with
+relative paths, sharing each project once per bundle without merging distinct
+packages. Content identities exclude temporary paths and provenance notes.
+Exports, saved evidence, reports, and comparisons use these frozen inputs, not
+the original manifest or configuration. Changed frozen inputs are an error.
+
 Release is the only default build mode. Do not build debug unless the user asks,
 including for assertion-sensitive findings. If the user requests targeted debug
 validation, set `debug_validation=targeted`, assemble a findings manifest, and
@@ -176,6 +183,11 @@ requested. Existing support for all four profiles remains available.
 Generate an **evidence draft** from a run, then complete it using the report
 template. The generated draft does not establish root causes or PR attribution.
 Individual-commit attribution is not required unless requested.
+Self-checking scripts are generated only for cases with an explicit non-Unit
+deterministic expectation; other cases retain their evidence and need an oracle
+before publication. Report and issue repros use one renderer, embedding the same
+stage execution and output parsing code as the harness. They need no kit files
+when run, and include local projects and adapters.
 
 ```bash
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py report /tmp/compiler-review-kit/REVIEW/runs/RUN_DIRECTORY
@@ -225,12 +237,16 @@ Compile-time medians come from concurrent sweeps and are only a hint.
 reference` compares reference columns). Use it after every PR update: rerun the
 same manifests and compare reference-relative regressions and fixes. Investigating
 **lost fixes** is opt-in. `--select` terms (`a=STATUS`, `b!=STATUS`, ...) must all
-hold for one shared profile; `--output` copies the selected cases' original entries
-from run B's manifest. A change from a loud failure to a wrong result is labelled
-`worse (silent)`. `subset` merges manifests by ID or glob and rewrites
-`source_file`, `project_root` and `adapter` paths for the new location. An ID that
-appears again with the same content (provenance fields aside) is merged; the same ID
-with different content is an error.
+hold for one shared profile; `--output` exports the selected frozen cases from run
+B into a portable bundle. Comparisons reject changed source, dependencies,
+adapters, or execution settings under the same ID; different profile coverage
+can still be compared on shared columns. Build modes must match.
+An empty selection writes `[]`, replacing any previous output; it is not a
+runnable case manifest.
+A change from a loud failure to a wrong result is labelled `worse (silent)`.
+`subset` uses the same bundling and content-conflict checks. Duplicate IDs with
+identical inputs are merged; conflicting definitions are an error, including
+during cached rechecks.
 
 Only when the user requests lost-fix analysis, configure `previously_reviewed`
 or select differences between earlier and current candidate runs:
@@ -274,12 +290,19 @@ A trusted variants file defines `VARIANTS`: a list of dictionaries with `name`,
 callable returning `(entry, args)` for the callable API. Optional `PROFILES` and
 `PROJECT` (files of a temporary Q# project; sources are evaluated afterwards, as a
 separate compilation unit). Every variant runs in the simulator and on each profile
-(compile + qir-runner) at each revision. The matrix marks wrong results and lists
+(compile + qir-runner) at each revision using the ordinary case runner, with the
+same independent stages, memory caps, timeouts, import checks, and retained shots.
+The command returns a standard run directory, not a separate worker-result format.
+The matrix marks wrong results and lists
 the variants whose outcome differs between revisions. Use it to narrow a finding to
 the one ingredient that matters (see `tools/compiler-review-kit/examples/variants.py`).
 Profile selection uses `--profiles`, then an explicit configuration `profiles`,
 then the variants module's `PROFILES`, then Base/Adaptive_RIF/Adaptive. Include
 Adaptive_RI only when the user asks.
+Keep definitions self-contained and construct QDK objects inside `build(ctx)`,
+not at module import time. Printed `expected` values are display checks; curate a
+typed deterministic case before treating a variant as an adjudicated finding.
+Difference filters include simulator observations, not just compiled profiles.
 
 ### Executing standalone repros on each revision
 
@@ -293,6 +316,8 @@ Adaptive_RI only when the user asks.
 `<work_dir>/exec`, and reports the exit status, final Python exception, and every
 native panic with its `file:line`, message, and the enclosing Rust `fn` resolved
 at that revision. Use it for the final inline repros and for variant tables.
+Scripts and worker stages share process-group supervision: a timeout requests
+termination, allows bounded cleanup, then kills the group if necessary.
 
 ### Extracting test programs
 
@@ -359,6 +384,10 @@ Generated scripts use the configuration's profiles, omitting Adaptive_RI by
 default. If no tested row reproduces but an affected row was omitted, the script
 exits 2 with an inconclusive result, not a claim that the bug is fixed.
 See `issue-template.md` for the format.
+`--cached` and reuse during `--only` require matching script contents, resolved
+targets, build mode, timeout, and verified native/Python/library/tool provenance.
+Builds are prepared once per distinct SHA, not once per issue. A mismatched cache
+entry is rerun, never relabeled with the current revision.
 
 ### Generators and oracle tools
 
@@ -543,7 +572,8 @@ current QDK layout/ABI; unsupported historical layouts fail explicitly.
 Build cache reuse verifies tool/dependency metadata, package/library digests,
 worktree SHA and non-ignored modifications; workers verify actual import locations and
 the native digest. Compilation failures stop the build, never reuse a stale library.
-No result cache or silent QIR patch is used.
+Ordinary runs never reuse result rows or patch QIR. Only explicit issue-draft
+cache reuse uses recorded, matching execution identities.
 
 All revisions share one Cargo target directory so third-party crates compile once.
 Cargo names workspace-crate artifacts by workspace-relative path and judges freshness
@@ -580,8 +610,10 @@ deliverables directory.
 
 `save-evidence` bundles case manifests with their adapters and projects (one copy per
 shared project), the non-quiet cases of each run with a compact summary, and extra
-files. JSON over 1 MiB is gzipped. `report` saves the run's non-quiet cases
-automatically. The cache's total size is kept under `cache_budget_mb` by deleting
+files. A saved run is exported from its frozen snapshot even if the original
+inputs/configuration are gone. JSON over 1 MiB in extra files is gzipped.
+`report` saves the run's non-quiet cases automatically using that run's pinned
+configuration. The cache's total size is kept under `cache_budget_mb` by deleting
 whole reviews, oldest first; the current review is never deleted.
 
 `recheck` reruns a cached review: its cases at the configured roles, printed as a

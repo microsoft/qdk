@@ -4,7 +4,6 @@
 """Times context creation, loading and compilation of each case at one revision (one process per sweep)."""
 
 import contextlib
-import importlib.util
 import io
 import json
 from pathlib import Path
@@ -14,6 +13,7 @@ import time
 
 def measure(cases, profiles):
     import qdk
+    from harness.worker import failure, load_case
 
     results = {}
     for case in cases:
@@ -30,24 +30,16 @@ def measure(cases, profiles):
                     language_features=case.get("language_features"),
                 )
                 created = time.perf_counter()
-                if "source" in case:
-                    ctx.eval(case["source"])
-                entry, args = case.get("entry"), ()
-                if "adapter" in case:
-                    spec = importlib.util.spec_from_file_location("timing_adapter", case["adapter"])
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    entry, args = module.prepare(ctx)
+                ctx.set_classical_seed(case["seed"])
+                ctx.set_quantum_seed(case["seed"])
+                entry, args = load_case(ctx, case)
                 loaded = time.perf_counter()
                 ctx.compile(entry, *args)
                 compiled = time.perf_counter()
                 rows[profile] = {"status": "ok", "context": created - start, "load": loaded - created,
                                  "compile": compiled - loaded}
             except BaseException as error:  # PanicException derives from BaseException
-                if isinstance(error, (KeyboardInterrupt, SystemExit)):
-                    raise
-                kind = "panic" if type(error).__name__ == "PanicException" else "diagnostic"
-                rows[profile] = {"status": kind, "message": str(error).strip().splitlines()[0][:200] if str(error) else ""}
+                rows[profile] = failure(error)
         results[case["id"]] = rows
     return {"status": "ok", "qdk": qdk.__file__, "results": results}
 

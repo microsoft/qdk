@@ -75,6 +75,25 @@ def counts(values):
     return dict(Counter(json.dumps(v, sort_keys=True) for v in values))
 
 
+def outcome_key(result, profiles=None):
+    """Compare complete observations, not timings, QIR text, or formatted table cells."""
+    def stage(record):
+        if record.get("status") == "ok":
+            return {"status": "ok", "counts": counts(record["values"])} if "values" in record else {"status": "ok"}
+        return {"status": record.get("status"), "message": (
+            record.get("message") or record.get("runner_stderr") or record.get("stderr") or ""
+        )}
+
+    observation = {"profiles": {
+        profile: {name: stage(record) for name, record in stages.items()}
+        for profile, stages in result.get("profiles", {}).items()
+        if profiles is None or profile in profiles
+    }}
+    if "simulator" in result:
+        observation["simulator"] = stage(result["simulator"])
+    return json.dumps(observation, sort_keys=True)
+
+
 def parse_output(text, shots):
     frames, records, active = [], [], False
     for line in text.splitlines():

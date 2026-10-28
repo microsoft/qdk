@@ -7,6 +7,8 @@ comments unless separately authorized. Generate the drafts with
 `templates/issue_repro.py.template`, executes it at every revision, and fills in the
 Outputs table, the messages and the panic links from those executions. Never type
 outputs by hand.
+Generated scripts embed frozen inputs and the harness's shared stage runtime;
+they are self-contained and use the same strict output parser and stage limits.
 
 Write one sub-issue per distinct trigger (a shared panic site is not enough to merge
 two), separated by `---`, plus a prose summary for a meta-issue. For a trigger of an

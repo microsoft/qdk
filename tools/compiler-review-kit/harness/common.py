@@ -50,7 +50,15 @@ def read_json(path):
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+    text = json.dumps(value, indent=2, allow_nan=False) + "\n"
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(text)
+            stream.close()
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def validate(value, schema, label="$"):
@@ -256,8 +264,8 @@ def tree_digest(root):
     )
 
 
-def isolated(args, *, payload, env, cwd, timeout):
-    """A new process group allows a timeout to kill the worker and its runner."""
+def supervise(args, *, input_text=None, env, cwd, timeout):
+    """Capture a process and own its entire process group's lifetime."""
     start = time.monotonic()
     proc = subprocess.Popen(
         args,
@@ -270,21 +278,35 @@ def isolated(args, *, payload, env, cwd, timeout):
         start_new_session=True,
     )
     try:
-        stdout, stderr = proc.communicate(json.dumps(payload), timeout=timeout)
+        stdout, stderr = proc.communicate(input_text, timeout=timeout)
     except subprocess.TimeoutExpired:
-        termination = "killed worker process group"
+        termination = "terminated process group"
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
-            termination = "worker exited while the timeout was being handled"
-        stdout, stderr = proc.communicate()
+            termination = "process exited while the timeout was being handled"
+        try:
+            stdout, stderr = proc.communicate(timeout=1)
+        except subprocess.TimeoutExpired:
+            termination = "killed process group"
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = proc.communicate()
         return {
             "status": "timeout",
             "stdout": stdout,
             "stderr": stderr,
             "seconds": time.monotonic() - start,
             "termination": termination,
+            "returncode": proc.returncode,
         }
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     elapsed = time.monotonic() - start
     if proc.returncode:
         return {
@@ -294,16 +316,23 @@ def isolated(args, *, payload, env, cwd, timeout):
             "stderr": stderr,
             "seconds": elapsed,
         }
+    return {"status": "ok", "returncode": proc.returncode, "stdout": stdout, "stderr": stderr, "seconds": elapsed}
+
+
+def isolated(args, *, payload, env, cwd, timeout):
+    observed = supervise(args, input_text=json.dumps(payload), env=env, cwd=cwd, timeout=timeout)
+    if observed["status"] != "ok":
+        return observed
     try:
-        result = json.loads(stdout)
+        result = json.loads(observed["stdout"])
     except json.JSONDecodeError:
         return {
             "status": "infrastructure_error",
             "message": "Worker did not produce one JSON result",
-            "stdout": stdout,
-            "stderr": stderr,
-            "seconds": elapsed,
+            "stdout": observed["stdout"],
+            "stderr": observed["stderr"],
+            "seconds": observed["seconds"],
         }
     if not isinstance(result, dict) or "status" not in result:
         raise ReviewError(f"Invalid worker result: {result!r}")
-    return result | {"stderr": stderr, "seconds": elapsed}
+    return result | {"stderr": observed["stderr"], "seconds": observed["seconds"]}

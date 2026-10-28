@@ -5,10 +5,9 @@
 
 from pathlib import Path
 import re
-import subprocess
 
 from harness.builds import build_revision, worker_environment
-from harness.common import ReviewError, git, ordered_roles, preflight, resolve_ref, write_json
+from harness.common import ReviewError, git, ordered_roles, preflight, resolve_ref, supervise, write_json
 
 PANIC = re.compile(r"panicked at ([^\s:]+):(\d+):(\d+):\n(.*)")
 EXCEPTION = re.compile(r"^((?:[A-Za-z_][\w]*\.)*[A-Za-z_]\w*(?:Error|Exception)): ?(.*)$", re.M)
@@ -60,30 +59,30 @@ def resolve_targets(config, roles=None, refs=None):
     return [(role, config["refs"][role]) for role in roles]
 
 
-def exec_script(config, script, targets, mode, output_dir, timeout, args=()):
+def prepare_builds(config, targets, mode, builds=None, tools=None):
+    tools = preflight(config) if tools is None else tools
+    builds = {} if builds is None else builds
+    for _, sha in targets:
+        if sha not in builds:
+            builds[sha] = build_revision(config, sha, mode, tools)
+    return builds
+
+
+def exec_script(config, script, targets, mode, output_dir, timeout, args=(), builds=None):
     script = Path(script).resolve()
     if not script.is_file():
         raise ReviewError(f"Missing script: {script}")
-    tools = preflight(config)
+    builds = prepare_builds(config, targets, mode) if builds is None else builds
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     python = str(Path(config["venv"]) / "bin/python")
     rows = []
     for label, sha in targets:
-        build = build_revision(config, sha, mode, tools)
+        build = builds[sha]
         env = worker_environment(config, build)
-        try:
-            proc = subprocess.run(
-                [python, str(script), *args], cwd=script.parent, env=env,
-                capture_output=True, text=True, timeout=timeout,
-            )
-            stdout, stderr, status = proc.stdout, proc.stderr, proc.returncode
-        except subprocess.TimeoutExpired as error:
-            stdout = error.stdout or ""
-            stderr = error.stderr or ""
-            stdout = stdout.decode() if isinstance(stdout, bytes) else stdout
-            stderr = stderr.decode() if isinstance(stderr, bytes) else stderr
-            status = "timeout"
+        observed = supervise([python, str(script), *args], cwd=script.parent, env=env, timeout=timeout)
+        stdout, stderr = observed["stdout"], observed["stderr"]
+        status = "timeout" if observed["status"] == "timeout" else observed["returncode"]
         panics = parse_panics(stderr)
         for panic in panics:
             try:

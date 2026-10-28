@@ -7,11 +7,13 @@ import ast
 import json
 import io
 import os
+import shutil
+import signal
 from pathlib import Path
 import sys
 import subprocess
 import tempfile
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -21,9 +23,11 @@ from harness.analysis import (  # noqa: E402
     parse_selection, select_cases, summarize_run,
 )
 from harness.builds import build_revision, refresh_timestamps, verify_build  # noqa: E402
-from harness.cases import load_cases, snapshot_project  # noqa: E402
+from harness.cases import (  # noqa: E402
+    bundle_cases, case_identity, load_cases, read_case_manifest, read_run_cases, snapshot_project, write_project,
+)
 from harness.common import (  # noqa: E402
-    KIT, ReviewError, isolated, load_config, ordered_roles, read_json, select_roles, tree_digest, validate,
+    DEFAULT_LIMITS, KIT, ReviewError, isolated, load_config, ordered_roles, read_json, select_roles, supervise, tree_digest, validate,
     write_json,
 )
 from harness.diffscan import scan_diff_text  # noqa: E402
@@ -31,8 +35,7 @@ from harness import evidence  # noqa: E402
 from harness.issue_drafts import draft_issues, load_definitions, markdown as issue_markdown, render  # noqa: E402
 from harness.tables import cell as table_cell, format_value, run_table  # noqa: E402
 from harness.timing import aggregate, ratios  # noqa: E402
-from harness.variants import run_variants, variant_lines  # noqa: E402
-from harness.variants_worker import load_variants  # noqa: E402
+from harness.variants import load_variants, run_variants, variant_lines  # noqa: E402
 from harness.discovery import discover_samples, infer_entry, snapshot_issues  # noqa: E402
 from harness.execution import (  # noqa: E402
     enclosing_function, exec_script, last_exception, parse_panics, reproduction_status,
@@ -46,7 +49,8 @@ from harness.records import encode, parse_output, validate_value  # noqa: E402
 from harness.report import generate_report, source_repro  # noqa: E402
 from harness.runner import compare, create_run, endpoint, prune_qir, run_case  # noqa: E402
 from harness.statecheck import check as statecheck  # noqa: E402
-from harness import variants_worker, worker  # noqa: E402
+from harness import worker  # noqa: E402
+from review import parser, run_command  # noqa: E402
 
 sys.path.insert(0, str(KIT / "generators"))
 import callable_chains  # noqa: E402
@@ -82,7 +86,27 @@ def frame(*records):
     return "START\nMETADATA\tentry_point\n" + "\n".join(records) + "\nEND\t0\n"
 
 
+def review_config(root):
+    return {
+        "work_dir": str(root / "work"), "venv": str(root / "venv"), "repository": str(root),
+        "refs": {"reference": "a" * 40, "candidate": "b" * 40}, "input": {},
+        "profiles": ["Base"], "limits": DEFAULT_LIMITS | {"jobs": 1, "shots": 2},
+        "keep_qir": False, "name": "review", "cache_dir": str(root / "cache"),
+        "cache_budget_mb": 10, "report": str(root / "report.md"),
+    }
+
+
 class ConfigurationTests(unittest.TestCase):
+    def test_failed_json_publication_preserves_previous_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.json"
+            write_json(path, {"previous": True})
+            with patch("pathlib.Path.replace", side_effect=OSError("publication failed")):
+                with self.assertRaisesRegex(OSError, "publication failed"):
+                    write_json(path, {"new": True})
+            self.assertEqual(read_json(path), {"previous": True})
+            self.assertEqual(list(path.parent.iterdir()), [path])
+
     def test_bundled_smoke_config_resolves_repository(self):
         with patch("harness.common.resolve_ref", side_effect=lambda repo, ref: ref):
             config = load_config(KIT / "tests" / "smoke.json")
@@ -388,7 +412,8 @@ class HelperTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             copied = snapshot_project(KIT / "examples/project", Path(directory), {})
             manifest = read_json(copied / "qsharp.json")
-            dependency = Path(manifest["dependencies"]["Dependency"]["path"])
+            self.assertFalse(Path(manifest["dependencies"]["Dependency"]["path"]).is_absolute())
+            dependency = (copied / manifest["dependencies"]["Dependency"]["path"]).resolve()
             self.assertNotEqual(copied, dependency)
             self.assertTrue((dependency / "src/MeasureOne.qs").exists())
             self.assertFalse((copied / "src/MeasureOne.qs").exists())
@@ -486,6 +511,16 @@ def write_run(root, rows, refs=None, cases_path=None):
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_summary_groups_simulator_failures(self):
+        candidate = good()
+        candidate["simulator"] = {"status": "panic", "message": "new simulator panic"}
+        row = {"case": "test", "results": {"reference": good(), "candidate": candidate},
+               "comparison": compare(CASE, good(), candidate)}
+        with tempfile.TemporaryDirectory() as directory:
+            summary = summarize_run(write_run(directory, [row]))
+        group = next(group for group in summary["candidate_failures"] if group["profile"] == "Unrestricted")
+        self.assertEqual((group["status"], group["signature"]), ("panic", "new simulator panic"))
+
     def test_signature_normalization_groups_ids(self):
         a = normalize_signature("PostArgPromote: Expr 67 passes Expr 70\nsecond line")
         b = normalize_signature("\n  PostArgPromote: Expr 1   passes Expr 2")
@@ -568,6 +603,20 @@ class AnalysisTests(unittest.TestCase):
 
 
 class ManifestTests(unittest.TestCase):
+    def test_empty_selection_replaces_a_stale_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = comparison_row("test", {"Base": ("validated", "validated")})
+            first = write_run(root / "first", [row])
+            second = write_run(root / "second", [row])
+            output = root / "selected.json"
+            write_json(output, [CASE])
+            args = parser().parse_args(["compare", str(first), str(second), "--select",
+                                        "a=validated,b!=validated", "--output", str(output)])
+            with patch("sys.stdout", io.StringIO()):
+                run_command(args)
+            self.assertEqual(read_json(output), [])
+
     def test_subset_rebases_relative_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -581,7 +630,9 @@ class ManifestTests(unittest.TestCase):
             count = subset_manifests([root / "a" / "cases.json", root / "b.json"], output, ids=["other"], patterns=["py-*"])
             cases = read_json(output)
             self.assertEqual(count, 2)
-            self.assertEqual((output.parent / cases[0]["adapter"]).resolve(), (root / "a/adapters/x.py").resolve())
+            copied = (output.parent / cases[0]["adapter"]).resolve()
+            self.assertNotEqual(copied, (root / "a/adapters/x.py").resolve())
+            self.assertEqual(copied.read_text(), "")
             with self.assertRaisesRegex(ReviewError, "not found"):
                 subset_manifests([root / "b.json"], output, ids=["missing"])
             # The same ID with the same content (provenance aside) is merged; different content is an error.
@@ -637,21 +688,65 @@ class ExecutionTests(unittest.TestCase):
             script = root / "repro.py"
             script.write_text("")
             stdout = "REPRODUCED: original trigger\n" + "detail\n" * 500
-            proc = subprocess.CompletedProcess([], 0, stdout=stdout, stderr="")
             build = {"overlay": str(root), "worktree": str(root)}
             with patch("harness.execution.preflight", return_value={}), patch(
                 "harness.execution.build_revision", return_value=build
-            ), patch("harness.execution.subprocess.run", return_value=proc):
+            ), patch("harness.execution.supervise", return_value={
+                "status": "ok", "returncode": 0, "stdout": stdout, "stderr": "",
+            }):
                 rows = exec_script({"venv": str(root)}, script, [("candidate", "a" * 40)],
                                    "release", root / "exec", 5)
             self.assertNotIn("REPRODUCED", rows[0]["stdout_tail"])
             self.assertEqual(rows[0]["reproduction"], "reproduces")
-            with patch("harness.evidence.exec_script", return_value=rows):
+            with patch("harness.evidence.exec_script", return_value=rows), patch(
+                "harness.evidence.prepare_builds", return_value={}
+            ):
                 table = evidence.recheck_scripts({}, [script], [], "release", root / "exec")
             output = io.StringIO()
             with patch("sys.stdout", output):
                 evidence.print_recheck(table, ["candidate"])
             self.assertIn("reproduces", output.getvalue())
+
+    def test_timeout_terminates_the_process_group(self):
+        code = ("import subprocess,sys,time\n"
+                "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                "print(child.pid, flush=True)\ntime.sleep(60)\n")
+        with tempfile.TemporaryDirectory() as directory:
+            result = supervise([sys.executable, "-c", code], env=os.environ.copy(), cwd=directory, timeout=0.5)
+        self.assertEqual(result["status"], "timeout")
+        pid = int(result["stdout"].strip())
+        try:
+            stat = Path(f"/proc/{pid}/stat")
+            self.assertTrue(not stat.exists() or stat.read_text().split()[2] == "Z")
+        finally:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def test_timeout_allows_nested_supervisor_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pidfile = Path(directory) / "child.pid"
+            child = f"import os,pathlib,time; pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid())); time.sleep(60)"
+            parent = (
+                "import os,signal,sys\n"
+                f"sys.path.insert(0, {str(KIT)!r})\n"
+                "from harness.common import supervise\n"
+                "def interrupted(signum, frame):\n    raise SystemExit(128 + signum)\n"
+                "signal.signal(signal.SIGTERM, interrupted)\n"
+                f"supervise([sys.executable, '-c', {child!r}], env=os.environ.copy(), cwd={directory!r}, timeout=60)\n"
+            )
+            result = supervise([sys.executable, "-c", parent], env=os.environ.copy(), cwd=directory, timeout=0.5)
+            self.assertEqual(result["status"], "timeout")
+            pid = int(pidfile.read_text())
+            try:
+                stat = Path(f"/proc/{pid}/stat")
+                self.assertTrue(not stat.exists() or stat.read_text().split()[2] == "Z")
+            finally:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 class ExtractionTests(unittest.TestCase):
@@ -873,6 +968,41 @@ class BuildFreshnessTests(unittest.TestCase):
 
 
 class RunOrderingTests(unittest.TestCase):
+    def test_excluded_matrix_does_not_build_revisions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = review_config(root)
+            config["input"]["exclusions"] = [{"match": "*", "reason": "explicitly excluded"}]
+            write_json(root / "cases.json", [CASE])
+            with patch("harness.runner.preflight", return_value={}), patch(
+                "harness.runner.build_revision", side_effect=AssertionError("excluded cases must not build")
+            ) as build:
+                run = create_run(config, root / "cases.json", "release")
+            build.assert_not_called()
+            self.assertEqual(read_json(run / "manifest.json")["builds"], {})
+            self.assertEqual((run / "results.jsonl").read_text(), "")
+
+    def test_simulator_only_intermediate_pr_failure_is_reported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = review_config(root)
+            config["refs"]["layer1"] = "c" * 40
+            write_json(root / "cases.json", [CASE | {"oracle": {"kind": "deterministic", "expected": ONE}}])
+
+            def execute(config, build, case, directory):
+                result = good()
+                if build["sha"] == config["refs"]["layer1"]:
+                    result["simulator"] = {"status": "panic", "message": "layer-only simulator failure"}
+                return result
+
+            with patch("harness.runner.preflight", return_value={}), patch(
+                "harness.runner.build_revision", side_effect=lambda config, sha, mode, tools: {"sha": sha}
+            ), patch("harness.runner.run_case", side_effect=execute), patch("sys.stdout", io.StringIO()):
+                run = create_run(config, root / "cases.json", "release")
+            hazards = summarize_run(run)["layer_hazards"]["layer1"]
+            self.assertEqual(hazards[0]["profile"], "Unrestricted")
+            self.assertEqual(hazards[0]["examples"], ["test"])
+
     def test_results_are_rewritten_in_manifest_order(self):
         import time
 
@@ -1029,53 +1159,58 @@ class TimingTests(unittest.TestCase):
 
 
 class VariantTests(unittest.TestCase):
-    def test_worker_profile_defaults_and_explicit_selection(self):
-        defaults = ["Base", "Adaptive_RIF", "Adaptive"]
-        scenarios = [(None, None, defaults), (None, ["Adaptive"], ["Adaptive"]),
-                     (["Adaptive_RI"], ["Adaptive"], ["Adaptive_RI"])]
-        for requested, module_profiles, expected in scenarios:
-            with self.subTest(requested=requested, module_profiles=module_profiles):
-                module = SimpleNamespace()
-                if module_profiles is not None:
-                    module.PROFILES = module_profiles
-                job = {"variants": "variants.py", "profiles": requested, "shots": 2, "seed": 1, "runner": "runner"}
-                output = io.StringIO()
-                with patch.dict(sys.modules, {"qdk": SimpleNamespace(__file__="qdk/__init__.py")}), patch(
-                    "harness.variants_worker.load_variants", return_value=(module, [{"name": "v"}])
-                ), patch("harness.variants_worker.run_variant", return_value={"name": "v"}) as run, patch(
-                    "sys.stdin", io.StringIO(json.dumps(job))
-                ), patch("sys.stdout", output):
-                    variants_worker.main()
-                self.assertEqual(json.loads(output.getvalue())["profiles"], expected)
-                self.assertEqual(run.call_args.args[3], expected)
-
-    def test_explicit_config_profiles_reach_variant_worker(self):
+    def test_variants_share_case_stages_and_profile_selection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = root / "variants.py"
-            path.write_text("VARIANTS = [{'name': 'v'}]\n")
-            config = {"work_dir": str(root), "venv": "/opt/qdk-venv",
-                      "profiles": ["Adaptive_RI"], "input": {"profiles": ["Adaptive_RI"]},
-                      "limits": {"shots": 2, "seed": 1, "compile_seconds": 10}}
-            build = {"overlay": str(root), "worktree": str(root)}
-            for requested, expected in ((None, ["Adaptive_RI"]), (["Base"], ["Base"])):
-                with self.subTest(requested=requested), patch("harness.variants.preflight", return_value={}), patch(
-                    "harness.variants.build_revision", return_value=build
-                ), patch("harness.variants.isolated", return_value={
-                    "status": "ok", "profiles": expected, "variants": [],
-                }) as execute:
-                    run_variants(config, path, [("candidate", "a" * 40)], requested, "release")
-                self.assertEqual(execute.call_args.kwargs["payload"]["profiles"], expected)
+            path.write_text("PROFILES = ['Adaptive']\nVARIANTS = [{'name': 'v', 'entry': 'Main()'}]\n")
+            config = review_config(root)
+            config["profiles"] = ["Adaptive_RI"]
+            config["input"]["profiles"] = ["Adaptive_RI"]
+            scenarios = [(None, ["Adaptive_RI"]), (["Base"], ["Base"])]
+            for requested, expected in scenarios:
+                calls = []
+
+                def execute(config, build, case, directory):
+                    calls.append(case["profiles"])
+                    return {"simulator": good()["simulator"],
+                            "profiles": {p: good()["profiles"]["Base"] for p in case["profiles"]}}
+
+                with self.subTest(requested=requested), patch("harness.runner.preflight", return_value={}), patch(
+                    "harness.runner.build_revision", return_value={}
+                ), patch("harness.runner.run_case", side_effect=execute), patch("sys.stdout", io.StringIO()):
+                    directory, columns = run_variants(config, path, [("candidate", "a" * 40)], requested, "release")
+                self.assertEqual(calls, [expected])
+                self.assertEqual(list(columns[0]["variants"][0]["result"]["profiles"]), expected)
+                self.assertTrue((directory / "results.jsonl").is_file())
+                frozen = read_run_cases(directory)[0]
+                self.assertTrue(Path(frozen["adapter"]).is_file())
+                self.assertFalse(Path(read_json(directory / "manifest.json")["cases_path"]).exists())
 
     def test_matrix_marks_wrong_and_differences(self):
         def column(label, value):
             return {"label": label, "sha": label * 8, "panics": [], "variants": [
-                {"name": "v", "expected": "1", "simulator": {"status": "ok", "values": ["1"]},
-                 "profiles": {"Adaptive": {"status": "ok", "values": [value]}}}]}
+                {"name": "v", "expected": "1", "result": {
+                    "simulator": {"status": "ok", "values": [ONE]},
+                    "profiles": {"Adaptive": {"compile": {"status": "ok"},
+                                             "runner": {"status": "ok", "values": [ONE if value == "1" else ZERO]}}},
+                }}]}
         lines = variant_lines([column("a", "1"), column("b", "0")])
         self.assertIn("Adaptive=1", lines[1])
         self.assertIn("Adaptive=**0**", lines[2])
         self.assertIn("differs between revisions: 1 (v)", lines[-1])
+
+    def test_simulator_only_changes_are_not_filtered_out(self):
+        reference, candidate = good(), good()
+        candidate["simulator"] = {"status": "panic", "message": "simulator failed"}
+        columns = [{"label": label, "sha": label * 8, "panics": [], "variants": [
+            {"name": "v", "expected": "1", "result": result},
+        ]} for label, result in (("a", reference), ("b", candidate))]
+        self.assertIn("differs between revisions: 1 (v)", variant_lines(columns)[-1])
+        with tempfile.TemporaryDirectory() as directory:
+            row = {"case": "test", "results": {"reference": reference, "candidate": candidate}, "comparison": []}
+            run = write_run(directory, [row])
+            self.assertTrue(run_table(run, only_diff=True))
 
     def test_variant_files_need_unique_names(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1134,7 +1269,7 @@ class IssueDraftTests(unittest.TestCase):
             with self.subTest(value=value), patch("sys.stdout", io.StringIO()) as output:
                 namespace = {
                     "outputs": lambda: {"Adaptive": {value}},
-                    "EXPECTED": "1", "AFFECTED": affected, "json": json,
+                    "EXPECTED": "1", "AFFECTED": affected, "json": json, "INCOMPLETE": set(), "WRONG_TYPED": set(),
                 }
                 exec(compile(ast.Module(body=[main], type_ignores=[]), "<repro>", "exec"), namespace)
                 self.assertEqual(namespace["main"](), expected_exit)
@@ -1154,16 +1289,203 @@ class IssueDraftTests(unittest.TestCase):
                 )
             ]
             config = {"work_dir": str(root / "work"),
+                      "limits": DEFAULT_LIMITS,
                       "profiles": ["Base", "Adaptive_RIF", "Adaptive"],
                       "refs": {row["label"]: row["sha"] for row in rows}}
-            with patch("harness.issue_drafts.exec_script", return_value=rows):
+            with patch("harness.issue_drafts.exec_script", return_value=rows), patch(
+                "harness.issue_drafts.preflight", return_value={}
+            ), patch("harness.execution.build_revision", return_value={
+                "native_digest": "n", "package_digest": "p", "library_digest": "l", "tools": {},
+            }):
                 _, status = draft_issues(config, KIT / "examples" / "issues.py", root / "issues.md",
                                          revisions=list(config["refs"]))
             self.assertEqual(status["loop_result_slot"],
                              {row["label"]: row["reproduction"] for row in rows})
 
+    def test_cache_reuse_requires_the_same_targets_mode_and_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = review_config(root)
+            tools = {"runner": "first"}
+
+            def execute(config, script, targets, mode, output, timeout, builds=None):
+                rows = []
+                for label, sha in targets:
+                    log = output / f"{label}.log"
+                    log.write_text('JSON: {"simulator": ["1"], "Base": ["0"]}\n')
+                    rows.append({"label": label, "sha": sha, "exit": 1, "panics": [],
+                                 "log": str(log), "reproduction": "reproduces"})
+                return rows
+
+            def build(config, sha, mode, current_tools):
+                return {"native_digest": sha + mode, "package_digest": "p", "library_digest": "l",
+                        "tools": dict(current_tools)}
+
+            with patch("harness.issue_drafts.preflight", side_effect=lambda config: dict(tools)), patch(
+                "harness.execution.build_revision", side_effect=build
+            ), patch("harness.issue_drafts.exec_script", side_effect=execute) as run:
+                args = (config, KIT / "examples/issues.py", root / "issues.md")
+                draft_issues(*args)
+                draft_issues(*args, cached=True)
+                self.assertEqual(run.call_count, 1)
+                config["refs"]["candidate"] = "c" * 40
+                draft_issues(*args, cached=True)
+                self.assertEqual(run.call_count, 2)
+                draft_issues(*args, cached=True, mode="debug")
+                self.assertEqual(run.call_count, 3)
+                tools["runner"] = "second"
+                draft_issues(*args, cached=True, mode="debug")
+                self.assertEqual(run.call_count, 4)
+            self.assertIn("candidate (`cccccccc`)", (root / "issues.md").read_text())
+
+
+class FrozenInputTests(unittest.TestCase):
+    def test_distinct_identical_packages_are_not_aliased(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("one", "two"):
+                write_project({"src/Type.qs": "namespace Types { newtype T = Int; }"}, root / name)
+            write_project({"qsharp.json": json.dumps({"dependencies": {
+                "A": {"path": "../one"}, "B": {"path": "../two"},
+            }})}, root / "project")
+            original = CASE | {"project_root": str(root / "project")}
+            bundle_cases([original], root, root / "bundle")
+            copied = read_case_manifest(root / "bundle/cases.json")[0]
+            self.assertEqual(case_identity(original), case_identity(copied))
+            project = Path(copied["project_root"])
+            dependencies = read_json(project / "qsharp.json")["dependencies"]
+            self.assertNotEqual(dependencies["A"]["path"], dependencies["B"]["path"])
+
+    def test_export_and_cache_replay_without_originals_or_run_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "original"
+            original.mkdir()
+            shutil.copytree(KIT / "examples/project", original / "project")
+            shutil.copytree(KIT / "examples/dependency", original / "dependency")
+            (original / "program.qs").write_text("operation Main() : Result { One }")
+            (original / "adapter.py").write_text("def prepare(ctx):\n    return 'Main()', ()\n")
+            cases = [{"id": name, "source_file": "program.qs", "adapter": "adapter.py",
+                      "project_root": "project", "oracle": {"kind": "deterministic", "expected": ONE}}
+                     for name in ("first", "second")]
+            write_json(original / "cases.json", cases)
+            config = review_config(root)
+
+            def execute(config, build, case, directory):
+                return good(ONE if build["sha"] == config["refs"]["reference"] else ZERO)
+
+            with patch("harness.runner.preflight", return_value={}), patch(
+                "harness.runner.build_revision", side_effect=lambda config, sha, mode, tools: {"sha": sha}
+            ), patch("harness.runner.run_case", side_effect=execute), patch("sys.stdout", io.StringIO()):
+                run = create_run(config, original / "cases.json", "release")
+            frozen = read_run_cases(run)
+            self.assertEqual(frozen[0]["project_root"], frozen[1]["project_root"])
+            expected = {case["id"]: case_identity(case) for case in frozen}
+            (original / "program.qs").write_text("operation Main() : Result { Zero }")
+            shutil.rmtree(original)
+            with patch("sys.stdout", io.StringIO()):
+                run_command(SimpleNamespace(command="report", run=run, output=root / "report.md", overwrite=False))
+            self.assertTrue((root / "cache/review/runs" / run.name / "summary.json").is_file())
+            exported = root / "exports/cases.json"
+            export_run_cases(run, ["first", "second"], exported)
+            saved, _, _, _ = evidence.save_evidence(config, runs=[run])
+            relocated = root / "relocated-cache" / config["name"]
+            relocated.parent.mkdir()
+            shutil.move(saved, relocated)
+            shutil.rmtree(root / "work")
+            config["cache_dir"] = str(relocated.parent)
+            manifests, _, _ = evidence.recheck_inputs(config)
+            for index, manifest in enumerate([exported, *manifests]):
+                reloaded, _ = load_cases(manifest, config, root / f"replay-{index}")
+                self.assertEqual({case["id"]: case_identity(case) for case in reloaded}, expected)
+                project = Path(reloaded[0]["project_root"])
+                dependency = read_json(project / "qsharp.json")["dependencies"]["Dependency"]["path"]
+                self.assertFalse(Path(dependency).is_absolute())
+                self.assertTrue((project / dependency / "src/MeasureOne.qs").is_file())
+
+    def test_changed_frozen_input_and_same_id_different_cases_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = comparison_row("test", {"Base": ("validated", "validated")})
+            run = write_run(root / "first", [row])
+            cases = read_case_manifest(run / "cases.json")
+            manifest = read_json(run / "manifest.json")
+            manifest["case_identities"] = {"test": case_identity(cases[0])}
+            write_json(run / "manifest.json", manifest)
+            other = write_run(root / "second", [row])
+            changed = read_json(other / "cases.json")
+            changed[0]["source"] = "operation Main() : Result { One }"
+            write_json(other / "cases.json", changed)
+            with self.assertRaisesRegex(ReviewError, "inputs or execution settings differ"):
+                compare_runs(run, other)
+            write_json(other / "cases.json", [cases[0] | {"profiles": ["Base", "Adaptive"]}])
+            self.assertEqual(compare_runs(run, other)["common"], 1)
+            write_json(run / "cases.json", changed)
+            with self.assertRaisesRegex(ReviewError, "Frozen inputs changed"):
+                read_run_cases(run)
+
+    def test_report_repro_embeds_exact_inputs_and_is_recoverable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = root / "inputs"
+            inputs.mkdir()
+            source = 'operation Main() : Result { Message("say \\"hi\\" __PROFILES__"); One }'
+            adapter = inputs / "adapter.py"
+            adapter.write_text("def prepare(ctx):\n    return 'Main()', ()\n")
+            shutil.copytree(KIT / "examples/project", inputs / "project")
+            shutil.copytree(KIT / "examples/dependency", inputs / "dependency")
+            case = CASE | {"source": source, "adapter": str(adapter), "project_root": str(inputs / "project"),
+                           "oracle": {"kind": "deterministic", "expected": ONE}}
+            script = source_repro(case)
+            shutil.rmtree(inputs)
+            namespace = {"__name__": "review_repro", "__file__": str(root / "repro.py")}
+            exec(compile(script, "<repro>", "exec"), namespace)
+            self.assertEqual(namespace["CASES"][0]["source"], source)
+            native = root / "_native.py"
+            native.write_text("")
+            qdk, extension = ModuleType("qdk"), ModuleType("qdk._native")
+            qdk.__file__, extension.__file__ = str(root / "qdk/__init__.py"), str(native)
+            qdk._native = extension
+
+            def execute(config, build, current, directory):
+                self.assertEqual(current["source"], source)
+                self.assertEqual(Path(current["adapter"]).read_text(), "def prepare(ctx):\n    return 'Main()', ()\n")
+                project = Path(current["project_root"])
+                dependency = read_json(project / "qsharp.json")["dependencies"]["Dependency"]["path"]
+                self.assertTrue((project / dependency / "src/MeasureOne.qs").is_file())
+                result = good(ONE if observed is None else observed)
+                if observed is None:
+                    result["profiles"]["Base"]["runner"] = {"status": "parser_error", "message": "malformed output"}
+                return result
+
+            namespace["run_case"] = execute
+            for observed, status in ((ONE, 0), (encode(1), 1), (None, 2), (ONE, 0)):
+                with patch.dict(sys.modules, {"qdk": qdk, "qdk._native": extension}), patch(
+                    "sys.stdout", io.StringIO()
+                ) as output, patch("sys.stderr", io.StringIO()):
+                    self.assertEqual(namespace["main"](), status)
+                verdict = {0: "NOT REPRODUCED", 1: "REPRODUCED:", 2: "INCONCLUSIVE:"}[status]
+                self.assertIn(verdict, output.getvalue())
+            report = root / "report.md"
+            report.write_text("```python\n" + script + "\n```\n")
+            self.assertEqual(len(evidence.report_scripts(report, root / "extracted")), 1)
 
 class EvidenceTests(unittest.TestCase):
+    def test_quiet_stack_cases_are_not_cached_but_failures_are(self):
+        rows = []
+        for name, simulator, candidate in (
+            ("quiet", "ok", "validated"),
+            ("layer-failure", "panic", "validated"),
+            ("regression", "ok", "panic"),
+        ):
+            row = comparison_row(name, {"Base": ("validated", candidate)})
+            row["layers"] = {"layer1": {"Base": "validated", "Unrestricted": simulator}}
+            rows.append(row)
+        with tempfile.TemporaryDirectory() as directory:
+            run = write_run(directory, rows)
+            cases, _ = evidence.interesting_cases(run)
+        self.assertEqual([case["id"] for case in cases], ["layer-failure", "regression"])
+
     def test_bundle_save_prune_and_recheck_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1185,15 +1507,15 @@ class EvidenceTests(unittest.TestCase):
             saved, size, total, removed = evidence.save_evidence(config, findings=[root / "m" / "cases.json"],
                                                                  files=[root / "repro.py"])
             bundled = read_json(saved / "findings" / "m-cases" / "cases.json")
-            self.assertEqual({c.get("project_root") for c in bundled[:2]}, {"projects/001-proj"})
-            self.assertEqual(bundled[2]["adapter"], "adapters/py.py")
+            self.assertEqual(len({c.get("project_root") for c in bundled[:2]}), 1)
+            self.assertTrue((saved / "findings/m-cases" / bundled[2]["adapter"]).is_file())
             self.assertEqual(removed, ["old"])
             manifests, scripts, source = evidence.recheck_inputs(config)
             self.assertEqual(len(manifests), 1)
             self.assertEqual([p.name for p in scripts], ["repro.py"])
             merged = root / "merged.json"
             self.assertEqual(evidence.merged_manifest(manifests * 2, merged), 3)
-            self.assertTrue(Path(read_json(merged)[2]["adapter"]).is_absolute())
+            self.assertTrue(Path(read_case_manifest(merged)[2]["adapter"]).is_absolute())
 
     def test_report_fallback_extracts_marked_scripts(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1208,6 +1530,14 @@ class EvidenceTests(unittest.TestCase):
             self.assertIn("embedded", source)
             with self.assertRaisesRegex(ReviewError, "No evidence"):
                 evidence.recheck_inputs(config)
+
+    def test_recheck_merge_rejects_conflicting_same_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_json(root / "first.json", [CASE])
+            write_json(root / "second.json", [CASE | {"source": "operation Main() : Result { One }"}])
+            with self.assertRaisesRegex(ReviewError, "different content"):
+                evidence.merged_manifest([root / "first.json", root / "second.json"], root / "merged.json")
 
 
 class DiffScanTests(unittest.TestCase):

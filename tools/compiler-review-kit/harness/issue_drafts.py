@@ -11,11 +11,13 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import tempfile
 
-from harness.common import DEFAULT_PROFILES, KIT, ReviewError, resolve_ref, write_json
-from harness.execution import exec_script
+from harness.cases import write_project
+from harness.common import DEFAULT_PROFILES, ReviewError, digest, preflight, read_json, resolve_ref, write_json
+from harness.execution import exec_script, prepare_builds
+from harness.repros import render_repro
 
-TEMPLATE = KIT / "templates" / "issue_repro.py.template"
 REQUIRED = ("slug", "title", "kind", "affects", "regression", "found_in", "related", "description", "source",
             "expected", "affected", "correct", "cause")
 SIMPLE_BUILD = '''def build(ctx):
@@ -24,12 +26,6 @@ SIMPLE_BUILD = '''def build(ctx):
 
 
 FORMS = [("", build)]'''
-SIMPLE_CONTEXT = '''ctx = Context(target_profile=profile)
-    ctx.eval(SOURCE)
-    return ctx'''
-PROJECT_CONTEXT = '''ctx = Context(project_root=PROJECT_ROOT, target_profile=profile)
-    ctx.eval(SOURCE)  # a later fragment: a different compilation unit from the project
-    return ctx'''
 
 
 def load_definitions(path):
@@ -53,42 +49,41 @@ def load_definitions(path):
     return module, issues
 
 
-def project_block(files):
-    body = ",\n".join(f'    "{name}": """{text}"""' for name, text in files.items())
-    return (
-        "PROJECT_FILES = {  # a small Q# project, written to a temporary directory\n" + body + ",\n}\n"
-        "PROJECT_ROOT = tempfile.mkdtemp()\n"
-        'with open(os.path.join(PROJECT_ROOT, "qsharp.json"), "w") as file:\n'
-        '    file.write("{}")\n'
-        "for name, text in PROJECT_FILES.items():\n"
-        "    os.makedirs(os.path.dirname(os.path.join(PROJECT_ROOT, name)), exist_ok=True)\n"
-        '    with open(os.path.join(PROJECT_ROOT, name), "w") as file:\n'
-        "        file.write(text)\n"
-    )
-
-
-def render(issue, profiles=None):
+def render(issue, profiles=None, limits=None):
     """The standalone repro script for one issue; exits 0 when the bug no longer reproduces."""
     title = issue.get("title_text") or re.sub(r"^\[[^\]]*\]\s*", "", issue["title"])
-    replacements = {
-        "__TITLE__": title,
-        "__DOC__": (issue.get("doc") or "Compiles the entry for each target profile, runs the QIR with qir-runner, "
-                    "and runs the same program in the Q# simulator for comparison.").strip(),
-        "__AFFECTED_TEXT__": ", ".join(issue["affected"]) + f" return something other than {issue['expected']}",
-        "__REQUIRES_EXTRA__": issue.get("requires", ""),
-        "__SOURCE__": issue["source"].rstrip() + "\n",
-        "__PROJECT_BLOCK__": project_block(issue["project"]) if issue.get("project") else "",
-        "__EXPECTED__": issue["expected"],
-        "__AFFECTED__": repr(issue["affected"]),
-        "__PROFILES__": repr(DEFAULT_PROFILES if profiles is None else profiles),
-        "__BUILD__": issue.get("build", SIMPLE_BUILD).strip(),
-        "__CONTEXT__": PROJECT_CONTEXT if issue.get("project") else SIMPLE_CONTEXT,
-    }
-    text = TEMPLATE.read_text()
-    for key, value in replacements.items():
-        text = text.replace(key, value)
-    compile(text, f"{issue['slug']}.py", "exec")
-    return text
+    build = issue.get("build", SIMPLE_BUILD).strip()
+    namespace = {"SOURCE": issue["source"]}
+    exec(compile("from __future__ import annotations\n" + build, "<issue-build>", "exec"), namespace)
+    forms = namespace.get("FORMS")
+    if not isinstance(forms, list) or not forms or any(
+        not isinstance(form, (tuple, list)) or len(form) != 2 or not isinstance(form[0], str) or not callable(form[1])
+        for form in forms
+    ):
+        raise ReviewError("Issue build must define FORMS as a non-empty list of (suffix, build) pairs")
+    if len({suffix for suffix, _ in forms}) != len(forms):
+        raise ReviewError("Issue forms must have unique suffixes")
+    with tempfile.TemporaryDirectory(prefix="issue-repro-") as directory:
+        root = Path(directory)
+        project = issue.get("project")
+        if project:
+            write_project(project, root / "project")
+        cases = []
+        for index, _ in enumerate(forms):
+            adapter = root / f"form-{index}.py"
+            adapter.write_text(
+                "from __future__ import annotations\nfrom qdk import Context, TargetProfile\n"
+                f"SOURCE = {issue['source']!r}\n\n{build}\n\n"
+                f"def prepare(ctx):\n    return FORMS[{index}][1](ctx)\n"
+            )
+            case = {"id": f"{issue['slug']}-{index}", "source": issue["source"], "adapter": str(adapter),
+                    "profiles": DEFAULT_PROFILES if profiles is None else profiles,
+                    "shots": 10, "seed": 1, "oracle": {"kind": "observe"}}
+            if project:
+                case["project_root"] = str(root / "project")
+            cases.append(case)
+        return render_repro(cases, issue["expected"], issue["affected"], title,
+                            issue.get("doc", ""), [suffix for suffix, _ in forms], limits, issue.get("requires", ""))
 
 
 def _results(rows):
@@ -190,20 +185,32 @@ def draft_issues(config, definitions, output, revisions=None, only=(), cached=Fa
     default = revisions or getattr(module, "REVISIONS", None) or ["reference", "candidate"]
     labels_for = getattr(module, "COLUMNS", {})
     sections, status = [], {}
+    tools, builds = preflight(config), {}
+    resolved = dict(config["refs"])
     for index, issue in enumerate(issues, 1):
-        script_text = render(issue, config["profiles"])
+        script_text = render(issue, config["profiles"], config["limits"])
         path = scripts / f"{index:02d}_{issue['slug']}.py"
         path.write_text(script_text)
         wanted = issue.get("revisions") or default
-        targets = [(rev, config["refs"][rev] if rev in config["refs"] else resolve_ref(config["repository"], rev))
-                   for rev in wanted]
+        targets = []
+        for revision in wanted:
+            if revision not in resolved:
+                resolved[revision] = resolve_ref(config["repository"], revision)
+            targets.append((revision, resolved[revision]))
+        prepare_builds(config, targets, mode, builds, tools)
+        identity = digest({
+            "script": script_text, "targets": targets, "mode": mode, "timeout": timeout,
+            "builds": {sha: {key: builds[sha][key] for key in
+                            ("native_digest", "package_digest", "library_digest", "tools")} for _, sha in targets},
+        })
         cache = execs / f"{issue['slug']}.results.json"
         skip = (only and issue["slug"] not in only) or cached
-        if skip and cache.is_file() and json.loads(cache.read_text()).get("script") == script_text:
-            results = json.loads(cache.read_text())["results"]
+        previous = read_json(cache) if skip and cache.is_file() else {}
+        if previous.get("identity") == identity:
+            results = previous["results"]
         else:
-            results = _results(exec_script(config, path, targets, mode, execs, timeout))
-            write_json(cache, {"script": script_text, "results": results})
+            results = _results(exec_script(config, path, targets, mode, execs, timeout, builds=builds))
+            write_json(cache, {"identity": identity, "results": results})
         labels = [label for label, _ in targets]
         columns = {label: labels_for.get(label) or f"{label} (`{sha[:8]}`)" for label, sha in targets}
         status[issue["slug"]] = {label: results[label]["reproduction"] for label in labels}
