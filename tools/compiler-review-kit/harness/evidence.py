@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import sys
 import tempfile
 
 from harness.analysis import load_run, summarize_run
@@ -29,7 +30,10 @@ QUIET = {"validated_unchanged", "simulator_observed"}
 
 
 def review_dir(config, name=None):
-    return Path(config["cache_dir"]) / (name or config["name"])
+    name = config["name"] if name is None else name
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or name in (".", ".."):
+        raise ReviewError("Review name must be a single safe path component")
+    return Path(config["cache_dir"]) / name
 
 
 def tree_size(path):
@@ -65,11 +69,24 @@ def interesting_cases(run):
 
 
 def prune(root, budget_bytes, keep):
-    """Delete whole review directories, oldest first, until the cache fits the budget (never `keep`)."""
+    """Best-effort pruning of recognized reviews; never delete the current review."""
     root = Path(root)
-    reviews = [p for p in root.iterdir() if p.is_dir()] if root.is_dir() else []
+    total = tree_size(root)
+    if tree_size(keep) > budget_bytes:
+        return total, []  # Evicting other reviews cannot make the protected review fit.
+    reviews = []
+    for path in root.iterdir() if root.is_dir() else []:
+        index = path / "evidence.json"
+        if not path.is_dir() or path.is_symlink() or not index.is_file() or index.is_symlink():
+            continue
+        try:
+            metadata = read_json(index)
+        except (ReviewError, json.JSONDecodeError) as error:
+            print(f"WARNING: not pruning unrecognized cache entry {path}: {error}", file=sys.stderr)
+            continue
+        if isinstance(metadata, dict) and metadata.get("name") == path.name and {"findings", "runs", "files"} <= metadata.keys():
+            reviews.append(path)
     removed = []
-    total = sum(tree_size(p) for p in reviews)
     for review in sorted(reviews, key=lambda p: p.stat().st_mtime):
         if total <= budget_bytes:
             break
@@ -125,7 +142,13 @@ def save_evidence(config, findings=(), runs=(), files=(), name=None, note=None):
     })
     write_json(index_path, index)
     size = tree_size(destination)
-    total, removed = prune(config["cache_dir"], config["cache_budget_mb"] * 1024 * 1024, destination)
+    budget = config["cache_budget_mb"] * 1024 * 1024
+    total, removed = prune(config["cache_dir"], budget, destination)
+    if total > budget:
+        print(f"WARNING: evidence cache uses {total} bytes, above its {budget}-byte budget; "
+              f"current review {destination.name} uses {size} bytes and is protected. "
+              "Compact retained evidence or increase cache_budget_mb. Unrecognized entries are not pruned; inspect them manually.",
+              file=sys.stderr)
     return destination, size, total, removed
 
 

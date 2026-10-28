@@ -264,8 +264,10 @@ section, not only the flagged regressions:
   that validate on a lower profile but fail on a higher one, at both endpoints, even
   when they are not regressions. Treat a compile error claiming the program fails
   (`EvaluationFailed` on a `fail` that cannot be reached) as a miscompile, not a
-  rejection. Unmeasured qubits can hide errors: replay small straight-line QIR with
-  `review.py statecheck` when only a flag is measured.
+  rejection. Unmeasured qubits can hide errors: `review.py statecheck` can inspect
+  their state before terminal measurements in supported single-block static QIR.
+  Do not use it as an oracle for loops, helper calls, mid-circuit measurement/
+  reset, or Result-slot reuse; unsupported shapes must be rejected.
 
 For timing/size concerns, measure representative cases repeatedly in isolation,
 using identical settings and no competing build load. Report thresholds, sizes,

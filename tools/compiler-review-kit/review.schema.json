@@ -26,7 +26,11 @@
     "report": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
     "cache_dir": { "type": "string", "minLength": 1 },
-    "cache_budget_mb": { "type": "integer", "minimum": 1 },
+    "cache_budget_mb": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Best-effort cache target in MiB. The current review is protected; overruns emit a warning."
+    },
     "profiles": {
       "type": "array",
       "default": ["Base", "Adaptive_RIF", "Adaptive"],

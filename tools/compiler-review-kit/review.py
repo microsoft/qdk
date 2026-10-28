@@ -130,7 +130,7 @@ def parser():
     oracle.add_argument("--role", default="reference", metavar="ROLE")
     oracle.add_argument("--mode", choices=("release", "debug"), default="release")
 
-    state = commands.add_parser("statecheck", help="statevector replay of straight-line QIR files")
+    state = commands.add_parser("statecheck", help="restricted premeasurement replay of static-resource QIR")
     state.add_argument("qir", type=Path, nargs="+")
     state.add_argument("--max-qubits", type=int, default=16)
 
@@ -355,7 +355,7 @@ def run_command(args):
         print(output)
     elif args.command == "save-evidence":
         saved, size, total, removed = save_evidence(config, args.findings, args.runs, args.files, args.name, args.note)
-        print(f"Saved {saved} ({size // 1024} KiB); cache {total // 1024} KiB of {config['cache_budget_mb']} MiB"
+        print(f"Saved {saved} ({size // 1024} KiB); cache {total // 1024} KiB (target {config['cache_budget_mb']} MiB)"
               + (f"; pruned {', '.join(removed)}" if removed else ""))
         print("The cache may be wiped at any time; keep repro scripts embedded in reports.")
     elif args.command == "recheck":

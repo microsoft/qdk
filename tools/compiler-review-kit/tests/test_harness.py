@@ -34,7 +34,7 @@ from harness.diffscan import scan_diff_text  # noqa: E402
 from harness import evidence  # noqa: E402
 from harness.issue_drafts import draft_issues, load_definitions, markdown as issue_markdown, render  # noqa: E402
 from harness.tables import cell as table_cell, format_value, run_table  # noqa: E402
-from harness.timing import aggregate, ratios  # noqa: E402
+from harness.timing import aggregate, print_timing, ratios, run_timing  # noqa: E402
 from harness.variants import load_variants, run_variants, variant_lines  # noqa: E402
 from harness.discovery import discover_samples, infer_entry, snapshot_issues  # noqa: E402
 from harness.execution import (  # noqa: E402
@@ -42,7 +42,7 @@ from harness.execution import (  # noqa: E402
 )
 from harness.extraction import convert_dump, extract_tests, insert_at_function_start, instrument  # noqa: E402
 from harness.investigate import (  # noqa: E402
-    adapter_variants, ddmin, qsharp_constants, render_adapter, replace_constant,
+    ReductionPredicate, adapter_variants, ddmin, qsharp_constants, reduce_adapter, render_adapter, replace_constant,
 )
 from harness.manifests import export_run_cases, subset_manifests  # noqa: E402
 from harness.records import encode, parse_output, validate_value  # noqa: E402
@@ -813,6 +813,88 @@ class AdapterReductionTests(unittest.TestCase):
         self.assertNotIn("operation B", reduced)
 
 
+class ReductionPredicateTests(unittest.TestCase):
+    def test_adapter_reduction_exports_the_tested_project_bundle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "original"
+            original.mkdir()
+            shutil.copytree(KIT / "examples/project", original / "project")
+            shutil.copytree(KIT / "examples/dependency", original / "dependency")
+            (original / "adapter.py").write_text("def prepare(ctx):\n    return 'Example.Main()', ()\n")
+            write_json(original / "cases.json", [{"id": "test", "adapter": "adapter.py", "project_root": "project",
+                                                 "oracle": {"kind": "compile_only"}}])
+            config = review_config(root)
+            output = root / "output/reduced.json"
+            with patch("harness.investigate.preflight", return_value={}), patch(
+                "harness.execution.build_revision", return_value={"sha": "candidate"}
+            ), patch("harness.investigate.stage", return_value={"status": "panic", "message": "target"}):
+                attempts, adapter = reduce_adapter(config, original / "cases.json", "test", output,
+                                                   "panic", "Base", "target", 1, False)
+            self.assertEqual(attempts, 1)
+            self.assertTrue(adapter.is_file())
+            shutil.rmtree(original)
+            cases, _ = load_cases(output, config, root / "replay")
+            project = Path(cases[0]["project_root"])
+            dependency = read_json(project / "qsharp.json")["dependencies"]["Dependency"]["path"]
+            self.assertTrue((project / dependency / "src/MeasureOne.qs").is_file())
+
+    def test_nonmatching_compile_skips_simulator_and_reference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for compiled in ({"status": "ok", "qir": "unused QIR"},
+                             {"status": "panic", "message": "different signature"}):
+                predicate = ReductionPredicate(review_config(root), {}, CASE, root, "panic", "Base",
+                                               "target signature", 1, True)
+                with patch("harness.execution.build_revision", return_value={"sha": "candidate"}) as build, patch(
+                    "harness.investigate.stage", return_value=compiled
+                ) as execute, patch("harness.investigate.run_case") as run:
+                    self.assertFalse(predicate("variant"))
+                    self.assertFalse(predicate("variant"))
+                    self.assertFalse(predicate("budget exhausted"))
+                self.assertEqual(predicate.tested, 1)
+                self.assertEqual(execute.call_count, 1)
+                self.assertEqual(execute.call_args.args[3], "compile")
+                self.assertEqual(build.call_count, 1)
+                run.assert_not_called()
+
+    def test_source_and_adapter_share_signature_and_reference_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for adapter in (False, True):
+                for preserve in (False, True):
+                    with self.subTest(adapter=adapter, preserve=preserve):
+                        case = CASE | {"oracle": {"kind": "deterministic", "expected": ONE}}
+                        if adapter:
+                            case["adapter"] = "original.py"
+                        predicate = ReductionPredicate(review_config(root), {}, case, root / f"{adapter}-{preserve}",
+                                                       "panic", "Base", "target", 10, preserve)
+                        stages = [{"status": "panic", "message": "target"},
+                                  {"status": "ok", "values": [ONE, ONE]}]
+                        with patch("harness.execution.build_revision", side_effect=lambda config, sha, mode, tools: {
+                            "sha": sha,
+                        }) as build, patch("harness.investigate.stage", side_effect=stages) as execute, patch(
+                            "harness.investigate.run_case", return_value=good()
+                        ) as run:
+                            self.assertTrue(predicate("replacement"))
+                        self.assertEqual([call.args[3] for call in execute.call_args_list],
+                                         ["compile", "simulate"] if preserve else ["compile"])
+                        self.assertEqual(run.call_count, int(preserve))
+                        self.assertEqual(build.call_count, 2 if preserve else 1)
+
+    def test_wrong_result_reduction_keeps_full_semantic_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case = CASE | {"oracle": {"kind": "deterministic", "expected": ONE}}
+            predicate = ReductionPredicate(review_config(root), {}, case, root, "wrong_result", "Base", "", 10, True)
+            with patch("harness.execution.build_revision", return_value={"sha": "selected"}), patch(
+                "harness.investigate.run_case", side_effect=[good(ZERO), good()]
+            ) as run, patch("harness.investigate.stage") as execute:
+                self.assertTrue(predicate("variant"))
+            self.assertEqual(run.call_count, 2)
+            execute.assert_not_called()
+
+
 class GeneratorTests(unittest.TestCase):
     def test_generated_cases_are_valid_and_deterministic(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
@@ -840,7 +922,8 @@ class StatecheckTests(unittest.TestCase):
     @staticmethod
     def qir(*calls):
         body = "\n".join(f"  call void @__quantum__qis__{c}" for c in calls)
-        return f"define void @main() #0 {{\n{body}\n  ret void\n}}\nattributes #0 = {{ \"required_num_qubits\"=\"2\" }}\n"
+        return (f"define void @main() #0 {{\n{body}\n  ret void\n}}\n"
+                'attributes #0 = { "entry_point" "required_num_qubits"="2" }\n')
 
     Q1 = "%Qubit* inttoptr (i64 1 to %Qubit*)"
 
@@ -860,6 +943,51 @@ class StatecheckTests(unittest.TestCase):
     def test_branching_qir_is_rejected(self):
         with self.assertRaisesRegex(ReviewError, "straight-line"):
             statecheck("br i1 %0, label %a, label %b\n\"required_num_qubits\"=\"1\"")
+
+    def test_hexadecimal_rotation_and_premeasurement_state(self):
+        qir = self.qir("h__body(%Qubit* null)", "rz__body(double 0x400921FB54442D18, %Qubit* null)",
+                       "h__body(%Qubit* null)", "mresetz__body(%Qubit* null, %Result* null)")
+        result = statecheck(qir)
+        self.assertEqual(result["p1"], [1.0, 0.0])
+        self.assertEqual(result["state_point"], "before_terminal_measurements")
+        self.assertEqual(result["dirty_unmeasured"], [])
+        self.assertEqual(statecheck(qir.replace("0x400921FB54442D18", "3.141592653589793"))["p1"], [1.0, 0.0])
+
+    def test_unused_helper_is_rejected_instead_of_executed(self):
+        helper = "define void @unused() {\n call void @__quantum__qis__x__body(%Qubit* null)\n ret void\n}\n"
+        with self.assertRaisesRegex(ReviewError, "one defined entry"):
+            statecheck(helper + self.qir())
+
+    def test_unsupported_control_flow_and_calls_are_rejected(self):
+        instructions = [
+            "br label %next\nnext:",
+            "switch i64 0, label %next [i64 1, label %next]\nnext:",
+            "call void @other()",
+            "call void @__quantum__rt__qubit_release(%Qubit* null)",
+        ]
+        for instruction in instructions:
+            with self.subTest(instruction=instruction), self.assertRaises(ReviewError):
+                statecheck(self.qir().replace("  ret void", f"  {instruction}\n  ret void"))
+
+    def test_midcircuit_measurements_and_resets_are_rejected(self):
+        for calls in (
+            ("mresetz__body(%Qubit* null, %Result* null)", "x__body(%Qubit* null)"),
+            ("x__body(%Qubit* null)", "reset__body(%Qubit* null)"),
+        ):
+            with self.subTest(calls=calls), self.assertRaises(ReviewError):
+                statecheck(self.qir(*calls))
+
+    def test_dynamic_malformed_or_aliased_operands_are_rejected(self):
+        calls = [
+            "x__body(%Qubit* %q)",
+            "x__body(%Qubit* inttoptr (i64 2 to %Qubit*))",
+            "cx__body(%Qubit* null, %Qubit* null)",
+            "rz__body(double %angle, %Qubit* null)",
+            "rz__body(double 3.141592653589793)",
+        ]
+        for call in calls:
+            with self.subTest(call=call), self.assertRaises(ReviewError):
+                statecheck(self.qir(call))
 
 
 class ExtraRecordTests(unittest.TestCase):
@@ -1154,8 +1282,44 @@ class TimingTests(unittest.TestCase):
         by_case = {row["case"]: row for row in rows}
         self.assertEqual(by_case["c"]["revisions"]["ref"]["compile"], 2.0)
         self.assertEqual(by_case["d"]["revisions"]["cand"]["status"], "panic")
+        self.assertEqual(len(by_case["d"]["revisions"]["cand"]["samples"]), 3)
+        self.assertEqual(by_case["c"]["revisions"]["ref"]["spread"]["compile"],
+                         {"min": 1.0, "max": 3.0, "stdev": 1.0})
         self.assertEqual(ratios(rows, "ref", "cand"), [
-            {"case": "c", "profile": "Adaptive", "baseline": 2.0, "value": 4.0, "ratio": 2.0}])
+            {"case": "c", "profile": "Adaptive", "baseline": 2.0, "value": 4.0, "ratio": 2.5, "pairs": 3}])
+
+    def test_tiny_measurements_are_not_rounded_to_zero(self):
+        def sweep(value):
+            return {"results": {"c": {"Base": {"status": "ok", "context": value, "load": value, "compile": value}}}}
+        rows = aggregate({"ref": [sweep(1e-8)], "candidate": [sweep(3e-8)]}, ["ref", "candidate"])
+        self.assertEqual(rows[0]["revisions"]["ref"]["compile"], 1e-8)
+        self.assertIsNone(rows[0]["revisions"]["ref"]["spread"]["compile"]["stdev"])
+        self.assertAlmostEqual(ratios(rows, "ref", "candidate")[0]["ratio"], 3.0)
+
+    def test_partial_samples_survive_a_later_worker_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = review_config(root)
+            write_json(root / "cases.json", [CASE])
+            build = {"sha": "a" * 40, "overlay": str(root / "overlay"), "worktree": str(root)}
+            first = {"status": "ok", "qdk": str(root / "overlay/qdk/__init__.py"), "results": {
+                "test": {"Base": {"status": "ok", "context": 0.1, "load": 0.2, "compile": 0.3}},
+            }}
+            with patch("harness.timing.preflight", return_value={}), patch(
+                "harness.timing.prepare_builds", return_value={"a" * 40: build}
+            ), patch("harness.timing.isolated", side_effect=[first, {"status": "timeout", "stderr": "timed out"}]), patch(
+                "sys.stdout", io.StringIO()
+            ):
+                with self.assertRaisesRegex(ReviewError, "Timing worker failed"):
+                    run_timing(config, root / "cases.json", [("reference", "a" * 40)], ["Base"], 2, "release")
+            saved = read_json(next((root / "work/timing").iterdir()) / "timing.json")
+            self.assertEqual(saved["status"], "failed")
+            self.assertEqual(saved["rows"][0]["revisions"]["reference"]["samples"][0]["compile"], 0.3)
+            self.assertEqual([worker["status"] for worker in saved["workers"]], ["ok", "timeout"])
+            with patch("sys.stdout", io.StringIO()) as output:
+                print_timing(saved)
+            self.assertIn("no performance ratios", output.getvalue())
+
 
 
 class VariantTests(unittest.TestCase):
@@ -1500,6 +1664,7 @@ class EvidenceTests(unittest.TestCase):
             (root / "repro.py").write_text('"""T\\n\\nExits 0 while the bug reproduces: X."""\n')
             cache = root / "cache"
             (cache / "old").mkdir(parents=True)
+            write_json(cache / "old/evidence.json", {"name": "old", "findings": {}, "runs": {}, "files": []})
             (cache / "old" / "big").write_bytes(b"x" * 3 * 1024 * 1024)
             os.utime(cache / "old", (1, 1))
             config = {"cache_dir": str(cache), "name": "now", "cache_budget_mb": 2, "refs": {"reference": "r"},
@@ -1516,6 +1681,43 @@ class EvidenceTests(unittest.TestCase):
             merged = root / "merged.json"
             self.assertEqual(evidence.merged_manifest(manifests * 2, merged), 3)
             self.assertTrue(Path(read_case_manifest(merged)[2]["adapter"]).is_absolute())
+
+    def test_oversized_current_review_warns_without_pointless_evictions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = review_config(root)
+            config["cache_budget_mb"] = 1
+            old = root / "cache/old"
+            write_json(old / "evidence.json", {"name": "old", "findings": {}, "runs": {}, "files": []})
+            (old / "small").write_bytes(b"x" * 100)
+            payload = root / "large.bin"
+            payload.write_bytes(b"x" * (2 * 1024 * 1024))
+            with patch("sys.stderr", io.StringIO()) as output:
+                saved, size, total, removed = evidence.save_evidence(config, files=[payload])
+            self.assertTrue(saved.is_dir() and old.is_dir())
+            self.assertGreater(size, 1024 * 1024)
+            self.assertGreater(total, 1024 * 1024)
+            self.assertEqual(removed, [])
+            self.assertIn("above", output.getvalue())
+            self.assertIn("protected", output.getvalue())
+
+    def test_budget_pruning_does_not_delete_unrecognized_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = review_config(root)
+            config["cache_budget_mb"] = 1
+            unrelated = root / "cache/unrelated"
+            unrelated.mkdir(parents=True)
+            (unrelated / "large").write_bytes(b"x" * (2 * 1024 * 1024))
+            with patch("sys.stderr", io.StringIO()) as output:
+                _, _, total, removed = evidence.save_evidence(config)
+            self.assertTrue((unrelated / "large").is_file())
+            self.assertEqual(removed, [])
+            self.assertGreater(total, 1024 * 1024)
+            self.assertIn("Unrecognized entries", output.getvalue())
+            for name in ("", "..", "../outside", "/tmp/outside"):
+                with self.subTest(name=name), self.assertRaisesRegex(ReviewError, "safe path component"):
+                    evidence.review_dir(config, name)
 
     def test_report_fallback_extracts_marked_scripts(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1564,6 +1766,29 @@ class DiffScanTests(unittest.TestCase):
         self.assertEqual(found["errors_added"][0]["message"], "cannot do the thing")
         self.assertEqual([(p["kind"], p["message"], p["line"]) for p in found["panics_added"]],
                          [(".expect", "value should exist", 13)])
+
+    def test_deleted_files_keep_their_old_diagnostic_paths(self):
+        diff = '''diff --git a/source/compiler/x/src/old.rs b/source/compiler/x/src/old.rs
+deleted file mode 100644
+--- a/source/compiler/x/src/old.rs
++++ /dev/null
+@@ -1,2 +0,0 @@
+-#[diagnostic(code("Qdk.Qsc.X.Removed"))]
+-#[error("removed diagnostic")]
+diff --git a/source/compiler/x/src/new.rs b/source/compiler/x/src/new.rs
+new file mode 100644
+--- /dev/null
++++ b/source/compiler/x/src/new.rs
+@@ -0,0 +1 @@
++#[diagnostic(code("Qdk.Qsc.X.Added"))]
+'''
+        found = scan_diff_text(diff)
+        self.assertEqual(found["codes_removed"],
+                         [{"code": "Qdk.Qsc.X.Removed", "path": "source/compiler/x/src/old.rs"}])
+        self.assertEqual(found["errors_removed"],
+                         [{"message": "removed diagnostic", "path": "source/compiler/x/src/old.rs"}])
+        self.assertEqual(found["codes_added"],
+                         [{"code": "Qdk.Qsc.X.Added", "path": "source/compiler/x/src/new.rs", "line": 1}])
 
 
 class NewGeneratorTests(unittest.TestCase):

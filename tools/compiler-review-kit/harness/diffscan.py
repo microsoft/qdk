@@ -22,17 +22,19 @@ def is_test_path(path):
 def scan_diff_text(diff):
     """Parse `git diff -U0` text into added/removed diagnostics and panic sites."""
     found = {"codes_added": [], "codes_removed": [], "errors_added": [], "errors_removed": [], "panics_added": []}
-    path, line = None, 0
+    old_path, new_path, line = None, None, 0
     for raw in diff.splitlines():
         if raw.startswith("+++ "):
-            path = raw[6:] if raw.startswith("+++ b/") else None
+            new_path = raw[6:] if raw.startswith("+++ b/") else None
             continue
         if raw.startswith("--- "):
+            old_path = raw[6:] if raw.startswith("--- a/") else None
             continue
         hunk = HUNK.match(raw)
         if hunk:
             line = int(hunk.group(1))
             continue
+        path = new_path if raw.startswith("+") else old_path
         if path is None or is_test_path(path) or not path.endswith(".rs"):
             continue
         if raw.startswith("+"):
@@ -79,7 +81,7 @@ def print_scan(found, show=40):
     for item in found["codes_removed"]:
         print(f"  {item['code']}  {item['path']}")
     panics = found["panics_added"]
-    print(f"\nNew panic/assert/expect sites in non-test code ({len(panics)}): try to reach each with valid input.")
+    print(f"\nNew panic/assert/expect sites outside test-named files ({len(panics)}): try to reach each with valid input.")
     for item in panics[:show]:
         message = f" {item['message'][:80]!r}" if item["message"] else ""
         print(f"  {item['kind']}{message}  {item['path']}:{item['line']}")

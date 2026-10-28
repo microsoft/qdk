@@ -274,9 +274,15 @@ each profile's values (wrong ones in `**bold**`), or the failure kind and messag
 Each revision's overlay times context creation, loading (`eval`/adapter) and
 `compile` separately, in one process per sweep. Sweeps are interleaved and rotated
 across repeats so no revision always runs first or under a load spike. The output
-gives per-case medians and paired ratios against the first revision, plus outliers
-(`--outlier`, default 1.5x). Use it for client entry points and for every
+keeps every repeat, including failed case/profile records, in `timing.json`.
+Medians are not rounded before arithmetic; each series includes its range and
+sample standard deviation (unknown for a single sample). Ratios are medians of
+same-repeat candidate/baseline ratios, not ratios of medians. Outliers
+(`--outlier`, default 1.5x) show pair counts and timing ranges. Use it for client entry points and for every
 `summarize` outlier before reporting a performance change.
+Samples are saved after each sweep; a later worker failure leaves a `failed`
+timing artifact with partial evidence, not a complete performance claim.
+Older timing summaries without raw repeats must be rerun to obtain paired ratios.
 
 ### Variant matrices
 
@@ -351,10 +357,12 @@ the snapshot and `match-issues --text 'phrase'` as the search instead.
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py new-diagnostics /tmp/compiler-review-kit/REVIEW/review.json [--json found.json]
 ```
 
-This lists diagnostic codes, `#[error]` messages and panic/assert/expect sites that
-the reference→candidate diff adds to non-test Rust code, with their candidate
-locations, plus removed codes. Every new rejection is a place to write valid programs
-at its boundary: the reviewed PRs added `UnsupportedRecursiveInlining`, which also
+This lexically scans added/removed lines outside test-named Rust files, including
+diagnostics removed by deleting whole files. It lists codes, `#[error]` messages,
+and added panic/assert/expect sites with candidate locations. Inline test modules
+may appear and multiline Rust syntax may be missed; use the results as leads,
+not an exhaustive inventory. Every new rejection is a place to write valid
+programs at its boundary. For example, `UnsupportedRecursiveInlining` once also
 rejected valid static-depth recursion. Every removed code needs a check that the
 condition is now handled.
 
@@ -436,9 +444,15 @@ Results are modelled; ancillas are measured in known basis states.
 and exits non-zero on disagreements: run it before trusting generated or curated
 expectations. `stages` reports how many chain stages programs combine, e.g. to see
 whether deep compositions come only from a PR author's own tests. `statecheck`
-replays straight-line (Base) QIR in a small statevector and reports per-qubit
-`P(|1>)` and unmeasured qubits not returned to `|0>` — effects a returned value
-cannot show (for example, a body applied where an uncompute needed an adjoint).
+replays a restricted static-resource QIR subset in a small statevector: one
+marked entry function, one straight-line block, constant handles/angles, modeled
+unitary gates, and terminal measurements. Hexadecimal LLVM doubles are decoded
+as IEEE values. Unsupported instructions/calls, helper functions, branches,
+mid-circuit measurements, and explicit resets are rejected, not approximated.
+`state_point` explicitly identifies the state before terminal measurements (or
+the end of a measurement-free unitary sequence). `P(|1>)` and dirty unmeasured
+qubits describe that state, not the state after measurement/reset. This can catch
+uncompute errors, but is not a full QIR verifier or a Result-slot aliasing oracle.
 
 ### Discovery
 
@@ -500,11 +514,16 @@ reduction requires a deterministic oracle. It is deliberately simple, bounded by
 `--attempts` (default 100), and records exhaustion. It does not establish that the
 root cause survived minimization. Projects must first be reduced manually to
 standalone Q#.
+Both reducers share a compile-first predicate for panic/rejection/crash cases.
+Nonmatching variants do not run the simulator or build the reference. Only a
+matching failure triggers the simulator/reference checks needed to preserve a
+validated regression. Wrong-result reduction still runs the full semantic path.
 
 `reduce-adapter` (same options) reduces Python-adapter cases: it alternates
 simplifying `prepare()` (replace a call by one of its call/list arguments, drop a
-list element) with line reduction of module-level Q# source strings, and writes the
-reduced adapter beside the output manifest. When line deletion stalls because every
+list element) with line reduction of module-level Q# source strings, and exports
+the reduced adapter and tested project/dependency snapshot as a portable bundle
+beside the output manifest. When line deletion stalls because every
 remaining line matters, probe targeted variants instead (literal versus constant
 expression, functor sets, one versus two captures) with `exec`, and report the
 variant table: it often explains the trigger better than a smaller program.
@@ -613,8 +632,12 @@ shared project), the non-quiet cases of each run with a compact summary, and ext
 files. A saved run is exported from its frozen snapshot even if the original
 inputs/configuration are gone. JSON over 1 MiB in extra files is gzipped.
 `report` saves the run's non-quiet cases automatically using that run's pinned
-configuration. The cache's total size is kept under `cache_budget_mb` by deleting
-whole reviews, oldest first; the current review is never deleted.
+configuration. `cache_budget_mb` is a best-effort target: recognized review
+directories are pruned oldest first, but the current review is never deleted.
+If that review alone exceeds the budget, other reviews are retained rather than
+evicted pointlessly. Every over-budget save emits a warning to compact the review
+or raise the budget. Unrecognized entries are not deleted and can also prevent
+the cache from reaching its target.
 
 `recheck` reruns a cached review: its cases at the configured roles, printed as a
 `table`, and its repro scripts at each revision. The last printed `REPRODUCED` or
@@ -640,8 +663,8 @@ observations, callable arguments, and separate local project dependencies.
 Only when debug is requested, `tests/smoke.py --mode debug` exercises debug builds.
 The smoke test asserts the expected
 profile/status matrix and exact shot counts, rather than accepting exit zero alone.
-`statecheck` covers straight-line QIR only; no chemistry-specific trace interpreter
-is included.
+`statecheck` covers only its explicitly supported premeasurement subset; no
+chemistry-specific trace interpreter is included.
 
 The repository's `.prettierignore` excludes the legacy
 `tools/compiler-review-kit/.work/`. With the sandbox mapping, generated reports

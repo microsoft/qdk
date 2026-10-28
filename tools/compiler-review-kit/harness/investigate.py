@@ -4,14 +4,16 @@
 """Per-commit outcome matrices and bounded, predicate-preserving reduction."""
 
 import ast
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import tempfile
 
 from harness.builds import build_revision
-from harness.cases import load_cases
+from harness.cases import export_cases, load_cases, read_case_manifest
 from harness.common import ReviewError, git, is_ancestor, preflight, resolve_ref, write_json
-from harness.runner import compare, endpoint, run_case
+from harness.execution import prepare_builds
+from harness.runner import compare, endpoint, run_case, stage
 
 
 def attribute(config, cases_path, case_id, output, refs=None, mode="release"):
@@ -70,6 +72,60 @@ def ddmin(parts, test):
     return parts
 
 
+@dataclass
+class ReductionPredicate:
+    config: dict
+    tools: dict
+    case: dict
+    directory: Path
+    kind: str
+    profile: str
+    needle: str
+    attempts: int
+    preserve_regression: bool
+    tested: int = 0
+    cache: dict = field(default_factory=dict)
+    builds: dict = field(default_factory=dict)
+
+    def build(self, role):
+        sha = self.config["refs"][role]
+        prepare_builds(self.config, [(role, sha)], "release", self.builds, self.tools)
+        return self.builds[sha]
+
+    def __call__(self, text):
+        if text in self.cache:
+            return self.cache[text]
+        if self.tested >= self.attempts:
+            return False
+        self.tested += 1
+        attempt = self.directory / str(self.tested)
+        if "adapter" in self.case:
+            attempt.mkdir(parents=True)
+            adapter = attempt / "adapter.py"
+            adapter.write_text(text)
+            current = self.case | {"adapter": str(adapter)}
+        else:
+            current = self.case | {"source": text}
+        build = self.build("candidate")
+        if self.kind == "wrong_result":
+            candidate = run_case(self.config, build, current, attempt / "candidate")
+        else:
+            # Most variants do not retain the compile failure; do not simulate them.
+            compiled = stage(self.config, build, current, "compile", self.profile)
+            candidate = {"profiles": {self.profile: {"compile": compiled}}}
+        matched = endpoint(current, candidate, self.profile) == self.kind
+        if matched and self.needle:
+            compiled = candidate["profiles"][self.profile]["compile"]
+            matched = self.needle in (str(compiled.get("message", "")) + compiled.get("stderr", ""))
+        if matched and self.preserve_regression:
+            if "simulator" not in candidate and current["oracle"]["kind"] != "compile_only":
+                candidate["simulator"] = stage(self.config, build, current, "simulate")
+            reference = run_case(self.config, self.build("reference"), current, attempt / "reference")
+            matched = compare(current, reference, candidate)[0]["verdict"] == "regression_candidate"
+        self.cache[text] = matched
+        return matched
+
+
 def reduce_case(config, cases_path, case_id, output, kind, profile, needle, attempts, preserve_regression):
     if kind in ("panic", "rejected") and not needle:
         raise ReviewError("Panic/rejection reduction requires --needle to preserve the failure signature.")
@@ -84,31 +140,7 @@ def reduce_case(config, cases_path, case_id, output, kind, profile, needle, atte
     if profile not in original["profiles"]:
         raise ReviewError(f"Case does not select profile {profile}")
     case = original | {"profiles": [profile]}
-    builds = {
-        role: build_revision(config, config["refs"][role], "release", tools)
-        for role in ("reference", "candidate")
-    }
-    cache, tested = {}, 0
-
-    def predicate(source):
-        nonlocal tested
-        if source in cache:
-            return cache[source]
-        if tested >= attempts:
-            return False
-        tested += 1
-        current = case | {"source": source}
-        candidate = run_case(config, builds["candidate"], current, directory / str(tested) / "candidate")
-        matched = endpoint(current, candidate, profile) == kind
-        if needle:
-            row = candidate["profiles"][profile]
-            messages = str(row["compile"].get("message", "")) + row["compile"].get("stderr", "")
-            matched = matched and needle in messages
-        if matched and preserve_regression:
-            reference = run_case(config, builds["reference"], current, directory / str(tested) / "reference")
-            matched = compare(current, reference, candidate)[0]["verdict"] == "regression_candidate"
-        cache[source] = matched
-        return matched
+    predicate = ReductionPredicate(config, tools, case, directory, kind, profile, needle, attempts, preserve_regression)
 
     if not predicate(case["source"]):
         raise ReviewError("Input does not satisfy the requested failure/regression predicate.")
@@ -120,8 +152,8 @@ def reduce_case(config, cases_path, case_id, output, kind, profile, needle, atte
     write_json(
         Path(output).with_suffix(".reduction.json"),
         {
-            "attempts": tested,
-            "budget_exhausted": tested >= attempts,
+            "attempts": predicate.tested,
+            "budget_exhausted": predicate.tested >= attempts,
             "kind": kind,
             "profile": profile,
             "needle": needle,
@@ -132,7 +164,7 @@ def reduce_case(config, cases_path, case_id, output, kind, profile, needle, atte
             "reduced_lines": len(lines),
         },
     )
-    return tested, len(lines)
+    return predicate.tested, len(lines)
 
 
 def _prepare_nodes(tree):
@@ -229,40 +261,13 @@ def reduce_adapter(config, cases_path, case_id, output, kind, profile, needle, a
     if profile not in original["profiles"]:
         raise ReviewError(f"Case does not select profile {profile}")
     case = original | {"profiles": [profile]}
-    builds = {
-        role: build_revision(config, config["refs"][role], "release", tools)
-        for role in ("reference", "candidate")
-    }
-    cache, tested = {}, 0
-
-    def predicate(text):
-        nonlocal tested
-        if text in cache:
-            return cache[text]
-        if tested >= attempts:
-            return False
-        tested += 1
-        attempt = directory / str(tested)
-        attempt.mkdir(parents=True)
-        (attempt / "adapter.py").write_text(text)
-        current = case | {"adapter": str(attempt / "adapter.py")}
-        candidate = run_case(config, builds["candidate"], current, attempt / "candidate")
-        matched = endpoint(current, candidate, profile) == kind
-        if needle:
-            row = candidate["profiles"][profile]
-            messages = str(row["compile"].get("message", "")) + row["compile"].get("stderr", "")
-            matched = matched and needle in messages
-        if matched and preserve_regression:
-            reference = run_case(config, builds["reference"], current, attempt / "reference")
-            matched = compare(current, reference, candidate)[0]["verdict"] == "regression_candidate"
-        cache[text] = matched
-        return matched
+    predicate = ReductionPredicate(config, tools, case, directory, kind, profile, needle, attempts, preserve_regression)
 
     text = render_adapter(ast.parse(Path(original["adapter"]).read_text()))
     if not predicate(text):
         raise ReviewError("Adapter does not satisfy the requested failure/regression predicate.")
     changed = True
-    while changed and tested < attempts:
+    while changed and predicate.tested < attempts:
         changed = False
         for variant in adapter_variants(text):
             if variant != text and predicate(variant):
@@ -276,18 +281,15 @@ def reduce_adapter(config, cases_path, case_id, output, kind, profile, needle, a
             if len(reduced) < len(lines):
                 text, changed = replace_constant(text, name, "".join(reduced)), True
     output = Path(output)
-    adapter_path = output.with_suffix(".adapter.py")
+    adapter_path = directory / "reduced.py"
     adapter_path.write_text(text)
-    clean = {key: value for key, value in original.items() if key not in ("adapter_digest", "project_origin")}
-    if "project_origin" in original:
-        clean["project_root"] = original["project_origin"]
-    clean.update(adapter=adapter_path.name, profiles=[profile])
-    write_json(output, [clean])
+    export_cases([original | {"adapter": str(adapter_path), "profiles": [profile]}], output)
+    adapter_path = Path(read_case_manifest(output)[0]["adapter"])
     write_json(
         output.with_suffix(".reduction.json"),
         {
-            "attempts": tested,
-            "budget_exhausted": tested >= attempts,
+            "attempts": predicate.tested,
+            "budget_exhausted": predicate.tested >= attempts,
             "kind": kind,
             "profile": profile,
             "needle": needle,
@@ -297,4 +299,4 @@ def reduce_adapter(config, cases_path, case_id, output, kind, profile, needle, a
             "adapter": str(adapter_path),
         },
     )
-    return tested, adapter_path
+    return predicate.tested, adapter_path
