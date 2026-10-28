@@ -849,9 +849,20 @@ fn cast_to_int(cast: &Cast, ctx: &mut Lowerer) -> Option<LiteralKind> {
     match &cast.expr.ty {
         Type::Bool(..) => rewrap_lit!(lit, Bool(val), Int(i64::from(val))),
         Type::Bit(..) => rewrap_lit!(lit, Bit(val), Int(i64::from(val))),
-        Type::BitArray(..) => {
-            rewrap_lit!(lit, Bitstring(val, _), Int(i64::try_from(val).ok()?))
-        }
+        Type::BitArray(..) => rewrap_lit!(lit, Bitstring(val, _), {
+            let Type::Int(width, _) = &cast.ty else {
+                unreachable!("we got here after matching Type::Int in Cast::const_eval");
+            };
+            let width = width.unwrap_or(i64::BITS);
+            // Bitstrings hold non-negative values, so we reinterpret them as
+            // two's complement integers of the target width.
+            let val = if width > 0 && val.bit(u64::from(width - 1)) {
+                val - (BigInt::from(1) << width)
+            } else {
+                val
+            };
+            Int(i64::try_from(val).ok()?)
+        }),
         // UInt Overflowing behavior.
         // This is tricky because the inner representation of UInt
         // is already an i64. Therefore, there is nothing to do.
