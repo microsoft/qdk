@@ -265,23 +265,6 @@ impl Value {
         UNIT.with(|unit| Self::Tuple(unit.clone(), None))
     }
 
-    /// Compares well-typed Q# values by payload, ignoring tuple UDT tags retained
-    /// after unwrap. Rust equality still includes those tags for representation
-    /// comparisons. Callers remain responsible for rejecting unsupported results.
-    #[must_use]
-    pub fn payload_eq(&self, other: &Self) -> bool {
-        let (left, right): (&[Self], &[Self]) = match (self, other) {
-            (Self::Array(left), Self::Array(right)) => (left, right),
-            (Self::Tuple(left, _), Self::Tuple(right, _)) => (left, right),
-            _ => return self == other,
-        };
-        left.len() == right.len()
-            && left
-                .iter()
-                .zip(right)
-                .all(|(left, right)| left.payload_eq(right))
-    }
-
     /// Convert the [Value] into an array of [Value]
     /// # Panics
     /// This will panic if the [Value] is not a [`Value::Array`].

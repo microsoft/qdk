@@ -651,7 +651,7 @@ impl<'a> PartialEvaluator<'a> {
                 bin_op_expr_span,
             ),
             Value::Tuple(ref values, _) if values.is_empty() => {
-                self.eval_bin_op_with_lhs_unit_operand(bin_op, &lhs_value, rhs_expr_id)
+                self.eval_bin_op_with_lhs_unit_operand(bin_op, rhs_expr_id)
             }
             Value::Result(_) => self.eval_bin_op_with_lhs_result_operand(
                 bin_op,
@@ -741,7 +741,6 @@ impl<'a> PartialEvaluator<'a> {
     fn eval_bin_op_with_lhs_unit_operand(
         &mut self,
         bin_op: BinOp,
-        lhs_value: &Value,
         rhs_expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
         // Unit has no runtime payload, but evaluating the RHS can still have effects.
@@ -756,12 +755,7 @@ impl<'a> PartialEvaluator<'a> {
             matches!(&rhs_value, Value::Tuple(values, _) if values.is_empty()),
             "expected Unit value from RHS expression"
         );
-        let result = match bin_op {
-            BinOp::Eq => lhs_value.payload_eq(&rhs_value),
-            BinOp::Neq => !lhs_value.payload_eq(&rhs_value),
-            _ => panic!("unsupported binary operation for Unit: {bin_op:?}"),
-        };
-        Ok(EvalControlFlow::Continue(Value::Bool(result)))
+        Ok(EvalControlFlow::Continue(Value::Bool(bin_op == BinOp::Eq)))
     }
 
     fn eval_bin_op_with_lhs_array_operand(
