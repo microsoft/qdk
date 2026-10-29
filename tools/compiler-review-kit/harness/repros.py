@@ -18,7 +18,8 @@ from harness.common import KIT, read_json
 @lru_cache(maxsize=1)
 def _runtime_source():
     functions = [
-        common.file_digest, common.oom_kills, common.failure_status, common.supervise, common.isolated,
+        common.file_digest, common.oom_kills, common.oom_killed, common.failure_status, common.supervise,
+        common.isolated,
         builds.worker_environment, records.double, records.encode, records.counts, records.parse_output,
         tables.format_value, worker.import_overlay, worker.cap_memory, worker.load_case, worker.failure,
         worker.execute, runner.stage, runner.run_case,

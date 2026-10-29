@@ -89,6 +89,11 @@ def frame(*records):
     return "START\nMETADATA\tentry_point\n" + "\n".join(records) + "\nEND\t0\n"
 
 
+def git_log(*commits):
+    """`git log --format=%an%x1f%ae%x1f%B%x1e` output for (author, email, message) commits."""
+    return "".join(f"{name}\x1f{email}\x1f{message}\n\x1e\n" for name, email, message in commits).strip()
+
+
 def review_config(root):
     return {
         "work_dir": str(root / "work"), "venv": str(root / "venv"), "repository": str(root),
@@ -408,12 +413,26 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(self.call("import os,signal; os.kill(os.getpid(), signal.SIGSEGV)")["status"], "crash")
 
     def test_memory_exhaustion_is_not_a_crash(self):
-        killed = self.call("import os,signal; os.kill(os.getpid(), signal.SIGKILL)")
-        self.assertEqual(killed["status"], "resource_exhausted")
-        self.assertIn("memory", killed["message"])
+        kill = "import os,signal; os.kill(os.getpid(), signal.SIGKILL)"
+        # The cgroup OOM counter, when readable, tells the OOM killer apart from a person's kill -9.
+        for counter, status, message in (([0, 1], "resource_exhausted", "OOM killer"),
+                                         ([None, None], "resource_exhausted", "likely memory exhaustion"),
+                                         ([0, 0], "interrupted", "outside the harness")):
+            with self.subTest(counter=counter), patch("harness.common.oom_kills", side_effect=counter):
+                killed = self.call(kill)
+            self.assertEqual(killed["status"], status)
+            self.assertIn(message, killed["message"])
         aborted = self.call("import os,sys; print('memory allocation of 1048576 bytes failed', file=sys.stderr); "
                             "sys.stderr.flush(); os.abort()")
         self.assertEqual(aborted["status"], "resource_exhausted")
+
+    def test_outside_interruption_is_not_a_crash(self):
+        for name in ("SIGTERM", "SIGINT", "SIGHUP"):
+            with self.subTest(signal=name):
+                result = self.call(f"import os,signal,time; signal.signal(signal.{name}, signal.SIG_DFL); "
+                                   f"os.kill(os.getpid(), signal.{name}); time.sleep(5)")
+                self.assertEqual(result["status"], "interrupted")
+                self.assertIn("outside the harness", result["message"])
 
     def test_missing_json(self):
         self.assertEqual(self.call("print('not json')")["status"], "infrastructure_error")
@@ -452,22 +471,17 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.assertEqual(self.call(MemoryError())["status"], "resource_exhausted")
 
     def test_runner_reads_qir_from_a_file(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            qir = root / "Base.ll"
-            qir.write_text("; qir")
-            runner = root / "qir-runner"
-            # Releases before 0.9.6 require --file and ignore stdin.
-            runner.write_text(
-                f"#!{sys.executable}\nimport sys\nargs = sys.argv[1:]\n"
-                "if args[0] != '-f' or open(args[1]).read() != '; qir':\n    sys.exit(2)\n"
-                "print('START\\nMETADATA\\tentry_point\\nOUTPUT\\tRESULT\\t1\\nEND\\t0')\n"
-            )
-            runner.chmod(0o755)
-            job = {"stage": "runner", "runner": str(runner), "qir_path": str(qir), "shots": 1, "seed": 1,
-                   "memory_mb": 16384}
-            with patch("harness.worker.resource.setrlimit"):
-                result = worker.execute(job)
+        # Releases before 0.9.6 require --file and ignore stdin. The runner is not executed, so the
+        # test also passes where TMPDIR is mounted noexec (the sandbox's /tmp).
+        def runner(args, **kwargs):
+            self.assertEqual(args[:3], ["/venv/bin/qir-runner", "-f", "/scratch/Base.ll"])
+            self.assertNotIn("input", kwargs)
+            return subprocess.CompletedProcess(args, 0, stdout=frame("OUTPUT\tRESULT\t1"), stderr="")
+
+        job = {"stage": "runner", "runner": "/venv/bin/qir-runner", "qir_path": "/scratch/Base.ll", "shots": 1,
+               "seed": 1, "memory_mb": 16384}
+        with patch("harness.worker.resource.setrlimit"), patch("harness.worker.subprocess.run", side_effect=runner):
+            result = worker.execute(job)
         self.assertEqual((result["status"], result["values"]), ("ok", [ONE]))
 
     def test_resource_exhaustion_is_inconclusive(self):
@@ -520,7 +534,7 @@ class HelperTests(unittest.TestCase):
             return {"number": number, "html_url": "url", "title": "title", "state": "closed", "body": "body", "updated_at": "date"}
 
         with tempfile.TemporaryDirectory() as directory, patch("harness.discovery._api", side_effect=api), patch(
-            "harness.discovery.git", return_value="Fix #3600"
+            "harness.discovery.git", return_value=git_log(("Person", "person@example.com", "Fix #3600"))
         ):
             path = Path(directory) / "issues.json"
             snapshot_issues(config, path)
@@ -533,9 +547,11 @@ class HelperTests(unittest.TestCase):
             if "/comments?" in endpoint:
                 return []
             number = int(endpoint.rsplit("/", 1)[1])
-            if number == 4070:
-                raise ReviewError("Command failed (1): gh api repos/microsoft/qdk/issues/4070\ngh: Not Found (HTTP 404)")
-            return {"number": number, "html_url": "url", "title": "title", "state": "open", "body": "body", "updated_at": "date"}
+            if number in (4070, 4071):
+                status = "Not Found (HTTP 404)" if number == 4070 else "Gone (HTTP 410)"
+                raise ReviewError(f"Command failed (1): gh api repos/microsoft/qdk/issues/{number}\ngh: {status}")
+            return {"number": number, "html_url": "url", "title": "title", "state": "open", "body": "body",
+                    "updated_at": "date", **({"pull_request": {}} if number == 3982 else {})}
 
         def config(include):
             return {
@@ -544,15 +560,22 @@ class HelperTests(unittest.TestCase):
                 "input": {"issues": {"include": include}},
             }
 
+        log = git_log(
+            ("Person", "person@example.com", "Bump actions (actions/checkout #4070); fixes #3600, see #4071"),
+            # Bots quote other repositories' release notes; only the subject's PR number counts.
+            ("dependabot[bot]", "49699333+dependabot[bot]@users.noreply.github.com",
+             "Bump the github-actions group (#3982)\n\nRelease notes: fixed #821 and #1602"),
+        )
         with tempfile.TemporaryDirectory() as directory, patch("harness.discovery._api", side_effect=api), patch(
-            "harness.discovery.git", return_value="Bump actions (actions/checkout #4070); fixes #3600"
+            "harness.discovery.git", return_value=log
         ):
             path = Path(directory) / "issues.json"
             with redirect_stderr(io.StringIO()):
                 snapshot_issues(config([]), path)
             snapshot = read_json(path)
             self.assertEqual([i["number"] for i in snapshot["issues"]], [3600])
-            self.assertEqual(snapshot["unresolved_references"], [4070])
+            self.assertEqual(snapshot["pr_references"], [3982])
+            self.assertEqual(snapshot["unresolved_references"], [4070, 4071])
             with self.assertRaisesRegex(ReviewError, "HTTP 404"):
                 snapshot_issues(config([4070]), path)
 
@@ -825,7 +848,7 @@ class ExecutionTests(unittest.TestCase):
             build = {"overlay": str(root), "worktree": str(root)}
             with patch("harness.execution.preflight", return_value={}), patch(
                 "harness.execution.build_revision", return_value=build
-            ):
+            ), patch("harness.common.oom_kills", side_effect=[0, 1]):
                 rows = exec_script({"venv": str(root / "venv")}, script,
                                    [("candidate", "a" * 40)], "release", root / "exec", 30)
         self.assertEqual((rows[0]["exit"], rows[0]["reproduction"]), ("resource_exhausted", "resource_exhausted"))
@@ -1032,6 +1055,34 @@ class ReductionPredicateTests(unittest.TestCase):
                     ) as run:
                         self.assertEqual(predicate("variant"), expected)
                     self.assertEqual(run.call_count, 1)
+
+    def test_wrong_result_variants_keep_the_original_failure(self):
+        def miscompiled(value=ZERO):
+            result = good(ONE)
+            result["profiles"]["Base"]["runner"]["values"] = [value, value]
+            return result
+
+        case = CASE | {"oracle": {"kind": "deterministic", "expected": ONE}}
+        drifted = good(ZERO)  # the deletion changed the program: its simulator no longer gives ONE
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # A validated reference is not consulted for a variant that changed the program.
+            predicate = ReductionPredicate(review_config(root), {}, case, root / "preserve", "wrong_result", "Base",
+                                           "", 10, True)
+            with patch("harness.execution.build_revision", return_value={"sha": "selected"}), patch(
+                "harness.investigate.run_case", side_effect=[miscompiled(), good(), drifted]
+            ) as run:
+                self.assertTrue(predicate("original"))
+                self.assertFalse(predicate("drifted"))
+            self.assertEqual(run.call_count, 3)
+            # --keep-observed also rejects a different wrong output.
+            other = {"type": "int", "value": 7}
+            predicate = ReductionPredicate(review_config(root), {}, case, root / "observed", "wrong_result", "Base",
+                                           "", 10, False, keep_observed=True)
+            with patch("harness.execution.build_revision", return_value={"sha": "selected"}), patch(
+                "harness.investigate.run_case", side_effect=[miscompiled(), miscompiled(other), miscompiled()]
+            ):
+                self.assertEqual([predicate("original"), predicate("other"), predicate("same")], [True, False, True])
 
 
 class GeneratorTests(unittest.TestCase):

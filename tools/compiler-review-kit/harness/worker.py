@@ -15,7 +15,7 @@ import traceback
 
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness.common import ReviewError, failure_status, file_digest  # noqa: E402
+from harness.common import ReviewError, failure_status, file_digest, oom_killed, oom_kills  # noqa: E402
 from harness.records import counts, encode, parse_output  # noqa: E402
 
 
@@ -76,6 +76,7 @@ def execute(job):
     cap_memory(job["memory_mb"])
     if job["stage"] == "runner":
         # qir-runner reads stdin only from 0.9.6; a file argument works with every release.
+        kills = oom_kills()
         proc = subprocess.run(
             [job["runner"], "-f", job["qir_path"], "-s", str(job["shots"]), "-r", str(job["seed"])],
             capture_output=True,
@@ -83,7 +84,7 @@ def execute(job):
         )
         result = {"stdout": proc.stdout, "runner_stderr": proc.stderr, "returncode": proc.returncode}
         if proc.returncode:
-            status = failure_status(proc.returncode, proc.stderr)
+            status = failure_status(proc.returncode, proc.stderr, oom_killed(kills, oom_kills()))
             return result | {"status": {"crash": "runner_crash", "infrastructure_error": "runner_error"}.get(status, status)}
         try:
             values = parse_output(proc.stdout, job["shots"])

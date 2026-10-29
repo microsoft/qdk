@@ -103,6 +103,21 @@ def _api(endpoint, paginated=False):
     return [item for page in result for item in page] if paginated else result
 
 
+def commit_messages(repository, reference, candidate):
+    """Commit messages in the range; bot-authored commits contribute only their subject line.
+
+    Bots such as dependabot quote upstream release notes whose `#N` numbers belong to other
+    repositories but often also exist here, silently pulling in unrelated issues.
+    """
+    log = git(repository, "log", "--format=%an%x1f%ae%x1f%B%x1e", f"{reference}..{candidate}")
+    messages = []
+    for record in filter(str.strip, log.split("\x1e")):
+        name, email, body = record.strip("\n").split("\x1f", 2)
+        bot = "[bot]" in name or "[bot]" in email
+        messages.append(body.split("\n", 1)[0] if bot else body)
+    return messages
+
+
 def snapshot_issues(config, output):
     selection = config["input"].get("issues", {})
     repo = selection.get("repository", "microsoft/qdk")
@@ -113,12 +128,13 @@ def snapshot_issues(config, output):
         for issue in _api(f"{prefix}/issues?{query}", paginated=True):
             if "pull_request" not in issue and issue["number"] >= selection.get("min_number", 1):
                 wanted.setdefault(issue["number"], []).append("author sweep")
-    messages = git(config["repository"], "log", "--format=%B", f"{config['refs']['reference']}..{config['refs']['candidate']}")
-    referenced = {int(number) for number in re.findall(r"(?<!\w)#(\d+)\b", messages)}
-    referenced.update(
-        int(number)
-        for number in re.findall(rf"https://github\.com/{re.escape(repo)}/issues/(\d+)", messages)
-    )
+    referenced = set()
+    for message in commit_messages(config["repository"], config["refs"]["reference"], config["refs"]["candidate"]):
+        referenced.update(int(number) for number in re.findall(r"(?<!\w)#(\d+)\b", message))
+        referenced.update(
+            int(number)
+            for number in re.findall(rf"https://github\.com/{re.escape(repo)}/issues/(\d+)", message)
+        )
     for number in sorted(referenced):
         wanted.setdefault(number, []).append("commit reference (may be a PR)")
     for number in selection.get("include", []):
@@ -128,9 +144,11 @@ def snapshot_issues(config, output):
         try:
             issue = _api(f"{prefix}/issues/{number}")
         except ReviewError as err:
-            # Commit messages can quote another repository's numbers (e.g. dependabot release
-            # notes); only those references may be skipped. Selected issues must resolve.
-            if "HTTP 404" not in str(err) or any(not r.startswith("commit reference") for r in reasons):
+            # Commit messages can quote another repository's numbers; only those references may be
+            # skipped when missing (404) or deleted (410). Selected issues must resolve.
+            if not re.search(r"\(HTTP (404|410)\)", str(err)) or any(
+                not reason.startswith("commit reference") for reason in reasons
+            ):
                 raise
             unresolved.append(number)
             continue

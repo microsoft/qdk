@@ -285,9 +285,10 @@ Use an explicit oracle:
   with documented coverage and limitations; no chemistry state checker is bundled.
 
 Inspect stage statuses. Distinguish compiler diagnostics/panics/crashes, simulator
-failures, runner rejection/crash, malformed output, timeouts, memory exhaustion
-(`resource_exhausted`: inconclusive, not a crash), unsupported capabilities, and
-infrastructure errors. A failure with different
+failures, runner rejection/crash, malformed output, timeouts, memory exhaustion and
+outside interruption (`resource_exhausted`, `interrupted`: inconclusive, not crashes),
+unsupported capabilities, and infrastructure errors. Set time budgets through `limits`
+or `exec --timeout` instead of killing stages by hand. A failure with different
 signatures can be a changed trigger or a different bug. Matching panic sites alone
 does not establish a duplicate root cause.
 
@@ -323,7 +324,9 @@ a claimed performance regression.
 Minimize while preserving the target failure and appropriate reference behavior.
 Use `review.py reduce` for simple standalone cases and `review.py reduce-adapter`
 for Python callable-API cases; inspect the reduced program and repeat it across
-relevant profiles/build modes. Note reduction budget exhaustion. A reduction can
+relevant profiles/build modes. For wrong-result Python-adapter cases, start with
+single-ingredient `review.py variants` tables, and add `--keep-observed` when line
+reduction must keep the original wrong output. Note reduction budget exhaustion. A reduction can
 legitimately end without an entry point (the panic happens while declarations are
 loaded); that is itself a finding about the trigger. When reduction stalls, write a
 few hand variants that each change one thing (literal versus constant expression,

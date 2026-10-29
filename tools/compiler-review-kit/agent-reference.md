@@ -156,8 +156,12 @@ worker. For a few very large cases, set `limits.jobs` to 1 and a larger
 machine-sized defaults.
 Timeouts are evidence of incomplete execution, not proof of a compiler bug.
 Likewise, `resource_exhausted` (an allocation failure, `MemoryError`, or a
-SIGKILL from the OOM killer) is inconclusive, never a compiler crash or a
-regression verdict; the run is marked `complete_with_infrastructure_failures`.
+SIGKILL from the OOM killer) and `interrupted` (SIGTERM, SIGINT, SIGHUP, or a
+SIGKILL that the cgroup OOM counter shows was not the OOM killer) are
+inconclusive, never a compiler crash or a regression verdict; the run is marked
+`complete_with_infrastructure_failures`. Express time budgets as `limits`
+(`compile_seconds`, `simulate_seconds`, `runner_seconds`) or `exec --timeout`
+rather than killing stages by hand, so slow stages are recorded as `timeout`.
 
 `review.schema.json` is suitable for editor validation. The CLI additionally
 rejects unknown/duplicate fields. It resolves branch names once per command;
@@ -498,7 +502,11 @@ are selected manually.
 Issue discovery snapshots issue bodies and paginated comments, never evaluates or
 executes Markdown. Author sweeps include closed issues. Explicit includes override
 author/number filters. Commit issue references are added; PR references are recorded
-separately. Related issues mentioned only in PR discussions require reviewer
+separately. Bot-authored commits (such as dependabot's) contribute only their subject
+line, since their bodies quote other repositories' numbers. A commit reference that
+does not exist in the repository (HTTP 404/410) is listed under
+`unresolved_references` instead of failing the snapshot; an author-sweep or explicitly
+included issue must resolve. Related issues mentioned only in PR discussions require reviewer
 discovery. No author selector means no author sweep; use `issues --all` (below) for
 whole-repository overlap searches.
 
@@ -543,11 +551,22 @@ Nonmatching variants do not run the simulator or build the reference. Only a
 matching failure triggers the simulator/reference checks needed to preserve a
 validated regression. Wrong-result reduction still runs the full semantic path.
 
+Wrong-result reduction keeps the original program's character, not just "some
+wrong output": a deletion can change what the program computes, so the stale
+`expected` value then looks like a miscompile. If the candidate's own simulator
+agreed with `expected` for the original program, every variant must keep that
+agreement; such variants are rejected before any reference run. With
+`--allow-preexisting` there is no validated reference, so that simulator agreement
+is required. `--keep-observed` additionally requires each variant's compiled output
+to match the original's wrong output. The `.reduction.json` records both.
+
 `reduce-adapter` (same options) reduces Python-adapter cases: it alternates
 simplifying `prepare()` (replace a call by one of its call/list arguments, drop a
 list element) with line reduction of module-level Q# source strings, and exports
 the reduced adapter and tested project/dependency snapshot as a portable bundle
-beside the output manifest. When line deletion stalls because every
+beside the output manifest. For wrong-result adapter cases, start with
+single-ingredient `variants` tables; line reduction tends to drift toward a
+different miscompile. When line deletion stalls because every
 remaining line matters, probe targeted variants instead (literal versus constant
 expression, functor sets, one versus two captures) with `exec`, and report the
 variant table: it often explains the trigger better than a smaller program.

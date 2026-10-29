@@ -13,6 +13,7 @@ from harness.builds import build_revision
 from harness.cases import export_cases, load_cases, read_case_manifest
 from harness.common import ReviewError, git, is_ancestor, preflight, resolve_ref, write_json
 from harness.execution import prepare_builds
+from harness.records import counts
 from harness.runner import compare, endpoint, run_case, simulator_endpoint, stage
 
 
@@ -83,14 +84,33 @@ class ReductionPredicate:
     needle: str
     attempts: int
     preserve_regression: bool
+    keep_observed: bool = False
     tested: int = 0
     cache: dict = field(default_factory=dict)
     builds: dict = field(default_factory=dict)
+    anchor: dict | None = None  # what the original program's wrong result looked like
 
     def build(self, role):
         sha = self.config["refs"][role]
         prepare_builds(self.config, [(role, sha)], "release", self.builds, self.tools)
         return self.builds[sha]
+
+    def same_wrong_result(self, current, candidate):
+        """The first (original) evaluation fixes what every variant must keep.
+
+        If the candidate's own simulator produced the expected value for the original, it must for
+        each variant too: otherwise the deletion changed the program, and the stale expected value
+        merely looks like a miscompile. Without a validated reference (`--allow-preexisting`), that
+        simulator agreement is the only anchor, so the original must have it.
+        """
+        simulated = simulator_endpoint(current, candidate) == "ok"
+        observed = counts(candidate["profiles"][self.profile]["runner"]["values"])
+        if self.anchor is None:
+            self.anchor = {"simulator_agrees": simulated, "observed": observed}
+            return simulated or self.preserve_regression
+        if self.anchor["simulator_agrees"] and not simulated:
+            return False
+        return not self.keep_observed or observed == self.anchor["observed"]
 
     def __call__(self, text):
         if text in self.cache:
@@ -114,10 +134,9 @@ class ReductionPredicate:
             compiled = stage(self.config, build, current, "compile", self.profile)
             candidate = {"profiles": {self.profile: {"compile": compiled}}}
         matched = endpoint(current, candidate, self.profile) == self.kind
-        if matched and self.kind == "wrong_result" and not self.preserve_regression:
-            # Without a validated reference, only the simulator anchors the expected value: a variant
-            # whose own simulation disagrees with the oracle changed the program, not the miscompile.
-            matched = simulator_endpoint(current, candidate) == "ok"
+        if matched and self.kind == "wrong_result":
+            # Checked before any reference run, so semantics-changing variants stay cheap.
+            matched = self.same_wrong_result(current, candidate)
         if matched and self.needle:
             compiled = candidate["profiles"][self.profile]["compile"]
             matched = self.needle in (str(compiled.get("message", "")) + compiled.get("stderr", ""))
@@ -130,9 +149,12 @@ class ReductionPredicate:
         return matched
 
 
-def reduce_case(config, cases_path, case_id, output, kind, profile, needle, attempts, preserve_regression):
+def reduce_case(config, cases_path, case_id, output, kind, profile, needle, attempts, preserve_regression,
+                keep_observed=False):
     if kind in ("panic", "rejected") and not needle:
         raise ReviewError("Panic/rejection reduction requires --needle to preserve the failure signature.")
+    if keep_observed and kind != "wrong_result":
+        raise ReviewError("--keep-observed applies only to --kind wrong_result.")
     tools = preflight(config)
     work = Path(config["work_dir"])
     work.mkdir(parents=True, exist_ok=True)
@@ -144,7 +166,8 @@ def reduce_case(config, cases_path, case_id, output, kind, profile, needle, atte
     if profile not in original["profiles"]:
         raise ReviewError(f"Case does not select profile {profile}")
     case = original | {"profiles": [profile]}
-    predicate = ReductionPredicate(config, tools, case, directory, kind, profile, needle, attempts, preserve_regression)
+    predicate = ReductionPredicate(config, tools, case, directory, kind, profile, needle, attempts, preserve_regression,
+                                   keep_observed)
 
     if not predicate(case["source"]):
         raise ReviewError("Input does not satisfy the requested failure/regression predicate.")
@@ -162,6 +185,8 @@ def reduce_case(config, cases_path, case_id, output, kind, profile, needle, atte
             "profile": profile,
             "needle": needle,
             "preserve_regression": preserve_regression,
+            "keep_observed": keep_observed,
+            "anchor": predicate.anchor,
             "reference": config["refs"]["reference"],
             "candidate": config["refs"]["candidate"],
             "original_lines": len(case["source"].splitlines()),
@@ -251,9 +276,12 @@ def constant_value(text, name):
     raise ReviewError(f"No constant {name}")
 
 
-def reduce_adapter(config, cases_path, case_id, output, kind, profile, needle, attempts, preserve_regression):
+def reduce_adapter(config, cases_path, case_id, output, kind, profile, needle, attempts, preserve_regression,
+                   keep_observed=False):
     if kind in ("panic", "rejected") and not needle:
         raise ReviewError("Panic/rejection reduction requires --needle to preserve the failure signature.")
+    if keep_observed and kind != "wrong_result":
+        raise ReviewError("--keep-observed applies only to --kind wrong_result.")
     tools = preflight(config)
     work = Path(config["work_dir"])
     work.mkdir(parents=True, exist_ok=True)
@@ -265,7 +293,8 @@ def reduce_adapter(config, cases_path, case_id, output, kind, profile, needle, a
     if profile not in original["profiles"]:
         raise ReviewError(f"Case does not select profile {profile}")
     case = original | {"profiles": [profile]}
-    predicate = ReductionPredicate(config, tools, case, directory, kind, profile, needle, attempts, preserve_regression)
+    predicate = ReductionPredicate(config, tools, case, directory, kind, profile, needle, attempts, preserve_regression,
+                                   keep_observed)
 
     text = render_adapter(ast.parse(Path(original["adapter"]).read_text()))
     if not predicate(text):
@@ -298,6 +327,8 @@ def reduce_adapter(config, cases_path, case_id, output, kind, profile, needle, a
             "profile": profile,
             "needle": needle,
             "preserve_regression": preserve_regression,
+            "keep_observed": keep_observed,
+            "anchor": predicate.anchor,
             "reference": config["refs"]["reference"],
             "candidate": config["refs"]["candidate"],
             "adapter": str(adapter_path),

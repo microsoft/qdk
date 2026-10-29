@@ -72,6 +72,8 @@ def parser():
             sub.add_argument("--needle", default="")
             sub.add_argument("--attempts", type=int, default=100)
             sub.add_argument("--allow-preexisting", action="store_true")
+            sub.add_argument("--keep-observed", action="store_true",
+                             help="wrong_result: also keep the original wrong output, not just any wrong output")
     report = commands.add_parser("report")
     report.add_argument("run", type=Path)
     report.add_argument("--output", type=Path)
@@ -314,13 +316,13 @@ def run_command(args):
         if args.command == "reduce":
             tested, lines = reduce_case(
                 config, args.cases, args.case, args.output, args.kind, args.profile,
-                args.needle, args.attempts, not args.allow_preexisting,
+                args.needle, args.attempts, not args.allow_preexisting, args.keep_observed,
             )
             print(f"{tested} predicate attempts; {lines} lines; {args.output}")
         else:
             tested, adapter = reduce_adapter(
                 config, args.cases, args.case, args.output, args.kind, args.profile,
-                args.needle, args.attempts, not args.allow_preexisting,
+                args.needle, args.attempts, not args.allow_preexisting, args.keep_observed,
             )
             print(f"{tested} predicate attempts; reduced adapter {adapter}; manifest {args.output}")
     elif args.command == "exec":

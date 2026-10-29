@@ -363,10 +363,23 @@ def oom_kills(path="/sys/fs/cgroup/memory.events"):
     return None
 
 
-def failure_status(returncode, stderr):
-    """Memory exhaustion (SIGKILL, or Rust's allocation-failure abort) is inconclusive, not a crash."""
-    if returncode == -signal.SIGKILL or re.search(r"memory allocation of \d+ bytes failed", stderr or ""):
+def oom_killed(before, after):
+    """Whether the container's OOM killer fired between two counter reads, or None if unknown."""
+    return None if before is None or after is None else after > before
+
+
+def failure_status(returncode, stderr, oom=None):
+    """Classify an abnormal exit; memory exhaustion and outside interruption are inconclusive, not crashes.
+
+    The OOM killer and a person both send SIGKILL; `oom` (from the cgroup counter) tells them apart
+    when available. Genuine crashes arrive as SIGSEGV, SIGABRT, SIGBUS, SIGILL, or SIGFPE.
+    """
+    if re.search(r"memory allocation of \d+ bytes failed", stderr or ""):
         return "resource_exhausted"
+    if returncode == -signal.SIGKILL:
+        return "interrupted" if oom is False else "resource_exhausted"
+    if returncode in (-signal.SIGTERM, -signal.SIGINT, -signal.SIGHUP):
+        return "interrupted"
     return "crash" if returncode < 0 else "infrastructure_error"
 
 
@@ -416,20 +429,17 @@ def supervise(args, *, input_text=None, env, cwd, timeout):
             pass
     elapsed = time.monotonic() - start
     if proc.returncode:
-        result = {
-            "status": failure_status(proc.returncode, stderr),
-            "returncode": proc.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "seconds": elapsed,
-        }
-        if result["status"] == "resource_exhausted":
-            after = oom_kills()
+        oom = oom_killed(kills, oom_kills())
+        status = failure_status(proc.returncode, stderr, oom)
+        result = {"status": status, "returncode": proc.returncode, "stdout": stdout, "stderr": stderr,
+                  "seconds": elapsed}
+        if status == "resource_exhausted":
             result["message"] = (
-                "killed by the container's OOM killer"
-                if kills is not None and after is not None and after > kills
+                "killed by the container's OOM killer" if oom
                 else "killed by SIGKILL or a failed allocation (likely memory exhaustion)"
             )
+        elif status == "interrupted":
+            result["message"] = f"stopped by signal {-proc.returncode} from outside the harness"
         return result
     return {"status": "ok", "returncode": proc.returncode, "stdout": stdout, "stderr": stderr, "seconds": elapsed}
 

@@ -84,7 +84,8 @@ def exec_script(config, script, targets, mode, output_dir, timeout, args=(), bui
         env = worker_environment(config, build)
         observed = supervise([python, str(script), *args], cwd=script.parent, env=env, timeout=timeout)
         stdout, stderr = observed["stdout"], observed["stderr"]
-        status = observed["status"] if observed["status"] in ("timeout", "resource_exhausted") else observed["returncode"]
+        status = (observed["status"] if observed["status"] in ("timeout", "resource_exhausted", "interrupted")
+                  else observed["returncode"])
         panics = parse_panics(stderr)
         for panic in panics:
             try:
