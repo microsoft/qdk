@@ -5626,6 +5626,167 @@ fn runtime_functor_inference_rejects_incompatible_higher_order_inputs_in_both_or
 }
 
 #[test]
+fn runtime_higher_order_consumers_accept_shared_input_capabilities() {
+    check_runtime_higher_order_consumers(false);
+}
+
+#[test]
+fn runtime_higher_order_consumers_accept_reader_first() {
+    check_runtime_higher_order_consumers(true);
+}
+
+fn check_runtime_higher_order_consumers(reader_first: bool) {
+    let source = r#"
+        operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+        operation NeedsAdjoint(op : Qubit => Unit is Adj, q : Qubit) : Unit {
+            Adjoint op(q);
+        }
+        operation NeedsControl(op : Qubit => Unit is Ctl, q : Qubit) : Unit {
+            Controlled op([], q);
+        }
+        function AsConsumer(f : ((Qubit => Unit is Adj + Ctl), Qubit) => Unit) : ((Qubit => Unit is Adj + Ctl), Qubit) => Unit { f }
+        function MakeReader() : ((((Qubit => Unit is Adj + Ctl), Qubit) => Unit) => Result) {
+            f => { use q = Qubit(); f(Strong, q); MResetZ(q) }
+        }
+        operation Run<'T>(values : 'T[], read : 'T => Result) : Result[] {
+            mutable results = [];
+            for value in values { set results += [read(value)]; }
+            results
+        }
+        operation Reverse<'T>(read : 'T => Result, values : 'T[]) : Result[] {
+            mutable results = [];
+            for value in values { set results += [read(value)]; }
+            results
+        }
+    "#;
+    for consumers in [
+        "[AsConsumer(NeedsAdjoint), AsConsumer(NeedsControl)]",
+        "[AsConsumer(NeedsControl), AsConsumer(NeedsAdjoint)]",
+    ] {
+        let (target, argument) = if reader_first {
+            ("Reverse", format!("(MakeReader(), {consumers})"))
+        } else {
+            ("Run", format!("({consumers}, MakeReader())"))
+        };
+        check_runtime_type_inference(
+            source,
+            target,
+            &argument,
+            &Value::Array(vec![Value::RESULT_ONE; 2].into()),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+const CAPABILITY_CHAIN_SOURCE: &str = r#"
+    operation Weak(q : Qubit) : Unit is Adj { X(q); }
+    operation Strong(q : Qubit) : Unit is Ctl { X(q); }
+    function Identity<'T>(value : 'T) : 'T { value }
+    function Duplicate<'T>(value : 'T) : ('T, 'T) { (value, value) }
+    function MakeReader() : ((Qubit => Unit is Ctl) => Result) {
+        f => { use q = Qubit(); Controlled f([], q); MResetZ(q) }
+    }
+    function MakePairReader() : (((Qubit => Unit is Ctl), (Qubit => Unit is Ctl)) => Result) {
+        (f, g) => { use q = Qubit(); Controlled f([], q); g(q); MResetZ(q) }
+    }
+    operation Chain<'T, 'U, 'V>(f : 'T -> 'U, g : 'U -> 'V, value : 'T, read : 'V => Result) : Result {
+        read(g(f(value)))
+    }
+    operation Reverse<'T, 'U, 'V>(read : 'V => Result, value : 'T, g : 'U -> 'V, f : 'T -> 'U) : Result {
+        read(g(f(value)))
+    }
+"#;
+
+#[test]
+fn runtime_capability_chain_rejects_unsupported_control() {
+    check_runtime_capability_chain(false, false);
+}
+
+#[test]
+fn runtime_capability_chain_preserves_supported_control() {
+    check_runtime_capability_chain(false, true);
+}
+
+#[test]
+fn runtime_capability_chain_with_duplication_rejects_unsupported_control() {
+    check_runtime_capability_chain(true, false);
+}
+
+#[test]
+fn runtime_capability_chain_with_duplication_preserves_supported_control() {
+    check_runtime_capability_chain(true, true);
+}
+
+fn check_runtime_capability_chain(duplicate: bool, supported: bool) {
+    use miette::Diagnostic;
+
+    let (operation, bound) = if supported {
+        ("Strong", "Ctl")
+    } else {
+        ("Weak", "Adj")
+    };
+    let (second, output_type, reader) = if duplicate {
+        (
+            "Duplicate",
+            format!("((Qubit => Unit is {bound}), (Qubit => Unit is {bound}))"),
+            "MakePairReader()",
+        )
+    } else {
+        (
+            "Identity",
+            format!("(Qubit => Unit is {bound})"),
+            "MakeReader()",
+        )
+    };
+    for (target, arguments) in [
+        ("Chain", format!("(first, second, {operation}, {reader})")),
+        ("Reverse", format!("({reader}, {operation}, second, first)")),
+    ] {
+        let expression = format!(
+            "{{ let first : (Qubit => Unit is {bound}) -> (Qubit => Unit is {bound}) = Identity;
+                let second : (Qubit => Unit is {bound}) -> {output_type} = {second};
+                {arguments}
+            }}"
+        );
+        if supported {
+            check_runtime_type_inference(
+                CAPABILITY_CHAIN_SOURCE,
+                target,
+                &expression,
+                &Value::Result(qsc_eval::val::Result::Val(!duplicate)),
+                &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+            );
+        } else {
+            for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+                let context = format!("{profile:?}, {target}, second={second}");
+                let mut interpreter = interpreter_with_capabilities(profile.into());
+                eval_fragments(&mut interpreter, CAPABILITY_CHAIN_SOURCE);
+                let errors = interpreter
+                    .qirgen(&format!("{target}({expression})"))
+                    .expect_err("source typing must reject the unsupported control requirement");
+                assert!(
+                    errors.iter().any(|error| error
+                        .code()
+                        .is_some_and(|code| code.to_string() == "Qdk.Qsc.TypeCk.FunctorMismatch")),
+                    "{context}: unexpected source error: {errors:?}"
+                );
+                let arguments = eval_fragments(&mut interpreter, &expression);
+                let errors = interpreter
+                    .qirgen_from_callable(&runtime_argument_global(&interpreter, target), arguments)
+                    .expect_err("generic callbacks must not create control support");
+                assert!(
+                    matches!(
+                        errors.as_slice(),
+                        [crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }]
+                    ),
+                    "{context}: unexpected runtime error: {errors:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn runtime_type_inference_reads_later_array_elements() {
     let source = r#"
         operation Run<'T>(values : 'T[][], op : Qubit => Unit) : Result {
