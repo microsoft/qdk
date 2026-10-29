@@ -9,7 +9,7 @@ ARG TOOLCHAIN_FEED
 ARG CRATES_FEED
 ARG BUILD_ID
 ARG QDK_SOURCE_SHA
-ARG QDK_BUILD_ARGS='["--qdk"]'
+ARG QDK_BUILD_ARGS='["--qdk","--cli"]'
 LABEL qdk.copilot-sandbox.build-id=${BUILD_ID} \
     org.opencontainers.image.revision=${QDK_SOURCE_SHA}
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
@@ -88,7 +88,7 @@ WORKDIR /work
 FROM runtime-base AS verify
 RUN --network=none --mount=type=bind,from=qdk,target=/qdk,readonly \
     bash -c 'source /opt/sandbox/runtime/entrypoint.sh; verify_policy' \
-    && python -c 'import qirrunner' \
+    && /opt/qdk-venv/bin/qir-runner --version \
     && bash /opt/sandbox/scripts/build_qdk.sh \
     && printf '%s\n' "$QDK_BUILD_ARGS" > /tmp/offline-verified
 
