@@ -5316,6 +5316,68 @@ fn runtime_recursive_loop_local_qubits_can_be_reused_after_release() {
 }
 
 #[test]
+fn allocating_retry_with_known_budget_emits_runtime_reentry() {
+    let source = r#"
+        operation Retry(budget : Int, state : Qubit, flag : Qubit, output : Qubit) : Unit {
+            if budget > 0 {
+                {
+                    use local = Qubit();
+                    X(local); CNOT(local, state); X(local);
+                }
+                CNOT(state, flag);
+                if MResetZ(flag) == Zero { Retry(budget - 1, state, flag, output); }
+                else { X(output); }
+            }
+        }
+        operation Main() : Result[] {
+            use (state, flag, output) = (Qubit(), Qubit(), Qubit());
+            X(state);
+            Retry(40, state, flag, output);
+            [MResetZ(output), MResetZ(state)]
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_eq!(
+        qir.matches("define internal void @Retry(").count(),
+        1,
+        "{qir}"
+    );
+    assert_eq!(qir.matches("call void @Retry(").count(), 2, "{qir}");
+    assert_static_resource_management(&qir, 5, 4);
+}
+
+#[test]
+fn unconditional_allocating_retry_with_known_budget_emits_runtime_reentry() {
+    let source = r#"
+        operation Retry(budget : Int, state : Qubit, flag : Qubit, output : Qubit) : Unit {
+            {
+                use local = Qubit();
+                X(local); CNOT(local, state); X(local);
+            }
+            if budget > 0 {
+                CNOT(state, flag);
+                if MResetZ(flag) == Zero { Retry(budget - 1, state, flag, output); }
+                else { X(output); }
+            }
+        }
+        operation Main() : Result[] {
+            use (state, flag, output) = (Qubit(), Qubit(), Qubit());
+            X(state);
+            Retry(40, state, flag, output);
+            [MResetZ(output), MResetZ(state)]
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_eq!(
+        qir.matches("define internal void @Retry(").count(),
+        1,
+        "{qir}"
+    );
+    assert_eq!(qir.matches("call void @Retry(").count(), 2, "{qir}");
+    assert_static_resource_management(&qir, 5, 4);
+}
+
+#[test]
 fn runtime_recursive_conditional_reset_qubit_used_only_for_release_is_emitted() {
     let source = r#"
         operation Rec(n : Int, target : Qubit) : Unit {

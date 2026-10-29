@@ -1709,11 +1709,12 @@ impl<'a> PartialEvaluator<'a> {
                                     Some(VarTy::Qubit | VarTy::Result)
                                 )
                         });
-                    // Retain known inputs and scalar evaluation by inlining. At runtime-controlled
-                    // re-entry, expand only when known inputs change; otherwise emit a runtime call.
+                    // Retain ordinary static expansion and scalar evaluation. Eligible Unit
+                    // re-entry under runtime control can emit even when known inputs change.
                     if has_static_qubit_layout
                         && (has_known_input || scalar_with_static_inputs)
-                        && (args.iter().all(|arg| is_static_value(arg.value()))
+                        && (callable_decl.output != Ty::UNIT
+                            && args.iter().all(|arg| is_static_value(arg.value()))
                             && self.eval_context.has_changed_static_input(
                                 store_item_id,
                                 functor_app,
@@ -2304,7 +2305,8 @@ impl<'a> PartialEvaluator<'a> {
     /// Static qubits require proved, reserved local-qubit storage; unproved recursive measurement
     /// lifetimes still force inlining.
     /// The storage exception retains known inputs and finite scalar evaluation. At
-    /// runtime-controlled recursive re-entry, unchanged or runtime inputs permit emission.
+    /// runtime-controlled recursive re-entry, Unit returns permit emission even when known
+    /// inputs change; scalar results retain their existing expansion preference.
     /// The caller additionally checks body resolution and folds fully static calls.
     fn is_ir_function_eligible(
         &mut self,

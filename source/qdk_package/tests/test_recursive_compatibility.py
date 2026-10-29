@@ -643,3 +643,42 @@ def test_inlined_allocation_extends_only_its_own_qubit_reservation(
         }}
     """
     check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize(
+    "budget,preparation,expected",
+    [
+        pytest.param(0, "", 0, id="zero-budget-zero-state"),
+        pytest.param(0, "X(state);", 2, id="zero-budget-one-state"),
+        pytest.param(1, "", 3, id="first-attempt-success"),
+        pytest.param(1, "X(state);", 0, id="budget-exhausted"),
+        pytest.param(2, "X(state);", 3, id="last-attempt-success"),
+        pytest.param(40, "", 3, id="large-budget-first-attempt-success"),
+        pytest.param(40, "X(state);", 3, id="large-budget-second-attempt-success"),
+    ],
+)
+def test_allocating_retry_preserves_success_and_known_budget_exhaustion(
+    budget: int, preparation: str, expected: int
+) -> None:
+    source = f"""
+        operation Retry(budget : Int, state : Qubit, flag : Qubit, output : Qubit) : Unit {{
+            if budget > 0 {{
+                {{
+                    use local = Qubit();
+                    X(local); CNOT(local, state); X(local);
+                }}
+                CNOT(state, flag);
+                if MResetZ(flag) == Zero {{ Retry(budget - 1, state, flag, output); }}
+                else {{ X(output); }}
+            }}
+        }}
+        operation Main() : Int {{
+            use (state, flag, output) = (Qubit(), Qubit(), Qubit());
+            {preparation}
+            Retry({budget}, state, flag, output);
+            let success = if MResetZ(output) == One {{ 1 }} else {{ 0 }};
+            let finalState = if MResetZ(state) == One {{ 2 }} else {{ 0 }};
+            success + finalState
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
