@@ -60,6 +60,8 @@ if azure:
     )
 PY
 python3 -m venv "$VIRTUAL_ENV"
+qirrunner_requirement=$(grep '^qirrunner==' /qdk/source/qdk_package/tests-integration/test_requirements.txt)
+python -m pip install --only-binary=:all: "$qirrunner_requirement"
 cd /opt/sandbox/copilot
 npm ci --ignore-scripts --no-audit --no-fund
 ./node_modules/.bin/copilot --version
