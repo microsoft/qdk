@@ -10,6 +10,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+anstream = { workspace = true }
+anstyle = { workspace = true }
 qodec = { workspace = true }
 qodec_runtime = { path = "../qodec_runtime" }
 rustyline = { workspace = true }

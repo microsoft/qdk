@@ -1,74 +1,139 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! `qodec-lowerer <qodec-filepath>`: a REPL that lowers instructions of a
-//! qodec's top ISA to its bottom ISA, through every layer of the qodec runtime,
-//! and prints the bottom instructions. Type `:help` in the REPL for its syntax.
+//! `qodec-lowerer [--color=<when>] <qodec-filepath>`: a REPL that lowers
+//! instructions of a qodec's top ISA to its bottom ISA, through every layer of
+//! the qodec runtime, and prints the bottom instructions. Type `:help` in the
+//! REPL for its syntax.
+//!
+//! Colors are only shown on a color terminal, unless `--color=always`. Output
+//! carries the same information without them.
 
+mod highlight;
 mod recorder;
 mod session;
+mod style;
 mod syntax;
 
 #[cfg(test)]
 mod tests;
 
+use anstream::{AutoStream, ColorChoice, eprintln, print, println};
 use qodec::{InstructionSet, Qodec};
 use qodec_runtime::Bit;
 use rustyline::{
-    Context, Editor, Helper, completion::Completer, error::ReadlineError, highlight::Highlighter,
-    hint::Hinter, history::DefaultHistory, validate::Validator,
+    Config, Context, Editor, Helper,
+    completion::Completer,
+    config::ColorMode,
+    error::ReadlineError,
+    highlight::{CmdKind, Highlighter},
+    hint::Hinter,
+    history::DefaultHistory,
+    validate::Validator,
 };
-use session::{Reply, Session};
+use session::{COMMANDS, Reply, Session};
 use std::{
+    borrow::Cow,
     io::{self, BufRead, Write},
     process::ExitCode,
     sync::Arc,
 };
 
-const USAGE: &str = "usage: qodec-lowerer <qodec-filepath>";
+const USAGE: &str = "usage: qodec-lowerer [--color=auto|always|never] <qodec-filepath>";
 
-const COMMANDS: &[&str] = &[":help", ":isa", ":layers", ":outcomes", ":reset", ":quit"];
+const HELP: &str = "Lowers top-ISA instructions of a qodec to its bottom ISA.
+
+Options:
+  --color <when>  auto (default), always, or never. `auto` colors only a
+                  terminal, and honors NO_COLOR and CLICOLOR_FORCE.
+  -h, --help      show this help";
+
+/// The parsed command line.
+enum Args {
+    Help,
+    Run { path: String, color: ColorChoice },
+}
+
+fn parse_args(args: &[String]) -> Result<Args, String> {
+    let mut path = None;
+    let mut color = ColorChoice::Auto;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        let when = match arg.as_str() {
+            "-h" | "--help" => return Ok(Args::Help),
+            "--color" => Some(args.next().ok_or("`--color` needs a value")?.as_str()),
+            _ => arg.strip_prefix("--color="),
+        };
+        if let Some(when) = when {
+            color = match when {
+                "auto" => ColorChoice::Auto,
+                "always" => ColorChoice::Always,
+                "never" => ColorChoice::Never,
+                _ => {
+                    return Err(format!(
+                        "`--color` expects auto, always or never, got `{when}`"
+                    ));
+                }
+            };
+        } else if arg.starts_with('-') {
+            return Err(format!("unknown option `{arg}`"));
+        } else if path.replace(arg.clone()).is_some() {
+            return Err("expected one qodec file".to_string());
+        }
+    }
+    let path = path.ok_or("missing the qodec file")?;
+    Ok(Args::Run { path, color })
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let path = match args.as_slice() {
-        [flag] if flag == "-h" || flag == "--help" => {
-            println!("{USAGE}\n\nLowers top-ISA instructions of a qodec to its bottom ISA.");
+    let (path, color) = match parse_args(&args) {
+        Ok(Args::Help) => {
+            println!("{USAGE}\n\n{HELP}");
             return ExitCode::SUCCESS;
         }
-        [path] => path,
-        _ => {
-            eprintln!("{USAGE}");
+        Ok(Args::Run { path, color }) => (path, color),
+        Err(e) => {
+            eprintln!("{} {e}\n{USAGE}", style::error_prefix());
             return ExitCode::FAILURE;
         }
     };
-    let qodec = match Qodec::load(path) {
+    color.write_global();
+    let qodec = match Qodec::load(&path) {
         Ok(qodec) => qodec,
         Err(e) => {
-            eprintln!("error: cannot load `{path}`: {e}");
+            eprintln!("{} cannot load `{path}`: {e}", style::error_prefix());
             return ExitCode::FAILURE;
         }
     };
     let mut session = match Session::new(&qodec, Box::new(ask)) {
         Ok(session) => session,
         Err(e) => {
-            eprintln!("error: cannot plan `{path}`: {e}");
+            eprintln!("{} cannot plan `{path}`: {e}", style::error_prefix());
             return ExitCode::FAILURE;
         }
     };
     match repl(&mut session) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("{} {e}", style::error_prefix());
             ExitCode::FAILURE
         }
     }
 }
 
 fn repl(session: &mut Session) -> Result<(), ReadlineError> {
-    let mut editor: Editor<Completions, DefaultHistory> = Editor::new()?;
+    // Highlight the input exactly when the output is colored.
+    let color_mode = if AutoStream::choice(&io::stdout()) == ColorChoice::Never {
+        ColorMode::Disabled
+    } else {
+        ColorMode::Enabled
+    };
+    let config = Config::builder().color_mode(color_mode).build();
+    let mut editor: Editor<Completions, DefaultHistory> = Editor::with_config(config)?;
     editor.set_helper(Some(Completions(Arc::clone(session.top()))));
-    println!("{}", session.banner());
+    // A blank line after every output separates one exchange from the next.
+    println!("{}\n", session.banner());
     loop {
         let line = match editor.readline("qodec> ") {
             Ok(line) => line,
@@ -82,7 +147,7 @@ fn repl(session: &mut Session) -> Result<(), ReadlineError> {
         }
         match session.eval(&line) {
             Reply::Print(text) if text.is_empty() => {}
-            Reply::Print(text) => println!("{}", text.trim_end()),
+            Reply::Print(text) => println!("{}\n", text.trim_end()),
             Reply::Quit => return Ok(()),
         }
     }
@@ -107,7 +172,8 @@ fn ask(what: &str) -> Result<Bit, String> {
     }
 }
 
-/// Tab-completes commands, top-ISA mnemonics, and their parameter names.
+/// Tab-completes and highlights commands, top-ISA mnemonics, and their
+/// parameter names.
 struct Completions(Arc<InstructionSet>);
 
 impl Completer for Completions {
@@ -132,8 +198,8 @@ impl Completer for Completions {
         let candidates: Vec<String> = match statement.first() {
             None if word.starts_with(':') => COMMANDS
                 .iter()
+                .map(|c| format!(":{c}"))
                 .filter(|c| c.starts_with(word))
-                .map(ToString::to_string)
                 .collect(),
             None => self
                 .0
@@ -164,7 +230,24 @@ impl Hinter for Completions {
     type Hint = String;
 }
 
-impl Highlighter for Completions {}
+impl Highlighter for Completions {
+    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
+        Cow::Owned(highlight::line(&self.0, line))
+    }
+
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        _default: bool,
+    ) -> Cow<'b, str> {
+        Cow::Owned(style::paint(style::PROMPT, prompt))
+    }
+
+    fn highlight_char(&self, _line: &str, _pos: usize, _kind: CmdKind) -> bool {
+        // Any keystroke can change a token's role.
+        true
+    }
+}
 
 impl Validator for Completions {}
 

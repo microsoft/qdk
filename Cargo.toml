@@ -48,6 +48,8 @@ license = "MIT"
 version = "0.0.0"
 
 [workspace.dependencies]
+anstream = "1.0"
+anstyle = "1.0"
 binar = "0.1.1"
 bitflags = "2.13"
 memchr = "2.8"

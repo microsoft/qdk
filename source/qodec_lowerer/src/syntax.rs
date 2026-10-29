@@ -11,6 +11,7 @@
 //! Blocks are ids at the boundary, one per operand: operand `j` is `in[j]`
 //! and/or `out[j]`.
 
+use crate::style::{BLOCK, DIM, INVALID, MNEMONIC, PARAM, VALUE, paint};
 use qodec::{Instruction, InstructionSet, ParameterKind};
 use qodec_runtime::{BackendInstruction, OwnedParam};
 use smallvec::SmallVec;
@@ -155,9 +156,12 @@ fn unquote(text: &str) -> &str {
 /// Renders `ins`, an instruction of `isa`, in the input syntax.
 pub fn render_instruction(isa: &InstructionSet, ins: &Ins) -> String {
     let Some(decl) = isa.instructions.get(ins.instruction_id) else {
-        return format!("<unknown instruction {}>", ins.instruction_id);
+        return paint(
+            INVALID,
+            &format!("<unknown instruction {}>", ins.instruction_id),
+        );
     };
-    let mut text = decl.mnemonic.clone();
+    let mut text = paint(MNEMONIC, &decl.mnemonic);
     let blocks = ins
         .parameters
         .iter()
@@ -165,13 +169,15 @@ pub fn render_instruction(isa: &InstructionSet, ins: &Ins) -> String {
         .count();
     let (blocks, args) = ins.parameters.split_at(blocks);
     for block in blocks {
-        write!(text, " {}", render_value(block, None)).expect("writing to a string succeeds");
+        write!(text, " {}", paint(BLOCK, &render_value(block, None)))
+            .expect("writing to a string succeeds");
     }
     for (i, arg) in args.iter().enumerate() {
         let parameter = decl.parameters.get(i);
         let name = parameter.map_or("?", |p| p.name.as_str());
         let value = render_value(arg, parameter.map(|p| p.kind));
-        write!(text, " {name}={value}").expect("writing to a string succeeds");
+        write!(text, " {}={}", paint(PARAM, name), paint(VALUE, &value))
+            .expect("writing to a string succeeds");
     }
     text
 }
@@ -203,7 +209,7 @@ fn list(items: impl Iterator<Item = String>) -> String {
 
 /// The instruction's usage, e.g. `XIF <qubit> c=<bit>`, then what it reports.
 pub fn signature(decl: &Instruction) -> String {
-    let mut text = decl.mnemonic.clone();
+    let mut text = paint(MNEMONIC, &decl.mnemonic);
     for j in 0..decl.inputs.len().max(decl.outputs.len()) {
         let operand = match (decl.inputs.get(j), decl.outputs.get(j)) {
             (Some(i), Some(o)) if i.block == o.block => i.block.clone(),
@@ -217,11 +223,18 @@ pub fn signature(decl: &Instruction) -> String {
             .flatten()
             .any(|o| o.is_variadic);
         let dots = if variadic { "..." } else { "" };
-        write!(text, " <{operand}>{dots}").expect("writing to a string succeeds");
+        write!(text, " {}", paint(BLOCK, &format!("<{operand}>{dots}")))
+            .expect("writing to a string succeeds");
     }
     for parameter in &decl.parameters {
         let kind = format!("{:?}", parameter.kind).to_lowercase();
-        write!(text, " {}=<{kind}>", parameter.name).expect("writing to a string succeeds");
+        write!(
+            text,
+            " {}={}",
+            paint(PARAM, &parameter.name),
+            paint(VALUE, &format!("<{kind}>"))
+        )
+        .expect("writing to a string succeeds");
     }
     let observes = decl.observe_count();
     let mut reports = Vec::new();
@@ -233,7 +246,8 @@ pub fn signature(decl: &Instruction) -> String {
         reports.push(format!("flags {}", decl.flags.join(" ")));
     }
     if !reports.is_empty() {
-        write!(text, "  => {}", reports.join(", ")).expect("writing to a string succeeds");
+        write!(text, "  {} {}", paint(DIM, "=>"), reports.join(", "))
+            .expect("writing to a string succeeds");
     }
     text
 }

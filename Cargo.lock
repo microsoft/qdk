@@ -1938,6 +1938,8 @@ dependencies = [
 name = "qodec_lowerer"
 version = "0.0.0"
 dependencies = [
+ "anstream",
+ "anstyle",
  "expect-test",
  "qodec",
  "qodec_runtime",

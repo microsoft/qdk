@@ -6,6 +6,7 @@
 
 use crate::{
     recorder::{AskFn, Log, Oracle, Outcomes, Recorder},
+    style::{self, BIT, BLOCK, DIM, NAME, PARAM, UNRESOLVED, paint},
     syntax::{self, Ins},
 };
 use qodec::{InstructionSet, Qodec};
@@ -42,6 +43,12 @@ Commands:
   :help                       show this help
   :quit                       exit (also Ctrl-D)
 Lines starting with `#` are comments."#;
+
+/// The REPL commands, without their `:`.
+pub const COMMANDS: &[&str] = &["help", "isa", "layers", "outcomes", "reset", "quit"];
+
+/// Other names for some of [`COMMANDS`].
+pub const COMMAND_ALIASES: &[&str] = &["h", "?", "q", "exit"];
 
 /// What the REPL does with a line.
 #[derive(Debug, PartialEq, Eq)]
@@ -99,18 +106,18 @@ impl Session {
     }
 
     pub fn banner(&self) -> String {
-        let chain: Vec<&str> = self.layers.iter().map(|l| l.name.as_str()).collect();
+        let chain: Vec<String> = self.layers.iter().map(|l| paint(NAME, &l.name)).collect();
         format!(
             "Loaded qodec `{}`: {}\nType top-ISA instructions to lower them, or `:help`.",
-            self.name,
-            chain.join(" -> ")
+            paint(NAME, &self.name),
+            chain.join(&format!(" {} ", paint(DIM, "->")))
         )
     }
 
     /// Evaluates one line.
     pub fn eval(&mut self, line: &str) -> Reply {
         self.try_eval(line)
-            .unwrap_or_else(|e| Reply::Print(format!("error: {e}")))
+            .unwrap_or_else(|e| Reply::Print(format!("{} {e}", style::error_prefix())))
     }
 
     fn try_eval(&mut self, line: &str) -> Result<Reply, String> {
@@ -150,7 +157,7 @@ impl Session {
                     } => self.usage_hint(&instructions),
                     _ => String::new(),
                 };
-                Ok(format!("{text}error: {e}{hint}"))
+                Ok(format!("{text}{} {e}{hint}", style::error_prefix()))
             }
         }
     }
@@ -177,24 +184,27 @@ impl Session {
         let log = self.log.borrow();
         let bottom = self.bottom();
         if log.iter().all(Vec::is_empty) {
-            return "  (no bottom instructions)\n".to_string();
+            return format!("  {}\n", paint(DIM, "(no bottom instructions)"));
         }
         let mut text = String::new();
         for (k, batch) in log.iter().enumerate() {
             if log.len() > 1 {
-                writeln!(text, "  -- lower batch {} of {} --", k + 1, log.len())
+                let separator = format!("-- lower batch {} of {} --", k + 1, log.len());
+                writeln!(text, "  {}", paint(DIM, &separator))
                     .expect("writing to a string succeeds");
             }
             let rendered: Vec<String> = batch
                 .iter()
                 .map(|e| syntax::render_instruction(bottom, &e.instruction))
                 .collect();
-            let width = rendered.iter().map(String::len).max().unwrap_or(0);
+            let width = rendered.iter().map(|r| style::width(r)).max().unwrap_or(0);
             for (executed, ins) in batch.iter().zip(rendered) {
                 match &executed.readout {
                     Some(readout) => writeln!(
                         text,
-                        "  {ins:width$}  -> {}",
+                        "  {}  {} {}",
+                        style::pad(&ins, width),
+                        paint(DIM, "->"),
                         render_readout(bottom, &executed.instruction, readout)
                     ),
                     None => writeln!(text, "  {ins}"),
@@ -219,7 +229,8 @@ impl Session {
                 || "<missing result>".to_string(),
                 |r| render_readout(top, ins, r),
             );
-            writeln!(text, "{rendered} => {readout}").expect("writing to a string succeeds");
+            writeln!(text, "{rendered} {} {readout}", paint(DIM, "=>"))
+                .expect("writing to a string succeeds");
         }
         text
     }
@@ -282,7 +293,8 @@ impl Session {
             .iter()
             .enumerate()
             .map(|(k, isa)| {
-                let blocks: Vec<&str> = isa.blocks.iter().map(|b| b.name.as_str()).collect();
+                let blocks: Vec<String> =
+                    isa.blocks.iter().map(|b| paint(BLOCK, &b.name)).collect();
                 let role = match k {
                     0 if last == 0 => "  (top, bottom)",
                     0 => "  (top)",
@@ -290,9 +302,10 @@ impl Session {
                     _ => "",
                 };
                 format!(
-                    "layer {k}: {} [blocks: {}]{role}",
-                    isa.name,
-                    blocks.join(", ")
+                    "layer {k}: {} [blocks: {}]{}",
+                    paint(NAME, &isa.name),
+                    blocks.join(", "),
+                    paint(DIM, role)
                 )
             })
             .collect();
@@ -301,7 +314,7 @@ impl Session {
 
     fn render_isa(&self, k: usize) -> String {
         let isa = &self.layers[k];
-        let mut text = format!("layer {k}: {}", isa.name);
+        let mut text = format!("layer {k}: {}", paint(NAME, &isa.name));
         for decl in &isa.instructions {
             write!(text, "\n  {}", syntax::signature(decl)).expect("writing to a string succeeds");
         }
@@ -334,7 +347,7 @@ fn render_readout(isa: &InstructionSet, ins: &Ins, readout: &BasicReadout) -> St
             .enumerate()
             .map(|(i, &b)| {
                 let name = names.get(i).map_or("?", String::as_str);
-                format!("{name}={}", render_bit(b))
+                format!("{}={}", paint(PARAM, name), render_bit(b))
             })
             .collect();
         write!(text, " flags [{}]", flags.join(", ")).expect("writing to a string succeeds");
@@ -349,16 +362,17 @@ fn render_readout(isa: &InstructionSet, ins: &Ins, readout: &BasicReadout) -> St
     .filter_map(|(set, name)| set.then_some(name))
     .collect();
     if !conditions.is_empty() {
-        write!(text, " ({})", conditions.join(", ")).expect("writing to a string succeeds");
+        let conditions = format!("({})", conditions.join(", "));
+        write!(text, " {}", paint(UNRESOLVED, &conditions)).expect("writing to a string succeeds");
     }
     text
 }
 
 fn render_bit(bit: Bit) -> String {
     match bit {
-        Some(false) => "0".to_string(),
-        Some(true) => "1".to_string(),
-        None => "?".to_string(),
+        Some(false) => paint(BIT, "0"),
+        Some(true) => paint(BIT, "1"),
+        None => paint(UNRESOLVED, "?"),
     }
 }
 

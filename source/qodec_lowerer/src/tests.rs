@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::session::{Reply, Session};
+use crate::{
+    highlight,
+    session::{Reply, Session},
+    style,
+};
 use expect_test::{Expect, expect};
 use qodec::Qodec;
 use qodec_runtime::Bit;
@@ -70,6 +74,26 @@ fn transcript_asking(qodec: &Qodec, lines: &[&str], answers: &[Bit]) -> String {
             }
             Reply::Quit => text.push_str("<quit>\n"),
         }
+    }
+    style::plain(&text)
+}
+
+/// `text` with every style replaced by a readable `<name>` tag, and resets by
+/// `</>`. Styles that render identically share a tag, e.g. `<block|value>`.
+fn tagged(text: &str) -> String {
+    let mut named: Vec<(String, Vec<&str>)> = Vec::new();
+    for (role, s) in style::NAMED {
+        let code = s.render().to_string();
+        match named.iter_mut().find(|(c, _)| *c == code) {
+            Some((_, roles)) => roles.push(role),
+            None => named.push((code, vec![role])),
+        }
+    }
+    // Longer sequences first: a bold color starts with plain bold.
+    named.sort_by_key(|(code, _)| std::cmp::Reverse(code.len()));
+    let mut text = text.replace(&anstyle::Reset.render().to_string(), "</>");
+    for (code, roles) in named {
+        text = text.replace(&code, &format!("<{}>", roles.join("|")));
     }
     text
 }
@@ -331,6 +355,174 @@ fn commands_describe_the_qodec() {
             qodec> :quit
             <quit>
         "#]],
+    );
+}
+
+#[test]
+fn output_is_styled_and_aligned_by_visible_width() {
+    let mut session = Session::new(&qodec(false), Box::new(|_: &str| Ok(None))).expect("plans");
+    session.eval(":outcomes one");
+    let Reply::Print(text) = session.eval("prepare_z 0; measure_reset 0") else {
+        panic!("expected output");
+    };
+    expect![[r#"
+          <dim>-- lower batch 1 of 2 --</>
+          <mnemonic|command>R</> <block|value>0</>
+          <mnemonic|command>R</> <block|value>1</>
+          <mnemonic|command>R</> <block|value>2</>
+          <mnemonic|command>MZ</> <block|value>0</>  <dim>-></> [<bit>1</>]
+          <mnemonic|command>MZ</> <block|value>1</>  <dim>-></> [<bit>1</>]
+          <mnemonic|command>MZ</> <block|value>2</>  <dim>-></> [<bit>1</>]
+          <dim>-- lower batch 2 of 2 --</>
+          <mnemonic|command>XIF</> <block|value>0</> <param>c</>=<block|value>1</>
+          <mnemonic|command>XIF</> <block|value>1</> <param>c</>=<block|value>1</>
+          <mnemonic|command>XIF</> <block|value>2</> <param>c</>=<block|value>1</>
+        <mnemonic|command>measure_reset</> <block|value>0</> <dim>=></> [<bit>1</>]
+    "#]]
+    .assert_eq(&tagged(&text));
+    let Reply::Print(text) = session.eval("measure_reset 7") else {
+        panic!("expected output");
+    };
+    expect![[r#"
+          <dim>(no bottom instructions)</>
+        <error>error:</> layer 0: invalid instruction
+          input operands must be live blocks of the declared type; usage:
+            <mnemonic|command>measure_reset</> <block|value><repetition3></>  <dim>=></> 1 outcome"#]]
+    .assert_eq(&tagged(&text));
+}
+
+#[test]
+fn signatures_and_layers_are_styled() {
+    let mut session = Session::new(&physical(), Box::new(|_: &str| Ok(None))).expect("plans");
+    let Reply::Print(text) = session.eval(":isa") else {
+        panic!("expected output");
+    };
+    expect![[r#"
+        layer 0: <name>physical</>
+          <mnemonic|command>R</> <block|value><out:qubit></>
+          <mnemonic|command>M</> <block|value><in:qubit></>  <dim>=></> 1 outcome
+          <mnemonic|command>MZ</> <block|value><qubit></>  <dim>=></> 1 outcome
+          <mnemonic|command>CX</> <block|value><qubit></> <block|value><qubit></>
+          <mnemonic|command>X</> <block|value><qubit></>
+          <mnemonic|command>Z</> <block|value><qubit></>
+          <mnemonic|command>XIF</> <block|value><qubit></> <param>c</>=<block|value><bit></>"#]]
+    .assert_eq(&tagged(&text));
+}
+
+/// Highlights `lines` against the physical ISA, one per output line.
+fn highlighted(lines: &[&str]) -> String {
+    let isa = Arc::clone(&physical().layers()[0].instruction_set);
+    lines
+        .iter()
+        .map(|line| {
+            let styled = highlight::line(&isa, line);
+            // rustyline requires the display width to be unchanged.
+            assert_eq!(
+                style::plain(&styled),
+                *line,
+                "highlighting changed `{line}`"
+            );
+            tagged(&styled)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn typed_instructions_are_highlighted() {
+    expect![[r#"
+        <mnemonic|command>R</> <block|value>0</><dim>;</> <mnemonic|command>XIF</> <block|value>0</> <param>c</>=<block|value>1</><dim>;</><mnemonic|command>MZ</> <block|value>0</>
+          <mnemonic|command>XIF</>  <block|value>0</>   <param>c</>=<block|value>true</>
+        <mnemonic|command>XIF</> <block|value>0</> <invalid>d</>=<block|value>1</>
+        <mnemonic|command>XIF</> <invalid>zero</>
+        <invalid>Y</> <block|value>0</>"#]].assert_eq(&highlighted(&[
+        "R 0; XIF 0 c=1;MZ 0",
+        "  XIF  0   c=true",
+        "XIF 0 d=1",
+        "XIF zero",
+        "Y 0",
+    ]));
+}
+
+#[test]
+fn half_typed_lines_are_not_flagged() {
+    expect![[r#"
+        <mnemonic|command>X</>
+        XI
+        <mnemonic|command>XIF</> <block|value>0</> c
+        <mnemonic|command>XIF</> <block|value>0</> <param>c</>="#]]
+    .assert_eq(&highlighted(&["X", "XI", "XIF 0 c", "XIF 0 c="]));
+}
+
+#[test]
+fn quotes_and_brackets_stay_in_one_word() {
+    expect![[r#"
+        <mnemonic|command>XIF</> <block|value>0</> <param>c</>=<block|value>"a; b"</>
+        <mnemonic|command>XIF</> <block|value>0</> <param>c</>=<block|value>[1, 2]</><dim>;</> <mnemonic|command>R</> <block|value>1</>
+        <mnemonic|command>XIF</> <block|value>0</> <param>c</>=<block|value>"unterminated; R 1</>
+        <mnemonic|command>XIF</> <block|value>0</> <param>c</>=<block|value>]]</> <invalid>R</>"#]].assert_eq(&highlighted(&[
+        "XIF 0 c=\"a; b\"",
+        "XIF 0 c=[1, 2]; R 1",
+        "XIF 0 c=\"unterminated; R 1",
+        "XIF 0 c=]] R",
+    ]));
+}
+
+#[test]
+fn commands_and_comments_are_highlighted() {
+    expect![[r#"
+        <mnemonic|command>:isa</> <block|value>bottom</>
+        :outc
+        <invalid>:nope</>
+        <mnemonic|command>:q</>
+        <dim>  # R 0</>
+    "#]]
+    .assert_eq(&highlighted(&[
+        ":isa bottom",
+        ":outc",
+        ":nope",
+        ":q",
+        "  # R 0",
+        "",
+    ]));
+}
+
+#[test]
+fn arguments_select_colors_and_the_qodec_file() {
+    use crate::{Args, parse_args};
+    let parse =
+        |args: &[&str]| match parse_args(&args.iter().map(ToString::to_string).collect::<Vec<_>>())
+        {
+            Ok(Args::Help) => "help".to_string(),
+            Ok(Args::Run { path, color }) => format!("{path} {color:?}"),
+            Err(e) => format!("error: {e}"),
+        };
+    expect![[r#"
+        q.yaml Auto
+        q.yaml Never
+        q.yaml Always
+        q.yaml Auto
+        error: `--color` expects auto, always or never, got `sometimes`
+        error: `--color` needs a value
+        error: unknown option `-x`
+        error: expected one qodec file
+        error: missing the qodec file
+        help"#]]
+    .assert_eq(
+        &[
+            &["q.yaml"][..],
+            &["--color=never", "q.yaml"],
+            &["q.yaml", "--color", "always"],
+            &["--color=auto", "q.yaml"],
+            &["--color=sometimes", "q.yaml"],
+            &["--color"],
+            &["-x", "q.yaml"],
+            &["a.yaml", "b.yaml"],
+            &[],
+            &["q.yaml", "--help"],
+        ]
+        .map(parse)
+        .join("\n"),
     );
 }
 
