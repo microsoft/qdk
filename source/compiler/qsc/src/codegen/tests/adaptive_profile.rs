@@ -2551,9 +2551,15 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
 fn assert_inlined(qir: &str, callable_name: &str) {
     assert!(
-        !qir.contains(&format!("define internal void @{callable_name}(")),
-        "expected `{callable_name}` to inline (no IR function definition); got:\n{qir}"
+        !qir.contains(&format!("@{callable_name}(")),
+        "expected `{callable_name}` to inline (no IR function definition or call); got:\n{qir}"
     );
+}
+
+#[test]
+#[should_panic(expected = "expected `Rec` to inline")]
+fn inlining_assertion_rejects_integer_returning_function() {
+    assert_inlined("define internal i64 @Rec() { ret i64 0 }", "Rec");
 }
 
 /// An operation with a composite-leaf parameter (an array, which has no
