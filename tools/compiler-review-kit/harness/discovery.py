@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import sys
 from urllib.parse import urlencode
 
 from harness.builds import checkout_revision, locked
@@ -122,9 +123,17 @@ def snapshot_issues(config, output):
         wanted.setdefault(number, []).append("commit reference (may be a PR)")
     for number in selection.get("include", []):
         wanted.setdefault(number, []).append("explicit include")
-    snapshots, prs = [], []
+    snapshots, prs, unresolved = [], [], []
     for number, reasons in sorted(wanted.items()):
-        issue = _api(f"{prefix}/issues/{number}")
+        try:
+            issue = _api(f"{prefix}/issues/{number}")
+        except ReviewError as err:
+            # Commit messages can quote another repository's numbers (e.g. dependabot release
+            # notes); only those references may be skipped. Selected issues must resolve.
+            if "HTTP 404" not in str(err) or any(not r.startswith("commit reference") for r in reasons):
+                raise
+            unresolved.append(number)
+            continue
         if "pull_request" in issue:
             prs.append(number)
             continue
@@ -154,8 +163,11 @@ def snapshot_issues(config, output):
             "selection": selection,
             "issues": snapshots,
             "pr_references": prs,
+            "unresolved_references": unresolved,
         },
     )
+    if unresolved:
+        print(f"Skipped commit references not found in {repo}: {unresolved}", file=sys.stderr)
     return len(snapshots)
 
 

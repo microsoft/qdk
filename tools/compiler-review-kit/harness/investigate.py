@@ -13,7 +13,7 @@ from harness.builds import build_revision
 from harness.cases import export_cases, load_cases, read_case_manifest
 from harness.common import ReviewError, git, is_ancestor, preflight, resolve_ref, write_json
 from harness.execution import prepare_builds
-from harness.runner import compare, endpoint, run_case, stage
+from harness.runner import compare, endpoint, run_case, simulator_endpoint, stage
 
 
 def attribute(config, cases_path, case_id, output, refs=None, mode="release"):
@@ -114,6 +114,10 @@ class ReductionPredicate:
             compiled = stage(self.config, build, current, "compile", self.profile)
             candidate = {"profiles": {self.profile: {"compile": compiled}}}
         matched = endpoint(current, candidate, self.profile) == self.kind
+        if matched and self.kind == "wrong_result" and not self.preserve_regression:
+            # Without a validated reference, only the simulator anchors the expected value: a variant
+            # whose own simulation disagrees with the oracle changed the program, not the miscompile.
+            matched = simulator_endpoint(current, candidate) == "ok"
         if matched and self.needle:
             compiled = candidate["profiles"][self.profile]["compile"]
             matched = self.needle in (str(compiled.get("message", "")) + compiled.get("stderr", ""))

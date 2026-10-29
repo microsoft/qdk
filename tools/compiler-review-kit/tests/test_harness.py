@@ -4,6 +4,7 @@
 """Fast self-tests; no compiler build, installed qdk, or network is required."""
 
 import ast
+from contextlib import redirect_stderr
 import fcntl
 import json
 import io
@@ -527,6 +528,34 @@ class HelperTests(unittest.TestCase):
         self.assertEqual([i["number"] for i in snapshot["issues"]], [3440, 3500, 3600])
         self.assertTrue(any("state=all" in r for r in requests))
 
+    def test_unresolvable_commit_reference_is_skipped_but_selected_issue_is_not(self):
+        def api(endpoint, paginated=False):
+            if "/comments?" in endpoint:
+                return []
+            number = int(endpoint.rsplit("/", 1)[1])
+            if number == 4070:
+                raise ReviewError("Command failed (1): gh api repos/microsoft/qdk/issues/4070\ngh: Not Found (HTTP 404)")
+            return {"number": number, "html_url": "url", "title": "title", "state": "open", "body": "body", "updated_at": "date"}
+
+        def config(include):
+            return {
+                "repository": "/unused",
+                "refs": {"reference": "old", "candidate": "new"},
+                "input": {"issues": {"include": include}},
+            }
+
+        with tempfile.TemporaryDirectory() as directory, patch("harness.discovery._api", side_effect=api), patch(
+            "harness.discovery.git", return_value="Bump actions (actions/checkout #4070); fixes #3600"
+        ):
+            path = Path(directory) / "issues.json"
+            with redirect_stderr(io.StringIO()):
+                snapshot_issues(config([]), path)
+            snapshot = read_json(path)
+            self.assertEqual([i["number"] for i in snapshot["issues"]], [3600])
+            self.assertEqual(snapshot["unresolved_references"], [4070])
+            with self.assertRaisesRegex(ReviewError, "HTTP 404"):
+                snapshot_issues(config([4070]), path)
+
     def test_changed_package_cache_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -987,6 +1016,22 @@ class ReductionPredicateTests(unittest.TestCase):
                 self.assertTrue(predicate("variant"))
             self.assertEqual(run.call_count, 2)
             execute.assert_not_called()
+
+    def test_preexisting_wrong_result_reduction_requires_simulator_to_keep_the_oracle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case = CASE | {"oracle": {"kind": "deterministic", "expected": ONE}}
+            miscompiled = good(ONE)
+            miscompiled["profiles"]["Base"]["runner"]["values"] = [ZERO, ZERO]
+            for result, expected in ((good(ZERO), False), (miscompiled, True)):
+                with self.subTest(expected=expected):
+                    predicate = ReductionPredicate(review_config(root), {}, case, root / str(expected),
+                                                   "wrong_result", "Base", "", 10, False)
+                    with patch("harness.execution.build_revision", return_value={"sha": "selected"}), patch(
+                        "harness.investigate.run_case", return_value=result
+                    ) as run:
+                        self.assertEqual(predicate("variant"), expected)
+                    self.assertEqual(run.call_count, 1)
 
 
 class GeneratorTests(unittest.TestCase):
