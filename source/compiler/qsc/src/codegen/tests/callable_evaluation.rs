@@ -58,13 +58,25 @@ fn nested_callable_arrays_preserve_different_length_environments() {
             MResetZ(q)
         }
         operation Forward() : Result {
-            use q = Qubit(); X(q); H(q); H(q); MResetZ(q)
+            use q = Qubit();
+            let first : (Qubit => Unit)[] = [X];
+            let second : (Qubit => Unit)[] = [H, H];
+            ApplyAll(first, q); ApplyAll(second, q);
+            MResetZ(q)
         }
         operation Reverse() : Result {
-            use q = Qubit(); H(q); H(q); X(q); MResetZ(q)
+            use q = Qubit();
+            let first : (Qubit => Unit)[] = [H, H];
+            let second : (Qubit => Unit)[] = [X];
+            ApplyAll(first, q); ApplyAll(second, q);
+            MResetZ(q)
         }
         operation Flip() : Result {
-            use q = Qubit(); I(q); I(q); X(q); I(q); MResetZ(q)
+            use q = Qubit();
+            let first : (Qubit => Unit)[] = [I, I, X];
+            let second : (Qubit => Unit)[] = [I];
+            ApplyAll(first, q); ApplyAll(second, q);
+            MResetZ(q)
         }
     "#;
     for profile in [
@@ -89,7 +101,7 @@ fn nested_callable_arrays_preserve_different_length_environments() {
             let runtime_qir = interpreter
                 .qirgen_from_callable(&target, value)
                 .expect("runtime argument QIR");
-            // Adaptive helper parameter IDs can differ; entry calls must preserve gate order.
+            // Adaptive helper parameter IDs can differ; entry calls must preserve group order.
             assert_eq!(
                 qir_entry_body(&source_qir),
                 qir_entry_body(&expected),
@@ -212,5 +224,102 @@ fn closure_factory_preserves_mutable_qubit_capture_time() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn runtime_nested_adjoint_closures_preserve_within_apply() {
+    let source = r#"
+        operation ApplyAll(ops : (Qubit[] => Unit is Adj)[], qs : Qubit[]) : Unit is Adj {
+            for op in ops { op(qs); }
+        }
+        operation Once(op : Qubit[] => Unit is Adj, qs : Qubit[]) : Unit is Adj { op(qs); }
+        operation Flip(i : Int, qs : Qubit[]) : Unit is Adj { X(qs[i]); }
+        operation FlipFirst(qs : Qubit[]) : Unit is Adj { X(qs[0]); }
+        function MakeAll(ops : (Qubit[] => Unit is Adj)[]) : Qubit[] => Unit is Adj {
+            ApplyAll(ops, _)
+        }
+        function MakeOnce(op : Qubit[] => Unit is Adj) : Qubit[] => Unit is Adj { Once(op, _) }
+        function MakeFlip(i : Int) : Qubit[] => Unit is Adj { Flip(i, _) }
+        operation Run(f : Qubit[] => Unit is Adj) : Result[] {
+            use qs = Qubit[2];
+            within { Adjoint f(qs); } apply { CNOT(qs[0], qs[1]); }
+            MResetEachZ(qs)
+        }
+    "#;
+    let argument = "MakeOnce(MakeAll([MakeAll([FlipFirst]), MakeAll([MakeFlip(1)])]))";
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let expected = interpreter
+            .qirgen(&format!("Run({argument})"))
+            .expect("source entry QIR");
+        let target = eval_fragments(&mut interpreter, "Run");
+        let value = eval_fragments(&mut interpreter, argument);
+        let actual = interpreter
+            .qirgen_from_callable(&target, value)
+            .expect("runtime nested closure QIR");
+        assert_eq!(
+            qir_entry_body(&actual),
+            qir_entry_body(&expected),
+            "{profile:?}: nested adjoint closure"
+        );
+    }
+}
+
+#[test]
+fn runtime_nested_closures_preserve_callable_and_integer_captures() {
+    let source = r#"
+        struct Wrapper { Op : Qubit[] => Unit is Adj }
+        operation ApplyAll(ops : (Qubit[] => Unit is Adj)[], qs : Qubit[]) : Unit is Adj {
+            for op in ops { op(qs); }
+        }
+        operation Flip(i : Int, qs : Qubit[]) : Unit is Adj { X(qs[i]); }
+        operation FlipSecond(qs : Qubit[]) : Unit is Adj { X(qs[1]); }
+        operation Rep(op : Qubit[] => Unit is Adj, count : Int, qs : Qubit[]) : Unit is Adj {
+            for _ in 1..count { op(qs); }
+        }
+        function MakeAll(ops : (Qubit[] => Unit is Adj)[]) : Qubit[] => Unit is Adj {
+            ApplyAll(ops, _)
+        }
+        function MakeFlip(i : Int) : Qubit[] => Unit is Adj { Flip(i, _) }
+        function MakeRep(op : Qubit[] => Unit is Adj, count : Int) : Qubit[] => Unit is Adj {
+            Rep(op, count, _)
+        }
+        function Wrap(op : Qubit[] => Unit is Adj) : Wrapper { new Wrapper { Op = op } }
+        operation RunWrapped(w : Wrapper) : Result[] {
+            let f = w.Op;
+            use qs = Qubit[2];
+            f(qs);
+            MResetEachZ(qs)
+        }
+    "#;
+    let argument = "Wrap(MakeAll([MakeRep(MakeFlip(0), 1), MakeRep(FlipSecond, 2)]))";
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let expected = interpreter
+            .qirgen(&format!("RunWrapped({argument})"))
+            .expect("source entry QIR");
+        let target = eval_fragments(&mut interpreter, "RunWrapped");
+        let value = eval_fragments(&mut interpreter, argument);
+        let actual = interpreter
+            .qirgen_from_callable(&target, value)
+            .expect("runtime mixed capture QIR");
+        assert_eq!(
+            qir_entry_body(&actual),
+            qir_entry_body(&expected),
+            "{profile:?}: callable and integer captures"
+        );
     }
 }

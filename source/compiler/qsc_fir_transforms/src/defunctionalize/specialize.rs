@@ -109,6 +109,16 @@ struct ClosureSpecializationInfo {
     callable_capture: Option<CapturedCallableSpecialization>,
 }
 
+impl ClosureSpecializationInfo {
+    fn has_callable_captures(&self, udts: &UdtMetadata) -> bool {
+        self.callable_capture.is_some()
+            || self
+                .capture_bindings
+                .iter()
+                .any(|capture| udts.contains_arrow(&capture.ty))
+    }
+}
+
 #[derive(Clone)]
 struct CaptureBinding {
     local: ScopedLocal,
@@ -1262,7 +1272,7 @@ fn transform_combined_callable_body(
     let impl_clone = callable_impl.clone();
     let mut closure_infos = closure_infos.to_vec();
     for info in closure_infos.iter_mut().flatten() {
-        if info.callable_capture.is_some() {
+        if info.has_callable_captures(udts) {
             info.target = clone_closure_target(target, info.target, assigner);
         }
     }
@@ -1648,7 +1658,7 @@ fn apply_single_param_specialization(
     assigner: &mut Assigner,
 ) -> bool {
     if let Some(info) = &mut closure_info {
-        if info.callable_capture.is_some() {
+        if info.has_callable_captures(udts) {
             info.target = clone_closure_target(target, info.target, assigner);
         }
         if !specialize_closure_target_callable_capture(
@@ -2095,14 +2105,20 @@ fn captured_callable_specialization(
         })
 }
 
-/// Clones a lifted target before embedding its sole static callable capture.
-/// Other occurrences keep the original target and capture signature.
+/// Isolates a lifted target whose callable captures can be specialized in place.
+/// Nested callable arrays and mixed captures can acquire different layouts in
+/// later passes, so other occurrences must retain their own target signature.
+/// Snapshot only this target and its nested items, not the unrelated package contents.
 fn clone_closure_target(
     package: &mut Package,
     target: LocalItemId,
     assigner: &mut Assigner,
 ) -> LocalItemId {
-    let source = package.clone();
+    let mut source = Package {
+        id: package.id,
+        ..Package::default()
+    };
+    extract_item(package, target, &mut source);
     let mut cloner = FirCloner::from_assigner(std::mem::take(assigner));
     let target = cloner.clone_nested_item(&source, target, package);
     *assigner = cloner.into_assigner();

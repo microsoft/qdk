@@ -91,6 +91,159 @@ def test_project_nongeneric_entry_expression_forms_preserve_results(
         assert run_qir(qir, shots=4, type="cpu") == [qsharp.Result.One] * 4
 
 
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+@pytest.mark.parametrize(
+    "left,right",
+    [
+        (("X",), ("H", "H")),
+        (("H", "H"), ("X",)),
+        (("I", "I", "X"), ("I",)),
+    ],
+    ids=["one_then_two", "two_then_one", "three_then_one"],
+)
+def test_nested_callable_arrays_preserve_captured_operations(
+    target_profile: qsharp.TargetProfile,
+    left: tuple[str, ...],
+    right: tuple[str, ...],
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation ApplyAll(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+            for op in ops { op(q); }
+        }
+        function MakeAll(ops : (Qubit => Unit)[]) : Qubit => Unit { ApplyAll(ops, _) }
+        operation Run(f : Qubit => Unit) : Result {
+            use q = Qubit();
+            f(q);
+            MResetZ(q)
+        }
+    """)
+    from qdk.code import MakeAll, Run
+
+    argument = MakeAll(
+        [
+            MakeAll([qsharp.eval(name) for name in left]),
+            MakeAll([qsharp.eval(name) for name in right]),
+        ]
+    )
+    expected = [qsharp.Result.One] * 3
+    assert qsharp.run(Run, 3, argument) == expected
+
+    expression = (
+        f"Run(MakeAll([MakeAll([{', '.join(left)}]), "
+        f"MakeAll([{', '.join(right)}])]))"
+    )
+    for program in [qsharp.compile(expression), qsharp.compile(Run, argument)]:
+        assert run_qir(str(program), shots=3, type="cpu") == expected
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_nested_adjoint_closures_preserve_within_apply(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation ApplyAll(ops : (Qubit[] => Unit is Adj)[], qs : Qubit[]) : Unit is Adj {
+            for op in ops { op(qs); }
+        }
+        operation Once(op : Qubit[] => Unit is Adj, qs : Qubit[]) : Unit is Adj { op(qs); }
+        operation Flip(i : Int, qs : Qubit[]) : Unit is Adj { X(qs[i]); }
+        operation FlipFirst(qs : Qubit[]) : Unit is Adj { X(qs[0]); }
+        function MakeAll(ops : (Qubit[] => Unit is Adj)[]) : Qubit[] => Unit is Adj {
+            ApplyAll(ops, _)
+        }
+        function MakeOnce(op : Qubit[] => Unit is Adj) : Qubit[] => Unit is Adj { Once(op, _) }
+        function MakeFlip(i : Int) : Qubit[] => Unit is Adj { Flip(i, _) }
+        operation Run(f : Qubit[] => Unit is Adj) : Result[] {
+            use qs = Qubit[2];
+            within { Adjoint f(qs); } apply { CNOT(qs[0], qs[1]); }
+            MResetEachZ(qs)
+        }
+    """)
+    from qdk.code import FlipFirst, MakeAll, MakeFlip, MakeOnce, Run
+
+    argument = MakeOnce(MakeAll([MakeAll([FlipFirst]), MakeAll([MakeFlip(1)])]))
+    expected = [[qsharp.Result.Zero, qsharp.Result.One]] * 3
+    assert qsharp.run(Run, 3, argument) == expected
+
+    for program in [
+        qsharp.compile(
+            "Run(MakeOnce(MakeAll([MakeAll([FlipFirst]), MakeAll([MakeFlip(1)])])))"
+        ),
+        qsharp.compile(Run, argument),
+    ]:
+        assert run_qir(str(program), shots=3, type="cpu") == expected
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_nested_closures_preserve_callable_and_integer_captures(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        struct Wrapper { Op : Qubit[] => Unit is Adj }
+        operation ApplyAll(ops : (Qubit[] => Unit is Adj)[], qs : Qubit[]) : Unit is Adj {
+            for op in ops { op(qs); }
+        }
+        operation Flip(i : Int, qs : Qubit[]) : Unit is Adj { X(qs[i]); }
+        operation FlipSecond(qs : Qubit[]) : Unit is Adj { X(qs[1]); }
+        operation Rep(op : Qubit[] => Unit is Adj, count : Int, qs : Qubit[]) : Unit is Adj {
+            for _ in 1..count { op(qs); }
+        }
+        function MakeAll(ops : (Qubit[] => Unit is Adj)[]) : Qubit[] => Unit is Adj {
+            ApplyAll(ops, _)
+        }
+        function MakeFlip(i : Int) : Qubit[] => Unit is Adj { Flip(i, _) }
+        function MakeRep(op : Qubit[] => Unit is Adj, count : Int) : Qubit[] => Unit is Adj {
+            Rep(op, count, _)
+        }
+        function Wrap(op : Qubit[] => Unit is Adj) : Wrapper { new Wrapper { Op = op } }
+        operation RunWrapped(w : Wrapper) : Result[] {
+            let f = w.Op;
+            use qs = Qubit[2];
+            f(qs);
+            MResetEachZ(qs)
+        }
+    """)
+    from qdk.code import FlipSecond, MakeAll, MakeFlip, MakeRep, RunWrapped, Wrap
+
+    argument = Wrap(MakeAll([MakeRep(MakeFlip(0), 1), MakeRep(FlipSecond, 2)]))
+    expected = [[qsharp.Result.One, qsharp.Result.Zero]] * 3
+    assert qsharp.run(RunWrapped, 3, argument) == expected
+
+    for program in [
+        qsharp.compile(
+            "RunWrapped(Wrap(MakeAll([MakeRep(MakeFlip(0), 1), MakeRep(FlipSecond, 2)])))"
+        ),
+        qsharp.compile(RunWrapped, argument),
+    ]:
+        assert run_qir(str(program), shots=3, type="cpu") == expected
+
+
 def test_python_callable_passed_to_python_callable() -> None:
     qsharp.init()
     qsharp.eval("""

@@ -4838,6 +4838,16 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : (Qubit => Unit is Adj + Ctl), __capture_1 : Int, __capture_2 : Double) : Unit {
                 _lambda_4(__capture_0, __capture_1, __capture_2, q);
             }
+            operation _lambda_4(op : (Qubit => Unit is Adj + Ctl), n : Int, angle : Double, q1 : Qubit) : Unit {
+                {
+                    if n == 0 {
+                        Rx(angle, q1);
+                    }
+
+                    op(q1);
+                }
+
+            }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Int, __capture_1 : Double) : Unit {
                 _lambda_4(__capture_0, __capture_1, q);
             }
