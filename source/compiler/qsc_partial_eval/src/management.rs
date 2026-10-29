@@ -279,6 +279,9 @@ mod input_qubit_tests {
         manager.release_qubit(&original);
         assert!(!manager.is_qubit_live(&original));
         let replacement = manager.allocate_qubit();
+        let replacement_owner = replacement.deref();
+        assert_eq!(replacement_owner.0, external.0, "the numeric ID is reused");
+        assert!(!Rc::ptr_eq(&replacement_owner, &external));
         assert!(manager.is_qubit_live(&replacement));
         assert!(!manager.is_qubit_live(&original));
         manager.restore_qubit_state(snapshot);

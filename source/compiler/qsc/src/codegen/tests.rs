@@ -92,32 +92,32 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
-fn issue_3940_control_array_without_loop() {
+fn adaptive_qubit_array_without_loop_compiles() {
     let source =
         r#"@EntryPoint(Adaptive) operation Main() : Bool { use qs = Qubit[4]; return false; }"#;
     let _ = compile_source_to_qir(source, Profile::Adaptive.into());
 }
 
 #[test]
-fn issue_3940_control_scalar_in_loop() {
+fn adaptive_loop_with_scalar_qubit_and_early_return_compiles() {
     let source = r#"@EntryPoint(Adaptive) operation Main() : Bool { for e in [0] { use q = Qubit(); return false; } return false; }"#;
     let _ = compile_source_to_qir(source, Profile::Adaptive.into());
 }
 
 #[test]
-fn issue_3940_control_array_in_loop_without_early_return() {
+fn adaptive_loop_with_qubit_array_without_early_return_compiles() {
     let source = r#"@EntryPoint(Adaptive) operation Main() : Bool { for e in [0] { use qs = Qubit[4]; } return false; }"#;
     let _ = compile_source_to_qir(source, Profile::Adaptive.into());
 }
 
 #[test]
-fn issue_3940_control_array_in_range_loop() {
+fn adaptive_range_loop_with_qubit_array_and_early_return_compiles() {
     let source = r#"@EntryPoint(Adaptive) operation Main() : Bool { for e in 0..0 { use qs = Qubit[4]; return false; } return false; }"#;
     let _ = compile_source_to_qir(source, Profile::Adaptive.into());
 }
 
 #[test]
-fn issue_3940_variant_return_from_loop_with_local_qubit_array() {
+fn adaptive_loop_with_local_qubit_array_and_early_return_compiles() {
     let source = r#"
         @EntryPoint(Adaptive)
         operation Main() : Bool {
@@ -133,8 +133,10 @@ fn issue_3940_variant_return_from_loop_with_local_qubit_array() {
     let _ = compile_source_to_qir(source, Profile::Adaptive.into());
 }
 
+// Return unification introduces a loop around the early return. Indexing the
+// qubit array in that loop used to panic with "qubit should still be alive".
 #[test]
-fn issue_3940_adaptive_early_return_indexed_qubit_array() {
+fn adaptive_loop_with_indexed_qubit_array_and_early_return_compiles() {
     let source = r#"
         @EntryPoint(Adaptive)
         operation Main() : Int {
@@ -4890,6 +4892,9 @@ fn callable_input_qubit_release_is_not_hidden_by_external_owner() {
     let CallableArgsBackend::ReinvokeOriginal { callable, args } = backend else {
         panic!("qubit arguments must use reinvocation");
     };
+    // Numeric-ID reuse and distinct allocation identities are asserted directly
+    // by imported_qubit_preserves_identity_across_release_and_reuse. This
+    // integration test checks the diagnostic through callable QIR generation.
     let error = qsc_codegen::qir::fir_to_qir_from_callable(
         &codegen_fir.fir_store,
         caps,
@@ -4897,7 +4902,7 @@ fn callable_input_qubit_release_is_not_hidden_by_external_owner() {
         callable,
         args,
     )
-    .expect_err("a caller-owned Rc must not hide release and numeric-ID reuse");
+    .expect_err("a caller-owned Rc must not hide release");
     assert!(matches!(
         error,
         qsc_partial_eval::Error::EvaluationFailed(message, _)
