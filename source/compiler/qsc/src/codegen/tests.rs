@@ -5258,6 +5258,374 @@ fn check_runtime_controlled_generic_callable(
 }
 
 #[test]
+fn runtime_type_inference_resolves_functors_from_later_reader() {
+    check_runtime_nested_functor_inference(
+        "(((Qubit => Unit is Adj + Ctl), Qubit) => Unit is Adj + Ctl)",
+        "Apply",
+        "value(X, q);",
+    );
+}
+
+#[test]
+fn runtime_type_inference_resolves_functors_inside_array_values() {
+    check_runtime_nested_functor_inference(
+        "(((Qubit => Unit is Adj + Ctl), Qubit) => Unit is Adj + Ctl)[]",
+        "[Apply]",
+        "value[0](X, q);",
+    );
+}
+
+#[test]
+fn runtime_type_inference_resolves_functors_inside_tuple_values() {
+    check_runtime_nested_functor_inference(
+        "((((Qubit => Unit is Adj + Ctl), Qubit) => Unit is Adj + Ctl), Int)",
+        "(Apply, 7)",
+        "let (op, n) = value; if n == 7 { op(X, q); }",
+    );
+}
+
+fn check_runtime_nested_functor_inference(value_type: &str, value: &str, invoke: &str) {
+    let source = format!(
+        r#"
+        operation Apply(op : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit is Adj + Ctl {{
+            op(q);
+        }}
+        function MakeReader() : ({value_type} => Result) {{
+            value => {{
+                use q = Qubit();
+                {invoke}
+                MResetZ(q)
+            }}
+        }}
+        operation Forward<'T>(value : 'T, read : 'T => Result) : Result {{ read(value) }}
+        operation Reverse<'T>(read : 'T => Result, value : 'T) : Result {{ read(value) }}
+        "#
+    );
+    for (target, arguments) in [
+        ("Forward", format!("({value}, MakeReader())")),
+        ("Reverse", format!("(MakeReader(), {value})")),
+    ] {
+        check_runtime_type_inference(
+            &source,
+            target,
+            &arguments,
+            &Value::Result(qsc_eval::val::Result::Val(true)),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+#[test]
+fn runtime_type_inference_keeps_functor_instantiations_independent() {
+    check_runtime_type_inference(
+        r#"
+        operation Flip(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[0]); }
+        operation Apply(op : Qubit[] => Unit, qs : Qubit[]) : Unit { op(qs); }
+        function AdjointReader() : ((((Qubit[] => Unit is Adj), Qubit[]) => Unit) => Result) {
+            f => { use qs = Qubit[1]; f(Flip, qs); MResetZ(qs[0]) }
+        }
+        function ControlledReader() : ((((Qubit[] => Unit is Ctl), Qubit[]) => Unit) => Result) {
+            f => { use qs = Qubit[1]; f(Flip, qs); MResetZ(qs[0]) }
+        }
+        operation Run<'T, 'U>(left : 'T, readLeft : 'T => Result, readRight : 'U => Result, right : 'U) : Result[] {
+            [readLeft(left), readRight(right)]
+        }
+        "#,
+        "Run",
+        "(Apply, AdjointReader(), ControlledReader(), Apply)",
+        &Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into()),
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+    );
+}
+
+#[test]
+fn runtime_functor_inference_accepts_mixed_capabilities_in_both_array_orders() {
+    let source = r#"
+        operation Strong<'T>(value : 'T, q : Qubit) : Unit is Adj + Ctl { X(q); }
+        operation Weak<'T>(value : 'T, q : Qubit) : Unit is Adj { X(q); }
+        function AsAdjoint(op : (Int, Qubit) => Unit is Adj) : (Int, Qubit) => Unit is Adj { op }
+        operation Run(ops : ((Int, Qubit) => Unit is Adj)[]) : Result {
+            use q = Qubit();
+            for op in ops { Adjoint op(7, q); }
+            MResetZ(q)
+        }
+    "#;
+    for argument in [
+        "[AsAdjoint(Strong), AsAdjoint(Weak)]",
+        "[AsAdjoint(Weak), AsAdjoint(Strong)]",
+    ] {
+        check_runtime_type_inference(
+            source,
+            "Run",
+            argument,
+            &Value::Result(qsc_eval::val::Result::Val(false)),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_supports_generic_arrays_in_both_orders() {
+    for argument in [
+        "([AsAdjoint(Strong), AsAdjoint(Weak)], MakeReader())",
+        "([AsAdjoint(Weak), AsAdjoint(Strong)], MakeReader())",
+    ] {
+        check_runtime_common_callable_type("Run", argument);
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_supports_scalar_arguments_in_both_orders() {
+    for argument in [
+        "(AsAdjoint(Strong), AsAdjoint(Weak), MakeReader())",
+        "(AsAdjoint(Weak), AsAdjoint(Strong), MakeReader())",
+    ] {
+        check_runtime_common_callable_type("Pair", argument);
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_supports_reader_first() {
+    for argument in [
+        "(MakeReader(), [AsAdjoint(Strong), AsAdjoint(Weak)])",
+        "(MakeReader(), [AsAdjoint(Weak), AsAdjoint(Strong)])",
+    ] {
+        check_runtime_common_callable_type("ReaderFirst", argument);
+    }
+}
+
+const COMMON_CALLABLE_TYPE_SOURCE: &str = r#"
+    operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+    operation Weak(q : Qubit) : Unit is Adj { X(q); }
+    operation ControlledOnly(q : Qubit) : Unit is Ctl { X(q); }
+    function AsAdjoint(op : Qubit => Unit is Adj) : Qubit => Unit is Adj { op }
+    function AsBody(op : Qubit => Unit) : Qubit => Unit { op }
+    function MakeReader() : ((Qubit => Unit is Adj) => Result) {
+        op => { use q = Qubit(); Adjoint op(q); MResetZ(q) }
+    }
+    function MakeBodyReader() : ((Qubit => Unit) => Result) {
+        op => { use q = Qubit(); op(q); MResetZ(q) }
+    }
+    function MakeControlledReader() : ((Qubit => Unit is Ctl) => Result) {
+        op => { use q = Qubit(); Controlled op([], q); MResetZ(q) }
+    }
+    function Identity<'V>(value : 'V) : 'V { value }
+    operation Run<'T>(values : 'T[], read : 'T => Result) : Result[] {
+        mutable results = [];
+        for value in values { set results += [read(value)]; }
+        results
+    }
+    operation Pair<'T>(left : 'T, right : 'T, read : 'T => Result) : Result[] {
+        [read(left), read(right)]
+    }
+    operation ReaderFirst<'T>(read : 'T => Result, values : 'T[]) : Result[] {
+        mutable results = [];
+        for value in values { set results += [read(value)]; }
+        results
+    }
+    operation Map<'T, 'U>(f : 'T -> 'U, value : 'T, read : 'U => Result) : Result {
+        read(f(value))
+    }
+    operation MapReverse<'T, 'U>(value : 'T, read : 'U => Result, f : 'T -> 'U) : Result {
+        read(f(value))
+    }
+"#;
+
+fn check_runtime_common_callable_type(target: &str, argument: &str) {
+    check_runtime_type_inference(
+        COMMON_CALLABLE_TYPE_SOURCE,
+        target,
+        argument,
+        &Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into()),
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+    );
+}
+
+#[test]
+fn runtime_common_callable_type_can_require_no_functors() {
+    for argument in [
+        "([AsBody(Weak), AsBody(ControlledOnly)], MakeBodyReader())",
+        "([AsBody(ControlledOnly), AsBody(Weak)], MakeBodyReader())",
+    ] {
+        check_runtime_common_callable_type("Run", argument);
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_rejects_missing_reader_capabilities() {
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, COMMON_CALLABLE_TYPE_SOURCE);
+        for (target, argument) in [
+            (
+                "Run",
+                "([AsAdjoint(Strong), AsAdjoint(Weak)], MakeControlledReader())",
+            ),
+            (
+                "Run",
+                "([AsAdjoint(Weak), AsAdjoint(Strong)], MakeControlledReader())",
+            ),
+            (
+                "ReaderFirst",
+                "(MakeControlledReader(), [AsAdjoint(Strong), AsAdjoint(Weak)])",
+            ),
+        ] {
+            let arguments = eval_fragments(&mut interpreter, argument);
+            let errors = interpreter
+                .qirgen_from_callable(&runtime_argument_global(&interpreter, target), arguments)
+                .expect_err("a common type cannot provide control support absent from Weak");
+            assert_eq!(errors.len(), 1, "{profile:?}, {target}: {errors:?}");
+            assert!(
+                matches!(
+                    &errors[0],
+                    crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }
+                ),
+                "{profile:?}, {target}: {errors:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_cannot_gain_capabilities_through_identity() {
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, COMMON_CALLABLE_TYPE_SOURCE);
+        for (target, elements) in [
+            ("Map", "(identity, AsAdjoint(Weak), MakeControlledReader())"),
+            (
+                "MapReverse",
+                "(AsAdjoint(Weak), MakeControlledReader(), identity)",
+            ),
+        ] {
+            let arguments = eval_fragments(
+                &mut interpreter,
+                &format!(
+                    "{{ let identity : (Qubit => Unit is Adj) -> (Qubit => Unit is Adj) = Identity;
+                        {elements}
+                    }}"
+                ),
+            );
+            let errors = interpreter
+                .qirgen_from_callable(&runtime_argument_global(&interpreter, target), arguments)
+                .expect_err(
+                    "generic type correlations must preserve the supplied operation's limits",
+                );
+            assert_eq!(errors.len(), 1, "{profile:?}, {target}: {errors:?}");
+            assert!(
+                matches!(
+                    &errors[0],
+                    crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }
+                ),
+                "{profile:?}, {target}: {errors:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_supports_factories_with_different_output_capabilities() {
+    let source = r#"
+        operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+        operation Weak(q : Qubit) : Unit is Adj { X(q); }
+        function StrongFactory() : Qubit => Unit is Adj + Ctl { Strong }
+        function WeakFactory() : Qubit => Unit is Adj { Weak }
+        function AsFactory(f : Unit -> (Qubit => Unit is Adj)) : Unit -> (Qubit => Unit is Adj) { f }
+        function MakeReader() : ((Unit -> (Qubit => Unit is Adj)) => Result) {
+            factory => { use q = Qubit(); let op = factory(); Adjoint op(q); MResetZ(q) }
+        }
+        operation Run<'T>(values : 'T[], read : 'T => Result) : Result[] {
+            mutable results = [];
+            for value in values { set results += [read(value)]; }
+            results
+        }
+    "#;
+    for argument in [
+        "([AsFactory(StrongFactory), AsFactory(WeakFactory)], MakeReader())",
+        "([AsFactory(WeakFactory), AsFactory(StrongFactory)], MakeReader())",
+    ] {
+        check_runtime_type_inference(
+            source,
+            "Run",
+            argument,
+            &Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into()),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+#[test]
+fn runtime_functor_inference_rejects_insufficient_capabilities() {
+    let source = r#"
+        operation Plain(q : Qubit) : Unit { X(q); }
+        operation Run(op : Qubit => Unit is Adj) : Result {
+            use q = Qubit();
+            Adjoint op(q);
+            MResetZ(q)
+        }
+    "#;
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let errors = interpreter
+            .qirgen_from_callable(
+                &runtime_argument_global(&interpreter, "Run"),
+                runtime_argument_global(&interpreter, "Plain"),
+            )
+            .expect_err("inference must not invent missing adjoint support");
+        assert_eq!(errors.len(), 1, "{profile:?}: {errors:?}");
+        assert!(
+            matches!(
+                &errors[0],
+                crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }
+            ),
+            "{profile:?}: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn runtime_functor_inference_rejects_incompatible_higher_order_inputs_in_both_orders() {
+    let source = r#"
+        operation ControlledOnly(q : Qubit) : Unit is Ctl { X(q); }
+        operation NeedsAdjoint(op : Qubit => Unit is Adj, q : Qubit) : Unit {
+            Adjoint op(q);
+        }
+        function MakeReader() : ((((Qubit => Unit is Ctl), Qubit) => Unit) => Result) {
+            f => { use q = Qubit(); f(ControlledOnly, q); MResetZ(q) }
+        }
+        operation Forward<'T>(value : 'T, read : 'T => Result) : Result { read(value) }
+        operation Reverse<'T>(read : 'T => Result, value : 'T) : Result { read(value) }
+    "#;
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        for (target, argument) in [
+            ("Forward", "(NeedsAdjoint, MakeReader())"),
+            ("Reverse", "(MakeReader(), NeedsAdjoint)"),
+        ] {
+            interpreter
+                .qirgen(&format!("{target}({argument})"))
+                .expect_err("source typing must reject incompatible callback requirements");
+            let argument = eval_fragments(&mut interpreter, argument);
+            let errors = interpreter
+                .qirgen_from_callable(&runtime_argument_global(&interpreter, target), argument)
+                .expect_err(
+                    "runtime inference must also reject incompatible callback requirements",
+                );
+            assert_eq!(errors.len(), 1, "{profile:?}, {target}: {errors:?}");
+            assert!(
+                matches!(
+                    &errors[0],
+                    crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }
+                ),
+                "{profile:?}, {target}: {errors:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn runtime_type_inference_reads_later_array_elements() {
     let source = r#"
         operation Run<'T>(values : 'T[][], op : Qubit => Unit) : Result {
@@ -5271,7 +5639,7 @@ fn runtime_type_inference_reads_later_array_elements() {
             source,
             "Run",
             argument,
-            Value::Result(qsc_eval::val::Result::Val(true)),
+            &Value::Result(qsc_eval::val::Result::Val(true)),
             &RUNTIME_CALLABLE_CAPTURE_PROFILES,
         );
     }
@@ -5289,7 +5657,7 @@ fn runtime_type_inference_reads_deeply_nested_array_elements() {
         "#,
         "Run",
         "([[[], []], [[], [7]]], X)",
-        Value::Result(qsc_eval::val::Result::Val(true)),
+        &Value::Result(qsc_eval::val::Result::Val(true)),
         &RUNTIME_CALLABLE_CAPTURE_PROFILES,
     );
 }
@@ -5303,7 +5671,7 @@ fn runtime_type_inference_preserves_callback_correlations() {
         "#,
         "Run",
         "{ let f : Int -> Int = Identity; (f, 7) }",
-        Value::Int(7),
+        &Value::Int(7),
         &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
     );
 }
@@ -5317,7 +5685,7 @@ fn runtime_type_inference_preserves_callback_correlations_in_reverse_order() {
         "#,
         "Run",
         "{ let f : Int -> Int = Identity; (7, f) }",
-        Value::Int(7),
+        &Value::Int(7),
         &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
     );
 }
@@ -5333,7 +5701,7 @@ fn runtime_type_inference_keeps_callback_instantiations_independent() {
         "#,
         "Run",
         "{ let f : Int -> Int = Identity; let g : Bool -> Bool = Identity; (7, true, f, g) }",
-        Value::Tuple(vec![Value::Int(7), Value::Bool(true)].into(), None),
+        &Value::Tuple(vec![Value::Int(7), Value::Bool(true)].into(), None),
         &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
     );
 }
@@ -5373,7 +5741,7 @@ fn check_runtime_type_inference(
     source: &str,
     target: &str,
     argument: &str,
-    expected: Value,
+    expected: &Value,
     profiles: &[Profile],
 ) {
     for &profile in profiles {
@@ -5381,7 +5749,7 @@ fn check_runtime_type_inference(
         let mut interpreter = interpreter_with_capabilities(profile.into());
         eval_fragments(&mut interpreter, source);
         assert_eq!(
-            eval_fragments(&mut interpreter, &format!("{target}({argument})")),
+            &eval_fragments(&mut interpreter, &format!("{target}({argument})")),
             expected,
             "{context}: source result"
         );
