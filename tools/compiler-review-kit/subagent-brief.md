@@ -11,7 +11,7 @@ for the same objective or make agents share mutable case/output directories.
 - Assigned mechanism/files: `<specific bounded area>`
 - Objective and stopping condition: `<concrete questions and finite test budget>`
 - Known findings and issue candidates: `<context; not conclusions to assume>`
-- Owned case/output directory: `<relative kit-owned directory>`
+- Owned case/output directory: `<absolute path inside the review's scratch, e.g. /work/compiler-review-kit/scratch/REVIEW/AGENT>`
 - Pinned run config and build locations: `<paths supplied by lead>`
 - Profiles/build modes and exclusions: `<release; Base/Adaptive_RIF/Adaptive unless user requested otherwise; exclusions with reasons>`
 - Attribution scope: `<responsible PR for stacks; individual commits only if user requested>`

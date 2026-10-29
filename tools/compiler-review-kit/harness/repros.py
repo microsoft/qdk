@@ -18,9 +18,9 @@ from harness.common import KIT, read_json
 @lru_cache(maxsize=1)
 def _runtime_source():
     functions = [
-        common.file_digest, common.supervise, common.isolated, builds.worker_environment,
-        records.double, records.encode, records.counts, records.parse_output, tables.format_value,
-        worker.load_case, worker.failure, worker.execute, runner.stage, runner.run_case,
+        common.file_digest, common.oom_kills, common.failure_status, common.supervise, common.isolated,
+        builds.worker_environment, records.double, records.encode, records.counts, records.parse_output,
+        tables.format_value, worker.load_case, worker.failure, worker.execute, runner.stage, runner.run_case,
     ]
     license_text = (KIT.parents[1] / "LICENSE.txt").read_text()
     notice = "\n".join("# " + line.strip() if line.strip() else "#" for line in license_text.splitlines())
@@ -28,7 +28,7 @@ def _runtime_source():
     return runtime + "\n\n" + inspect.getsource(worker.main).replace("def main(", "def stage_main(", 1)
 
 
-def render_repro(cases, expected, affected, title, doc="", suffixes=None, limits=None, requires=""):
+def render_repro(cases, expected, affected, title, doc="", suffixes=None, limits=None):
     with tempfile.TemporaryDirectory(prefix="review-repro-") as directory:
         root = Path(directory)
         bundle_cases(cases, Path.cwd(), root)
@@ -39,8 +39,7 @@ def render_repro(cases, expected, affected, title, doc="", suffixes=None, limits
                    "Exits 0 when the bug no longer reproduces.\n"
                    f"Reproduces when {', '.join(affected)} return something other than {expected}.\n"
                    "Exits 2 for incomplete or unvalidated execution.\n"
-                   "Run inside the QDK Copilot sandbox (Linux).\n"
-                   f"Requires: pip install qdk qirrunner{requires}")
+                   "Linux only. Uses qdk and qir-runner from the running interpreter's environment.")
     settings = common.DEFAULT_LIMITS | (limits or {})
     values = {
         "__DOCSTRING__": repr(description),

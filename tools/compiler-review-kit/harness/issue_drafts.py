@@ -83,7 +83,7 @@ def render(issue, profiles=None, limits=None):
                 case["project_root"] = str(root / "project")
             cases.append(case)
         return render_repro(cases, issue["expected"], issue["affected"], title,
-                            issue.get("doc", ""), [suffix for suffix, _ in forms], limits, issue.get("requires", ""))
+                            issue.get("doc", ""), [suffix for suffix, _ in forms], limits)
 
 
 def _results(rows):
@@ -199,9 +199,9 @@ def draft_issues(config, definitions, output, revisions=None, only=(), cached=Fa
             targets.append((revision, resolved[revision]))
         prepare_builds(config, targets, mode, builds, tools)
         identity = digest({
-            "script": script_text, "targets": targets, "mode": mode, "timeout": timeout,
-            "builds": {sha: {key: builds[sha][key] for key in
-                            ("native_digest", "package_digest", "library_digest", "tools")} for _, sha in targets},
+            "script": script_text, "targets": targets, "mode": mode, "timeout": timeout, "environment": tools,
+            "builds": {sha: {key: builds[sha][key] for key in ("native_digest", "package_digest", "identity")}
+                       for _, sha in targets},
         })
         cache = execs / f"{issue['slug']}.results.json"
         skip = (only and issue["slug"] not in only) or cached

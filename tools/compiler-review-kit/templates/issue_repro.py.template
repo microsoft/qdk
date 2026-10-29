@@ -69,7 +69,8 @@ def outputs():
                         WRONG_TYPED.add(name)
                         print(f"{name}: expected {expected!r}, observed {value!r}", file=sys.stderr)
             return
-        if record["status"] in ("timeout", "infrastructure_error", "parser_error", "unsupported_profile"):
+        if record["status"] in ("timeout", "infrastructure_error", "parser_error", "unsupported_profile",
+                                "resource_exhausted"):
             INCOMPLETE.add(name)
         kind = {"panic": "panics", "diagnostic": "does not compile"}.get(record["status"], record["status"])
         message = record.get("message") or record.get("runner_stderr") or record.get("stderr") or kind

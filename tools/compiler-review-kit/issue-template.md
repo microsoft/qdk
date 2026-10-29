@@ -97,7 +97,7 @@ Messages:
 Exits 0 when the bug no longer reproduces.
 Reproduces when <rows> return something other than <expected>.
 
-Requires: pip install qdk qirrunner
+Linux only. Uses qdk and qir-runner from the running interpreter's environment.
 """
 # Generated from templates/issue_repro.py.template: builds the program (or callable-API
 # argument), runs the simulator and each profile's QIR through qir-runner, prints the rows

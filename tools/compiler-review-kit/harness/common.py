@@ -10,12 +10,12 @@ from pathlib import Path
 import re
 import signal
 import subprocess
-import sys
 import tempfile
 import time
 
 
 KIT = Path(__file__).resolve().parents[1]
+WORK_ROOT = Path("/work/compiler-review-kit")
 PROFILES = ["Base", "Adaptive_RI", "Adaptive_RIF", "Adaptive"]
 DEFAULT_PROFILES = ["Base", "Adaptive_RIF", "Adaptive"]
 DEFAULT_LIMITS = {
@@ -27,6 +27,10 @@ DEFAULT_LIMITS = {
     "shots": 8,
     "seed": 1,
 }
+# Left outside worker address-space caps for the controller, the Copilot CLI, and page cache.
+MEMORY_HEADROOM_MB = 2048
+# Below this per-worker cap, fewer parallel jobs are preferable to more exhaustion failures.
+WORKER_FLOOR_MB = 4096
 
 
 class ReviewError(Exception):
@@ -134,6 +138,42 @@ def is_ancestor(repo, older, newer):
     return proc.returncode == 0
 
 
+def container_memory_mb(path="/sys/fs/cgroup/memory.max"):
+    """The container's cgroup v2 memory limit in MiB, or None when unlimited or unknown."""
+    try:
+        text = Path(path).read_text().strip()
+    except OSError:
+        return None
+    return int(text) // (1024 * 1024) if text.isdigit() else None
+
+
+def sized_limits(requested, container_mb):
+    """Fit worker address-space caps inside the container so RLIMIT_AS trips before the OOM killer.
+
+    The OOM killer picks its victim arbitrarily (possibly the controller or Copilot itself);
+    a capped worker fails alone and is reported as resource exhaustion.
+    """
+    limits = DEFAULT_LIMITS | requested
+    if container_mb is None:
+        return limits, []
+    budget = max(256, container_mb - MEMORY_HEADROOM_MB)
+    if "jobs" not in requested:
+        limits["jobs"] = max(1, min(limits["jobs"], budget // WORKER_FLOOR_MB))
+    if "memory_mb" not in requested:
+        limits["memory_mb"] = max(256, min(limits["memory_mb"], budget // limits["jobs"]))
+    if limits["jobs"] * limits["memory_mb"] > budget:
+        return limits, [
+            f"{limits['jobs']} jobs x {limits['memory_mb']} MiB exceeds the container's {container_mb} MiB "
+            f"less {MEMORY_HEADROOM_MB} MiB headroom; the OOM killer may stop arbitrary processes."
+        ]
+    if limits["memory_mb"] < WORKER_FLOOR_MB:
+        return limits, [
+            f"The container's {container_mb} MiB allows only {limits['memory_mb']} MiB per worker; "
+            "expect resource_exhausted results. Raise the sandbox memory limit if possible."
+        ]
+    return limits, []
+
+
 def load_config(path):
     path = Path(path).resolve()
     raw = read_json(path)
@@ -156,7 +196,8 @@ def load_config(path):
         raise ReviewError("Cannot derive a review name from the report path; set name explicitly.")
     report = (base / raw.get("report", f"/exchange/from_copilot/{name}.md")).resolve()
     cache_root = raw.get("cache_dir") or os.environ.get("REVIEW_KIT_CACHE") or "/work/cache/compiler-review-kit"
-    work_root = Path(tempfile.gettempdir()) / "compiler-review-kit" / name
+    container_mb = container_memory_mb()
+    limits, limit_warnings = sized_limits(raw.get("limits", {}), container_mb)
     clients = []
     for client in raw.get("clients", []):
         root = (base / client["path"]).resolve()
@@ -174,8 +215,8 @@ def load_config(path):
         "repository": str(repo),
         "refs": refs,
         "venv": str((base / raw.get("venv", "/opt/qdk-venv")).resolve()),
-        "work_dir": str((base / raw.get("work_dir", str(work_root))).resolve()),
-        "build_dir": str((base / raw.get("build_dir", "/work/compiler-review-kit/build")).resolve()),
+        "work_dir": str((base / raw.get("work_dir", str(WORK_ROOT / "scratch" / name))).resolve()),
+        "build_dir": str((base / raw.get("build_dir", str(WORK_ROOT / "build"))).resolve()),
         "report": str(report),
         "layers": layers,
         "name": name,
@@ -184,7 +225,9 @@ def load_config(path):
         "profiles": raw.get("profiles", DEFAULT_PROFILES),
         "debug_validation": raw.get("debug_validation", "none"),
         "keep_qir": raw.get("keep_qir", False),
-        "limits": DEFAULT_LIMITS | raw.get("limits", {}),
+        "limits": limits,
+        "limit_warnings": limit_warnings,
+        "container_memory_mb": container_mb,
         "clients": clients,
         "checkout_status": git(repo, "status", "--porcelain"),
     }
@@ -208,19 +251,27 @@ def select_roles(config, extra=None):
     return [role for role in roles if role in ("reference", "candidate") or role in extra]
 
 
+def tool_version(args):
+    """First line of a version report; qir-runner prints its version to stderr."""
+    proc = subprocess.run(args, capture_output=True, text=True)
+    text = proc.stdout.strip() or proc.stderr.strip()
+    if proc.returncode or not text:
+        raise ReviewError(f"Cannot read a version ({proc.returncode}): {' '.join(map(str, args))}\n{proc.stderr}")
+    return text.splitlines()[0]
+
+
 def preflight(config):
-    if sys.platform != "linux":
-        raise ReviewError("WARNING: review-kit supports Linux only.")
+    """Tool provenance; `build_identity` selects the part that determines a native overlay."""
     venv = Path(config["venv"])
     for name in ("python", "qir-runner"):
         path = venv / "bin" / name
         if not path.is_file() or not os.access(path, os.X_OK):
-            raise ReviewError(f"WARNING: missing executable {path}; do not silently reduce coverage.")
+            raise ReviewError(f"Missing executable {path}; do not silently reduce coverage.")
     metadata = {
-        "python": command([str(venv / "bin/python"), "--version"]),
-        "runner": command([str(venv / "bin/qir-runner"), "--version"]),
-        "rustc": command(["rustc", "--version"]),
-        "cargo": command(["cargo", "--version"]),
+        "python": tool_version([str(venv / "bin/python"), "--version"]),
+        "runner": tool_version([str(venv / "bin/qir-runner"), "--version"]),
+        "rustc": tool_version(["rustc", "--version"]),
+        "cargo": tool_version(["cargo", "--version"]),
         "platform": command(["uname", "-sm"]),
         "packages": json.loads(
             command(
@@ -237,8 +288,17 @@ def preflight(config):
             for key in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_WRAPPER")
             if key in os.environ
         },
+        "container_memory_mb": config.get("container_memory_mb"),
     }
     return metadata
+
+
+BUILD_IDENTITY = ("python", "rustc", "cargo", "platform", "build_environment")
+
+
+def build_identity(tools):
+    """Tools that determine a native overlay; the runner and other packages only affect results."""
+    return {key: tools.get(key) for key in BUILD_IDENTITY}
 
 
 def digest(value):
@@ -264,9 +324,29 @@ def tree_digest(root):
     )
 
 
+def oom_kills(path="/sys/fs/cgroup/memory.events"):
+    """The container's cgroup v2 OOM-kill count, or None when unavailable."""
+    try:
+        for line in Path(path).read_text().splitlines():
+            name, _, value = line.partition(" ")
+            if name == "oom_kill":
+                return int(value)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def failure_status(returncode, stderr):
+    """Memory exhaustion (SIGKILL, or Rust's allocation-failure abort) is inconclusive, not a crash."""
+    if returncode == -signal.SIGKILL or re.search(r"memory allocation of \d+ bytes failed", stderr or ""):
+        return "resource_exhausted"
+    return "crash" if returncode < 0 else "infrastructure_error"
+
+
 def supervise(args, *, input_text=None, env, cwd, timeout):
     """Capture a process and own its entire process group's lifetime."""
     start = time.monotonic()
+    kills = oom_kills()
     proc = subprocess.Popen(
         args,
         stdin=subprocess.PIPE,
@@ -309,13 +389,21 @@ def supervise(args, *, input_text=None, env, cwd, timeout):
             pass
     elapsed = time.monotonic() - start
     if proc.returncode:
-        return {
-            "status": "crash" if proc.returncode < 0 else "infrastructure_error",
+        result = {
+            "status": failure_status(proc.returncode, stderr),
             "returncode": proc.returncode,
             "stdout": stdout,
             "stderr": stderr,
             "seconds": elapsed,
         }
+        if result["status"] == "resource_exhausted":
+            after = oom_kills()
+            result["message"] = (
+                "killed by the container's OOM killer"
+                if kills is not None and after is not None and after > kills
+                else "killed by SIGKILL or a failed allocation (likely memory exhaustion)"
+            )
+        return result
     return {"status": "ok", "returncode": proc.returncode, "stdout": stdout, "stderr": stderr, "seconds": elapsed}
 
 

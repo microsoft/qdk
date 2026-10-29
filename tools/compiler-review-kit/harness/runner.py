@@ -77,6 +77,7 @@ def endpoint(case, result, profile):
             "runner_crash": "execution_failure",
             "timeout": "execution_timeout",
             "parser_error": "parser_error",
+            "resource_exhausted": "resource_exhausted",
         }.get(ran.get("status"), "infrastructure_error")
     oracle = case["oracle"]
     if oracle["kind"] == "observe":
@@ -281,7 +282,9 @@ def create_run(config, cases_path, mode, roles=None, targets=None):
                             for name, details in values.items()
                         ]
                         for profile, name, details in stages:
-                            if details.get("status") in ("infrastructure_error", "parser_error", "unsupported_profile"):
+                            if details.get("status") in (
+                                "infrastructure_error", "parser_error", "unsupported_profile", "resource_exhausted",
+                            ):
                                 failure = {
                                     "case": row["case"], "role": role, "profile": profile,
                                     "stage": name, "status": details["status"],

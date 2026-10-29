@@ -8,11 +8,18 @@ build integrity, and evidence storage. Delegated reviewers follow their complete
 ## Sandbox environment
 
 Run inside the QDK Copilot sandbox. Its working checkout is `/work/qdk`; Git,
-the Rust toolchain, and Python dependencies are supplied by the sandbox image.
+the Rust toolchain, Python dependencies, and Cargo crates for the image's
+lockfile are supplied by the sandbox image.
 Use `/opt/qdk-venv/bin/python` and `/opt/qdk-venv/bin/qir-runner`, not an assumed
 repository-local `.venv`. Issue snapshots additionally require authenticated `gh`.
 Package feeds are blocked during sessions; report missing dependencies rather
 than trying to install them.
+
+The sandbox clone's `origin` remote is `microsoft/qdk` on GitHub, but startup
+fetches only `seed` (the host repository). Run `git fetch origin` before
+resolving `origin/*` refs such as `origin/main`, then pin the resulting SHAs.
+Host branches appear as `seed/<name>`; a bare branch name resolves only if it
+is a local branch, such as the one the sandbox started on.
 
 The controller uses only the Python standard library. It does not install tools,
 alter the existing QDK installation, post to GitHub, commit changes, or modify
@@ -21,43 +28,50 @@ processes. This is crash isolation, **not a sandbox**: execute only inspected,
 trusted adapters and Q# programs inside the surrounding sandbox. Reviews write
 and execute arbitrary Python; do not run the kit directly on the host.
 
+Never run `git push`. The sandbox's commit hooks export local branches to the
+host automatically, so any local commit a review needs (such as a merged
+candidate composition) becomes visible there without further action.
+
 A skill/custom-agent wrapper is optional. The kit works as ordinary files/scripts.
 Do not add this entire procedure to global instructions for unrelated coding work.
 
 ### Sandbox paths
 
-The layout below is based on `upstream/amcasey/sandbox` at
-`2eecd9260d848728061777e4616adf9b8de013b2`, specifically
+The layout below is based on `amcasey/sandbox` at
+`2e1f34a9009b00c6d7ee0dccfc913d315076941b`, specifically
 `tools/copilot-sandbox/compose.yaml` and the agent image's Dockerfile/entrypoint.
-`/work` is an instance-scoped Docker volume that survives container sessions;
-deleting the sandbox instance removes it. `/tmp` is an ephemeral, RAM-backed
-**noexec** tmpfs. The exchange directories are host bind mounts, not caches.
+`/work` is an instance-scoped Docker volume that survives container sessions
+and image upgrades; deleting the sandbox instance removes it. `/tmp` is an
+ephemeral, RAM-backed **noexec** tmpfs charged to the container's memory limit.
+The exchange directories are host bind mounts, not caches.
 
 The harness uses these sandbox-specific defaults. Choose a unique review `name`;
 `REVIEW` below stands for that name. Concurrent reviews must not share mutable
-working directories. Temporary paths use Python's temporary directory (`/tmp`
+working directories. Review scratch lives on the `/work` disk volume, not in
+RAM; only small per-process files use Python's temporary directory (`/tmp`
 unless overridden by `TMPDIR`).
 
-| Artifact                                                                                                                                                                   | Default sandbox location                                                    | Lifetime                                                                          |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Kit instructions, scripts, schemas, examples, curated tests                                                                                                                | `/work/qdk/tools/compiler-review-kit/`                                      | Version-controlled source                                                         |
-| Compiler checkout (`repository`), `source/`, `library/`, `samples/`                                                                                                        | `/work/qdk/`                                                                | Existing `/work` volume                                                           |
-| Default consumer scenario source, `microsoft/qdk-chemistry`                                                                                                                | `/work/qdk-chemistry/`                                                      | Normally present in current sandbox images; source-only, not a build prerequisite |
-| Python environment (`venv`), including `bin/python` and `bin/qir-runner`                                                                                                   | `/opt/qdk-venv/`                                                            | Preinstalled in the sandbox image                                                 |
-| Configuration, generated cases, adapters, repro/variant scripts, generator output/seeds                                                                                    | `/tmp/compiler-review-kit/REVIEW/`                                          | Current session; the agent writes its config and fixtures here                    |
-| Runs, project snapshots, QIR, stage logs, oracle checks, exec/timing/variant results, reductions, attribution, draft scripts, extraction dumps/logs, rechecks (`work_dir`) | `/tmp/compiler-review-kit/REVIEW/`                                          | Disposable; save compact evidence before cleanup                                  |
-| Compiler worktrees, extraction worktrees, Cargo targets, native overlays, build logs and build lock (`build_dir`)                                                          | `/work/compiler-review-kit/build/`                                          | Reusable native build state in the `/work` volume                                 |
-| `evidence.json`, compact summaries, bundled findings/repros/seeds (`cache_dir` plus review name)                                                                           | `/work/cache/compiler-review-kit/REVIEW/`                                   | Budgeted cross-session evidence in the `/work` volume                             |
-| Final report (`report`); issue drafts when requested                                                                                                                       | `/exchange/from_copilot/REVIEW.md`; use `REVIEW-issues.md` for issue drafts | User-facing deliverables                                                          |
-| User-provided context or a previous report                                                                                                                                 | `/exchange/to_copilot/`                                                     | Read-only input; copy inspected executable fixtures into owned scratch            |
-| Worker working directories, temporary projects and `.ll` files (`tempfile`)                                                                                                | `/tmp/` or `TMPDIR`                                                         | Current process/session                                                           |
-| `clients[].path`, case `source_file`, `project_root`, `adapter`                                                                                                            | Actual sandbox checkout/input path                                          | User-specified inputs; never assume host paths                                    |
-| Copilot session/history files                                                                                                                                              | `/home/agent/.copilot/`                                                     | Separate Copilot Docker volume; not review evidence storage                       |
+| Artifact                                                                                                                                                                   | Default sandbox location                                                    | Lifetime                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Kit instructions, scripts, schemas, examples, curated tests                                                                                                                | `/work/qdk/tools/compiler-review-kit/`                                      | Version-controlled source                                                                         |
+| Compiler checkout (`repository`), `source/`, `library/`, `samples/`                                                                                                        | `/work/qdk/`                                                                | Existing `/work` volume                                                                           |
+| Default consumer scenario source, `microsoft/qdk-chemistry`                                                                                                                | `/work/qdk-chemistry/`                                                      | Copied from the image on first launch, then left unchanged; source-only, not a build prerequisite |
+| Python environment (`venv`), including `bin/python` and `bin/qir-runner`                                                                                                   | `/opt/qdk-venv/`                                                            | Preinstalled in the sandbox image                                                                 |
+| Configuration, generated cases, adapters, repro/variant scripts, generator output/seeds                                                                                    | `/work/compiler-review-kit/scratch/REVIEW/`                                 | Review scratch on the `/work` volume; the agent writes its config and fixtures here               |
+| Runs, project snapshots, QIR, stage logs, oracle checks, exec/timing/variant results, reductions, attribution, draft scripts, extraction dumps/logs, rechecks (`work_dir`) | `/work/compiler-review-kit/scratch/REVIEW/`                                 | Disposable but persistent; save compact evidence, then delete the review's scratch                |
+| Compiler worktrees, extraction worktrees, Cargo targets, native overlays, build logs and build lock (`build_dir`)                                                          | `/work/compiler-review-kit/build/`                                          | Reusable native build state in the `/work` volume                                                 |
+| `evidence.json`, compact summaries, bundled findings/repros/seeds (`cache_dir` plus review name)                                                                           | `/work/cache/compiler-review-kit/REVIEW/`                                   | Budgeted cross-session evidence in the `/work` volume                                             |
+| Final report (`report`); issue drafts when requested                                                                                                                       | `/exchange/from_copilot/REVIEW.md`; use `REVIEW-issues.md` for issue drafts | User-facing deliverables                                                                          |
+| User-provided context or a previous report                                                                                                                                 | `/exchange/to_copilot/`                                                     | Read-only input; copy inspected executable fixtures into owned scratch                            |
+| Worker working directories, temporary projects and `.ll` files (`tempfile`)                                                                                                | `/tmp/` or `TMPDIR`                                                         | Current process/session                                                                           |
+| `clients[].path`, case `source_file`, `project_root`, `adapter`                                                                                                            | Actual sandbox checkout/input path                                          | User-specified inputs; never assume host paths                                                    |
+| Copilot session/history files                                                                                                                                              | `/home/agent/.copilot/`                                                     | Separate Copilot Docker volume; not review evidence storage                                       |
 
 `build_dir` contains `worktrees/`, `extract/`, `cargo-target/`, `extract-target/`,
-and `builds/<SHA>-<mode>/`. Do not put it on `/tmp`: Cargo executables and native
-`.so` overlays need executable mappings. Only data and Python source go in
-`work_dir`; the interpreter reads Python source even on a noexec mount.
+and `builds/<SHA>-<mode>-<identity>/`. Do not put it on `/tmp`: Cargo executables
+and native `.so` overlays need executable mappings. Scratch (`work_dir`) holds
+only data and Python source, and is on `/work` so bulk runs, QIR, and generated
+corpora do not consume the container's memory.
 Image caches such as `/opt/cargo` belong to sandbox provisioning, not the
 review's evidence-pruning budget.
 
@@ -66,7 +80,7 @@ The sandbox launcher owns `/seed.git` (read-only host Git input) and `/outbox.gi
 than storing review artifacts in those mounts. `/exchange/from_copilot` is for
 deliverables only. Never put build caches, bulk cases, or reusable evidence there.
 
-For example, the agent can write `/tmp/compiler-review-kit/REVIEW/review.json`
+For example, the agent can write `/work/compiler-review-kit/scratch/REVIEW/review.json`
 and then pin its chosen revisions; the path fields need no overrides:
 
 ```json
@@ -88,7 +102,7 @@ fields and defaults. `review.example.json` illustrates optional settings, not
 filters or exclusions to inherit for every review.
 
 Store the configuration in an owned review working directory. Command examples
-below use `/tmp/compiler-review-kit/REVIEW/review.json` as a placeholder:
+below use `/work/compiler-review-kit/scratch/REVIEW/review.json` as a placeholder:
 substitute the actual owned configuration path. Apply the
 [sandbox paths](#sandbox-paths)
 instead of writing working files into the repository. Keep the final report
@@ -120,18 +134,26 @@ Use path overrides only when the review requires a different owned location.
 | `profiles`                     | Base, Adaptive_RIF, Adaptive by default; Adaptive_RI only when requested                           |
 | `debug_validation`             | `none` by default; only when requested, `targeted` replays findings or `all` runs both modes       |
 | `keep_qir`                     | `false`: retain failure/uncertain QIR, discard uncomplicated successful QIR; `true` retains all    |
-| `limits`                       | Stage timeouts, memory, concurrency, shots, seed                                                   |
+| `limits`                       | Stage timeouts, memory, concurrency, shots, seed; defaults fit the container's memory limit        |
 | `name`                         | Review name for scratch/evidence; defaults to the explicit report's stem, or `review`              |
 | `cache_dir`, `cache_budget_mb` | Evidence cache root; `$REVIEW_KIT_CACHE` or `/work/cache/compiler-review-kit`; 50 MiB              |
 | `venv`                         | Python environment; `/opt/qdk-venv`                                                                |
-| `work_dir`                     | Temporary review data; `/tmp/compiler-review-kit/<name>` (honors `TMPDIR`)                         |
+| `work_dir`                     | Review scratch; `/work/compiler-review-kit/scratch/<name>`                                         |
 | `build_dir`                    | Executable build state; `/work/compiler-review-kit/build`                                          |
 | `repository`                   | Compiler checkout; `/work/qdk`                                                                     |
 
 Defaults: two concurrent cases; compile 300 seconds; simulator and runner 120
 seconds each; 16 GiB address-space limit per worker; eight shots; seed 1.
+When the container has a memory limit (cgroup v2 `memory.max`), unspecified
+`jobs` and `memory_mb` shrink so all workers' caps fit within it, less 2 GiB of
+headroom, with at least 4 GiB per worker where possible. A capped worker then
+fails alone instead of the OOM killer stopping an arbitrary process. `check`
+warns when explicit or small limits cannot fit. Memory limits also affect
+subprocesses spawned by the worker.
 Timeouts are evidence of incomplete execution, not proof of a compiler bug.
-Memory limits also affect subprocesses spawned by the worker.
+Likewise, `resource_exhausted` (an allocation failure, `MemoryError`, or a
+SIGKILL from the OOM killer) is inconclusive, never a compiler crash or a
+regression verdict; the run is marked `complete_with_infrastructure_failures`.
 
 `review.schema.json` is suitable for editor validation. The CLI additionally
 rejects unknown/duplicate fields. It resolves branch names once per command;
@@ -147,9 +169,9 @@ review their dirty state, or use a clean client worktree.
 Run from `/work/qdk`, using the sandbox's preinstalled interpreter:
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py check /tmp/compiler-review-kit/REVIEW/review.json
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py build /tmp/compiler-review-kit/REVIEW/review.json
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py run /tmp/compiler-review-kit/REVIEW/review.json tools/compiler-review-kit/examples/cases.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py check /work/compiler-review-kit/scratch/REVIEW/review.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py build /work/compiler-review-kit/scratch/REVIEW/review.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py run /work/compiler-review-kit/scratch/REVIEW/review.json tools/compiler-review-kit/examples/cases.json
 ```
 
 `run` prints its new run directory. It builds missing revisions automatically.
@@ -173,7 +195,7 @@ validation, set `debug_validation=targeted`, assemble a findings manifest, and
 explicitly replay it:
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py run /tmp/compiler-review-kit/REVIEW/review.json /tmp/compiler-review-kit/REVIEW/findings.json --mode debug
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py run /work/compiler-review-kit/scratch/REVIEW/review.json /work/compiler-review-kit/scratch/REVIEW/findings.json --mode debug
 ```
 
 Only when the user requests debug validation of every case,
@@ -191,7 +213,7 @@ stage execution and output parsing code as the harness. They need no kit files
 when run, and include local projects and adapters.
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py report /tmp/compiler-review-kit/REVIEW/runs/RUN_DIRECTORY
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py report /work/compiler-review-kit/scratch/REVIEW/runs/RUN_DIRECTORY
 ```
 
 Existing reports are protected; `--overwrite` is only for an owned generated draft.
@@ -204,10 +226,10 @@ look stalled; `results.jsonl` is rewritten in manifest order when the run ends.
 ### Summaries and run-to-run comparison
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py summarize /tmp/compiler-review-kit/REVIEW/runs/RUN [--json summary.json]
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py compare /tmp/compiler-review-kit/REVIEW/runs/OLD /tmp/compiler-review-kit/REVIEW/runs/NEW
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py summarize /work/compiler-review-kit/scratch/REVIEW/runs/RUN [--json summary.json]
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py compare /work/compiler-review-kit/scratch/REVIEW/runs/OLD /work/compiler-review-kit/scratch/REVIEW/runs/NEW
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py subset A.json B.json --match 'i38*' --ids extra-case \
-  --output /tmp/compiler-review-kit/REVIEW/subset.json
+  --output /work/compiler-review-kit/scratch/REVIEW/subset.json
 ```
 
 `summarize` cross-tabulates reference→candidate outcomes per profile, groups
@@ -254,7 +276,7 @@ or select differences between earlier and current candidate runs:
 
 ```bash
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py compare OLD NEW --select 'a=validated,b!=validated' \
-  --output /tmp/compiler-review-kit/REVIEW/lost-fixes.json
+  --output /work/compiler-review-kit/scratch/REVIEW/lost-fixes.json
 ```
 
 ```bash
@@ -268,7 +290,7 @@ each profile's values (wrong ones in `**bold**`), or the failure kind and messag
 ### Timing
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py timing /tmp/compiler-review-kit/REVIEW/review.json CASES.json \
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py timing /work/compiler-review-kit/scratch/REVIEW/review.json CASES.json \
   [--roles reference candidate] [--profiles Adaptive_RIF] [--repeats 5] [--cases-match 'unary*']
 ```
 
@@ -283,12 +305,11 @@ same-repeat candidate/baseline ratios, not ratios of medians. Outliers
 `summarize` outlier before reporting a performance change.
 Samples are saved after each sweep; a later worker failure leaves a `failed`
 timing artifact with partial evidence, not a complete performance claim.
-Older timing summaries without raw repeats must be rerun to obtain paired ratios.
 
 ### Variant matrices
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py variants /tmp/compiler-review-kit/REVIEW/review.json VARIANTS.py [--roles ...|--refs ...]
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py variants /work/compiler-review-kit/scratch/REVIEW/review.json VARIANTS.py [--roles ...|--refs ...]
 ```
 
 A trusted variants file defines `VARIANTS`: a list of dictionaries with `name`,
@@ -314,7 +335,7 @@ Difference filters include simulator observations, not just compiled profiles.
 ### Executing standalone repros on each revision
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py exec /tmp/compiler-review-kit/REVIEW/review.json repro.py \
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py exec /work/compiler-review-kit/scratch/REVIEW/review.json repro.py \
   [--roles reference candidate | --refs SHA1 SHA2] [--mode debug] [--args ...]
 ```
 
@@ -329,8 +350,8 @@ termination, allows bounded cleanup, then kills the group if necessary.
 ### Extracting test programs
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py extract-tests /tmp/compiler-review-kit/REVIEW/review.json \
-  --crate qsc_fir_transforms --revision candidate --output /tmp/compiler-review-kit/REVIEW/fir-tests.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py extract-tests /work/compiler-review-kit/scratch/REVIEW/review.json \
+  --crate qsc_fir_transforms --revision candidate --output /work/compiler-review-kit/scratch/REVIEW/fir-tests.json
 ```
 
 In an owned worktree, this inserts a dump call at the start of the crate's test
@@ -355,7 +376,7 @@ the snapshot and `match-issues --text 'phrase'` as the search instead.
 ### New diagnostics and panic sites
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py new-diagnostics /tmp/compiler-review-kit/REVIEW/review.json [--json found.json]
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py new-diagnostics /work/compiler-review-kit/scratch/REVIEW/review.json [--json found.json]
 ```
 
 This lexically scans added/removed lines outside test-named Rust files, including
@@ -370,8 +391,8 @@ condition is now handled.
 ### Drafting issues
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py draft-issues /tmp/compiler-review-kit/REVIEW/review.json ISSUES.py \
-  --output /tmp/compiler-review-kit/REVIEW/issues.md [--revisions reference candidate] [--only SLUG] [--cached]
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py draft-issues /work/compiler-review-kit/scratch/REVIEW/review.json ISSUES.py \
+  --output /work/compiler-review-kit/scratch/REVIEW/issues.md [--revisions reference candidate] [--only SLUG] [--cached]
 ```
 
 `ISSUES.py` (trusted Python) defines `ISSUES`: dictionaries with `slug`, `title`,
@@ -401,11 +422,11 @@ entry is rerun, never relabeled with the current revision.
 ### Generators and oracle tools
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/generators/callable_chains.py /tmp/compiler-review-kit/REVIEW/gen \
+/opt/qdk-venv/bin/python tools/compiler-review-kit/generators/callable_chains.py /work/compiler-review-kit/scratch/REVIEW/gen \
   --inline 1600 --layout 800 --python 400 --seed 2 --profiles Adaptive_RIF Adaptive
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py oracle-check /tmp/compiler-review-kit/REVIEW/review.json /tmp/compiler-review-kit/REVIEW/gen/cases.json
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py run /tmp/compiler-review-kit/REVIEW/review.json /tmp/compiler-review-kit/REVIEW/gen/cases.json
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py stages /tmp/compiler-review-kit/REVIEW/fir-tests.json /tmp/compiler-review-kit/REVIEW/gen/cases.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py oracle-check /work/compiler-review-kit/scratch/REVIEW/review.json /work/compiler-review-kit/scratch/REVIEW/gen/cases.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py run /work/compiler-review-kit/scratch/REVIEW/review.json /work/compiler-review-kit/scratch/REVIEW/gen/cases.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py stages /work/compiler-review-kit/scratch/REVIEW/fir-tests.json /work/compiler-review-kit/scratch/REVIEW/gen/cases.json
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py statecheck RUN/CASE/candidate/Base.ll
 ```
 
@@ -425,7 +446,7 @@ structs holding callables, closures capturing such structs, and entry operations
 a struct argument. Record the command and seed.
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/generators/dynamic_recursion.py /tmp/compiler-review-kit/REVIEW/rec \
+/opt/qdk-venv/bin/python tools/compiler-review-kit/generators/dynamic_recursion.py /work/compiler-review-kit/scratch/REVIEW/rec \
   --inner 300 --outer 150 --classical 50 --seed 1
 ```
 
@@ -458,10 +479,10 @@ uncompute errors, but is not a full QIR verifier or a Result-slot aliasing oracl
 ### Discovery
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py samples /tmp/compiler-review-kit/REVIEW/review.json \
-  --output /tmp/compiler-review-kit/REVIEW/sample-candidates.json
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py issues /tmp/compiler-review-kit/REVIEW/review.json \
-  --output /tmp/compiler-review-kit/REVIEW/issues.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py samples /work/compiler-review-kit/scratch/REVIEW/review.json \
+  --output /work/compiler-review-kit/scratch/REVIEW/sample-candidates.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py issues /work/compiler-review-kit/scratch/REVIEW/review.json \
+  --output /work/compiler-review-kit/scratch/REVIEW/issues.json
 ```
 
 Sample discovery uses the pinned candidate checkout (`--revision reference` selects
@@ -487,9 +508,9 @@ search individual commits by default.
 Only if the user requests individual-commit attribution:
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py attribute /tmp/compiler-review-kit/REVIEW/review.json \
-  /tmp/compiler-review-kit/REVIEW/findings.json --case CASE_ID \
-  --output /tmp/compiler-review-kit/REVIEW/attribution.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py attribute /work/compiler-review-kit/scratch/REVIEW/review.json \
+  /work/compiler-review-kit/scratch/REVIEW/findings.json --case CASE_ID \
+  --output /work/compiler-review-kit/scratch/REVIEW/attribution.json
 ```
 
 Attribution evaluates every commit in the range, not a presumed-monotonic binary
@@ -502,10 +523,10 @@ Source reduction is independent of attribution and remains part of finding
 minimization by default:
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py reduce /tmp/compiler-review-kit/REVIEW/review.json \
-  /tmp/compiler-review-kit/REVIEW/findings.json --case CASE_ID --profile Adaptive \
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py reduce /work/compiler-review-kit/scratch/REVIEW/review.json \
+  /work/compiler-review-kit/scratch/REVIEW/findings.json --case CASE_ID --profile Adaptive \
   --kind panic --needle 'failure signature' \
-  --output /tmp/compiler-review-kit/REVIEW/reduced.json
+  --output /work/compiler-review-kit/scratch/REVIEW/reduced.json
 ```
 
 Reduction deletes lines while preserving a specified candidate failure and, by
@@ -594,11 +615,18 @@ and the configured Python interpreter as `PYO3_PYTHON`. Each overlay combines th
 revision's Python package with its resulting `libqdk.so`. This fast path targets the
 current QDK layout/ABI; unsupported historical layouts fail explicitly.
 
-Build cache reuse verifies tool/dependency metadata, package/library digests,
-worktree SHA and non-ignored modifications; workers verify actual import locations and
-the native digest. Compilation failures stop the build, never reuse a stale library.
+Overlays are keyed by revision, build mode, and build identity: the Python,
+rustc, and cargo versions, platform, and Rust flags/wrapper. A toolchain change
+(for example after a sandbox image upgrade) builds a new overlay beside the old
+one; runner and other package versions affect results, not overlays, and are
+recorded in each run's `tools`. Reuse verifies the package digest, worktree SHA
+and non-ignored modifications; workers verify actual import locations and the
+native digest. Compilation failures stop the build, never reuse a stale library.
+Builds and `extract-tests` run offline in the sandbox; a revision whose lockfile
+needs crates missing from the image's Cargo cache fails with an explicit error.
 Ordinary runs never reuse result rows or patch QIR. Only explicit issue-draft
-cache reuse uses recorded, matching execution identities.
+cache reuse uses recorded, matching execution identities, including the runner
+and package versions.
 
 All revisions share one Cargo target directory so third-party crates compile once.
 Cargo names workspace-crate artifacts by workspace-relative path and judges freshness
@@ -610,7 +638,9 @@ incremental compilation (`CARGO_INCREMENTAL=0`).
 The configured `build_dir` includes Git-registered worktrees. Do not
 recursively delete it while those registrations remain. After inspecting ownership,
 remove only specific kit worktrees with `git worktree remove PATH`, then their
-specific build/run artifacts. Never remove another review's scratch/worktrees.
+specific build/run artifacts. Overlays under `builds/` contain no worktrees, so
+superseded ones (older toolchains, or the identity-less names of earlier kit
+versions) can be deleted directly. Never remove another review's scratch/worktrees.
 
 Keep configuration examples, prompts, small curated repros, generators/seeds, and
 compact final evidence. Do not check in native binaries, bulk generated cases, or
@@ -618,7 +648,7 @@ all QIR. Cold builds need dependencies and disk space, but no saved corpus.
 
 ### Evidence cache and rechecks
 
-Scratch directories disappear regularly, and with them a review's manifests,
+Scratch directories are deleted after reviews, and with them a review's manifests,
 adapters and scripts. The evidence cache keeps a small copy outside them. It defaults to
 `/work/cache/compiler-review-kit/<name>/`,
 or `$REVIEW_KIT_CACHE`, or `cache_dir`. **The cache may also be wiped at any time:**
@@ -627,10 +657,10 @@ scripts. It only makes the next review's recheck quick and exact. Never put it i
 deliverables directory.
 
 ```bash
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py save-evidence /tmp/compiler-review-kit/REVIEW/review.json \
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py save-evidence /work/compiler-review-kit/scratch/REVIEW/review.json \
   --findings findings.json client-cases.json --runs RUN [RUN ...] \
   --files repros/ variants.py gen/generator.json fir-tests.json
-/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py recheck /tmp/compiler-review-kit/REVIEW/review.json [--name PREVIOUS] [--report REPORT.md]
+/opt/qdk-venv/bin/python tools/compiler-review-kit/review.py recheck /work/compiler-review-kit/scratch/REVIEW/review.json [--name PREVIOUS] [--report REPORT.md]
 ```
 
 `save-evidence` bundles case manifests with their adapters and projects (one copy per
@@ -658,7 +688,7 @@ earlier findings should be rechecked at the start of an updated review.
 
 ```bash
 /opt/qdk-venv/bin/python -m unittest discover -s tools/compiler-review-kit/tests -v
-/opt/qdk-venv/bin/python tools/compiler-review-kit/tests/smoke.py --config /tmp/compiler-review-kit/REVIEW/review.json
+/opt/qdk-venv/bin/python tools/compiler-review-kit/tests/smoke.py --config /work/compiler-review-kit/scratch/REVIEW/review.json
 ```
 
 The bundled smoke config compares `HEAD^` with `HEAD`; this tests plumbing, not
@@ -671,7 +701,3 @@ The smoke test asserts the expected
 profile/status matrix and exact shot counts, rather than accepting exit zero alone.
 `statecheck` covers only its explicitly supported premeasurement subset; no
 chemistry-specific trace interpreter is included.
-
-The repository's `.prettierignore` excludes the legacy
-`tools/compiler-review-kit/.work/`. With the sandbox mapping, generated reports
-and case manifests are outside the repository instead.

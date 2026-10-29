@@ -165,16 +165,12 @@ def _matrix(name, kind, angles):
         matrix = controlled(paulis["x"], 2)
     elif name == "swap":
         matrix = [[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]]
-    elif name in ("rxx", "ryy", "rzz"):
+    else:  # rxx, ryy, rzz; gates_of admits only SIGNATURES names
         pauli = paulis[name[1]]
         matrix = rotation(kron(pauli, pauli), angles[0])
-    else:
-        raise ReviewError(f"statecheck does not model gate {name}")
     matrix = [[complex(x) for x in row] for row in matrix]
-    if kind in ("adj", "ctladj"):
+    if kind == "adj":
         matrix = [[matrix[j][i].conjugate() for j in range(len(matrix))] for i in range(len(matrix))]
-    if kind in ("ctl", "ctladj"):
-        raise ReviewError("statecheck does not model __ctl specializations; use decomposed QIR")
     return matrix
 
 

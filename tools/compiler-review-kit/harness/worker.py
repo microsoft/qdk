@@ -15,7 +15,7 @@ import traceback
 
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness.common import ReviewError, file_digest  # noqa: E402
+from harness.common import ReviewError, failure_status, file_digest  # noqa: E402
 from harness.records import counts, encode, parse_output  # noqa: E402
 
 
@@ -45,6 +45,8 @@ def failure(error):
         return {"status": "panic", "message": str(error)}
     if name == "QSharpError":
         return {"status": "diagnostic", "message": str(error)}
+    if isinstance(error, MemoryError):
+        return {"status": "resource_exhausted", "message": f"MemoryError: {error}"}
     return {"status": "infrastructure_error", "message": f"{name}: {error}", "traceback": traceback.format_exc()}
 
 
@@ -52,15 +54,16 @@ def execute(job):
     cap = job["memory_mb"] * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
     if job["stage"] == "runner":
+        # qir-runner reads stdin only from 0.9.6; a file argument works with every release.
         proc = subprocess.run(
-            [job["runner"], "-s", str(job["shots"]), "-r", str(job["seed"])],
-            input=Path(job["qir_path"]).read_text(),
+            [job["runner"], "-f", job["qir_path"], "-s", str(job["shots"]), "-r", str(job["seed"])],
             capture_output=True,
             text=True,
         )
         result = {"stdout": proc.stdout, "runner_stderr": proc.stderr, "returncode": proc.returncode}
         if proc.returncode:
-            return result | {"status": "runner_crash" if proc.returncode < 0 else "runner_error"}
+            status = failure_status(proc.returncode, proc.stderr)
+            return result | {"status": {"crash": "runner_crash", "infrastructure_error": "runner_error"}.get(status, status)}
         try:
             values = parse_output(proc.stdout, job["shots"])
         except ReviewError as error:

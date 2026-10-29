@@ -18,8 +18,9 @@ sandbox's filesystem, credential, and network protections.
   environment at `/opt/qdk-venv`, including the QDK Python dependencies and
   `qirrunner` package's `qir-runner` executable.
 - Authenticated `gh` access if the review includes GitHub issue snapshots.
-- Sufficient space in the sandbox's `/work` volume for native builds. Missing
-  dependencies must be supplied in the sandbox image; package feeds are blocked
+- Sufficient space in the sandbox's `/work` volume for native builds and review
+  scratch. Missing dependencies, including Cargo crates for the revisions'
+  lockfiles, must be supplied in the sandbox image; package feeds are blocked
   during sandbox sessions.
 
 Inspect repros and adapters before executing them, even inside the sandbox. The

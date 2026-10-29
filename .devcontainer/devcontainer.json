@@ -9,11 +9,7 @@
 			"nodeGypDependencies": true,
 			"version": "lts"
 		},
-		"ghcr.io/devcontainers/features/rust:1": {},
-		"ghcr.io/devcontainers/features/docker-in-docker:4": {},
-		"ghcr.io/devcontainers-extra/features/apt-packages:1": {
-			"packages": "gnupg,ripgrep,pass"
-		}
+		"ghcr.io/devcontainers/features/rust:1": {}
 	},
 	"postCreateCommand": "cargo update --dry-run",
 	"customizations": {

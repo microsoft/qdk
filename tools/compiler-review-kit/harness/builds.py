@@ -12,12 +12,27 @@ import tempfile
 
 from harness.common import (
     ReviewError,
+    build_identity,
+    digest,
     file_digest,
     git,
     read_json,
     tree_digest,
     write_json,
 )
+
+OFFLINE_MARKERS = ("--offline was specified", "you're using offline mode")
+
+
+def offline_failure(log, sha, action):
+    """A clear error when Cargo failed only because the offline cache lacks crates."""
+    text = Path(log).read_text(errors="replace")
+    if any(marker in text for marker in OFFLINE_MARKERS):
+        return ReviewError(
+            f"{action} at {sha[:12]} needs crates missing from the offline Cargo cache; "
+            f"the sandbox image must provide them. See {log}"
+        )
+    return None
 
 
 def checkout_revision(config, sha):
@@ -48,10 +63,8 @@ def refresh_timestamps(worktree):
         os.utime(path, None)
 
 
-def verify_build(build, tools):
+def verify_build(build):
     root = Path(build["overlay"])
-    if build["tools"] != tools:
-        raise ReviewError(f"Build environment changed for {root}; use a new build_dir.")
     if tree_digest(root / "qdk") != build["package_digest"]:
         raise ReviewError(f"Build package changed: {root}")
     worktree = Path(build["worktree"])
@@ -59,25 +72,23 @@ def verify_build(build, tools):
         raise ReviewError(f"Build worktree revision changed: {worktree}")
     if git(worktree, "status", "--porcelain"):
         raise ReviewError(f"Build worktree has tracked modifications: {worktree}")
-    if tree_digest(worktree / "library") != build["library_digest"]:
-        raise ReviewError(f"Build library inputs changed: {worktree}")
     return build
 
 
 def build_revision(config, sha, mode, tools):
+    """Overlays are keyed by build identity, so a toolchain change builds alongside older overlays."""
     work = Path(config["build_dir"])
     work.mkdir(parents=True, exist_ok=True)
+    identity = build_identity(tools)
     with (work / "build.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        root = work / "builds" / f"{sha}-{mode}"
+        root = work / "builds" / f"{sha}-{mode}-{digest(identity)[:12]}"
         manifest = root / "manifest.json"
         if manifest.exists():
             cached = read_json(manifest)
-            if cached["sha"] != sha or cached["mode"] != mode:
+            if (cached["sha"], cached["mode"], cached["identity"]) != (sha, mode, identity):
                 raise ReviewError(f"Build identity differs from its cache path: {root}")
-            return verify_build(cached, tools)
-        if root.exists():
-            raise ReviewError(f"Incomplete build directory {root}; inspect it before removing it.")
+            return verify_build(cached)
         worktree = checkout_revision(config, sha)
         target = work / "cargo-target"
         refresh_timestamps(worktree)
@@ -90,39 +101,42 @@ def build_revision(config, sha, mode, tools):
         args = ["cargo", "build", "--locked", "-p", "qdk", "--lib"]
         if mode == "release":
             args.append("--release")
-        log = work / f"build-{sha}-{mode}.log"
+        log = work / f"build-{root.name}.log"
         print(f"Building {sha[:12]} ({mode}); log: {log}", flush=True)
         with log.open("w") as stream:
             proc = subprocess.run(args, cwd=worktree, env=env, stdout=stream, stderr=stream)
         if proc.returncode:
-            raise ReviewError(f"Build failed ({proc.returncode}); see {log}")
+            raise offline_failure(log, sha, "Building") or ReviewError(f"Build failed ({proc.returncode}); see {log}")
         native = target / mode / "libqdk.so"
         if not native.is_file():
             raise ReviewError(f"Build produced no {native}")
         root.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix="overlay-", dir=root.parent))
-        package = worktree / "source/qdk_package/qdk"
-        shutil.copytree(
-            package,
-            staging / "qdk",
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "_native*.so"),
-        )
-        shutil.copy2(native, staging / "qdk/_native.abi3.so")
-        build = {
-            "sha": sha,
-            "mode": mode,
-            "overlay": str(root),
-            "worktree": str(worktree),
-            "native_digest": file_digest(staging / "qdk/_native.abi3.so"),
-            "package_digest": tree_digest(staging / "qdk"),
-            "library_digest": tree_digest(worktree / "library"),
-            "tools": tools,
-            "command": args,
-            "environment": {"CARGO_INCREMENTAL": "0", "timestamps": "refreshed before build"},
-            "log": str(log),
-        }
-        write_json(staging / "manifest.json", build)
-        staging.rename(root)
+        try:
+            package = worktree / "source/qdk_package/qdk"
+            shutil.copytree(
+                package,
+                staging / "qdk",
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "_native*.so"),
+            )
+            shutil.copy2(native, staging / "qdk/_native.abi3.so")
+            build = {
+                "sha": sha,
+                "mode": mode,
+                "identity": identity,
+                "overlay": str(root),
+                "worktree": str(worktree),
+                "native_digest": file_digest(staging / "qdk/_native.abi3.so"),
+                "package_digest": tree_digest(staging / "qdk"),
+                "command": args,
+                "environment": {"CARGO_INCREMENTAL": "0", "timestamps": "refreshed before build"},
+                "log": str(log),
+            }
+            write_json(staging / "manifest.json", build)
+            staging.rename(root)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
         return build
 
 

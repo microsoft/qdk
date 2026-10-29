@@ -314,13 +314,11 @@ def _run_refs(manifest):
 
 
 def _check_inputs(manifest_a, cases_a, manifest_b, cases_b, ids):
-    if manifest_a.get("mode") and manifest_b.get("mode") and manifest_a["mode"] != manifest_b["mode"]:
+    if manifest_a["mode"] != manifest_b["mode"]:
         raise ReviewError("Cannot compare runs with different build modes")
     projects = {}
     for case_id in ids:
-        old = manifest_a.get("case_identities", {}).get(case_id) or case_identity(cases_a[case_id], projects)
-        new = manifest_b.get("case_identities", {}).get(case_id) or case_identity(cases_b[case_id], projects)
-        if old != new:
+        if manifest_a["case_identities"][case_id] != manifest_b["case_identities"][case_id]:
             # Coverage can differ; comparisons already select shared profile columns.
             a = {key: value for key, value in cases_a[case_id].items() if key != "profiles"}
             b = {key: value for key, value in cases_b[case_id].items() if key != "profiles"}

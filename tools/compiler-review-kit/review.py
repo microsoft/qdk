@@ -276,6 +276,8 @@ def run_command(args):
             print("WARNING: identical endpoints; this is a smoke test, not a regression review.", file=sys.stderr)
         if config["checkout_status"]:
             print("WARNING: main checkout is dirty; pinned builds exclude those changes.", file=sys.stderr)
+        for warning in config["limit_warnings"]:
+            print(f"WARNING: {warning}", file=sys.stderr)
         for client in config["clients"]:
             if client["status"]:
                 print(f"WARNING: client {client['name']} is dirty; case snapshots include local edits.", file=sys.stderr)

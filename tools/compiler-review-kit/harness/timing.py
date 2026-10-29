@@ -56,8 +56,6 @@ def ratios(rows, baseline, label, phase="compile"):
     for row in rows:
         a, b = row["revisions"].get(baseline, {}), row["revisions"].get(label, {})
         if phase in a and phase in b and a[phase] > 0:
-            if "samples" not in a or "samples" not in b:
-                raise ReviewError("Timing data has no raw repeats; rerun timing to obtain paired ratios.")
             reference = {sample["repeat"]: sample[phase] for sample in a["samples"]}
             candidate = {sample["repeat"]: sample[phase] for sample in b["samples"]}
             paired = [candidate[repeat] / reference[repeat] for repeat in sorted(reference.keys() & candidate.keys())
@@ -73,8 +71,8 @@ def run_timing(config, cases_path, targets, profiles, repeats, mode, patterns=()
     if repeats < 1:
         raise ReviewError("--repeats must be positive")
     labels = [label for label, _ in targets]
-    if not labels or any(not label for label in labels) or len(set(labels)) != len(labels):
-        raise ReviewError("Timing targets must have unique, non-empty labels")
+    if len(set(labels)) != len(labels):
+        raise ReviewError("Timing targets must have unique labels")
     tools = preflight(config)
     root = Path(config["work_dir"]) / "timing"
     root.mkdir(parents=True, exist_ok=True)
@@ -130,7 +128,7 @@ def run_timing(config, cases_path, targets, profiles, repeats, mode, patterns=()
 
 
 def print_timing(summary, show=15, outlier=1.5):
-    if summary.get("status", "complete") != "complete":
+    if summary["status"] != "complete":
         print(f"Timing run {summary['status']}; partial samples retained, no performance ratios reported.")
         return
     labels = [target["label"] for target in summary["targets"]]

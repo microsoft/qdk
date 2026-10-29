@@ -27,8 +27,8 @@ from harness.cases import (  # noqa: E402
     bundle_cases, case_identity, load_cases, read_case_manifest, read_run_cases, snapshot_project, write_project,
 )
 from harness.common import (  # noqa: E402
-    DEFAULT_LIMITS, KIT, ReviewError, isolated, load_config, ordered_roles, read_json, select_roles, supervise, tree_digest, validate,
-    write_json,
+    DEFAULT_LIMITS, KIT, ReviewError, container_memory_mb, isolated, load_config, ordered_roles, read_json,
+    select_roles, sized_limits, supervise, tool_version, tree_digest, validate, write_json,
 )
 from harness.diffscan import scan_diff_text  # noqa: E402
 from harness import evidence  # noqa: E402
@@ -123,7 +123,7 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(config["refs"], {"reference": "old-sha", "candidate": "new-sha"})
             self.assertEqual(config["repository"], "/work/qdk")
             self.assertEqual(config["venv"], "/opt/qdk-venv")
-            self.assertEqual(config["work_dir"], str(Path(tempfile.gettempdir()) / "compiler-review-kit/review"))
+            self.assertEqual(config["work_dir"], "/work/compiler-review-kit/scratch/review")
             self.assertEqual(config["build_dir"], "/work/compiler-review-kit/build")
             self.assertEqual(config["cache_dir"], "/work/cache/compiler-review-kit")
             self.assertEqual(config["report"], "/exchange/from_copilot/review.md")
@@ -172,6 +172,29 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(configs[0]["report"], "/exchange/from_copilot/first.md")
             self.assertEqual(configs[1]["report"], "/exchange/from_copilot/second.md")
             self.assertEqual(configs[0]["build_dir"], configs[1]["build_dir"])
+
+    def test_worker_limits_fit_the_container(self):
+        with tempfile.TemporaryDirectory() as directory:
+            limit = Path(directory) / "memory.max"
+            limit.write_text("max\n")
+            self.assertIsNone(container_memory_mb(limit))
+            limit.write_text(f"{8 * 1024 ** 3}\n")
+            self.assertEqual(container_memory_mb(limit), 8192)
+        self.assertEqual(sized_limits({}, None), (DEFAULT_LIMITS, []))
+        limits, warnings = sized_limits({}, 40960)
+        self.assertEqual((limits["jobs"], limits["memory_mb"], warnings), (2, 16384, []))
+        limits, warnings = sized_limits({}, 8192)
+        self.assertEqual((limits["jobs"], limits["memory_mb"], warnings), (1, 6144, []))
+        limits, warnings = sized_limits({}, 4096)
+        self.assertEqual((limits["jobs"], limits["memory_mb"]), (1, 2048))
+        self.assertIn("resource_exhausted", warnings[0])
+        limits, warnings = sized_limits({"jobs": 4, "memory_mb": 16384}, 8192)
+        self.assertEqual((limits["jobs"], limits["memory_mb"]), (4, 16384))
+        self.assertIn("OOM killer", warnings[0])
+
+    def test_tool_versions_may_be_reported_on_stderr(self):
+        version = tool_version([sys.executable, "-c", "import sys; print('qir-runner 0.9.7', file=sys.stderr)"])
+        self.assertEqual(version, "qir-runner 0.9.7")
 
     def test_derived_name_cannot_escape_scratch_root(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -367,7 +390,15 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(self.call("import time; time.sleep(20)", timeout=0.2)["status"], "timeout")
 
     def test_signal(self):
-        self.assertEqual(self.call("import os,signal; os.kill(os.getpid(), signal.SIGKILL)")["status"], "crash")
+        self.assertEqual(self.call("import os,signal; os.kill(os.getpid(), signal.SIGSEGV)")["status"], "crash")
+
+    def test_memory_exhaustion_is_not_a_crash(self):
+        killed = self.call("import os,signal; os.kill(os.getpid(), signal.SIGKILL)")
+        self.assertEqual(killed["status"], "resource_exhausted")
+        self.assertIn("memory", killed["message"])
+        aborted = self.call("import os,sys; print('memory allocation of 1048576 bytes failed', file=sys.stderr); "
+                            "sys.stderr.flush(); os.abort()")
+        self.assertEqual(aborted["status"], "resource_exhausted")
 
     def test_missing_json(self):
         self.assertEqual(self.call("print('not json')")["status"], "infrastructure_error")
@@ -401,6 +432,36 @@ class WorkerBoundaryTests(unittest.TestCase):
         result = self.call(ValueError("bad adapter"))
         self.assertEqual(result["status"], "infrastructure_error")
         self.assertIn("bad adapter", result["traceback"])
+
+    def test_memory_error_is_resource_exhaustion(self):
+        self.assertEqual(self.call(MemoryError())["status"], "resource_exhausted")
+
+    def test_runner_reads_qir_from_a_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            qir = root / "Base.ll"
+            qir.write_text("; qir")
+            runner = root / "qir-runner"
+            # Releases before 0.9.6 require --file and ignore stdin.
+            runner.write_text(
+                f"#!{sys.executable}\nimport sys\nargs = sys.argv[1:]\n"
+                "if args[0] != '-f' or open(args[1]).read() != '; qir':\n    sys.exit(2)\n"
+                "print('START\\nMETADATA\\tentry_point\\nOUTPUT\\tRESULT\\t1\\nEND\\t0')\n"
+            )
+            runner.chmod(0o755)
+            job = {"stage": "runner", "runner": str(runner), "qir_path": str(qir), "shots": 1, "seed": 1,
+                   "memory_mb": 16384}
+            with patch("harness.worker.resource.setrlimit"):
+                result = worker.execute(job)
+        self.assertEqual((result["status"], result["values"]), ("ok", [ONE]))
+
+    def test_resource_exhaustion_is_inconclusive(self):
+        exhausted_runner = {"profiles": {"Base": {"compile": {"status": "ok"},
+                                                  "runner": {"status": "resource_exhausted"}}}}
+        self.assertEqual(endpoint(CASE, exhausted_runner, "Base"), "resource_exhausted")
+        case = CASE | {"oracle": {"kind": "deterministic", "expected": ONE}}
+        exhausted_compile = good() | {"profiles": {"Base": {"compile": {"status": "resource_exhausted"}}}}
+        self.assertEqual(compare(case, good(), exhausted_compile)[0]["verdict"], "inconclusive")
 
     def test_interrupt_is_not_swallowed(self):
         with self.assertRaises(KeyboardInterrupt):
@@ -457,10 +518,10 @@ class HelperTests(unittest.TestCase):
             root = Path(directory)
             (root / "qdk").mkdir()
             (root / "qdk/file.py").write_text("before")
-            build = {"overlay": directory, "tools": {}, "package_digest": tree_digest(root / "qdk")}
+            build = {"overlay": directory, "package_digest": tree_digest(root / "qdk")}
             (root / "qdk/file.py").write_text("after")
             with self.assertRaisesRegex(ReviewError, "package changed"):
-                verify_build(build, {})
+                verify_build(build)
 
     def test_inline_repro_is_valid_python(self):
         compile(source_repro(CASE), "<repro>", "exec")
@@ -498,14 +559,16 @@ def comparison_row(case_id, statuses, message="", verdicts=None):
     return {"case": case_id, "results": {"reference": result, "candidate": result}, "comparison": rows}
 
 
-def write_run(root, rows, refs=None, cases_path=None):
+def write_run(root, rows, refs=None, cases_path=None, cases=None):
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
+    cases = cases or [CASE | {"id": row["case"]} for row in rows]
     write_json(root / "manifest.json", {
         "config": {"refs": refs or {"reference": "a" * 40, "candidate": "b" * 40}},
-        "status": "complete", "cases_path": str(cases_path or root / "cases.json"),
+        "status": "complete", "mode": "release", "cases_path": str(cases_path or root / "cases.json"),
+        "case_identities": {case["id"]: case_identity(case) for case in cases},
     })
-    write_json(root / "cases.json", [CASE | {"id": row["case"]} for row in rows])
+    write_json(root / "cases.json", cases)
     (root / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
     return root
 
@@ -1011,7 +1074,7 @@ class BuildFreshnessTests(unittest.TestCase):
             self.assertGreater((root / "src/lib.rs").stat().st_mtime, 1)
             self.assertEqual((root / ".git").stat().st_mtime, 1)
 
-    def test_native_build_and_reuse_stay_outside_scratch(self):
+    def test_native_build_reuse_follows_build_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             builds, scratch, sha = root / "build-store", root / "scratch", "a" * 40
@@ -1019,7 +1082,6 @@ class BuildFreshnessTests(unittest.TestCase):
             package = worktree / "source/qdk_package/qdk"
             package.mkdir(parents=True)
             (package / "__init__.py").write_text("")
-            (worktree / "library").mkdir()
             config = {"build_dir": str(builds), "work_dir": str(scratch),
                       "repository": str(root), "venv": "/opt/qdk-venv"}
 
@@ -1027,7 +1089,7 @@ class BuildFreshnessTests(unittest.TestCase):
                 self.assertEqual(Path(cwd), worktree)
                 self.assertEqual(Path(env["CARGO_TARGET_DIR"]), builds / "cargo-target")
                 native = Path(env["CARGO_TARGET_DIR"]) / "release/libqdk.so"
-                native.parent.mkdir(parents=True)
+                native.parent.mkdir(parents=True, exist_ok=True)
                 native.write_bytes(b"native fixture")
                 return subprocess.CompletedProcess(args, 0)
 
@@ -1037,16 +1099,42 @@ class BuildFreshnessTests(unittest.TestCase):
                 self.assertEqual(args, ("status", "--porcelain"))
                 return ""
 
+            tools = {"rustc": "rustc 1", "runner": "qir-runner 0.9.0", "packages": [["pytest", "8"]]}
             with patch("harness.builds.git", side_effect=git), patch(
                 "harness.builds.subprocess.run", side_effect=cargo
             ) as compile_build, patch("sys.stdout", io.StringIO()):
-                build = build_revision(config, sha, "release", {})
-                self.assertEqual(build_revision(config, sha, "release", {}), build)
-            self.assertEqual(compile_build.call_count, 1)
-            self.assertEqual(Path(build["overlay"]), builds / "builds" / f"{sha}-release")
-            self.assertTrue((Path(build["overlay"]) / "qdk/_native.abi3.so").is_file())
+                build = build_revision(config, sha, "release", tools)
+                # Runner and package changes affect results, not the native overlay.
+                newer_environment = tools | {"runner": "qir-runner 0.9.7", "packages": [["pytest", "9"]]}
+                self.assertEqual(build_revision(config, sha, "release", newer_environment), build)
+                self.assertEqual(compile_build.call_count, 1)
+                rebuilt = build_revision(config, sha, "release", tools | {"rustc": "rustc 2"})
+            self.assertEqual(compile_build.call_count, 2)
+            self.assertNotEqual(rebuilt["overlay"], build["overlay"])
+            for overlay in (build["overlay"], rebuilt["overlay"]):
+                self.assertEqual(Path(overlay).parent, builds / "builds")
+                self.assertTrue(Path(overlay).name.startswith(f"{sha}-release-"))
+                self.assertTrue((Path(overlay) / "qdk/_native.abi3.so").is_file())
             self.assertTrue((builds / "build.lock").is_file())
             self.assertFalse(scratch.exists())
+
+    def test_offline_cache_failures_are_named(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            builds, sha = root / "build-store", "a" * 40
+            (builds / "worktrees" / sha).mkdir(parents=True)
+            config = {"build_dir": str(builds), "repository": str(root), "venv": "/opt/qdk-venv"}
+
+            def cargo(args, *, cwd, env, stdout, stderr):
+                stdout.write("error: failed to download `indoc v2.0.7`\n\nCaused by:\n"
+                             "  attempting to make an HTTP request, but --offline was specified\n")
+                return subprocess.CompletedProcess(args, 101)
+
+            with patch("harness.builds.git", side_effect=lambda repo, *args: sha if args[0] == "rev-parse" else ""), \
+                    patch("harness.builds.subprocess.run", side_effect=cargo), patch("sys.stdout", io.StringIO()):
+                with self.assertRaisesRegex(ReviewError, "missing from the offline Cargo cache"):
+                    build_revision(config, sha, "release", {})
+            self.assertEqual(list((builds / "builds").glob("*")) if (builds / "builds").exists() else [], [])
 
     def test_discovery_uses_the_build_lock(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1261,11 +1349,8 @@ class TableTests(unittest.TestCase):
                 {"case": "differs", "results": {"candidate": result(values=[ZERO]), "reference": result()},
                  "comparison": []}]
         with tempfile.TemporaryDirectory() as directory:
-            run = write_run(directory, rows)
-            cases = read_json(Path(run) / "cases.json")
-            for case in cases:
-                case["oracle"] = {"kind": "deterministic", "expected": ONE}
-            write_json(Path(run) / "cases.json", cases)
+            cases = [CASE | {"id": row["case"], "oracle": {"kind": "deterministic", "expected": ONE}} for row in rows]
+            run = write_run(directory, rows, cases=cases)
             lines = run_table(run, profiles=["Adaptive"], only_diff=True)
         self.assertEqual(lines[0], "## differs  expected=1")
         self.assertTrue(lines[1].lstrip().startswith("reference"))
@@ -1459,7 +1544,7 @@ class IssueDraftTests(unittest.TestCase):
             with patch("harness.issue_drafts.exec_script", return_value=rows), patch(
                 "harness.issue_drafts.preflight", return_value={}
             ), patch("harness.execution.build_revision", return_value={
-                "native_digest": "n", "package_digest": "p", "library_digest": "l", "tools": {},
+                "native_digest": "n", "package_digest": "p", "identity": {},
             }):
                 _, status = draft_issues(config, KIT / "examples" / "issues.py", root / "issues.md",
                                          revisions=list(config["refs"]))
@@ -1482,8 +1567,7 @@ class IssueDraftTests(unittest.TestCase):
                 return rows
 
             def build(config, sha, mode, current_tools):
-                return {"native_digest": sha + mode, "package_digest": "p", "library_digest": "l",
-                        "tools": dict(current_tools)}
+                return {"native_digest": sha + mode, "package_digest": "p", "identity": {}}
 
             with patch("harness.issue_drafts.preflight", side_effect=lambda config: dict(tools)), patch(
                 "harness.execution.build_revision", side_effect=build
@@ -1573,18 +1657,13 @@ class FrozenInputTests(unittest.TestCase):
             row = comparison_row("test", {"Base": ("validated", "validated")})
             run = write_run(root / "first", [row])
             cases = read_case_manifest(run / "cases.json")
-            manifest = read_json(run / "manifest.json")
-            manifest["case_identities"] = {"test": case_identity(cases[0])}
-            write_json(run / "manifest.json", manifest)
-            other = write_run(root / "second", [row])
-            changed = read_json(other / "cases.json")
-            changed[0]["source"] = "operation Main() : Result { One }"
-            write_json(other / "cases.json", changed)
+            changed = cases[0] | {"source": "operation Main() : Result { One }"}
+            other = write_run(root / "second", [row], cases=[changed])
             with self.assertRaisesRegex(ReviewError, "inputs or execution settings differ"):
                 compare_runs(run, other)
-            write_json(other / "cases.json", [cases[0] | {"profiles": ["Base", "Adaptive"]}])
-            self.assertEqual(compare_runs(run, other)["common"], 1)
-            write_json(run / "cases.json", changed)
+            wider = write_run(root / "third", [row], cases=[cases[0] | {"profiles": ["Base", "Adaptive"]}])
+            self.assertEqual(compare_runs(run, wider)["common"], 1)
+            write_json(run / "cases.json", [changed])
             with self.assertRaisesRegex(ReviewError, "Frozen inputs changed"):
                 read_run_cases(run)
 

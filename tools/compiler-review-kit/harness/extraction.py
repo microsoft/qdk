@@ -11,7 +11,7 @@ import re
 import struct
 import subprocess
 
-from harness.builds import refresh_timestamps
+from harness.builds import offline_failure, refresh_timestamps
 from harness.common import ReviewError, git, read_json, write_json
 from harness.discovery import infer_entry
 from harness.records import double, validate_value
@@ -222,7 +222,9 @@ def extract_tests(config, sha, crate, output, hooks_path=None, test_filter=None)
     finally:
         git(worktree, "checkout", "--", ".")
     if not dump.exists():
-        raise ReviewError(f"No dump produced (cargo exit {status}); see {log}")
+        raise offline_failure(log, sha, f"Testing {crate}") or ReviewError(
+            f"No dump produced (cargo exit {status}); see {log}"
+        )
     cases, stats = convert_dump(dump.read_text().splitlines(), sha, crate)
     write_json(output, cases)
     write_json(
