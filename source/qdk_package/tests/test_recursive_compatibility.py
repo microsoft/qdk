@@ -441,3 +441,62 @@ def test_nested_tuple_swap_with_discard_in_recursive_helper(
         }}
     """
     check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(1, 1), (2, 0)])
+def test_conditional_local_qubit_is_released_before_recursive_call(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, target : Qubit) : Unit {{
+            if n > 0 {{
+                {{
+                    use local = Qubit();
+                    X(local);
+                    CNOT(local, target);
+                    Reset(local);
+                }}
+                Rec(n - 1, target);
+            }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Rec(depth, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(2, 1), (3, 0)])
+def test_loop_local_qubits_preserve_outer_qubit_across_iterations(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, target : Qubit) : Unit {{
+            {{
+                use outer = Qubit();
+                X(outer);
+                mutable count = n;
+                while count > 0 {{
+                    use inner = Qubit();
+                    CNOT(outer, inner);
+                    CNOT(inner, target);
+                    CNOT(outer, inner);
+                    count -= 1;
+                }}
+                X(outer);
+            }}
+            if n > 0 {{ Rec(n - 1, target); }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Rec(depth, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)

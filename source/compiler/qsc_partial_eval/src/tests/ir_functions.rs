@@ -860,18 +860,56 @@ fn runtime_recursion_with_qubit_allocation_in_dynamic_range_is_rejected() {
 }
 
 #[test]
-fn runtime_recursion_with_conditionally_allocated_local_qubit_is_rejected() {
-    assert_runtime_recursion_is_rejected(
-        "if n > 0 { use q = Qubit(); X(q); X(q); } if n > 0 { Rec(n - 1); }",
-        "",
+fn runtime_recursion_reuses_conditionally_allocated_qubit_after_release() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int) : Unit {
+            if n > 0 { use q = Qubit(); X(q); X(q); }
+            if n > 0 { Rec(n - 1); }
+        }
+        operation Main() : Unit {
+            use flag = Qubit(); X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(n);
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "X",
+        ]"#]],
     );
 }
 
 #[test]
-fn runtime_recursion_with_local_qubit_allocated_in_loop_is_rejected() {
-    assert_runtime_recursion_is_rejected(
-        "for _ in 1..2 { use q = Qubit(); X(q); X(q); } if n > 0 { Rec(n - 1); }",
-        "",
+fn runtime_recursion_reuses_loop_local_qubit_after_release() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int) : Unit {
+            for _ in 1..2 { use q = Qubit(); X(q); X(q); }
+            if n > 0 { Rec(n - 1); }
+        }
+        operation Main() : Unit {
+            use flag = Qubit(); X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(n);
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "X",
+        ]"#]],
     );
 }
 

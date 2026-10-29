@@ -5262,6 +5262,91 @@ fn runtime_recursive_named_measurement_in_loop_can_be_emitted() {
 }
 
 #[test]
+fn runtime_recursive_conditional_arrays_reserve_peak_branch_storage() {
+    let source = r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            if n % 2 == 0 {
+                use locals = Qubit[2];
+                X(locals[0]);
+                CNOT(locals[0], target);
+                Reset(locals[0]);
+            } else {
+                use local = Qubit();
+                X(local);
+                CNOT(local, target);
+                Reset(local);
+            }
+            if n > 0 { Rec(n - 1, target); }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 1 };
+            Rec(depth, target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+    assert_static_resource_management(&qir, 4, 2);
+}
+
+#[test]
+fn runtime_recursive_loop_local_qubits_can_be_reused_after_release() {
+    let source = r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            mutable count = n;
+            while count > 0 {
+                use local = Qubit();
+                X(local);
+                CNOT(local, target);
+                Reset(local);
+                count -= 1;
+            }
+            if n > 0 { Rec(n - 1, target); }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 1 };
+            Rec(depth, target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+    assert_static_resource_management(&qir, 3, 2);
+}
+
+#[test]
+fn runtime_recursive_conditional_qubit_kept_live_across_call_is_rejected() {
+    let source = r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            if n > 0 {
+                use local = Qubit();
+                X(local);
+                CNOT(local, target);
+                Reset(local);
+                Rec(n - 1, target);
+            }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One { 2 } else { 1 };
+            Rec(depth, target);
+            MResetZ(target)
+        }
+    "#;
+    let errors = super::compile_source_to_qir_result(source, *CAPABILITIES)
+        .expect_err("reset does not end a live local-qubit lease");
+    assert!(
+        super::format_interpret_errors(errors)
+            .contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining")
+    );
+}
+
+#[test]
 fn runtime_recursive_result_tuple_remains_rejected() {
     assert_unsafe_measurement_recursion_rejected(
         r#"

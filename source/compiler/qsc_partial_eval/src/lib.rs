@@ -5501,6 +5501,7 @@ fn functor_app_to_functor_set_value(functor_app: FunctorApp) -> FunctorSetValue 
 /// Proves a conservative scratch layout without specializing future runtime parameters.
 /// Allocating calls may not overlap local leases, so the largest local layout also bounds
 /// inlined helpers. Independently emitted bodies receive separate reservations.
+/// Conditional paths and loop iterations must preserve incoming leases and release their locals.
 fn ir_function_scratch_layout(store: &PackageStore, root: (PackageId, BlockId)) -> Option<usize> {
     use qsc_fir::visit::Visitor;
 
@@ -5592,7 +5593,6 @@ fn ir_function_scratch_layout(store: &PackageStore, root: (PackageId, BlockId)) 
             allocating: &allocating,
             live: FxHashMap::default(),
             capacity: 0,
-            conditional_depth: 0,
             safe: true,
         };
         scanner.visit_block(body.1);
@@ -5619,11 +5619,19 @@ struct ScratchUseScanner<'a> {
     allocating: &'a FxHashSet<(PackageId, BlockId)>,
     live: FxHashMap<LocalVarId, usize>,
     capacity: usize,
-    conditional_depth: usize,
     safe: bool,
 }
 
 impl ScratchUseScanner<'_> {
+    fn visit_lease_preserving_path(&mut self, visit: impl FnOnce(&mut Self)) {
+        let incoming = self.live.clone();
+        visit(self);
+        // Branches and loop iterations may use their own local leases, but may
+        // neither release an incoming lease nor leave a new one live.
+        self.safe &= self.live == incoming;
+        self.live = incoming;
+    }
+
     fn allocation_size(&self, expr: ExprId) -> Option<usize> {
         let ExprKind::Call(callee, arg) = self.calls.package.get_expr(expr).kind else {
             return None;
@@ -5663,7 +5671,7 @@ impl<'a> qsc_fir::visit::Visitor<'a> for ScratchUseScanner<'a> {
                 self.safe = false;
                 return;
             };
-            if mutability != Mutability::Immutable || self.conditional_depth != 0 {
+            if mutability != Mutability::Immutable {
                 self.safe = false;
                 return;
             }
@@ -5687,9 +5695,20 @@ impl<'a> qsc_fir::visit::Visitor<'a> for ScratchUseScanner<'a> {
         | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, lhs, rhs) = self.get_expr(expr).kind
         {
             self.visit_expr(lhs);
-            self.conditional_depth += 1;
-            self.visit_expr(rhs);
-            self.conditional_depth -= 1;
+            self.visit_lease_preserving_path(|scanner| scanner.visit_expr(rhs));
+            return;
+        }
+        if let ExprKind::If(condition, yes, no) = self.get_expr(expr).kind {
+            self.visit_expr(condition);
+            self.visit_lease_preserving_path(|scanner| scanner.visit_expr(yes));
+            if let Some(no) = no {
+                self.visit_lease_preserving_path(|scanner| scanner.visit_expr(no));
+            }
+            return;
+        }
+        if let ExprKind::While(condition, body) = self.get_expr(expr).kind {
+            self.visit_lease_preserving_path(|scanner| scanner.visit_expr(condition));
+            self.visit_lease_preserving_path(|scanner| scanner.visit_block(body));
             return;
         }
         if let ExprKind::UpdateIndex(array, index, replacement) = self.get_expr(expr).kind {
@@ -5730,8 +5749,7 @@ impl<'a> qsc_fir::visit::Visitor<'a> for ScratchUseScanner<'a> {
                     )
                 {
                     if let ExprKind::Var(Res::Local(local), _) = self.get_expr(*arg).kind {
-                        self.safe &=
-                            self.conditional_depth == 0 && self.live.remove(&local).is_some();
+                        self.safe &= self.live.remove(&local).is_some();
                     } else {
                         self.safe = false;
                     }
@@ -5742,22 +5760,20 @@ impl<'a> qsc_fir::visit::Visitor<'a> for ScratchUseScanner<'a> {
                     self.safe = false;
                     return;
                 }
+                // Operand effects precede the call, including any scoped releases.
+                self.visit_expr(*callee);
+                self.visit_expr(*arg);
                 if let CallableImpl::Spec(specs) = &callable.implementation {
                     let body = (item.package, get_spec_decl(specs, functors).block);
                     if self.allocating.contains(&body) && !self.live.is_empty() {
                         self.safe = false;
                     }
                 }
+                return;
             }
             _ => {}
         }
-        let conditional = matches!(
-            self.get_expr(expr).kind,
-            ExprKind::If(..) | ExprKind::While(..)
-        );
-        self.conditional_depth += usize::from(conditional);
         qsc_fir::visit::walk_expr(self, expr);
-        self.conditional_depth -= usize::from(conditional);
     }
 
     fn get_block(&self, id: BlockId) -> &'a Block {
