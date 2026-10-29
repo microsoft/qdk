@@ -1245,6 +1245,7 @@ fn prepare_closure_captures(
 /// transform), keeping same-target producer closures from double-prepending each
 /// other's captures. Callable-array members skip the scoped prepend because
 /// their captures are threaded through the array element rewrite instead.
+/// Only that array parameter uses the group; other slots keep their own callable.
 #[allow(clippy::too_many_arguments)]
 fn transform_combined_callable_body(
     udts: &UdtMetadata,
@@ -1267,16 +1268,13 @@ fn transform_combined_callable_body(
     }
     let mut specialized_capture_targets = CaptureSpecializations::new(udts);
     let concrete_group = callable_array_position
-        .map(|position| {
+        .map(|(index, path)| {
             group
                 .iter()
                 .zip(remapped_params.iter())
                 .zip(closure_infos.iter())
                 .filter(|&(((_, _), remapped_param), _)| {
-                    (
-                        remapped_param.top_level_param,
-                        remapped_param.field_path.clone(),
-                    ) == *position
+                    remapped_param.top_level_param == *index && remapped_param.field_path == *path
                 })
                 .map(|(((call_site, _), _), closure_info)| {
                     if let Some(info) = closure_info {
@@ -1293,6 +1291,14 @@ fn transform_combined_callable_body(
         .zip(remapped_params.iter())
         .zip(closure_infos.iter())
     {
+        let is_callable_array_member = callable_array_position.is_some_and(|(index, path)| {
+            remapped_param.top_level_param == *index && remapped_param.field_path == *path
+        });
+        let parameter_group = if is_callable_array_member {
+            concrete_group.as_slice()
+        } else {
+            &[]
+        };
         if let Some(info) = closure_info {
             if !specialize_closure_target_callable_capture(
                 udts,
@@ -1304,12 +1310,6 @@ fn transform_combined_callable_body(
             ) {
                 return false;
             }
-            let is_callable_array_member = callable_array_position.is_some_and(|position| {
-                (
-                    remapped_param.top_level_param,
-                    remapped_param.field_path.clone(),
-                ) == *position
-            });
             let before = if is_callable_array_member {
                 FxHashSet::default()
             } else {
@@ -1323,7 +1323,7 @@ fn transform_combined_callable_body(
                 &impl_clone,
                 remapped_param,
                 &concrete,
-                &concrete_group,
+                parameter_group,
                 &mut specialized_capture_targets,
                 assigner,
             );
@@ -1351,7 +1351,7 @@ fn transform_combined_callable_body(
                 &impl_clone,
                 remapped_param,
                 &call_site.callable_arg,
-                &concrete_group,
+                parameter_group,
                 &mut specialized_capture_targets,
                 assigner,
             );

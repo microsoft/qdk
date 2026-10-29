@@ -30,6 +30,30 @@ fn recursive_projected_factory_preserves_closure_input() {
 }
 
 #[test]
+fn nested_callable_arrays_preserve_different_length_environments() {
+    for (left, right) in [("[X]", "[H, H]"), ("[H, H]", "[X]"), ("[I, I, X]", "[I]")] {
+        let source = formatdoc! {r#"
+            operation ApplyAll(ops : (Qubit => Unit)[], q : Qubit) : Unit {{
+                for op in ops {{ op(q); }}
+            }}
+            function MakeAll(ops : (Qubit => Unit)[]) : Qubit => Unit {{
+                ApplyAll(ops, _)
+            }}
+            @EntryPoint() operation Main() : Result {{
+                use q = Qubit();
+                let f = MakeAll([MakeAll({left}), MakeAll({right})]);
+                f(q);
+                MResetZ(q)
+            }}
+        "#};
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            Value::Result(MeasurementResult::Val(true)),
+        );
+    }
+}
+
+#[test]
 fn nested_callable_arrays_preserve_distinct_captures() {
     for (left, right, expected) in [
         ("A", "B", [true, true]),

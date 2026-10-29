@@ -1313,6 +1313,7 @@ impl<'a> PartialEvaluator<'a> {
         let current_package_id = self.get_current_package_id();
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
         let expr = self.package_store.get_expr(store_expr_id);
+        let snapshot_captures = Self::type_may_contain_closure(&expr.ty);
         let scope_exec_graph = self.get_current_scope_exec_graph().clone();
         let scope = self.eval_context.get_current_scope_mut();
         scope.update_classical_locals_from_hybrid_locals();
@@ -1336,6 +1337,11 @@ impl<'a> PartialEvaluator<'a> {
             Ok(step_result) => {
                 let StepResult::Return(value) = step_result else {
                     panic!("evaluating a classical expression should always return a value");
+                };
+                let value = if snapshot_captures {
+                    self.snapshot_closure_captures(value, false)
+                } else {
+                    value
                 };
 
                 // Figure out the control flow kind.
@@ -1409,7 +1415,9 @@ impl<'a> PartialEvaluator<'a> {
                     *callable,
                 )
                 .map_err(Error::from)?;
-                Ok(EvalControlFlow::Continue(closure))
+                Ok(EvalControlFlow::Continue(
+                    self.snapshot_closure_captures(closure, false),
+                ))
             }
             ExprKind::Fail(_) => Err(Error::Unexpected(
                 "using a dynamic value in a fail statement is invalid".to_string(),
@@ -4177,6 +4185,50 @@ impl<'a> PartialEvaluator<'a> {
                 format!("unsupported value type in conversion {args_value:?}"),
                 args_span,
             )),
+        }
+    }
+
+    fn type_may_contain_closure(ty: &Ty) -> bool {
+        match ty {
+            Ty::Arrow(_) | Ty::Udt(_) => true,
+            Ty::Array(item) => Self::type_may_contain_closure(item),
+            Ty::Tuple(items) => items.iter().any(Self::type_may_contain_closure),
+            _ => false,
+        }
+    }
+
+    /// Copies dynamic storage only inside closure environments, including nested captures.
+    /// Values outside a capture retain their existing binding behavior.
+    fn snapshot_closure_captures(&mut self, value: Value, captured: bool) -> Value {
+        match value {
+            Value::Closure(mut closure) => {
+                closure.fixed_args = closure
+                    .fixed_args
+                    .iter()
+                    .cloned()
+                    .map(|value| self.snapshot_closure_captures(value, true))
+                    .collect();
+                Value::Closure(closure)
+            }
+            Value::Array(values) => Value::Array(
+                values
+                    .iter()
+                    .cloned()
+                    .map(|value| self.snapshot_closure_captures(value, captured))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
+            Value::Tuple(values, udt) => Value::Tuple(
+                values
+                    .iter()
+                    .cloned()
+                    .map(|value| self.snapshot_closure_captures(value, captured))
+                    .collect(),
+                udt,
+            ),
+            // Static evaluation can return closures containing mutable RIR storage.
+            value if captured => self.copy_value_if_needed(value),
+            value => value,
         }
     }
 
