@@ -218,7 +218,7 @@ struct PartialEvaluator<'a> {
     ir_function_callables: FxHashMap<(StoreItemId, FunctorSetValue), CallableId>,
     /// Only completed root analyses are cached; recursive descendants are not independently proven.
     ir_function_resource_safety: FxHashMap<(PackageId, BlockId), bool>,
-    ir_function_scratch_layouts: FxHashMap<(PackageId, BlockId), Option<usize>>,
+    ir_function_qubit_layouts: FxHashMap<(PackageId, BlockId), Option<usize>>,
     /// Every QIR symbol name already assigned to an emitted IR function. Each callable
     /// specialization is resolved exactly once, so the first identity to claim a given bare name
     /// keeps it and any later collider is given a deterministic discriminating suffix. This keeps
@@ -232,7 +232,7 @@ struct PartialEvaluator<'a> {
     /// in which case no exclusion applies.
     entry_callable_item: Option<StoreItemId>,
     /// Each emission owns disjoint permanent storage, including an empty range for nonallocators.
-    ir_function_scratch: Vec<std::ops::Range<usize>>,
+    ir_function_qubit_reservations: Vec<Vec<std::ops::Range<usize>>>,
     eval_context: EvaluationContext,
     program: Program,
     entry: Option<&'a ProgramEntry>,
@@ -341,10 +341,10 @@ impl<'a> PartialEvaluator<'a> {
             callables_map: FxHashMap::default(),
             ir_function_callables: FxHashMap::default(),
             ir_function_resource_safety: FxHashMap::default(),
-            ir_function_scratch_layouts: FxHashMap::default(),
+            ir_function_qubit_layouts: FxHashMap::default(),
             emitted_names: FxHashSet::default(),
             entry_callable_item: resolve_entry_callable_item(package_store, entry),
-            ir_function_scratch: Vec::new(),
+            ir_function_qubit_reservations: Vec::new(),
             program,
             entry,
             config,
@@ -1693,7 +1693,7 @@ impl<'a> PartialEvaluator<'a> {
                         return false;
                     }
                     let has_static_qubit_layout = self
-                        .ir_function_scratch_layouts
+                        .ir_function_qubit_layouts
                         .get(&(store_item_id.package, spec_decl.block))
                         .is_some_and(|layout| layout.is_some_and(|count| count > 0));
                     let has_known_input = args.iter().any(|arg| {
@@ -2301,7 +2301,7 @@ impl<'a> PartialEvaluator<'a> {
     /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
     /// of being inlined. Inputs must have runtime-representable leaves; outputs must be Unit
     /// or a supported scalar (Int/Double/Bool). Ineligible specializations use the inline path.
-    /// Static qubits require proved, reserved scratch storage; unproved recursive measurement
+    /// Static qubits require proved, reserved local-qubit storage; unproved recursive measurement
     /// lifetimes still force inlining.
     /// The storage exception retains known inputs and finite scalar evaluation. At
     /// runtime-controlled recursive re-entry, unchanged or runtime inputs permit emission.
@@ -2394,14 +2394,14 @@ impl<'a> PartialEvaluator<'a> {
             .config
             .capabilities
             .contains(TargetCapabilityFlags::DynamicQubitAllocation);
-        let scratch = (!dynamic_qubits)
-            .then(|| ir_function_scratch_layout(self.package_store, root))
+        let qubit_layout = (!dynamic_qubits)
+            .then(|| ir_function_qubit_layout(self.package_store, root))
             .flatten();
-        self.ir_function_scratch_layouts.insert(root, scratch);
+        self.ir_function_qubit_layouts.insert(root, qubit_layout);
         let safe = ir_function_resources_are_safe(
             self.package_store,
             root,
-            dynamic_qubits || scratch.is_some_and(|count| count > 0),
+            dynamic_qubits || qubit_layout.is_some_and(|count| count > 0),
             has_result_parameters,
         );
         self.ir_function_resource_safety.insert(root, safe);
@@ -2509,13 +2509,13 @@ impl<'a> PartialEvaluator<'a> {
         callable_decl: &CallableDecl,
     ) -> Result<CallableId, Error> {
         let functor_set_value = functor_app_to_functor_set_value(functor_app);
-        let scratch_count = self
-            .ir_function_scratch_layouts
+        let reserved_qubit_count = self
+            .ir_function_qubit_layouts
             .get(&(store_item_id.package, spec_decl.block))
             .copied()
             .flatten()
             .unwrap_or(0);
-        let scratch = self.resource_manager.reserve_qubits(scratch_count);
+        let qubit_reservation = self.resource_manager.reserve_qubits(reserved_qubit_count);
 
         // Map the specialization signature to the RIR input type and create fresh RIR variables for
         // each parameter. The parameter variables are threaded into the body as RIR operands so the
@@ -2661,9 +2661,10 @@ impl<'a> PartialEvaluator<'a> {
             successor: None,
         });
         self.eval_context.push_scope(body_scope);
-        self.ir_function_scratch.push(scratch);
+        self.ir_function_qubit_reservations
+            .push(vec![qubit_reservation]);
         let eval_result = self.try_eval_block(spec_decl.block);
-        self.ir_function_scratch.pop();
+        self.ir_function_qubit_reservations.pop();
         let body_value = eval_result?.into_value();
 
         // Terminate the function's final block. VOID (Unit-returning) IR functions emit a value-less
@@ -3941,10 +3942,31 @@ impl<'a> PartialEvaluator<'a> {
             return Ok(Value::Var(var));
         }
 
-        let qubit = if let Some(scratch) = self.ir_function_scratch.last() {
-            self.resource_manager.allocate_reserved_qubit(scratch).ok_or_else(|| {
-                Error::Unexpected("static allocation exceeded its proved scratch layout or entered a delayed-release scope".into(), span)
-            })?
+        let qubit = if let Some(reservations) = self.ir_function_qubit_reservations.last_mut() {
+            if self.resource_manager.is_delaying_release()
+                || reservations.iter().all(std::ops::Range::is_empty)
+            {
+                return Err(Error::Unexpected(
+                    "static allocation has no proved local-qubit layout or entered a delayed-release scope".into(),
+                    span,
+                ));
+            }
+            if let Some(qubit) = reservations
+                .iter()
+                .find_map(|slots| self.resource_manager.allocate_reserved_qubit(slots))
+            {
+                qubit
+            } else {
+                // Inlined bodies keep their callers' lexical leases. Extend this
+                // owner's storage without borrowing another body's reservation.
+                let slots = self.resource_manager.reserve_qubits(1);
+                let qubit = self
+                    .resource_manager
+                    .allocate_reserved_qubit(&slots)
+                    .expect("a fresh reservation must have an available slot");
+                reservations.push(slots);
+                qubit
+            }
         } else {
             self.resource_manager.allocate_qubit()
         };
@@ -5498,15 +5520,16 @@ fn functor_app_to_functor_set_value(functor_app: FunctorApp) -> FunctorSetValue 
     }
 }
 
-/// Proves a conservative scratch layout without specializing future runtime parameters.
-/// Allocating calls may not overlap local leases, so the largest local layout also bounds
-/// inlined helpers. Independently emitted bodies receive separate reservations.
+/// Proves a conservative local-qubit layout without specializing future runtime parameters.
+/// Allocating calls may overlap only reset locals with no later use except release.
+/// The largest local layout seeds a reservation that grows for simultaneous inline leases.
+/// Independently emitted bodies receive separate reservations.
 /// Conditional paths and loop iterations must preserve incoming leases and release their locals.
-fn ir_function_scratch_layout(store: &PackageStore, root: (PackageId, BlockId)) -> Option<usize> {
+fn ir_function_qubit_layout(store: &PackageStore, root: (PackageId, BlockId)) -> Option<usize> {
     use qsc_fir::visit::Visitor;
 
     let mut edges = FxHashMap::<_, Vec<_>>::default();
-    let mut allocating = FxHashSet::default();
+    let mut allocating_bodies = FxHashSet::default();
     let mut pending = vec![root];
     while let Some(body) = pending.pop() {
         if edges.contains_key(&body) {
@@ -5531,7 +5554,7 @@ fn ir_function_scratch_layout(store: &PackageStore, root: (PackageId, BlockId)) 
             if item.package == PackageId::CORE
                 && matches!(name, "__quantum__rt__qubit_allocate" | "AllocateQubitArray")
             {
-                allocating.insert(body);
+                allocating_bodies.insert(body);
                 continue;
             }
             if item.package == PackageId::CORE
@@ -5539,7 +5562,7 @@ fn ir_function_scratch_layout(store: &PackageStore, root: (PackageId, BlockId)) 
             {
                 continue;
             }
-            if scratch_type_may_contain_qubit(&callable.output)
+            if type_may_contain_qubit(&callable.output)
                 || name == "PermuteLabels"
                 || functors.controlled > 0
             {
@@ -5572,71 +5595,158 @@ fn ir_function_scratch_layout(store: &PackageStore, root: (PackageId, BlockId)) 
     loop {
         let mut changed = false;
         for (body, callees) in &edges {
-            if callees.iter().any(|callee| allocating.contains(callee)) {
-                changed |= allocating.insert(*body);
+            if callees.iter().any(|id| allocating_bodies.contains(id)) {
+                changed |= allocating_bodies.insert(*body);
             }
         }
         if !changed {
             break;
         }
     }
-    let mut capacity = 0;
+    let mut local_qubit_capacity = 0;
     for body in edges.keys() {
-        let mut scanner = ScratchUseScanner {
-            calls: ResourceCallScanner {
+        let mut analysis = LocalQubitLifetimeAnalysis {
+            call_resolver: ResourceCallScanner {
                 package: store.get(body.0),
                 package_id: body.0,
                 calls: Vec::new(),
                 unresolved: false,
             },
             store,
-            allocating: &allocating,
-            live: FxHashMap::default(),
-            capacity: 0,
-            safe: true,
+            allocating_bodies: &allocating_bodies,
+            live_leases: FxHashMap::default(),
+            lifetime_state: LocalQubitLifetimeState::default(),
+            pending_argument_uses: Vec::new(),
+            peak_live_qubits: 0,
+            is_safe: true,
         };
-        scanner.visit_block(body.1);
-        if !scanner.safe || !scanner.live.is_empty() {
+        analysis.visit_block(body.1);
+        if !analysis.is_safe || !analysis.live_leases.is_empty() {
             return None;
         }
-        capacity = capacity.max(scanner.capacity);
+        local_qubit_capacity = local_qubit_capacity.max(analysis.peak_live_qubits);
     }
-    Some(capacity)
+    Some(local_qubit_capacity)
 }
 
-fn scratch_type_may_contain_qubit(ty: &Ty) -> bool {
+fn type_may_contain_qubit(ty: &Ty) -> bool {
     match ty {
         Ty::Prim(Prim::Qubit) | Ty::Udt(_) | Ty::Infer(_) | Ty::Param(_) | Ty::Err => true,
-        Ty::Array(element) => scratch_type_may_contain_qubit(element),
-        Ty::Tuple(elements) => elements.iter().any(scratch_type_may_contain_qubit),
+        Ty::Array(element) => type_may_contain_qubit(element),
+        Ty::Tuple(elements) => elements.iter().any(type_may_contain_qubit),
         Ty::Prim(_) | Ty::Arrow(_) => false,
     }
 }
 
-struct ScratchUseScanner<'a> {
-    calls: ResourceCallScanner<'a>,
+struct LocalQubitLifetimeAnalysis<'a> {
+    call_resolver: ResourceCallScanner<'a>,
     store: &'a PackageStore,
-    allocating: &'a FxHashSet<(PackageId, BlockId)>,
-    live: FxHashMap<LocalVarId, usize>,
-    capacity: usize,
-    safe: bool,
+    allocating_bodies: &'a FxHashSet<(PackageId, BlockId)>,
+    live_leases: FxHashMap<LocalVarId, usize>,
+    lifetime_state: LocalQubitLifetimeState,
+    pending_argument_uses: Vec<FxHashSet<LocalVarId>>,
+    peak_live_qubits: usize,
+    is_safe: bool,
 }
 
-impl ScratchUseScanner<'_> {
-    fn visit_lease_preserving_path(&mut self, visit: impl FnOnce(&mut Self)) {
-        let incoming = self.live.clone();
+#[derive(Clone, Default)]
+struct LocalQubitLifetimeState {
+    known_zero: FxHashSet<LocalVarId>,
+    release_only: FxHashSet<LocalVarId>,
+}
+
+impl LocalQubitLifetimeState {
+    fn join(&mut self, other: Self) {
+        self.known_zero
+            .retain(|local| other.known_zero.contains(local));
+        self.release_only.extend(other.release_only);
+    }
+}
+
+impl LocalQubitLifetimeAnalysis<'_> {
+    fn visit_call(&mut self, callee: ExprId, arg: ExprId) {
+        use qsc_fir::visit::Visitor;
+
+        let Some((item, functors)) = self.call_resolver.resolve_callee(callee) else {
+            self.is_safe = false;
+            return;
+        };
+        let Some(Global::Callable(callable)) = self.store.get_global(item) else {
+            self.is_safe = false;
+            return;
+        };
+        if item.package == PackageId::CORE
+            && matches!(
+                callable.name.name.as_ref(),
+                "__quantum__rt__qubit_release" | "ReleaseQubitArray"
+            )
+        {
+            if let ExprKind::Var(Res::Local(local), _) = self.get_expr(arg).kind {
+                self.is_safe &= self.live_leases.remove(&local).is_some();
+                self.lifetime_state.known_zero.remove(&local);
+                self.lifetime_state.release_only.remove(&local);
+            } else {
+                self.is_safe = false;
+            }
+            return;
+        }
+        if type_may_contain_qubit(&callable.output) {
+            // Allocation is supported only as a checked immutable binding.
+            self.is_safe = false;
+            return;
+        }
+        // Keep earlier arguments live through later argument effects and the call.
+        self.pending_argument_uses.push(FxHashSet::default());
+        self.visit_expr(callee);
+        self.visit_expr(arg);
+        let used = self.pending_argument_uses.pop().expect("call arguments");
+        self.is_safe &= used.is_disjoint(&self.lifetime_state.release_only);
+        self.lifetime_state
+            .known_zero
+            .retain(|local| !used.contains(local));
+        if functors == FunctorApp::default()
+            && is_qubit_reset(self.store, callable, item.package)
+            && let ExprKind::Var(Res::Local(local), _) = self.get_expr(arg).kind
+            && self.live_leases.contains_key(&local)
+        {
+            self.lifetime_state.known_zero.insert(local);
+        }
+        if let CallableImpl::Spec(specs) = &callable.implementation {
+            let body = (item.package, get_spec_decl(specs, functors).block);
+            if self.allocating_bodies.contains(&body) {
+                self.is_safe &= self.live_leases.keys().all(|local| {
+                    self.lifetime_state.known_zero.contains(local)
+                        && self
+                            .pending_argument_uses
+                            .iter()
+                            .all(|args| !args.contains(local))
+                });
+                self.lifetime_state
+                    .release_only
+                    .extend(self.live_leases.keys());
+            }
+        }
+    }
+
+    fn visit_lease_preserving_path(
+        &mut self,
+        visit: impl FnOnce(&mut Self),
+    ) -> LocalQubitLifetimeState {
+        let incoming_leases = self.live_leases.clone();
+        let incoming_state = self.lifetime_state.clone();
         visit(self);
         // Branches and loop iterations may use their own local leases, but may
         // neither release an incoming lease nor leave a new one live.
-        self.safe &= self.live == incoming;
-        self.live = incoming;
+        self.is_safe &= self.live_leases == incoming_leases;
+        self.live_leases = incoming_leases;
+        std::mem::replace(&mut self.lifetime_state, incoming_state)
     }
 
     fn allocation_size(&self, expr: ExprId) -> Option<usize> {
-        let ExprKind::Call(callee, arg) = self.calls.package.get_expr(expr).kind else {
+        let ExprKind::Call(callee, arg) = self.call_resolver.package.get_expr(expr).kind else {
             return None;
         };
-        let (item, functors) = self.calls.resolve_callee(callee)?;
+        let (item, functors) = self.call_resolver.resolve_callee(callee)?;
         if item.package != PackageId::CORE || functors != FunctorApp::default() {
             return None;
         }
@@ -5645,7 +5755,7 @@ impl ScratchUseScanner<'_> {
         };
         match (
             callable.name.name.as_ref(),
-            &self.calls.package.get_expr(arg).kind,
+            &self.call_resolver.package.get_expr(arg).kind,
         ) {
             ("__quantum__rt__qubit_allocate", ExprKind::Tuple(items)) if items.is_empty() => {
                 Some(1)
@@ -5658,33 +5768,33 @@ impl ScratchUseScanner<'_> {
     }
 }
 
-impl<'a> qsc_fir::visit::Visitor<'a> for ScratchUseScanner<'a> {
+impl<'a> qsc_fir::visit::Visitor<'a> for LocalQubitLifetimeAnalysis<'a> {
     fn visit_stmt(&mut self, stmt: StmtId) {
         if let StmtKind::Local(mutability, pat, expr) = self.get_stmt(stmt).kind
-            && scratch_type_may_contain_qubit(&self.get_pat(pat).ty)
+            && type_may_contain_qubit(&self.get_pat(pat).ty)
         {
             let PatKind::Bind(ident) = &self.get_pat(pat).kind else {
-                self.safe = false;
+                self.is_safe = false;
                 return;
             };
             let Some(size) = self.allocation_size(expr) else {
-                self.safe = false;
+                self.is_safe = false;
                 return;
             };
             if mutability != Mutability::Immutable {
-                self.safe = false;
+                self.is_safe = false;
                 return;
             }
-            self.live.insert(ident.id, size);
-            let Some(live) = self
-                .live
+            self.live_leases.insert(ident.id, size);
+            let Some(live_qubit_count) = self
+                .live_leases
                 .values()
                 .try_fold(0usize, |n, count| n.checked_add(*count))
             else {
-                self.safe = false;
+                self.is_safe = false;
                 return;
             };
-            self.capacity = self.capacity.max(live);
+            self.peak_live_qubits = self.peak_live_qubits.max(live_qubit_count);
             return;
         }
         qsc_fir::visit::walk_stmt(self, stmt);
@@ -5695,20 +5805,33 @@ impl<'a> qsc_fir::visit::Visitor<'a> for ScratchUseScanner<'a> {
         | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, lhs, rhs) = self.get_expr(expr).kind
         {
             self.visit_expr(lhs);
-            self.visit_lease_preserving_path(|scanner| scanner.visit_expr(rhs));
+            let rhs = self.visit_lease_preserving_path(|analysis| analysis.visit_expr(rhs));
+            self.lifetime_state.join(rhs);
             return;
         }
         if let ExprKind::If(condition, yes, no) = self.get_expr(expr).kind {
             self.visit_expr(condition);
-            self.visit_lease_preserving_path(|scanner| scanner.visit_expr(yes));
-            if let Some(no) = no {
-                self.visit_lease_preserving_path(|scanner| scanner.visit_expr(no));
-            }
+            let mut joined = self.visit_lease_preserving_path(|analysis| analysis.visit_expr(yes));
+            let no = if let Some(no) = no {
+                self.visit_lease_preserving_path(|analysis| analysis.visit_expr(no))
+            } else {
+                self.lifetime_state.clone()
+            };
+            joined.join(no);
+            self.lifetime_state = joined;
             return;
         }
         if let ExprKind::While(condition, body) = self.get_expr(expr).kind {
-            self.visit_lease_preserving_path(|scanner| scanner.visit_expr(condition));
-            self.visit_lease_preserving_path(|scanner| scanner.visit_block(body));
+            // A later iteration may use an incoming lease before resetting it.
+            // Only iteration-local leases can become release-only inside a loop.
+            self.lifetime_state.known_zero.clear();
+            let incoming_state = self.lifetime_state.clone();
+            self.lifetime_state =
+                self.visit_lease_preserving_path(|analysis| analysis.visit_expr(condition));
+            let body = self.visit_lease_preserving_path(|analysis| analysis.visit_block(body));
+            self.lifetime_state.join(body);
+            self.is_safe &= self.lifetime_state.release_only == incoming_state.release_only;
+            self.lifetime_state = incoming_state;
             return;
         }
         if let ExprKind::UpdateIndex(array, index, replacement) = self.get_expr(expr).kind {
@@ -5719,56 +5842,30 @@ impl<'a> qsc_fir::visit::Visitor<'a> for ScratchUseScanner<'a> {
             return;
         }
         match &self.get_expr(expr).kind {
+            ExprKind::Var(Res::Local(local), _) if self.live_leases.contains_key(local) => {
+                self.is_safe &= !self.lifetime_state.release_only.contains(local);
+                self.lifetime_state.known_zero.remove(local);
+                for pending in &mut self.pending_argument_uses {
+                    pending.insert(*local);
+                }
+                return;
+            }
             ExprKind::Closure(..) | ExprKind::Parallel(..) | ExprKind::Return(..) => {
-                self.safe = false;
+                self.is_safe = false;
                 return;
             }
             ExprKind::Assign(lhs, rhs)
             | ExprKind::AssignOp(_, lhs, rhs)
             | ExprKind::AssignField(lhs, _, rhs)
             | ExprKind::AssignIndex(lhs, _, rhs)
-                if scratch_type_may_contain_qubit(&self.get_expr(*lhs).ty)
-                    || scratch_type_may_contain_qubit(&self.get_expr(*rhs).ty) =>
+                if type_may_contain_qubit(&self.get_expr(*lhs).ty)
+                    || type_may_contain_qubit(&self.get_expr(*rhs).ty) =>
             {
-                self.safe = false;
+                self.is_safe = false;
                 return;
             }
             ExprKind::Call(callee, arg) => {
-                let Some((item, functors)) = self.calls.resolve_callee(*callee) else {
-                    self.safe = false;
-                    return;
-                };
-                let Some(Global::Callable(callable)) = self.store.get_global(item) else {
-                    self.safe = false;
-                    return;
-                };
-                if item.package == PackageId::CORE
-                    && matches!(
-                        callable.name.name.as_ref(),
-                        "__quantum__rt__qubit_release" | "ReleaseQubitArray"
-                    )
-                {
-                    if let ExprKind::Var(Res::Local(local), _) = self.get_expr(*arg).kind {
-                        self.safe &= self.live.remove(&local).is_some();
-                    } else {
-                        self.safe = false;
-                    }
-                    return;
-                }
-                if scratch_type_may_contain_qubit(&callable.output) {
-                    // Allocation is supported only as a checked immutable binding.
-                    self.safe = false;
-                    return;
-                }
-                // Operand effects precede the call, including any scoped releases.
-                self.visit_expr(*callee);
-                self.visit_expr(*arg);
-                if let CallableImpl::Spec(specs) = &callable.implementation {
-                    let body = (item.package, get_spec_decl(specs, functors).block);
-                    if self.allocating.contains(&body) && !self.live.is_empty() {
-                        self.safe = false;
-                    }
-                }
+                self.visit_call(*callee, *arg);
                 return;
             }
             _ => {}
@@ -5777,17 +5874,59 @@ impl<'a> qsc_fir::visit::Visitor<'a> for ScratchUseScanner<'a> {
     }
 
     fn get_block(&self, id: BlockId) -> &'a Block {
-        self.calls.package.get_block(id)
+        self.call_resolver.package.get_block(id)
     }
     fn get_expr(&self, id: ExprId) -> &'a Expr {
-        self.calls.package.get_expr(id)
+        self.call_resolver.package.get_expr(id)
     }
     fn get_pat(&self, id: PatId) -> &'a Pat {
-        self.calls.package.get_pat(id)
+        self.call_resolver.package.get_pat(id)
     }
     fn get_stmt(&self, id: StmtId) -> &'a Stmt {
-        self.calls.package.get_stmt(id)
+        self.call_resolver.package.get_stmt(id)
     }
+}
+
+fn is_qubit_reset(store: &PackageStore, callable: &CallableDecl, package_id: PackageId) -> bool {
+    let is_reset_intrinsic = |callable: &CallableDecl| {
+        !matches!(callable.implementation, CallableImpl::Spec(_))
+            && matches!(
+                callable.name.name.as_ref(),
+                "__quantum__qis__reset__body" | "__quantum__qis__mresetz__body"
+            )
+    };
+    if is_reset_intrinsic(callable) {
+        return true;
+    }
+    let CallableImpl::Spec(specs) = &callable.implementation else {
+        return false;
+    };
+    let package = store.get(package_id);
+    let input = package.get_pat(callable.input);
+    let PatKind::Bind(parameter) = &input.kind else {
+        return false;
+    };
+    if input.ty != Ty::Prim(Prim::Qubit) {
+        return false;
+    }
+    let [stmt] = package
+        .get_block(get_spec_decl(specs, FunctorApp::default()).block)
+        .stmts
+        .as_slice()
+    else {
+        return false;
+    };
+    let (StmtKind::Expr(expr) | StmtKind::Semi(expr)) = package.get_stmt(*stmt).kind else {
+        return false;
+    };
+    let ExprKind::Call(callee, arg) = package.get_expr(expr).kind else {
+        return false;
+    };
+    let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+        return false;
+    };
+    matches!(package.get_expr(arg).kind, ExprKind::Var(Res::Local(local), _) if local == parameter.id)
+        && matches!(store.get_global((item.package, item.item).into()), Some(Global::Callable(intrinsic)) if is_reset_intrinsic(intrinsic))
 }
 
 /// Checks selected reachable bodies rather than RCA summaries, which can be incomplete at cycles.
@@ -5852,7 +5991,7 @@ fn ir_function_resources_are_safe(
                 pending.push(callee);
             } else {
                 // Allocate/borrow intrinsics return qubits or nested arrays of qubits.
-                // Allocation requires either runtime management or the independent scratch proof.
+                // Allocation requires either runtime management or the local-qubit lifetime proof.
                 let mut output = &callable.output;
                 while let Ty::Array(element) = output {
                     output = element;

@@ -2809,7 +2809,7 @@ fn curried_allocation_preserves_live_caller_qubit() {
 }
 
 #[test]
-fn runtime_recursive_static_allocation_reports_error() {
+fn runtime_recursive_static_allocation_after_reset_is_emitted() {
     let source = r#"
         operation Rec(n : Int) : Unit {
             use q = Qubit(); H(q); Reset(q);
@@ -2820,12 +2820,9 @@ fn runtime_recursive_static_allocation_reports_error() {
             Rec(if MResetZ(flag) == Zero { 2 } else { 0 });
         }
     "#;
-    let errors = super::compile_source_to_qir_result(source, *CAPABILITIES)
-        .expect_err("runtime recursion cannot inline static allocation");
-    assert!(
-        super::format_interpret_errors(errors)
-            .contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining")
-    );
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+    assert_static_resource_management(&qir, 2, 1);
 }
 
 #[test]
@@ -4579,12 +4576,12 @@ fn runtime_depth_mutual_recursion_reuses_released_fixed_arrays_without_caller_al
 #[test]
 fn runtime_recursion_with_inlined_qubit_allocating_helper_preserves_target_updates() {
     let source = r#"
-        operation Scratch(qs : Qubit[]) : Unit {
+        operation FlipWithLocalQubit(qs : Qubit[]) : Unit {
             use own = Qubit(); X(own); X(own); X(qs[0]);
         }
         operation Rec(n : Int, target : Qubit) : Unit {
             { use qs = Qubit[2]; X(qs[0]); X(qs[0]); }
-            Scratch([target]);
+            FlipWithLocalQubit([target]);
             if n > 0 { Rec(n - 1, target); }
         }
         @EntryPoint()
@@ -4597,7 +4594,7 @@ fn runtime_recursion_with_inlined_qubit_allocating_helper_preserves_target_updat
     "#;
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert_static_resource_management(&qir, 4, 2);
-    assert_inlined(&qir, "Scratch");
+    assert_inlined(&qir, "FlipWithLocalQubit");
     expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
@@ -4958,7 +4955,7 @@ fn releasing_local_qubits_does_not_allow_results_to_outlive_recursive_measuremen
     assert_unsafe_measurement_recursion_rejected(
         r#"
         operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {
-            { use scratch = Qubit(); X(scratch); X(scratch); }
+            { use local = Qubit(); X(local); X(local); }
             if n > 0 {
                 let saved = M(q);
                 X(q);
@@ -5319,7 +5316,7 @@ fn runtime_recursive_loop_local_qubits_can_be_reused_after_release() {
 }
 
 #[test]
-fn runtime_recursive_conditional_qubit_kept_live_across_call_is_rejected() {
+fn runtime_recursive_conditional_reset_qubit_used_only_for_release_is_emitted() {
     let source = r#"
         operation Rec(n : Int, target : Qubit) : Unit {
             if n > 0 {
@@ -5338,12 +5335,70 @@ fn runtime_recursive_conditional_qubit_kept_live_across_call_is_rejected() {
             MResetZ(target)
         }
     "#;
-    let errors = super::compile_source_to_qir_result(source, *CAPABILITIES)
-        .expect_err("reset does not end a live local-qubit lease");
-    assert!(
-        super::format_interpret_errors(errors)
-            .contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining")
-    );
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+    assert_static_resource_management(&qir, 3, 2);
+}
+
+#[test]
+fn runtime_recursive_local_reset_on_both_branches_is_emitted() {
+    let source = r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            if n > 0 {
+                use local = Qubit();
+                X(local);
+                CNOT(local, target);
+                if n % 2 == 0 { Reset(local); } else { let ignored = MResetZ(local); }
+                Rec(n - 1, target);
+            }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(flag) == Zero { 2 } else { 1 }, target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+    assert_static_resource_management(&qir, 3, 3);
+}
+
+#[test]
+fn runtime_recursive_inline_helper_gets_storage_without_releasing_parent() {
+    let source = r#"
+        operation Helper(targets : Qubit[]) : Unit {
+            use local = Qubit();
+            X(local);
+            CNOT(local, targets[0]);
+            Reset(local);
+        }
+        operation Other(n : Int, target : Qubit) : Unit {
+            use local = Qubit();
+            X(local);
+            CNOT(local, target);
+            Reset(local);
+            if n > 0 { Other(n - 1, target); }
+        }
+        operation Rec(n : Int, target : Qubit) : Unit {
+            if n > 0 {
+                use local = Qubit();
+                Reset(local);
+                Other(n, target);
+                Helper([target]);
+                Rec(n - 1, target);
+            }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(flag) == Zero { 2 } else { 1 }, target);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+    assert!(qir.contains("define internal void @Other("), "{qir}");
+    assert_inlined(&qir, "Helper");
+    assert_static_resource_management(&qir, 5, 2);
 }
 
 #[test]

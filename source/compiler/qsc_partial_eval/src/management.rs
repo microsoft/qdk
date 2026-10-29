@@ -77,7 +77,7 @@ impl ResourceManager {
     }
 
     pub fn allocate_reserved_qubit(&mut self, slots: &Range<usize>) -> Option<QubitRef> {
-        // Scratch proofs exclude parallel/delayed-release scopes.
+        // Local-qubit lifetime proofs exclude parallel/delayed-release scopes.
         if self.is_delaying_release() {
             return None;
         }
@@ -251,11 +251,11 @@ mod tests {
         manager.release_qubit(&ordinary);
         manager.end_delayed_release_layer();
         assert!(ordinary.try_deref().is_none());
-        let scratch = manager
+        let reserved_qubit = manager
             .allocate_reserved_qubit(&slots)
-            .expect("scratch lease");
-        assert_eq!(manager.map_qubit(&scratch), 0);
-        manager.release_qubit(&scratch);
+            .expect("reserved lease");
+        assert_eq!(manager.map_qubit(&reserved_qubit), 0);
+        manager.release_qubit(&reserved_qubit);
         let ordinary = manager.allocate_qubit();
         assert_eq!(manager.map_qubit(&ordinary), 1);
         assert_eq!(manager.qubit_count(), 2);

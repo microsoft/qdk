@@ -245,7 +245,7 @@ fn finite_recursion_with_released_local_qubit_keeps_computed_integer_constant() 
 }
 
 #[test]
-fn runtime_depth_recursion_reuses_released_scratch_isolated_from_entry_qubits() {
+fn runtime_depth_recursion_reuses_released_local_qubit_isolated_from_entry_qubits() {
     let source = r#"
         namespace Test {
             operation Rec(n : Int) : Unit {
@@ -429,12 +429,12 @@ fn inlined_allocating_array_parameter_helper_uses_the_proved_owner_layout() {
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
-            operation Scratch(qs : Qubit[]) : Unit {
+            operation FlipWithLocalQubit(qs : Qubit[]) : Unit {
                 use own = Qubit(); X(own); X(own); X(qs[0]);
             }
             operation Rec(n : Int, target : Qubit) : Unit {
                 { use qs = Qubit[2]; X(qs[0]); X(qs[0]); }
-                Scratch([target]);
+                FlipWithLocalQubit([target]);
                 if n > 0 { Rec(n - 1, target); }
             }
             @EntryPoint()
@@ -541,8 +541,118 @@ fn direct_runtime_recursion_with_unreleased_local_qubit_is_rejected() {
 }
 
 #[test]
-fn direct_runtime_recursion_with_reset_but_unreleased_local_qubit_is_rejected() {
-    assert_runtime_recursion_is_rejected("use q = Qubit(); Reset(q); if n > 0 { Rec(n - 1); }", "");
+fn direct_runtime_recursion_with_reset_local_used_only_for_release_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Rec(n : Int) : Unit {
+                use q = Qubit();
+                Reset(q);
+                if n > 0 { Rec(n - 1); }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use flag = Qubit();
+                Rec(if MResetZ(flag) == Zero { 2 } else { 1 });
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert!(
+        program
+            .callables
+            .iter()
+            .any(|(_, callable)| callable.name == "Rec")
+    );
+}
+
+#[test]
+fn runtime_recursion_with_reset_on_only_one_branch_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); X(q); if n % 2 == 0 { Reset(q); } if n > 0 { Rec(n - 1); }",
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_reset_skipped_by_short_circuit_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); X(q); let ignored = n % 2 == 0 and { Reset(q); true }; if n > 0 { Rec(n - 1); }",
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_gate_after_reset_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); X(q); if n > 0 { Rec(n - 1); } Reset(q);",
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_measurement_after_reentry_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); if n > 0 { Rec(n - 1); } let ignored = MResetZ(q);",
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_does_not_trust_a_helper_named_reset() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); if n > 0 { Rec(n - 1); }",
+        "operation Reset(q : Qubit) : Unit { X(q); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_unknown_qubit_effect_after_reset_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); Touch(q); if n > 0 { Rec(n - 1); }",
+        "operation Touch(q : Qubit) : Unit { X(q); X(q); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_reset_qubit_passed_to_allocating_helper_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); if n > 0 { Again(n - 1, q); }",
+        "operation Again(n : Int, q : Qubit) : Unit { Rec(n); X(q); Reset(q); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_preserves_qubits_captured_by_earlier_call_arguments() {
+    assert_runtime_recursion_is_rejected(
+        r#"use q = Qubit();
+           Apply(q, { Reset(q); if n > 0 { Rec(n - 1); } });"#,
+        "operation Apply(q : Qubit, ignored : Unit) : Unit { X(q); Reset(q); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_loop_carried_reset_local_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"use q = Qubit();
+           mutable count = n;
+           while count > 0 {
+               X(q); Reset(q);
+               Rec(count - 1);
+               count -= 1;
+           }"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_reset_local_aliased_in_tuple_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); let pair = (q, 0); if n > 0 { Rec(n - 1); }",
+        "",
+    );
 }
 
 #[test]
@@ -681,7 +791,7 @@ fn runtime_recursion_with_parameter_sized_local_qubit_array_is_rejected() {
 }
 
 #[test]
-fn parameter_sized_scratch_with_static_depth_preserves_finite_inline_fallback() {
+fn parameter_sized_local_qubits_with_static_depth_preserve_finite_inline_fallback() {
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
@@ -742,15 +852,15 @@ fn parameter_sized_scratch_with_static_depth_preserves_finite_inline_fallback() 
 }
 
 #[test]
-fn released_scratch_boolean_measurement_is_materialized_before_recursive_reentry() {
+fn released_local_qubit_boolean_measurement_is_materialized_before_recursive_reentry() {
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
             operation Rec(n : Int, target : Qubit) : Unit {
                 let observed = {
-                    use scratch = Qubit();
-                    X(scratch);
-                    MResetZ(scratch) == One
+                    use local = Qubit();
+                    X(local);
+                    MResetZ(local) == One
                 };
                 if n > 0 { Rec(n - 1, target); }
                 if observed { X(target); }

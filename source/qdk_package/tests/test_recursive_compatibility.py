@@ -500,3 +500,146 @@ def test_loop_local_qubits_preserve_outer_qubit_across_iterations(
         }}
     """
     check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(2, 0), (3, 1)])
+def test_reset_local_qubit_can_remain_in_scope_across_recursion(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, target : Qubit) : Unit {{
+            if n > 0 {{
+                use local = Qubit();
+                X(local);
+                CNOT(local, target);
+                Reset(local);
+                Rec(n - 1, target);
+            }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            Rec(if MResetZ(flag) == One {{ {depth} }} else {{ 0 }}, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(2, 1), (3, 0)])
+def test_measure_reset_local_preserves_consumed_boolean_across_recursion(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, target : Qubit) : Unit {{
+            if n > 0 {{
+                use local = Qubit();
+                if n % 2 == 1 {{ X(local); }}
+                let observed = MResetZ(local) == One;
+                Rec(n - 1, target);
+                if observed {{ X(target); }}
+            }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            Rec(if MResetZ(flag) == One {{ {depth} }} else {{ 0 }}, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(2, 0), (3, 1)])
+def test_local_qubit_reset_on_both_branches_can_remain_in_scope(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, target : Qubit) : Unit {{
+            if n > 0 {{
+                use local = Qubit();
+                X(local);
+                CNOT(local, target);
+                if n % 2 == 0 {{ Reset(local); }}
+                else {{ let ignored = MResetZ(local); }}
+                Rec(n - 1, target);
+            }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            Rec(if MResetZ(flag) == One {{ {depth} }} else {{ 0 }}, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(2, 0), (3, 1)])
+def test_mutually_recursive_reset_locals_keep_separate_reservations(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation First(n : Int, target : Qubit) : Unit {{
+            if n > 0 {{
+                use local = Qubit();
+                X(local);
+                CNOT(local, target);
+                Reset(local);
+                Second(n - 1, target);
+            }}
+        }}
+        operation Second(n : Int, target : Qubit) : Unit {{
+            if n > 0 {{
+                use local = Qubit();
+                X(local);
+                CNOT(local, target);
+                Reset(local);
+                First(n - 1, target);
+            }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            First(if MResetZ(flag) == One {{ {depth} }} else {{ 0 }}, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(1, 1), (2, 1), (3, 0)])
+def test_inlined_allocation_extends_only_its_own_qubit_reservation(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Helper(targets : Qubit[]) : Unit {{
+            use local = Qubit();
+            X(local);
+            CNOT(local, targets[0]);
+            Reset(local);
+        }}
+        operation Other(n : Int, target : Qubit) : Unit {{
+            use local = Qubit();
+            X(local);
+            CNOT(local, target);
+            Reset(local);
+            if n > 0 {{ Other(n - 1, target); }}
+        }}
+        operation Rec(n : Int, target : Qubit) : Unit {{
+            if n > 0 {{
+                use local = Qubit();
+                Reset(local);
+                Other(n, target);
+                Helper([target]);
+                Rec(n - 1, target);
+            }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            X(flag);
+            Rec(if MResetZ(flag) == One {{ {depth} }} else {{ 0 }}, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
