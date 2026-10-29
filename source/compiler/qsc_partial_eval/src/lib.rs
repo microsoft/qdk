@@ -10,6 +10,7 @@ mod tests;
 
 mod evaluation_context;
 mod management;
+mod resource_safety;
 
 use core::panic;
 use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Scope};
@@ -5782,7 +5783,7 @@ fn ir_function_resources_are_safe(
     store: &PackageStore,
     root: (PackageId, BlockId),
     allow_qubit_allocation: bool,
-    mut has_result_parameters: bool,
+    has_result_parameters: bool,
 ) -> bool {
     use qsc_fir::visit::Visitor;
 
@@ -5790,6 +5791,7 @@ fn ir_function_resources_are_safe(
     // directly invoke measurement intrinsics; recursive callers are identified below.
     let mut edges = FxHashMap::<(PackageId, BlockId), Vec<(PackageId, BlockId)>>::default();
     let mut measuring = FxHashSet::default();
+    let mut result_parameters = FxHashMap::default();
     let mut custom_measurement = false;
     let mut pending = vec![root];
     while let Some(body) = pending.pop() {
@@ -5813,12 +5815,23 @@ fn ir_function_resources_are_safe(
                 return false;
             };
             if let CallableImpl::Spec(specs) = &callable.implementation {
-                has_result_parameters |= store
+                let parameters = store
                     .get(item.package)
-                    .derive_callable_input_params(callable)
-                    .iter()
-                    .any(|param| measurement_type_may_contain_result(&param.ty));
+                    .derive_callable_input_params(callable);
                 let callee = (item.package, get_spec_decl(specs, functors).block);
+                if parameters
+                    .iter()
+                    .any(|param| measurement_type_may_contain_result(&param.ty))
+                {
+                    result_parameters.insert(
+                        callee,
+                        parameters
+                            .iter()
+                            .filter(|param| measurement_type_may_contain_result(&param.ty))
+                            .filter_map(|param| param.var)
+                            .collect(),
+                    );
+                }
                 callees.push(callee);
                 pending.push(callee);
             } else {
@@ -5848,6 +5861,7 @@ fn ir_function_resources_are_safe(
     if measuring.is_empty() {
         return true;
     }
+    let all_measuring = measuring.clone();
 
     // Pruning zero-indegree vertices leaves exactly cycles and their descendants.
     // This includes measuring helpers called by recursion, not just measuring cycle members.
@@ -5880,25 +5894,7 @@ fn ir_function_resources_are_safe(
         return false;
     }
 
-    // Check every reachable body, including pruned callers: a caller outside the cycle
-    // can still hold a result owned by a helper that the cycle re-enters.
-    edges.keys().all(|body| {
-        if is_measurement_forwarder(store, *body) {
-            return true;
-        }
-        let mut scanner = MeasurementUseScanner {
-            calls: ResourceCallScanner {
-                package: store.get(body.0),
-                package_id: body.0,
-                calls: Vec::new(),
-                unresolved: false,
-            },
-            store,
-            safe: true,
-        };
-        scanner.visit_block(body.1);
-        scanner.safe
-    })
+    resource_safety::measurement_uses_are_safe(store, &edges, &all_measuring, &result_parameters)
 }
 
 /// Unknown or nominal storage is not a proof that a result cannot escape.
@@ -5941,84 +5937,6 @@ fn is_measurement_forwarder(store: &PackageStore, body: (PackageId, BlockId)) ->
             callable.name.name.as_ref(),
             "__quantum__qis__m__body" | "__quantum__qis__mresetz__body"
         )
-}
-
-/// Proves the deliberately narrow nonescaping pattern: a built-in measurement is compared
-/// directly with a result literal. The read therefore precedes every subsequent call,
-/// including calls in later operands. Only the resulting Boolean may be saved or returned.
-struct MeasurementUseScanner<'a> {
-    calls: ResourceCallScanner<'a>,
-    store: &'a PackageStore,
-    safe: bool,
-}
-
-impl MeasurementUseScanner<'_> {
-    fn is_immediate_measurement(&self, expr: ExprId) -> bool {
-        let ExprKind::Call(callee, _) = self.calls.package.get_expr(expr).kind else {
-            return false;
-        };
-        let Some((item, functors)) = self.calls.resolve_callee(callee) else {
-            return false;
-        };
-        let Some(Global::Callable(callable)) = self.store.get_global(item) else {
-            return false;
-        };
-        match &callable.implementation {
-            CallableImpl::Spec(specs) => is_measurement_forwarder(
-                self.store,
-                (item.package, get_spec_decl(specs, functors).block),
-            ),
-            _ => matches!(
-                callable.name.name.as_ref(),
-                "__quantum__qis__m__body" | "__quantum__qis__mresetz__body"
-            ),
-        }
-    }
-}
-
-impl<'a> qsc_fir::visit::Visitor<'a> for MeasurementUseScanner<'a> {
-    fn visit_expr(&mut self, expr: ExprId) {
-        let expression = self.calls.package.get_expr(expr);
-        if matches!(expression.kind, ExprKind::Parallel(..))
-            || (measurement_type_may_contain_result(&expression.ty)
-                && !matches!(expression.kind, ExprKind::Lit(fir::Lit::Result(_))))
-        {
-            self.safe = false;
-            return;
-        }
-        if let ExprKind::BinOp(BinOp::Eq | BinOp::Neq, lhs, rhs) = expression.kind {
-            for (measured, literal) in [(lhs, rhs), (rhs, lhs)] {
-                if matches!(
-                    self.calls.package.get_expr(literal).kind,
-                    ExprKind::Lit(fir::Lit::Result(_))
-                ) && self.is_immediate_measurement(measured)
-                {
-                    // Skip only the measured call's result value, never its callee or
-                    // argument expressions: either can have independently unsafe effects.
-                    qsc_fir::visit::walk_expr(self, measured);
-                    self.visit_expr(literal);
-                    return;
-                }
-            }
-        }
-        qsc_fir::visit::walk_expr(self, expr);
-    }
-
-    fn get_block(&self, id: BlockId) -> &'a Block {
-        self.calls.package.get_block(id)
-    }
-
-    fn get_expr(&self, id: ExprId) -> &'a Expr {
-        self.calls.package.get_expr(id)
-    }
-
-    fn get_pat(&self, id: PatId) -> &'a Pat {
-        self.calls.package.get_pat(id)
-    }
-
-    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
-        self.calls.package.get_stmt(id)
-    }
 }
 
 /// Collects call targets within one specialization body for the resource-safety graph.

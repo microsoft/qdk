@@ -265,3 +265,179 @@ def test_static_bound_preserves_runtime_result_in_controlled_adjoint_recursion(
     """
     )
     check_result(source, profile, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(1, 0), (3, 1)])
+def test_named_measurement_is_read_before_runtime_recursive_call(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Retry(budget : Int, q : Qubit, target : Qubit) : Unit {{
+            if budget > 0 {{
+                let measured = MResetZ(q);
+                if measured == Zero {{
+                    X(q);
+                    Retry(budget - 1, q, target);
+                }} else {{ X(target); }}
+            }}
+        }}
+        operation Main() : Int {{
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Retry(depth, q, target);
+            Reset(q);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(1, 1), (3, 0)])
+def test_boolean_helper_consumes_named_result_before_recursive_reentry(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Read(q : Qubit) : Bool {{
+            let measured = MResetZ(q);
+            measured == One
+        }}
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {{
+            if n % 2 == 1 {{ X(q); }}
+            let saved = Read(q);
+            if n > 0 {{ Rec(n - 1, q, target); }}
+            if saved {{ X(target); }}
+        }}
+        operation Main() : Int {{
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Rec(depth, q, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(1, 1), (3, 0)])
+def test_result_as_bool_consumes_result_before_runtime_recursive_call(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {{
+            if n % 2 == 1 {{ X(q); }}
+            let measured = MResetZ(q);
+            let saved = Std.Convert.ResultAsBool(measured);
+            if n > 0 {{ Rec(n - 1, q, target); }}
+            if saved {{ X(target); }}
+        }}
+        operation Main() : Int {{
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Rec(depth, q, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(1, 1), (3, 0)])
+def test_branch_selected_result_is_consumed_before_recursive_reentry(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {{
+            let measured = if n % 2 == 0 {{
+                X(q);
+                MResetZ(q)
+            }} else {{ MResetZ(q) }};
+            let alias = measured;
+            let saved = alias == One;
+            if n > 0 {{ Rec(n - 1, q, target); }}
+            if saved {{ X(target); }}
+        }}
+        operation Main() : Int {{
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Rec(depth, q, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(1, 1), (3, 0)])
+def test_loop_local_named_results_are_consumed_before_next_iteration(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {{
+            mutable count = n;
+            while count > 0 {{
+                if count % 2 == 1 {{ X(q); }}
+                let measured = MResetZ(q);
+                if measured == One {{ X(target); }}
+                count -= 1;
+            }}
+            if n > 0 {{ Rec(n - 1, q, target); }}
+        }}
+        operation Main() : Int {{
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Rec(depth, q, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(0, 0), (2, 1)])
+def test_classical_tuple_swap_preserves_runtime_measuring_recursion(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {{
+            let bit = MResetZ(q) == Zero;
+            mutable (a, b) = (n, 0);
+            (a, b) = (b, a);
+            if bit and b == 1 {{ X(target); }}
+            if n > 0 {{ Rec(n - 1, q, target); }}
+        }}
+        operation Main() : Int {{
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Rec(depth, q, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(0, 0), (2, 1)])
+def test_nested_tuple_swap_with_discard_in_recursive_helper(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation SwapAndFlip(n : Int, bit : Bool, target : Qubit) : Unit {{
+            mutable (a, b) = (n, 0);
+            (_, (a, b)) = (9, (b, a));
+            if bit and b == 1 {{ X(target); }}
+        }}
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {{
+            let bit = MResetZ(q) == Zero;
+            SwapAndFlip(n, bit, target);
+            if n > 0 {{ Rec(n - 1, q, target); }}
+        }}
+        operation Main() : Int {{
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit());
+            X(flag);
+            let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
+            Rec(depth, q, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)

@@ -5025,6 +5025,243 @@ fn runtime_recursive_result_alias_remains_rejected() {
 }
 
 #[test]
+fn runtime_recursive_result_read_after_branch_reentry_is_rejected() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            let measured = M(q);
+            if n > 0 { Rec(n - 1, q); }
+            if measured == One { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn runtime_recursive_result_operand_captured_before_reentry_is_rejected() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            let measured = M(q);
+            let same = measured == { if n > 0 { Rec(n - 1, q); } One };
+            if same { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn runtime_recursive_result_argument_clobbered_by_later_argument_is_rejected() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        function Read(result : Result, unused : Unit) : Bool { result == One }
+        operation Rec(n : Int, q : Qubit) : Unit {
+            let measured = M(q);
+            let saved = Read(measured, { if n > 0 { Rec(n - 1, q); } });
+            if saved { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn runtime_recursive_result_read_after_short_circuit_reentry_is_rejected() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            let measured = M(q);
+            let called = n > 0 and { Rec(n - 1, q); true };
+            if measured == One { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn runtime_recursive_fresh_measurement_does_not_restore_stale_alias() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            mutable measured = M(q);
+            let alias = measured;
+            if n > 0 { Rec(n - 1, q); }
+            measured = MResetZ(q);
+            if alias == One { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn runtime_recursive_result_carried_into_loop_remains_rejected() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            let measured = M(q);
+            mutable count = n;
+            while count > 0 {
+                if measured == One { X(q); }
+                Rec(count - 1, q);
+                count -= 1;
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn runtime_recursive_result_array_append_remains_rejected() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            mutable saved = [Zero];
+            saved += [M(q)];
+            if n > 0 { Rec(n - 1, q); }
+            if saved[1] == One { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn runtime_recursive_tuple_assignment_retains_raw_result_aliases() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            mutable left = Zero;
+            mutable right = Zero;
+            (left, right) = (M(q), Zero);
+            if n > 0 { Rec(n - 1, q); }
+            if left == One { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn runtime_recursive_nested_tuple_assignment_retains_raw_result_aliases() {
+    assert_unsafe_measurement_recursion_rejected(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            mutable left = Zero;
+            mutable right = Zero;
+            (_, (left, right)) = (9, (Zero, M(q)));
+            if n > 0 { Rec(n - 1, q); }
+            if right == One { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn runtime_recursive_tuple_assigned_result_consumed_before_reentry_can_be_emitted() {
+    let source = r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            mutable left = Zero;
+            mutable right = Zero;
+            (left, right) = (MResetZ(q), Zero);
+            let saved = left == One;
+            if n > 0 { Rec(n - 1, q); }
+            if saved { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+}
+
+#[test]
+fn runtime_recursive_consumed_result_alias_can_be_emitted() {
+    let source = r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            let measured = MResetZ(q);
+            let alias = measured;
+            let saved = alias == One;
+            if n > 0 { Rec(n - 1, q); }
+            if saved { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+}
+
+#[test]
+fn runtime_recursive_named_measurement_in_loop_can_be_emitted() {
+    let source = r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            mutable count = n;
+            while count > 0 {
+                let measured = MResetZ(q);
+                if measured == One { X(q); }
+                count -= 1;
+            }
+            if n > 0 { Rec(n - 1, q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Rec("), "{qir}");
+}
+
+#[test]
 fn runtime_recursive_result_tuple_remains_rejected() {
     assert_unsafe_measurement_recursion_rejected(
         r#"
