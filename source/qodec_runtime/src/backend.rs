@@ -12,23 +12,6 @@ use std::{
     ops::{BitOr, BitOrAssign},
 };
 
-/// One instruction sent to a backend.
-#[derive(Clone, Debug, PartialEq)]
-pub struct BackendInstruction<Id, P> {
-    /// The instruction's index in the boundary's ISA.
-    pub instruction_id: Id,
-    /// Block operands first, then arguments in the order the instruction
-    /// declares its parameters.
-    pub parameters: SmallVec<[P; 2]>,
-}
-
-/// Ordered backend results, with zero or one result stored without heap allocation.
-#[derive(Clone, Debug, PartialEq)]
-pub struct BatchResult<R> {
-    /// One result per instruction requiring a result, in input order.
-    pub results: SmallVec<[R; 1]>,
-}
-
 /// Executes ISA instructions. Every qodec layer implements it, and consumes
 /// the `Backend` below it.
 pub trait Backend<Id, P, R> {
@@ -65,6 +48,23 @@ impl<Id, P, R, B: Backend<Id, P, R> + ?Sized> Backend<Id, P, R> for Box<B> {
     }
 }
 
+/// One instruction sent to a backend.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BackendInstruction<Id, P> {
+    /// The instruction's index in the boundary's ISA.
+    pub instruction_id: Id,
+    /// Block operands first, then arguments in the order the instruction
+    /// declares its parameters.
+    pub parameters: SmallVec<[P; 2]>,
+}
+
+/// Ordered backend results, with zero or one result stored without heap allocation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BatchResult<R> {
+    /// One result per instruction requiring a result, in input order.
+    pub results: SmallVec<[R; 1]>,
+}
+
 /// The index of an instruction in the ISA of a boundary: its position in the
 /// ISA's instruction list.
 pub trait InstructionId: Copy {
@@ -92,6 +92,14 @@ impl InstructionId for u32 {
     }
 }
 
+/// A backend parameter: a block operand or a classical argument.
+pub trait Param: Clone {
+    /// Views this parameter.
+    fn view(&self) -> ParamView<'_>;
+    /// Builds a parameter from a view.
+    fn from_view(view: ParamView<'_>) -> Self;
+}
+
 /// A view of a parameter. One `P` type carries both block operands and
 /// classical arguments.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -111,14 +119,6 @@ pub enum ParamView<'a> {
     IntList(&'a [u64]),
     /// A list argument of strings.
     TextList(&'a [String]),
-}
-
-/// A backend parameter: a block operand or a classical argument.
-pub trait Param: Clone {
-    /// Views this parameter.
-    fn view(&self) -> ParamView<'_>;
-    /// Builds a parameter from a view.
-    fn from_view(view: ParamView<'_>) -> Self;
 }
 
 /// A ready-to-use owned [`Param`]. Each variant mirrors a [`ParamView`] variant.
@@ -166,61 +166,6 @@ impl Param for OwnedParam {
     }
 }
 
-/// `None` = unresolved (not determinable).
-pub type Bit = Option<bool>;
-
-// TODO: Explain why this is a struct instead of an enum.
-/// Recoverable, shot-level conditions. Statuses merge with field-wise OR.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Status {
-    /// A select pattern did not match.
-    pub rejected: bool,
-    /// Parity evidence contradicts itself.
-    pub inconsistent: bool,
-    /// A value the layer or its decoder needed could not be determined. For
-    /// example, a `None` bit was passed to a `bit` parameter (it is replaced by
-    /// 0), or a `select` hint could not be decided.
-    pub unresolved: bool,
-}
-
-impl Status {
-    /// Only `rejected`.
-    pub const REJECTED: Status = Status {
-        rejected: true,
-        inconsistent: false,
-        unresolved: false,
-    };
-    /// Only `inconsistent`.
-    pub const INCONSISTENT: Status = Status {
-        rejected: false,
-        inconsistent: true,
-        unresolved: false,
-    };
-    /// Only `unresolved`.
-    pub const UNRESOLVED: Status = Status {
-        rejected: false,
-        inconsistent: false,
-        unresolved: true,
-    };
-}
-
-impl BitOr for Status {
-    type Output = Status;
-    fn bitor(self, rhs: Status) -> Status {
-        Status {
-            rejected: self.rejected || rhs.rejected,
-            inconsistent: self.inconsistent || rhs.inconsistent,
-            unresolved: self.unresolved || rhs.unresolved,
-        }
-    }
-}
-
-impl BitOrAssign for Status {
-    fn bitor_assign(&mut self, rhs: Status) {
-        *self = *self | rhs;
-    }
-}
-
 /// The aggregate result of one instruction: observe outcomes first, then
 /// flags, in the order of a gadget's [`readouts`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#readouts).
 pub trait Readout: Sized {
@@ -261,6 +206,61 @@ impl Readout for BasicReadout {
     }
     fn status(&self) -> Status {
         self.status
+    }
+}
+
+/// `None` = unresolved (not determinable).
+pub type Bit = Option<bool>;
+
+// TODO: Explain why this is a struct instead of an enum.
+/// Recoverable, shot-level conditions. Statuses merge with field-wise OR.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Status {
+    /// A select pattern did not match.
+    pub rejected: bool,
+    /// Parity evidence contradicts itself.
+    pub inconsistent: bool,
+    /// A value the layer or its decoder needed could not be determined. For
+    /// example, a `None` bit was passed to a `bit` parameter (it is replaced by
+    /// 0), or a `select` hint could not be decided.
+    pub unresolved: bool,
+}
+
+impl Status {
+    /// Only `rejected`.
+    pub const REJECTED: Status = Status {
+        rejected: true,
+        inconsistent: false,
+        unresolved: false,
+    };
+    /// Only `inconsistent`.
+    pub const INCONSISTENT: Status = Status {
+        rejected: false,
+        inconsistent: true,
+        unresolved: false,
+    };
+    /// Only `unresolved`.
+    pub const UNRESOLVED: Status = Status {
+        rejected: false,
+        inconsistent: false,
+        unresolved: true,
+    };
+}
+
+impl BitOrAssign for Status {
+    fn bitor_assign(&mut self, rhs: Status) {
+        *self = *self | rhs;
+    }
+}
+
+impl BitOr for Status {
+    type Output = Status;
+    fn bitor(self, rhs: Status) -> Status {
+        Status {
+            rejected: self.rejected || rhs.rejected,
+            inconsistent: self.inconsistent || rhs.inconsistent,
+            unresolved: self.unresolved || rhs.unresolved,
+        }
     }
 }
 

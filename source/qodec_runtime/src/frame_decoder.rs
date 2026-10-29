@@ -24,20 +24,6 @@ use qodec::Action;
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
-/// Output logical sign -> parity of input signs it carries.
-type Transport = Vec<(FrameKey, Parity)>;
-
-/// What the frame decoder needs for one gadget, fixed once per layer.
-#[derive(Debug)]
-struct FrameGadgetPlan {
-    checks: Vec<Parity>,
-    readouts: Vec<Parity>,
-    /// Fixed per gadget when the body is Clifford-only (see
-    /// `circuit_transport`); otherwise derived per invocation from the
-    /// instruction's action (see `action_transport`).
-    transport: Option<Transport>,
-}
-
 /// The Pauli-frame [`Decoder`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameDecoder;
@@ -91,36 +77,6 @@ impl<R: 'static> DecoderPlan<R> for FrameDecoderPlan {
     }
 }
 
-impl FrameGadgetPlan {
-    fn new(gp: &GadgetPlan, layer: &LayerPlan) -> Result<Self, String> {
-        let instruction = gp.instruction();
-        if gp.gadget.readouts.len() != instruction.observe_count() + instruction.flags.len() {
-            return Err("needs one readout per observe outcome and flag".to_string());
-        }
-        let scope = RefScope {
-            record_len: gp.body.record_len,
-            readouts_len: gp.gadget.readouts.len(),
-            inputs: &gp.inputs,
-            outputs: &gp.outputs,
-        };
-        Ok(Self {
-            checks: gp
-                .gadget
-                .checks
-                .iter()
-                .map(|c| expr(c, &scope))
-                .collect::<Result<_, _>>()?,
-            readouts: gp
-                .gadget
-                .readouts
-                .iter()
-                .map(|r| expr(&r.equation, &scope))
-                .collect::<Result<_, _>>()?,
-            transport: circuit_transport(gp, layer)?,
-        })
-    }
-}
-
 /// The per-shot state of the frame decoder.
 pub struct FrameDecoderRuntime {
     gadgets: Rc<Vec<Option<FrameGadgetPlan>>>,
@@ -128,8 +84,67 @@ pub struct FrameDecoderRuntime {
     signs: FxHashMap<BlockRef, FxHashMap<(Basis, usize), bool>>,
 }
 
-/// An output logical sign cannot be transported.
-struct Unresolved;
+impl<R> DecoderRuntime<R> for FrameDecoderRuntime {
+    fn decode(&mut self, inv: &Invocation, raw: &[Bit]) -> Step<Decoded> {
+        let instruction = inv.gadget.instruction();
+        let n = instruction.observe_count();
+        let unknown = |status| Decoded {
+            outcomes: vec![None; n],
+            flags: vec![None; instruction.flags.len()],
+            status,
+        };
+        let gadgets = Rc::clone(&self.gadgets);
+        let Some(Some(p)) = gadgets.get(inv.gadget.index) else {
+            return Step::Done(unknown(Status::UNRESOLVED));
+        };
+        let mut sys = BinarySystem::new();
+        let mut st = Status::default();
+        if self.build_system(p, inv, raw, &mut sys, &mut st).is_err() {
+            // Recoverable: every bit and every output sign becomes unknown.
+            return Step::Done(unknown(st | Status::INCONSISTENT));
+        }
+
+        for (e, block_ref) in inv.output_refs.iter().enumerate() {
+            let code = &inv.gadget.outputs[e].code;
+            let mut signs = FxHashMap::default();
+            for basis in [Basis::Stabilizers, Basis::X, Basis::Z] {
+                for k in 0..code.len(basis) {
+                    let var = Var::Enc {
+                        side: Side::Out,
+                        e,
+                        basis,
+                        k,
+                    };
+                    if let Some(v) = sys.value(Parity::var(var)) {
+                        signs.insert((basis, k), v);
+                    }
+                }
+            }
+            self.signs.insert(block_ref.clone(), signs);
+        }
+
+        let mut values: Vec<Bit> = (0..p.readouts.len())
+            .map(|i| sys.value(Parity::var(Var::Ro(i))))
+            .collect();
+        let flags = values.split_off(n);
+        Step::Done(Decoded {
+            outcomes: values,
+            flags,
+            status: st,
+        })
+    }
+
+    /// Never called: this decoder never yields corrections.
+    fn resume_decode(&mut self, _last: Option<&R>) -> Step<Decoded> {
+        Step::Done(Decoded::default())
+    }
+
+    fn discarded(&mut self, refs: &[BlockRef]) {
+        for r in refs {
+            self.signs.remove(r);
+        }
+    }
+}
 
 impl FrameDecoderRuntime {
     fn build_system(
@@ -199,65 +214,47 @@ impl FrameDecoderRuntime {
     }
 }
 
-impl<R> DecoderRuntime<R> for FrameDecoderRuntime {
-    fn decode(&mut self, inv: &Invocation, raw: &[Bit]) -> Step<Decoded> {
-        let instruction = inv.gadget.instruction();
-        let n = instruction.observe_count();
-        let unknown = |status| Decoded {
-            outcomes: vec![None; n],
-            flags: vec![None; instruction.flags.len()],
-            status,
-        };
-        let gadgets = Rc::clone(&self.gadgets);
-        let Some(Some(p)) = gadgets.get(inv.gadget.index) else {
-            return Step::Done(unknown(Status::UNRESOLVED));
-        };
-        let mut sys = BinarySystem::new();
-        let mut st = Status::default();
-        if self.build_system(p, inv, raw, &mut sys, &mut st).is_err() {
-            // Recoverable: every bit and every output sign becomes unknown.
-            return Step::Done(unknown(st | Status::INCONSISTENT));
-        }
+/// Output logical sign -> parity of input signs it carries.
+type Transport = Vec<(FrameKey, Parity)>;
 
-        for (e, block_ref) in inv.output_refs.iter().enumerate() {
-            let code = &inv.gadget.outputs[e].code;
-            let mut signs = FxHashMap::default();
-            for basis in [Basis::Stabilizers, Basis::X, Basis::Z] {
-                for k in 0..code.len(basis) {
-                    let var = Var::Enc {
-                        side: Side::Out,
-                        e,
-                        basis,
-                        k,
-                    };
-                    if let Some(v) = sys.value(Parity::var(var)) {
-                        signs.insert((basis, k), v);
-                    }
-                }
-            }
-            self.signs.insert(block_ref.clone(), signs);
-        }
+/// What the frame decoder needs for one gadget, fixed once per layer.
+#[derive(Debug)]
+struct FrameGadgetPlan {
+    checks: Vec<Parity>,
+    readouts: Vec<Parity>,
+    /// Fixed per gadget when the body is Clifford-only (see
+    /// `circuit_transport`); otherwise derived per invocation from the
+    /// instruction's action (see `action_transport`).
+    transport: Option<Transport>,
+}
 
-        let mut values: Vec<Bit> = (0..p.readouts.len())
-            .map(|i| sys.value(Parity::var(Var::Ro(i))))
-            .collect();
-        let flags = values.split_off(n);
-        Step::Done(Decoded {
-            outcomes: values,
-            flags,
-            status: st,
+impl FrameGadgetPlan {
+    fn new(gp: &GadgetPlan, layer: &LayerPlan) -> Result<Self, String> {
+        let instruction = gp.instruction();
+        if gp.gadget.readouts.len() != instruction.observe_count() + instruction.flags.len() {
+            return Err("needs one readout per observe outcome and flag".to_string());
+        }
+        let scope = RefScope {
+            record_len: gp.body.record_len,
+            readouts_len: gp.gadget.readouts.len(),
+            inputs: &gp.inputs,
+            outputs: &gp.outputs,
+        };
+        Ok(Self {
+            checks: gp
+                .gadget
+                .checks
+                .iter()
+                .map(|c| expr(c, &scope))
+                .collect::<Result<_, _>>()?,
+            readouts: gp
+                .gadget
+                .readouts
+                .iter()
+                .map(|r| expr(&r.equation, &scope))
+                .collect::<Result<_, _>>()?,
+            transport: circuit_transport(gp, layer)?,
         })
-    }
-
-    /// Never called: this decoder never yields corrections.
-    fn resume_decode(&mut self, _last: Option<&R>) -> Step<Decoded> {
-        Step::Done(Decoded::default())
-    }
-
-    fn discarded(&mut self, refs: &[BlockRef]) {
-        for r in refs {
-            self.signs.remove(r);
-        }
     }
 }
 
@@ -363,15 +360,6 @@ struct Gf2Basis {
     rows: Vec<(usize, Vec<bool>, Vec<bool>)>,
 }
 
-fn xor_into(a: &mut Vec<bool>, b: &[bool]) {
-    if a.len() < b.len() {
-        a.resize(b.len(), false);
-    }
-    for (x, y) in a.iter_mut().zip(b) {
-        *x ^= *y;
-    }
-}
-
 impl Gf2Basis {
     fn add(&mut self, mut v: Vec<bool>, mut combo: Vec<bool>) {
         for (pivot, row, row_combo) in &self.rows {
@@ -394,6 +382,15 @@ impl Gf2Basis {
             }
         }
         target.iter().all(|b| !b).then_some(combo)
+    }
+}
+
+fn xor_into(a: &mut Vec<bool>, b: &[bool]) {
+    if a.len() < b.len() {
+        a.resize(b.len(), false);
+    }
+    for (x, y) in a.iter_mut().zip(b) {
+        *x ^= *y;
     }
 }
 
@@ -547,3 +544,6 @@ fn step_support<'a>(
     }
     Ok(support)
 }
+
+/// An output logical sign cannot be transported.
+struct Unresolved;

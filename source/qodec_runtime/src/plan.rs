@@ -121,126 +121,6 @@ fn build_decoder_plans<R: Readout + 'static>(
     Ok(decoder_plans)
 }
 
-/// Qubits (for a single-type ISA whose blocks hold one qubit) and blocks per type.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Resources {
-    /// Qubits, for a single-type ISA whose blocks hold one qubit.
-    pub qubits: usize,
-    /// Blocks per block type.
-    pub blocks: BTreeMap<String, usize>,
-}
-
-impl Resources {
-    /// Only qubits.
-    #[must_use]
-    pub fn qubits(qubits: usize) -> Self {
-        Self {
-            qubits,
-            blocks: BTreeMap::new(),
-        }
-    }
-
-    /// Only blocks, per block type.
-    #[must_use]
-    pub fn blocks(blocks: impl IntoIterator<Item = (String, usize)>) -> Self {
-        Self {
-            qubits: 0,
-            blocks: blocks.into_iter().collect(),
-        }
-    }
-}
-
-/// The plan of one argument of a gadget-body call.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ArgumentPlan {
-    /// A literal value.
-    Value(Argument),
-    /// Forwarded from this instruction parameter of the implemented instruction.
-    Forwarded(String),
-    /// `circuit.readouts[j]`, an earlier record bit.
-    Readout(usize),
-}
-
-/// The plan of one call of a gadget body, checked against the lower ISA.
-#[derive(Clone, Debug)]
-pub struct CallPlan {
-    /// Index into the lower ISA.
-    pub instruction: usize,
-    /// Circuit labels, in operand order.
-    pub operands: Vec<String>,
-    /// Arguments, by parameter name.
-    pub args: Vec<(String, ArgumentPlan)>,
-    /// Observe outcomes the call adds to the record.
-    pub observe_count: usize,
-    /// Flags the call adds to the record, after its outcomes.
-    pub flag_count: usize,
-    /// The call's selection hint.
-    pub select: CompiledSelect,
-}
-
-/// The plan of a gadget body: its parsed circuit, checked against the lower
-/// ISA.
-#[derive(Clone, Debug)]
-pub struct CircuitPlan {
-    /// Circuit labels, in first-appearance order.
-    pub labels: Vec<String>,
-    /// Circuit label -> lower type.
-    pub block_types: FxHashMap<String, usize>,
-    /// The calls, in program order.
-    pub calls: Vec<CallPlan>,
-    /// Labels the body itself consumes. They are already gone below, so the
-    /// layer must not release them again.
-    pub consumed: FxHashSet<String>,
-    /// Length of the circuit readout record.
-    pub record_len: usize,
-}
-
-/// How a layer runs one gadget.
-#[derive(Debug)]
-pub struct GadgetPlan {
-    /// The gadget's name: the mnemonic it implements.
-    pub name: String,
-    /// Index of the implemented instruction in the upper ISA.
-    pub index: usize,
-    /// The gadget as loaded.
-    pub gadget: Gadget,
-    /// The plan of its circuit.
-    pub body: CircuitPlan,
-    /// Input support, body, and output support labels, in that order, without
-    /// duplicates.
-    pub labels: Vec<String>,
-    /// One encoding plan per `in` operand.
-    pub inputs: Vec<EncodingPlan>,
-    /// One encoding plan per `out` operand.
-    pub outputs: Vec<EncodingPlan>,
-    /// A label has ONE lower type for the whole gadget.
-    pub label_type: FxHashMap<String, usize>,
-    /// Output logical-sign corrections.
-    pub frames: FxHashMap<FrameKey, Parity>,
-}
-
-impl GadgetPlan {
-    /// The implemented instruction.
-    #[must_use]
-    pub fn instruction(&self) -> &Instruction {
-        &self.gadget.implements
-    }
-}
-
-/// How a layer handles one upper instruction.
-#[derive(Clone, Debug)]
-pub enum InstructionPlan {
-    /// Runs this gadget.
-    Gadget(Rc<GadgetPlan>),
-    /// A Pauli-only instruction without a gadget: applied as the code's logical
-    /// operator, through Pauli corrections.
-    LogicalPauli,
-    /// Releases the block.
-    Release,
-    /// Fails with `NoImplementation`.
-    Unsupported,
-}
-
 /// The plan of one qodec layer: everything needed to instantiate its runtime, built once.
 #[derive(Debug)]
 pub struct LayerPlan {
@@ -271,12 +151,6 @@ pub struct LayerPlan {
     pub upper_needs_result: Vec<bool>,
     /// Per lower instruction: (observe count, flag count) of its result.
     pub lower_shapes: Vec<(usize, usize)>,
-}
-
-fn max_merge(into: &mut [usize], from: &[usize]) {
-    for (a, b) in into.iter_mut().zip(from) {
-        *a = (*a).max(*b);
-    }
 }
 
 impl LayerPlan {
@@ -423,6 +297,37 @@ impl LayerPlan {
     }
 }
 
+/// Plans the layer's code bindings: explicit layer codes, completed by gadget
+/// encodings (which `qodec` allows to supply omitted bindings).
+fn plan_codes(layer: &Layer) -> Result<BTreeMap<String, Rc<CodePlan>>, PlanError> {
+    let mut raw: BTreeMap<String, Arc<qodec::Code>> = layer
+        .codes
+        .iter()
+        .filter(|(block, _)| {
+            layer
+                .instruction_set
+                .blocks
+                .iter()
+                .any(|b| &b.name == *block)
+        })
+        .map(|(block, code)| (block.clone(), Arc::clone(code)))
+        .collect();
+    for g in layer.gadgets.values() {
+        let operands = g.implements.inputs.iter().chain(&g.implements.outputs);
+        for (encoding, operand) in g.inputs.iter().chain(&g.outputs).zip(operands) {
+            raw.entry(operand.block.clone())
+                .or_insert_with(|| Arc::clone(&encoding.code));
+        }
+    }
+    raw.into_iter()
+        .map(|(block, code)| {
+            let bound =
+                CodePlan::new(&code).map_err(|e| PlanError(format!("code for `{block}`: {e}")))?;
+            Ok((block, Rc::new(bound)))
+        })
+        .collect()
+}
+
 /// What planning one gadget needs from its layer.
 struct GadgetContext<'a> {
     isa: &'a InstructionSet,
@@ -538,35 +443,10 @@ fn gadget_scratch(gp: &GadgetPlan, lower: &TypeTable) -> Vec<usize> {
         .collect()
 }
 
-/// Plans the layer's code bindings: explicit layer codes, completed by gadget
-/// encodings (which `qodec` allows to supply omitted bindings).
-fn plan_codes(layer: &Layer) -> Result<BTreeMap<String, Rc<CodePlan>>, PlanError> {
-    let mut raw: BTreeMap<String, Arc<qodec::Code>> = layer
-        .codes
-        .iter()
-        .filter(|(block, _)| {
-            layer
-                .instruction_set
-                .blocks
-                .iter()
-                .any(|b| &b.name == *block)
-        })
-        .map(|(block, code)| (block.clone(), Arc::clone(code)))
-        .collect();
-    for g in layer.gadgets.values() {
-        let operands = g.implements.inputs.iter().chain(&g.implements.outputs);
-        for (encoding, operand) in g.inputs.iter().chain(&g.outputs).zip(operands) {
-            raw.entry(operand.block.clone())
-                .or_insert_with(|| Arc::clone(&encoding.code));
-        }
+fn max_merge(into: &mut [usize], from: &[usize]) {
+    for (a, b) in into.iter_mut().zip(from) {
+        *a = (*a).max(*b);
     }
-    raw.into_iter()
-        .map(|(block, code)| {
-            let bound =
-                CodePlan::new(&code).map_err(|e| PlanError(format!("code for `{block}`: {e}")))?;
-            Ok((block, Rc::new(bound)))
-        })
-        .collect()
 }
 
 /// The action is non-empty and has only unguarded `pauli` steps, the
@@ -589,6 +469,98 @@ fn is_release(instruction: &Instruction) -> bool {
         && instruction.outputs.is_empty()
         && instruction.action.is_empty()
         && instruction.flags.is_empty()
+}
+
+/// Qubits (for a single-type ISA whose blocks hold one qubit) and blocks per type.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Resources {
+    /// Qubits, for a single-type ISA whose blocks hold one qubit.
+    pub qubits: usize,
+    /// Blocks per block type.
+    pub blocks: BTreeMap<String, usize>,
+}
+
+impl Resources {
+    /// Only qubits.
+    #[must_use]
+    pub fn qubits(qubits: usize) -> Self {
+        Self {
+            qubits,
+            blocks: BTreeMap::new(),
+        }
+    }
+
+    /// Only blocks, per block type.
+    #[must_use]
+    pub fn blocks(blocks: impl IntoIterator<Item = (String, usize)>) -> Self {
+        Self {
+            qubits: 0,
+            blocks: blocks.into_iter().collect(),
+        }
+    }
+}
+
+/// How a layer handles one upper instruction.
+#[derive(Clone, Debug)]
+pub enum InstructionPlan {
+    /// Runs this gadget.
+    Gadget(Rc<GadgetPlan>),
+    /// A Pauli-only instruction without a gadget: applied as the code's logical
+    /// operator, through Pauli corrections.
+    LogicalPauli,
+    /// Releases the block.
+    Release,
+    /// Fails with `NoImplementation`.
+    Unsupported,
+}
+
+/// How a layer runs one gadget.
+#[derive(Debug)]
+pub struct GadgetPlan {
+    /// The gadget's name: the mnemonic it implements.
+    pub name: String,
+    /// Index of the implemented instruction in the upper ISA.
+    pub index: usize,
+    /// The gadget as loaded.
+    pub gadget: Gadget,
+    /// The plan of its circuit.
+    pub body: CircuitPlan,
+    /// Input support, body, and output support labels, in that order, without
+    /// duplicates.
+    pub labels: Vec<String>,
+    /// One encoding plan per `in` operand.
+    pub inputs: Vec<EncodingPlan>,
+    /// One encoding plan per `out` operand.
+    pub outputs: Vec<EncodingPlan>,
+    /// A label has ONE lower type for the whole gadget.
+    pub label_type: FxHashMap<String, usize>,
+    /// Output logical-sign corrections.
+    pub frames: FxHashMap<FrameKey, Parity>,
+}
+
+impl GadgetPlan {
+    /// The implemented instruction.
+    #[must_use]
+    pub fn instruction(&self) -> &Instruction {
+        &self.gadget.implements
+    }
+}
+
+/// The plan of a gadget body: its parsed circuit, checked against the lower
+/// ISA.
+#[derive(Clone, Debug)]
+pub struct CircuitPlan {
+    /// Circuit labels, in first-appearance order.
+    pub labels: Vec<String>,
+    /// Circuit label -> lower type.
+    pub block_types: FxHashMap<String, usize>,
+    /// The calls, in program order.
+    pub calls: Vec<CallPlan>,
+    /// Labels the body itself consumes. They are already gone below, so the
+    /// layer must not release them again.
+    pub consumed: FxHashSet<String>,
+    /// Length of the circuit readout record.
+    pub record_len: usize,
 }
 
 impl CircuitPlan {
@@ -696,4 +668,32 @@ impl CircuitPlan {
             record_len: offset,
         })
     }
+}
+
+/// The plan of one call of a gadget body, checked against the lower ISA.
+#[derive(Clone, Debug)]
+pub struct CallPlan {
+    /// Index into the lower ISA.
+    pub instruction: usize,
+    /// Circuit labels, in operand order.
+    pub operands: Vec<String>,
+    /// Arguments, by parameter name.
+    pub args: Vec<(String, ArgumentPlan)>,
+    /// Observe outcomes the call adds to the record.
+    pub observe_count: usize,
+    /// Flags the call adds to the record, after its outcomes.
+    pub flag_count: usize,
+    /// The call's selection hint.
+    pub select: CompiledSelect,
+}
+
+/// The plan of one argument of a gadget-body call.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ArgumentPlan {
+    /// A literal value.
+    Value(Argument),
+    /// Forwarded from this instruction parameter of the implemented instruction.
+    Forwarded(String),
+    /// `circuit.readouts[j]`, an earlier record bit.
+    Readout(usize),
 }

@@ -21,67 +21,8 @@ use qodec::{Action, Argument, InstructionSet, ParameterKind, Scalar};
 use rustc_hash::FxHashMap;
 use std::{collections::BTreeMap, rc::Rc};
 
-#[derive(Clone, Debug, PartialEq)]
-enum SemOp {
-    Clifford,
-    Op {
-        name: String,
-        targets: Vec<usize>,
-        angle: Option<Scalar>,
-    },
-}
-
-#[derive(Debug)]
-struct Semantics {
-    index: usize,
-    mnemonic: String,
-    flagged: bool,
-    flag_count: usize,
-    /// Operand types, when the instruction is in place (in types == out types).
-    in_place_types: Option<Vec<usize>>,
-    parameters: Vec<String>,
-    steps: Vec<SemOp>,
-    /// Clifford composition of ALL steps; `None` if the action is empty or has
-    /// any prepare, measure or rotate step.
-    clifford: Option<Clifford>,
-}
-
-/// One lower instruction that implements (part of) a generic operation.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Resolved {
-    /// Index into the lower ISA.
-    pub index: usize,
-    /// Arguments, by parameter name (the angle of a parameterized rotation).
-    pub args: BTreeMap<String, Argument>,
-    /// The layer cannot act on a raised flag for operations it issues itself,
-    /// so it requires all flags to be zero.
-    pub select: CompiledSelect,
-}
-
-/// A resolved lower instruction with its operand blocks.
-#[derive(Clone, Debug, PartialEq)]
-pub struct LowerOp {
-    /// The lower instruction.
-    pub resolved: Resolved,
-    /// Its lower block operands, in order.
-    pub operands: Vec<u64>,
-}
-
-#[derive(Debug)]
-enum BindError {
-    Unbound,
-    Ambiguous,
-}
-
-type CacheKey = (String, Vec<usize>, Vec<usize>, Option<u64>);
-
 /// A matching lower instruction: ((flagged, parameterized), semantics, args).
 type Candidate<'a> = ((bool, bool), &'a Semantics, BTreeMap<String, Argument>);
-
-/// Caches resolved `(op, slot types, positions, angle)` results, so repeated
-/// operations cost O(1).
-#[derive(Debug, Default)]
-pub struct ResolveCache(FxHashMap<CacheKey, Option<Rc<Vec<Resolved>>>>);
 
 /// Matches generic operations against the static semantics of a lower ISA.
 #[derive(Debug)]
@@ -269,21 +210,75 @@ impl Resolver {
     }
 }
 
-/// Decompositions used when an operation does not bind directly. `y` is
-/// `x·z` up to a global phase.
-fn decompose(op: &str, angle: Option<f64>) -> Option<Vec<(&'static str, Option<f64>)>> {
-    match (op, angle) {
-        ("y", None) => Some(vec![("x", None), ("z", None)]),
-        _ => None,
+fn semantics(
+    index: usize,
+    instruction: &qodec::Instruction,
+    types: &TypeTable,
+) -> Option<Semantics> {
+    if instruction
+        .inputs
+        .iter()
+        .chain(&instruction.outputs)
+        .any(|o| o.is_variadic)
+        || instruction
+            .parameters
+            .iter()
+            .any(|p| p.kind == ParameterKind::Pauli)
+        || instruction.action.iter().any(|s| s.condition.is_some())
+    {
+        return None;
     }
+    let side_types = |operands: &[qodec::BlockOperand]| {
+        operands
+            .iter()
+            .map(|o| types.get(&o.block))
+            .collect::<Option<Vec<_>>>()
+    };
+    let in_types = side_types(&instruction.inputs)?;
+    let out_types = side_types(&instruction.outputs)?;
+    let width_of = |ts: &[usize]| ts.iter().map(|&t| types.caps[t]).sum::<usize>();
+    let width = width_of(&in_types).max(width_of(&out_types));
+
+    let steps = sem_steps(instruction, width)?;
+    let is_clifford = !steps.is_empty()
+        && steps.iter().all(|s| match s {
+            SemOp::Clifford => true,
+            SemOp::Op { name, .. } => matches!(name.as_str(), "x" | "y" | "z"),
+        });
+    let clifford = if is_clifford {
+        action_clifford(instruction, width)
+    } else {
+        None
+    };
+    Some(Semantics {
+        index,
+        mnemonic: instruction.mnemonic.clone(),
+        flagged: !instruction.flags.is_empty(),
+        flag_count: instruction.flags.len(),
+        in_place_types: (in_types == out_types).then_some(in_types),
+        parameters: instruction
+            .parameters
+            .iter()
+            .map(|p| p.name.clone())
+            .collect(),
+        steps,
+        clifford,
+    })
 }
 
-/// Python's `math.isclose` defaults: relative tolerance `1e-9`, no absolute
-/// tolerance, so `0.0` only matches `0.0`. The tolerance is a convention, not
-/// measured or required by the spec; it only needs to absorb floating-point
-/// rounding between a requested angle and a literal angle in a lower action.
-fn is_close(a: f64, b: f64) -> bool {
-    (a - b).abs() <= 1e-9 * a.abs().max(b.abs())
+#[derive(Debug)]
+struct Semantics {
+    index: usize,
+    mnemonic: String,
+    flagged: bool,
+    flag_count: usize,
+    /// Operand types, when the instruction is in place (in types == out types).
+    in_place_types: Option<Vec<usize>>,
+    parameters: Vec<String>,
+    steps: Vec<SemOp>,
+    /// Clifford composition of ALL steps; `None` if the action is empty or has
+    /// any prepare, measure or rotate step.
+    clifford: Option<Clifford>,
 }
 
 /// The static semantics of an action on `width` flat indices, or `None` if any
@@ -341,58 +336,63 @@ fn sem_steps(instruction: &qodec::Instruction, width: usize) -> Option<Vec<SemOp
     Some(steps)
 }
 
-fn semantics(
-    index: usize,
-    instruction: &qodec::Instruction,
-    types: &TypeTable,
-) -> Option<Semantics> {
-    if instruction
-        .inputs
-        .iter()
-        .chain(&instruction.outputs)
-        .any(|o| o.is_variadic)
-        || instruction
-            .parameters
-            .iter()
-            .any(|p| p.kind == ParameterKind::Pauli)
-        || instruction.action.iter().any(|s| s.condition.is_some())
-    {
-        return None;
-    }
-    let side_types = |operands: &[qodec::BlockOperand]| {
-        operands
-            .iter()
-            .map(|o| types.get(&o.block))
-            .collect::<Option<Vec<_>>>()
-    };
-    let in_types = side_types(&instruction.inputs)?;
-    let out_types = side_types(&instruction.outputs)?;
-    let width_of = |ts: &[usize]| ts.iter().map(|&t| types.caps[t]).sum::<usize>();
-    let width = width_of(&in_types).max(width_of(&out_types));
+#[derive(Clone, Debug, PartialEq)]
+enum SemOp {
+    Clifford,
+    Op {
+        name: String,
+        targets: Vec<usize>,
+        angle: Option<Scalar>,
+    },
+}
 
-    let steps = sem_steps(instruction, width)?;
-    let is_clifford = !steps.is_empty()
-        && steps.iter().all(|s| match s {
-            SemOp::Clifford => true,
-            SemOp::Op { name, .. } => matches!(name.as_str(), "x" | "y" | "z"),
-        });
-    let clifford = if is_clifford {
-        action_clifford(instruction, width)
-    } else {
-        None
-    };
-    Some(Semantics {
-        index,
-        mnemonic: instruction.mnemonic.clone(),
-        flagged: !instruction.flags.is_empty(),
-        flag_count: instruction.flags.len(),
-        in_place_types: (in_types == out_types).then_some(in_types),
-        parameters: instruction
-            .parameters
-            .iter()
-            .map(|p| p.name.clone())
-            .collect(),
-        steps,
-        clifford,
-    })
+type CacheKey = (String, Vec<usize>, Vec<usize>, Option<u64>);
+
+/// Caches resolved `(op, slot types, positions, angle)` results, so repeated
+/// operations cost O(1).
+#[derive(Debug, Default)]
+pub struct ResolveCache(FxHashMap<CacheKey, Option<Rc<Vec<Resolved>>>>);
+
+/// A resolved lower instruction with its operand blocks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LowerOp {
+    /// The lower instruction.
+    pub resolved: Resolved,
+    /// Its lower block operands, in order.
+    pub operands: Vec<u64>,
+}
+
+/// One lower instruction that implements (part of) a generic operation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Resolved {
+    /// Index into the lower ISA.
+    pub index: usize,
+    /// Arguments, by parameter name (the angle of a parameterized rotation).
+    pub args: BTreeMap<String, Argument>,
+    /// The layer cannot act on a raised flag for operations it issues itself,
+    /// so it requires all flags to be zero.
+    pub select: CompiledSelect,
+}
+
+/// Decompositions used when an operation does not bind directly. `y` is
+/// `x·z` up to a global phase.
+fn decompose(op: &str, angle: Option<f64>) -> Option<Vec<(&'static str, Option<f64>)>> {
+    match (op, angle) {
+        ("y", None) => Some(vec![("x", None), ("z", None)]),
+        _ => None,
+    }
+}
+
+#[derive(Debug)]
+enum BindError {
+    Unbound,
+    Ambiguous,
+}
+
+/// Python's `math.isclose` defaults: relative tolerance `1e-9`, no absolute
+/// tolerance, so `0.0` only matches `0.0`. The tolerance is a convention, not
+/// measured or required by the spec; it only needs to absorb floating-point
+/// rounding between a requested angle and a literal angle in a lower action.
+fn is_close(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1e-9 * a.abs().max(b.abs())
 }

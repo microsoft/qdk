@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! Helpers that implement qodec spec rules: operand binding, arguments,
-//! selection, parity references, frame deltas, and encoding layouts.
+//! selection, frame deltas, parity references, encoding layouts, and block
+//! type tables.
 
 use super::{
     backend::{Bit, Param, ParamView, Status},
@@ -16,76 +17,7 @@ use qodec::{
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::BTreeMap, hash::Hash, rc::Rc, sync::Arc};
 
-// ── Block type tables ───────────────────────────────────────────────────────
-
-/// The block types of one ISA, interned as indices.
-#[derive(Clone, Debug, Default)]
-pub struct TypeTable {
-    /// Type names, in declaration order.
-    pub names: Vec<String>,
-    /// Logical qubits per block of each type.
-    pub caps: Vec<usize>,
-    index: FxHashMap<String, usize>,
-}
-
-impl TypeTable {
-    /// Interns the block types of `isa`.
-    #[must_use]
-    pub fn new(isa: &InstructionSet) -> Self {
-        let mut table = Self::default();
-        for block in &isa.blocks {
-            table.index.insert(block.name.clone(), table.names.len());
-            table.names.push(block.name.clone());
-            table.caps.push(block.encodes);
-        }
-        table
-    }
-
-    /// The index of the type named `name`.
-    #[must_use]
-    pub fn get(&self, name: &str) -> Option<usize> {
-        self.index.get(name).copied()
-    }
-
-    /// Logical qubits per block of the type named `name`.
-    #[must_use]
-    pub fn cap(&self, name: &str) -> Option<usize> {
-        self.get(name).map(|t| self.caps[t])
-    }
-
-    /// The number of types.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.names.len()
-    }
-
-    /// Whether the ISA declares no types.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.names.is_empty()
-    }
-
-    /// The only type, if there is exactly one.
-    #[must_use]
-    pub fn only(&self) -> Option<usize> {
-        (self.names.len() == 1).then_some(0)
-    }
-}
-
 // ── Operand binding ─────────────────────────────────────────────────────────
-
-/// One operand bound into the flat index space.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BoundOperand<T> {
-    /// The target bound to the operand.
-    pub label: T,
-    /// The operand's block type.
-    pub block_type: String,
-    /// The first flat index of the operand.
-    pub offset: usize,
-    /// The operand's logical qubit count.
-    pub width: usize,
-}
 
 /// The bound inputs and outputs of one instruction.
 pub type BoundOperands<T> = (Vec<BoundOperand<T>>, Vec<BoundOperand<T>>);
@@ -210,6 +142,19 @@ fn unique_type_assignment<'a, T: Eq + Hash>(
         1 => Ok(finals.pop().unwrap_or_default()),
         _ => Err("ambiguous variadic types".to_string()),
     }
+}
+
+/// One operand bound into the flat index space.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BoundOperand<T> {
+    /// The target bound to the operand.
+    pub label: T,
+    /// The operand's block type.
+    pub block_type: String,
+    /// The first flat index of the operand.
+    pub offset: usize,
+    /// The operand's logical qubit count.
+    pub width: usize,
 }
 
 // ── Arguments ───────────────────────────────────────────────────────────────
@@ -365,6 +310,18 @@ pub fn compile_select(
     Ok(compiled)
 }
 
+/// The spec makes [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
+/// a hint for downstream tools. This runtime turns it into a recoverable
+/// status, never an error.
+#[must_use]
+pub fn select_status(compiled: &CompiledSelect, flags: &[Bit]) -> Status {
+    match accepts(compiled, flags) {
+        Some(true) => Status::default(),
+        Some(false) => Status::REJECTED,
+        None => Status::UNRESOLVED,
+    }
+}
+
 /// The largest number of unknown flags [`accepts`] enumerates. Past it,
 /// `accepts` answers `None` instead of enumerating. Picked arbitrarily, not
 /// measured: it bounds the worst case at 2^24 (about 16.8 million)
@@ -426,94 +383,6 @@ pub fn accepts(compiled: &CompiledSelect, flags: &[Bit]) -> Option<bool> {
         }
     }
     Some(true)
-}
-
-/// The spec makes [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
-/// a hint for downstream tools. This runtime turns it into a recoverable
-/// status, never an error.
-#[must_use]
-pub fn select_status(compiled: &CompiledSelect, flags: &[Bit]) -> Status {
-    match accepts(compiled, flags) {
-        Some(true) => Status::default(),
-        Some(false) => Status::REJECTED,
-        None => Status::UNRESOLVED,
-    }
-}
-
-// ── Parity references ───────────────────────────────────────────────────────
-
-/// What a gadget-local reference may address.
-pub struct RefScope<'a> {
-    /// Length of the circuit readout record.
-    pub record_len: usize,
-    /// Number of gadget readouts.
-    pub readouts_len: usize,
-    /// The input encodings.
-    pub inputs: &'a [EncodingPlan],
-    /// The output encodings.
-    pub outputs: &'a [EncodingPlan],
-}
-
-/// Expands a reference into single variables, in order and with duplicates.
-/// Only gadget-local references are supported, which is all that `qodec`
-/// accepts in parity equations.
-pub fn reference_vars(reference: &Reference, scope: &RefScope<'_>) -> Result<Vec<Var>, String> {
-    use ReferenceSegment::{Field, Index};
-    let mut vars = Vec::new();
-    for single in reference.expand() {
-        let out_of_range = || format!("reference `{reference}` is out of range");
-        let var = match single.segments() {
-            [Field(c), Field(r), Index(i)] if c == "circuit" && r == "readouts" => (*i
-                < scope.record_len)
-                .then_some(Var::Rec(*i))
-                .ok_or_else(out_of_range)?,
-            [Field(r), Index(i)] if r == "readouts" => (*i < scope.readouts_len)
-                .then_some(Var::Ro(*i))
-                .ok_or_else(out_of_range)?,
-            [Field(side), Index(e), Field(basis), Index(k)] => {
-                let (side, layouts) = match side.as_str() {
-                    "in" => (Side::In, scope.inputs),
-                    "out" => (Side::Out, scope.outputs),
-                    _ => return Err(format!("unsupported reference `{reference}`")),
-                };
-                let basis = match basis.as_str() {
-                    "stabilizers" => Basis::Stabilizers,
-                    "x" => Basis::X,
-                    "z" => Basis::Z,
-                    _ => return Err(format!("unsupported reference `{reference}`")),
-                };
-                let layout = layouts.get(*e).ok_or_else(out_of_range)?;
-                if *k >= layout.code.len(basis) {
-                    return Err(out_of_range());
-                }
-                Var::Enc {
-                    side,
-                    e: *e,
-                    basis,
-                    k: *k,
-                }
-            }
-            _ => return Err(format!("unsupported reference `{reference}`")),
-        };
-        vars.push(var);
-    }
-    Ok(vars)
-}
-
-/// The parity of an equation. Duplicate references cancel.
-pub fn expr(equation: &ParityEquation, scope: &RefScope<'_>) -> Result<Parity, String> {
-    let mut acc = Parity::default();
-    for term in equation {
-        match term {
-            ParityTerm::Bit(b) => acc ^= Parity::constant(*b),
-            ParityTerm::Reference(r) => {
-                for var in reference_vars(r, scope)? {
-                    acc ^= Parity::var(var);
-                }
-            }
-        }
-    }
-    Ok(acc)
 }
 
 // ── Frame deltas ────────────────────────────────────────────────────────────
@@ -605,83 +474,83 @@ fn local_parity(
     Ok(acc)
 }
 
-// ── Encodings and code-qubit addresses ─────────────────────────────────────
+// ── Parity references ───────────────────────────────────────────────────────
 
-/// The plan of a code: a [`Code`] with its Pauli text parsed.
-#[derive(Debug)]
-pub struct CodePlan {
-    /// The code as loaded.
-    pub code: Arc<Code>,
-    /// Stabilizer generators.
-    pub stabilizers: Vec<Pauli>,
-    /// Logical X operators, one per logical qubit.
-    pub x: Vec<Pauli>,
-    /// Logical Z operators, one per logical qubit.
-    pub z: Vec<Pauli>,
-    /// Physical qubit count.
-    pub n: usize,
+/// The parity of an equation. Duplicate references cancel.
+pub fn expr(equation: &ParityEquation, scope: &RefScope<'_>) -> Result<Parity, String> {
+    let mut acc = Parity::default();
+    for term in equation {
+        match term {
+            ParityTerm::Bit(b) => acc ^= Parity::constant(*b),
+            ParityTerm::Reference(r) => {
+                for var in reference_vars(r, scope)? {
+                    acc ^= Parity::var(var);
+                }
+            }
+        }
+    }
+    Ok(acc)
 }
 
-impl CodePlan {
-    /// Parses the operators of `code`.
-    pub fn new(code: &Arc<Code>) -> Result<Self, String> {
-        let parse = |paulis: &[qodec::PauliString]| {
-            paulis
-                .iter()
-                .map(Pauli::from_text)
-                .collect::<Result<Vec<_>, _>>()
+/// Expands a reference into single variables, in order and with duplicates.
+/// Only gadget-local references are supported, which is all that `qodec`
+/// accepts in parity equations.
+pub fn reference_vars(reference: &Reference, scope: &RefScope<'_>) -> Result<Vec<Var>, String> {
+    use ReferenceSegment::{Field, Index};
+    let mut vars = Vec::new();
+    for single in reference.expand() {
+        let out_of_range = || format!("reference `{reference}` is out of range");
+        let var = match single.segments() {
+            [Field(c), Field(r), Index(i)] if c == "circuit" && r == "readouts" => (*i
+                < scope.record_len)
+                .then_some(Var::Rec(*i))
+                .ok_or_else(out_of_range)?,
+            [Field(r), Index(i)] if r == "readouts" => (*i < scope.readouts_len)
+                .then_some(Var::Ro(*i))
+                .ok_or_else(out_of_range)?,
+            [Field(side), Index(e), Field(basis), Index(k)] => {
+                let (side, layouts) = match side.as_str() {
+                    "in" => (Side::In, scope.inputs),
+                    "out" => (Side::Out, scope.outputs),
+                    _ => return Err(format!("unsupported reference `{reference}`")),
+                };
+                let basis = match basis.as_str() {
+                    "stabilizers" => Basis::Stabilizers,
+                    "x" => Basis::X,
+                    "z" => Basis::Z,
+                    _ => return Err(format!("unsupported reference `{reference}`")),
+                };
+                let layout = layouts.get(*e).ok_or_else(out_of_range)?;
+                if *k >= layout.code.len(basis) {
+                    return Err(out_of_range());
+                }
+                Var::Enc {
+                    side,
+                    e: *e,
+                    basis,
+                    k: *k,
+                }
+            }
+            _ => return Err(format!("unsupported reference `{reference}`")),
         };
-        Ok(Self {
-            code: Arc::clone(code),
-            stabilizers: parse(&code.stabilizers)?,
-            x: parse(&code.x)?,
-            z: parse(&code.z)?,
-            n: code.physical_qubit_count(),
-        })
+        vars.push(var);
     }
-
-    /// The number of operators of a kind.
-    #[must_use]
-    pub fn len(&self, basis: Basis) -> usize {
-        self.paulis(basis).len()
-    }
-
-    /// The operators of a kind.
-    #[must_use]
-    pub fn paulis(&self, basis: Basis) -> &[Pauli] {
-        match basis {
-            Basis::Stabilizers => &self.stabilizers,
-            Basis::X => &self.x,
-            Basis::Z => &self.z,
-        }
-    }
+    Ok(vars)
 }
 
-/// The plan of one gadget-boundary [encoding](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#the-in--out-boundary-encodings):
-/// where the block lives in the gadget's circuit.
-#[derive(Clone, Debug)]
-pub struct EncodingPlan {
-    /// The upper block type.
-    pub block_type: String,
-    /// The code the layer binds to the block type.
-    pub code: Rc<CodePlan>,
-    /// Circuit labels, in code-qubit order.
-    pub labels: Vec<String>,
-    /// Lower type per label.
-    pub lower_types: Vec<usize>,
+/// What a gadget-local reference may address.
+pub struct RefScope<'a> {
+    /// Length of the circuit readout record.
+    pub record_len: usize,
+    /// Number of gadget readouts.
+    pub readouts_len: usize,
+    /// The input encodings.
+    pub inputs: &'a [EncodingPlan],
+    /// The output encodings.
+    pub outputs: &'a [EncodingPlan],
 }
 
-impl EncodingPlan {
-    /// Lower blocks per lower type.
-    #[must_use]
-    pub fn resources(&self, lower: &TypeTable) -> Vec<usize> {
-        let mut counts = vec![0; lower.len()];
-        for &t in &self.lower_types {
-            counts[t] += 1;
-        }
-        counts
-    }
-}
+// ── Encodings and code-qubit addresses ─────────────────────────────────────
 
 /// Plans one side of a gadget boundary: one [`EncodingPlan`] per operand. The
 /// layer binds the code, never the gadget.
@@ -771,4 +640,136 @@ pub fn code_qubits(
             (0..lower.caps[t]).map(move |i| (block, i))
         })
         .collect()
+}
+
+/// The plan of one gadget-boundary [encoding](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#the-in--out-boundary-encodings):
+/// where the block lives in the gadget's circuit.
+#[derive(Clone, Debug)]
+pub struct EncodingPlan {
+    /// The upper block type.
+    pub block_type: String,
+    /// The code the layer binds to the block type.
+    pub code: Rc<CodePlan>,
+    /// Circuit labels, in code-qubit order.
+    pub labels: Vec<String>,
+    /// Lower type per label.
+    pub lower_types: Vec<usize>,
+}
+
+impl EncodingPlan {
+    /// Lower blocks per lower type.
+    #[must_use]
+    pub fn resources(&self, lower: &TypeTable) -> Vec<usize> {
+        let mut counts = vec![0; lower.len()];
+        for &t in &self.lower_types {
+            counts[t] += 1;
+        }
+        counts
+    }
+}
+
+/// The plan of a code: a [`Code`] with its Pauli text parsed.
+#[derive(Debug)]
+pub struct CodePlan {
+    /// The code as loaded.
+    pub code: Arc<Code>,
+    /// Stabilizer generators.
+    pub stabilizers: Vec<Pauli>,
+    /// Logical X operators, one per logical qubit.
+    pub x: Vec<Pauli>,
+    /// Logical Z operators, one per logical qubit.
+    pub z: Vec<Pauli>,
+    /// Physical qubit count.
+    pub n: usize,
+}
+
+impl CodePlan {
+    /// Parses the operators of `code`.
+    pub fn new(code: &Arc<Code>) -> Result<Self, String> {
+        let parse = |paulis: &[qodec::PauliString]| {
+            paulis
+                .iter()
+                .map(Pauli::from_text)
+                .collect::<Result<Vec<_>, _>>()
+        };
+        Ok(Self {
+            code: Arc::clone(code),
+            stabilizers: parse(&code.stabilizers)?,
+            x: parse(&code.x)?,
+            z: parse(&code.z)?,
+            n: code.physical_qubit_count(),
+        })
+    }
+
+    /// The number of operators of a kind.
+    #[must_use]
+    pub fn len(&self, basis: Basis) -> usize {
+        self.paulis(basis).len()
+    }
+
+    /// The operators of a kind.
+    #[must_use]
+    pub fn paulis(&self, basis: Basis) -> &[Pauli] {
+        match basis {
+            Basis::Stabilizers => &self.stabilizers,
+            Basis::X => &self.x,
+            Basis::Z => &self.z,
+        }
+    }
+}
+
+// ── Block type tables ───────────────────────────────────────────────────────
+
+/// The block types of one ISA, interned as indices.
+#[derive(Clone, Debug, Default)]
+pub struct TypeTable {
+    /// Type names, in declaration order.
+    pub names: Vec<String>,
+    /// Logical qubits per block of each type.
+    pub caps: Vec<usize>,
+    index: FxHashMap<String, usize>,
+}
+
+impl TypeTable {
+    /// Interns the block types of `isa`.
+    #[must_use]
+    pub fn new(isa: &InstructionSet) -> Self {
+        let mut table = Self::default();
+        for block in &isa.blocks {
+            table.index.insert(block.name.clone(), table.names.len());
+            table.names.push(block.name.clone());
+            table.caps.push(block.encodes);
+        }
+        table
+    }
+
+    /// Logical qubits per block of the type named `name`.
+    #[must_use]
+    pub fn cap(&self, name: &str) -> Option<usize> {
+        self.get(name).map(|t| self.caps[t])
+    }
+
+    /// The index of the type named `name`.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<usize> {
+        self.index.get(name).copied()
+    }
+
+    /// The number of types.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.names.len()
+    }
+
+    /// Whether the ISA declares no types.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty()
+    }
+
+    /// The only type, if there is exactly one.
+    #[must_use]
+    pub fn only(&self) -> Option<usize> {
+        (self.names.len() == 1).then_some(0)
+    }
 }

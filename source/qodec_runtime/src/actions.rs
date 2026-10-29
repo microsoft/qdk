@@ -8,46 +8,6 @@ use qodec::{Action, Argument, Instruction, ParameterKind, PauliString};
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 
-/// A Pauli literal on flat indices, or the name of a `pauli` parameter.
-#[derive(Clone, Debug, PartialEq)]
-pub enum PauliExpr {
-    Literal(Pauli),
-    Param(String),
-}
-
-impl PauliExpr {
-    pub fn parse(instruction: &Instruction, text: &PauliString) -> Result<Self, String> {
-        let is_param = instruction
-            .parameters
-            .iter()
-            .any(|p| p.kind == ParameterKind::Pauli && p.name == text.0);
-        if is_param {
-            Ok(PauliExpr::Param(text.0.clone()))
-        } else {
-            Pauli::from_text(text).map(PauliExpr::Literal)
-        }
-    }
-
-    /// Resolves a parameter from the call's arguments.
-    pub fn resolve(&self, args: &BTreeMap<String, Argument>) -> Result<Pauli, String> {
-        match self {
-            PauliExpr::Literal(p) => Ok(p.clone()),
-            PauliExpr::Param(name) => match args.get(name) {
-                Some(Argument::Text(text)) => Pauli::parse(text),
-                _ => Err(format!("missing `pauli` argument `{name}`")),
-            },
-        }
-    }
-
-    #[must_use]
-    pub fn literal(&self) -> Option<&Pauli> {
-        match self {
-            PauliExpr::Literal(p) => Some(p),
-            PauliExpr::Param(_) => None,
-        }
-    }
-}
-
 /// The images of the generators listed by a `clifford` step, keyed by
 /// `(qubit, is_x)`.
 pub type CliffordMap = FxHashMap<(usize, bool), Pauli>;
@@ -113,4 +73,44 @@ pub fn action_clifford(instruction: &Instruction, width: usize) -> Option<Cliffo
         c = c.then(&next);
     }
     Some(c)
+}
+
+/// A Pauli literal on flat indices, or the name of a `pauli` parameter.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PauliExpr {
+    Literal(Pauli),
+    Param(String),
+}
+
+impl PauliExpr {
+    pub fn parse(instruction: &Instruction, text: &PauliString) -> Result<Self, String> {
+        let is_param = instruction
+            .parameters
+            .iter()
+            .any(|p| p.kind == ParameterKind::Pauli && p.name == text.0);
+        if is_param {
+            Ok(PauliExpr::Param(text.0.clone()))
+        } else {
+            Pauli::from_text(text).map(PauliExpr::Literal)
+        }
+    }
+
+    /// Resolves a parameter from the call's arguments.
+    pub fn resolve(&self, args: &BTreeMap<String, Argument>) -> Result<Pauli, String> {
+        match self {
+            PauliExpr::Literal(p) => Ok(p.clone()),
+            PauliExpr::Param(name) => match args.get(name) {
+                Some(Argument::Text(text)) => Pauli::parse(text),
+                _ => Err(format!("missing `pauli` argument `{name}`")),
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn literal(&self) -> Option<&Pauli> {
+        match self {
+            PauliExpr::Literal(p) => Some(p),
+            PauliExpr::Param(_) => None,
+        }
+    }
 }

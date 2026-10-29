@@ -33,76 +33,6 @@ use std::{
 /// A layer result whose error wraps the lower backend's error.
 pub type LayerResult<T, E> = Result<T, QodecError<E>>;
 
-/// A live upper block.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LiveBlock {
-    /// The block's current reference.
-    pub block_ref: BlockRef,
-    /// Lower blocks holding it.
-    pub support: Vec<u64>,
-    /// Its code qubits, in code order: (lower block, logical index in it).
-    pub qubits: Vec<(u64, usize)>,
-}
-
-/// A lower result bit that may not be known until its batch is flushed.
-#[derive(Clone, Copy, Debug)]
-struct LazyBit {
-    slot: u64,
-    flag: bool,
-    index: usize,
-}
-
-/// One result-producing buffered lower instruction, with the R shape it must have.
-#[derive(Clone, Copy, Debug)]
-struct BufferSlot {
-    slot: u64,
-    outcomes: usize,
-    flags: usize,
-}
-
-/// Deferred decoder work, in program order.
-enum DecoderEvent {
-    Decode {
-        inv: Invocation,
-        /// The body's circuit readout record.
-        raw: Vec<LazyBit>,
-        /// (slot, index of the body call whose select applies).
-        selects: Vec<(u64, usize)>,
-        /// Every result-producing slot of the body. This decode is their last
-        /// reader and frees them.
-        slots: Vec<u64>,
-        /// The index in `sinks` that receives the decoded result.
-        sink: usize,
-    },
-    Discarded(Vec<BlockRef>),
-}
-
-/// A decoded `BackendInstruction`.
-struct Call {
-    index: usize,
-    operands: Vec<u64>,
-    args: BTreeMap<String, Argument>,
-}
-
-/// An invocation placed on live lower blocks, ready to run.
-struct PreparedInvocation {
-    gp: Rc<GadgetPlan>,
-    call: Call,
-    out_ops: Vec<BoundOperand<u64>>,
-    placement: FxHashMap<String, u64>,
-}
-
-/// What running a gadget body leaves for its decode: the same `raw`, `selects`
-/// and `slots` as [`DecoderEvent::Decode`].
-type BodyRecord = (Vec<LazyBit>, Vec<(u64, usize)>, Vec<u64>);
-
-// Lower ids are only created by `allocate_lower` as `type_of.len()`, a
-// `usize`, so this cast never truncates.
-#[allow(clippy::cast_possible_truncation)]
-fn ix(lower_id: u64) -> usize {
-    lower_id as usize
-}
-
 /// The runtime of one qodec layer for one shot. Implements `Backend` for the
 /// upper ISA and consumes the `Backend` below for the lower ISA. It is ready to
 /// run once constructed; dropping it ends the shot.
@@ -141,6 +71,33 @@ pub struct LayerRuntime<Id, P, R, B> {
     /// Decoded upper results of the current batch.
     sinks: Vec<Option<Decoded>>,
     cache: ResolveCache,
+}
+
+impl<Id, P, R, B> Backend<Id, P, R> for LayerRuntime<Id, P, R, B>
+where
+    Id: InstructionId,
+    P: Param,
+    R: Readout,
+    B: Backend<Id, P, R>,
+{
+    type Error = QodecError<B::Error>;
+
+    fn execute_batch(
+        &mut self,
+        instructions: &[BackendInstruction<Id, P>],
+    ) -> Result<BatchResult<R>, Self::Error> {
+        if self.failed {
+            return Err(QodecError::Poisoned);
+        }
+        let mark = self.side_effects;
+        let result = self.execute_inner(instructions);
+        if result.is_err() && self.side_effects != mark {
+            // This layer and the layers below may disagree.
+            self.failed = true;
+        }
+        self.sinks.clear();
+        result
+    }
 }
 
 impl<Id, P, R, B> LayerRuntime<Id, P, R, B>
@@ -218,7 +175,7 @@ where
         self.blocks.get(&label)
     }
 
-    // ── execute_batch, buffering and flushing ───────────────────────────────
+    // ── execute_batch ───────────────────────────────────────────────────────
 
     fn execute_inner(
         &mut self,
@@ -241,97 +198,6 @@ where
             results.push(R::new(&d.outcomes, &d.flags, self.status | d.status));
         }
         Ok(BatchResult { results })
-    }
-
-    /// Buffers one lower instruction. Returns a slot iff it requires a result.
-    fn emit(&mut self, index: usize, parameters: SmallVec<[P; 2]>) -> Option<u64> {
-        self.side_effects += 1;
-        self.buffer.push(BackendInstruction {
-            instruction_id: Id::from_index(index),
-            parameters,
-        });
-        let (outcomes, flags) = self.plan.lower_shapes[index];
-        if outcomes + flags == 0 {
-            return None;
-        }
-        let slot = self.next_slot;
-        self.next_slot += 1;
-        self.buffer_slots.push(BufferSlot {
-            slot,
-            outcomes,
-            flags,
-        });
-        Some(slot)
-    }
-
-    /// Sends the buffer to the backend below and resolves its slots.
-    fn flush_lower(&mut self) -> LayerResult<(), B::Error> {
-        if self.buffer.is_empty() {
-            return Ok(());
-        }
-        let batch = self
-            .lower
-            .execute_batch(&self.buffer)
-            .map_err(QodecError::Lower)?;
-        if batch.results.len() != self.buffer_slots.len() {
-            return Err(QodecError::Protocol);
-        }
-        // Validate everything before writing anything, so a Protocol error never
-        // leaves partial state (it still poisons, because emit() already counted).
-        let shapes_match = self
-            .buffer_slots
-            .iter()
-            .zip(&batch.results)
-            .all(|(s, r)| r.outcomes().len() == s.outcomes && r.flags().len() == s.flags);
-        if !shapes_match {
-            return Err(QodecError::Protocol);
-        }
-        for (s, r) in self.buffer_slots.drain(..).zip(batch.results) {
-            // Recoverable lower conditions bubble up.
-            self.status |= r.status();
-            self.results.insert(s.slot, r);
-        }
-        self.buffer.clear();
-        Ok(())
-    }
-
-    fn flush_if_pending(&mut self, slot: u64) -> LayerResult<(), B::Error> {
-        if !self.results.contains_key(&slot) {
-            self.flush()?;
-        }
-        Ok(())
-    }
-
-    /// Full flush: resolve lower results, then run the deferred decoder work in
-    /// program order. Deferred decodes never emit, so one pass is enough.
-    fn flush(&mut self) -> LayerResult<(), B::Error> {
-        self.flush_lower()?;
-        while let Some(event) = self.decoder_log.pop_front() {
-            match event {
-                DecoderEvent::Decode {
-                    inv,
-                    raw,
-                    selects,
-                    slots,
-                    sink,
-                } => {
-                    let decoded = self.decode_now(&inv, &raw, &selects, &slots)?;
-                    self.sinks[sink] = Some(decoded);
-                }
-                DecoderEvent::Discarded(refs) => self.decoder.discarded(&refs),
-            }
-        }
-        Ok(())
-    }
-
-    fn force(&mut self, bit: LazyBit) -> LayerResult<Bit, B::Error> {
-        self.flush_if_pending(bit.slot)?;
-        let r = self.results.get(&bit.slot).ok_or(QodecError::Protocol)?;
-        Ok(if bit.flag {
-            r.flags()[bit.index]
-        } else {
-            r.outcomes()[bit.index]
-        })
     }
 
     // ── Decoding an incoming instruction (pure) ─────────────────────────────
@@ -394,17 +260,6 @@ where
             }
             InstructionPlan::Unsupported => Err(QodecError::NoImplementation),
         }
-    }
-
-    fn input_types(&self, operands: &[u64]) -> FxHashMap<u64, &str> {
-        operands
-            .iter()
-            .filter_map(|l| {
-                self.blocks
-                    .get(l)
-                    .map(|b| (*l, b.block_ref.block_type.as_str()))
-            })
-            .collect()
     }
 
     /// Places one invocation on live lower blocks. Pure: it only reads state,
@@ -762,6 +617,17 @@ where
         Ok(())
     }
 
+    fn input_types(&self, operands: &[u64]) -> FxHashMap<u64, &str> {
+        operands
+            .iter()
+            .filter_map(|l| {
+                self.blocks
+                    .get(l)
+                    .map(|b| (*l, b.block_ref.block_type.as_str()))
+            })
+            .collect()
+    }
+
     /// Upper release instruction without a gadget, and output-only overwrite.
     fn release(&mut self, label: u64) -> LayerResult<(), B::Error> {
         let Some(b) = self.blocks.remove(&label) else {
@@ -913,31 +779,167 @@ where
         }
         Ok(result)
     }
+
+    // ── Buffering and flushing ──────────────────────────────────────────────
+
+    /// Buffers one lower instruction. Returns a slot iff it requires a result.
+    fn emit(&mut self, index: usize, parameters: SmallVec<[P; 2]>) -> Option<u64> {
+        self.side_effects += 1;
+        self.buffer.push(BackendInstruction {
+            instruction_id: Id::from_index(index),
+            parameters,
+        });
+        let (outcomes, flags) = self.plan.lower_shapes[index];
+        if outcomes + flags == 0 {
+            return None;
+        }
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        self.buffer_slots.push(BufferSlot {
+            slot,
+            outcomes,
+            flags,
+        });
+        Some(slot)
+    }
+
+    fn force(&mut self, bit: LazyBit) -> LayerResult<Bit, B::Error> {
+        self.flush_if_pending(bit.slot)?;
+        let r = self.results.get(&bit.slot).ok_or(QodecError::Protocol)?;
+        Ok(if bit.flag {
+            r.flags()[bit.index]
+        } else {
+            r.outcomes()[bit.index]
+        })
+    }
+
+    fn flush_if_pending(&mut self, slot: u64) -> LayerResult<(), B::Error> {
+        if !self.results.contains_key(&slot) {
+            self.flush()?;
+        }
+        Ok(())
+    }
+
+    /// Full flush: resolve lower results, then run the deferred decoder work in
+    /// program order. Deferred decodes never emit, so one pass is enough.
+    fn flush(&mut self) -> LayerResult<(), B::Error> {
+        self.flush_lower()?;
+        while let Some(event) = self.decoder_log.pop_front() {
+            match event {
+                DecoderEvent::Decode {
+                    inv,
+                    raw,
+                    selects,
+                    slots,
+                    sink,
+                } => {
+                    let decoded = self.decode_now(&inv, &raw, &selects, &slots)?;
+                    self.sinks[sink] = Some(decoded);
+                }
+                DecoderEvent::Discarded(refs) => self.decoder.discarded(&refs),
+            }
+        }
+        Ok(())
+    }
+
+    /// Sends the buffer to the backend below and resolves its slots.
+    fn flush_lower(&mut self) -> LayerResult<(), B::Error> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+        let batch = self
+            .lower
+            .execute_batch(&self.buffer)
+            .map_err(QodecError::Lower)?;
+        if batch.results.len() != self.buffer_slots.len() {
+            return Err(QodecError::Protocol);
+        }
+        // Validate everything before writing anything, so a Protocol error never
+        // leaves partial state (it still poisons, because emit() already counted).
+        let shapes_match = self
+            .buffer_slots
+            .iter()
+            .zip(&batch.results)
+            .all(|(s, r)| r.outcomes().len() == s.outcomes && r.flags().len() == s.flags);
+        if !shapes_match {
+            return Err(QodecError::Protocol);
+        }
+        for (s, r) in self.buffer_slots.drain(..).zip(batch.results) {
+            // Recoverable lower conditions bubble up.
+            self.status |= r.status();
+            self.results.insert(s.slot, r);
+        }
+        self.buffer.clear();
+        Ok(())
+    }
 }
 
-impl<Id, P, R, B> Backend<Id, P, R> for LayerRuntime<Id, P, R, B>
-where
-    Id: InstructionId,
-    P: Param,
-    R: Readout,
-    B: Backend<Id, P, R>,
-{
-    type Error = QodecError<B::Error>;
+/// A live upper block.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LiveBlock {
+    /// The block's current reference.
+    pub block_ref: BlockRef,
+    /// Lower blocks holding it.
+    pub support: Vec<u64>,
+    /// Its code qubits, in code order: (lower block, logical index in it).
+    pub qubits: Vec<(u64, usize)>,
+}
 
-    fn execute_batch(
-        &mut self,
-        instructions: &[BackendInstruction<Id, P>],
-    ) -> Result<BatchResult<R>, Self::Error> {
-        if self.failed {
-            return Err(QodecError::Poisoned);
-        }
-        let mark = self.side_effects;
-        let result = self.execute_inner(instructions);
-        if result.is_err() && self.side_effects != mark {
-            // This layer and the layers below may disagree.
-            self.failed = true;
-        }
-        self.sinks.clear();
-        result
-    }
+/// One result-producing buffered lower instruction, with the R shape it must have.
+#[derive(Clone, Copy, Debug)]
+struct BufferSlot {
+    slot: u64,
+    outcomes: usize,
+    flags: usize,
+}
+
+/// Deferred decoder work, in program order.
+enum DecoderEvent {
+    Decode {
+        inv: Invocation,
+        /// The body's circuit readout record.
+        raw: Vec<LazyBit>,
+        /// (slot, index of the body call whose select applies).
+        selects: Vec<(u64, usize)>,
+        /// Every result-producing slot of the body. This decode is their last
+        /// reader and frees them.
+        slots: Vec<u64>,
+        /// The index in `sinks` that receives the decoded result.
+        sink: usize,
+    },
+    Discarded(Vec<BlockRef>),
+}
+
+/// What running a gadget body leaves for its decode: the same `raw`, `selects`
+/// and `slots` as [`DecoderEvent::Decode`].
+type BodyRecord = (Vec<LazyBit>, Vec<(u64, usize)>, Vec<u64>);
+
+/// A lower result bit that may not be known until its batch is flushed.
+#[derive(Clone, Copy, Debug)]
+struct LazyBit {
+    slot: u64,
+    flag: bool,
+    index: usize,
+}
+
+/// An invocation placed on live lower blocks, ready to run.
+struct PreparedInvocation {
+    gp: Rc<GadgetPlan>,
+    call: Call,
+    out_ops: Vec<BoundOperand<u64>>,
+    placement: FxHashMap<String, u64>,
+}
+
+/// A decoded `BackendInstruction`.
+struct Call {
+    index: usize,
+    operands: Vec<u64>,
+    args: BTreeMap<String, Argument>,
+}
+
+// Lower ids are only created by `allocate_lower` as `type_of.len()`, a
+// `usize`, so this cast never truncates.
+#[allow(clippy::cast_possible_truncation)]
+fn ix(lower_id: u64) -> usize {
+    lower_id as usize
 }
