@@ -572,10 +572,12 @@ pub mod qir {
         map
     }
 
-    /// Rejects known signature contradictions without changing inference or runtime values.
-    /// Nominal evidence and erased payload shapes are checked independently.
+    /// Checks signature constraints without changing runtime values. Nominal
+    /// evidence and erased payload shapes are checked independently; structural
+    /// substitutions also supply target type arguments for synthetic lowering.
     /// Unknown types remain unchecked; functor support and type-class constraints belong to
-    /// the existing checks. Parameter IDs below are local to this preflight, not compiler IDs.
+    /// the existing checks. Callback parameters get fresh IDs distinct from the
+    /// target's declaration IDs; unresolved IDs never enter the compiler store.
     struct RuntimeArgTypeChecker<'a> {
         /// Read-only declarations used to inspect UDT payload types.
         fir_store: &'a qsc_fir::fir::PackageStore,
@@ -638,6 +640,21 @@ pub mod qir {
                 ty = bound;
             }
             ty.clone()
+        }
+
+        fn resolve_type(&self, ty: &Ty) -> Ty {
+            match self.resolve(ty) {
+                Ty::Array(item) => Ty::Array(Box::new(self.resolve_type(&item))),
+                Ty::Tuple(items) => {
+                    Ty::Tuple(items.iter().map(|item| self.resolve_type(item)).collect())
+                }
+                Ty::Arrow(mut arrow) => {
+                    arrow.input = Box::new(self.resolve_type(&arrow.input));
+                    arrow.output = Box::new(self.resolve_type(&arrow.output));
+                    Ty::Arrow(arrow)
+                }
+                ty => ty,
+            }
         }
 
         fn contains_param(&self, ty: &Ty, param: ParamId) -> bool {
@@ -842,13 +859,20 @@ pub mod qir {
         target: qsc_fir::fir::StoreItemId,
         args: &Value,
         callables: &FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> Result<(), Vec<Error>> {
+    ) -> Result<FxHashMap<ParamId, Ty>, Vec<Error>> {
+        use qsc_fir::fir::{Global, PackageLookup};
+
+        let package = fir_store.get(target.package);
+        let Some(Global::Callable(decl)) = package.get_global(target.item) else {
+            panic!("target should be callable");
+        };
         let (_, ty) = callable_expr_span_and_ty(fir_store, target);
         let Ty::Arrow(arrow) = ty else {
             unreachable!("target should have an arrow type");
         };
         // Keep declaration identity separate from erased runtime representation.
         // In particular, a capture cannot prove a generic nominal type.
+        let mut inferred_types = FxHashMap::default();
         for nominal in [true, false] {
             let mut checker = RuntimeArgTypeChecker {
                 fir_store,
@@ -856,20 +880,27 @@ pub mod qir {
                 nominal,
                 bindings: FxHashMap::default(),
                 deferred_values: Vec::new(),
-                next_param: 0,
+                next_param: decl.generics.len(),
             };
             let input = if nominal {
                 *arrow.input.clone()
             } else {
                 resolve_udt_ty(fir_store, &arrow.input)
             };
-            let expected = checker.fresh_type(&input);
-            checker.check_value(&expected, args)?;
+            // Reserve target IDs before freshening each supplied callable's scheme.
+            checker.check_value(&input, args)?;
             if nominal {
                 checker.check_deferred_values()?;
+            } else {
+                for (idx, parameter) in decl.generics.iter().enumerate() {
+                    if matches!(parameter, qsc_fir::ty::TypeParameter::Ty { .. }) {
+                        let param = ParamId::from(idx);
+                        inferred_types.insert(param, checker.resolve_type(&Ty::Param(param)));
+                    }
+                }
             }
         }
-        Ok(())
+        Ok(inferred_types)
     }
 
     /// Preserves the structural signatures used to reconstruct runtime UDT values.
@@ -1039,6 +1070,7 @@ pub mod qir {
         target_callable: qsc_fir::fir::StoreItemId,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        inferred_types: &FxHashMap<ParamId, Ty>,
     ) -> Result<(), qsc_passes::Error> {
         use qsc_fir::fir::{Global, PackageLookup};
 
@@ -1053,12 +1085,15 @@ pub mod qir {
         let formal_output_ty = resolve_udt_ty(fir_store, &callable_decl.output);
         let (generic_args, input_ty, output_ty, arrow_ty) = instantiate_synthetic_target_arrow(
             callable_decl.generics.as_slice(),
-            callable_decl.kind,
-            callable_decl.functors,
-            &formal_input_ty,
-            &formal_output_ty,
+            qsc_fir::ty::Arrow {
+                kind: callable_decl.kind,
+                input: Box::new(formal_input_ty),
+                output: Box::new(formal_output_ty),
+                functors: qsc_fir::ty::FunctorSet::Value(callable_decl.functors),
+            },
             args,
             callable_types,
+            inferred_types,
         )
         .ok_or_else(|| {
             qsc_passes::Error::EntryPoint(qsc_passes::EntryPointError::MissingTypeArguments(
@@ -1178,26 +1213,23 @@ pub mod qir {
     /// passes do not see unresolved type or functor parameters.
     fn instantiate_synthetic_target_arrow(
         generics: &[qsc_fir::ty::TypeParameter],
-        kind: qsc_fir::fir::CallableKind,
-        functors: qsc_fir::ty::FunctorSetValue,
-        formal_input_ty: &qsc_fir::ty::Ty,
-        formal_output_ty: &qsc_fir::ty::Ty,
+        formal_arrow: qsc_fir::ty::Arrow,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        inferred_types: &FxHashMap<ParamId, Ty>,
     ) -> Option<(
         Vec<qsc_fir::ty::GenericArg>,
         qsc_fir::ty::Ty,
         qsc_fir::ty::Ty,
         qsc_fir::ty::Ty,
     )> {
-        let generic_args =
-            infer_target_generic_args(generics, formal_input_ty, args, callable_types)?;
-        let formal_arrow = qsc_fir::ty::Arrow {
-            kind,
-            input: Box::new(formal_input_ty.clone()),
-            output: Box::new(formal_output_ty.clone()),
-            functors: qsc_fir::ty::FunctorSet::Value(functors),
-        };
+        let generic_args = infer_target_generic_args(
+            generics,
+            &formal_arrow.input,
+            args,
+            callable_types,
+            inferred_types,
+        )?;
         let instantiated_arrow =
             qsc_fir::ty::Scheme::new(generics.to_vec(), Box::new(formal_arrow))
                 .instantiate(&generic_args)
@@ -1460,7 +1492,9 @@ pub mod qir {
     /// Builds concrete generic args from a target callable's input and the
     /// runtime argument values supplied to the synthetic entry.
     ///
-    /// Type parameters require concrete evidence. Unresolved functor parameters
+    /// Type parameters use the solved constraints from all runtime arguments,
+    /// including every array element and relationships within callback schemes.
+    /// Unresolved functor parameters
     /// use their declared lower bounds, matching the source type checker's
     /// constraint solving rather than inventing a type argument.
     fn infer_target_generic_args(
@@ -1468,6 +1502,7 @@ pub mod qir {
         formal_input_ty: &qsc_fir::ty::Ty,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        inferred_types: &FxHashMap<ParamId, Ty>,
     ) -> Option<Vec<qsc_fir::ty::GenericArg>> {
         let mut arg_map = rustc_hash::FxHashMap::default();
         if let Some(actual_input_ty) =
@@ -1480,12 +1515,14 @@ pub mod qir {
             .iter()
             .enumerate()
             .map(|(idx, param)| {
-                let inferred = arg_map.get(&qsc_fir::ty::ParamId::from(idx));
+                let id = ParamId::from(idx);
+                if matches!(param, qsc_fir::ty::TypeParameter::Ty { .. }) {
+                    let ty = inferred_types.get(&id)?;
+                    return (!ty_is_unresolved(ty))
+                        .then(|| qsc_fir::ty::GenericArg::Ty(ty.clone()));
+                }
+                let inferred = arg_map.get(&id);
                 match (param, inferred) {
-                    (
-                        qsc_fir::ty::TypeParameter::Ty { .. },
-                        Some(qsc_fir::ty::GenericArg::Ty(ty)),
-                    ) if !ty_is_unresolved(ty) => Some(qsc_fir::ty::GenericArg::Ty(ty.clone())),
                     (
                         qsc_fir::ty::TypeParameter::Functor(_),
                         Some(qsc_fir::ty::GenericArg::Functor(functors)),
@@ -2302,7 +2339,8 @@ pub mod qir {
         // types before adapting the nongeneric UDT signatures to runtime payloads;
         // generic declarations remain available for monomorphization.
         let callable_types = build_callable_type_map(&fir_store, &concrete_callables);
-        validate_runtime_callable_args(&fir_store, target_callable, args, &callable_types)?;
+        let inferred_types =
+            validate_runtime_callable_args(&fir_store, target_callable, args, &callable_types)?;
         normalize_runtime_callable_udts(&mut fir_store, &concrete_callables);
 
         // Build synthetic Call(Var(target), args) as the entry expression.
@@ -2313,6 +2351,7 @@ pub mod qir {
             target_callable,
             args,
             &callable_types,
+            &inferred_types,
         )
         .map_err(|error| map_pass_errors(package_store, callable.package, vec![error]))?;
 

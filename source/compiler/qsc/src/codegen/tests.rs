@@ -5258,6 +5258,150 @@ fn check_runtime_controlled_generic_callable(
 }
 
 #[test]
+fn runtime_type_inference_reads_later_array_elements() {
+    let source = r#"
+        operation Run<'T>(values : 'T[][], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            if Length(values[0]) + Length(values[1]) == 1 { op(q); }
+            MResetZ(q)
+        }
+    "#;
+    for argument in ["([[], [7]], X)", "([[7], []], X)"] {
+        check_runtime_type_inference(
+            source,
+            "Run",
+            argument,
+            Value::Result(qsc_eval::val::Result::Val(true)),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+#[test]
+fn runtime_type_inference_reads_deeply_nested_array_elements() {
+    check_runtime_type_inference(
+        r#"
+        operation Run<'T>(values : 'T[][][], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            if Length(values[1][1]) == 1 { op(q); }
+            MResetZ(q)
+        }
+        "#,
+        "Run",
+        "([[[], []], [[], [7]]], X)",
+        Value::Result(qsc_eval::val::Result::Val(true)),
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+    );
+}
+
+#[test]
+fn runtime_type_inference_preserves_callback_correlations() {
+    check_runtime_type_inference(
+        r#"
+        function Identity<'V>(value : 'V) : 'V { value }
+        operation Run<'T, 'U>(f : 'T -> 'U, value : 'T) : 'U { f(value) }
+        "#,
+        "Run",
+        "{ let f : Int -> Int = Identity; (f, 7) }",
+        Value::Int(7),
+        &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
+    );
+}
+
+#[test]
+fn runtime_type_inference_preserves_callback_correlations_in_reverse_order() {
+    check_runtime_type_inference(
+        r#"
+        function Identity<'V>(value : 'V) : 'V { value }
+        operation Run<'T, 'U>(value : 'T, f : 'T -> 'U) : 'U { f(value) }
+        "#,
+        "Run",
+        "{ let f : Int -> Int = Identity; (7, f) }",
+        Value::Int(7),
+        &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
+    );
+}
+
+#[test]
+fn runtime_type_inference_keeps_callback_instantiations_independent() {
+    check_runtime_type_inference(
+        r#"
+        function Identity<'V>(value : 'V) : 'V { value }
+        operation Run<'T, 'U>(left : 'T, right : 'U, f : 'T -> 'T, g : 'U -> 'U) : ('T, 'U) {
+            (f(left), g(right))
+        }
+        "#,
+        "Run",
+        "{ let f : Int -> Int = Identity; let g : Bool -> Bool = Identity; (7, true, f, g) }",
+        Value::Tuple(vec![Value::Int(7), Value::Bool(true)].into(), None),
+        &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
+    );
+}
+
+#[test]
+fn runtime_type_inference_rejects_conflicting_later_array_elements() {
+    let source = r#"
+        operation Run<'T>(values : 'T[][], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            op(q);
+            MResetZ(q)
+        }
+    "#;
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let values = Value::Array(
+            vec![
+                Value::Array(Vec::new().into()),
+                Value::Array(vec![Value::Int(7)].into()),
+                Value::Array(vec![Value::Bool(true)].into()),
+            ]
+            .into(),
+        );
+        let arguments = Value::Tuple(
+            vec![values, eval_fragments(&mut interpreter, "X")].into(),
+            None,
+        );
+        let errors = interpreter
+            .qirgen_from_callable(&runtime_argument_global(&interpreter, "Run"), arguments)
+            .expect_err("every array element must agree on the inferred type");
+        assert_runtime_argument_type_error(&errors, "Int", "Bool");
+    }
+}
+
+fn check_runtime_type_inference(
+    source: &str,
+    target: &str,
+    argument: &str,
+    expected: Value,
+    profiles: &[Profile],
+) {
+    for &profile in profiles {
+        let context = format!("{profile:?}, {target}, {argument}");
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, &format!("{target}({argument})")),
+            expected,
+            "{context}: source result"
+        );
+        let value = eval_fragments(&mut interpreter, argument);
+        let actual = interpreter
+            .qirgen_from_callable(&runtime_argument_global(&interpreter, target), value)
+            .unwrap_or_else(|errors| {
+                panic!("{context}: {}", format_interpret_errors(errors));
+            });
+        let reference = interpreter
+            .qirgen(&format!("{target}({argument})"))
+            .expect("source call has concrete type evidence");
+        assert_eq!(
+            actual, reference,
+            "{context}: preserve inferred input and output types"
+        );
+    }
+}
+
+#[test]
 fn runtime_callable_entry_rejects_uninferred_type_arguments() {
     use miette::Diagnostic;
 
@@ -5268,6 +5412,11 @@ fn runtime_callable_entry_rejects_uninferred_type_arguments() {
             MResetZ(q)
         }
         operation RunEmpty<'T>(values : 'T[], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            op(q);
+            MResetZ(q)
+        }
+        operation RunNestedEmpty<'T>(values : 'T[][], op : Qubit => Unit) : Result {
             use q = Qubit();
             op(q);
             MResetZ(q)
@@ -5285,7 +5434,19 @@ fn runtime_callable_entry_rejects_uninferred_type_arguments() {
             .into(),
             None,
         );
-        for (name, args) in [("Run", produce), ("RunEmpty", empty_and_op)] {
+        let nested_empty_and_op = Value::Tuple(
+            vec![
+                Value::Array(vec![Value::Array(Vec::new().into()); 2].into()),
+                eval_fragments(&mut interpreter, "X"),
+            ]
+            .into(),
+            None,
+        );
+        for (name, args) in [
+            ("Run", produce),
+            ("RunEmpty", empty_and_op),
+            ("RunNestedEmpty", nested_empty_and_op),
+        ] {
             let errors = interpreter
                 .qirgen_from_callable(&runtime_argument_global(&interpreter, name), args)
                 .expect_err("missing type evidence must not be replaced with Unit");
