@@ -18,6 +18,7 @@ rustyline = { workspace = true }
 smallvec = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true, features = ["cargo_bench_support"] }
 expect-test = { workspace = true }
 
 [lints]
@@ -26,3 +27,8 @@ workspace = true
 [[bin]]
 name = "qodec-lowerer"
 path = "src/main.rs"
+bench = false
+
+[[bench]]
+name = "bottom_throughput"
+harness = false
