@@ -668,6 +668,12 @@ deliverables directory.
 shared project), the non-quiet cases of each run with a compact summary, and extra
 files. A saved run is exported from its frozen snapshot even if the original
 inputs/configuration are gone. JSON over 1 MiB in extra files is gzipped.
+Extra files keep their path within the review's scratch (`gen13/generator.json`,
+`probe-4033/report.md`), or sit under their parent directory's name when saved
+from elsewhere. Saving the same source again updates its entry; a different file
+that would land on an occupied entry, or a findings manifest whose
+`<parent>-<stem>` key is taken by another source, is an error and nothing is
+written. Rename one source rather than editing the cache by hand.
 `report` saves the run's non-quiet cases automatically using that run's pinned
 configuration. `cache_budget_mb` is a best-effort target: recognized review
 directories are pruned oldest first, but the current review is never deleted.

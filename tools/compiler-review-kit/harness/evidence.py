@@ -43,15 +43,66 @@ def tree_size(path):
     return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
 
 
+def _stored_path(source, destination):
+    """Large JSON is stored gzipped under the same name plus `.gz`."""
+    if source.suffix == ".json" and source.stat().st_size > GZIP_ABOVE:
+        return destination.with_name(destination.name + ".gz")
+    return destination
+
+
+def _stored_bytes(path):
+    return gzip.decompress(path.read_bytes()) if path.suffix == ".gz" else path.read_bytes()
+
+
 def _copy_file(source, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if source.suffix == ".json" and source.stat().st_size > GZIP_ABOVE:
-        destination = destination.with_name(destination.name + ".gz")
+    if destination.suffix == ".gz":
         with source.open("rb") as stream, gzip.open(destination, "wb") as packed:
             shutil.copyfileobj(stream, packed)
     else:
         shutil.copy2(source, destination)
-    return destination
+
+
+def _cached_path(path, work_dir):
+    """A saved input's cache location: its path within the review's scratch, else under its parent's name.
+
+    Basenames alone collide (every generator run writes generator.json, every probe report.md).
+    """
+    path = Path(path).resolve()
+    try:
+        return path.relative_to(Path(work_dir).resolve())
+    except ValueError:
+        return Path(path.parent.name, path.name)
+
+
+def _plan_files(items, work_dir, destination, recorded):
+    """[(source, stored path)] for every saved file; refuses to let one file replace a different one."""
+    planned = {}
+    for item in map(Path, items):
+        base = _cached_path(item, work_dir)
+        if item.is_dir():
+            sources = [(p, base / p.relative_to(item)) for p in sorted(item.rglob("*"))
+                       if p.is_file() and "__pycache__" not in p.parts]
+        else:
+            sources = [(item, base)]
+        for source, name in sources:
+            source = source.resolve()
+            stored = _stored_path(source, destination / "files" / name)
+            key = str(stored.relative_to(destination))
+            if key in planned and planned[key][0] != source and planned[key][0].read_bytes() != source.read_bytes():
+                raise ReviewError(f"{planned[key][0]} and {source} would both be cached as {key}; rename one.")
+            previous = recorded.get(key)
+            if (stored.exists() and previous != str(source)
+                    and _stored_bytes(stored) != source.read_bytes()):
+                raise ReviewError(f"Cache entry {key} already holds {previous or 'an earlier file'}; "
+                                  f"refusing to replace it with {source}. Rename one.")
+            planned.setdefault(key, (source, stored))
+    return planned
+
+
+def _finding_key(manifest):
+    manifest = Path(manifest).resolve()
+    return f"{manifest.parent.name}-{manifest.stem}"  # many manifests are called cases.json
 
 
 def interesting_cases(run):
@@ -103,13 +154,22 @@ def save_evidence(config, findings=(), runs=(), files=(), name=None, note=None):
     destination.mkdir(parents=True, exist_ok=True)
     index_path = destination / "evidence.json"
     index = read_json(index_path) if index_path.is_file() else {"findings": {}, "runs": {}, "files": []}
+    sources = index.setdefault("sources", {})  # cached file -> the file it was saved from
+    # Validate every name before writing anything, so a conflict leaves the cache untouched.
+    manifests = {}
     for manifest in map(Path, findings):
-        key = f"{manifest.resolve().parent.name}-{manifest.stem}"  # many manifests are called cases.json
+        key, source = _finding_key(manifest), str(manifest.resolve())
+        recorded = manifests.get(key) or index["findings"].get(key, {}).get("source")
+        if recorded not in (None, source):
+            raise ReviewError(f"Findings {recorded} and {source} would both be cached as {key}; rename one.")
+        manifests[key] = source
+    planned = _plan_files(files, config["work_dir"], destination, sources)
+    for key, source in manifests.items():
         target = destination / "findings" / key
         if target.exists():
             shutil.rmtree(target)
-        count = bundle_cases(read_json(manifest), manifest.resolve().parent, target)
-        index["findings"][key] = {"source": str(manifest.resolve()), "cases": count}
+        count = bundle_cases(read_json(source), Path(source).parent, target)
+        index["findings"][key] = {"source": source, "cases": count}
     for run in map(Path, runs):
         cases, base = interesting_cases(run)
         target = destination / "runs" / run.name
@@ -122,14 +182,10 @@ def save_evidence(config, findings=(), runs=(), files=(), name=None, note=None):
         keep["compile_outliers"] = summary["compile_outliers"][:50]
         write_json(target / "summary.json", keep)
         index["runs"][run.name] = {"cases": count, "of": summary["cases"]}
-    for item in map(Path, files):
-        if item.is_dir():
-            for path in sorted(p for p in item.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
-                saved = _copy_file(path, destination / "files" / item.name / path.relative_to(item))
-                index["files"].append(str(saved.relative_to(destination)))
-        else:
-            saved = _copy_file(item, destination / "files" / item.name)
-            index["files"].append(str(saved.relative_to(destination)))
+    for key, (source, stored) in planned.items():
+        _copy_file(source, stored)
+        sources[key] = str(source)
+        index["files"].append(key)
     index["files"] = sorted(set(index["files"]))
     index.update({
         "name": destination.name,

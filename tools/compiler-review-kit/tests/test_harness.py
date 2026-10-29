@@ -1817,6 +1817,48 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(evidence.merged_manifest(manifests * 2, merged), 3)
             self.assertTrue(Path(read_case_manifest(merged)[2]["adapter"]).is_absolute())
 
+    def test_same_named_files_are_cached_apart_and_never_replaced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = review_config(root)
+            scratch = Path(config["work_dir"])
+            marker = '"""{}\n\nExits 0 when the bug no longer reproduces."""\n'
+            contents = {"probe-4033/report.md": "4033", "probe-4032/report.md": "4032",
+                        "gen13/generator.json": '{"seed": 13}', "gen17/generator.json": '{"seed": 17}',
+                        "i4033/repro.py": marker.format(4033), "i4032/repro.py": marker.format(4032)}
+            for name, text in contents.items():
+                (scratch / name).parent.mkdir(parents=True, exist_ok=True)
+                (scratch / name).write_text(text)
+            saved, *_ = evidence.save_evidence(config, files=[scratch / name for name in contents])
+            for name, text in contents.items():
+                self.assertEqual((saved / "files" / name).read_text(), text)
+            self.assertEqual(len(evidence.recheck_inputs(config)[1]), 2)
+
+            # Re-saving the same source updates its entry.
+            (scratch / "gen13/generator.json").write_text('{"seed": 14}')
+            evidence.save_evidence(config, files=[scratch / "gen13/generator.json"])
+            self.assertEqual((saved / "files/gen13/generator.json").read_text(), '{"seed": 14}')
+
+            # A different file that would land on an occupied entry is refused.
+            (root / "elsewhere/gen13").mkdir(parents=True)
+            (root / "elsewhere/gen13/generator.json").write_text('{"seed": 99}')
+            with self.assertRaisesRegex(ReviewError, "already holds"):
+                evidence.save_evidence(config, files=[root / "elsewhere/gen13/generator.json"])
+            self.assertEqual((saved / "files/gen13/generator.json").read_text(), '{"seed": 14}')
+
+            # So are collisions within one save, before anything is written.
+            for parent in ("x", "y"):
+                (root / parent / "probe").mkdir(parents=True)
+                (root / parent / "probe/report.md").write_text(parent)
+            with self.assertRaisesRegex(ReviewError, "would both be cached"):
+                evidence.save_evidence(config, files=[root / "x/probe/report.md", root / "y/probe/report.md"])
+            self.assertFalse((saved / "files/probe").exists())
+            for parent in ("p", "q"):
+                write_json(root / parent / "m/cases.json", [CASE | {"id": parent}])
+            with self.assertRaisesRegex(ReviewError, "would both be cached as m-cases"):
+                evidence.save_evidence(config, findings=[root / "p/m/cases.json", root / "q/m/cases.json"])
+            self.assertFalse((saved / "findings/m-cases").exists())
+
     def test_oversized_current_review_warns_without_pointless_evictions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
