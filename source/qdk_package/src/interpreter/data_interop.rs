@@ -339,12 +339,12 @@ pub(super) fn pyobj_to_value(
         Ty::Arrow(..) => {
             if let Ok(callable) = extract_obj::<GlobalCallable>(py, obj, ty) {
                 let callable_val = callable.into();
-                check_callable_types(ctx, &callable_val)?;
+                check_callable_types(ctx, &callable_val, ty)?;
                 return Ok(callable_val);
             }
             if let Ok(callable) = extract_obj::<Closure>(py, obj, ty) {
                 let callable_val = callable.into();
-                check_callable_types(ctx, &callable_val)?;
+                check_callable_types(ctx, &callable_val, ty)?;
                 return Ok(callable_val);
             }
             Err(PyTypeError::new_err(format!(
@@ -356,20 +356,57 @@ pub(super) fn pyobj_to_value(
     }
 }
 
-fn check_callable_types(ctx: &interpret::Interpreter, callable_val: &Value) -> PyResult<()> {
-    let (input_ty, output_ty) = ctx
-        .global_callable_ty(callable_val)
+fn check_callable_types(
+    ctx: &interpret::Interpreter,
+    callable_val: &Value,
+    expected: &Ty,
+) -> PyResult<()> {
+    let arrow = ctx
+        .callable_arrow(callable_val)
         .ok_or(QSharpError::new_err("callable not found"))?;
-    if let Some(ty) = first_unsupported_interop_ty(ctx, &input_ty, true) {
+    if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.input.borrow(), true) {
         Err(QSharpError::new_err(format!(
             "unsupported input type: `{ty}`"
         )))
-    } else if let Some(ty) = first_unsupported_interop_ty(ctx, &output_ty, true) {
+    } else if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.output.borrow(), true) {
         Err(QSharpError::new_err(format!(
             "unsupported output type: `{ty}`"
         )))
     } else {
-        Ok(())
+        let actual = Ty::Arrow(Rc::new(arrow));
+        if callable_type_accepts(expected, &actual) {
+            Ok(())
+        } else {
+            Err(PyTypeError::new_err(format!(
+                "incompatible callable type: expected `{}`, found `{}`",
+                expected.display(),
+                actual.display(),
+            )))
+        }
+    }
+}
+
+/// Signature compatibility does not use Python's primitive value coercions.
+fn callable_type_accepts(expected: &Ty, actual: &Ty) -> bool {
+    match (expected, actual) {
+        (Ty::Arrow(expected), Ty::Arrow(actual)) => {
+            let required = expected.functors.borrow().expect_value("resolved functors");
+            let available = actual.functors.borrow().expect_value("resolved functors");
+            expected.kind == actual.kind
+                && available.intersect(&required) == required
+                && callable_type_accepts(&actual.input.borrow(), &expected.input.borrow())
+                && callable_type_accepts(&expected.output.borrow(), &actual.output.borrow())
+        }
+        (Ty::Array(expected), Ty::Array(actual)) => callable_type_accepts(expected, actual),
+        (Ty::Tuple(expected), Ty::Tuple(actual)) => {
+            expected.len() == actual.len()
+                && expected
+                    .iter()
+                    .zip(actual)
+                    .all(|(expected, actual)| callable_type_accepts(expected, actual))
+        }
+        (Ty::Udt(_, expected), Ty::Udt(_, actual)) => expected == actual,
+        _ => expected == actual,
     }
 }
 

@@ -102,6 +102,7 @@ use qsc_fir::{
 use thiserror::Error;
 
 use crate::package_assigners::PackageAssigners;
+pub use monomorphize::instantiate_runtime_closure;
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 
 /// Kinds of callable specializations that carry execution graphs.

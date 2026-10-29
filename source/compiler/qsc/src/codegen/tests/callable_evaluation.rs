@@ -7,6 +7,74 @@ use super::{
 };
 
 #[test]
+fn runtime_saved_generic_closure_instantiates_capture_types() {
+    let source = r#"
+        operation Phase(n : Int, q : Qubit) : Unit is Adj + Ctl {
+            for _ in 1..n { S(q); }
+        }
+        function Save<'T>(read : ('T, Qubit) => Unit is Adj + Ctl, value : 'T)
+            : Qubit => Unit is Adj + Ctl { read(value, _) }
+        function SaveInt(read : (Int, Qubit) => Unit is Adj + Ctl, value : Int)
+            : Qubit => Unit is Adj + Ctl { read(value, _) }
+        function SaveSecond<'Unused, 'T>(
+            unused : 'Unused, read : ('T, Qubit) => Unit is Adj + Ctl, value : 'T
+        ) : Qubit => Unit is Adj + Ctl { read(value, _) }
+        function Missing<'T>(unused : 'T) : Qubit => Unit is Adj + Ctl {
+            q => { let values : 'T[] = []; if Length(values) == 0 { S(q); } }
+        }
+        operation Run(f : Qubit => Unit is Adj + Ctl) : Result {
+            use q = Qubit();
+            H(q);
+            S(q);
+            Adjoint f(q);
+            H(q);
+            MResetZ(q)
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let expected = interpreter
+            .qirgen("Run(SaveInt(Phase, 1))")
+            .expect("concrete source QIR");
+        let generic_source = interpreter
+            .qirgen("Run(Save(Phase, 1))")
+            .expect("generic source QIR");
+        assert_eq!(qir_entry_body(&generic_source), qir_entry_body(&expected));
+        for argument in [
+            "SaveInt(Phase, 1)",
+            "Save(Phase, 1)",
+            "SaveSecond((), Phase, 1)",
+        ] {
+            let target = eval_fragments(&mut interpreter, "Run");
+            let value = eval_fragments(&mut interpreter, argument);
+            let runtime_qir = interpreter
+                .qirgen_from_callable(&target, value)
+                .expect("saved closure QIR");
+            assert_eq!(
+                qir_entry_body(&runtime_qir),
+                qir_entry_body(&expected),
+                "{profile:?}: {argument}"
+            );
+        }
+        let target = eval_fragments(&mut interpreter, "Run");
+        let missing = eval_fragments(&mut interpreter, "Missing(1)");
+        let errors = interpreter
+            .qirgen_from_callable(&target, missing)
+            .expect_err("a body-only type parameter has no runtime type evidence");
+        assert!(
+            format_interpret_errors(errors).contains("MissingTypeArguments"),
+            "{profile:?}: report missing evidence instead of reaching monomorphization"
+        );
+    }
+}
+
+#[test]
 fn recursive_projected_factory_preserves_closure_input() {
     let source = r#"
         struct C { F : Int -> Bool }

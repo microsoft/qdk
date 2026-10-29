@@ -4,6 +4,7 @@
 from pathlib import Path
 
 import pytest
+import qdk
 from qdk import qsharp
 from qdk._native import QSharpError
 from qdk.simulation import run_qir
@@ -16,6 +17,235 @@ def _write_entry_project(root: Path, source: str) -> None:
     (root / "src" / "Entry.qs").write_text(
         f"namespace Test {{ {source} }}", encoding="utf-8"
     )
+
+
+@pytest.mark.parametrize(
+    "expected,argument,compatible",
+    [
+        ("Int -> Int", "Good", True),
+        ("Int -> Int", "WrongOutput", False),
+        ("Int -> Int", "WrongInput", False),
+        ("Int -> Int", "WrongKind", False),
+        ("Int -> Int", "Save(2)", True),
+        ("Int -> Double", "Save(2)", False),
+        ("A -> A", "IdA", True),
+        ("A -> A", "IdB", False),
+        ("Int -> A", "MakeB", False),
+        ("Int -> Int", "Identity", None),
+        ("(Int -> Int)[]", ["Good", "Good"], True),
+        ("(Int -> Int)[]", ["Good", "WrongOutput"], False),
+        ("(Int, Int -> Int)", (7, "WrongOutput"), False),
+        ("Config", {"Callback": "WrongOutput"}, False),
+        ("Qubit => Unit is Adj", "Strong", True),
+        ("Qubit => Unit is Adj", "Plain", False),
+        ("Qubit => Unit is Adj", "Adjoint Strong", True),
+        ("(Qubit[], Qubit) => Unit is Adj", "Controlled Strong", True),
+        ("Qubit => Unit", "Controlled Strong", False),
+        ("(Qubit[], (Qubit[], Qubit)) => Unit", "Controlled Controlled Strong", True),
+        ("(Qubit => Unit is Adj + Ctl) => Unit", "ReadAdjoint", True),
+        ("(Qubit => Unit) => Unit", "ReadAdjoint", False),
+        ("Unit -> (Qubit => Unit is Adj)", "Factory", True),
+        ("Unit -> (Qubit => Unit is Adj + Ctl)", "WeakFactory", False),
+    ],
+)
+def test_callable_argument_signature_compatibility(
+    expected: str, argument: object, compatible: bool | None
+) -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Base)
+    ctx.eval("""
+        function Good(n : Int) : Int { n + 1 }
+        function WrongOutput(n : Int) : Double { 0.5 }
+        function WrongInput(n : Double) : Int { 0 }
+        operation WrongKind(n : Int) : Int { n }
+        function Save(n : Int) : Int -> Int { x -> x + n }
+        struct A { Data : Int }
+        struct B { Data : Int }
+        function IdA(a : A) : A { a }
+        function IdB(b : B) : B { b }
+        function MakeB(n : Int) : B { new B { Data = n } }
+        function Identity<'T>(value : 'T) : 'T { value }
+        struct Config { Callback : Int -> Int }
+        operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+        operation Plain(q : Qubit) : Unit { X(q); }
+        operation ReadAdjoint(op : Qubit => Unit is Adj) : Unit {
+            use q = Qubit(); Adjoint op(q); Reset(q);
+        }
+        function Factory() : Qubit => Unit is Adj + Ctl { Strong }
+        function WeakFactory() : Qubit => Unit { Plain }
+    """)
+    # An unused argument still needs validation, before any target effects.
+    if isinstance(argument, list):
+        argument = [ctx.eval(name) for name in argument]
+    elif isinstance(argument, tuple):
+        argument = (argument[0], ctx.eval(argument[1]))
+    elif isinstance(argument, dict):
+        argument = {field: ctx.eval(name) for field, name in argument.items()}
+    elif compatible is None:
+        assert isinstance(argument, str)
+        argument = getattr(ctx.code, argument)
+    else:
+        assert isinstance(argument, str)
+        argument = ctx.eval(argument)
+    ctx.eval(f"""
+        operation Probe(callback : {expected}) : Result {{
+            use q = Qubit(); X(q); MResetZ(q)
+        }}
+    """)
+    if compatible:
+        assert ctx.code.Probe(argument) == qsharp.Result.One
+        assert run_qir(
+            str(ctx.compile(ctx.code.Probe, argument)), shots=1, type="cpu"
+        ) == [qsharp.Result.One]
+    else:
+        for invoke in [
+            lambda: ctx.code.Probe(argument),
+            lambda: ctx.compile(ctx.code.Probe, argument),
+        ]:
+            if compatible is None:
+                with pytest.raises(QSharpError, match="unsupported input type: `Param"):
+                    invoke()
+            else:
+                with pytest.raises(TypeError, match="incompatible callable type: expected .*found"):
+                    invoke()
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+@pytest.mark.parametrize(
+    "entry_path",
+    [
+        "context-run", "context-invoke", "module-run", "module-invoke",
+        "context-compile", "module-compile", "circuit-static", "circuit-simulate",
+        "logical-counts", "estimate", "trace",
+    ],
+)
+def test_callable_mismatch_is_rejected_before_effects(
+    target_profile: qsharp.TargetProfile,
+    entry_path: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        function Bad(n : Int) : Double { Message("callback executed"); 0.5 }
+        function Good(n : Int) : Int { n }
+        function Coerce(data : (Double, Double[]), read : Int -> Int) : Double {
+            let (first, rest) = data;
+            first + rest[0] + Std.Convert.IntAsDouble(read(3))
+        }
+        operation Probe(callback : Int -> Int) : Result {
+            Message("target executed");
+            let n = callback(0);
+            use q = Qubit();
+            if n == 0 { X(q); }
+            MResetZ(q)
+        }
+    """)
+    from qdk.code import Bad, Coerce, Good, Probe
+    from qdk._interpreter import _get_context_or_default
+    from qdk.qre.interop._qsharp import trace_from_entry_expr
+
+    ctx = _get_context_or_default(Probe)
+    assert Coerce((1, [2]), Good) == 6.0
+    assert ctx.code.Probe(Good) == qsharp.Result.One
+    assert "target executed" in capsys.readouterr().out
+    paths = {
+        "context-run": lambda: ctx.run(Probe, 1, Bad),
+        "context-invoke": lambda: ctx.code.Probe(Bad),
+        "module-run": lambda: qsharp.run(Probe, 1, Bad),
+        "module-invoke": lambda: Probe(Bad),
+        "context-compile": lambda: ctx.compile(Probe, Bad),
+        "module-compile": lambda: qsharp.compile(Probe, Bad),
+        "circuit-static": lambda: ctx.circuit(
+            Probe, Bad, generation_method=qsharp.CircuitGenerationMethod.Static
+        ),
+        "circuit-simulate": lambda: ctx.circuit(
+            Probe, Bad, generation_method=qsharp.CircuitGenerationMethod.Simulate
+        ),
+        "logical-counts": lambda: ctx.logical_counts(Probe, Bad),
+        "estimate": lambda: qsharp.estimate(Probe, None, Bad),
+        "trace": lambda: trace_from_entry_expr(Probe, use_trace_backend=True, args=(Bad,)),
+    }
+    with pytest.raises(TypeError, match="expected .*Int -> Int.*found .*Int -> Double"):
+        paths[entry_path]()
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_saved_generic_closure_preserves_capture_types(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Phase(n : Int, q : Qubit) : Unit is Adj + Ctl {
+            for _ in 1..n { S(q); }
+        }
+        newtype Count = Int;
+        operation PhaseCount(n : Count, q : Qubit) : Unit is Adj + Ctl { Phase(n!, q); }
+        operation PhaseArray(ns : Int[], q : Qubit) : Unit is Adj + Ctl {
+            for n in ns { Phase(n, q); }
+        }
+        function Save<'T>(read : ('T, Qubit) => Unit is Adj + Ctl, value : 'T)
+            : Qubit => Unit is Adj + Ctl { read(value, _) }
+        function SaveInt(read : (Int, Qubit) => Unit is Adj + Ctl, value : Int)
+            : Qubit => Unit is Adj + Ctl { read(value, _) }
+        function SaveSecond<'Unused, 'T>(
+            unused : 'Unused, read : ('T, Qubit) => Unit is Adj + Ctl, value : 'T
+        ) : Qubit => Unit is Adj + Ctl { read(value, _) }
+        function Missing<'T>(unused : 'T) : Qubit => Unit is Adj + Ctl {
+            q => { let values : 'T[] = []; if Length(values) == 0 { S(q); } }
+        }
+        operation Run(f : Qubit => Unit is Adj + Ctl) : Result {
+            use q = Qubit();
+            H(q);
+            S(q);
+            Adjoint f(q);
+            H(q);
+            MResetZ(q)
+        }
+        operation RunPair(
+            first : Qubit => Unit is Adj + Ctl, second : Qubit => Unit is Adj + Ctl
+        ) : Result[] { [Run(first), Run(second)] }
+    """)
+    from qdk.code import Run, RunPair
+
+    expected = [[qsharp.Result.Zero, qsharp.Result.One]] * 3
+    for first, second in [
+        ("SaveInt(Phase, 1)", "SaveInt(Phase, 3)"),
+        ("Save(Phase, 1)", "Save(Phase, 3)"),
+        ("SaveSecond((), Phase, 1)", "SaveSecond((), Phase, 3)"),
+        ("Save(Phase, 1)", "Save(PhaseArray, [3])"),
+        ("Save(PhaseCount, Count(1))", "Save(Phase, 3)"),
+    ]:
+        saved = (qsharp.eval(first), qsharp.eval(second))
+        assert qsharp.run(RunPair, 3, *saved) == expected, (first, second)
+        for program in [
+            qsharp.compile(f"RunPair({first}, {second})"),
+            qsharp.compile(RunPair, *saved),
+        ]:
+            assert run_qir(str(program), shots=3, type="cpu") == expected, (first, second)
+
+    missing = qsharp.eval("Missing(1)")
+    assert qsharp.run(Run, 3, missing) == [qsharp.Result.Zero] * 3
+    assert run_qir(
+        str(qsharp.compile("Run(Missing(1))")), shots=3, type="cpu"
+    ) == [qsharp.Result.Zero] * 3
+    with pytest.raises(QSharpError, match=r"Qdk\.Qsc\.EntryPoint\.MissingTypeArguments"):
+        qsharp.compile(Run, missing)
 
 
 @pytest.mark.parametrize(

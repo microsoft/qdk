@@ -121,12 +121,6 @@ pub enum Error {
     #[error("value is not a global callable")]
     #[diagnostic(code("Qdk.Qsc.Interpret.NotACallable"))]
     NotACallable,
-    #[error("runtime callable argument type mismatch: expected {expected}, found {actual}")]
-    #[diagnostic(code("Qdk.Qsc.Interpret.InvalidRuntimeCallableArgumentType"))]
-    InvalidRuntimeCallableArgumentType {
-        expected: Box<qsc_fir::ty::Ty>,
-        actual: Box<qsc_fir::ty::Ty>,
-    },
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]
     PartialEvaluation(#[from] WithSource<qsc_partial_eval::Error>),
@@ -510,9 +504,19 @@ impl Interpreter {
     /// # Panics
     /// Panics if the item is not callable or a type that can be invoked as a callable.
     pub fn global_callable_ty(&self, item_id: &Value) -> Option<(ty::Ty, ty::Ty)> {
-        let (item_id, is_closure) = match item_id {
-            Value::Global(item_id, _) => (*item_id, false),
-            Value::Closure(closure) => (closure.id, true),
+        self.callable_arrow(item_id)
+            .map(|arrow| (arrow.input.into_inner(), arrow.output.into_inner()))
+    }
+
+    /// Gets a runtime callable's public signature, including applied functors.
+    /// Captured arguments are not part of a closure's public input.
+    ///
+    /// # Panics
+    /// Panics if the value does not represent a callable.
+    pub fn callable_arrow(&self, value: &Value) -> Option<ty::Arrow> {
+        let (item_id, functor, is_closure) = match value {
+            Value::Global(item_id, functor) => (*item_id, *functor, false),
+            Value::Closure(closure) => (closure.id, closure.functor, true),
             _ => panic!("value is not a callable"),
         };
 
@@ -526,29 +530,42 @@ impl Interpreter {
             .package
             .items
             .get(qsc_hir::hir::LocalItemId::from(usize::from(item_id.item)))?;
-        match &item.kind {
+        let mut arrow = match &item.kind {
             qsc_hir::hir::ItemKind::Callable(decl) => {
+                let mut arrow = ty::Arrow {
+                    kind: decl.kind,
+                    input: RefCell::new(decl.input.ty.clone()),
+                    output: RefCell::new(decl.output.clone()),
+                    functors: RefCell::new(ty::FunctorSet::Value(decl.functors)),
+                };
                 if is_closure {
-                    // The arguments are a tuple where the first element is the input arguments and
-                    // the second are the captured variables.
-                    // Grab that first element to get the actual input type.
                     let ty::Ty::Tuple(elems) = &decl.input.ty else {
                         panic!("closure input type is not a tuple")
                     };
-                    let input_ty = elems
+                    *arrow.input.get_mut() = elems
                         .last()
-                        .expect("closure input type should have at least one element");
-                    Some((input_ty.clone(), decl.output.clone()))
-                } else {
-                    Some((decl.input.ty.clone(), decl.output.clone()))
+                        .expect("closure input type should have at least one element")
+                        .clone();
                 }
+                arrow
             }
-            qsc_hir::hir::ItemKind::Ty(_, udt) => {
-                // We don't handle UDTs, so we return an error type that prevents later code from processing this item.
-                Some((udt.get_pure_ty(), ty::Ty::Err))
-            }
+            // Preserve the unsupported constructor output used by interop.
+            qsc_hir::hir::ItemKind::Ty(_, udt) => ty::Arrow {
+                kind: qsc_hir::hir::CallableKind::Function,
+                input: RefCell::new(udt.get_pure_ty()),
+                output: RefCell::new(ty::Ty::Err),
+                functors: RefCell::new(ty::FunctorSet::Value(ty::FunctorSetValue::Empty)),
+            },
             _ => panic!("item is not callable"),
+        };
+        for _ in 0..functor.controlled {
+            let input = arrow.input.get_mut();
+            *input = ty::Ty::Tuple(vec![
+                ty::Ty::Array(Box::new(ty::Ty::Prim(ty::Prim::Qubit))),
+                input.clone(),
+            ]);
         }
+        Some(arrow)
     }
 
     /// Given a package ID, returns all the types in the package.
@@ -1268,8 +1285,8 @@ impl Interpreter {
 
     /// Performs QIR codegen using the given callable with the given arguments on a new instance of the environment
     /// and simulator but using the current compilation.
-    /// Provable callable argument signature mismatches return a diagnostic before
-    /// transforms; this does not perform complete runtime argument validation.
+    /// Arguments must match the callable's signature, including required functors.
+    /// Language bindings are responsible for validating caller-supplied values.
     pub fn qirgen_from_callable(
         &mut self,
         callable: &Value,
@@ -1322,7 +1339,8 @@ impl Interpreter {
     /// Generates a circuit representation for the program.
     ///
     /// For `entry` options, see [`CircuitEntryPoint`]. For `tracer_config` options, see [`TracerConfig`].
-    /// Static callable entries share QIR's bounded argument signature preflight.
+    /// Callable entries require arguments compatible with the callable's signature,
+    /// just as direct evaluation and QIR generation do.
     pub fn circuit(
         &mut self,
         entry: CircuitEntryPoint,

@@ -65,18 +65,34 @@ pub mod qir {
         },
     }
 
-    /// Declaration and runtime-payload types for a reachable global callable,
-    /// with its generic parameters. Keep nominal identity for validation while
-    /// synthetic lowering and inference use the existing structural form.
+    /// Structural runtime-payload types and generic parameters for a callable.
     #[derive(Clone)]
     struct CallableValueInfo {
-        /// Original signature, including nominal UDT identities.
-        declared_ty: qsc_fir::ty::Ty,
         /// Structural signature used to lower erased runtime payloads, retaining
         /// declared generic parameters for inference.
         ty: qsc_fir::ty::Ty,
         /// Declared parameters used to instantiate the callable at its use site.
         generics: Vec<qsc_fir::ty::TypeParameter>,
+        /// A lifted body may use factory parameters absent from its own signature.
+        inherits_generics: bool,
+    }
+
+    struct RuntimeArgumentTypes {
+        target_args: FxHashMap<ParamId, GenericArg>,
+        closures: Vec<RuntimeClosureType>,
+    }
+
+    struct RuntimeClosureType {
+        // Addresses distinguish values sharing a lifted item but not its type arguments.
+        // The original argument tree stays borrowed throughout synthetic lowering.
+        value: *const qsc_eval::val::Closure,
+        target: qsc_fir::fir::StoreItemId,
+        ty: Ty,
+    }
+
+    struct RuntimeCallableTypes {
+        callables: FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        closure_targets: FxHashMap<*const qsc_eval::val::Closure, qsc_fir::fir::StoreItemId>,
     }
 
     /// Extracts the entry point expression from codegen FIR.
@@ -538,7 +554,6 @@ pub mod qir {
     ///
     /// This allows `lower_value_to_expr` to look up arrow types without holding an immutable
     /// reference to the package store while also mutating a package.
-    /// The original declaration type is retained separately for nominal checks.
     /// Generic signatures retain their functor parameters until instantiation.
     fn build_callable_type_map(
         fir_store: &qsc_fir::fir::PackageStore,
@@ -555,6 +570,18 @@ pub mod qir {
             };
             let (_, ty) = callable_expr_span_and_ty(fir_store, *id);
             let structural_ty = resolve_udt_ty(fir_store, &ty);
+            let mut parent = package.items.get(id.item).expect("callable item").parent;
+            let mut inherits_generics = false;
+            // Namespace ancestors are intentionally omitted during FIR lowering.
+            while let Some(item) = parent.and_then(|id| package.items.get(id)) {
+                if let qsc_fir::fir::ItemKind::Callable(decl) = &item.kind
+                    && !decl.generics.is_empty()
+                {
+                    inherits_generics = true;
+                    break;
+                }
+                parent = item.parent;
+            }
             let normalized_ty = if callable_decl.generics.is_empty() {
                 resolve_functor_params(&structural_ty)
             } else {
@@ -563,29 +590,21 @@ pub mod qir {
             map.insert(
                 *id,
                 CallableValueInfo {
-                    declared_ty: ty,
                     ty: normalized_ty,
                     generics: callable_decl.generics.clone(),
+                    inherits_generics,
                 },
             );
         }
         map
     }
 
-    /// Checks signature constraints without changing runtime values. Nominal
-    /// evidence and erased payload shapes are checked independently; structural
-    /// substitutions also supply target type arguments for synthetic lowering.
-    /// Structural checking resolves functor variables with their declared lower
-    /// bounds. Unknown types and type-class constraints retain their existing checks.
-    /// Callback parameters get fresh IDs distinct from the target's declaration IDs;
-    /// unresolved IDs never enter the compiler store.
-    struct RuntimeArgTypeChecker<'a> {
-        /// Read-only declarations used to inspect UDT payload types.
-        fir_store: &'a qsc_fir::fir::PackageStore,
-        /// Cached declared and structural signatures of the supplied callables.
+    /// Reconstructs erased type arguments from trusted runtime values.
+    /// Python interop owns signature compatibility; this pass only solves
+    /// parameters needed by synthetic entry and saved-closure instantiation.
+    struct RuntimeTypeInference<'a> {
+        /// Cached structural signatures of the supplied callables.
         callables: &'a FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-        /// Whether this pass compares nominal declarations rather than erased payloads.
-        nominal: bool,
         /// Substitutions for this pass's fresh, declaration-scoped type parameters.
         bindings: FxHashMap<ParamId, Ty>,
         /// Required capabilities flow to supporting parameters; available
@@ -594,14 +613,13 @@ pub mod qir {
         functor_dependents: FxHashMap<ParamId, Vec<ParamId>>,
         functor_bounds: FxHashMap<ParamId, FunctorSetValue>,
         functor_limits: FxHashMap<ParamId, FunctorSetValue>,
-        /// Opaque values to revisit after declared callbacks constrain their types.
-        deferred_values: Vec<(Ty, Value)>,
+        closures: Vec<RuntimeClosureType>,
         /// Next private parameter ID, also used for aggregate element placeholders.
         /// These IDs never enter the compiler's package store.
         next_param: usize,
     }
 
-    impl RuntimeArgTypeChecker<'_> {
+    impl RuntimeTypeInference<'_> {
         fn new_param_id(&mut self) -> ParamId {
             let param = ParamId::from(self.next_param);
             self.next_param += 1;
@@ -614,7 +632,7 @@ pub mod qir {
 
         fn fresh_type(&mut self, ty: &Ty, generics: &[qsc_fir::ty::TypeParameter]) -> Ty {
             fn rename(
-                checker: &mut RuntimeArgTypeChecker<'_>,
+                checker: &mut RuntimeTypeInference<'_>,
                 ty: &mut Ty,
                 params: &mut FxHashMap<ParamId, ParamId>,
             ) {
@@ -719,16 +737,15 @@ pub mod qir {
             }
         }
 
-        fn check_functors(&mut self, expected: FunctorSet, actual: FunctorSet) -> bool {
+        fn constrain_functors(&mut self, expected: FunctorSet, actual: FunctorSet) -> bool {
             if expected == actual {
                 return true;
             }
             let mut pending = Vec::new();
             match (expected, actual) {
-                (FunctorSet::Infer(_), _) | (_, FunctorSet::Infer(_)) => return true,
-                (FunctorSet::Value(expected), FunctorSet::Value(actual)) => {
-                    return actual.intersect(&expected) == expected;
-                }
+                (FunctorSet::Infer(_), _)
+                | (_, FunctorSet::Infer(_))
+                | (FunctorSet::Value(_), FunctorSet::Value(_)) => return true,
                 (FunctorSet::Param(param), FunctorSet::Value(available)) => {
                     let limit = self
                         .functor_limits
@@ -833,228 +850,128 @@ pub mod qir {
             }
         }
 
-        fn check_types(&mut self, expected: &Ty, actual: &Ty) -> Result<(), Vec<Error>> {
-            self.check_types_with_variance(expected, actual, true)
+        fn constrain_types(&mut self, expected: &Ty, actual: &Ty) {
+            self.constrain_types_with_variance(expected, actual, true);
         }
 
-        fn check_types_with_variance(
-            &mut self,
-            expected: &Ty,
-            actual: &Ty,
-            covariant: bool,
-        ) -> Result<(), Vec<Error>> {
+        fn constrain_types_with_variance(&mut self, expected: &Ty, actual: &Ty, covariant: bool) {
             let expected = self.resolve(expected);
             let actual = self.resolve(actual);
-            if expected == actual {
-                return Ok(());
+            if expected == actual || (!ty_is_unresolved(&expected) && !ty_is_unresolved(&actual)) {
+                return;
             }
             match (&expected, &actual) {
-                (Ty::Err | Ty::Infer(_), _) | (_, Ty::Err | Ty::Infer(_)) => Ok(()),
+                (Ty::Err | Ty::Infer(_), _) | (_, Ty::Err | Ty::Infer(_)) => {}
                 (Ty::Param(param), ty) if !self.contains_param(ty, *param) => {
-                    let view = if self.nominal {
-                        ty.clone()
-                    } else {
-                        self.capability_view(ty)
-                    };
+                    let view = self.capability_view(ty);
                     self.bindings.insert(*param, view.clone());
-                    self.check_types_with_variance(&view, ty, covariant)
+                    self.constrain_types_with_variance(&view, ty, covariant);
                 }
                 (ty, Ty::Param(param)) if !self.contains_param(ty, *param) => {
-                    let view = if self.nominal {
-                        ty.clone()
-                    } else {
-                        self.capability_view(ty)
-                    };
+                    let view = self.capability_view(ty);
                     self.bindings.insert(*param, view.clone());
-                    self.check_types_with_variance(ty, &view, covariant)
+                    self.constrain_types_with_variance(ty, &view, covariant);
                 }
                 (Ty::Array(expected), Ty::Array(actual)) => {
-                    self.check_types_with_variance(expected, actual, covariant)
+                    self.constrain_types_with_variance(expected, actual, covariant);
                 }
                 (Ty::Tuple(expected), Ty::Tuple(actual)) if expected.len() == actual.len() => {
                     for (expected, actual) in expected.iter().zip(actual) {
-                        self.check_types_with_variance(expected, actual, covariant)?;
+                        self.constrain_types_with_variance(expected, actual, covariant);
                     }
-                    Ok(())
                 }
                 (Ty::Arrow(expected_arrow), Ty::Arrow(actual_arrow))
                     if expected_arrow.kind == actual_arrow.kind =>
                 {
                     // A supplied callable must accept the input its caller can
                     // provide; callable inputs reverse capability requirements.
-                    self.check_types_with_variance(
+                    self.constrain_types_with_variance(
                         &expected_arrow.input,
                         &actual_arrow.input,
                         !covariant,
-                    )?;
-                    self.check_types_with_variance(
+                    );
+                    self.constrain_types_with_variance(
                         &expected_arrow.output,
                         &actual_arrow.output,
                         covariant,
-                    )?;
+                    );
                     let (required, available) = if covariant {
                         (expected_arrow.functors, actual_arrow.functors)
                     } else {
                         (actual_arrow.functors, expected_arrow.functors)
                     };
-                    if self.nominal || self.check_functors(required, available) {
-                        Ok(())
-                    } else {
-                        Err(vec![Error::InvalidRuntimeCallableArgumentType {
-                            expected: Box::new(self.resolve_type(&expected)),
-                            actual: Box::new(self.resolve_type(&actual)),
-                        }])
-                    }
+                    assert!(
+                        self.constrain_functors(required, available),
+                        "trusted callable capabilities should have a consistent instantiation"
+                    );
                 }
-                _ => Err(vec![Error::InvalidRuntimeCallableArgumentType {
-                    expected: Box::new(expected),
-                    actual: Box::new(actual),
-                }]),
+                _ => panic!("trusted runtime type shapes should agree: {expected}, {actual}"),
             }
         }
 
-        fn check_value(&mut self, expected: &Ty, value: &Value) -> Result<(), Vec<Error>> {
-            let nominal_expected = if self.nominal {
-                let ty = self.resolve(expected);
-                if matches!(ty, Ty::Infer(_) | Ty::Err) {
-                    return Ok(());
-                }
-                if matches!(ty, Ty::Param(_))
-                    && !matches!(value, Value::Global(_, _) | Value::Closure(_))
-                {
-                    // Runtime values do not prove a nominal type: even tuple tags
-                    // survive `Unwrap`. Only declared signatures bind these parameters.
-                    self.deferred_values.push((ty, value.clone()));
-                    return Ok(());
-                }
-                Some(self.udt_payload_ty(ty))
-            } else {
-                None
-            };
-            let expected = nominal_expected.as_ref().unwrap_or(expected);
+        fn infer_value(&mut self, expected: &Ty, value: &Value) {
             match value {
                 Value::Tuple(values, _) => {
                     let items: Vec<_> = values.iter().map(|_| self.new_param()).collect();
-                    self.check_types(expected, &Ty::Tuple(items.clone()))?;
+                    self.constrain_types(expected, &Ty::Tuple(items.clone()));
                     for (expected, value) in items.iter().zip(values.iter()) {
-                        self.check_value(expected, value)?;
+                        self.infer_value(expected, value);
                     }
                 }
                 Value::Array(values) => {
                     let item = self.new_param();
-                    self.check_types(expected, &Ty::Array(Box::new(item.clone())))?;
+                    self.constrain_types(expected, &Ty::Array(Box::new(item.clone())));
                     for value in values.iter() {
-                        self.check_value(&item, value)?;
+                        self.infer_value(&item, value);
                     }
                 }
                 Value::Global(id, functor) => {
                     let info = self.callables.get(id).expect("runtime callable type");
-                    let ty = self.fresh_type(
-                        if self.nominal {
-                            &info.declared_ty
-                        } else {
-                            &info.ty
-                        },
-                        &info.generics,
-                    );
-                    self.check_callable(expected, &runtime_callable_ty(ty, *functor))?;
+                    let ty = self.fresh_type(&info.ty, &info.generics);
+                    self.infer_callable(expected, &runtime_callable_ty(ty, *functor));
                 }
                 Value::Closure(closure) => {
                     let info = self
                         .callables
                         .get(&closure.id)
                         .expect("runtime closure type");
-                    let full_ty = self.fresh_type(
-                        if self.nominal {
-                            &info.declared_ty
-                        } else {
-                            &info.ty
-                        },
-                        &info.generics,
-                    );
+                    let full_ty = self.fresh_type(&info.ty, &info.generics);
                     if let Some(captures) =
                         closure_capture_ty_hints(&full_ty, closure.fixed_args.len())
                     {
                         for (expected, value) in captures.iter().zip(closure.fixed_args.iter()) {
-                            self.check_value(expected, value)?;
+                            self.infer_value(expected, value);
                         }
                     }
                     let ty = partial_applied_closure_ty(&full_ty, closure.fixed_args.len());
-                    self.check_callable(expected, &runtime_callable_ty(ty, closure.functor))?;
+                    self.infer_callable(expected, &runtime_callable_ty(ty, closure.functor));
+                    self.closures.push(RuntimeClosureType {
+                        value: std::ptr::from_ref(closure.as_ref()),
+                        target: closure.id,
+                        ty: full_ty,
+                    });
                 }
                 // A dynamic value does not establish a type. Keep checking its siblings.
                 Value::Var(_) => {}
                 _ => {
                     if let Some(actual) = primitive_value_ty(value) {
-                        self.check_types(expected, &actual)?;
+                        self.constrain_types(expected, &actual);
                     }
                 }
             }
-            Ok(())
         }
 
-        /// Rechecks values whose expected nominal type was unknown when first visited.
-        ///
-        /// For example, `Forward<'T>(value : 'T, read : 'T -> Int)` might receive
-        /// `[IdA]` followed by `ReadArrayB`, where `IdA` is `A -> A` and `ReadArrayB` expects
-        /// an array of B -> B callbacks. The array is initially deferred: its runtime
-        /// representation cannot establish `'T`'s nominal type. `ReadArrayB`'s declared
-        /// signature then binds `'T` to `(B -> B)[]`, allowing this recheck to inspect
-        /// the array and reject `IdA` even if A and B have identical payload layouts.
-        ///
-        /// Each round takes the current queue so `check_value` can enqueue unresolved
-        /// values or nested children separately. Inspecting a newly resolved aggregate
-        /// can reveal callbacks that add bindings needed by other deferred values,
-        /// so another round may be necessary.
-        ///
-        /// Bindings only grow. If a complete round adds none, the remaining values
-        /// still lack nominal evidence; stop rather than loop forever or infer named
-        /// types from runtime payloads. The separate structural pass remains responsible
-        /// for checking their runtime representation.
-        fn check_deferred_values(&mut self) -> Result<(), Vec<Error>> {
-            while !self.deferred_values.is_empty() {
-                let previous_bindings = self.bindings.len();
-                for (expected, value) in std::mem::take(&mut self.deferred_values) {
-                    self.check_value(&expected, &value)?;
-                }
-                // Unconstrained payloads remain unknown; bindings only grow.
-                if self.bindings.len() == previous_bindings {
-                    break;
-                }
-            }
-            Ok(())
-        }
-
-        fn check_callable(&mut self, expected: &Ty, actual: &Ty) -> Result<(), Vec<Error>> {
-            let expected = self.udt_payload_ty(self.resolve(expected));
+        fn infer_callable(&mut self, expected: &Ty, actual: &Ty) {
+            let expected = self.resolve(expected);
             // Synthetic preparation also accepts a bare callable for the first callable
             // position of a tuple, leaving non-callable positions as placeholders.
             if let Ty::Tuple(items) = &expected
-                && let Some(item) = items
-                    .iter()
-                    .find(|ty| ty_is_arrow_or_contains_arrow(&resolve_udt_ty(self.fir_store, ty)))
+                && let Some(item) = items.iter().find(|ty| ty_is_arrow_or_contains_arrow(ty))
             {
-                return self.check_callable(item, actual);
+                self.infer_callable(item, actual);
+            } else {
+                self.constrain_types(&expected, actual);
             }
-            self.check_types(&expected, actual)
-        }
-
-        fn udt_payload_ty(&self, mut ty: Ty) -> Ty {
-            // Only expand the value's outer wrapper, not UDTs inside callback
-            // signatures: equal payload layouts do not imply equal declared types.
-            while let Ty::Udt(qsc_fir::fir::Res::Item(id)) = ty {
-                let item = self
-                    .fir_store
-                    .get(id.package)
-                    .items
-                    .get(id.item)
-                    .expect("UDT item should exist");
-                let qsc_fir::fir::ItemKind::Ty(_, udt) = &item.kind else {
-                    break;
-                };
-                ty = udt.get_pure_ty();
-            }
-            ty
         }
     }
 
@@ -1071,12 +988,12 @@ pub mod qir {
         ty
     }
 
-    fn validate_runtime_callable_args(
+    fn infer_runtime_callable_args(
         fir_store: &qsc_fir::fir::PackageStore,
         target: qsc_fir::fir::StoreItemId,
         args: &Value,
         callables: &FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> Result<FxHashMap<ParamId, GenericArg>, Vec<Error>> {
+    ) -> RuntimeArgumentTypes {
         use qsc_fir::fir::{Global, PackageLookup};
 
         let package = fir_store.get(target.package);
@@ -1087,57 +1004,121 @@ pub mod qir {
         let Ty::Arrow(arrow) = ty else {
             unreachable!("target should have an arrow type");
         };
-        // Keep declaration identity separate from erased runtime representation.
-        // In particular, a capture cannot prove a generic nominal type.
         let mut inferred_args = FxHashMap::default();
-        for nominal in [true, false] {
-            let mut checker = RuntimeArgTypeChecker {
-                fir_store,
-                callables,
-                nominal,
-                bindings: FxHashMap::default(),
-                functor_requirements: FxHashMap::default(),
-                functor_dependents: FxHashMap::default(),
-                functor_limits: FxHashMap::default(),
-                functor_bounds: decl
-                    .generics
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, parameter)| match parameter {
-                        qsc_fir::ty::TypeParameter::Functor(bound) => {
-                            Some((ParamId::from(idx), *bound))
-                        }
-                        qsc_fir::ty::TypeParameter::Ty { .. } => None,
-                    })
-                    .collect(),
-                deferred_values: Vec::new(),
-                next_param: decl.generics.len(),
-            };
-            let input = if nominal {
-                *arrow.input.clone()
-            } else {
-                resolve_udt_ty(fir_store, &arrow.input)
-            };
-            // Reserve target IDs before freshening each supplied callable's scheme.
-            checker.check_value(&input, args)?;
-            if nominal {
-                checker.check_deferred_values()?;
-            } else {
-                for (idx, parameter) in decl.generics.iter().enumerate() {
-                    let param = ParamId::from(idx);
-                    let argument = match parameter {
-                        qsc_fir::ty::TypeParameter::Ty { .. } => {
-                            GenericArg::Ty(checker.resolve_type(&Ty::Param(param)))
-                        }
-                        qsc_fir::ty::TypeParameter::Functor(_) => GenericArg::Functor(
-                            checker.resolved_functor_argument(FunctorSet::Param(param)),
-                        ),
-                    };
-                    inferred_args.insert(param, argument);
+        let mut checker = RuntimeTypeInference {
+            callables,
+            bindings: FxHashMap::default(),
+            functor_requirements: FxHashMap::default(),
+            functor_dependents: FxHashMap::default(),
+            functor_limits: FxHashMap::default(),
+            functor_bounds: decl
+                .generics
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, parameter)| match parameter {
+                    qsc_fir::ty::TypeParameter::Functor(bound) => {
+                        Some((ParamId::from(idx), *bound))
+                    }
+                    qsc_fir::ty::TypeParameter::Ty { .. } => None,
+                })
+                .collect(),
+            closures: Vec::new(),
+            next_param: decl.generics.len(),
+        };
+        let input = resolve_udt_ty(fir_store, &arrow.input);
+        // Reserve target IDs before freshening each supplied callable's scheme.
+        checker.infer_value(&input, args);
+        for (idx, parameter) in decl.generics.iter().enumerate() {
+            let param = ParamId::from(idx);
+            let argument = match parameter {
+                qsc_fir::ty::TypeParameter::Ty { .. } => {
+                    GenericArg::Ty(checker.resolve_type(&Ty::Param(param)))
                 }
-            }
+                qsc_fir::ty::TypeParameter::Functor(_) => {
+                    GenericArg::Functor(checker.resolved_functor_argument(FunctorSet::Param(param)))
+                }
+            };
+            inferred_args.insert(param, argument);
         }
-        Ok(inferred_args)
+        let closures = checker
+            .closures
+            .iter()
+            .map(|closure| RuntimeClosureType {
+                value: closure.value,
+                target: closure.target,
+                ty: checker.resolve_type(&closure.ty),
+            })
+            .collect();
+        RuntimeArgumentTypes {
+            target_args: inferred_args,
+            closures,
+        }
+    }
+
+    /// Instantiates saved closure templates independently of the factory that
+    /// originally supplied their type parameters. Only private copies are changed.
+    fn instantiate_runtime_closures(
+        package_store: &PackageStore,
+        fir_store: &mut qsc_fir::fir::PackageStore,
+        mut callables: FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        inferred: &RuntimeArgumentTypes,
+    ) -> Result<RuntimeCallableTypes, Vec<Error>> {
+        let mut closure_targets = FxHashMap::default();
+        for closure in &inferred.closures {
+            let id = closure.target;
+            let ty = &closure.ty;
+            let info = &callables[&id];
+            if !ty_is_unresolved(&info.ty) && !info.inherits_generics {
+                continue;
+            }
+            let mut arguments = FxHashMap::default();
+            let span = fir_store
+                .get(id.package)
+                .items
+                .get(id.item)
+                .expect("closure item")
+                .span;
+            let missing_types = || {
+                map_pass_errors(
+                    package_store,
+                    qsc_lowerer::map_fir_package_to_hir(id.package),
+                    vec![qsc_passes::Error::EntryPoint(
+                        qsc_passes::EntryPointError::MissingTypeArguments(span.span),
+                    )],
+                )
+            };
+            if ty_is_unresolved(ty) || !infer_generic_ty_args(&info.ty, ty, &mut arguments) {
+                return Err(missing_types());
+            }
+            let item = qsc_fir_transforms::instantiate_runtime_closure(
+                fir_store.get_mut(id.package),
+                id.item,
+                arguments,
+            )
+            .map_err(|error| {
+                vec![Error::FirTransform(
+                    crate::compile::attach_fir_transform_source(package_store, error),
+                )]
+            })?
+            .ok_or_else(missing_types)?;
+            let target = qsc_fir::fir::StoreItemId {
+                package: id.package,
+                item,
+            };
+            callables.insert(
+                target,
+                CallableValueInfo {
+                    ty: ty.clone(),
+                    generics: Vec::new(),
+                    inherits_generics: false,
+                },
+            );
+            closure_targets.insert(closure.value, target);
+        }
+        Ok(RuntimeCallableTypes {
+            callables,
+            closure_targets,
+        })
     }
 
     /// Preserves the structural signatures used to reconstruct runtime UDT values.
@@ -1307,7 +1288,7 @@ pub mod qir {
         fir_package_id: qsc_fir::fir::PackageId,
         target_callable: qsc_fir::fir::StoreItemId,
         args: &Value,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        callable_types: &RuntimeCallableTypes,
         inferred_args: &FxHashMap<ParamId, GenericArg>,
     ) -> Result<(), qsc_passes::Error> {
         use qsc_fir::fir::{Global, PackageLookup};
@@ -1482,7 +1463,7 @@ pub mod qir {
         assigner: &mut qsc_fir::assigner::Assigner,
         input_ty: &qsc_fir::ty::Ty,
         args: &Value,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        callable_types: &RuntimeCallableTypes,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
         match input_ty {
@@ -1788,7 +1769,7 @@ pub mod qir {
         assigner: &mut qsc_fir::assigner::Assigner,
         value: &Value,
         expected_ty: Option<&qsc_fir::ty::Ty>,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        callable_types: &RuntimeCallableTypes,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
         let (kind, ty) = match value {
@@ -1950,9 +1931,10 @@ pub mod qir {
         id: qsc_fir::fir::StoreItemId,
         functor: FunctorApp,
         expected_ty: Option<&qsc_fir::ty::Ty>,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        callable_types: &RuntimeCallableTypes,
     ) -> qsc_fir::fir::ExprId {
         let info = callable_types
+            .callables
             .get(&id)
             .expect("Global callable type must be pre-computed");
         let (ty, generic_args) = expected_ty
@@ -2182,12 +2164,18 @@ pub mod qir {
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
         closure: &qsc_eval::val::Closure,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        callable_types: &RuntimeCallableTypes,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
         // Lifted lambdas use `(captures.., explicit_input)`, even with no captures.
+        let target = callable_types
+            .closure_targets
+            .get(&std::ptr::from_ref(closure))
+            .copied()
+            .unwrap_or(closure.id);
         let full_ty = callable_types
-            .get(&closure.id)
+            .callables
+            .get(&target)
             .expect("Closure callable type must be pre-computed")
             .ty
             .clone();
@@ -2203,8 +2191,8 @@ pub mod qir {
                     ty: full_ty.clone(),
                     kind: qsc_fir::fir::ExprKind::Var(
                         qsc_fir::fir::Res::Item(qsc_fir::fir::ItemId {
-                            package: closure.id.package,
-                            item: closure.id.item,
+                            package: target.package,
+                            item: target.item,
                         }),
                         Vec::new(),
                     ),
@@ -2255,7 +2243,7 @@ pub mod qir {
                 id: expr_id,
                 span: package.synthetic_span(),
                 ty: closure_ty.clone(),
-                kind: qsc_fir::fir::ExprKind::Closure(capture_locals, closure.id.item),
+                kind: qsc_fir::fir::ExprKind::Closure(capture_locals, target.item),
                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
                     ..qsc_fir::fir::ExecGraphIdx::ZERO,
             },
@@ -2424,13 +2412,11 @@ pub mod qir {
     /// pin-based approach when args contain runtime identities that cannot be
     /// represented as FIR values.
     ///
-    /// The original target is pinned for DCE survival so that `fir_to_qir_from_callable`
-    /// can still use the original ID for partial evaluation.
-    /// Rejects provable callable argument type mismatches before transforms.
-    /// Preserves UDT identity from declarations separately
-    /// from the structural checks of erased runtime payloads.
-    /// This is not complete runtime validation: unresolved types, type-class
-    /// constraints, and argument functor support retain their existing checks.
+    /// The fallback pins the original target for DCE survival so that
+    /// `fir_to_qir_from_callable` can still use its ID for partial evaluation.
+    /// Arguments must already be compatible with the callable's signature.
+    /// Type inference here reconstructs erased generic arguments and saved
+    /// capture types; insufficient type evidence remains a diagnostic.
     #[allow(clippy::too_many_lines)]
     pub fn prepare_codegen_fir_from_callable_args(
         package_store: &PackageStore,
@@ -2465,7 +2451,6 @@ pub mod qir {
             let codegen_fir = prepare_codegen_fir_from_callable_args_pinned(
                 package_store,
                 callable,
-                args,
                 capabilities,
                 concrete_callables,
             )?;
@@ -2490,8 +2475,14 @@ pub mod qir {
         // generic declarations remain available for monomorphization.
         let callable_types = build_callable_type_map(&fir_store, &concrete_callables);
         let inferred_args =
-            validate_runtime_callable_args(&fir_store, target_callable, args, &callable_types)?;
+            infer_runtime_callable_args(&fir_store, target_callable, args, &callable_types);
         normalize_runtime_callable_udts(&mut fir_store, &concrete_callables);
+        let callable_types = instantiate_runtime_closures(
+            package_store,
+            &mut fir_store,
+            callable_types,
+            &inferred_args,
+        )?;
 
         // Build synthetic Call(Var(target), args) as the entry expression.
         // This makes the target and all callable args entry-reachable for pipeline transforms.
@@ -2501,7 +2492,7 @@ pub mod qir {
             target_callable,
             args,
             &callable_types,
-            &inferred_args,
+            &inferred_args.target_args,
         )
         .map_err(|error| map_pass_errors(package_store, callable.package, vec![error]))?;
 
@@ -2549,7 +2540,6 @@ pub mod qir {
     fn prepare_codegen_fir_from_callable_args_pinned(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
-        args: &Value,
         capabilities: TargetCapabilityFlags,
         mut concrete_callables: FxHashSet<qsc_fir::fir::StoreItemId>,
     ) -> Result<CodegenFir, Vec<Error>> {
@@ -2560,9 +2550,6 @@ pub mod qir {
             package: qsc_lowerer::map_hir_package_to_fir(callable.package),
             item: qsc_lowerer::map_hir_local_item_to_fir(callable.item),
         };
-        let callable_types = build_callable_type_map(&fir_store, &concrete_callables);
-        validate_runtime_callable_args(&fir_store, target_callable, args, &callable_types)?;
-
         let mut pinned_callables: Vec<qsc_fir::fir::StoreItemId> = Vec::new();
         concrete_callables.retain(|store_item_id| {
             let hir_item_id = qsc_hir::hir::ItemId {

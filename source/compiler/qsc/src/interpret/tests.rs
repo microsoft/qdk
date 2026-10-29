@@ -1414,6 +1414,55 @@ mod given_interpreter {
         }
 
         #[test]
+        fn runtime_callable_arrow_preserves_public_signature() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                r#"
+                    operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+                    function Save(n : Int) : Qubit => Unit is Adj + Ctl {
+                        q => { for _ in 1..n { Strong(q); } }
+                    }
+                    operation ReadAdjoint(op : Qubit => Unit is Adj) : Unit {
+                        use q = Qubit(); Adjoint op(q); Reset(q);
+                    }
+                "#,
+            );
+            is_only_value(&result, &output, &Value::unit());
+            for (expression, expected) in [
+                ("Strong", "(Qubit => Unit is Adj + Ctl)"),
+                ("Adjoint Strong", "(Qubit => Unit is Adj + Ctl)"),
+                (
+                    "Controlled Strong",
+                    "((Qubit[], Qubit) => Unit is Adj + Ctl)",
+                ),
+                (
+                    "Controlled Controlled (Save(2))",
+                    "((Qubit[], (Qubit[], Qubit)) => Unit is Adj + Ctl)",
+                ),
+                ("Save(2)", "(Qubit => Unit is Adj + Ctl)"),
+                ("Strong", "(Qubit => Unit is Adj + Ctl)"),
+            ] {
+                let (value, _) = line(&mut interpreter, expression);
+                let arrow = interpreter
+                    .callable_arrow(&value.expect("runtime callable"))
+                    .expect("callable metadata");
+                assert_eq!(arrow.to_string(), expected, "{expression}");
+            }
+            let (value, _) = line(&mut interpreter, "ReadAdjoint");
+            let arrow = interpreter
+                .callable_arrow(&value.expect("reader"))
+                .expect("reader metadata");
+            let qsc_hir::ty::Ty::Arrow(input) = arrow.input.into_inner() else {
+                panic!("reader input should remain an arrow");
+            };
+            assert_eq!(
+                input.functors.borrow().expect_value("declared bound"),
+                qsc_hir::ty::FunctorSetValue::Adj,
+            );
+        }
+
+        #[test]
         fn qirgen_twice_on_shared_interpreter_store_is_byte_identical() {
             // The FIR transform pipeline mutates every reachable package in
             // place, including std, so codegen must run on a throwaway clone of

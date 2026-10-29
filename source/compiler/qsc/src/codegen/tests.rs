@@ -4803,27 +4803,6 @@ fn interpreter_with_capabilities(
     .expect("interpreter should be created")
 }
 
-fn assert_runtime_argument_type_error(
-    errors: &[crate::interpret::Error],
-    expected_type: &str,
-    actual_type: &str,
-) {
-    assert_eq!(errors.len(), 1, "{errors:?}");
-    let error = &errors[0];
-    let crate::interpret::Error::InvalidRuntimeCallableArgumentType { expected, actual } = error
-    else {
-        panic!("expected a runtime callable signature diagnostic, got {error:?}");
-    };
-    assert_eq!(expected.to_string(), expected_type);
-    assert_eq!(actual.to_string(), actual_type);
-    assert_eq!(
-        miette::Diagnostic::code(error)
-            .expect("diagnostic code")
-            .to_string(),
-        "Qdk.Qsc.Interpret.InvalidRuntimeCallableArgumentType"
-    );
-}
-
 fn runtime_argument_global(interpreter: &crate::interpret::Interpreter, name: &str) -> Value {
     interpreter
         .user_globals()
@@ -4832,145 +4811,6 @@ fn runtime_argument_global(interpreter: &crate::interpret::Interpreter, name: &s
         .find(|global| global.name.as_ref() == name)
         .expect("source global")
         .value
-}
-
-#[test]
-fn runtime_callable_argument_signature_mismatch_is_rejected() {
-    let source = r#"
-        namespace Test {
-            function DoubleFunc(x : Int) : Double { 0.5 }
-            function WrongInput(x : Double) : Int { 0 }
-            operation WrongKind(x : Int) : Int { 0 }
-            operation NotFromFunc(f : Int -> Int) : Int { ~~~f(0) }
-        }
-    "#;
-    for profile in [
-        Profile::Base,
-        Profile::AdaptiveRI,
-        Profile::AdaptiveRIF,
-        Profile::Adaptive,
-    ] {
-        let mut interpreter = interpreter_with_capabilities(profile.into());
-        eval_fragments(&mut interpreter, source);
-        let target = eval_fragments(&mut interpreter, "Test.NotFromFunc");
-        for (argument, expected, actual) in [
-            ("Test.DoubleFunc", "Int", "Double"),
-            ("Test.WrongInput", "Int", "Double"),
-            ("Test.WrongKind", "(Int -> Int)", "(Int => Int)"),
-        ] {
-            let args = eval_fragments(&mut interpreter, argument);
-            let errors = interpreter
-                .qirgen_from_callable(&target, args)
-                .expect_err("incompatible callable must not produce QIR");
-            assert_runtime_argument_type_error(&errors, expected, actual);
-        }
-        let errors = interpreter
-            .qirgen("Test.NotFromFunc(Test.DoubleFunc)")
-            .expect_err("inline call must retain source type checking");
-        assert!(matches!(&errors[0], crate::interpret::Error::Compile(_)));
-        assert!(format!("{errors:?}").contains("TyMismatch"));
-    }
-}
-
-#[test]
-fn runtime_callable_argument_aggregate_mismatch_is_rejected() {
-    let source = r#"
-        namespace Test {
-            function Good(x : Int) : Int { x }
-            function Bad(x : Int) : Double { 0.5 }
-            struct Config { Transform : Int -> Int, Data : Int }
-            operation Nested(pair : (Int, (Int -> Int, Int))) : Unit {
-                let (_, (f, n)) = pair;
-                let _ = f(n);
-            }
-            operation Each(fs : (Int -> Int)[]) : Unit {
-                for f in fs { let _ = f(0); }
-            }
-            operation Wrapped(config : Config) : Unit { let _ = config.Transform(0); }
-        }
-    "#;
-    for profile in [
-        Profile::Base,
-        Profile::AdaptiveRI,
-        Profile::AdaptiveRIF,
-        Profile::Adaptive,
-    ] {
-        let caps = profile.into();
-        let (store, pkg, items) = compile_and_locate_items(
-            source,
-            &[
-                ("Good", true),
-                ("Bad", true),
-                ("Nested", true),
-                ("Each", true),
-                ("Wrapped", true),
-                ("Config", false),
-            ],
-            caps,
-        );
-        let good = Value::Global(fir_id_for(pkg, items["Good"]), FunctorApp::default());
-        let bad = Value::Global(fir_id_for(pkg, items["Bad"]), FunctorApp::default());
-        for (target, args) in [
-            (
-                "Nested",
-                Value::Tuple(
-                    vec![
-                        Value::Int(0),
-                        Value::Tuple(vec![bad.clone(), Value::Int(0)].into(), None),
-                    ]
-                    .into(),
-                    None,
-                ),
-            ),
-            ("Each", Value::Array(vec![good, bad.clone()].into())),
-            (
-                "Wrapped",
-                Value::Tuple(
-                    vec![bad, Value::Int(0)].into(),
-                    Some(Rc::new(fir_id_for(pkg, items["Config"]))),
-                ),
-            ),
-        ] {
-            let errors = prepare_codegen_fir_from_callable_args(
-                &store,
-                hir_id_for(pkg, items[target]),
-                &args,
-                caps,
-            )
-            .err()
-            .expect("all callable positions must be checked");
-            assert_runtime_argument_type_error(&errors, "Int", "Double");
-        }
-    }
-}
-
-#[test]
-fn runtime_callable_argument_closure_mismatch_is_rejected() {
-    let source = r#"
-        namespace Test {
-            function Partial(x : Int, y : Int) : Double { 0.5 }
-            function MakeBad() : (Int -> Double) { x -> 0.5 }
-            function Capture<'T>(value : 'T) : (Int -> 'T) { x -> value }
-            operation Run(f : Int -> Int) : Unit { let _ = f(0); }
-        }
-    "#;
-    for profile in [
-        Profile::Base,
-        Profile::AdaptiveRI,
-        Profile::AdaptiveRIF,
-        Profile::Adaptive,
-    ] {
-        let mut interpreter = interpreter_with_capabilities(profile.into());
-        eval_fragments(&mut interpreter, source);
-        let target = eval_fragments(&mut interpreter, "Test.Run");
-        for argument in ["Test.MakeBad()", "Test.Partial(1, _)", "Test.Capture(0.5)"] {
-            let args = eval_fragments(&mut interpreter, argument);
-            let errors = interpreter
-                .qirgen_from_callable(&target, args)
-                .expect_err("closure's remaining signature must be checked");
-            assert_runtime_argument_type_error(&errors, "Int", "Double");
-        }
-    }
 }
 
 #[test]
@@ -4992,11 +4832,10 @@ fn runtime_callable_argument_generic_bindings_are_consistent_and_scoped() {
         let mut interpreter = interpreter_with_capabilities(profile.into());
         eval_fragments(&mut interpreter, source);
         let identity = runtime_argument_global(&interpreter, "Identity");
-        let wrong = eval_fragments(&mut interpreter, "Test.Wrong");
         let errors = interpreter
-            .qirgen_from_callable(&wrong, identity.clone())
-            .expect_err("one type parameter cannot be both Int and Double");
-        assert_runtime_argument_type_error(&errors, "Double", "Int");
+            .qirgen("Test.Wrong(Test.Identity)")
+            .expect_err("source typing must reject inconsistent generic arguments");
+        assert!(format!("{errors:?}").contains("TyMismatch"));
 
         let pair = runtime_argument_global(&interpreter, "Pair");
         let args = Value::Tuple(vec![Value::Int(1), identity.clone()].into(), None);
@@ -5009,53 +4848,6 @@ fn runtime_callable_argument_generic_bindings_are_consistent_and_scoped() {
         interpreter
             .qirgen_from_callable(&independent, args)
             .expect("distinct declarations' type parameters must not conflict");
-    }
-}
-
-#[test]
-fn runtime_callable_argument_mismatch_is_checked_before_reinvocation() {
-    let source = r#"
-        namespace Test {
-            function Bad(x : Int) : Double { 0.5 }
-            operation Run(q : Qubit, n : Int, f : Int -> Int) : Unit { let _ = f(n); }
-        }
-    "#;
-    for profile in [
-        Profile::Base,
-        Profile::AdaptiveRI,
-        Profile::AdaptiveRIF,
-        Profile::Adaptive,
-    ] {
-        let caps = profile.into();
-        let (store, pkg, items) =
-            compile_and_locate_items(source, &[("Bad", true), ("Run", true)], caps);
-        let qubit = Rc::new(qsc_eval::val::Qubit(0));
-        for n in [
-            Value::Int(0),
-            Value::Var(qsc_eval::val::Var {
-                id: 0,
-                ty: qsc_eval::val::VarTy::Integer,
-            }),
-        ] {
-            let args = Value::Tuple(
-                vec![
-                    Value::Qubit((&qubit).into()),
-                    n,
-                    Value::Global(fir_id_for(pkg, items["Bad"]), FunctorApp::default()),
-                ]
-                .into(),
-                None,
-            );
-            let errors = prepare_codegen_fir_from_callable_args(
-                &store,
-                hir_id_for(pkg, items["Run"]),
-                &args,
-                caps,
-            )
-            .err()
-            .expect("runtime identities or unknown siblings must not bypass the check");
-            assert_runtime_argument_type_error(&errors, "Int", "Double");
-        }
     }
 }
 
@@ -5453,78 +5245,6 @@ fn runtime_common_callable_type_can_require_no_functors() {
 }
 
 #[test]
-fn runtime_common_callable_type_rejects_missing_reader_capabilities() {
-    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
-        let mut interpreter = interpreter_with_capabilities(profile.into());
-        eval_fragments(&mut interpreter, COMMON_CALLABLE_TYPE_SOURCE);
-        for (target, argument) in [
-            (
-                "Run",
-                "([AsAdjoint(Strong), AsAdjoint(Weak)], MakeControlledReader())",
-            ),
-            (
-                "Run",
-                "([AsAdjoint(Weak), AsAdjoint(Strong)], MakeControlledReader())",
-            ),
-            (
-                "ReaderFirst",
-                "(MakeControlledReader(), [AsAdjoint(Strong), AsAdjoint(Weak)])",
-            ),
-        ] {
-            let arguments = eval_fragments(&mut interpreter, argument);
-            let errors = interpreter
-                .qirgen_from_callable(&runtime_argument_global(&interpreter, target), arguments)
-                .expect_err("a common type cannot provide control support absent from Weak");
-            assert_eq!(errors.len(), 1, "{profile:?}, {target}: {errors:?}");
-            assert!(
-                matches!(
-                    &errors[0],
-                    crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }
-                ),
-                "{profile:?}, {target}: {errors:?}"
-            );
-        }
-    }
-}
-
-#[test]
-fn runtime_common_callable_type_cannot_gain_capabilities_through_identity() {
-    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
-        let mut interpreter = interpreter_with_capabilities(profile.into());
-        eval_fragments(&mut interpreter, COMMON_CALLABLE_TYPE_SOURCE);
-        for (target, elements) in [
-            ("Map", "(identity, AsAdjoint(Weak), MakeControlledReader())"),
-            (
-                "MapReverse",
-                "(AsAdjoint(Weak), MakeControlledReader(), identity)",
-            ),
-        ] {
-            let arguments = eval_fragments(
-                &mut interpreter,
-                &format!(
-                    "{{ let identity : (Qubit => Unit is Adj) -> (Qubit => Unit is Adj) = Identity;
-                        {elements}
-                    }}"
-                ),
-            );
-            let errors = interpreter
-                .qirgen_from_callable(&runtime_argument_global(&interpreter, target), arguments)
-                .expect_err(
-                    "generic type correlations must preserve the supplied operation's limits",
-                );
-            assert_eq!(errors.len(), 1, "{profile:?}, {target}: {errors:?}");
-            assert!(
-                matches!(
-                    &errors[0],
-                    crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }
-                ),
-                "{profile:?}, {target}: {errors:?}"
-            );
-        }
-    }
-}
-
-#[test]
 fn runtime_common_callable_type_supports_factories_with_different_output_capabilities() {
     let source = r#"
         operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
@@ -5552,77 +5272,6 @@ fn runtime_common_callable_type_supports_factories_with_different_output_capabil
             &Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into()),
             &RUNTIME_CALLABLE_CAPTURE_PROFILES,
         );
-    }
-}
-
-#[test]
-fn runtime_functor_inference_rejects_insufficient_capabilities() {
-    let source = r#"
-        operation Plain(q : Qubit) : Unit { X(q); }
-        operation Run(op : Qubit => Unit is Adj) : Result {
-            use q = Qubit();
-            Adjoint op(q);
-            MResetZ(q)
-        }
-    "#;
-    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
-        let mut interpreter = interpreter_with_capabilities(profile.into());
-        eval_fragments(&mut interpreter, source);
-        let errors = interpreter
-            .qirgen_from_callable(
-                &runtime_argument_global(&interpreter, "Run"),
-                runtime_argument_global(&interpreter, "Plain"),
-            )
-            .expect_err("inference must not invent missing adjoint support");
-        assert_eq!(errors.len(), 1, "{profile:?}: {errors:?}");
-        assert!(
-            matches!(
-                &errors[0],
-                crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }
-            ),
-            "{profile:?}: {errors:?}"
-        );
-    }
-}
-
-#[test]
-fn runtime_functor_inference_rejects_incompatible_higher_order_inputs_in_both_orders() {
-    let source = r#"
-        operation ControlledOnly(q : Qubit) : Unit is Ctl { X(q); }
-        operation NeedsAdjoint(op : Qubit => Unit is Adj, q : Qubit) : Unit {
-            Adjoint op(q);
-        }
-        function MakeReader() : ((((Qubit => Unit is Ctl), Qubit) => Unit) => Result) {
-            f => { use q = Qubit(); f(ControlledOnly, q); MResetZ(q) }
-        }
-        operation Forward<'T>(value : 'T, read : 'T => Result) : Result { read(value) }
-        operation Reverse<'T>(read : 'T => Result, value : 'T) : Result { read(value) }
-    "#;
-    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
-        let mut interpreter = interpreter_with_capabilities(profile.into());
-        eval_fragments(&mut interpreter, source);
-        for (target, argument) in [
-            ("Forward", "(NeedsAdjoint, MakeReader())"),
-            ("Reverse", "(MakeReader(), NeedsAdjoint)"),
-        ] {
-            interpreter
-                .qirgen(&format!("{target}({argument})"))
-                .expect_err("source typing must reject incompatible callback requirements");
-            let argument = eval_fragments(&mut interpreter, argument);
-            let errors = interpreter
-                .qirgen_from_callable(&runtime_argument_global(&interpreter, target), argument)
-                .expect_err(
-                    "runtime inference must also reject incompatible callback requirements",
-                );
-            assert_eq!(errors.len(), 1, "{profile:?}, {target}: {errors:?}");
-            assert!(
-                matches!(
-                    &errors[0],
-                    crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }
-                ),
-                "{profile:?}, {target}: {errors:?}"
-            );
-        }
     }
 }
 
@@ -5699,33 +5348,17 @@ const CAPABILITY_CHAIN_SOURCE: &str = r#"
 "#;
 
 #[test]
-fn runtime_capability_chain_rejects_unsupported_control() {
-    check_runtime_capability_chain(false, false);
-}
-
-#[test]
 fn runtime_capability_chain_preserves_supported_control() {
-    check_runtime_capability_chain(false, true);
-}
-
-#[test]
-fn runtime_capability_chain_with_duplication_rejects_unsupported_control() {
-    check_runtime_capability_chain(true, false);
+    check_runtime_capability_chain(false);
 }
 
 #[test]
 fn runtime_capability_chain_with_duplication_preserves_supported_control() {
-    check_runtime_capability_chain(true, true);
+    check_runtime_capability_chain(true);
 }
 
-fn check_runtime_capability_chain(duplicate: bool, supported: bool) {
-    use miette::Diagnostic;
-
-    let (operation, bound) = if supported {
-        ("Strong", "Ctl")
-    } else {
-        ("Weak", "Adj")
-    };
+fn check_runtime_capability_chain(duplicate: bool) {
+    let (operation, bound) = ("Strong", "Ctl");
     let (second, output_type, reader) = if duplicate {
         (
             "Duplicate",
@@ -5749,41 +5382,13 @@ fn check_runtime_capability_chain(duplicate: bool, supported: bool) {
                 {arguments}
             }}"
         );
-        if supported {
-            check_runtime_type_inference(
-                CAPABILITY_CHAIN_SOURCE,
-                target,
-                &expression,
-                &Value::Result(qsc_eval::val::Result::Val(!duplicate)),
-                &RUNTIME_CALLABLE_CAPTURE_PROFILES,
-            );
-        } else {
-            for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
-                let context = format!("{profile:?}, {target}, second={second}");
-                let mut interpreter = interpreter_with_capabilities(profile.into());
-                eval_fragments(&mut interpreter, CAPABILITY_CHAIN_SOURCE);
-                let errors = interpreter
-                    .qirgen(&format!("{target}({expression})"))
-                    .expect_err("source typing must reject the unsupported control requirement");
-                assert!(
-                    errors.iter().any(|error| error
-                        .code()
-                        .is_some_and(|code| code.to_string() == "Qdk.Qsc.TypeCk.FunctorMismatch")),
-                    "{context}: unexpected source error: {errors:?}"
-                );
-                let arguments = eval_fragments(&mut interpreter, &expression);
-                let errors = interpreter
-                    .qirgen_from_callable(&runtime_argument_global(&interpreter, target), arguments)
-                    .expect_err("generic callbacks must not create control support");
-                assert!(
-                    matches!(
-                        errors.as_slice(),
-                        [crate::interpret::Error::InvalidRuntimeCallableArgumentType { .. }]
-                    ),
-                    "{context}: unexpected runtime error: {errors:?}"
-                );
-            }
-        }
+        check_runtime_type_inference(
+            CAPABILITY_CHAIN_SOURCE,
+            target,
+            &expression,
+            &Value::Result(qsc_eval::val::Result::Val(!duplicate)),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
     }
 }
 
@@ -5866,37 +5471,6 @@ fn runtime_type_inference_keeps_callback_instantiations_independent() {
         &Value::Tuple(vec![Value::Int(7), Value::Bool(true)].into(), None),
         &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
     );
-}
-
-#[test]
-fn runtime_type_inference_rejects_conflicting_later_array_elements() {
-    let source = r#"
-        operation Run<'T>(values : 'T[][], op : Qubit => Unit) : Result {
-            use q = Qubit();
-            op(q);
-            MResetZ(q)
-        }
-    "#;
-    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
-        let mut interpreter = interpreter_with_capabilities(profile.into());
-        eval_fragments(&mut interpreter, source);
-        let values = Value::Array(
-            vec![
-                Value::Array(Vec::new().into()),
-                Value::Array(vec![Value::Int(7)].into()),
-                Value::Array(vec![Value::Bool(true)].into()),
-            ]
-            .into(),
-        );
-        let arguments = Value::Tuple(
-            vec![values, eval_fragments(&mut interpreter, "X")].into(),
-            None,
-        );
-        let errors = interpreter
-            .qirgen_from_callable(&runtime_argument_global(&interpreter, "Run"), arguments)
-            .expect_err("every array element must agree on the inferred type");
-        assert_runtime_argument_type_error(&errors, "Int", "Bool");
-    }
 }
 
 fn check_runtime_type_inference(
@@ -6224,53 +5798,12 @@ fn runtime_callable_argument_preserves_nominal_udt_identity() {
     ] {
         let mut interpreter = interpreter_with_capabilities(profile.into());
         eval_fragments(&mut interpreter, source);
-        let nominal_type = |value: Value| {
-            let Value::Tuple(_, Some(id)) = value else {
-                panic!("expected a tagged UDT value");
-            };
-            qsc_fir::ty::Ty::Udt(FirRes::Item(qsc_fir::fir::ItemId {
-                package: id.package,
-                item: id.item,
-            }))
-        };
-        let expected = nominal_type(eval_fragments(&mut interpreter, "new Test.A { Data = 0 }"));
-        let actual = nominal_type(eval_fragments(&mut interpreter, "new Test.B { Data = 0 }"));
         for (target, argument) in [
             ("Test.Run", "Test.IdB"),
             ("Test.Output", "Test.ToB"),
             ("Test.Wrapped", "new Test.Config { Transform = Test.IdB }"),
             ("Test.Same", "Test.IdA, Test.IdB"),
         ] {
-            let args = if target == "Test.Same" {
-                Value::Tuple(
-                    vec![
-                        runtime_argument_global(&interpreter, "IdA"),
-                        runtime_argument_global(&interpreter, "IdB"),
-                    ]
-                    .into(),
-                    None,
-                )
-            } else if target == "Test.Wrapped" {
-                let config =
-                    eval_fragments(&mut interpreter, "new Test.Config { Transform = Test.IdA }");
-                let Value::Tuple(_, id) = config else {
-                    panic!("Config tuple");
-                };
-                Value::Tuple(
-                    vec![runtime_argument_global(&interpreter, "IdB")].into(),
-                    id,
-                )
-            } else {
-                eval_fragments(&mut interpreter, argument)
-            };
-            let target_value = runtime_argument_global(
-                &interpreter,
-                target.strip_prefix("Test.").expect("test namespace"),
-            );
-            let errors = interpreter
-                .qirgen_from_callable(&target_value, args)
-                .expect_err("equal payload layouts must not erase a declared type mismatch");
-            assert_runtime_argument_type_error(&errors, &expected.to_string(), &actual.to_string());
             let source_errors = interpreter
                 .qirgen(&format!("{target}({argument})"))
                 .expect_err("source type checker must reject the same nominal mismatch");
@@ -6308,9 +5841,7 @@ fn runtime_callable_argument_preserves_nominal_udt_identity() {
     }
 }
 
-fn generic_nominal_callback_interpreter(
-    profile: Profile,
-) -> (crate::interpret::Interpreter, String, String) {
+fn generic_nominal_callback_interpreter(profile: Profile) -> crate::interpret::Interpreter {
     let mut interpreter = interpreter_with_capabilities(profile.into());
     eval_fragments(
         &mut interpreter,
@@ -6350,84 +5881,13 @@ fn generic_nominal_callback_interpreter(
         }
         "#,
     );
-    let nominal_type = |value| {
-        let Value::Tuple(_, Some(id)) = value else {
-            panic!("{profile:?}: expected a tagged nominal value");
-        };
-        qsc_fir::ty::Ty::Udt(FirRes::Item(qsc_fir::fir::ItemId {
-            package: id.package,
-            item: id.item,
-        }))
-        .to_string()
-    };
-    let a = nominal_type(eval_fragments(&mut interpreter, "new Test.A { Data = 0 }"));
-    let b = nominal_type(eval_fragments(&mut interpreter, "new Test.B { Data = 0 }"));
-    (interpreter, a, b)
-}
-
-/// A and B both contain one Int, but they are distinct named types. `IdA` and
-/// `MakeA(0)` have type `A -> A`, whereas `ReadB` requires a callback of type `B -> B`.
-///
-/// `Forward<'T>(value : 'T, read : 'T -> Int)` requires both arguments to agree on
-/// `'T`. `Forward(IdA, ReadB)` therefore requires `'T` to be both `A -> A` and `B -> B`,
-/// which is invalid. `Reverse(ReadB, IdA)` has the same conflict in the other order.
-///
-/// Previously, runtime validation skipped `IdA` while `'T` was still unknown, then
-/// let `ReadB` constrain `'T` without revisiting `IdA`. Structural validation missed
-/// the conflict because A and B have identical erased layouts; Forward generated
-/// QIR even though the source type checker rejected it.
-///
-/// Require both orders to reject globals and closures on all four profiles.
-/// The first argument establishes the expected type, so the diagnostic reports
-/// expected A / actual B for Forward, and expected B / actual A for Reverse.
-#[test]
-fn runtime_callable_argument_generic_nominal_callbacks_reject_both_orders() {
-    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
-        let (mut interpreter, a, b) = generic_nominal_callback_interpreter(profile);
-        for callback in ["Test.IdA", "Test.MakeA(0)"] {
-            let value = eval_fragments(&mut interpreter, callback);
-            let read = runtime_argument_global(&interpreter, "ReadB");
-            for (target, args, expression, expected, actual) in [
-                (
-                    "Forward",
-                    vec![value.clone(), read.clone()],
-                    format!("Test.Forward({callback}, Test.ReadB)"),
-                    &a,
-                    &b,
-                ),
-                (
-                    "Reverse",
-                    vec![read.clone(), value.clone()],
-                    format!("Test.Reverse(Test.ReadB, {callback})"),
-                    &b,
-                    &a,
-                ),
-            ] {
-                let context = format!("{profile:?}: {expression}");
-                let source_errors = interpreter
-                    .qirgen(&expression)
-                    .expect_err("source must reject the nominal mismatch");
-                assert!(
-                    format!("{source_errors:?}").contains("TyMismatch"),
-                    "{context}: expected a source type mismatch"
-                );
-                let result = interpreter.qirgen_from_callable(
-                    &runtime_argument_global(&interpreter, target),
-                    Value::Tuple(args.into(), None),
-                );
-                let Err(errors) = result else {
-                    panic!("{context}: mismatched nominal callback must not generate QIR");
-                };
-                assert_runtime_argument_type_error(&errors, expected, actual);
-            }
-        }
-    }
+    interpreter
 }
 
 #[test]
 fn runtime_callable_argument_generic_nominal_callbacks_accept_matching_values() {
     for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
-        let (mut interpreter, _, _) = generic_nominal_callback_interpreter(profile);
+        let mut interpreter = generic_nominal_callback_interpreter(profile);
         for callback in ["Test.IdB", "Test.MakeB(0)"] {
             let value = eval_fragments(&mut interpreter, callback);
             let read = runtime_argument_global(&interpreter, "ReadB");
@@ -6451,45 +5911,26 @@ fn runtime_callable_argument_generic_nominal_callbacks_accept_matching_values() 
 #[test]
 fn runtime_callable_argument_generic_nominal_callbacks_check_deferred_aggregates() {
     for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
-        let (mut interpreter, a, b) = generic_nominal_callback_interpreter(profile);
-        for (reader, expression, index) in [
-            ("ReadArrayB", "[Test.IdB]", 0),
-            ("ReadHolderB", "new Test.HolderB { Callback = Test.IdB }", 0),
-            ("ReadPairB", "Test.CallbackPair(0, Test.IdB)!", 1),
+        let mut interpreter = generic_nominal_callback_interpreter(profile);
+        for (reader, expression) in [
+            ("ReadArrayB", "[Test.IdB]"),
+            ("ReadHolderB", "new Test.HolderB { Callback = Test.IdB }"),
+            ("ReadPairB", "Test.CallbackPair(0, Test.IdB)!"),
         ] {
             let matching = eval_fragments(&mut interpreter, expression);
-            let mut mismatching = matching.clone();
-            match &mut mismatching {
-                Value::Array(values) => {
-                    Rc::make_mut(values)[index] = runtime_argument_global(&interpreter, "IdA");
-                }
-                Value::Tuple(values, _) => {
-                    Rc::make_mut(values)[index] = runtime_argument_global(&interpreter, "IdA");
-                }
-                _ => panic!("{profile:?}: {expression}: expected a captured aggregate"),
-            }
             let read = runtime_argument_global(&interpreter, reader);
             for (target, reverse) in [("Forward", false), ("Reverse", true)] {
-                for (value, valid) in [(mismatching.clone(), false), (matching.clone(), true)] {
-                    let args = if reverse {
-                        vec![read.clone(), value]
-                    } else {
-                        vec![value, read.clone()]
-                    };
-                    let context = format!("{profile:?}: {target}, {reader}, valid={valid}");
-                    let result = interpreter.qirgen_from_callable(
-                        &runtime_argument_global(&interpreter, target),
-                        Value::Tuple(args.into(), None),
-                    );
-                    if valid {
-                        result.unwrap_or_else(|errors| panic!("{context}: {errors:?}"));
-                    } else {
-                        let Err(errors) = result else {
-                            panic!("{context}: mismatched aggregate callback must be rejected");
-                        };
-                        assert_runtime_argument_type_error(&errors, &b, &a);
-                    }
-                }
+                let args = if reverse {
+                    vec![read.clone(), matching.clone()]
+                } else {
+                    vec![matching.clone(), read.clone()]
+                };
+                let context = format!("{profile:?}: {target}, {reader}");
+                let result = interpreter.qirgen_from_callable(
+                    &runtime_argument_global(&interpreter, target),
+                    Value::Tuple(args.into(), None),
+                );
+                result.unwrap_or_else(|errors| panic!("{context}: {errors:?}"));
             }
         }
     }
