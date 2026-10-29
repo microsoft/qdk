@@ -88,6 +88,7 @@ WORKDIR /work
 FROM runtime-base AS verify
 RUN --network=none --mount=type=bind,from=qdk,target=/qdk,readonly \
     bash -c 'source /opt/sandbox/runtime/entrypoint.sh; verify_policy' \
+    && python -c 'import qirrunner' \
     && bash /opt/sandbox/scripts/build_qdk.sh \
     && printf '%s\n' "$QDK_BUILD_ARGS" > /tmp/offline-verified
 
