@@ -119,6 +119,8 @@ was dropped). Narrow to an individual commit only if the user requests it.
 - Release coverage; debug and Adaptive_RI coverage only when requested.
   Stochastic/Unit/state checks and oracle limitations.
 - Full client projects versus explicitly named subsets; client revisions/edits.
+- qdk-chemistry source revision and scenarios exercised on Adaptive_RIF/Adaptive,
+  or unavailable coverage; distinguish source-derived repros from full-client validation.
 - Exclusions with reasons, pending discovery, unsupported profiles, failed builds,
   infrastructure errors, timeouts, and incomplete attribution at the requested granularity.
 - Final inline repro execution evidence.

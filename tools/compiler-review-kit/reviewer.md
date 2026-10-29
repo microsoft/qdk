@@ -26,6 +26,10 @@ as the starting point without overwriting the user's file. Use the harness's
 defaults unless the request requires overrides; do not inherit example issue
 selectors or exclusions. Ask about ambiguous comparisons or scope, not for the
 user to fill out JSON or choose routine tool settings.
+Check for `/work/qdk-chemistry` as a default source of consumer scenarios, following
+the [chemistry guidance](#qdk-chemistry-scenarios). When available, add its name/path
+to the owned configuration's `clients` so `check` records its revision/dirty state.
+Older sandboxes may lack it.
 
 Use the [sandbox paths](agent-reference.md#sandbox-paths):
 keep generated inputs/configuration in owned `/tmp` scratch, executable build
@@ -147,9 +151,11 @@ panic sites with valid input, and confirm removed codes are handled, not silentl
    a new generator, prefer programs that end in computational-basis states (X/CNOT/CCX
    for decisions, phases confined to an H…H probe) so outputs stay deterministic
    while functor and angle errors remain visible.
-7. For configured clients, inspect their manifests/tests and actual public Python
+7. For clients, inspect their manifests/tests and actual public Python
    construction APIs. Add self-contained trusted adapters or project cases.
-   Identify full-project failures first; explicitly label capability-compatible
+   For qdk-chemistry, use the source-only guidance below rather than attempting a
+   full build. For other configured clients, identify full-project failures first;
+   explicitly label capability-compatible
    subsets. Missing optional clients are untested, not successful. When clients
    build callables by calling Q# factories from Python and passing the results back
    into compilation, cover that callable-API path directly: it reconstructs closures
@@ -161,6 +167,37 @@ a regression. Retain small known repros if present, but do not make them the sol
 source of coverage. Give every omission/exclusion a reason.
 Use the harness's frozen case exports for findings and rechecks, not mutable
 original manifests. Do not repair conflicting case IDs by silently dropping one.
+
+### qdk-chemistry scenarios
+
+`microsoft/qdk-chemistry` is a particularly important QDK compiler consumer.
+Current sandboxes normally contain its clone at `/work/qdk-chemistry`. Use it as
+a source of example code, even when the user has not named another client.
+Read relevant examples, tests, and construction paths, not the entire checkout.
+If the clone is missing, record that chemistry-derived coverage was unavailable;
+do not treat that as a successful compatibility check.
+
+The clone is not expected to build in the sandbox. Do not build, install, or
+repair qdk-chemistry as a compiler-review prerequisite. Extract small,
+self-contained QDK adapters or Q# cases from its actual usage, with hand-chosen
+inputs and observable results. Preserve the source revision/file locations.
+
+Prioritize its Python callable boundary: Python calls Q# factories, composes or
+captures the returned callable values, puts them in arguments/aggregates, and
+passes them back into Q# execution or compilation. Preserve that construction
+sequence and boundary in the repro; rewriting everything as inline Q# is a
+contrast case, not equivalent coverage. Include neighboring closure, capture,
+and argument-layout variants when relevant to the changed mechanism.
+
+Chemistry commonly targets Adaptive_RI/Adaptive_RIF. Exercise the same
+chemistry-derived adapters/inputs on **Adaptive_RIF and Adaptive**, even if the client
+normally uses the lower profile. Adaptive_RI remains opt-in at the user's
+request; include Base only for compatible scenarios.
+
+Prioritize findings that affect these usage patterns, but distinguish
+chemistry-source-derived compiler repros from demonstrated full-client impact.
+Report which scenarios were exercised, their source revision, and any untested
+client integration; a standalone reduction is not a successful chemistry build.
 
 ### Result and Qubit handle aliasing
 

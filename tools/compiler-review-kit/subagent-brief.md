@@ -37,6 +37,9 @@ execution. Do not assume an old corpus exists or silently guess entry expression
 For resource, loop, callable, aggregate, or capture changes, use the
 [Result/Qubit handle scenarios](reviewer.md#result-and-qubit-handle-aliasing) to
 derive bounded exploratory cases within your assignment, not just known repros.
+For relevant consumer/callable-API assignments, follow the
+[qdk-chemistry guidance](reviewer.md#qdk-chemistry-scenarios): use the sandbox
+clone as a source of patterns, not a client-build task.
 
 Justify deterministic oracles; keep stochastic observations inconclusive until
 validated independently. Pure Unit outputs and QIR text differences are not

@@ -38,20 +38,21 @@ The harness uses these sandbox-specific defaults. Choose a unique review `name`;
 working directories. Temporary paths use Python's temporary directory (`/tmp`
 unless overridden by `TMPDIR`).
 
-| Artifact                                                                                                                                                                   | Default sandbox location                                                    | Lifetime                                                               |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Kit instructions, scripts, schemas, examples, curated tests                                                                                                                | `/work/qdk/tools/compiler-review-kit/`                                      | Version-controlled source                                              |
-| Compiler checkout (`repository`), `source/`, `library/`, `samples/`                                                                                                        | `/work/qdk/`                                                                | Existing `/work` volume                                                |
-| Python environment (`venv`), including `bin/python` and `bin/qir-runner`                                                                                                   | `/opt/qdk-venv/`                                                            | Preinstalled in the sandbox image                                      |
-| Configuration, generated cases, adapters, repro/variant scripts, generator output/seeds                                                                                    | `/tmp/compiler-review-kit/REVIEW/`                                          | Current session; the agent writes its config and fixtures here         |
-| Runs, project snapshots, QIR, stage logs, oracle checks, exec/timing/variant results, reductions, attribution, draft scripts, extraction dumps/logs, rechecks (`work_dir`) | `/tmp/compiler-review-kit/REVIEW/`                                          | Disposable; save compact evidence before cleanup                       |
-| Compiler worktrees, extraction worktrees, Cargo targets, native overlays, build logs and build lock (`build_dir`)                                                          | `/work/compiler-review-kit/build/`                                          | Reusable native build state in the `/work` volume                      |
-| `evidence.json`, compact summaries, bundled findings/repros/seeds (`cache_dir` plus review name)                                                                           | `/work/cache/compiler-review-kit/REVIEW/`                                   | Budgeted cross-session evidence in the `/work` volume                  |
-| Final report (`report`); issue drafts when requested                                                                                                                       | `/exchange/from_copilot/REVIEW.md`; use `REVIEW-issues.md` for issue drafts | User-facing deliverables                                               |
-| User-provided context or a previous report                                                                                                                                 | `/exchange/to_copilot/`                                                     | Read-only input; copy inspected executable fixtures into owned scratch |
-| Worker working directories, temporary projects and `.ll` files (`tempfile`)                                                                                                | `/tmp/` or `TMPDIR`                                                         | Current process/session                                                |
-| `clients[].path`, case `source_file`, `project_root`, `adapter`                                                                                                            | Actual sandbox checkout/input path                                          | User-specified inputs; never assume host paths                         |
-| Copilot session/history files                                                                                                                                              | `/home/agent/.copilot/`                                                     | Separate Copilot Docker volume; not review evidence storage            |
+| Artifact                                                                                                                                                                   | Default sandbox location                                                    | Lifetime                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Kit instructions, scripts, schemas, examples, curated tests                                                                                                                | `/work/qdk/tools/compiler-review-kit/`                                      | Version-controlled source                                                         |
+| Compiler checkout (`repository`), `source/`, `library/`, `samples/`                                                                                                        | `/work/qdk/`                                                                | Existing `/work` volume                                                           |
+| Default consumer scenario source, `microsoft/qdk-chemistry`                                                                                                                | `/work/qdk-chemistry/`                                                      | Normally present in current sandbox images; source-only, not a build prerequisite |
+| Python environment (`venv`), including `bin/python` and `bin/qir-runner`                                                                                                   | `/opt/qdk-venv/`                                                            | Preinstalled in the sandbox image                                                 |
+| Configuration, generated cases, adapters, repro/variant scripts, generator output/seeds                                                                                    | `/tmp/compiler-review-kit/REVIEW/`                                          | Current session; the agent writes its config and fixtures here                    |
+| Runs, project snapshots, QIR, stage logs, oracle checks, exec/timing/variant results, reductions, attribution, draft scripts, extraction dumps/logs, rechecks (`work_dir`) | `/tmp/compiler-review-kit/REVIEW/`                                          | Disposable; save compact evidence before cleanup                                  |
+| Compiler worktrees, extraction worktrees, Cargo targets, native overlays, build logs and build lock (`build_dir`)                                                          | `/work/compiler-review-kit/build/`                                          | Reusable native build state in the `/work` volume                                 |
+| `evidence.json`, compact summaries, bundled findings/repros/seeds (`cache_dir` plus review name)                                                                           | `/work/cache/compiler-review-kit/REVIEW/`                                   | Budgeted cross-session evidence in the `/work` volume                             |
+| Final report (`report`); issue drafts when requested                                                                                                                       | `/exchange/from_copilot/REVIEW.md`; use `REVIEW-issues.md` for issue drafts | User-facing deliverables                                                          |
+| User-provided context or a previous report                                                                                                                                 | `/exchange/to_copilot/`                                                     | Read-only input; copy inspected executable fixtures into owned scratch            |
+| Worker working directories, temporary projects and `.ll` files (`tempfile`)                                                                                                | `/tmp/` or `TMPDIR`                                                         | Current process/session                                                           |
+| `clients[].path`, case `source_file`, `project_root`, `adapter`                                                                                                            | Actual sandbox checkout/input path                                          | User-specified inputs; never assume host paths                                    |
+| Copilot session/history files                                                                                                                                              | `/home/agent/.copilot/`                                                     | Separate Copilot Docker volume; not review evidence storage                       |
 
 `build_dir` contains `worktrees/`, `extract/`, `cargo-target/`, `extract-target/`,
 and `builds/<SHA>-<mode>/`. Do not put it on `/tmp`: Cargo executables and native
@@ -107,25 +108,25 @@ The repository defaults to `/work/qdk`, even when the configuration is outside
 the checkout. All supplied relative paths resolve from the configuration file.
 Use path overrides only when the review requires a different owned location.
 
-| Optional field                 | Meaning/default                                                                                 |
-| ------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `previously_reviewed`          | Extra previous-candidate column, only for user-requested lost-fix tracking; omitted by default  |
-| `historical_reference`         | Additional explicitly labeled baseline                                                          |
-| `layers`                       | Intermediate heads of a PR stack, oldest first; run as columns `layer1`, `layer2`, ...          |
-| `issues`                       | Author/minimum-number sweep plus explicit issue includes; both open and closed issues           |
-| `clients`                      | Named local Git checkouts to investigate; no chemistry checkout is assumed                      |
-| `exclusions`                   | Case ID/origin/path globs, each with a reason                                                   |
-| `report`                       | Output path; defaults to `/exchange/from_copilot/<name>.md`                                     |
-| `profiles`                     | Base, Adaptive_RIF, Adaptive by default; Adaptive_RI only when requested                        |
-| `debug_validation`             | `none` by default; only when requested, `targeted` replays findings or `all` runs both modes    |
-| `keep_qir`                     | `false`: retain failure/uncertain QIR, discard uncomplicated successful QIR; `true` retains all |
-| `limits`                       | Stage timeouts, memory, concurrency, shots, seed                                                |
-| `name`                         | Review name for scratch/evidence; defaults to the explicit report's stem, or `review`           |
-| `cache_dir`, `cache_budget_mb` | Evidence cache root; `$REVIEW_KIT_CACHE` or `/work/cache/compiler-review-kit`; 50 MiB           |
-| `venv`                         | Python environment; `/opt/qdk-venv`                                                             |
-| `work_dir`                     | Temporary review data; `/tmp/compiler-review-kit/<name>` (honors `TMPDIR`)                      |
-| `build_dir`                    | Executable build state; `/work/compiler-review-kit/build`                                       |
-| `repository`                   | Compiler checkout; `/work/qdk`                                                                  |
+| Optional field                 | Meaning/default                                                                                    |
+| ------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `previously_reviewed`          | Extra previous-candidate column, only for user-requested lost-fix tracking; omitted by default     |
+| `historical_reference`         | Additional explicitly labeled baseline                                                             |
+| `layers`                       | Intermediate heads of a PR stack, oldest first; run as columns `layer1`, `layer2`, ...             |
+| `issues`                       | Author/minimum-number sweep plus explicit issue includes; both open and closed issues              |
+| `clients`                      | Named local Git checkouts; reviewer records the available chemistry clone as a source of scenarios |
+| `exclusions`                   | Case ID/origin/path globs, each with a reason                                                      |
+| `report`                       | Output path; defaults to `/exchange/from_copilot/<name>.md`                                        |
+| `profiles`                     | Base, Adaptive_RIF, Adaptive by default; Adaptive_RI only when requested                           |
+| `debug_validation`             | `none` by default; only when requested, `targeted` replays findings or `all` runs both modes       |
+| `keep_qir`                     | `false`: retain failure/uncertain QIR, discard uncomplicated successful QIR; `true` retains all    |
+| `limits`                       | Stage timeouts, memory, concurrency, shots, seed                                                   |
+| `name`                         | Review name for scratch/evidence; defaults to the explicit report's stem, or `review`              |
+| `cache_dir`, `cache_budget_mb` | Evidence cache root; `$REVIEW_KIT_CACHE` or `/work/cache/compiler-review-kit`; 50 MiB              |
+| `venv`                         | Python environment; `/opt/qdk-venv`                                                                |
+| `work_dir`                     | Temporary review data; `/tmp/compiler-review-kit/<name>` (honors `TMPDIR`)                         |
+| `build_dir`                    | Executable build state; `/work/compiler-review-kit/build`                                          |
+| `repository`                   | Compiler checkout; `/work/qdk`                                                                     |
 
 Defaults: two concurrent cases; compile 300 seconds; simulator and runner 120
 seconds each; 16 GiB address-space limit per worker; eight shots; seed 1.
@@ -564,6 +565,11 @@ bundle. GitHub dependencies remain remote; pin them to immutable revisions and
 document them. QDK GitHub library dependencies use the build's own checkout through
 `QDK_LIB_OVERRIDE_MICROSOFT_QDK`; that intentional override is recorded in each build.
 Do not describe a manually filtered client project as full-project compatibility.
+The reviewer checks `/work/qdk-chemistry` by default; the CLI does not clone or
+build clients automatically. Follow the
+[chemistry guidance](reviewer.md#qdk-chemistry-scenarios) for source-derived
+callable-API cases on Adaptive_RIF and Adaptive, without requiring the chemistry
+package to build.
 
 Oracle policies:
 
