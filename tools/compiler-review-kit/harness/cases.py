@@ -182,12 +182,12 @@ def case_identity(case, projects=None):
 def read_run_cases(run):
     run = Path(run)
     cases = read_case_manifest(run / "cases.json")
-    expected = read_json(run / "manifest.json").get("case_identities", {})
-    if expected and set(expected) != {case["id"] for case in cases}:
+    expected = read_json(run / "manifest.json")["case_identities"]
+    if set(expected) != {case["id"] for case in cases}:
         raise ReviewError(f"Frozen case manifest changed: {run}")
     projects = {}
     for case in cases:
-        if case["id"] in expected and case_identity(case, projects) != expected[case["id"]]:
+        if case_identity(case, projects) != expected[case["id"]]:
             raise ReviewError(f"Frozen inputs changed for {case['id']}: {run}")
     return cases
 

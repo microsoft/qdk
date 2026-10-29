@@ -11,10 +11,11 @@ import sys
 import time
 
 
-def measure(cases, profiles):
-    import qdk
-    from harness.worker import failure, load_case
+def measure(cases, profiles, build, memory_mb):
+    from harness.worker import cap_memory, failure, import_overlay, load_case
 
+    cap_memory(memory_mb)
+    qdk = import_overlay(build)
     results = {}
     for case in cases:
         rows = {}
@@ -47,7 +48,7 @@ def measure(cases, profiles):
 def main():
     job = json.load(sys.stdin)
     with contextlib.redirect_stdout(io.StringIO()):  # Q# Message output must not corrupt the JSON result
-        result = measure(job["cases"], job["profiles"])
+        result = measure(job["cases"], job["profiles"], job["build"], job["memory_mb"])
     print(json.dumps(result))
 
 

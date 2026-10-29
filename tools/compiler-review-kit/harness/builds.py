@@ -3,6 +3,7 @@
 
 """Pinned Linux native overlays; Python sources always match the native build."""
 
+from contextlib import contextmanager
 import fcntl
 import os
 from pathlib import Path
@@ -22,6 +23,14 @@ from harness.common import (
 )
 
 OFFLINE_MARKERS = ("--offline was specified", "you're using offline mode")
+
+
+@contextmanager
+def locked(path):
+    """Hold an exclusive advisory lock on a shared build-directory file."""
+    with Path(path).open("w") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        yield
 
 
 def offline_failure(log, sha, action):
@@ -80,8 +89,7 @@ def build_revision(config, sha, mode, tools):
     work = Path(config["build_dir"])
     work.mkdir(parents=True, exist_ok=True)
     identity = build_identity(tools)
-    with (work / "build.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with locked(work / "build.lock"):
         root = work / "builds" / f"{sha}-{mode}-{digest(identity)[:12]}"
         manifest = root / "manifest.json"
         if manifest.exists():

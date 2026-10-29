@@ -4,13 +4,12 @@
 """Discover sample candidates and snapshot issues without executing issue text."""
 
 from datetime import datetime, timezone
-import fcntl
 import json
 from pathlib import Path
 import re
 from urllib.parse import urlencode
 
-from harness.builds import checkout_revision
+from harness.builds import checkout_revision, locked
 from harness.common import ReviewError, command, git, read_json, write_json
 
 
@@ -34,8 +33,7 @@ def infer_entry(source):
 def discover_samples(config, output, revision="candidate"):
     work = Path(config["build_dir"])
     work.mkdir(parents=True, exist_ok=True)
-    with (work / "build.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with locked(work / "build.lock"):
         root = checkout_revision(config, config["refs"][revision])
     samples = root / "samples"
     cases, pending, project_files = [], [], set()

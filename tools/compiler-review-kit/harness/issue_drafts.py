@@ -188,7 +188,8 @@ def draft_issues(config, definitions, output, revisions=None, only=(), cached=Fa
     tools, builds = preflight(config), {}
     resolved = dict(config["refs"])
     for index, issue in enumerate(issues, 1):
-        script_text = render(issue, config["profiles"], config["limits"])
+        # Embed only explicit limits; defaults sized to this machine's parallel runs don't belong in a repro.
+        script_text = render(issue, config["profiles"], config["input"].get("limits"))
         path = scripts / f"{index:02d}_{issue['slug']}.py"
         path.write_text(script_text)
         wanted = issue.get("revisions") or default

@@ -71,8 +71,7 @@ QIR, which is run with qir-runner. Wrong outputs and panics are in bold.
 | Adaptive     | ...                                 | ...                   |
 | **Correct**  | `<expected>`                        | `<expected>`          |
 
-Add an Adaptive_RI row only if the user requested that profile. Use release builds
-unless the user requested debug.
+Rows and build modes follow the review's [defaults and opt-ins](reviewer.md#defaults-and-opt-ins).
 
 Messages:
 

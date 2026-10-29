@@ -46,7 +46,9 @@ def reproduction_status(stdout, exit_code):
         match = re.fullmatch(r"(NOT REPRODUCED|REPRODUCED)(?:[: ].*)?", line.strip())
         if match:
             return "not reproduced" if match.group(1) == "NOT REPRODUCED" else "reproduces"
-    return "not reproduced" if exit_code == 0 else f"exit {exit_code}"
+    if exit_code == 0:
+        return "not reproduced"
+    return exit_code if isinstance(exit_code, str) else f"exit {exit_code}"
 
 
 def resolve_targets(config, roles=None, refs=None):
@@ -82,7 +84,7 @@ def exec_script(config, script, targets, mode, output_dir, timeout, args=(), bui
         env = worker_environment(config, build)
         observed = supervise([python, str(script), *args], cwd=script.parent, env=env, timeout=timeout)
         stdout, stderr = observed["stdout"], observed["stderr"]
-        status = "timeout" if observed["status"] == "timeout" else observed["returncode"]
+        status = observed["status"] if observed["status"] in ("timeout", "resource_exhausted") else observed["returncode"]
         panics = parse_panics(stderr)
         for panic in panics:
             try:

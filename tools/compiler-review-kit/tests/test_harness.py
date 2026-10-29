@@ -4,6 +4,7 @@
 """Fast self-tests; no compiler build, installed qdk, or network is required."""
 
 import ast
+import fcntl
 import json
 import io
 import os
@@ -27,8 +28,9 @@ from harness.cases import (  # noqa: E402
     bundle_cases, case_identity, load_cases, read_case_manifest, read_run_cases, snapshot_project, write_project,
 )
 from harness.common import (  # noqa: E402
-    DEFAULT_LIMITS, KIT, ReviewError, container_memory_mb, isolated, load_config, ordered_roles, read_json,
-    select_roles, sized_limits, supervise, tool_version, tree_digest, validate, write_json,
+    DEFAULT_LIMITS, KIT, ReviewError, available_cpus, container_memory_mb, file_digest, host_memory_mb, isolated,
+    load_config, ordered_roles, read_json, select_roles, sized_limits, supervise, tool_version, tree_digest, validate,
+    write_json,
 )
 from harness.diffscan import scan_diff_text  # noqa: E402
 from harness import evidence  # noqa: E402
@@ -173,22 +175,34 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(configs[1]["report"], "/exchange/from_copilot/second.md")
             self.assertEqual(configs[0]["build_dir"], configs[1]["build_dir"])
 
-    def test_worker_limits_fit_the_container(self):
+    def test_worker_limits_fit_cpus_and_memory(self):
         with tempfile.TemporaryDirectory() as directory:
-            limit = Path(directory) / "memory.max"
+            root = Path(directory)
+            limit = root / "memory.max"
             limit.write_text("max\n")
             self.assertIsNone(container_memory_mb(limit))
             limit.write_text(f"{8 * 1024 ** 3}\n")
             self.assertEqual(container_memory_mb(limit), 8192)
-        self.assertEqual(sized_limits({}, None), (DEFAULT_LIMITS, []))
-        limits, warnings = sized_limits({}, 40960)
+            (root / "meminfo").write_text("MemTotal:       65011712 kB\nMemFree:  1 kB\n")
+            self.assertEqual(host_memory_mb(root / "meminfo"), 63488)
+            quota = root / "cpu.max"
+            quota.write_text("max 100000\n")
+            unlimited = available_cpus(quota)
+            quota.write_text("250000 100000\n")
+            self.assertEqual(available_cpus(quota), min(unlimited, 2))
+        self.assertEqual(sized_limits({}, None, None), (DEFAULT_LIMITS, []))
+        self.assertEqual(sized_limits({}, None, 32)[0]["jobs"], 32)
+        # Memory, not CPUs, bounds parallelism: each worker keeps at least 4 GiB of address space.
+        limits, warnings = sized_limits({}, 65536, 32)
+        self.assertEqual((limits["jobs"], limits["memory_mb"], warnings), (15, 4232, []))
+        limits, warnings = sized_limits({}, 40960, 2)
         self.assertEqual((limits["jobs"], limits["memory_mb"], warnings), (2, 16384, []))
-        limits, warnings = sized_limits({}, 8192)
+        limits, warnings = sized_limits({}, 8192, 8)
         self.assertEqual((limits["jobs"], limits["memory_mb"], warnings), (1, 6144, []))
-        limits, warnings = sized_limits({}, 4096)
+        limits, warnings = sized_limits({}, 4096, 8)
         self.assertEqual((limits["jobs"], limits["memory_mb"]), (1, 2048))
         self.assertIn("resource_exhausted", warnings[0])
-        limits, warnings = sized_limits({"jobs": 4, "memory_mb": 16384}, 8192)
+        limits, warnings = sized_limits({"jobs": 4, "memory_mb": 16384}, 8192, 8)
         self.assertEqual((limits["jobs"], limits["memory_mb"]), (4, 16384))
         self.assertIn("OOM killer", warnings[0])
 
@@ -532,6 +546,7 @@ class HelperTests(unittest.TestCase):
             write_json(root / "manifest.json", {
                 "config": {"refs": {"reference": "old", "candidate": "new"}},
                 "mode": "release", "status": "failed", "skipped": [],
+                "case_identities": {CASE["id"]: case_identity(CASE)},
             })
             write_json(root / "cases.json", [CASE])
             (root / "results.jsonl").write_text("")
@@ -738,7 +753,8 @@ class ExecutionTests(unittest.TestCase):
             ("", 0, "not reproduced"),
             ("Traceback: failure\n", 1, "exit 1"),
             ("", -9, "exit -9"),
-            ("", "timeout", "exit timeout"),
+            ("", "timeout", "timeout"),
+            ("", "resource_exhausted", "resource_exhausted"),
             ("example: NOT REPRODUCED\n", 1, "exit 1"),
         ]
         for stdout, exit_code, expected in scenarios:
@@ -769,6 +785,21 @@ class ExecutionTests(unittest.TestCase):
             with patch("sys.stdout", output):
                 evidence.print_recheck(table, ["candidate"])
             self.assertIn("reproduces", output.getvalue())
+
+    def test_exec_reports_memory_exhaustion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / "repro.py"
+            script.write_text("import os, signal\nos.kill(os.getpid(), signal.SIGKILL)\n")
+            (root / "venv/bin").mkdir(parents=True)
+            (root / "venv/bin/python").symlink_to(sys.executable)
+            build = {"overlay": str(root), "worktree": str(root)}
+            with patch("harness.execution.preflight", return_value={}), patch(
+                "harness.execution.build_revision", return_value=build
+            ):
+                rows = exec_script({"venv": str(root / "venv")}, script,
+                                   [("candidate", "a" * 40)], "release", root / "exec", 30)
+        self.assertEqual((rows[0]["exit"], rows[0]["reproduction"]), ("resource_exhausted", "resource_exhausted"))
 
     def test_timeout_terminates_the_process_group(self):
         code = ("import subprocess,sys,time\n"
@@ -1168,6 +1199,9 @@ class BuildFreshnessTests(unittest.TestCase):
             def cargo(args, *, cwd, env, stdout, stderr):
                 self.assertEqual(Path(cwd), worktree)
                 self.assertEqual(Path(env["CARGO_TARGET_DIR"]), builds / "extract-target")
+                # Another extraction must wait while this one has its worktree instrumented.
+                with (builds / "extract.lock").open("w") as other, self.assertRaises(BlockingIOError):
+                    fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 dump = Path(env["REVIEW_DUMP"])
                 self.assertEqual(dump.parent, scratch / "extract")
                 dump.write_text(json.dumps(record) + "\n")
@@ -1405,6 +1439,28 @@ class TimingTests(unittest.TestCase):
                 print_timing(saved)
             self.assertIn("no performance ratios", output.getvalue())
 
+    def test_timing_worker_caps_memory_and_verifies_the_overlay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "qdk").mkdir()
+            (root / "qdk/__init__.py").write_text(
+                "import os, resource\n"
+                "open(os.environ['LIMIT_FILE'], 'w').write(str(resource.getrlimit(resource.RLIMIT_AS)[0]))\n"
+            )
+            native = root / "qdk/_native.py"
+            native.write_text("")
+            build = {"overlay": str(root), "native_path": str(native), "native_digest": file_digest(native)}
+            env = dict(os.environ, PYTHONPATH=str(root), LIMIT_FILE=str(root / "limit"))
+            worker_command = [sys.executable, str(KIT / "harness/timing_worker.py")]
+            payload = {"cases": [], "profiles": ["Base"], "build": build, "memory_mb": 4096}
+            result = isolated(worker_command, payload=payload, env=env, cwd=directory, timeout=30)
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(int((root / "limit").read_text()), 4096 * 1024 * 1024)
+            stale = payload | {"build": build | {"native_digest": "other"}}
+            result = isolated(worker_command, payload=stale, env=env, cwd=directory, timeout=30)
+            self.assertEqual(result["status"], "infrastructure_error")
+            self.assertIn("digest differs", result["stderr"])
+
 
 
 class VariantTests(unittest.TestCase):
@@ -1537,7 +1593,7 @@ class IssueDraftTests(unittest.TestCase):
                     ("error", 1, "exit 1"), ("absent", 0, "not reproduced"),
                 )
             ]
-            config = {"work_dir": str(root / "work"),
+            config = {"work_dir": str(root / "work"), "input": {},
                       "limits": DEFAULT_LIMITS,
                       "profiles": ["Base", "Adaptive_RIF", "Adaptive"],
                       "refs": {row["label"]: row["sha"] for row in rows}}

@@ -124,15 +124,15 @@ Use path overrides only when the review requires a different owned location.
 
 | Optional field                 | Meaning/default                                                                                    |
 | ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `previously_reviewed`          | Extra previous-candidate column, only for user-requested lost-fix tracking; omitted by default     |
+| `previously_reviewed`          | Extra previous-candidate column for opt-in lost-fix tracking                                       |
 | `historical_reference`         | Additional explicitly labeled baseline                                                             |
 | `layers`                       | Intermediate heads of a PR stack, oldest first; run as columns `layer1`, `layer2`, ...             |
 | `issues`                       | Author/minimum-number sweep plus explicit issue includes; both open and closed issues              |
 | `clients`                      | Named local Git checkouts; reviewer records the available chemistry clone as a source of scenarios |
 | `exclusions`                   | Case ID/origin/path globs, each with a reason                                                      |
 | `report`                       | Output path; defaults to `/exchange/from_copilot/<name>.md`                                        |
-| `profiles`                     | Base, Adaptive_RIF, Adaptive by default; Adaptive_RI only when requested                           |
-| `debug_validation`             | `none` by default; only when requested, `targeted` replays findings or `all` runs both modes       |
+| `profiles`                     | Base, Adaptive_RIF, Adaptive by default; Adaptive_RI is opt-in                                     |
+| `debug_validation`             | `none` by default; opt-in `targeted` replays findings, `all` runs both modes                       |
 | `keep_qir`                     | `false`: retain failure/uncertain QIR, discard uncomplicated successful QIR; `true` retains all    |
 | `limits`                       | Stage timeouts, memory, concurrency, shots, seed; defaults fit the container's memory limit        |
 | `name`                         | Review name for scratch/evidence; defaults to the explicit report's stem, or `review`              |
@@ -142,14 +142,18 @@ Use path overrides only when the review requires a different owned location.
 | `build_dir`                    | Executable build state; `/work/compiler-review-kit/build`                                          |
 | `repository`                   | Compiler checkout; `/work/qdk`                                                                     |
 
-Defaults: two concurrent cases; compile 300 seconds; simulator and runner 120
-seconds each; 16 GiB address-space limit per worker; eight shots; seed 1.
-When the container has a memory limit (cgroup v2 `memory.max`), unspecified
-`jobs` and `memory_mb` shrink so all workers' caps fit within it, less 2 GiB of
-headroom, with at least 4 GiB per worker where possible. A capped worker then
-fails alone instead of the OOM killer stopping an arbitrary process. `check`
-warns when explicit or small limits cannot fit. Memory limits also affect
-subprocesses spawned by the worker.
+Defaults: one concurrent case per available CPU (affinity and cgroup quota);
+compile 300 seconds; simulator and runner 120 seconds each; 16 GiB address-space
+limit per worker; eight shots; seed 1. Unspecified `jobs` and `memory_mb` then
+shrink so all workers' caps fit in memory (the container's cgroup v2 limit, or
+the machine's total when unlimited) less 2 GiB of headroom, keeping at least
+4 GiB per worker where possible: memory, not CPUs, usually bounds parallelism.
+A capped worker then fails alone instead of the OOM killer stopping an arbitrary
+process. `check` prints the detected `resources` and warns when explicit or
+small limits cannot fit. Memory limits also affect subprocesses spawned by the
+worker. For a few very large cases, set `limits.jobs` to 1 and a larger
+`memory_mb`. Repro scripts embed only explicitly configured limits, not these
+machine-sized defaults.
 Timeouts are evidence of incomplete execution, not proof of a compiler bug.
 Likewise, `resource_exhausted` (an allocation failure, `MemoryError`, or a
 SIGKILL from the OOM killer) is inconclusive, never a compiler crash or a
@@ -189,8 +193,8 @@ packages. Content identities exclude temporary paths and provenance notes.
 Exports, saved evidence, reports, and comparisons use these frozen inputs, not
 the original manifest or configuration. Changed frozen inputs are an error.
 
-Release is the only default build mode. Do not build debug unless the user asks,
-including for assertion-sensitive findings. If the user requests targeted debug
+Release is the only default build mode; debug and Adaptive_RI follow the
+[opt-in policy](reviewer.md#defaults-and-opt-ins). For targeted debug
 validation, set `debug_validation=targeted`, assemble a findings manifest, and
 explicitly replay it:
 
@@ -198,14 +202,12 @@ explicitly replay it:
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py run /work/compiler-review-kit/scratch/REVIEW/review.json /work/compiler-review-kit/scratch/REVIEW/findings.json --mode debug
 ```
 
-Only when the user requests debug validation of every case,
-`debug_validation=all` runs release and debug for every selected case.
-Adaptive_RI is also opt-in: add it to the configuration's `profiles` only when
-requested. Existing support for all four profiles remains available.
+`debug_validation=all` runs release and debug for every selected case. To test
+Adaptive_RI, add it to the configuration's `profiles`; all four profiles remain
+supported.
 
 Generate an **evidence draft** from a run, then complete it using the report
 template. The generated draft does not establish root causes or PR attribution.
-Individual-commit attribution is not required unless requested.
 Self-checking scripts are generated only for cases with an explicit non-Unit
 deterministic expectation; other cases retain their evidence and need an oracle
 before publication. Report and issue repros use one renderer, embedding the same
@@ -236,8 +238,8 @@ look stalled; `results.jsonl` is rewritten in manifest order when the run ends.
 candidate failures by normalized signature (numbers replaced by `N`) with their
 reference outcomes, lists flagged regressions, and checks the **profile hierarchy**:
 a program validated on a lower tested profile should not fail on a higher one.
-The full supported hierarchy is Base ⊂ Adaptive_RI ⊂ Adaptive_RIF ⊂ Adaptive;
-Adaptive_RI is not tested by default. Violations new at the candidate are listed, and all
+The full supported hierarchy is Base ⊂ Adaptive_RI ⊂ Adaptive_RIF ⊂ Adaptive.
+Violations new at the candidate are listed, and all
 candidate violations are grouped by the higher profile's failure signature. It also lists:
 
 - **loud → silent**: the reference panicked, crashed or rejected the program and the
@@ -246,8 +248,7 @@ candidate violations are grouped by the higher profile's failure signature. It a
 - **intermediate-layer hazards**: a
   `layerN` that breaks a program both endpoints get right (or silences a loud
   reference failure). Stacked PRs merge one at a time, so these ship if a layer lands alone.
-- **lost fixes** against `previously_reviewed`, only when that optional column was
-  configured in response to a user request. Do not investigate them by default.
+- **lost fixes** against `previously_reviewed`, when that opt-in column is configured.
 - **the candidate's own extracted test programs that fail end to end**: their cargo
   tests pass, so the test helpers skip part of the user pipeline.
 - **identical QIR** at both endpoints, which is the only evidence for observe-only cases.
@@ -258,8 +259,8 @@ Compile-time medians come from concurrent sweeps and are only a hint.
 
 `compare` diffs two runs case by case (candidate outcomes by default; `--side
 reference` compares reference columns). Use it after every PR update: rerun the
-same manifests and compare reference-relative regressions and fixes. Investigating
-**lost fixes** is opt-in. `--select` terms (`a=STATUS`, `b!=STATUS`, ...) must all
+same manifests and compare reference-relative regressions and fixes.
+`--select` terms (`a=STATUS`, `b!=STATUS`, ...) must all
 hold for one shared profile; `--output` exports the selected frozen cases from run
 B into a portable bundle. Comparisons reject changed source, dependencies,
 adapters, or execution settings under the same ID; different profile coverage
@@ -271,7 +272,7 @@ A change from a loud failure to a wrong result is labelled `worse (silent)`.
 identical inputs are merged; conflicting definitions are an error, including
 during cached rechecks.
 
-Only when the user requests lost-fix analysis, configure `previously_reviewed`
+For opt-in lost-fix analysis, configure `previously_reviewed`
 or select differences between earlier and current candidate runs:
 
 ```bash
@@ -295,7 +296,8 @@ each profile's values (wrong ones in `**bold**`), or the failure kind and messag
 ```
 
 Each revision's overlay times context creation, loading (`eval`/adapter) and
-`compile` separately, in one process per sweep. Sweeps are interleaved and rotated
+`compile` separately, in one process per sweep, under the same memory cap and
+overlay verification as run workers. Sweeps are interleaved and rotated
 across repeats so no revision always runs first or under a load spike. The output
 keeps every repeat, including failed case/profile records, in `timing.json`.
 Medians are not rounded before arithmetic; each series includes its range and
@@ -325,8 +327,7 @@ The matrix marks wrong results and lists
 the variants whose outcome differs between revisions. Use it to narrow a finding to
 the one ingredient that matters (see `tools/compiler-review-kit/examples/variants.py`).
 Profile selection uses `--profiles`, then an explicit configuration `profiles`,
-then the variants module's `PROFILES`, then Base/Adaptive_RIF/Adaptive. Include
-Adaptive_RI only when the user asks.
+then the variants module's `PROFILES`, then Base/Adaptive_RIF/Adaptive.
 Keep definitions self-contained and construct QDK objects inside `build(ctx)`,
 not at module import time. Printed `expected` values are display checks; curate a
 typed deterministic case before treating a variant as an adjudicated finding.
@@ -358,7 +359,9 @@ In an owned worktree, this inserts a dump call at the start of the crate's test
 helpers that take an explicit expected value (bundled hooks:
 `qsc_fir_transforms` `check_semantic_equivalence_impl` and `check_qir_int_result`),
 runs `cargo test -p CRATE --lib` with an isolated target directory, and converts the
-dump into deterministic cases. IDs hash the source, so manifests from several
+dump into deterministic cases. Concurrent extractions take turns on
+`build_dir/extract.lock`, since they share worktrees and the target directory.
+IDs hash the source, so manifests from several
 revisions can be merged without duplicates (removed tests keep their programs).
 When a helper is renamed, extraction fails rather than producing an empty corpus;
 supply `--hooks FILE` (same JSON shape as `DEFAULT_HOOKS` in `harness/extraction.py`).
@@ -410,8 +413,8 @@ and `COLUMNS` (column labels). Each repro is rendered from
 `templates/issue_repro.py.template`, executed with `exec` at every revision, and the
 issue's Outputs table, messages and panic links come from those executions. The
 scripts exit 0 when the bug no longer reproduces, and 1 when it reproduces.
-Generated scripts use the configuration's profiles, omitting Adaptive_RI by
-default. If no tested row reproduces but an affected row was omitted, the script
+Generated scripts use the configuration's profiles. If no tested row reproduces
+but an affected row was omitted, the script
 exits 2 with an inconclusive result, not a claim that the bug is fixed.
 See `issue-template.md` for the format.
 `--cached` and reuse during `--only` require matching script contents, resolved
@@ -502,10 +505,9 @@ whole-repository overlap searches.
 ### Attribution and reduction
 
 For a PR stack, put intermediate PR heads in `layers` and compare those columns
-to identify introducing/fixing PRs. Record which PR each layer represents. Do not
-search individual commits by default.
+to identify introducing/fixing PRs. Record which PR each layer represents.
 
-Only if the user requests individual-commit attribution:
+For opt-in individual-commit attribution:
 
 ```bash
 /opt/qdk-venv/bin/python tools/compiler-review-kit/review.py attribute /work/compiler-review-kit/scratch/REVIEW/review.json \
@@ -603,8 +605,7 @@ Oracle policies:
 
 Typed values distinguish `result`, `bool`, `int`, `double`, `array`, `tuple`,
 `unit`, and (simulator-only) `string`. Doubles use Python's canonical `float.hex()`
-spelling. These are serialization details, not a request to investigate Q# string
-literals, signed zero, NaN, or infinities. Pure `Unit` return values
+spelling. These are serialization details, not opt-in probe families. Pure `Unit` return values
 never establish semantic equivalence. The kit does not compare messages, quantum
 states, or side effects as an oracle.
 
@@ -696,7 +697,7 @@ arbitrary branch correctness. Supply an owned config with the revisions you
 intend to validate if those defaults are unsuitable.
 Fixtures cover the default profiles, typed/nested finite numeric outputs, stochastic
 observations, callable arguments, and separate local project dependencies.
-Only when debug is requested, `tests/smoke.py --mode debug` exercises debug builds.
+`tests/smoke.py --mode debug` exercises debug builds.
 The smoke test asserts the expected
 profile/status matrix and exact shot counts, rather than accepting exit zero alone.
 `statecheck` covers only its explicitly supported premeasurement subset; no

@@ -8,12 +8,19 @@ or an archived corpus.
 Run inside the QDK Copilot sandbox, not on the host: the review writes and
 executes arbitrary Python, and the kit's workers are not a security sandbox.
 
-Default budget: release builds, Base/Adaptive_RIF/Adaptive, and whole-change
-comparison. Do not build debug, test Adaptive_RI, or narrow findings to individual
-commits unless the user asks. For a PR stack, do narrow findings to the responsible
-individual PRs. Lost-fix tracking is also opt-in. Do not spend default review
-coverage on Q# string literals, signed zero, NaN, or infinities; ordinary finite
-numeric behavior remains relevant where it affects the changed mechanism.
+## Defaults and opt-ins
+
+This table is the review's budget policy; other files refer to it rather than
+restating it. Enable an opt-in only when the user asks for it, and record that
+request in subagent briefs.
+
+| Area           | Default                                                             | Opt-in, only on request                                                         |
+| -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Build mode     | Release, even for assertion-sensitive findings                      | Debug: `--mode debug`, `debug_validation` `targeted` or `all`                   |
+| Profiles       | Base, Adaptive_RIF, Adaptive                                        | Adaptive_RI; never infer its results from Adaptive_RIF                          |
+| Attribution    | Whole change; for a PR stack, the responsible PR via `layers`       | Individual commits (`review.py attribute`)                                      |
+| Earlier work   | Regressions and fixes against `reference`                           | Lost fixes: fixed by an earlier candidate, broken again (`previously_reviewed`) |
+| Probe families | Behavior of the changed mechanism, including ordinary finite values | Q# string literals, signed zero, NaN, infinities                                |
 
 ## Establish scope and prerequisites
 
@@ -57,8 +64,8 @@ Do not ask the user to supply a collection of executable paths.
 
 `reference` defines regression/fix classification. `historical_reference` is an
 additional labeled comparison. `previously_reviewed` identifies already-reviewed
-work for explicitly requested lost-fix tracking, not a replacement baseline.
-Do not configure that extra run column by default. Inspect merge bases, production diffs, commit
+work for opt-in lost-fix tracking, not a replacement baseline.
+Inspect merge bases, production diffs, commit
 messages, tests, and relevant PR discussions. If previous work was rebased, use
 `git range-diff` to map the stacks. Do not claim every rewritten SHA is new work.
 Ask if the intended comparison remains ambiguous.
@@ -67,10 +74,8 @@ When a PR is updated during a review, first check whether the new head's tree
 equals a reviewed tree (`git diff --quiet OLD NEW`); identical trees need no new
 review. Otherwise rerun the _same_ manifests at the new candidate and
 `review.py compare` against the previous candidate's runs. Focus on regressions
-against the reference and new fixes. Do not investigate **lost fixes** (fixed by
-an earlier candidate, broken again; not regressions against the reference) unless
-the user requests them. Only for that request, retain programs from tests removed
-by force-pushes and compare earlier candidates specifically for lost fixes.
+against the reference and new fixes. For opt-in lost-fix analysis, also retain
+programs from tests removed by force-pushes and compare earlier candidates.
 Name the compared candidates explicitly in the report.
 
 If the candidate is a local composition (for example a stacked PR merged onto its
@@ -92,7 +97,7 @@ At the start of an updated review, run `review.py recheck` with the previous
 review's name: it reruns that review's cached cases and repro scripts, or, if the
 cache was wiped, the repro scripts embedded in the previous report. Use its output
 for the status of earlier unresolved findings rather than reconstructing old
-probes; do not launch a separate lost-fix investigation unless requested.
+probes.
 
 Default scope: compiler/evaluator panics and process crashes; wrong answers,
 invalid generated QIR and newly rejected valid programs; logical errors in the
@@ -197,8 +202,7 @@ and argument-layout variants when relevant to the changed mechanism.
 
 Chemistry commonly targets Adaptive_RI/Adaptive_RIF. Exercise the same
 chemistry-derived adapters/inputs on **Adaptive_RIF and Adaptive**, even if the client
-normally uses the lower profile. Adaptive_RI remains opt-in at the user's
-request; include Base only for compatible scenarios.
+normally uses the lower profile; include Base only for compatible scenarios.
 
 Prioritize findings that affect these usage patterns, but distinguish
 chemistry-source-derived compiler repros from demonstrated full-client impact.
@@ -255,11 +259,8 @@ the search: compose neighboring shapes rather than just replaying that repro.
 
 ## Execute and interpret
 
-Use the shared harness rather than inventing another runner. Use release builds
-and Base, Adaptive_RIF, and Adaptive by default. Do not make debug builds, even for
-assertion-sensitive findings, unless the user requests them. Likewise, only add
-Adaptive_RI when requested; do not infer untested results from Adaptive_RIF.
-Only set `debug_validation=targeted` or `all` in response to a user request.
+Use the shared harness rather than inventing another runner, with the
+[default build mode and profiles](#defaults-and-opt-ins).
 Unavailable requested profiles are a coverage/compatibility question, never an
 implicit pass.
 
@@ -297,7 +298,6 @@ section, not only the flagged regressions:
 - **Loud → silent** cases (a reference panic or rejection that becomes a wrong result)
   are not regression verdicts, but each one is a miscompile that stopped announcing itself.
 - **Intermediate-layer hazards** need their own report section.
-  Investigate/report **lost fixes** only if the user requested that analysis.
 - **Extracted test programs that fail end to end** mean the PR's tests check a different
   pipeline than users run.
 - **Compile-time outliers** must be confirmed with `review.py timing` (isolated,
@@ -334,13 +334,13 @@ with `review.py variants` at both endpoints; include the variant table in the fi
 For a stack, identify introducing/fixing PRs by replaying the finding at its PR
 boundaries using `layers`. Check all relevant boundaries: a later PR can repair an
 earlier PR's failure. For a single PR/change, stop at the reference/candidate
-comparison unless the user asks for more detailed attribution.
+comparison.
 
-Only when the user requests individual-commit attribution, use `review.py attribute`
+For opt-in individual-commit attribution, use `review.py attribute`
 or selected intermediate commit builds. Confirm behavior on the actual parent,
 not just the preceding row of a topological matrix. Non-monotonic results and
-merges invalidate naive bisection. If lost-fix analysis was requested, establish
-it on the current stack at the requested granularity, not by assuming a dropped
+merges invalidate naive bisection. Establish opt-in lost-fix analysis
+on the current stack at the requested granularity, not by assuming a dropped
 commit caused it. Report incomplete attribution at that granularity explicitly.
 
 Classify with evidence:
@@ -366,7 +366,7 @@ Generate an evidence draft if useful, then complete `report-template.md` at the
 configured report path. Each unresolved issue needs inline runnable Q# and Python,
 expected and actual output, affected profiles/build modes, exact endpoint SHAs,
 issue relationship, responsible PR for stacks, and explicit configured-client
-impact. Add individual-commit attribution only if requested. Minimize
+impact. Minimize
 project/API cases or provide an honestly labeled dependency bundle; do not claim an
 absolute local project path is a self-contained repro.
 
@@ -386,11 +386,11 @@ to draft issues for filing, follow `issue-template.md` and generate them with
 that already exist, and a meta-issue summary. Draft issues for non-regressions as
 well as regressions when asked; say which is which.
 
-Record native suites, sample/issue/generator/client coverage, requested debug validation,
+Record native suites, sample/issue/generator/client coverage, any opt-ins used,
 exclusions, missing profiles/tools and unresolved uncertainty. Include an issue
 status table separating repro, fixed, partial, newly accepted, unsupported,
 no-runnable-repro, and not tested. For updated reviews, add the "Changes since the
-previous review" section from the template, and "Lost fixes" only if requested. For a follow-up PR
+previous review" section from the template, plus "Lost fixes" for that opt-in. For a follow-up PR
 reviewed on top of the candidate, add a dated update section at the top rather than
 rewriting the earlier findings.
 

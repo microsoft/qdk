@@ -13,8 +13,9 @@ for the same objective or make agents share mutable case/output directories.
 - Known findings and issue candidates: `<context; not conclusions to assume>`
 - Owned case/output directory: `<absolute path inside the review's scratch, e.g. /work/compiler-review-kit/scratch/REVIEW/AGENT>`
 - Pinned run config and build locations: `<paths supplied by lead>`
-- Profiles/build modes and exclusions: `<release; Base/Adaptive_RIF/Adaptive unless user requested otherwise; exclusions with reasons>`
-- Attribution scope: `<responsible PR for stacks; individual commits only if user requested>`
+- Opt-ins the user requested ([policy](reviewer.md#defaults-and-opt-ins)): `<none, or e.g. debug, Adaptive_RI, individual commits, lost fixes>`
+- Profiles/build modes and exclusions: `<defaults plus recorded opt-ins; exclusions with reasons>`
+- Attribution scope: `<responsible PR for stacks, or individual commits if opted in>`
 - Permissions: `<normally no production edits, commits, GitHub writes, or nesting>`
 
 ## Procedure
@@ -46,13 +47,10 @@ validated independently. Pure Unit outputs and QIR text differences are not
 semantic evidence. Check simulator/compiler/runner stages separately. Distinguish
 native panics, signals, runner/parser failures, diagnostics, and timeouts.
 
-Minimize findings, preserve reference behavior, and test the assigned profiles in
-release mode. Only build debug or test Adaptive_RI when the lead's brief records
-the user's request. Narrow stack findings to PRs, not individual commits unless
-requested. Matching panic sites do not prove duplicate
+Minimize findings and preserve reference behavior. Apply the
+[defaults](reviewer.md#defaults-and-opt-ins), enabling only the opt-ins this brief
+records. Matching panic sites do not prove duplicate
 root causes. Report new triggers even if the underlying issue is known.
-Do not investigate lost fixes unless the brief records the user's request.
-Do not add string-literal, signed-zero, NaN, or infinity probe families.
 
 Communicate scope changes/blockers to the lead rather than expanding to unrelated
 subsystems. Do not re-investigate another reviewer's assigned area. Do not modify
@@ -68,7 +66,6 @@ For each finding provide:
 - Issue relationship: original repro, new trigger, suspected duplicate, or new bug.
 - Suspected root cause and supporting source locations.
 - PR attribution evidence for stacks; intermediate PR heads still needing checks.
-  Include individual-commit attribution only when requested.
 - Configured-client impact: demonstrated, likely with rationale, or untested.
 
 Also return tested hypotheses that did not yield findings, exact coverage and

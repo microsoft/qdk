@@ -147,28 +147,53 @@ def container_memory_mb(path="/sys/fs/cgroup/memory.max"):
     return int(text) // (1024 * 1024) if text.isdigit() else None
 
 
-def sized_limits(requested, container_mb):
-    """Fit worker address-space caps inside the container so RLIMIT_AS trips before the OOM killer.
+def host_memory_mb(path="/proc/meminfo"):
+    """Total machine (or VM) memory in MiB, or None when unknown."""
+    try:
+        for line in Path(path).read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
 
-    The OOM killer picks its victim arbitrarily (possibly the controller or Copilot itself);
-    a capped worker fails alone and is reported as resource exhaustion.
+
+def available_cpus(path="/sys/fs/cgroup/cpu.max"):
+    """CPUs this process may use: its affinity, reduced by a cgroup v2 CPU quota."""
+    count = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
+    try:
+        quota, period = Path(path).read_text().split()
+        if quota != "max":
+            count = min(count or 1, max(1, int(quota) // int(period)))
+    except (OSError, ValueError):
+        pass
+    return count
+
+
+def sized_limits(requested, memory_mb, cpus):
+    """Default to one job per CPU, then fit worker address-space caps inside memory.
+
+    RLIMIT_AS then trips before the OOM killer, which picks its victim arbitrarily (possibly
+    the controller or Copilot itself); a capped worker fails alone as resource exhaustion.
     """
     limits = DEFAULT_LIMITS | requested
-    if container_mb is None:
+    if "jobs" not in requested and cpus:
+        limits["jobs"] = cpus
+    if memory_mb is None:
         return limits, []
-    budget = max(256, container_mb - MEMORY_HEADROOM_MB)
+    budget = max(256, memory_mb - MEMORY_HEADROOM_MB)
     if "jobs" not in requested:
         limits["jobs"] = max(1, min(limits["jobs"], budget // WORKER_FLOOR_MB))
     if "memory_mb" not in requested:
         limits["memory_mb"] = max(256, min(limits["memory_mb"], budget // limits["jobs"]))
     if limits["jobs"] * limits["memory_mb"] > budget:
         return limits, [
-            f"{limits['jobs']} jobs x {limits['memory_mb']} MiB exceeds the container's {container_mb} MiB "
+            f"{limits['jobs']} jobs x {limits['memory_mb']} MiB exceeds the available {memory_mb} MiB "
             f"less {MEMORY_HEADROOM_MB} MiB headroom; the OOM killer may stop arbitrary processes."
         ]
     if limits["memory_mb"] < WORKER_FLOOR_MB:
         return limits, [
-            f"The container's {container_mb} MiB allows only {limits['memory_mb']} MiB per worker; "
+            f"The available {memory_mb} MiB allows only {limits['memory_mb']} MiB per worker; "
             "expect resource_exhausted results. Raise the sandbox memory limit if possible."
         ]
     return limits, []
@@ -196,8 +221,10 @@ def load_config(path):
         raise ReviewError("Cannot derive a review name from the report path; set name explicitly.")
     report = (base / raw.get("report", f"/exchange/from_copilot/{name}.md")).resolve()
     cache_root = raw.get("cache_dir") or os.environ.get("REVIEW_KIT_CACHE") or "/work/cache/compiler-review-kit"
-    container_mb = container_memory_mb()
-    limits, limit_warnings = sized_limits(raw.get("limits", {}), container_mb)
+    resources = {"cpus": available_cpus(), "memory_mb": container_memory_mb(), "memory_source": "cgroup"}
+    if resources["memory_mb"] is None:
+        resources.update(memory_mb=host_memory_mb(), memory_source="host")
+    limits, limit_warnings = sized_limits(raw.get("limits", {}), resources["memory_mb"], resources["cpus"])
     clients = []
     for client in raw.get("clients", []):
         root = (base / client["path"]).resolve()
@@ -227,7 +254,7 @@ def load_config(path):
         "keep_qir": raw.get("keep_qir", False),
         "limits": limits,
         "limit_warnings": limit_warnings,
-        "container_memory_mb": container_mb,
+        "resources": resources,
         "clients": clients,
         "checkout_status": git(repo, "status", "--porcelain"),
     }
@@ -288,7 +315,7 @@ def preflight(config):
             for key in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_WRAPPER")
             if key in os.environ
         },
-        "container_memory_mb": config.get("container_memory_mb"),
+        "resources": config.get("resources"),
     }
     return metadata
 

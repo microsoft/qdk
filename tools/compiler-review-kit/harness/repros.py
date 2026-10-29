@@ -20,7 +20,8 @@ def _runtime_source():
     functions = [
         common.file_digest, common.oom_kills, common.failure_status, common.supervise, common.isolated,
         builds.worker_environment, records.double, records.encode, records.counts, records.parse_output,
-        tables.format_value, worker.load_case, worker.failure, worker.execute, runner.stage, runner.run_case,
+        tables.format_value, worker.import_overlay, worker.cap_memory, worker.load_case, worker.failure,
+        worker.execute, runner.stage, runner.run_case,
     ]
     license_text = (KIT.parents[1] / "LICENSE.txt").read_text()
     notice = "\n".join("# " + line.strip() if line.strip() else "#" for line in license_text.splitlines())

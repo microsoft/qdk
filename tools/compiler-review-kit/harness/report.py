@@ -106,7 +106,7 @@ def generate_report(run, output, overwrite=False):
             if case["oracle"]["kind"] == "deterministic" and expected is not None and expected != {"type": "unit"}:
                 lines += [
                     "Run with the selected revision's pinned overlay using `review.py exec`:",
-                    "", "```python", source_repro(case, manifest["config"].get("limits")).rstrip(), "```", "",
+                    "", "```python", source_repro(case, manifest["config"]["input"].get("limits")).rstrip(), "```", "",
                 ]
             else:
                 lines += ["Add an explicit non-Unit deterministic expectation before generating a self-checking repro. "

@@ -50,9 +50,30 @@ def failure(error):
     return {"status": "infrastructure_error", "message": f"{name}: {error}", "traceback": traceback.format_exc()}
 
 
-def execute(job):
-    cap = job["memory_mb"] * 1024 * 1024
+def import_overlay(build):
+    """Import qdk and fail unless it, and its native module, are exactly the build's overlay."""
+    import qdk
+    import qdk._native
+
+    overlay = Path(build["overlay"]).resolve()
+    if Path(qdk.__file__).resolve() != overlay / "qdk/__init__.py":
+        raise ReviewError(f"Wrong qdk imported: {qdk.__file__}")
+    if Path(qdk._native.__file__).resolve() != Path(build.get(
+        "native_path", str(overlay / "qdk/_native.abi3.so")
+    )).resolve():
+        raise ReviewError(f"Wrong native module imported: {qdk._native.__file__}")
+    if file_digest(qdk._native.__file__) != build["native_digest"]:
+        raise ReviewError("Native module digest differs from the build manifest")
+    return qdk
+
+
+def cap_memory(memory_mb):
+    cap = memory_mb * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
+
+
+def execute(job):
+    cap_memory(job["memory_mb"])
     if job["stage"] == "runner":
         # qir-runner reads stdin only from 0.9.6; a file argument works with every release.
         proc = subprocess.run(
@@ -70,18 +91,7 @@ def execute(job):
             return result | {"status": "parser_error", "message": str(error)}
         return result | {"status": "ok", "values": values, "counts": counts(values)}
 
-    import qdk
-    import qdk._native
-
-    overlay = Path(job["build"]["overlay"]).resolve()
-    if Path(qdk.__file__).resolve() != overlay / "qdk/__init__.py":
-        raise ReviewError(f"Wrong qdk imported: {qdk.__file__}")
-    if Path(qdk._native.__file__).resolve() != Path(job["build"].get(
-        "native_path", str(overlay / "qdk/_native.abi3.so")
-    )).resolve():
-        raise ReviewError(f"Wrong native module imported: {qdk._native.__file__}")
-    if file_digest(qdk._native.__file__) != job["build"]["native_digest"]:
-        raise ReviewError("Native module digest differs from the build manifest")
+    qdk = import_overlay(job["build"])
     profile = "Unrestricted" if job["stage"] == "simulate" else job["profile"]
     if not hasattr(qdk.TargetProfile, profile):
         return {"status": "unsupported_profile", "message": f"Profile unavailable: {profile}"}

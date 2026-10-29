@@ -7,11 +7,9 @@ Candidate: `<full SHA>`
 Historical baseline: `<full SHA or none>`  
 Previously reviewed / rebase mapping: `<details or none>`
 
-Use release builds and Base/Adaptive_RIF/Adaptive by default. Include debug and
-Adaptive_RI results only when requested. Attribute stack findings to individual
-PRs; individual-commit attribution and lost-fix analysis are only required when
-requested. Omit string-literal and special floating-point investigations from
-default coverage.
+Follow the [defaults and opt-ins](reviewer.md#defaults-and-opt-ins): include
+opt-in results, columns, and sections only when the user requested them, and
+attribute stack findings to individual PRs.
 
 | Finding      | Classification                      | Profiles     | Responsible PR / requested commit        | Related issue              | Client impact           |
 | ------------ | ----------------------------------- | ------------ | ---------------------------------------- | -------------------------- | ----------------------- |
@@ -94,12 +92,12 @@ root cause. Include configured-client impact.
 
 ## 4. Lost fixes
 
-Only when the user requests lost-fix analysis; omit this section otherwise.
+Opt-in; omit this section otherwise.
 This covers behavior an earlier candidate fixed that the current
 candidate no longer fixes. These are not regressions against the reference. For
 each: the earlier and current behavior, the affected programs/issues, and the
 responsible PR established on the current stack (not inferred from which commit
-was dropped). Narrow to an individual commit only if the user requests it.
+was dropped).
 
 ## Issue status table
 
@@ -116,7 +114,7 @@ was dropped). Narrow to an individual commit only if the user requests it.
   the change's own tests.
 - Profile-hierarchy violations (lower profile validates, higher profile fails) at
   both endpoints, new ones called out.
-- Release coverage; debug and Adaptive_RI coverage only when requested.
+- Release coverage, plus any opt-in debug or Adaptive_RI coverage.
   Stochastic/Unit/state checks and oracle limitations.
 - Full client projects versus explicitly named subsets; client revisions/edits.
 - qdk-chemistry source revision and scenarios exercised on Adaptive_RIF/Adaptive,

@@ -105,7 +105,8 @@ def run_timing(config, cases_path, targets, profiles, repeats, mode, patterns=()
             for label, build in order:
                 result = isolated(
                     [str(Path(config["venv"]) / "bin/python"), str(KIT / "harness/timing_worker.py")],
-                    payload={"cases": cases, "profiles": profiles},
+                    payload={"cases": cases, "profiles": profiles, "build": build,
+                             "memory_mb": config["limits"]["memory_mb"]},
                     env=worker_environment(config, build), cwd=str(directory), timeout=limit,
                 )
                 sweeps[label].append(result)
@@ -115,8 +116,6 @@ def run_timing(config, cases_path, targets, profiles, repeats, mode, patterns=()
                 if result.get("status") != "ok":
                     raise ReviewError(f"Timing worker failed at {label}: {result.get('status')} "
                                       f"{(result.get('message') or result.get('stderr') or '')[-2000:]}")
-                if Path(result["qdk"]).resolve() != (Path(build["overlay"]) / "qdk/__init__.py").resolve():
-                    raise ReviewError(f"Timing worker imported the wrong qdk: {result['qdk']}")
                 print(f"[{repeat + 1}/{repeats}] {label}: {len(cases)} cases", flush=True)
         summary["status"] = "complete"
     except BaseException:

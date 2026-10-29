@@ -11,7 +11,7 @@ import re
 import struct
 import subprocess
 
-from harness.builds import offline_failure, refresh_timestamps
+from harness.builds import locked, offline_failure, refresh_timestamps
 from harness.common import ReviewError, git, read_json, write_json
 from harness.discovery import infer_entry
 from harness.records import double, validate_value
@@ -193,34 +193,38 @@ def extract_tests(config, sha, crate, output, hooks_path=None, test_filter=None)
     spec = specs[crate]
     work = Path(config["work_dir"])
     builds = Path(config["build_dir"])
+    builds.mkdir(parents=True, exist_ok=True)
     worktree = builds / "extract" / sha
-    if not worktree.exists():
-        worktree.parent.mkdir(parents=True, exist_ok=True)
-        git(config["repository"], "worktree", "add", "--detach", str(worktree), sha)
-    if git(worktree, "rev-parse", "HEAD") != sha or git(worktree, "status", "--porcelain"):
-        raise ReviewError(f"Extraction worktree is not a clean checkout of {sha}: {worktree}")
     dump = work / "extract" / f"{sha[:12]}-{crate}.jsonl"
     log = work / "extract" / f"{sha[:12]}-{crate}.log"
     dump.parent.mkdir(parents=True, exist_ok=True)
     dump.unlink(missing_ok=True)
-    try:
-        edited = instrument(worktree, spec)
-        refresh_timestamps(worktree)
-        env = dict(
-            os.environ,
-            REVIEW_DUMP=str(dump),
-            CARGO_TARGET_DIR=str(builds / "extract-target"),
-            CARGO_INCREMENTAL="0",
-            PYO3_PYTHON=str(Path(config["venv"]) / "bin/python"),
-        )
-        args = ["cargo", "test", "--locked", "-p", crate, "--lib"]
-        if test_filter:
-            args += ["--", test_filter]
-        print(f"Running {' '.join(args)} at {sha[:12]}; log: {log}", flush=True)
-        with log.open("w") as stream:
-            status = subprocess.run(args, cwd=worktree, env=env, stdout=stream, stderr=stream).returncode
-    finally:
-        git(worktree, "checkout", "--", ".")
+    # Extractions share worktrees and a target directory, and instrument tracked files in place.
+    with locked(builds / "extract.lock"):
+        if not worktree.exists():
+            with locked(builds / "build.lock"):  # serializes Git worktree registration with builds
+                worktree.parent.mkdir(parents=True, exist_ok=True)
+                git(config["repository"], "worktree", "add", "--detach", str(worktree), sha)
+        if git(worktree, "rev-parse", "HEAD") != sha or git(worktree, "status", "--porcelain"):
+            raise ReviewError(f"Extraction worktree is not a clean checkout of {sha}: {worktree}")
+        try:
+            edited = instrument(worktree, spec)
+            refresh_timestamps(worktree)
+            env = dict(
+                os.environ,
+                REVIEW_DUMP=str(dump),
+                CARGO_TARGET_DIR=str(builds / "extract-target"),
+                CARGO_INCREMENTAL="0",
+                PYO3_PYTHON=str(Path(config["venv"]) / "bin/python"),
+            )
+            args = ["cargo", "test", "--locked", "-p", crate, "--lib"]
+            if test_filter:
+                args += ["--", test_filter]
+            print(f"Running {' '.join(args)} at {sha[:12]}; log: {log}", flush=True)
+            with log.open("w") as stream:
+                status = subprocess.run(args, cwd=worktree, env=env, stdout=stream, stderr=stream).returncode
+        finally:
+            git(worktree, "checkout", "--", ".")
     if not dump.exists():
         raise offline_failure(log, sha, f"Testing {crate}") or ReviewError(
             f"No dump produced (cargo exit {status}); see {log}"
