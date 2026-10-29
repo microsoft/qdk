@@ -1780,11 +1780,10 @@ fn captured_closure_forwarded_to_nested_hof_converges() {
         "#;
     check_invariants(source);
     check_pipeline(source);
-    // The lifted wrapper preserves its tuple input around the forwarded array.
+    // The capture-free identity wrapper collapses to the specialized callable.
     check(
         source,
         &expect![[r#"
-            .lambda_6: input_ty=((Qubit)[],)
             ApplyFirstStep: input_ty=(Qubit)[]
             ApplySecondStep: input_ty=(Qubit)[]
             ApplySequential<Empty, Empty>{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]

@@ -4799,12 +4799,15 @@ fn prepend_captures_to_calls(
                 convention,
                 assigner,
             ) {
-                refresh_closure_target_callee_expr_ty(
-                    package,
-                    callee_id,
-                    closure_target,
-                    usize::from(outer_functor.controlled),
-                );
+                // Closure values retain their public input; invocation adds the lifted wrapper.
+                if matches!(convention, CallConvention::DirectItem) {
+                    refresh_closure_target_callee_expr_ty(
+                        package,
+                        callee_id,
+                        closure_target,
+                        usize::from(outer_functor.controlled),
+                    );
+                }
                 super::rewrite::prepend_evaluations(package, call_id, prefix, assigner);
             } else {
                 return false;

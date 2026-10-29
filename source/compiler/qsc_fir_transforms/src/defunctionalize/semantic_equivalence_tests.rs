@@ -13,6 +13,23 @@ use qsc_eval::val::{Result as MeasurementResult, Value};
 use super::test_cases;
 
 #[test]
+fn recursive_projected_factory_preserves_closure_input() {
+    for depth in 0..=3 {
+        let source = formatdoc! {r#"
+            struct C {{ F : Int -> Bool }}
+            function Pack(c : C, n : Int) : (C, Int) {{ (c, n) }}
+            function UseS(c : C, n : Int) : Bool {{
+                if n > 0 {{ UseS(Pack(c, n - 1)) }} else {{ c.F(1) }}
+            }}
+            @EntryPoint() operation Main() : Bool {{
+                UseS(new C {{ F = x -> x == 1 }}, {depth})
+            }}
+        "#};
+        crate::test_utils::check_semantic_equivalence_with_expected(&source, Value::Bool(true));
+    }
+}
+
+#[test]
 fn nested_callable_arrays_preserve_distinct_captures() {
     for (left, right, expected) in [
         ("A", "B", [true, true]),
