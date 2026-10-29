@@ -1,0 +1,26 @@
+[package]
+name = "qodec_lowerer"
+description = "A REPL that lowers top-ISA instructions of a qodec to its bottom ISA."
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+qodec = { workspace = true }
+qodec_runtime = { path = "../qodec_runtime" }
+rustyline = { workspace = true }
+smallvec = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "qodec-lowerer"
+path = "src/main.rs"
