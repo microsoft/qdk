@@ -1,0 +1,37 @@
+implements: nlb.isa.yaml#measure_z_all_c832
+circuit:
+  instruction_set: physical.isa.yaml
+  source:
+    - M: [0]
+    - M: [1]
+    - M: [2]
+    - M: [3]
+    - M: [4]
+    - M: [5]
+    - M: [6]
+    - M: [7]
+checks:
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+    - circuit.readouts[2]
+    - circuit.readouts[3]
+    - in[0].stabilizers[1]
+  - - circuit.readouts[4]
+    - circuit.readouts[5]
+    - circuit.readouts[6]
+    - circuit.readouts[7]
+    - in[0].stabilizers[2]
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+    - circuit.readouts[4]
+    - circuit.readouts[5]
+    - in[0].stabilizers[3]
+  - - circuit.readouts[0]
+    - circuit.readouts[2]
+    - circuit.readouts[4]
+    - circuit.readouts[6]
+    - in[0].stabilizers[4]
+readouts:
+  - ["circuit.readouts[0]", "circuit.readouts[4]"]
+  - ["circuit.readouts[0]", "circuit.readouts[2]"]
+  - ["circuit.readouts[0]", "circuit.readouts[1]"]

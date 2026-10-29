@@ -1,0 +1,20 @@
+implements: nlb.isa.yaml#prepare_z_all_c422
+circuit:
+  instruction_set: physical.isa.yaml
+  source:
+    - R: [0]
+    - R: [1]
+    - R: [2]
+    - R: [3]
+    - H: [0]
+    - CX: [0, 4]
+    - CX: [0, 1]
+    - CX: [0, 2]
+    - CX: [0, 3]
+    - CX: [0, 4]
+    - M: [4]
+checks:
+  - ["out[0].stabilizers[0]"]
+  - ["out[0].stabilizers[1]"]
+readouts:
+  - reject: ["circuit.readouts[0]"]

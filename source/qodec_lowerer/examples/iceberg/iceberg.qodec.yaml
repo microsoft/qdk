@@ -1,0 +1,150 @@
+# Iceberg code [[6,4,2]] — single-file qodec bundle.
+#
+# A high-rate error *detection* code (the [[n, n-2, 2]] family used by
+# Quantinuum on trapped-ion hardware). The whole codespace is fixed by just two
+# stabilizers — the global X parity and the global Z parity — so the block
+# encodes n-2 logical qubits (here 4 logical qubits in 6 physical qubits). Being
+# distance 2 it *detects* any single fault but does not correct it, so it runs
+# with post-selection: detection flags fire whenever a global parity flips, and
+# a consumer discards the shot.
+#
+# This example exercises three things the other catalog entries do not: a block
+# carrying many logical qubits at once, an all-to-all-friendly weight-n
+# stabilizer, and the `flags` mechanism — two detection flags a consumer
+# post-selects over (the same shape a distillation/post-selection routine uses).
+#
+# Reference: the [[n, n-2, 2]] "iceberg" code (M. Self et al. / Quantinuum);
+# see e.g. arXiv:2211.06703.
+---
+qodec.yaml:
+  name: iceberg
+  description: >-
+    The [[6,4,2]] iceberg detection code — four logical qubits in one block,
+    two global-parity stabilizers, run with post-selection via detection flags.
+  layers:
+    - instruction_set: iceberg.isa.yaml
+      codes:
+        iceberg: iceberg.code.yaml
+      gadgets:
+        prepare_z_all: prepare_z_all.gadget.yaml
+        idle: idle.gadget.yaml
+        measure_z_all: measure_z_all.gadget.yaml
+    - instruction_set: ../stim.isa.yaml
+---
+iceberg.isa.yaml:
+  name: iceberg
+  description: Logical instruction set for the [[6,4,2]] iceberg code (four logical qubits).
+  blocks: { iceberg: 4 }
+  instructions:
+    - mnemonic: prepare_z_all
+      description: Prepare the logical |0000> state.
+      out: [iceberg]
+      action: [stabilize: [Z_0, Z_1, Z_2, Z_3]]
+    - mnemonic: idle
+      description: >-
+        One detection round. Two flags report whether each global parity changed
+        since the previous round; a consumer post-selects (rejects the shot) on
+        either one firing.
+      in: [iceberg]
+      out: [iceberg]
+      flags: [detected_x, detected_z]
+    - mnemonic: measure_z_all
+      description: Destructive measurement of all four logical Z observables.
+      in: [iceberg]
+      action: [observe: [Z_0, Z_1, Z_2, Z_3]]
+---
+iceberg.code.yaml:
+  name: iceberg
+  description: >-
+    The [[6,4,2]] iceberg code. Two stabilizers: the global X parity and the
+    global Z parity. Four logical qubits, each X_i = X_0 X_{i+1}, Z_i =
+    Z_{i+1} Z_5 (paired to the two reference qubits 0 and 5).
+  stabilizers:
+    - X_0 X_1 X_2 X_3 X_4 X_5
+    - Z_0 Z_1 Z_2 Z_3 Z_4 Z_5
+  x:
+    - X_0 X_1
+    - X_0 X_2
+    - X_0 X_3
+    - X_0 X_4
+  z:
+    - Z_1 Z_5
+    - Z_2 Z_5
+    - Z_3 Z_5
+    - Z_4 Z_5
+---
+# Prepare |0000>_L: reset all data to |0> (fixing the global Z parity and every
+# logical Z), then project by measuring the global X parity (ancilla 6).
+prepare_z_all.gadget.yaml:
+  circuit:
+    source:
+      - R: [0]
+      - R: [1]
+      - R: [2]
+      - R: [3]
+      - R: [4]
+      - R: [5]
+      - R: [6]
+      - H: [6]
+      - CX: [6, 0]
+      - CX: [6, 1]
+      - CX: [6, 2]
+      - CX: [6, 3]
+      - CX: [6, 4]
+      - CX: [6, 5]
+      - H: [6]
+      - M: [6]
+  checks:
+    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
+    - ["out[0].stabilizers[1]"]
+---
+# One detection round: measure the global X parity (ancilla 6, in |+>) and the
+# global Z parity (ancilla 7). Two flags (detected_x, detected_z) report whether
+# each parity differs from its incoming sign; a consumer post-selects on either.
+idle.gadget.yaml:
+  circuit:
+    source:
+      - R: [6]
+      - R: [7]
+      - H: [6]
+      - CX: [6, 0]
+      - CX: [6, 1]
+      - CX: [6, 2]
+      - CX: [6, 3]
+      - CX: [6, 4]
+      - CX: [6, 5]
+      - H: [6]
+      - CX: [0, 7]
+      - CX: [1, 7]
+      - CX: [2, 7]
+      - CX: [3, 7]
+      - CX: [4, 7]
+      - CX: [5, 7]
+      - M: [6]
+      - M: [7]
+  checks:
+    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "out[0].stabilizers[1]"]
+  readouts:
+    - detected_x: ["circuit.readouts[0]", "in[0].stabilizers[0]"]
+    - detected_z: ["circuit.readouts[1]", "in[0].stabilizers[1]"]
+---
+# Destructive readout of all four logical qubits: measure every data qubit in Z.
+# The global Z parity becomes a deterministic check; each logical Z_i = Z_{i+1}
+# Z_5 is read from the corresponding pair of outcomes.
+measure_z_all.gadget.yaml:
+  circuit:
+    source:
+      - M: [0]
+      - M: [1]
+      - M: [2]
+      - M: [3]
+      - M: [4]
+      - M: [5]
+  checks:
+    - ["circuit.readouts[0:6]", "in[0].stabilizers[1]"]
+  readouts:
+    - ["circuit.readouts[1]", "circuit.readouts[5]", "in[0].z[0]"]
+    - ["circuit.readouts[2]", "circuit.readouts[5]", "in[0].z[1]"]
+    - ["circuit.readouts[3]", "circuit.readouts[5]", "in[0].z[2]"]
+    - ["circuit.readouts[4]", "circuit.readouts[5]", "in[0].z[3]"]

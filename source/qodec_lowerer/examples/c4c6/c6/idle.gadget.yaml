@@ -1,0 +1,51 @@
+implements: ../c4c6.isa.yaml#idle
+# Knill's error-correcting teleportation (Fig 7 / teleec_a of
+# arXiv:quant-ph/0410199) for the C6 [[6,2,2]] code, transcribed as
+# transversal middle-layer (C4-encoded) operations on the three
+# sub-blocks of a C6 codeword.
+#
+# Block layout (each c4c6_block here is one C4-encoded sub-block):
+#   I  = blocks 0, 1, 2  — input C6 codeword (consumed by Bell meas).
+#   A  = blocks 3, 4, 5  — ancilla A, prepared as |++>_LL per sub-block
+#                          (consumed by Bell meas).
+#   B  = blocks 6, 7, 8  — ancilla B, prepared as |00>_LL per sub-block,
+#                          becomes the output codeword.
+#
+# A transversal CNOT A→B (three middle-layer controlled_x_all calls)
+# turns the |++>_LL ⊗ |00>_LL state into an encoded C6 Bell pair,
+# because the C6 stabilizers and logicals are transversal products
+# across the sub-blocks. The Bell measurement (transversal CNOT I→A,
+# then X-measure I and Z-measure A) is likewise three middle-layer
+# calls per side.
+circuit:
+  instruction_set: ../c4c6.isa.yaml
+  source:
+    # --- Prepare ancilla A as |++>_LL on each sub-block ---
+    - prepare_x_all: { operands: [3], select: [{ reject: 0 }] }
+    - prepare_x_all: { operands: [4], select: [{ reject: 0 }] }
+    - prepare_x_all: { operands: [5], select: [{ reject: 0 }] }
+    # --- Prepare ancilla B as |00>_LL on each sub-block ---
+    - prepare_z_all: { operands: [6], select: [{ reject: 0 }] }
+    - prepare_z_all: { operands: [7], select: [{ reject: 0 }] }
+    - prepare_z_all: { operands: [8], select: [{ reject: 0 }] }
+    # --- Encoded Bell pair on (A, B): transversal CNOT A → B ---
+    - controlled_x_all: [3, 6]
+    - controlled_x_all: [4, 7]
+    - controlled_x_all: [5, 8]
+    # --- Bell measurement on (I, A): transversal CNOT I → A,
+    #     then X-measure I and Z-measure A ---
+    - controlled_x_all: [0, 3]
+    - controlled_x_all: [1, 4]
+    - controlled_x_all: [2, 5]
+    - measure_x_all: [0]
+    - measure_x_all: [1]
+    - measure_x_all: [2]
+    - measure_z_all: [3]
+    - measure_z_all: [4]
+    - measure_z_all: [5]
+  in: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+  out: { "6": c4c6_block, "7": c4c6_block, "8": c4c6_block }
+in:
+  - c4c6_block: [0, 1, 2]
+out:
+  - c4c6_block: [6, 7, 8]

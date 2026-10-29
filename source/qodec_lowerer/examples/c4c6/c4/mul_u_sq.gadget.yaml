@@ -1,0 +1,13 @@
+circuit:
+  source:
+    # *u² on a Knill C4 block = inverse cyclic permutation 1 → 3 → 2 → 1.
+    # Realized with two SWAPs in the opposite order from mul_u.
+    #
+    # Action on Knill C4 logicals (multiplication by u²):
+    #   X_L → X_L X_S
+    #   X_S → X_L
+    #   Z_L → Z_S
+    #   Z_S → Z_L Z_S
+
+    - SWAP: [1, 2]
+    - SWAP: [2, 3]

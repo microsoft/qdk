@@ -1,0 +1,21 @@
+implements: ../c4c6.isa.yaml#measure_z_all
+circuit:
+  source:
+    # Destructive Z-basis measurement of all four physical qubits.
+    # - Parity of all 4 outcomes recovers the Z_0 Z_1 Z_2 Z_3 stabilizer (check).
+    # - Z_L = Z_0 Z_2 is the parity of outcomes 0 and 2 (Knill convention).
+    # - Z_S = Z_2 Z_3 is the parity of outcomes 2 and 3 (Knill convention).
+
+    - M: [0]
+    - M: [1]
+    - M: [2]
+    - M: [3]
+checks:
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+    - circuit.readouts[2]
+    - circuit.readouts[3]
+    - in[0].stabilizers[1]
+readouts:
+  - ["circuit.readouts[0]", "circuit.readouts[2]"]
+  - ["circuit.readouts[2]", "circuit.readouts[3]"]

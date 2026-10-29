@@ -1,0 +1,31 @@
+implements: ../c4c6.isa.yaml#controlled_x_all
+circuit:
+  instruction_set: ../c4c6.isa.yaml
+  source:
+    - controlled_x_all: [0, 3]
+    - controlled_x_all: [1, 4]
+    - controlled_x_all: [2, 5]
+  in:
+    {
+      "0": c4c6_block,
+      "1": c4c6_block,
+      "2": c4c6_block,
+      "3": c4c6_block,
+      "4": c4c6_block,
+      "5": c4c6_block,
+    }
+  out:
+    {
+      "0": c4c6_block,
+      "1": c4c6_block,
+      "2": c4c6_block,
+      "3": c4c6_block,
+      "4": c4c6_block,
+      "5": c4c6_block,
+    }
+in:
+  - c4c6_block: [0, 1, 2]
+  - c4c6_block: [3, 4, 5]
+out:
+  - c4c6_block: [0, 1, 2]
+  - c4c6_block: [3, 4, 5]

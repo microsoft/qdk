@@ -1,0 +1,2643 @@
+# Bivariate Bicycle [[72,12,6]] qLDPC code — single-file qodec bundle (generated).
+#
+# A high-rate quantum LDPC code (S. Bravyi, A. Cross, J. Gambetta, D. Maslov,
+# P. Rall, T. Yoder, "High-threshold and low-overhead fault-tolerant quantum
+# memory," Nature 627, 778-782, 2024; arXiv:2308.07915). Unlike the surface code's
+# one-logical-qubit-per-patch overhead, a BB code packs a whole REGISTER of logical
+# qubits into ONE block with weight-6 checks that are NOT geometrically local.
+#
+# QC(A,B) with x = S_l (x) I_m, y = I_l (x) S_m, A = A1+A2+A3, B = B1+B2+B3 has
+# n = 2lm data qubits (left + right registers) and CSS checks H_X = [A|B],
+# H_Z = [B^T|A^T]; X- and Z-checks commute since AB = BA. This is the smallest named
+# example (Table 3): [[72,12,6]] with l=m=6, A = x^3+y+y^2, B = y^3+x+x^2 — 36
+# weight-6 X-checks, 36 weight-6 Z-checks, 12 logical qubits.
+#
+# The checks were built and verified offline (all commute, k=12); the 12 logical X
+# / 12 logical Z operators come from GF(2) nullspaces. The code
+# DISTANCE (6) is cited from the paper (a minimum-weight search); the catalog
+# validates structure and algebra, not distance.
+#
+# This bundle is a 12-logical-qubit memory experiment. It exercises qodec at qLDPC
+# scale: a single block type carrying 12 logical qubits, a long non-local stabilizer
+# list, and a syndrome round that measures all 72 checks. The paper's optimized
+# depth-7 schedule is replaced by the catalog's uniform ancilla extraction.
+#
+# Reference: S. Bravyi, A. W. Cross, J. M. Gambetta, D. Maslov, P. Rall, T. J.
+# Yoder, "High-threshold and low-overhead fault-tolerant quantum memory,"
+# Nature 627, 778-782 (2024).
+---
+qodec.yaml:
+  name: bb-72
+  description: >-
+    The [[72,12,6]] bivariate-bicycle qLDPC code (Bravyi et al. 2024): 12 logical
+    qubits in one block with weight-6 non-local checks. A high-rate memory
+    experiment — prepare, one syndrome round, destructive readout.
+  layers:
+    - instruction_set: bb72.isa.yaml
+      codes:
+        bb72: bb72.code.yaml
+      gadgets:
+        prepare_z_all: prepare_z_all.gadget.yaml
+        prepare_x_all: prepare_x_all.gadget.yaml
+        idle: idle.gadget.yaml
+        measure_z_all: measure_z_all.gadget.yaml
+        measure_x_all: measure_x_all.gadget.yaml
+    - instruction_set: ../stim.isa.yaml
+---
+bb72.isa.yaml:
+  name: bb72
+  description: >-
+    Logical instruction set for the [[72,12,6]] bivariate-bicycle code. One block
+    type carries all 12 logical qubits.
+  blocks: { bb72: 12 }
+  instructions:
+    - mnemonic: prepare_z_all
+      description: Prepare all 12 logical qubits in |0>.
+      out: [bb72]
+      action:
+        [
+          stabilize:
+            [Z_0, Z_1, Z_2, Z_3, Z_4, Z_5, Z_6, Z_7, Z_8, Z_9, Z_10, Z_11],
+        ]
+    - mnemonic: prepare_x_all
+      description: Prepare all 12 logical qubits in |+>.
+      out: [bb72]
+      action:
+        [
+          stabilize:
+            [X_0, X_1, X_2, X_3, X_4, X_5, X_6, X_7, X_8, X_9, X_10, X_11],
+        ]
+    - mnemonic: idle
+      description: One full syndrome-extraction round (identity logical action).
+      in: [bb72]
+      out: [bb72]
+    - mnemonic: measure_z_all
+      description: Destructive measurement of all 12 logical Z observables.
+      in: [bb72]
+      action:
+        [
+          observe:
+            [Z_0, Z_1, Z_2, Z_3, Z_4, Z_5, Z_6, Z_7, Z_8, Z_9, Z_10, Z_11],
+        ]
+    - mnemonic: measure_x_all
+      description: Destructive measurement of all 12 logical X observables.
+      in: [bb72]
+      action:
+        [
+          observe:
+            [X_0, X_1, X_2, X_3, X_4, X_5, X_6, X_7, X_8, X_9, X_10, X_11],
+        ]
+---
+bb72.code.yaml:
+  name: bb72
+  description: >-
+    The [[72,12,6]] bivariate-bicycle qLDPC code (Bravyi et al., Nature 627, 2024),
+    A = x^3+y+y^2, B = y^3+x+x^2 with l=m=6. 72 data qubits (left register 0-35,
+    right register 36-71), 12 logical qubits, distance 6. Stabilizers 0-35
+    are the weight-6 X-checks [A|B]; 36-71 are the weight-6 Z-checks
+    [B^T|A^T]. The checks are NOT geometrically local. Logical operators derived as
+    CSS operators (ker H_X / rowspace H_Z and dual). Distance is cited from the
+    paper (minimum-weight search), not verified here.
+  stabilizers:
+    - X_1 X_2 X_18 X_39 X_42 X_48
+    - X_2 X_3 X_19 X_40 X_43 X_49
+    - X_3 X_4 X_20 X_41 X_44 X_50
+    - X_4 X_5 X_21 X_36 X_45 X_51
+    - X_0 X_5 X_22 X_37 X_46 X_52
+    - X_0 X_1 X_23 X_38 X_47 X_53
+    - X_7 X_8 X_24 X_45 X_48 X_54
+    - X_8 X_9 X_25 X_46 X_49 X_55
+    - X_9 X_10 X_26 X_47 X_50 X_56
+    - X_10 X_11 X_27 X_42 X_51 X_57
+    - X_6 X_11 X_28 X_43 X_52 X_58
+    - X_6 X_7 X_29 X_44 X_53 X_59
+    - X_13 X_14 X_30 X_51 X_54 X_60
+    - X_14 X_15 X_31 X_52 X_55 X_61
+    - X_15 X_16 X_32 X_53 X_56 X_62
+    - X_16 X_17 X_33 X_48 X_57 X_63
+    - X_12 X_17 X_34 X_49 X_58 X_64
+    - X_12 X_13 X_35 X_50 X_59 X_65
+    - X_0 X_19 X_20 X_57 X_60 X_66
+    - X_1 X_20 X_21 X_58 X_61 X_67
+    - X_2 X_21 X_22 X_59 X_62 X_68
+    - X_3 X_22 X_23 X_54 X_63 X_69
+    - X_4 X_18 X_23 X_55 X_64 X_70
+    - X_5 X_18 X_19 X_56 X_65 X_71
+    - X_6 X_25 X_26 X_36 X_63 X_66
+    - X_7 X_26 X_27 X_37 X_64 X_67
+    - X_8 X_27 X_28 X_38 X_65 X_68
+    - X_9 X_28 X_29 X_39 X_60 X_69
+    - X_10 X_24 X_29 X_40 X_61 X_70
+    - X_11 X_24 X_25 X_41 X_62 X_71
+    - X_12 X_31 X_32 X_36 X_42 X_69
+    - X_13 X_32 X_33 X_37 X_43 X_70
+    - X_14 X_33 X_34 X_38 X_44 X_71
+    - X_15 X_34 X_35 X_39 X_45 X_66
+    - X_16 X_30 X_35 X_40 X_46 X_67
+    - X_17 X_30 X_31 X_41 X_47 X_68
+    - Z_3 Z_24 Z_30 Z_40 Z_41 Z_54
+    - Z_4 Z_25 Z_31 Z_36 Z_41 Z_55
+    - Z_5 Z_26 Z_32 Z_36 Z_37 Z_56
+    - Z_0 Z_27 Z_33 Z_37 Z_38 Z_57
+    - Z_1 Z_28 Z_34 Z_38 Z_39 Z_58
+    - Z_2 Z_29 Z_35 Z_39 Z_40 Z_59
+    - Z_0 Z_9 Z_30 Z_46 Z_47 Z_60
+    - Z_1 Z_10 Z_31 Z_42 Z_47 Z_61
+    - Z_2 Z_11 Z_32 Z_42 Z_43 Z_62
+    - Z_3 Z_6 Z_33 Z_43 Z_44 Z_63
+    - Z_4 Z_7 Z_34 Z_44 Z_45 Z_64
+    - Z_5 Z_8 Z_35 Z_45 Z_46 Z_65
+    - Z_0 Z_6 Z_15 Z_52 Z_53 Z_66
+    - Z_1 Z_7 Z_16 Z_48 Z_53 Z_67
+    - Z_2 Z_8 Z_17 Z_48 Z_49 Z_68
+    - Z_3 Z_9 Z_12 Z_49 Z_50 Z_69
+    - Z_4 Z_10 Z_13 Z_50 Z_51 Z_70
+    - Z_5 Z_11 Z_14 Z_51 Z_52 Z_71
+    - Z_6 Z_12 Z_21 Z_36 Z_58 Z_59
+    - Z_7 Z_13 Z_22 Z_37 Z_54 Z_59
+    - Z_8 Z_14 Z_23 Z_38 Z_54 Z_55
+    - Z_9 Z_15 Z_18 Z_39 Z_55 Z_56
+    - Z_10 Z_16 Z_19 Z_40 Z_56 Z_57
+    - Z_11 Z_17 Z_20 Z_41 Z_57 Z_58
+    - Z_12 Z_18 Z_27 Z_42 Z_64 Z_65
+    - Z_13 Z_19 Z_28 Z_43 Z_60 Z_65
+    - Z_14 Z_20 Z_29 Z_44 Z_60 Z_61
+    - Z_15 Z_21 Z_24 Z_45 Z_61 Z_62
+    - Z_16 Z_22 Z_25 Z_46 Z_62 Z_63
+    - Z_17 Z_23 Z_26 Z_47 Z_63 Z_64
+    - Z_18 Z_24 Z_33 Z_48 Z_70 Z_71
+    - Z_19 Z_25 Z_34 Z_49 Z_66 Z_71
+    - Z_20 Z_26 Z_35 Z_50 Z_66 Z_67
+    - Z_21 Z_27 Z_30 Z_51 Z_67 Z_68
+    - Z_22 Z_28 Z_31 Z_52 Z_68 Z_69
+    - Z_23 Z_29 Z_32 Z_53 Z_69 Z_70
+  x:
+    [
+      X_0 X_28 X_33 X_34 X_46 X_52 X_63 X_64 X_65 X_71,
+      X_1 X_29 X_34 X_35 X_47 X_53 X_60 X_64 X_65 X_66,
+      X_0 X_2 X_29 X_33 X_47 X_52 X_53 X_61 X_62 X_63 X_66 X_67 X_68 X_71,
+      X_0 X_3 X_32 X_33 X_34 X_40 X_41 X_46 X_47 X_52 X_54 X_55 X_56 X_58 X_59 X_60 X_61 X_62 X_64 X_65 X_69 X_71,
+      X_0 X_4 X_28 X_29 X_34 X_40 X_41 X_52 X_57 X_60 X_70 X_71,
+      X_0 X_2 X_6 X_28 X_32 X_34 X_41 X_46 X_53 X_54 X_55 X_56 X_57 X_59 X_63 X_64 X_65 X_66 X_67 X_68,
+      X_0 X_1 X_6 X_7 X_28 X_33 X_35 X_47 X_52 X_59 X_64 X_65 X_66 X_71,
+      X_3 X_8 X_28 X_29 X_32 X_33 X_34 X_35 X_41 X_46 X_47 X_52 X_53 X_55 X_56 X_57 X_61 X_62 X_64 X_65 X_67 X_68 X_69 X_71,
+      X_0 X_2 X_3 X_4 X_7 X_9 X_28 X_29 X_33 X_34 X_46 X_47 X_54 X_55 X_61 X_62 X_64 X_65 X_66 X_67 X_68 X_70,
+      X_1 X_2 X_6 X_7 X_9 X_10 X_28 X_32 X_46 X_52 X_53 X_56 X_59 X_63 X_64 X_65 X_66 X_67 X_68 X_69 X_70 X_71,
+      X_0 X_1 X_2 X_3 X_4 X_9 X_10 X_11 X_28 X_29 X_32 X_33 X_41 X_46 X_47 X_56 X_61 X_62 X_64 X_65 X_66 X_67 X_68 X_71,
+      X_1 X_4 X_7 X_15 X_28 X_32 X_34 X_40 X_41 X_46 X_47 X_52 X_56 X_58 X_59 X_62 X_64 X_65 X_70 X_71,
+    ]
+  z:
+    [
+      Z_0 Z_29 Z_32 Z_33 Z_34 Z_52 Z_53 Z_58 Z_61 Z_63 Z_66 Z_69,
+      Z_2 Z_29 Z_35 Z_48 Z_49 Z_54 Z_55 Z_59 Z_60 Z_61 Z_63 Z_64 Z_66 Z_67,
+      Z_0 Z_1 Z_28 Z_29 Z_32 Z_33 Z_48 Z_52 Z_54 Z_59 Z_60 Z_61 Z_62 Z_65 Z_69 Z_71,
+      Z_2 Z_5 Z_28 Z_29 Z_33 Z_34 Z_48 Z_49 Z_51 Z_52 Z_54 Z_55 Z_57 Z_59 Z_63 Z_65 Z_66 Z_70,
+      Z_1 Z_9 Z_28 Z_29 Z_35 Z_48 Z_53 Z_54 Z_55 Z_56 Z_58 Z_60 Z_61 Z_63 Z_64 Z_65 Z_66 Z_67,
+      Z_0 Z_1 Z_2 Z_3 Z_33 Z_35 Z_50 Z_52 Z_56 Z_58 Z_61 Z_62 Z_63 Z_64 Z_66 Z_67 Z_70 Z_71,
+      Z_5 Z_8 Z_35 Z_51 Z_52 Z_54 Z_55 Z_57 Z_58 Z_63 Z_64 Z_65 Z_66 Z_67,
+      Z_0 Z_5 Z_6 Z_29 Z_33 Z_35 Z_51 Z_53 Z_57 Z_58 Z_59 Z_60 Z_62 Z_64 Z_66 Z_67 Z_70 Z_71,
+      Z_0 Z_1 Z_2 Z_3 Z_4 Z_5 Z_8 Z_29 Z_54 Z_55 Z_59 Z_60 Z_61 Z_65,
+      Z_0 Z_1 Z_2 Z_3 Z_5 Z_7 Z_28 Z_29 Z_33 Z_50 Z_51 Z_54 Z_56 Z_57 Z_58 Z_62 Z_64 Z_65 Z_70 Z_71,
+      Z_1 Z_2 Z_3 Z_9 Z_11 Z_29 Z_35 Z_50 Z_53 Z_55 Z_57 Z_58 Z_61 Z_62 Z_63 Z_64 Z_66 Z_67,
+      Z_5 Z_6 Z_7 Z_8 Z_9 Z_10 Z_35 Z_51 Z_52 Z_60 Z_61 Z_65 Z_66 Z_67,
+    ]
+---
+# prepare_z_all: reset all 72 data to |0...0>, then measure the 36
+# X-checks (signs recorded). The Z-checks and all 12 logical
+# Z operators are fixed to +1 by the reset.
+prepare_z_all.gadget.yaml:
+  circuit:
+    source:
+      - R: [0]
+      - R: [1]
+      - R: [2]
+      - R: [3]
+      - R: [4]
+      - R: [5]
+      - R: [6]
+      - R: [7]
+      - R: [8]
+      - R: [9]
+      - R: [10]
+      - R: [11]
+      - R: [12]
+      - R: [13]
+      - R: [14]
+      - R: [15]
+      - R: [16]
+      - R: [17]
+      - R: [18]
+      - R: [19]
+      - R: [20]
+      - R: [21]
+      - R: [22]
+      - R: [23]
+      - R: [24]
+      - R: [25]
+      - R: [26]
+      - R: [27]
+      - R: [28]
+      - R: [29]
+      - R: [30]
+      - R: [31]
+      - R: [32]
+      - R: [33]
+      - R: [34]
+      - R: [35]
+      - R: [36]
+      - R: [37]
+      - R: [38]
+      - R: [39]
+      - R: [40]
+      - R: [41]
+      - R: [42]
+      - R: [43]
+      - R: [44]
+      - R: [45]
+      - R: [46]
+      - R: [47]
+      - R: [48]
+      - R: [49]
+      - R: [50]
+      - R: [51]
+      - R: [52]
+      - R: [53]
+      - R: [54]
+      - R: [55]
+      - R: [56]
+      - R: [57]
+      - R: [58]
+      - R: [59]
+      - R: [60]
+      - R: [61]
+      - R: [62]
+      - R: [63]
+      - R: [64]
+      - R: [65]
+      - R: [66]
+      - R: [67]
+      - R: [68]
+      - R: [69]
+      - R: [70]
+      - R: [71]
+      - R: [72]
+      - H: [72]
+      - CX: [72, 1]
+      - CX: [72, 2]
+      - CX: [72, 18]
+      - CX: [72, 39]
+      - CX: [72, 42]
+      - CX: [72, 48]
+      - H: [72]
+      - M: [72]
+      - R: [73]
+      - H: [73]
+      - CX: [73, 2]
+      - CX: [73, 3]
+      - CX: [73, 19]
+      - CX: [73, 40]
+      - CX: [73, 43]
+      - CX: [73, 49]
+      - H: [73]
+      - M: [73]
+      - R: [74]
+      - H: [74]
+      - CX: [74, 3]
+      - CX: [74, 4]
+      - CX: [74, 20]
+      - CX: [74, 41]
+      - CX: [74, 44]
+      - CX: [74, 50]
+      - H: [74]
+      - M: [74]
+      - R: [75]
+      - H: [75]
+      - CX: [75, 4]
+      - CX: [75, 5]
+      - CX: [75, 21]
+      - CX: [75, 36]
+      - CX: [75, 45]
+      - CX: [75, 51]
+      - H: [75]
+      - M: [75]
+      - R: [76]
+      - H: [76]
+      - CX: [76, 0]
+      - CX: [76, 5]
+      - CX: [76, 22]
+      - CX: [76, 37]
+      - CX: [76, 46]
+      - CX: [76, 52]
+      - H: [76]
+      - M: [76]
+      - R: [77]
+      - H: [77]
+      - CX: [77, 0]
+      - CX: [77, 1]
+      - CX: [77, 23]
+      - CX: [77, 38]
+      - CX: [77, 47]
+      - CX: [77, 53]
+      - H: [77]
+      - M: [77]
+      - R: [78]
+      - H: [78]
+      - CX: [78, 7]
+      - CX: [78, 8]
+      - CX: [78, 24]
+      - CX: [78, 45]
+      - CX: [78, 48]
+      - CX: [78, 54]
+      - H: [78]
+      - M: [78]
+      - R: [79]
+      - H: [79]
+      - CX: [79, 8]
+      - CX: [79, 9]
+      - CX: [79, 25]
+      - CX: [79, 46]
+      - CX: [79, 49]
+      - CX: [79, 55]
+      - H: [79]
+      - M: [79]
+      - R: [80]
+      - H: [80]
+      - CX: [80, 9]
+      - CX: [80, 10]
+      - CX: [80, 26]
+      - CX: [80, 47]
+      - CX: [80, 50]
+      - CX: [80, 56]
+      - H: [80]
+      - M: [80]
+      - R: [81]
+      - H: [81]
+      - CX: [81, 10]
+      - CX: [81, 11]
+      - CX: [81, 27]
+      - CX: [81, 42]
+      - CX: [81, 51]
+      - CX: [81, 57]
+      - H: [81]
+      - M: [81]
+      - R: [82]
+      - H: [82]
+      - CX: [82, 6]
+      - CX: [82, 11]
+      - CX: [82, 28]
+      - CX: [82, 43]
+      - CX: [82, 52]
+      - CX: [82, 58]
+      - H: [82]
+      - M: [82]
+      - R: [83]
+      - H: [83]
+      - CX: [83, 6]
+      - CX: [83, 7]
+      - CX: [83, 29]
+      - CX: [83, 44]
+      - CX: [83, 53]
+      - CX: [83, 59]
+      - H: [83]
+      - M: [83]
+      - R: [84]
+      - H: [84]
+      - CX: [84, 13]
+      - CX: [84, 14]
+      - CX: [84, 30]
+      - CX: [84, 51]
+      - CX: [84, 54]
+      - CX: [84, 60]
+      - H: [84]
+      - M: [84]
+      - R: [85]
+      - H: [85]
+      - CX: [85, 14]
+      - CX: [85, 15]
+      - CX: [85, 31]
+      - CX: [85, 52]
+      - CX: [85, 55]
+      - CX: [85, 61]
+      - H: [85]
+      - M: [85]
+      - R: [86]
+      - H: [86]
+      - CX: [86, 15]
+      - CX: [86, 16]
+      - CX: [86, 32]
+      - CX: [86, 53]
+      - CX: [86, 56]
+      - CX: [86, 62]
+      - H: [86]
+      - M: [86]
+      - R: [87]
+      - H: [87]
+      - CX: [87, 16]
+      - CX: [87, 17]
+      - CX: [87, 33]
+      - CX: [87, 48]
+      - CX: [87, 57]
+      - CX: [87, 63]
+      - H: [87]
+      - M: [87]
+      - R: [88]
+      - H: [88]
+      - CX: [88, 12]
+      - CX: [88, 17]
+      - CX: [88, 34]
+      - CX: [88, 49]
+      - CX: [88, 58]
+      - CX: [88, 64]
+      - H: [88]
+      - M: [88]
+      - R: [89]
+      - H: [89]
+      - CX: [89, 12]
+      - CX: [89, 13]
+      - CX: [89, 35]
+      - CX: [89, 50]
+      - CX: [89, 59]
+      - CX: [89, 65]
+      - H: [89]
+      - M: [89]
+      - R: [90]
+      - H: [90]
+      - CX: [90, 0]
+      - CX: [90, 19]
+      - CX: [90, 20]
+      - CX: [90, 57]
+      - CX: [90, 60]
+      - CX: [90, 66]
+      - H: [90]
+      - M: [90]
+      - R: [91]
+      - H: [91]
+      - CX: [91, 1]
+      - CX: [91, 20]
+      - CX: [91, 21]
+      - CX: [91, 58]
+      - CX: [91, 61]
+      - CX: [91, 67]
+      - H: [91]
+      - M: [91]
+      - R: [92]
+      - H: [92]
+      - CX: [92, 2]
+      - CX: [92, 21]
+      - CX: [92, 22]
+      - CX: [92, 59]
+      - CX: [92, 62]
+      - CX: [92, 68]
+      - H: [92]
+      - M: [92]
+      - R: [93]
+      - H: [93]
+      - CX: [93, 3]
+      - CX: [93, 22]
+      - CX: [93, 23]
+      - CX: [93, 54]
+      - CX: [93, 63]
+      - CX: [93, 69]
+      - H: [93]
+      - M: [93]
+      - R: [94]
+      - H: [94]
+      - CX: [94, 4]
+      - CX: [94, 18]
+      - CX: [94, 23]
+      - CX: [94, 55]
+      - CX: [94, 64]
+      - CX: [94, 70]
+      - H: [94]
+      - M: [94]
+      - R: [95]
+      - H: [95]
+      - CX: [95, 5]
+      - CX: [95, 18]
+      - CX: [95, 19]
+      - CX: [95, 56]
+      - CX: [95, 65]
+      - CX: [95, 71]
+      - H: [95]
+      - M: [95]
+      - R: [96]
+      - H: [96]
+      - CX: [96, 6]
+      - CX: [96, 25]
+      - CX: [96, 26]
+      - CX: [96, 36]
+      - CX: [96, 63]
+      - CX: [96, 66]
+      - H: [96]
+      - M: [96]
+      - R: [97]
+      - H: [97]
+      - CX: [97, 7]
+      - CX: [97, 26]
+      - CX: [97, 27]
+      - CX: [97, 37]
+      - CX: [97, 64]
+      - CX: [97, 67]
+      - H: [97]
+      - M: [97]
+      - R: [98]
+      - H: [98]
+      - CX: [98, 8]
+      - CX: [98, 27]
+      - CX: [98, 28]
+      - CX: [98, 38]
+      - CX: [98, 65]
+      - CX: [98, 68]
+      - H: [98]
+      - M: [98]
+      - R: [99]
+      - H: [99]
+      - CX: [99, 9]
+      - CX: [99, 28]
+      - CX: [99, 29]
+      - CX: [99, 39]
+      - CX: [99, 60]
+      - CX: [99, 69]
+      - H: [99]
+      - M: [99]
+      - R: [100]
+      - H: [100]
+      - CX: [100, 10]
+      - CX: [100, 24]
+      - CX: [100, 29]
+      - CX: [100, 40]
+      - CX: [100, 61]
+      - CX: [100, 70]
+      - H: [100]
+      - M: [100]
+      - R: [101]
+      - H: [101]
+      - CX: [101, 11]
+      - CX: [101, 24]
+      - CX: [101, 25]
+      - CX: [101, 41]
+      - CX: [101, 62]
+      - CX: [101, 71]
+      - H: [101]
+      - M: [101]
+      - R: [102]
+      - H: [102]
+      - CX: [102, 12]
+      - CX: [102, 31]
+      - CX: [102, 32]
+      - CX: [102, 36]
+      - CX: [102, 42]
+      - CX: [102, 69]
+      - H: [102]
+      - M: [102]
+      - R: [103]
+      - H: [103]
+      - CX: [103, 13]
+      - CX: [103, 32]
+      - CX: [103, 33]
+      - CX: [103, 37]
+      - CX: [103, 43]
+      - CX: [103, 70]
+      - H: [103]
+      - M: [103]
+      - R: [104]
+      - H: [104]
+      - CX: [104, 14]
+      - CX: [104, 33]
+      - CX: [104, 34]
+      - CX: [104, 38]
+      - CX: [104, 44]
+      - CX: [104, 71]
+      - H: [104]
+      - M: [104]
+      - R: [105]
+      - H: [105]
+      - CX: [105, 15]
+      - CX: [105, 34]
+      - CX: [105, 35]
+      - CX: [105, 39]
+      - CX: [105, 45]
+      - CX: [105, 66]
+      - H: [105]
+      - M: [105]
+      - R: [106]
+      - H: [106]
+      - CX: [106, 16]
+      - CX: [106, 30]
+      - CX: [106, 35]
+      - CX: [106, 40]
+      - CX: [106, 46]
+      - CX: [106, 67]
+      - H: [106]
+      - M: [106]
+      - R: [107]
+      - H: [107]
+      - CX: [107, 17]
+      - CX: [107, 30]
+      - CX: [107, 31]
+      - CX: [107, 41]
+      - CX: [107, 47]
+      - CX: [107, 68]
+      - H: [107]
+      - M: [107]
+  out:
+    - bb72:
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+        ]
+  checks:
+    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "out[0].stabilizers[1]"]
+    - ["circuit.readouts[2]", "out[0].stabilizers[2]"]
+    - ["circuit.readouts[3]", "out[0].stabilizers[3]"]
+    - ["circuit.readouts[4]", "out[0].stabilizers[4]"]
+    - ["circuit.readouts[5]", "out[0].stabilizers[5]"]
+    - ["circuit.readouts[6]", "out[0].stabilizers[6]"]
+    - ["circuit.readouts[7]", "out[0].stabilizers[7]"]
+    - ["circuit.readouts[8]", "out[0].stabilizers[8]"]
+    - ["circuit.readouts[9]", "out[0].stabilizers[9]"]
+    - ["circuit.readouts[10]", "out[0].stabilizers[10]"]
+    - ["circuit.readouts[11]", "out[0].stabilizers[11]"]
+    - ["circuit.readouts[12]", "out[0].stabilizers[12]"]
+    - ["circuit.readouts[13]", "out[0].stabilizers[13]"]
+    - ["circuit.readouts[14]", "out[0].stabilizers[14]"]
+    - ["circuit.readouts[15]", "out[0].stabilizers[15]"]
+    - ["circuit.readouts[16]", "out[0].stabilizers[16]"]
+    - ["circuit.readouts[17]", "out[0].stabilizers[17]"]
+    - ["circuit.readouts[18]", "out[0].stabilizers[18]"]
+    - ["circuit.readouts[19]", "out[0].stabilizers[19]"]
+    - ["circuit.readouts[20]", "out[0].stabilizers[20]"]
+    - ["circuit.readouts[21]", "out[0].stabilizers[21]"]
+    - ["circuit.readouts[22]", "out[0].stabilizers[22]"]
+    - ["circuit.readouts[23]", "out[0].stabilizers[23]"]
+    - ["circuit.readouts[24]", "out[0].stabilizers[24]"]
+    - ["circuit.readouts[25]", "out[0].stabilizers[25]"]
+    - ["circuit.readouts[26]", "out[0].stabilizers[26]"]
+    - ["circuit.readouts[27]", "out[0].stabilizers[27]"]
+    - ["circuit.readouts[28]", "out[0].stabilizers[28]"]
+    - ["circuit.readouts[29]", "out[0].stabilizers[29]"]
+    - ["circuit.readouts[30]", "out[0].stabilizers[30]"]
+    - ["circuit.readouts[31]", "out[0].stabilizers[31]"]
+    - ["circuit.readouts[32]", "out[0].stabilizers[32]"]
+    - ["circuit.readouts[33]", "out[0].stabilizers[33]"]
+    - ["circuit.readouts[34]", "out[0].stabilizers[34]"]
+    - ["circuit.readouts[35]", "out[0].stabilizers[35]"]
+    - ["out[0].stabilizers[36]"]
+    - ["out[0].stabilizers[37]"]
+    - ["out[0].stabilizers[38]"]
+    - ["out[0].stabilizers[39]"]
+    - ["out[0].stabilizers[40]"]
+    - ["out[0].stabilizers[41]"]
+    - ["out[0].stabilizers[42]"]
+    - ["out[0].stabilizers[43]"]
+    - ["out[0].stabilizers[44]"]
+    - ["out[0].stabilizers[45]"]
+    - ["out[0].stabilizers[46]"]
+    - ["out[0].stabilizers[47]"]
+    - ["out[0].stabilizers[48]"]
+    - ["out[0].stabilizers[49]"]
+    - ["out[0].stabilizers[50]"]
+    - ["out[0].stabilizers[51]"]
+    - ["out[0].stabilizers[52]"]
+    - ["out[0].stabilizers[53]"]
+    - ["out[0].stabilizers[54]"]
+    - ["out[0].stabilizers[55]"]
+    - ["out[0].stabilizers[56]"]
+    - ["out[0].stabilizers[57]"]
+    - ["out[0].stabilizers[58]"]
+    - ["out[0].stabilizers[59]"]
+    - ["out[0].stabilizers[60]"]
+    - ["out[0].stabilizers[61]"]
+    - ["out[0].stabilizers[62]"]
+    - ["out[0].stabilizers[63]"]
+    - ["out[0].stabilizers[64]"]
+    - ["out[0].stabilizers[65]"]
+    - ["out[0].stabilizers[66]"]
+    - ["out[0].stabilizers[67]"]
+    - ["out[0].stabilizers[68]"]
+    - ["out[0].stabilizers[69]"]
+    - ["out[0].stabilizers[70]"]
+    - ["out[0].stabilizers[71]"]
+---
+# prepare_x_all: reset all 72 data to |+...+>, then measure the 36
+# Z-checks (signs recorded). The X-checks and all 12 logical
+# X operators are fixed to +1 by the reset.
+prepare_x_all.gadget.yaml:
+  circuit:
+    source:
+      - R: [0]
+      - R: [1]
+      - R: [2]
+      - R: [3]
+      - R: [4]
+      - R: [5]
+      - R: [6]
+      - R: [7]
+      - R: [8]
+      - R: [9]
+      - R: [10]
+      - R: [11]
+      - R: [12]
+      - R: [13]
+      - R: [14]
+      - R: [15]
+      - R: [16]
+      - R: [17]
+      - R: [18]
+      - R: [19]
+      - R: [20]
+      - R: [21]
+      - R: [22]
+      - R: [23]
+      - R: [24]
+      - R: [25]
+      - R: [26]
+      - R: [27]
+      - R: [28]
+      - R: [29]
+      - R: [30]
+      - R: [31]
+      - R: [32]
+      - R: [33]
+      - R: [34]
+      - R: [35]
+      - R: [36]
+      - R: [37]
+      - R: [38]
+      - R: [39]
+      - R: [40]
+      - R: [41]
+      - R: [42]
+      - R: [43]
+      - R: [44]
+      - R: [45]
+      - R: [46]
+      - R: [47]
+      - R: [48]
+      - R: [49]
+      - R: [50]
+      - R: [51]
+      - R: [52]
+      - R: [53]
+      - R: [54]
+      - R: [55]
+      - R: [56]
+      - R: [57]
+      - R: [58]
+      - R: [59]
+      - R: [60]
+      - R: [61]
+      - R: [62]
+      - R: [63]
+      - R: [64]
+      - R: [65]
+      - R: [66]
+      - R: [67]
+      - R: [68]
+      - R: [69]
+      - R: [70]
+      - R: [71]
+      - H: [0]
+      - H: [1]
+      - H: [2]
+      - H: [3]
+      - H: [4]
+      - H: [5]
+      - H: [6]
+      - H: [7]
+      - H: [8]
+      - H: [9]
+      - H: [10]
+      - H: [11]
+      - H: [12]
+      - H: [13]
+      - H: [14]
+      - H: [15]
+      - H: [16]
+      - H: [17]
+      - H: [18]
+      - H: [19]
+      - H: [20]
+      - H: [21]
+      - H: [22]
+      - H: [23]
+      - H: [24]
+      - H: [25]
+      - H: [26]
+      - H: [27]
+      - H: [28]
+      - H: [29]
+      - H: [30]
+      - H: [31]
+      - H: [32]
+      - H: [33]
+      - H: [34]
+      - H: [35]
+      - H: [36]
+      - H: [37]
+      - H: [38]
+      - H: [39]
+      - H: [40]
+      - H: [41]
+      - H: [42]
+      - H: [43]
+      - H: [44]
+      - H: [45]
+      - H: [46]
+      - H: [47]
+      - H: [48]
+      - H: [49]
+      - H: [50]
+      - H: [51]
+      - H: [52]
+      - H: [53]
+      - H: [54]
+      - H: [55]
+      - H: [56]
+      - H: [57]
+      - H: [58]
+      - H: [59]
+      - H: [60]
+      - H: [61]
+      - H: [62]
+      - H: [63]
+      - H: [64]
+      - H: [65]
+      - H: [66]
+      - H: [67]
+      - H: [68]
+      - H: [69]
+      - H: [70]
+      - H: [71]
+      - R: [72]
+      - CX: [3, 72]
+      - CX: [24, 72]
+      - CX: [30, 72]
+      - CX: [40, 72]
+      - CX: [41, 72]
+      - CX: [54, 72]
+      - M: [72]
+      - R: [73]
+      - CX: [4, 73]
+      - CX: [25, 73]
+      - CX: [31, 73]
+      - CX: [36, 73]
+      - CX: [41, 73]
+      - CX: [55, 73]
+      - M: [73]
+      - R: [74]
+      - CX: [5, 74]
+      - CX: [26, 74]
+      - CX: [32, 74]
+      - CX: [36, 74]
+      - CX: [37, 74]
+      - CX: [56, 74]
+      - M: [74]
+      - R: [75]
+      - CX: [0, 75]
+      - CX: [27, 75]
+      - CX: [33, 75]
+      - CX: [37, 75]
+      - CX: [38, 75]
+      - CX: [57, 75]
+      - M: [75]
+      - R: [76]
+      - CX: [1, 76]
+      - CX: [28, 76]
+      - CX: [34, 76]
+      - CX: [38, 76]
+      - CX: [39, 76]
+      - CX: [58, 76]
+      - M: [76]
+      - R: [77]
+      - CX: [2, 77]
+      - CX: [29, 77]
+      - CX: [35, 77]
+      - CX: [39, 77]
+      - CX: [40, 77]
+      - CX: [59, 77]
+      - M: [77]
+      - R: [78]
+      - CX: [0, 78]
+      - CX: [9, 78]
+      - CX: [30, 78]
+      - CX: [46, 78]
+      - CX: [47, 78]
+      - CX: [60, 78]
+      - M: [78]
+      - R: [79]
+      - CX: [1, 79]
+      - CX: [10, 79]
+      - CX: [31, 79]
+      - CX: [42, 79]
+      - CX: [47, 79]
+      - CX: [61, 79]
+      - M: [79]
+      - R: [80]
+      - CX: [2, 80]
+      - CX: [11, 80]
+      - CX: [32, 80]
+      - CX: [42, 80]
+      - CX: [43, 80]
+      - CX: [62, 80]
+      - M: [80]
+      - R: [81]
+      - CX: [3, 81]
+      - CX: [6, 81]
+      - CX: [33, 81]
+      - CX: [43, 81]
+      - CX: [44, 81]
+      - CX: [63, 81]
+      - M: [81]
+      - R: [82]
+      - CX: [4, 82]
+      - CX: [7, 82]
+      - CX: [34, 82]
+      - CX: [44, 82]
+      - CX: [45, 82]
+      - CX: [64, 82]
+      - M: [82]
+      - R: [83]
+      - CX: [5, 83]
+      - CX: [8, 83]
+      - CX: [35, 83]
+      - CX: [45, 83]
+      - CX: [46, 83]
+      - CX: [65, 83]
+      - M: [83]
+      - R: [84]
+      - CX: [0, 84]
+      - CX: [6, 84]
+      - CX: [15, 84]
+      - CX: [52, 84]
+      - CX: [53, 84]
+      - CX: [66, 84]
+      - M: [84]
+      - R: [85]
+      - CX: [1, 85]
+      - CX: [7, 85]
+      - CX: [16, 85]
+      - CX: [48, 85]
+      - CX: [53, 85]
+      - CX: [67, 85]
+      - M: [85]
+      - R: [86]
+      - CX: [2, 86]
+      - CX: [8, 86]
+      - CX: [17, 86]
+      - CX: [48, 86]
+      - CX: [49, 86]
+      - CX: [68, 86]
+      - M: [86]
+      - R: [87]
+      - CX: [3, 87]
+      - CX: [9, 87]
+      - CX: [12, 87]
+      - CX: [49, 87]
+      - CX: [50, 87]
+      - CX: [69, 87]
+      - M: [87]
+      - R: [88]
+      - CX: [4, 88]
+      - CX: [10, 88]
+      - CX: [13, 88]
+      - CX: [50, 88]
+      - CX: [51, 88]
+      - CX: [70, 88]
+      - M: [88]
+      - R: [89]
+      - CX: [5, 89]
+      - CX: [11, 89]
+      - CX: [14, 89]
+      - CX: [51, 89]
+      - CX: [52, 89]
+      - CX: [71, 89]
+      - M: [89]
+      - R: [90]
+      - CX: [6, 90]
+      - CX: [12, 90]
+      - CX: [21, 90]
+      - CX: [36, 90]
+      - CX: [58, 90]
+      - CX: [59, 90]
+      - M: [90]
+      - R: [91]
+      - CX: [7, 91]
+      - CX: [13, 91]
+      - CX: [22, 91]
+      - CX: [37, 91]
+      - CX: [54, 91]
+      - CX: [59, 91]
+      - M: [91]
+      - R: [92]
+      - CX: [8, 92]
+      - CX: [14, 92]
+      - CX: [23, 92]
+      - CX: [38, 92]
+      - CX: [54, 92]
+      - CX: [55, 92]
+      - M: [92]
+      - R: [93]
+      - CX: [9, 93]
+      - CX: [15, 93]
+      - CX: [18, 93]
+      - CX: [39, 93]
+      - CX: [55, 93]
+      - CX: [56, 93]
+      - M: [93]
+      - R: [94]
+      - CX: [10, 94]
+      - CX: [16, 94]
+      - CX: [19, 94]
+      - CX: [40, 94]
+      - CX: [56, 94]
+      - CX: [57, 94]
+      - M: [94]
+      - R: [95]
+      - CX: [11, 95]
+      - CX: [17, 95]
+      - CX: [20, 95]
+      - CX: [41, 95]
+      - CX: [57, 95]
+      - CX: [58, 95]
+      - M: [95]
+      - R: [96]
+      - CX: [12, 96]
+      - CX: [18, 96]
+      - CX: [27, 96]
+      - CX: [42, 96]
+      - CX: [64, 96]
+      - CX: [65, 96]
+      - M: [96]
+      - R: [97]
+      - CX: [13, 97]
+      - CX: [19, 97]
+      - CX: [28, 97]
+      - CX: [43, 97]
+      - CX: [60, 97]
+      - CX: [65, 97]
+      - M: [97]
+      - R: [98]
+      - CX: [14, 98]
+      - CX: [20, 98]
+      - CX: [29, 98]
+      - CX: [44, 98]
+      - CX: [60, 98]
+      - CX: [61, 98]
+      - M: [98]
+      - R: [99]
+      - CX: [15, 99]
+      - CX: [21, 99]
+      - CX: [24, 99]
+      - CX: [45, 99]
+      - CX: [61, 99]
+      - CX: [62, 99]
+      - M: [99]
+      - R: [100]
+      - CX: [16, 100]
+      - CX: [22, 100]
+      - CX: [25, 100]
+      - CX: [46, 100]
+      - CX: [62, 100]
+      - CX: [63, 100]
+      - M: [100]
+      - R: [101]
+      - CX: [17, 101]
+      - CX: [23, 101]
+      - CX: [26, 101]
+      - CX: [47, 101]
+      - CX: [63, 101]
+      - CX: [64, 101]
+      - M: [101]
+      - R: [102]
+      - CX: [18, 102]
+      - CX: [24, 102]
+      - CX: [33, 102]
+      - CX: [48, 102]
+      - CX: [70, 102]
+      - CX: [71, 102]
+      - M: [102]
+      - R: [103]
+      - CX: [19, 103]
+      - CX: [25, 103]
+      - CX: [34, 103]
+      - CX: [49, 103]
+      - CX: [66, 103]
+      - CX: [71, 103]
+      - M: [103]
+      - R: [104]
+      - CX: [20, 104]
+      - CX: [26, 104]
+      - CX: [35, 104]
+      - CX: [50, 104]
+      - CX: [66, 104]
+      - CX: [67, 104]
+      - M: [104]
+      - R: [105]
+      - CX: [21, 105]
+      - CX: [27, 105]
+      - CX: [30, 105]
+      - CX: [51, 105]
+      - CX: [67, 105]
+      - CX: [68, 105]
+      - M: [105]
+      - R: [106]
+      - CX: [22, 106]
+      - CX: [28, 106]
+      - CX: [31, 106]
+      - CX: [52, 106]
+      - CX: [68, 106]
+      - CX: [69, 106]
+      - M: [106]
+      - R: [107]
+      - CX: [23, 107]
+      - CX: [29, 107]
+      - CX: [32, 107]
+      - CX: [53, 107]
+      - CX: [69, 107]
+      - CX: [70, 107]
+      - M: [107]
+  out:
+    - bb72:
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+        ]
+  checks:
+    - ["circuit.readouts[0]", "out[0].stabilizers[36]"]
+    - ["circuit.readouts[1]", "out[0].stabilizers[37]"]
+    - ["circuit.readouts[2]", "out[0].stabilizers[38]"]
+    - ["circuit.readouts[3]", "out[0].stabilizers[39]"]
+    - ["circuit.readouts[4]", "out[0].stabilizers[40]"]
+    - ["circuit.readouts[5]", "out[0].stabilizers[41]"]
+    - ["circuit.readouts[6]", "out[0].stabilizers[42]"]
+    - ["circuit.readouts[7]", "out[0].stabilizers[43]"]
+    - ["circuit.readouts[8]", "out[0].stabilizers[44]"]
+    - ["circuit.readouts[9]", "out[0].stabilizers[45]"]
+    - ["circuit.readouts[10]", "out[0].stabilizers[46]"]
+    - ["circuit.readouts[11]", "out[0].stabilizers[47]"]
+    - ["circuit.readouts[12]", "out[0].stabilizers[48]"]
+    - ["circuit.readouts[13]", "out[0].stabilizers[49]"]
+    - ["circuit.readouts[14]", "out[0].stabilizers[50]"]
+    - ["circuit.readouts[15]", "out[0].stabilizers[51]"]
+    - ["circuit.readouts[16]", "out[0].stabilizers[52]"]
+    - ["circuit.readouts[17]", "out[0].stabilizers[53]"]
+    - ["circuit.readouts[18]", "out[0].stabilizers[54]"]
+    - ["circuit.readouts[19]", "out[0].stabilizers[55]"]
+    - ["circuit.readouts[20]", "out[0].stabilizers[56]"]
+    - ["circuit.readouts[21]", "out[0].stabilizers[57]"]
+    - ["circuit.readouts[22]", "out[0].stabilizers[58]"]
+    - ["circuit.readouts[23]", "out[0].stabilizers[59]"]
+    - ["circuit.readouts[24]", "out[0].stabilizers[60]"]
+    - ["circuit.readouts[25]", "out[0].stabilizers[61]"]
+    - ["circuit.readouts[26]", "out[0].stabilizers[62]"]
+    - ["circuit.readouts[27]", "out[0].stabilizers[63]"]
+    - ["circuit.readouts[28]", "out[0].stabilizers[64]"]
+    - ["circuit.readouts[29]", "out[0].stabilizers[65]"]
+    - ["circuit.readouts[30]", "out[0].stabilizers[66]"]
+    - ["circuit.readouts[31]", "out[0].stabilizers[67]"]
+    - ["circuit.readouts[32]", "out[0].stabilizers[68]"]
+    - ["circuit.readouts[33]", "out[0].stabilizers[69]"]
+    - ["circuit.readouts[34]", "out[0].stabilizers[70]"]
+    - ["circuit.readouts[35]", "out[0].stabilizers[71]"]
+    - ["out[0].stabilizers[0]"]
+    - ["out[0].stabilizers[1]"]
+    - ["out[0].stabilizers[2]"]
+    - ["out[0].stabilizers[3]"]
+    - ["out[0].stabilizers[4]"]
+    - ["out[0].stabilizers[5]"]
+    - ["out[0].stabilizers[6]"]
+    - ["out[0].stabilizers[7]"]
+    - ["out[0].stabilizers[8]"]
+    - ["out[0].stabilizers[9]"]
+    - ["out[0].stabilizers[10]"]
+    - ["out[0].stabilizers[11]"]
+    - ["out[0].stabilizers[12]"]
+    - ["out[0].stabilizers[13]"]
+    - ["out[0].stabilizers[14]"]
+    - ["out[0].stabilizers[15]"]
+    - ["out[0].stabilizers[16]"]
+    - ["out[0].stabilizers[17]"]
+    - ["out[0].stabilizers[18]"]
+    - ["out[0].stabilizers[19]"]
+    - ["out[0].stabilizers[20]"]
+    - ["out[0].stabilizers[21]"]
+    - ["out[0].stabilizers[22]"]
+    - ["out[0].stabilizers[23]"]
+    - ["out[0].stabilizers[24]"]
+    - ["out[0].stabilizers[25]"]
+    - ["out[0].stabilizers[26]"]
+    - ["out[0].stabilizers[27]"]
+    - ["out[0].stabilizers[28]"]
+    - ["out[0].stabilizers[29]"]
+    - ["out[0].stabilizers[30]"]
+    - ["out[0].stabilizers[31]"]
+    - ["out[0].stabilizers[32]"]
+    - ["out[0].stabilizers[33]"]
+    - ["out[0].stabilizers[34]"]
+    - ["out[0].stabilizers[35]"]
+---
+# idle: one full syndrome round. All 72 weight-6 checks (X-checks
+# 0-35, Z-checks 36-71) are measured with one ancilla each
+# (qubits 72+). Each readout ties this round's outcome to the incoming sign (a
+# cross-round detector) and forwards it to the outgoing sign. The paper gives an
+# optimized depth-7 nearest-neighbour schedule; this gadget uses the catalog's
+# uniform ancilla-extraction pattern (the same checks, a simpler schedule).
+idle.gadget.yaml:
+  circuit:
+    source:
+      - R: [72]
+      - H: [72]
+      - CX: [72, 1]
+      - CX: [72, 2]
+      - CX: [72, 18]
+      - CX: [72, 39]
+      - CX: [72, 42]
+      - CX: [72, 48]
+      - H: [72]
+      - M: [72]
+      - R: [73]
+      - H: [73]
+      - CX: [73, 2]
+      - CX: [73, 3]
+      - CX: [73, 19]
+      - CX: [73, 40]
+      - CX: [73, 43]
+      - CX: [73, 49]
+      - H: [73]
+      - M: [73]
+      - R: [74]
+      - H: [74]
+      - CX: [74, 3]
+      - CX: [74, 4]
+      - CX: [74, 20]
+      - CX: [74, 41]
+      - CX: [74, 44]
+      - CX: [74, 50]
+      - H: [74]
+      - M: [74]
+      - R: [75]
+      - H: [75]
+      - CX: [75, 4]
+      - CX: [75, 5]
+      - CX: [75, 21]
+      - CX: [75, 36]
+      - CX: [75, 45]
+      - CX: [75, 51]
+      - H: [75]
+      - M: [75]
+      - R: [76]
+      - H: [76]
+      - CX: [76, 0]
+      - CX: [76, 5]
+      - CX: [76, 22]
+      - CX: [76, 37]
+      - CX: [76, 46]
+      - CX: [76, 52]
+      - H: [76]
+      - M: [76]
+      - R: [77]
+      - H: [77]
+      - CX: [77, 0]
+      - CX: [77, 1]
+      - CX: [77, 23]
+      - CX: [77, 38]
+      - CX: [77, 47]
+      - CX: [77, 53]
+      - H: [77]
+      - M: [77]
+      - R: [78]
+      - H: [78]
+      - CX: [78, 7]
+      - CX: [78, 8]
+      - CX: [78, 24]
+      - CX: [78, 45]
+      - CX: [78, 48]
+      - CX: [78, 54]
+      - H: [78]
+      - M: [78]
+      - R: [79]
+      - H: [79]
+      - CX: [79, 8]
+      - CX: [79, 9]
+      - CX: [79, 25]
+      - CX: [79, 46]
+      - CX: [79, 49]
+      - CX: [79, 55]
+      - H: [79]
+      - M: [79]
+      - R: [80]
+      - H: [80]
+      - CX: [80, 9]
+      - CX: [80, 10]
+      - CX: [80, 26]
+      - CX: [80, 47]
+      - CX: [80, 50]
+      - CX: [80, 56]
+      - H: [80]
+      - M: [80]
+      - R: [81]
+      - H: [81]
+      - CX: [81, 10]
+      - CX: [81, 11]
+      - CX: [81, 27]
+      - CX: [81, 42]
+      - CX: [81, 51]
+      - CX: [81, 57]
+      - H: [81]
+      - M: [81]
+      - R: [82]
+      - H: [82]
+      - CX: [82, 6]
+      - CX: [82, 11]
+      - CX: [82, 28]
+      - CX: [82, 43]
+      - CX: [82, 52]
+      - CX: [82, 58]
+      - H: [82]
+      - M: [82]
+      - R: [83]
+      - H: [83]
+      - CX: [83, 6]
+      - CX: [83, 7]
+      - CX: [83, 29]
+      - CX: [83, 44]
+      - CX: [83, 53]
+      - CX: [83, 59]
+      - H: [83]
+      - M: [83]
+      - R: [84]
+      - H: [84]
+      - CX: [84, 13]
+      - CX: [84, 14]
+      - CX: [84, 30]
+      - CX: [84, 51]
+      - CX: [84, 54]
+      - CX: [84, 60]
+      - H: [84]
+      - M: [84]
+      - R: [85]
+      - H: [85]
+      - CX: [85, 14]
+      - CX: [85, 15]
+      - CX: [85, 31]
+      - CX: [85, 52]
+      - CX: [85, 55]
+      - CX: [85, 61]
+      - H: [85]
+      - M: [85]
+      - R: [86]
+      - H: [86]
+      - CX: [86, 15]
+      - CX: [86, 16]
+      - CX: [86, 32]
+      - CX: [86, 53]
+      - CX: [86, 56]
+      - CX: [86, 62]
+      - H: [86]
+      - M: [86]
+      - R: [87]
+      - H: [87]
+      - CX: [87, 16]
+      - CX: [87, 17]
+      - CX: [87, 33]
+      - CX: [87, 48]
+      - CX: [87, 57]
+      - CX: [87, 63]
+      - H: [87]
+      - M: [87]
+      - R: [88]
+      - H: [88]
+      - CX: [88, 12]
+      - CX: [88, 17]
+      - CX: [88, 34]
+      - CX: [88, 49]
+      - CX: [88, 58]
+      - CX: [88, 64]
+      - H: [88]
+      - M: [88]
+      - R: [89]
+      - H: [89]
+      - CX: [89, 12]
+      - CX: [89, 13]
+      - CX: [89, 35]
+      - CX: [89, 50]
+      - CX: [89, 59]
+      - CX: [89, 65]
+      - H: [89]
+      - M: [89]
+      - R: [90]
+      - H: [90]
+      - CX: [90, 0]
+      - CX: [90, 19]
+      - CX: [90, 20]
+      - CX: [90, 57]
+      - CX: [90, 60]
+      - CX: [90, 66]
+      - H: [90]
+      - M: [90]
+      - R: [91]
+      - H: [91]
+      - CX: [91, 1]
+      - CX: [91, 20]
+      - CX: [91, 21]
+      - CX: [91, 58]
+      - CX: [91, 61]
+      - CX: [91, 67]
+      - H: [91]
+      - M: [91]
+      - R: [92]
+      - H: [92]
+      - CX: [92, 2]
+      - CX: [92, 21]
+      - CX: [92, 22]
+      - CX: [92, 59]
+      - CX: [92, 62]
+      - CX: [92, 68]
+      - H: [92]
+      - M: [92]
+      - R: [93]
+      - H: [93]
+      - CX: [93, 3]
+      - CX: [93, 22]
+      - CX: [93, 23]
+      - CX: [93, 54]
+      - CX: [93, 63]
+      - CX: [93, 69]
+      - H: [93]
+      - M: [93]
+      - R: [94]
+      - H: [94]
+      - CX: [94, 4]
+      - CX: [94, 18]
+      - CX: [94, 23]
+      - CX: [94, 55]
+      - CX: [94, 64]
+      - CX: [94, 70]
+      - H: [94]
+      - M: [94]
+      - R: [95]
+      - H: [95]
+      - CX: [95, 5]
+      - CX: [95, 18]
+      - CX: [95, 19]
+      - CX: [95, 56]
+      - CX: [95, 65]
+      - CX: [95, 71]
+      - H: [95]
+      - M: [95]
+      - R: [96]
+      - H: [96]
+      - CX: [96, 6]
+      - CX: [96, 25]
+      - CX: [96, 26]
+      - CX: [96, 36]
+      - CX: [96, 63]
+      - CX: [96, 66]
+      - H: [96]
+      - M: [96]
+      - R: [97]
+      - H: [97]
+      - CX: [97, 7]
+      - CX: [97, 26]
+      - CX: [97, 27]
+      - CX: [97, 37]
+      - CX: [97, 64]
+      - CX: [97, 67]
+      - H: [97]
+      - M: [97]
+      - R: [98]
+      - H: [98]
+      - CX: [98, 8]
+      - CX: [98, 27]
+      - CX: [98, 28]
+      - CX: [98, 38]
+      - CX: [98, 65]
+      - CX: [98, 68]
+      - H: [98]
+      - M: [98]
+      - R: [99]
+      - H: [99]
+      - CX: [99, 9]
+      - CX: [99, 28]
+      - CX: [99, 29]
+      - CX: [99, 39]
+      - CX: [99, 60]
+      - CX: [99, 69]
+      - H: [99]
+      - M: [99]
+      - R: [100]
+      - H: [100]
+      - CX: [100, 10]
+      - CX: [100, 24]
+      - CX: [100, 29]
+      - CX: [100, 40]
+      - CX: [100, 61]
+      - CX: [100, 70]
+      - H: [100]
+      - M: [100]
+      - R: [101]
+      - H: [101]
+      - CX: [101, 11]
+      - CX: [101, 24]
+      - CX: [101, 25]
+      - CX: [101, 41]
+      - CX: [101, 62]
+      - CX: [101, 71]
+      - H: [101]
+      - M: [101]
+      - R: [102]
+      - H: [102]
+      - CX: [102, 12]
+      - CX: [102, 31]
+      - CX: [102, 32]
+      - CX: [102, 36]
+      - CX: [102, 42]
+      - CX: [102, 69]
+      - H: [102]
+      - M: [102]
+      - R: [103]
+      - H: [103]
+      - CX: [103, 13]
+      - CX: [103, 32]
+      - CX: [103, 33]
+      - CX: [103, 37]
+      - CX: [103, 43]
+      - CX: [103, 70]
+      - H: [103]
+      - M: [103]
+      - R: [104]
+      - H: [104]
+      - CX: [104, 14]
+      - CX: [104, 33]
+      - CX: [104, 34]
+      - CX: [104, 38]
+      - CX: [104, 44]
+      - CX: [104, 71]
+      - H: [104]
+      - M: [104]
+      - R: [105]
+      - H: [105]
+      - CX: [105, 15]
+      - CX: [105, 34]
+      - CX: [105, 35]
+      - CX: [105, 39]
+      - CX: [105, 45]
+      - CX: [105, 66]
+      - H: [105]
+      - M: [105]
+      - R: [106]
+      - H: [106]
+      - CX: [106, 16]
+      - CX: [106, 30]
+      - CX: [106, 35]
+      - CX: [106, 40]
+      - CX: [106, 46]
+      - CX: [106, 67]
+      - H: [106]
+      - M: [106]
+      - R: [107]
+      - H: [107]
+      - CX: [107, 17]
+      - CX: [107, 30]
+      - CX: [107, 31]
+      - CX: [107, 41]
+      - CX: [107, 47]
+      - CX: [107, 68]
+      - H: [107]
+      - M: [107]
+      - R: [108]
+      - CX: [3, 108]
+      - CX: [24, 108]
+      - CX: [30, 108]
+      - CX: [40, 108]
+      - CX: [41, 108]
+      - CX: [54, 108]
+      - M: [108]
+      - R: [109]
+      - CX: [4, 109]
+      - CX: [25, 109]
+      - CX: [31, 109]
+      - CX: [36, 109]
+      - CX: [41, 109]
+      - CX: [55, 109]
+      - M: [109]
+      - R: [110]
+      - CX: [5, 110]
+      - CX: [26, 110]
+      - CX: [32, 110]
+      - CX: [36, 110]
+      - CX: [37, 110]
+      - CX: [56, 110]
+      - M: [110]
+      - R: [111]
+      - CX: [0, 111]
+      - CX: [27, 111]
+      - CX: [33, 111]
+      - CX: [37, 111]
+      - CX: [38, 111]
+      - CX: [57, 111]
+      - M: [111]
+      - R: [112]
+      - CX: [1, 112]
+      - CX: [28, 112]
+      - CX: [34, 112]
+      - CX: [38, 112]
+      - CX: [39, 112]
+      - CX: [58, 112]
+      - M: [112]
+      - R: [113]
+      - CX: [2, 113]
+      - CX: [29, 113]
+      - CX: [35, 113]
+      - CX: [39, 113]
+      - CX: [40, 113]
+      - CX: [59, 113]
+      - M: [113]
+      - R: [114]
+      - CX: [0, 114]
+      - CX: [9, 114]
+      - CX: [30, 114]
+      - CX: [46, 114]
+      - CX: [47, 114]
+      - CX: [60, 114]
+      - M: [114]
+      - R: [115]
+      - CX: [1, 115]
+      - CX: [10, 115]
+      - CX: [31, 115]
+      - CX: [42, 115]
+      - CX: [47, 115]
+      - CX: [61, 115]
+      - M: [115]
+      - R: [116]
+      - CX: [2, 116]
+      - CX: [11, 116]
+      - CX: [32, 116]
+      - CX: [42, 116]
+      - CX: [43, 116]
+      - CX: [62, 116]
+      - M: [116]
+      - R: [117]
+      - CX: [3, 117]
+      - CX: [6, 117]
+      - CX: [33, 117]
+      - CX: [43, 117]
+      - CX: [44, 117]
+      - CX: [63, 117]
+      - M: [117]
+      - R: [118]
+      - CX: [4, 118]
+      - CX: [7, 118]
+      - CX: [34, 118]
+      - CX: [44, 118]
+      - CX: [45, 118]
+      - CX: [64, 118]
+      - M: [118]
+      - R: [119]
+      - CX: [5, 119]
+      - CX: [8, 119]
+      - CX: [35, 119]
+      - CX: [45, 119]
+      - CX: [46, 119]
+      - CX: [65, 119]
+      - M: [119]
+      - R: [120]
+      - CX: [0, 120]
+      - CX: [6, 120]
+      - CX: [15, 120]
+      - CX: [52, 120]
+      - CX: [53, 120]
+      - CX: [66, 120]
+      - M: [120]
+      - R: [121]
+      - CX: [1, 121]
+      - CX: [7, 121]
+      - CX: [16, 121]
+      - CX: [48, 121]
+      - CX: [53, 121]
+      - CX: [67, 121]
+      - M: [121]
+      - R: [122]
+      - CX: [2, 122]
+      - CX: [8, 122]
+      - CX: [17, 122]
+      - CX: [48, 122]
+      - CX: [49, 122]
+      - CX: [68, 122]
+      - M: [122]
+      - R: [123]
+      - CX: [3, 123]
+      - CX: [9, 123]
+      - CX: [12, 123]
+      - CX: [49, 123]
+      - CX: [50, 123]
+      - CX: [69, 123]
+      - M: [123]
+      - R: [124]
+      - CX: [4, 124]
+      - CX: [10, 124]
+      - CX: [13, 124]
+      - CX: [50, 124]
+      - CX: [51, 124]
+      - CX: [70, 124]
+      - M: [124]
+      - R: [125]
+      - CX: [5, 125]
+      - CX: [11, 125]
+      - CX: [14, 125]
+      - CX: [51, 125]
+      - CX: [52, 125]
+      - CX: [71, 125]
+      - M: [125]
+      - R: [126]
+      - CX: [6, 126]
+      - CX: [12, 126]
+      - CX: [21, 126]
+      - CX: [36, 126]
+      - CX: [58, 126]
+      - CX: [59, 126]
+      - M: [126]
+      - R: [127]
+      - CX: [7, 127]
+      - CX: [13, 127]
+      - CX: [22, 127]
+      - CX: [37, 127]
+      - CX: [54, 127]
+      - CX: [59, 127]
+      - M: [127]
+      - R: [128]
+      - CX: [8, 128]
+      - CX: [14, 128]
+      - CX: [23, 128]
+      - CX: [38, 128]
+      - CX: [54, 128]
+      - CX: [55, 128]
+      - M: [128]
+      - R: [129]
+      - CX: [9, 129]
+      - CX: [15, 129]
+      - CX: [18, 129]
+      - CX: [39, 129]
+      - CX: [55, 129]
+      - CX: [56, 129]
+      - M: [129]
+      - R: [130]
+      - CX: [10, 130]
+      - CX: [16, 130]
+      - CX: [19, 130]
+      - CX: [40, 130]
+      - CX: [56, 130]
+      - CX: [57, 130]
+      - M: [130]
+      - R: [131]
+      - CX: [11, 131]
+      - CX: [17, 131]
+      - CX: [20, 131]
+      - CX: [41, 131]
+      - CX: [57, 131]
+      - CX: [58, 131]
+      - M: [131]
+      - R: [132]
+      - CX: [12, 132]
+      - CX: [18, 132]
+      - CX: [27, 132]
+      - CX: [42, 132]
+      - CX: [64, 132]
+      - CX: [65, 132]
+      - M: [132]
+      - R: [133]
+      - CX: [13, 133]
+      - CX: [19, 133]
+      - CX: [28, 133]
+      - CX: [43, 133]
+      - CX: [60, 133]
+      - CX: [65, 133]
+      - M: [133]
+      - R: [134]
+      - CX: [14, 134]
+      - CX: [20, 134]
+      - CX: [29, 134]
+      - CX: [44, 134]
+      - CX: [60, 134]
+      - CX: [61, 134]
+      - M: [134]
+      - R: [135]
+      - CX: [15, 135]
+      - CX: [21, 135]
+      - CX: [24, 135]
+      - CX: [45, 135]
+      - CX: [61, 135]
+      - CX: [62, 135]
+      - M: [135]
+      - R: [136]
+      - CX: [16, 136]
+      - CX: [22, 136]
+      - CX: [25, 136]
+      - CX: [46, 136]
+      - CX: [62, 136]
+      - CX: [63, 136]
+      - M: [136]
+      - R: [137]
+      - CX: [17, 137]
+      - CX: [23, 137]
+      - CX: [26, 137]
+      - CX: [47, 137]
+      - CX: [63, 137]
+      - CX: [64, 137]
+      - M: [137]
+      - R: [138]
+      - CX: [18, 138]
+      - CX: [24, 138]
+      - CX: [33, 138]
+      - CX: [48, 138]
+      - CX: [70, 138]
+      - CX: [71, 138]
+      - M: [138]
+      - R: [139]
+      - CX: [19, 139]
+      - CX: [25, 139]
+      - CX: [34, 139]
+      - CX: [49, 139]
+      - CX: [66, 139]
+      - CX: [71, 139]
+      - M: [139]
+      - R: [140]
+      - CX: [20, 140]
+      - CX: [26, 140]
+      - CX: [35, 140]
+      - CX: [50, 140]
+      - CX: [66, 140]
+      - CX: [67, 140]
+      - M: [140]
+      - R: [141]
+      - CX: [21, 141]
+      - CX: [27, 141]
+      - CX: [30, 141]
+      - CX: [51, 141]
+      - CX: [67, 141]
+      - CX: [68, 141]
+      - M: [141]
+      - R: [142]
+      - CX: [22, 142]
+      - CX: [28, 142]
+      - CX: [31, 142]
+      - CX: [52, 142]
+      - CX: [68, 142]
+      - CX: [69, 142]
+      - M: [142]
+      - R: [143]
+      - CX: [23, 143]
+      - CX: [29, 143]
+      - CX: [32, 143]
+      - CX: [53, 143]
+      - CX: [69, 143]
+      - CX: [70, 143]
+      - M: [143]
+  checks:
+    - ["circuit.readouts[0]", "in[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "in[0].stabilizers[1]"]
+    - ["circuit.readouts[2]", "in[0].stabilizers[2]"]
+    - ["circuit.readouts[3]", "in[0].stabilizers[3]"]
+    - ["circuit.readouts[4]", "in[0].stabilizers[4]"]
+    - ["circuit.readouts[5]", "in[0].stabilizers[5]"]
+    - ["circuit.readouts[6]", "in[0].stabilizers[6]"]
+    - ["circuit.readouts[7]", "in[0].stabilizers[7]"]
+    - ["circuit.readouts[8]", "in[0].stabilizers[8]"]
+    - ["circuit.readouts[9]", "in[0].stabilizers[9]"]
+    - ["circuit.readouts[10]", "in[0].stabilizers[10]"]
+    - ["circuit.readouts[11]", "in[0].stabilizers[11]"]
+    - ["circuit.readouts[12]", "in[0].stabilizers[12]"]
+    - ["circuit.readouts[13]", "in[0].stabilizers[13]"]
+    - ["circuit.readouts[14]", "in[0].stabilizers[14]"]
+    - ["circuit.readouts[15]", "in[0].stabilizers[15]"]
+    - ["circuit.readouts[16]", "in[0].stabilizers[16]"]
+    - ["circuit.readouts[17]", "in[0].stabilizers[17]"]
+    - ["circuit.readouts[18]", "in[0].stabilizers[18]"]
+    - ["circuit.readouts[19]", "in[0].stabilizers[19]"]
+    - ["circuit.readouts[20]", "in[0].stabilizers[20]"]
+    - ["circuit.readouts[21]", "in[0].stabilizers[21]"]
+    - ["circuit.readouts[22]", "in[0].stabilizers[22]"]
+    - ["circuit.readouts[23]", "in[0].stabilizers[23]"]
+    - ["circuit.readouts[24]", "in[0].stabilizers[24]"]
+    - ["circuit.readouts[25]", "in[0].stabilizers[25]"]
+    - ["circuit.readouts[26]", "in[0].stabilizers[26]"]
+    - ["circuit.readouts[27]", "in[0].stabilizers[27]"]
+    - ["circuit.readouts[28]", "in[0].stabilizers[28]"]
+    - ["circuit.readouts[29]", "in[0].stabilizers[29]"]
+    - ["circuit.readouts[30]", "in[0].stabilizers[30]"]
+    - ["circuit.readouts[31]", "in[0].stabilizers[31]"]
+    - ["circuit.readouts[32]", "in[0].stabilizers[32]"]
+    - ["circuit.readouts[33]", "in[0].stabilizers[33]"]
+    - ["circuit.readouts[34]", "in[0].stabilizers[34]"]
+    - ["circuit.readouts[35]", "in[0].stabilizers[35]"]
+    - ["circuit.readouts[36]", "in[0].stabilizers[36]"]
+    - ["circuit.readouts[37]", "in[0].stabilizers[37]"]
+    - ["circuit.readouts[38]", "in[0].stabilizers[38]"]
+    - ["circuit.readouts[39]", "in[0].stabilizers[39]"]
+    - ["circuit.readouts[40]", "in[0].stabilizers[40]"]
+    - ["circuit.readouts[41]", "in[0].stabilizers[41]"]
+    - ["circuit.readouts[42]", "in[0].stabilizers[42]"]
+    - ["circuit.readouts[43]", "in[0].stabilizers[43]"]
+    - ["circuit.readouts[44]", "in[0].stabilizers[44]"]
+    - ["circuit.readouts[45]", "in[0].stabilizers[45]"]
+    - ["circuit.readouts[46]", "in[0].stabilizers[46]"]
+    - ["circuit.readouts[47]", "in[0].stabilizers[47]"]
+    - ["circuit.readouts[48]", "in[0].stabilizers[48]"]
+    - ["circuit.readouts[49]", "in[0].stabilizers[49]"]
+    - ["circuit.readouts[50]", "in[0].stabilizers[50]"]
+    - ["circuit.readouts[51]", "in[0].stabilizers[51]"]
+    - ["circuit.readouts[52]", "in[0].stabilizers[52]"]
+    - ["circuit.readouts[53]", "in[0].stabilizers[53]"]
+    - ["circuit.readouts[54]", "in[0].stabilizers[54]"]
+    - ["circuit.readouts[55]", "in[0].stabilizers[55]"]
+    - ["circuit.readouts[56]", "in[0].stabilizers[56]"]
+    - ["circuit.readouts[57]", "in[0].stabilizers[57]"]
+    - ["circuit.readouts[58]", "in[0].stabilizers[58]"]
+    - ["circuit.readouts[59]", "in[0].stabilizers[59]"]
+    - ["circuit.readouts[60]", "in[0].stabilizers[60]"]
+    - ["circuit.readouts[61]", "in[0].stabilizers[61]"]
+    - ["circuit.readouts[62]", "in[0].stabilizers[62]"]
+    - ["circuit.readouts[63]", "in[0].stabilizers[63]"]
+    - ["circuit.readouts[64]", "in[0].stabilizers[64]"]
+    - ["circuit.readouts[65]", "in[0].stabilizers[65]"]
+    - ["circuit.readouts[66]", "in[0].stabilizers[66]"]
+    - ["circuit.readouts[67]", "in[0].stabilizers[67]"]
+    - ["circuit.readouts[68]", "in[0].stabilizers[68]"]
+    - ["circuit.readouts[69]", "in[0].stabilizers[69]"]
+    - ["circuit.readouts[70]", "in[0].stabilizers[70]"]
+    - ["circuit.readouts[71]", "in[0].stabilizers[71]"]
+    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "out[0].stabilizers[1]"]
+    - ["circuit.readouts[2]", "out[0].stabilizers[2]"]
+    - ["circuit.readouts[3]", "out[0].stabilizers[3]"]
+    - ["circuit.readouts[4]", "out[0].stabilizers[4]"]
+    - ["circuit.readouts[5]", "out[0].stabilizers[5]"]
+    - ["circuit.readouts[6]", "out[0].stabilizers[6]"]
+    - ["circuit.readouts[7]", "out[0].stabilizers[7]"]
+    - ["circuit.readouts[8]", "out[0].stabilizers[8]"]
+    - ["circuit.readouts[9]", "out[0].stabilizers[9]"]
+    - ["circuit.readouts[10]", "out[0].stabilizers[10]"]
+    - ["circuit.readouts[11]", "out[0].stabilizers[11]"]
+    - ["circuit.readouts[12]", "out[0].stabilizers[12]"]
+    - ["circuit.readouts[13]", "out[0].stabilizers[13]"]
+    - ["circuit.readouts[14]", "out[0].stabilizers[14]"]
+    - ["circuit.readouts[15]", "out[0].stabilizers[15]"]
+    - ["circuit.readouts[16]", "out[0].stabilizers[16]"]
+    - ["circuit.readouts[17]", "out[0].stabilizers[17]"]
+    - ["circuit.readouts[18]", "out[0].stabilizers[18]"]
+    - ["circuit.readouts[19]", "out[0].stabilizers[19]"]
+    - ["circuit.readouts[20]", "out[0].stabilizers[20]"]
+    - ["circuit.readouts[21]", "out[0].stabilizers[21]"]
+    - ["circuit.readouts[22]", "out[0].stabilizers[22]"]
+    - ["circuit.readouts[23]", "out[0].stabilizers[23]"]
+    - ["circuit.readouts[24]", "out[0].stabilizers[24]"]
+    - ["circuit.readouts[25]", "out[0].stabilizers[25]"]
+    - ["circuit.readouts[26]", "out[0].stabilizers[26]"]
+    - ["circuit.readouts[27]", "out[0].stabilizers[27]"]
+    - ["circuit.readouts[28]", "out[0].stabilizers[28]"]
+    - ["circuit.readouts[29]", "out[0].stabilizers[29]"]
+    - ["circuit.readouts[30]", "out[0].stabilizers[30]"]
+    - ["circuit.readouts[31]", "out[0].stabilizers[31]"]
+    - ["circuit.readouts[32]", "out[0].stabilizers[32]"]
+    - ["circuit.readouts[33]", "out[0].stabilizers[33]"]
+    - ["circuit.readouts[34]", "out[0].stabilizers[34]"]
+    - ["circuit.readouts[35]", "out[0].stabilizers[35]"]
+    - ["circuit.readouts[36]", "out[0].stabilizers[36]"]
+    - ["circuit.readouts[37]", "out[0].stabilizers[37]"]
+    - ["circuit.readouts[38]", "out[0].stabilizers[38]"]
+    - ["circuit.readouts[39]", "out[0].stabilizers[39]"]
+    - ["circuit.readouts[40]", "out[0].stabilizers[40]"]
+    - ["circuit.readouts[41]", "out[0].stabilizers[41]"]
+    - ["circuit.readouts[42]", "out[0].stabilizers[42]"]
+    - ["circuit.readouts[43]", "out[0].stabilizers[43]"]
+    - ["circuit.readouts[44]", "out[0].stabilizers[44]"]
+    - ["circuit.readouts[45]", "out[0].stabilizers[45]"]
+    - ["circuit.readouts[46]", "out[0].stabilizers[46]"]
+    - ["circuit.readouts[47]", "out[0].stabilizers[47]"]
+    - ["circuit.readouts[48]", "out[0].stabilizers[48]"]
+    - ["circuit.readouts[49]", "out[0].stabilizers[49]"]
+    - ["circuit.readouts[50]", "out[0].stabilizers[50]"]
+    - ["circuit.readouts[51]", "out[0].stabilizers[51]"]
+    - ["circuit.readouts[52]", "out[0].stabilizers[52]"]
+    - ["circuit.readouts[53]", "out[0].stabilizers[53]"]
+    - ["circuit.readouts[54]", "out[0].stabilizers[54]"]
+    - ["circuit.readouts[55]", "out[0].stabilizers[55]"]
+    - ["circuit.readouts[56]", "out[0].stabilizers[56]"]
+    - ["circuit.readouts[57]", "out[0].stabilizers[57]"]
+    - ["circuit.readouts[58]", "out[0].stabilizers[58]"]
+    - ["circuit.readouts[59]", "out[0].stabilizers[59]"]
+    - ["circuit.readouts[60]", "out[0].stabilizers[60]"]
+    - ["circuit.readouts[61]", "out[0].stabilizers[61]"]
+    - ["circuit.readouts[62]", "out[0].stabilizers[62]"]
+    - ["circuit.readouts[63]", "out[0].stabilizers[63]"]
+    - ["circuit.readouts[64]", "out[0].stabilizers[64]"]
+    - ["circuit.readouts[65]", "out[0].stabilizers[65]"]
+    - ["circuit.readouts[66]", "out[0].stabilizers[66]"]
+    - ["circuit.readouts[67]", "out[0].stabilizers[67]"]
+    - ["circuit.readouts[68]", "out[0].stabilizers[68]"]
+    - ["circuit.readouts[69]", "out[0].stabilizers[69]"]
+    - ["circuit.readouts[70]", "out[0].stabilizers[70]"]
+    - ["circuit.readouts[71]", "out[0].stabilizers[71]"]
+---
+# measure_z_all: destructive logical-Z readout. Measure all 72 data
+# in the Z basis; the 36 Z-checks become deterministic checks and the 12
+# logical Z observables are products of their support.
+measure_z_all.gadget.yaml:
+  circuit:
+    source:
+      - M: [0]
+      - M: [1]
+      - M: [2]
+      - M: [3]
+      - M: [4]
+      - M: [5]
+      - M: [6]
+      - M: [7]
+      - M: [8]
+      - M: [9]
+      - M: [10]
+      - M: [11]
+      - M: [12]
+      - M: [13]
+      - M: [14]
+      - M: [15]
+      - M: [16]
+      - M: [17]
+      - M: [18]
+      - M: [19]
+      - M: [20]
+      - M: [21]
+      - M: [22]
+      - M: [23]
+      - M: [24]
+      - M: [25]
+      - M: [26]
+      - M: [27]
+      - M: [28]
+      - M: [29]
+      - M: [30]
+      - M: [31]
+      - M: [32]
+      - M: [33]
+      - M: [34]
+      - M: [35]
+      - M: [36]
+      - M: [37]
+      - M: [38]
+      - M: [39]
+      - M: [40]
+      - M: [41]
+      - M: [42]
+      - M: [43]
+      - M: [44]
+      - M: [45]
+      - M: [46]
+      - M: [47]
+      - M: [48]
+      - M: [49]
+      - M: [50]
+      - M: [51]
+      - M: [52]
+      - M: [53]
+      - M: [54]
+      - M: [55]
+      - M: [56]
+      - M: [57]
+      - M: [58]
+      - M: [59]
+      - M: [60]
+      - M: [61]
+      - M: [62]
+      - M: [63]
+      - M: [64]
+      - M: [65]
+      - M: [66]
+      - M: [67]
+      - M: [68]
+      - M: [69]
+      - M: [70]
+      - M: [71]
+  in:
+    - bb72:
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+        ]
+  checks:
+    - ["circuit.readouts[3,24,30,40,41,54]", "in[0].stabilizers[36]"]
+    - ["circuit.readouts[4,25,31,36,41,55]", "in[0].stabilizers[37]"]
+    - ["circuit.readouts[5,26,32,36,37,56]", "in[0].stabilizers[38]"]
+    - ["circuit.readouts[0,27,33,37,38,57]", "in[0].stabilizers[39]"]
+    - ["circuit.readouts[1,28,34,38,39,58]", "in[0].stabilizers[40]"]
+    - ["circuit.readouts[2,29,35,39,40,59]", "in[0].stabilizers[41]"]
+    - ["circuit.readouts[0,9,30,46,47,60]", "in[0].stabilizers[42]"]
+    - ["circuit.readouts[1,10,31,42,47,61]", "in[0].stabilizers[43]"]
+    - ["circuit.readouts[2,11,32,42,43,62]", "in[0].stabilizers[44]"]
+    - ["circuit.readouts[3,6,33,43,44,63]", "in[0].stabilizers[45]"]
+    - ["circuit.readouts[4,7,34,44,45,64]", "in[0].stabilizers[46]"]
+    - ["circuit.readouts[5,8,35,45,46,65]", "in[0].stabilizers[47]"]
+    - ["circuit.readouts[0,6,15,52,53,66]", "in[0].stabilizers[48]"]
+    - ["circuit.readouts[1,7,16,48,53,67]", "in[0].stabilizers[49]"]
+    - ["circuit.readouts[2,8,17,48,49,68]", "in[0].stabilizers[50]"]
+    - ["circuit.readouts[3,9,12,49,50,69]", "in[0].stabilizers[51]"]
+    - ["circuit.readouts[4,10,13,50,51,70]", "in[0].stabilizers[52]"]
+    - ["circuit.readouts[5,11,14,51,52,71]", "in[0].stabilizers[53]"]
+    - ["circuit.readouts[6,12,21,36,58,59]", "in[0].stabilizers[54]"]
+    - ["circuit.readouts[7,13,22,37,54,59]", "in[0].stabilizers[55]"]
+    - ["circuit.readouts[8,14,23,38,54,55]", "in[0].stabilizers[56]"]
+    - ["circuit.readouts[9,15,18,39,55,56]", "in[0].stabilizers[57]"]
+    - ["circuit.readouts[10,16,19,40,56,57]", "in[0].stabilizers[58]"]
+    - ["circuit.readouts[11,17,20,41,57,58]", "in[0].stabilizers[59]"]
+    - ["circuit.readouts[12,18,27,42,64,65]", "in[0].stabilizers[60]"]
+    - ["circuit.readouts[13,19,28,43,60,65]", "in[0].stabilizers[61]"]
+    - ["circuit.readouts[14,20,29,44,60,61]", "in[0].stabilizers[62]"]
+    - ["circuit.readouts[15,21,24,45,61,62]", "in[0].stabilizers[63]"]
+    - ["circuit.readouts[16,22,25,46,62,63]", "in[0].stabilizers[64]"]
+    - ["circuit.readouts[17,23,26,47,63,64]", "in[0].stabilizers[65]"]
+    - ["circuit.readouts[18,24,33,48,70,71]", "in[0].stabilizers[66]"]
+    - ["circuit.readouts[19,25,34,49,66,71]", "in[0].stabilizers[67]"]
+    - ["circuit.readouts[20,26,35,50,66,67]", "in[0].stabilizers[68]"]
+    - ["circuit.readouts[21,27,30,51,67,68]", "in[0].stabilizers[69]"]
+    - ["circuit.readouts[22,28,31,52,68,69]", "in[0].stabilizers[70]"]
+    - ["circuit.readouts[23,29,32,53,69,70]", "in[0].stabilizers[71]"]
+  readouts:
+    - ["circuit.readouts[0,29,32,33,34,52,53,58,61,63,66,69]", "in[0].z[0]"]
+    - [
+        "circuit.readouts[2,29,35,48,49,54,55,59,60,61,63,64,66,67]",
+        "in[0].z[1]",
+      ]
+    - [
+        "circuit.readouts[0,1,28,29,32,33,48,52,54,59,60,61,62,65,69,71]",
+        "in[0].z[2]",
+      ]
+    - [
+        "circuit.readouts[2,5,28,29,33,34,48,49,51,52,54,55,57,59,63,65,66,70]",
+        "in[0].z[3]",
+      ]
+    - [
+        "circuit.readouts[1,9,28,29,35,48,53,54,55,56,58,60,61,63,64,65,66,67]",
+        "in[0].z[4]",
+      ]
+    - [
+        "circuit.readouts[0,1,2,3,33,35,50,52,56,58,61,62,63,64,66,67,70,71]",
+        "in[0].z[5]",
+      ]
+    - [
+        "circuit.readouts[5,8,35,51,52,54,55,57,58,63,64,65,66,67]",
+        "in[0].z[6]",
+      ]
+    - [
+        "circuit.readouts[0,5,6,29,33,35,51,53,57,58,59,60,62,64,66,67,70,71]",
+        "in[0].z[7]",
+      ]
+    - ["circuit.readouts[0,1,2,3,4,5,8,29,54,55,59,60,61,65]", "in[0].z[8]"]
+    - [
+        "circuit.readouts[0,1,2,3,5,7,28,29,33,50,51,54,56,57,58,62,64,65,70,71]",
+        "in[0].z[9]",
+      ]
+    - [
+        "circuit.readouts[1,2,3,9,11,29,35,50,53,55,57,58,61,62,63,64,66,67]",
+        "in[0].z[10]",
+      ]
+    - ["circuit.readouts[5,6,7,8,9,10,35,51,52,60,61,65,66,67]", "in[0].z[11]"]
+---
+# measure_x_all: destructive logical-X readout. Measure all 72 data
+# in the X basis; the 36 X-checks become deterministic checks and the 12
+# logical X observables are products of their support.
+measure_x_all.gadget.yaml:
+  circuit:
+    source:
+      - MX: [0]
+      - MX: [1]
+      - MX: [2]
+      - MX: [3]
+      - MX: [4]
+      - MX: [5]
+      - MX: [6]
+      - MX: [7]
+      - MX: [8]
+      - MX: [9]
+      - MX: [10]
+      - MX: [11]
+      - MX: [12]
+      - MX: [13]
+      - MX: [14]
+      - MX: [15]
+      - MX: [16]
+      - MX: [17]
+      - MX: [18]
+      - MX: [19]
+      - MX: [20]
+      - MX: [21]
+      - MX: [22]
+      - MX: [23]
+      - MX: [24]
+      - MX: [25]
+      - MX: [26]
+      - MX: [27]
+      - MX: [28]
+      - MX: [29]
+      - MX: [30]
+      - MX: [31]
+      - MX: [32]
+      - MX: [33]
+      - MX: [34]
+      - MX: [35]
+      - MX: [36]
+      - MX: [37]
+      - MX: [38]
+      - MX: [39]
+      - MX: [40]
+      - MX: [41]
+      - MX: [42]
+      - MX: [43]
+      - MX: [44]
+      - MX: [45]
+      - MX: [46]
+      - MX: [47]
+      - MX: [48]
+      - MX: [49]
+      - MX: [50]
+      - MX: [51]
+      - MX: [52]
+      - MX: [53]
+      - MX: [54]
+      - MX: [55]
+      - MX: [56]
+      - MX: [57]
+      - MX: [58]
+      - MX: [59]
+      - MX: [60]
+      - MX: [61]
+      - MX: [62]
+      - MX: [63]
+      - MX: [64]
+      - MX: [65]
+      - MX: [66]
+      - MX: [67]
+      - MX: [68]
+      - MX: [69]
+      - MX: [70]
+      - MX: [71]
+  in:
+    - bb72:
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+        ]
+  checks:
+    - ["circuit.readouts[1,2,18,39,42,48]", "in[0].stabilizers[0]"]
+    - ["circuit.readouts[2,3,19,40,43,49]", "in[0].stabilizers[1]"]
+    - ["circuit.readouts[3,4,20,41,44,50]", "in[0].stabilizers[2]"]
+    - ["circuit.readouts[4,5,21,36,45,51]", "in[0].stabilizers[3]"]
+    - ["circuit.readouts[0,5,22,37,46,52]", "in[0].stabilizers[4]"]
+    - ["circuit.readouts[0,1,23,38,47,53]", "in[0].stabilizers[5]"]
+    - ["circuit.readouts[7,8,24,45,48,54]", "in[0].stabilizers[6]"]
+    - ["circuit.readouts[8,9,25,46,49,55]", "in[0].stabilizers[7]"]
+    - ["circuit.readouts[9,10,26,47,50,56]", "in[0].stabilizers[8]"]
+    - ["circuit.readouts[10,11,27,42,51,57]", "in[0].stabilizers[9]"]
+    - ["circuit.readouts[6,11,28,43,52,58]", "in[0].stabilizers[10]"]
+    - ["circuit.readouts[6,7,29,44,53,59]", "in[0].stabilizers[11]"]
+    - ["circuit.readouts[13,14,30,51,54,60]", "in[0].stabilizers[12]"]
+    - ["circuit.readouts[14,15,31,52,55,61]", "in[0].stabilizers[13]"]
+    - ["circuit.readouts[15,16,32,53,56,62]", "in[0].stabilizers[14]"]
+    - ["circuit.readouts[16,17,33,48,57,63]", "in[0].stabilizers[15]"]
+    - ["circuit.readouts[12,17,34,49,58,64]", "in[0].stabilizers[16]"]
+    - ["circuit.readouts[12,13,35,50,59,65]", "in[0].stabilizers[17]"]
+    - ["circuit.readouts[0,19,20,57,60,66]", "in[0].stabilizers[18]"]
+    - ["circuit.readouts[1,20,21,58,61,67]", "in[0].stabilizers[19]"]
+    - ["circuit.readouts[2,21,22,59,62,68]", "in[0].stabilizers[20]"]
+    - ["circuit.readouts[3,22,23,54,63,69]", "in[0].stabilizers[21]"]
+    - ["circuit.readouts[4,18,23,55,64,70]", "in[0].stabilizers[22]"]
+    - ["circuit.readouts[5,18,19,56,65,71]", "in[0].stabilizers[23]"]
+    - ["circuit.readouts[6,25,26,36,63,66]", "in[0].stabilizers[24]"]
+    - ["circuit.readouts[7,26,27,37,64,67]", "in[0].stabilizers[25]"]
+    - ["circuit.readouts[8,27,28,38,65,68]", "in[0].stabilizers[26]"]
+    - ["circuit.readouts[9,28,29,39,60,69]", "in[0].stabilizers[27]"]
+    - ["circuit.readouts[10,24,29,40,61,70]", "in[0].stabilizers[28]"]
+    - ["circuit.readouts[11,24,25,41,62,71]", "in[0].stabilizers[29]"]
+    - ["circuit.readouts[12,31,32,36,42,69]", "in[0].stabilizers[30]"]
+    - ["circuit.readouts[13,32,33,37,43,70]", "in[0].stabilizers[31]"]
+    - ["circuit.readouts[14,33,34,38,44,71]", "in[0].stabilizers[32]"]
+    - ["circuit.readouts[15,34,35,39,45,66]", "in[0].stabilizers[33]"]
+    - ["circuit.readouts[16,30,35,40,46,67]", "in[0].stabilizers[34]"]
+    - ["circuit.readouts[17,30,31,41,47,68]", "in[0].stabilizers[35]"]
+  readouts:
+    - ["circuit.readouts[0,28,33,34,46,52,63,64,65,71]", "in[0].x[0]"]
+    - ["circuit.readouts[1,29,34,35,47,53,60,64,65,66]", "in[0].x[1]"]
+    - [
+        "circuit.readouts[0,2,29,33,47,52,53,61,62,63,66,67,68,71]",
+        "in[0].x[2]",
+      ]
+    - [
+        "circuit.readouts[0,3,32,33,34,40,41,46,47,52,54,55,56,58,59,60,61,62,64,65,69,71]",
+        "in[0].x[3]",
+      ]
+    - ["circuit.readouts[0,4,28,29,34,40,41,52,57,60,70,71]", "in[0].x[4]"]
+    - [
+        "circuit.readouts[0,2,6,28,32,34,41,46,53,54,55,56,57,59,63,64,65,66,67,68]",
+        "in[0].x[5]",
+      ]
+    - ["circuit.readouts[0,1,6,7,28,33,35,47,52,59,64,65,66,71]", "in[0].x[6]"]
+    - [
+        "circuit.readouts[3,8,28,29,32,33,34,35,41,46,47,52,53,55,56,57,61,62,64,65,67,68,69,71]",
+        "in[0].x[7]",
+      ]
+    - [
+        "circuit.readouts[0,2,3,4,7,9,28,29,33,34,46,47,54,55,61,62,64,65,66,67,68,70]",
+        "in[0].x[8]",
+      ]
+    - [
+        "circuit.readouts[1,2,6,7,9,10,28,32,46,52,53,56,59,63,64,65,66,67,68,69,70,71]",
+        "in[0].x[9]",
+      ]
+    - [
+        "circuit.readouts[0,1,2,3,4,9,10,11,28,29,32,33,41,46,47,56,61,62,64,65,66,67,68,71]",
+        "in[0].x[10]",
+      ]
+    - [
+        "circuit.readouts[1,4,7,15,28,32,34,40,41,46,47,52,56,58,59,62,64,65,70,71]",
+        "in[0].x[11]",
+      ]

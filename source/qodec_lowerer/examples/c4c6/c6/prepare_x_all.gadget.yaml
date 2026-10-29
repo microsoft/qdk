@@ -1,0 +1,47 @@
+implements: ../c4c6.isa.yaml#prepare_x_all
+circuit:
+  instruction_set: ../c4c6.isa.yaml
+  source:
+    - prepare_x_all: { operands: [0], select: [{ reject: 0 }] }
+    - prepare_x_all: { operands: [1], select: [{ reject: 0 }] }
+    - prepare_x_all: { operands: [2], select: [{ reject: 0 }] }
+    - prepare_z_all: { operands: [3], select: [{ reject: 0 }] }
+    - prepare_z_all: { operands: [4], select: [{ reject: 0 }] }
+    - prepare_z_all: { operands: [5], select: [{ reject: 0 }] }
+    - controlled_x_all: [0, 3]
+    - controlled_x_all: [1, 4]
+    - controlled_x_all: [2, 5]
+    - controlled_x_all: [3, 1]
+    - controlled_x_all: [4, 2]
+    - controlled_x_all: [5, 0]
+    - mul_u_sq: [1]
+    - mul_u: [2]
+    - measure_x_all: [3]
+    - measure_x_all: [4]
+    - measure_x_all: [5]
+    # Feed the sub-block readouts forward to cancel the logical Pauli they leave.
+    - z1_if: [1, correction: "circuit.readouts[8]"]
+    - z1_if: [1, correction: "circuit.readouts[9]"]
+    - z0_if: [1, correction: "circuit.readouts[9]"]
+  out: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+out:
+  - c4c6_block: [0, 1, 2]
+checks:
+  # The sub-preparations carry their signs up uncorrected, so the first two
+  # stabilizer signs are fixed only relative to the sub-block outcomes.
+  - ["circuit.readouts[0]", "circuit.readouts[3]", "out[0].stabilizers[0]"]
+  - [
+      "circuit.readouts[0]",
+      "circuit.readouts[1]",
+      "circuit.readouts[2]",
+      "out[0].stabilizers[1]",
+    ]
+  - ["out[0].stabilizers[2]"]
+  - ["out[0].stabilizers[3]"]
+readouts:
+  # One flag: reject iff the total parity of the three sub-block X_L outcomes is
+  # odd. Each sub-prep call exposes one `reject` readout, so the six sub-preps
+  # occupy circuit.readouts[0..5]; the three measure_x_all calls (blocks 3,4,5)
+  # sit at readouts[6..11], with X_L of each block at [6,8,10].
+  - reject:
+      ["circuit.readouts[6]", "circuit.readouts[8]", "circuit.readouts[10]"]

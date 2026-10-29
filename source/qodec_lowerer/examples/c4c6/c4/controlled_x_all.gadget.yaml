@@ -1,0 +1,9 @@
+circuit:
+  source:
+    # Transversal block CNOT: physical CX between corresponding qubits.
+    # Implements CX_LL ⊗ CX_SS on the two logical pairs simultaneously.
+
+    - CX: [0, 4]
+    - CX: [1, 5]
+    - CX: [2, 6]
+    - CX: [3, 7]

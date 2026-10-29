@@ -527,6 +527,102 @@ fn arguments_select_colors_and_the_qodec_file() {
 }
 
 #[test]
+fn examples_lower_their_programs() {
+    let examples = [
+        (
+            "bacon-shor/bacon-shor.qodec.yaml",
+            "prepare_z 0; idle 0; measure_z 0",
+        ),
+        (
+            "bb-72/bb-72.qodec.yaml",
+            "prepare_x_all 0; idle 0; measure_x_all 0",
+        ),
+        (
+            "c422-c832-arch/qodec.yaml",
+            "prepare_z_all_c832 0; ccz_c832 0; teleport_c832_to_c422 0 1; measure_z_all_c422 1",
+        ),
+        (
+            "c4c6/qodec.yaml",
+            "prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0",
+        ),
+        ("distillation-15/distillation-15.qodec.yaml", "distill_t 0"),
+        (
+            "five_qubit/five_qubit.qodec.yaml",
+            "prepare_z 0; idle 0; cycle 0; measure_x 0",
+        ),
+        (
+            "honeycomb/honeycomb.qodec.yaml",
+            "prepare_red_all 0; round_green 0; round_blue 0; round_red 0; measure_red_all 0",
+        ),
+        (
+            "iceberg/iceberg.qodec.yaml",
+            "prepare_z_all 0; idle 0; measure_z_all 0",
+        ),
+        (
+            "reed-muller-15/reed-muller-15.qodec.yaml",
+            "prepare_x 0; t 0; idle 0; measure_x 0",
+        ),
+        (
+            "repetition3/repetition3.qodec.yaml",
+            "prepare_z 0; idle 0; rotate_z 0 theta=0.5; measure_z 0",
+        ),
+        (
+            "steane/steane.qodec.yaml",
+            "prepare_z 0; prepare_x 1; idle_ft 0; h 0; cnot 0 1; measure_z 0; measure_x 1",
+        ),
+        (
+            "surface/surface.qodec.yaml",
+            "prepare_z 0; prepare_z 1; idle 0; merge_zz 0 1; measure_merged_z 0",
+        ),
+    ];
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let mut text = String::new();
+    for (path, program) in examples {
+        let qodec = Qodec::load(dir.join(path)).expect("example should load");
+        // Bottom instructions are indented; keep only the top-level lines.
+        for line in transcript(&qodec, &[program]).lines() {
+            if !line.starts_with(' ') {
+                text.push_str(line);
+                text.push('\n');
+            }
+        }
+    }
+    expect![[r#"
+        qodec> prepare_z 0; idle 0; measure_z 0
+        measure_z 0 => [0]
+        qodec> prepare_x_all 0; idle 0; measure_x_all 0
+        measure_x_all 0 => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        qodec> prepare_z_all_c832 0; ccz_c832 0; teleport_c832_to_c422 0 1; measure_z_all_c422 1
+        teleport_c832_to_c422 0 1 => [0, 0]
+        measure_z_all_c422 1 => [0, 0]
+        qodec> prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0
+        prepare_x_all 0 => [] flags [reject=0] (unresolved)
+        measure_z_all 0 => [0, 0] (unresolved)
+        qodec> distill_t 0
+        distill_t 0 => [] flags [reject_1=0, reject_2=0, reject_3=0, reject_4=0]
+        qodec> prepare_z 0; idle 0; cycle 0; measure_x 0
+        measure_x 0 => [0]
+        qodec> prepare_red_all 0; round_green 0; round_blue 0; round_red 0; measure_red_all 0
+        measure_red_all 0 => [0, 0]
+        qodec> prepare_z_all 0; idle 0; measure_z_all 0
+        idle 0 => [] flags [detected_x=0, detected_z=0]
+        measure_z_all 0 => [0, 0, 0, 0]
+        qodec> prepare_x 0; t 0; idle 0; measure_x 0
+        measure_x 0 => [0]
+        qodec> prepare_z 0; idle 0; rotate_z 0 theta=0.5; measure_z 0
+        measure_z 0 => [0]
+        qodec> prepare_z 0; prepare_x 1; idle_ft 0; h 0; cnot 0 1; measure_z 0; measure_x 1
+        idle_ft 0 => [] flags [flag_0=0, flag_1=0, flag_2=0, flag_3=0, flag_4=0, flag_5=0]
+        measure_z 0 => [0]
+        measure_x 1 => [0]
+        qodec> prepare_z 0; prepare_z 1; idle 0; merge_zz 0 1; measure_merged_z 0
+        merge_zz 0 1 => [0]
+        measure_merged_z 0 => [0]
+    "#]]
+    .assert_eq(&text);
+}
+
+#[test]
 fn completions_cover_commands_mnemonics_and_parameters() {
     let completions = crate::Completions(Arc::clone(&physical().layers()[0].instruction_set));
     let history = DefaultHistory::new();

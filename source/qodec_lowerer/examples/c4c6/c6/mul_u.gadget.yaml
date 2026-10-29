@@ -1,0 +1,19 @@
+implements: ../c4c6.isa.yaml#mul_u
+# Transversal mul_u on the 3 C4 sub-blocks of the C6 codeword acts on
+# the C6 logicals as multiplication by u², not by u — the Knill C6
+# encoding swaps the orientation of the 3-cycle relative to the per-
+# sub-block one. To realize C6 mul_u we therefore apply mul_u_sq on
+# each sub-block (= u² ∘ u² = u⁴ = u on each sub-block, which lifts
+# to u on the C6 block). Verified by `errata.analysis.audit`.
+circuit:
+  instruction_set: ../c4c6.isa.yaml
+  source:
+    - mul_u_sq: [0]
+    - mul_u_sq: [1]
+    - mul_u_sq: [2]
+  in: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+  out: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+in:
+  - c4c6_block: [0, 1, 2]
+out:
+  - c4c6_block: [0, 1, 2]
