@@ -8,8 +8,8 @@ build integrity, and evidence storage. Delegated reviewers follow their complete
 ## Sandbox environment
 
 Run inside the QDK Copilot sandbox. Its working checkout is `/work/qdk`; Git,
-the Rust toolchain, Python dependencies, and Cargo crates for the image's
-lockfile are supplied by the sandbox image.
+the Rust toolchain, Python dependencies, and the Cargo crates used by the image
+revision's Rust build and tests are supplied by the sandbox image.
 Use `/opt/qdk-venv/bin/python` and `/opt/qdk-venv/bin/qir-runner`, not an assumed
 repository-local `.venv`. Issue snapshots additionally require authenticated `gh`.
 Package feeds are blocked during sessions; report missing dependencies rather
@@ -38,7 +38,7 @@ Do not add this entire procedure to global instructions for unrelated coding wor
 ### Sandbox paths
 
 The layout below is based on `amcasey/sandbox` at
-`2e1f34a9009b00c6d7ee0dccfc913d315076941b`, specifically
+`bdd6a7274a9482fc8dead6c1de4452d680d694cb`, specifically
 `tools/copilot-sandbox/compose.yaml` and the agent image's Dockerfile/entrypoint.
 `/work` is an instance-scoped Docker volume that survives container sessions
 and image upgrades; deleting the sandbox instance removes it. `/tmp` is an
