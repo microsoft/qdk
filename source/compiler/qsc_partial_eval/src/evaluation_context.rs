@@ -209,7 +209,7 @@ impl EvaluationContext {
         })
     }
 
-    /// Checks whether a known classical input differs from the nearest active invocation.
+    /// Checks whether a known classical input component differs from the nearest active invocation.
     pub fn has_changed_static_input(
         &self,
         callable: StoreItemId,
@@ -228,18 +228,30 @@ impl EvaluationContext {
             let Arg::Var(id, var) = arg else {
                 return false;
             };
-            is_static_value(&var.value)
-                && !matches!(var.value, Value::Qubit(_))
-                && scope
-                    .hybrid_vars
-                    .get(id)
-                    .is_some_and(|previous| match (&var.value, previous) {
-                        (Value::Double(value), Value::Double(previous)) => {
-                            value.to_bits() != previous.to_bits()
-                        }
-                        _ => &var.value != previous,
-                    })
+            scope
+                .hybrid_vars
+                .get(id)
+                .is_some_and(|previous| has_changed_static_component(&var.value, previous))
         })
+    }
+}
+
+fn has_changed_static_component(value: &Value, previous: &Value) -> bool {
+    match (value, previous) {
+        (Value::Array(values), Value::Array(previous)) => {
+            values.len() != previous.len()
+                || values
+                    .iter()
+                    .zip(previous.iter())
+                    .any(|(value, previous)| has_changed_static_component(value, previous))
+        }
+        (Value::Tuple(values, _), Value::Tuple(previous, _)) => values
+            .iter()
+            .zip(previous.iter())
+            .any(|(value, previous)| has_changed_static_component(value, previous)),
+        (Value::Qubit(_), _) => false,
+        (Value::Double(value), Value::Double(previous)) => value.to_bits() != previous.to_bits(),
+        _ => is_static_value(value) && value != previous,
     }
 }
 
@@ -601,5 +613,26 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Range(_)
         | Value::Result(Result::Val(_) | Result::Id(_))
         | Value::String(_) => ValueKind::Constant,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Value, has_changed_static_component, is_static_value};
+    use qsc_eval::val::Result;
+
+    #[test]
+    fn changed_runtime_result_ids_are_not_static_input_changes() {
+        let previous = Value::Tuple(
+            vec![Value::Int(3), Value::Result(Result::Id(0))].into(),
+            None,
+        );
+        let current = Value::Tuple(
+            vec![Value::Int(3), Value::Result(Result::Id(1))].into(),
+            None,
+        );
+        assert!(!is_static_value(&previous));
+        assert!(!is_static_value(&current));
+        assert!(!has_changed_static_component(&current, &previous));
     }
 }

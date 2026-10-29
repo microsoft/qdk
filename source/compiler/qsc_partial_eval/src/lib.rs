@@ -120,7 +120,7 @@ pub enum Error {
     #[error("cannot inline a recursive call under runtime-dependent control flow")]
     #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"))]
     #[diagnostic(help(
-        "make recursive arguments compile-time-known or use a non-recursive implementation; inline expansion is subject to work and depth limits"
+        "use compile-time-known inputs to bound recursive expansion or use a non-recursive implementation; inline expansion is subject to work and depth limits"
     ))]
     UnsupportedRecursiveInlining(#[label] PackageSpan),
 
@@ -1782,10 +1782,9 @@ impl<'a> PartialEvaluator<'a> {
                             .any(|operand| matches!(operand, Operand::Variable(_)))
                 })
         };
-        // Emitted runtime calls do not require recursive inlining. For inline re-entry into
-        // the same specialization under runtime control, require compile-time-known arguments,
-        // including nested values, closure captures, and controls. Static arguments do not
-        // prove termination; separate work and depth limits bound the expansion.
+        // Runtime payloads do not prevent inline re-entry when a known input changes.
+        // Neither that change nor fully static arguments prove termination; the
+        // existing work and depth limits still bound the expansion.
         if ir_function_arg_operands.is_none()
             && self
                 .eval_context
@@ -1794,6 +1793,9 @@ impl<'a> PartialEvaluator<'a> {
                 .iter()
                 .chain(ctls_arg.iter())
                 .all(|arg| is_static_value(arg.value()))
+            && !self
+                .eval_context
+                .has_changed_static_input(store_item_id, functor_app, &args)
         {
             return Err(Error::UnsupportedRecursiveInlining(
                 self.get_expr_package_span(call_expr_id),

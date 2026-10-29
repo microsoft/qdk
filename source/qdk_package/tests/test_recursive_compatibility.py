@@ -1,0 +1,267 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+import pytest
+
+from qdk import qsharp
+from qdk.simulation import run_qir
+
+PROFILES = [
+    qsharp.TargetProfile.Adaptive_RI,
+    qsharp.TargetProfile.Adaptive_RIF,
+    qsharp.TargetProfile.Adaptive,
+]
+RUNTIME_PAYLOAD_CASES = [
+    pytest.param("", 2, qsharp.Result.Zero, id="zero-even-depth"),
+    pytest.param("", 3, qsharp.Result.Zero, id="zero-odd-depth"),
+    pytest.param("X(input);", 2, qsharp.Result.Zero, id="one-even-depth"),
+    pytest.param("X(input);", 3, qsharp.Result.One, id="one-odd-depth"),
+]
+
+
+def check_result(
+    source: str, profile: qsharp.TargetProfile, expected: qsharp.Result | int
+) -> None:
+    qsharp.init(target_profile=profile)
+    qsharp.eval(source)
+    assert qsharp.eval("Main()") == expected
+    assert run_qir(str(qsharp.compile("Main()")), shots=4, type="cpu") == [expected] * 4
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+@pytest.mark.parametrize("preparation,depth,expected", RUNTIME_PAYLOAD_CASES)
+def test_static_recursion_bound_preserves_measured_result(
+    profile: qsharp.TargetProfile,
+    preparation: str,
+    depth: int,
+    expected: qsharp.Result,
+) -> None:
+    source = f"""
+        operation Rec(remaining : Int, payload : Result, flag : Qubit, target : Qubit) : Unit {{
+            if remaining > 0 {{
+                if MResetZ(flag) == Zero {{
+                    if payload == One {{ X(target); }}
+                    Rec(remaining - 1, payload, flag, target);
+                }}
+            }}
+        }}
+        operation Main() : Result {{
+            use (input, flag, target) = (Qubit(), Qubit(), Qubit());
+            {preparation}
+            let measured = MResetZ(input);
+            Rec({depth}, measured, flag, target);
+            MResetZ(target)
+        }}
+    """
+    check_result(source, profile, expected)
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+@pytest.mark.parametrize("preparation,depth,expected", RUNTIME_PAYLOAD_CASES)
+def test_static_recursion_bound_preserves_measured_boolean(
+    profile: qsharp.TargetProfile,
+    preparation: str,
+    depth: int,
+    expected: qsharp.Result,
+) -> None:
+    source = f"""
+        operation Rec(remaining : Int, payload : Bool, flag : Qubit, target : Qubit) : Unit {{
+            if remaining > 0 {{
+                if MResetZ(flag) == Zero {{
+                    if payload {{ X(target); }}
+                    Rec(remaining - 1, payload, flag, target);
+                }}
+            }}
+        }}
+        operation Main() : Result {{
+            use (input, flag, target) = (Qubit(), Qubit(), Qubit());
+            {preparation}
+            let measured = MResetZ(input);
+            Rec({depth}, measured == One, flag, target);
+            MResetZ(target)
+        }}
+    """
+    check_result(source, profile, expected)
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+@pytest.mark.parametrize("preparation,depth,expected", RUNTIME_PAYLOAD_CASES)
+def test_static_recursion_bound_preserves_measured_integer(
+    profile: qsharp.TargetProfile,
+    preparation: str,
+    depth: int,
+    expected: qsharp.Result,
+) -> None:
+    source = f"""
+        operation Rec(remaining : Int, payload : Int, flag : Qubit, target : Qubit) : Unit {{
+            if remaining > 0 {{
+                if MResetZ(flag) == Zero {{
+                    if payload == 1 {{ X(target); }}
+                    Rec(remaining - 1, payload, flag, target);
+                }}
+            }}
+        }}
+        operation Main() : Result {{
+            use (input, flag, target) = (Qubit(), Qubit(), Qubit());
+            {preparation}
+            let measured = MResetZ(input);
+            Rec({depth}, if measured == One {{ 1 }} else {{ 0 }}, flag, target);
+            MResetZ(target)
+        }}
+    """
+    check_result(source, profile, expected)
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+@pytest.mark.parametrize(
+    "depth,expected", [(2, qsharp.Result.Zero), (3, qsharp.Result.One)]
+)
+def test_static_bound_in_tuple_preserves_runtime_result(
+    profile: qsharp.TargetProfile, depth: int, expected: qsharp.Result
+) -> None:
+    source = f"""
+        operation Rec(state : (Int, Result), flag : Qubit, target : Qubit) : Unit {{
+            let (remaining, payload) = state;
+            if remaining > 0 {{
+                if MResetZ(flag) == Zero {{
+                    if payload == One {{ X(target); }}
+                    Rec((remaining - 1, payload), flag, target);
+                }}
+            }}
+        }}
+        operation Main() : Result {{
+            use (input, flag, target) = (Qubit(), Qubit(), Qubit());
+            X(input);
+            Rec(({depth}, MResetZ(input)), flag, target);
+            MResetZ(target)
+        }}
+    """
+    check_result(source, profile, expected)
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+def test_static_bound_in_array_element_preserves_results_after_child_returns(
+    profile: qsharp.TargetProfile,
+) -> None:
+    source = """
+        operation Rec(state : (Int, Result)[], flag : Qubit, targets : Qubit[]) : Unit {
+            let (remaining, first) = state[0];
+            if remaining > 0 {
+                if MResetZ(flag) == Zero {
+                    Rec([(remaining - 1, first), state[1], state[2]], flag, targets);
+                    let (_, payload) = state[remaining - 1];
+                    if payload == One { X(targets[remaining - 1]); }
+                }
+            }
+        }
+        operation Main() : Int {
+            use (input, flag) = (Qubit(), Qubit());
+            use targets = Qubit[3];
+            X(input);
+            let one = MResetZ(input);
+            let zero = MResetZ(input);
+            Rec([(3, one), (0, one), (0, zero)], flag, targets);
+            let first = if MResetZ(targets[0]) == One { 1 } else { 0 };
+            let second = if MResetZ(targets[1]) == One { 2 } else { 0 };
+            let third = if MResetZ(targets[2]) == One { 4 } else { 0 };
+            first + second + third
+        }
+    """
+    check_result(source, profile, 3)
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+def test_shrinking_result_array_preserves_values_after_child_returns(
+    profile: qsharp.TargetProfile,
+) -> None:
+    source = """
+        operation Rec(values : Result[], flag : Qubit, targets : Qubit[]) : Unit {
+            let count = Length(values);
+            if count > 0 {
+                if MResetZ(flag) == Zero {
+                    Rec(values[1...], flag, targets);
+                    if values[0] == One { X(targets[count - 1]); }
+                }
+            }
+        }
+        operation Main() : Int {
+            use (input, flag) = (Qubit(), Qubit());
+            use targets = Qubit[3];
+            X(input);
+            let one = MResetZ(input);
+            let zero = MResetZ(input);
+            Rec([one, one, zero], flag, targets);
+            let first = if MResetZ(targets[0]) == One { 1 } else { 0 };
+            let second = if MResetZ(targets[1]) == One { 2 } else { 0 };
+            let third = if MResetZ(targets[2]) == One { 4 } else { 0 };
+            first + second + third
+        }
+    """
+    check_result(source, profile, 6)
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+@pytest.mark.parametrize(
+    "depth,expected", [(2, qsharp.Result.Zero), (3, qsharp.Result.One)]
+)
+def test_mutual_recursion_preserves_static_tuple_bound_and_runtime_result(
+    profile: qsharp.TargetProfile, depth: int, expected: qsharp.Result
+) -> None:
+    source = f"""
+        operation Rec(state : (Int, Result), flag : Qubit, target : Qubit) : Unit {{
+            let (remaining, payload) = state;
+            if remaining > 0 {{
+                if MResetZ(flag) == Zero {{
+                    if payload == One {{ X(target); }}
+                    Other((remaining - 1, payload), flag, target);
+                }}
+            }}
+        }}
+        operation Other(state : (Int, Result), flag : Qubit, target : Qubit) : Unit {{
+            Rec(state, flag, target);
+        }}
+        operation Main() : Result {{
+            use (input, flag, target) = (Qubit(), Qubit(), Qubit());
+            X(input);
+            Rec(({depth}, MResetZ(input)), flag, target);
+            MResetZ(target)
+        }}
+    """
+    check_result(source, profile, expected)
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+@pytest.mark.parametrize(
+    "depth,expected", [(2, qsharp.Result.Zero), (3, qsharp.Result.One)]
+)
+def test_static_bound_preserves_runtime_result_in_controlled_adjoint_recursion(
+    profile: qsharp.TargetProfile, depth: int, expected: qsharp.Result
+) -> None:
+    source = (
+        """
+        operation Rec(remaining : Int, payload : Result, qs : Qubit[]) : Unit is Adj + Ctl {
+            body (...) {}
+            adjoint (...) {}
+            controlled (cs, ...) {}
+            controlled adjoint (cs, ...) {
+                if remaining > 0 {
+                    if MResetZ(qs[0]) == Zero {
+                        if payload == One { Controlled X(cs, qs[1]); }
+                        Controlled Controlled Adjoint Rec([], (cs, (remaining - 1, payload, qs)));
+                    }
+                }
+            }
+        }
+    """
+        + f"""
+        operation Main() : Result {{
+            use (input, flag, target, control) = (Qubit(), Qubit(), Qubit(), Qubit());
+            X(input);
+            X(control);
+            Controlled Adjoint Rec([control], ({depth}, MResetZ(input), [flag, target]));
+            Reset(control);
+            MResetZ(target)
+        }}
+    """
+    )
+    check_result(source, profile, expected)

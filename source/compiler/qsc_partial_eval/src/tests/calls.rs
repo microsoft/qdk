@@ -367,8 +367,8 @@ fn recursive_inline_mutual_helpers_consume_work() {
 }
 
 #[test]
-fn recursive_inline_nested_runtime_result_is_not_static() {
-    let error = evaluate_with_inline_limits(
+fn recursive_inline_nested_runtime_result_with_static_bound_succeeds() {
+    evaluate_with_inline_limits(
         "
         operation Main() : Unit { use qs = Qubit[1]; Rec(1, (0, [Zero]), qs); }
         operation Rec(n : Int, payload : (Int, Result[]), qs : Qubit[]) : Unit {
@@ -380,17 +380,12 @@ fn recursive_inline_nested_runtime_result_is_not_static() {
         100,
         100,
     )
-    .err()
-    .expect("nested Result ID cannot prove static contents");
-    assert!(matches!(
-        error,
-        crate::Error::UnsupportedRecursiveInlining(_)
-    ));
+    .expect("a decreasing static bound permits a nested runtime result");
 }
 
 #[test]
-fn recursive_inline_runtime_closure_capture_is_not_static() {
-    let error = evaluate_with_inline_limits(
+fn recursive_inline_runtime_closure_capture_with_static_bound_succeeds() {
+    evaluate_with_inline_limits(
         "
         operation Main() : Unit { use qs = Qubit[1]; Rec(1, () => (), qs); }
         operation Rec(n : Int, action : (Unit => Unit), qs : Qubit[]) : Unit {
@@ -403,11 +398,125 @@ fn recursive_inline_runtime_closure_capture_is_not_static() {
         100,
         100,
     )
-    .err()
-    .expect("runtime closure capture cannot prove static contents");
+    .expect("a decreasing static bound permits a runtime closure capture");
+}
+
+#[test]
+fn recursive_inline_static_bound_in_tuple_with_runtime_result_succeeds() {
+    let source = "
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Rec((1, M(qs[0])), qs);
+        }
+        operation Rec(state : (Int, Result), qs : Qubit[]) : Unit {
+            let (remaining, result) = state;
+            if remaining > 0 {
+                if M(qs[0]) == Zero { Rec((remaining - 1, result), qs); }
+            }
+        }";
+    evaluate_with_inline_limits(source, 100, 100)
+        .expect("a tuple's static component supplies the changing bound");
+}
+
+#[test]
+fn recursive_inline_static_bound_in_array_element_with_runtime_result_succeeds() {
+    let source = "
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Rec([(1, M(qs[0]))], qs);
+        }
+        operation Rec(state : (Int, Result)[], qs : Qubit[]) : Unit {
+            let (remaining, result) = state[0];
+            if remaining > 0 {
+                if M(qs[0]) == Zero { Rec([(remaining - 1, result)], qs); }
+            }
+        }";
+    evaluate_with_inline_limits(source, 100, 100)
+        .expect("an array element's static component supplies the changing bound");
+}
+
+#[test]
+fn recursive_inline_runtime_array_with_shrinking_static_length_succeeds() {
+    let source = "
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Rec([M(qs[0]), M(qs[0])], qs);
+        }
+        operation Rec(results : Result[], qs : Qubit[]) : Unit {
+            if Length(results) > 0 {
+                if M(qs[0]) == Zero { Rec(results[1...], qs); }
+            }
+        }";
+    evaluate_with_inline_limits(source, 100, 100)
+        .expect("a shrinking known array length permits runtime contents");
+}
+
+#[test]
+fn recursive_inline_increasing_input_with_runtime_payload_exhausts_depth() {
+    let source = "
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Rec(1, M(qs[0]), qs);
+        }
+        operation Rec(n : Int, result : Result, qs : Qubit[]) : Unit {
+            if M(qs[0]) == Zero { Rec(n + 1, result, qs); }
+        }";
     assert!(matches!(
-        error,
-        crate::Error::UnsupportedRecursiveInlining(_)
+        evaluate_with_inline_limits(source, 4, 100),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("depth", 4, _))
+    ));
+}
+
+#[test]
+fn recursive_inline_oscillating_input_with_runtime_payload_exhausts_depth() {
+    let source = "
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Rec(1, M(qs[0]), qs);
+        }
+        operation Rec(n : Int, result : Result, qs : Qubit[]) : Unit {
+            if M(qs[0]) == Zero { Rec(1 - n, result, qs); }
+        }";
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 4, 100),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("depth", 4, _))
+    ));
+}
+
+#[test]
+fn recursive_inline_runtime_payload_without_static_change_is_rejected() {
+    let source = "
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Rec(1, M(qs[0]), qs);
+        }
+        operation Rec(n : Int, result : Result, qs : Qubit[]) : Unit {
+            if M(qs[0]) == Zero { Rec(n, M(qs[0]), qs); }
+        }";
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 100, 100),
+        Err(crate::Error::UnsupportedRecursiveInlining(_))
+    ));
+}
+
+#[test]
+fn recursive_inline_runtime_payload_keeps_shared_work_budget() {
+    let source = "
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Rec(1, M(qs[0]), qs);
+        }
+        operation Rec(n : Int, result : Result, qs : Qubit[]) : Unit {
+            if n > 0 {
+                if M(qs[0]) == Zero { Rec(n - 1, result, qs); }
+                else { Rec(n - 1, result, qs); }
+            }
+        }";
+    evaluate_with_inline_limits(source, 100, 4)
+        .expect("runtime payloads retain the existing exact work boundary");
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 100, 3),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("work", 3, _))
     ));
 }
 
