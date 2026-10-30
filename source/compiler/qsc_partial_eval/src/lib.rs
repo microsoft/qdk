@@ -662,7 +662,18 @@ impl<'a> PartialEvaluator<'a> {
                 )
             }
             Value::Var(lhs_eval_var) => {
-                self.eval_bin_op_with_lhs_var(bin_op, lhs_eval_var, rhs_expr_id, bin_op_expr_span)
+                if let Some(literal) = self.safe_static_value(lhs_eval_var.id.into())
+                    && let Some(lhs_value) = map_rir_literal_to_eval_value(literal, lhs_eval_var.ty)
+                {
+                    self.eval_bin_op(bin_op, lhs_value, rhs_expr_id, lhs_span, bin_op_expr_span)
+                } else {
+                    self.eval_bin_op_with_lhs_var(
+                        bin_op,
+                        lhs_eval_var,
+                        rhs_expr_id,
+                        bin_op_expr_span,
+                    )
+                }
             }
             Value::String(_) => {
                 // Strings are a special case that we always treat as empty string during partial evaluation,
@@ -946,7 +957,13 @@ impl<'a> PartialEvaluator<'a> {
             }
             _ => panic!("invalid Boolean operator {bin_op:?}"),
         };
-        Ok(EvalControlFlow::Continue(Value::Var(result_var)))
+        if let Some(literal) = self.safe_static_value(result_var.id.into())
+            && let Some(lit_val) = map_rir_literal_to_eval_value(literal, result_var.ty)
+        {
+            Ok(EvalControlFlow::Continue(lit_val))
+        } else {
+            Ok(EvalControlFlow::Continue(Value::Var(result_var)))
+        }
     }
 
     fn eval_comparison_bool_bin_op(
@@ -1015,6 +1032,12 @@ impl<'a> PartialEvaluator<'a> {
             Operand::Literal(Literal::Bool(short_circuit_on_true)),
             result_rir_var,
         );
+        self.eval_context
+            .get_current_scope_mut()
+            .insert_static_var_mapping(
+                result_rir_var.variable_id,
+                Literal::Bool(short_circuit_on_true),
+            );
         self.get_current_rir_block_mut().0.push(init_var_ins);
 
         // Pop the current block and insert the continuation block.
@@ -1044,14 +1067,24 @@ impl<'a> PartialEvaluator<'a> {
             ));
         };
         let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
-        self.keep_matching_static_var_mappings(&cached_mappings);
 
         // Store the RHS value into the the variable that represents the result of the Boolean operation.
+        if let Operand::Literal(literal) = rhs_operand {
+            self.eval_context
+                .get_current_scope_mut()
+                .insert_static_var_mapping(result_rir_var.variable_id, literal);
+        } else {
+            self.eval_context
+                .get_current_scope_mut()
+                .remove_static_value(result_rir_var.variable_id);
+        }
         let store_ins = Instruction::Store(rhs_operand, result_rir_var);
         self.get_current_rir_block_mut().0.push(store_ins);
         let jump_ins = Instruction::Jump(continuation_block_id);
         self.get_current_rir_block_mut().0.push(jump_ins);
         let _ = self.eval_context.pop_block_node();
+
+        self.keep_matching_static_var_mappings(&cached_mappings);
 
         // Now that we have constructed both the conditional and continuation blocks, insert the jump instruction and
         // return the variable that stores the result of the Boolean operation.
@@ -2685,6 +2718,16 @@ impl<'a> PartialEvaluator<'a> {
         // If there is a variable to save the value of the if expression to, add a store instruction.
         if let Some(if_expr_var) = if_expr_var {
             let body_operand = self.map_eval_value_to_rir_operand(&body_control.into_value());
+            if let Operand::Literal(literal) = body_operand {
+                // If the body operand is a literal, store the static mapping to the variable.
+                self.eval_context
+                    .get_current_scope_mut()
+                    .insert_static_var_mapping(if_expr_var.variable_id, literal);
+            } else {
+                self.eval_context
+                    .get_current_scope_mut()
+                    .remove_static_value(if_expr_var.variable_id);
+            }
             let store_ins = Instruction::Store(body_operand, if_expr_var);
             self.get_current_rir_block_mut().0.push(store_ins);
         }
@@ -2977,15 +3020,8 @@ impl<'a> PartialEvaluator<'a> {
                 // Check whether the bound value is a mutable variable and we are not currently evaluating a branch.
                 // If so, return its value directly rather than the variable if it is static at this moment.
                 if let Value::Var(var) = bound_value {
-                    let current_scope = self.eval_context.get_current_scope();
-                    if let Some(literal) = current_scope.get_static_value(var.id.into())
-                        && (!current_scope.is_currently_evaluating_branch()
-                            || !self
-                                .program
-                                .config
-                                .capabilities
-                                .contains(TargetCapabilityFlags::BackwardsBranching))
-                        && let Some(value) = map_rir_literal_to_eval_value(*literal, var.ty)
+                    if let Some(literal) = self.safe_static_value(var.id.into())
+                        && let Some(value) = map_rir_literal_to_eval_value(literal, var.ty)
                     {
                         value
                     } else {
@@ -2998,19 +3034,20 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
+    fn can_emit_loops(&self) -> bool {
+        self.program
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::BackwardsBranching)
+    }
+
     fn eval_expr_while(
         &mut self,
         loop_expr_id: ExprId,
         condition_expr_id: ExprId,
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
-        if self
-            .program
-            .config
-            .capabilities
-            .contains(TargetCapabilityFlags::BackwardsBranching)
-            && self.is_variable_expr(condition_expr_id)
-        {
+        if self.can_emit_loops() && self.is_variable_expr(condition_expr_id) {
             // If backwards branching is supported and the loop condition is a variable,
             // we can generate a while loop structure in RIR without unrolling the loop.
             return self.eval_expr_emit_while(loop_expr_id, condition_expr_id, body_block_id);
@@ -4570,8 +4607,27 @@ impl<'a> PartialEvaluator<'a> {
                 val::Result::Val(bool) => Operand::Literal(Literal::ResultLit(*bool)),
                 val::Result::Loss => panic!("loss result should not occur in partial evaluation"),
             },
-            Value::Var(var) => Operand::Variable(map_eval_var_to_rir_var(*var)),
+            Value::Var(var) => {
+                if let Some(literal) = self.safe_static_value(var.id.into()) {
+                    Operand::Literal(literal)
+                } else {
+                    Operand::Variable(map_eval_var_to_rir_var(*var))
+                }
+            }
             _ => panic!("{value} cannot be mapped to a RIR operand"),
+        }
+    }
+
+    // Returns the static value of a variable if it is safe to do so, otherwise returns None.
+    // Here, "safe" means either the current scope indicates we are not in a dynamic branch OR
+    // we are emitting code without any loops (where partial eval is traversing the directed acyclic
+    // graph of the unrolled, inlined program).
+    fn safe_static_value(&self, var: VariableId) -> Option<Literal> {
+        let current_scope = self.eval_context.get_current_scope();
+        if !current_scope.is_currently_evaluating_branch() || !self.can_emit_loops() {
+            current_scope.get_static_value(var).copied()
+        } else {
+            None
         }
     }
 
