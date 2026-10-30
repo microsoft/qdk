@@ -3,25 +3,52 @@
 
 use qsc_data_structures::functors::FunctorApp;
 use qsc_eval::{
-    Env, Variable,
+    Env, PackageSpan, Variable,
     val::{Result, Value},
 };
-use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
+use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId, StoreItemId};
 use qsc_rca::{ComputeKind, RuntimeFeatureFlags, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::hash_map::Entry, rc::Rc};
 
-use crate::{ScopeDbgContext, is_static_value, map_rir_literal_to_eval_value};
+use crate::{Error, ScopeDbgContext, is_static_value, map_rir_literal_to_eval_value};
+
+// Bound newly admitted runtime-branch recursion, including helper body evaluation.
+// Thirty-two scopes leave stack headroom on native and debug Wasm hosts;
+// 512 bodies separately bounds fan-out. Both production boundaries are tested.
+/// Maximum active callable depth during runtime-branch recursive expansion.
+pub const MAX_RECURSIVE_INLINE_DEPTH: usize = 32;
+/// Maximum inline-body work charged to one runtime-branch recursive root.
+pub const MAX_RECURSIVE_INLINE_WORK: usize = 512;
 
 /// Struct that keeps track of the active RIR blocks (where RIR instructions are added) and the active scopes (which
 /// correspond to the Q#'s program call stack).
 pub struct EvaluationContext {
+    /// Stack of RIR blocks being populated; the last entry receives new instructions.
     active_blocks: Vec<BlockNode>,
+    /// Active evaluation scopes, including the initial non-callable scope and emitted bodies.
     scopes: Vec<Scope>,
+    /// Cumulative inline-call charges, including nonrecursive calls. Each scope records
+    /// a starting value so independent recursive roots receive separate work budgets.
+    inline_work: usize,
+    /// Index into `scopes` of the outermost active runtime-branch recursive root.
+    /// Activated on recursive re-entry and cleared when that root scope is popped.
+    recursive_root: Option<usize>,
+    /// Maximum total active callable depth while a recursive root is active,
+    /// including inline and newly emitted bodies, but excluding the initial scope.
+    max_inline_depth: usize,
+    /// Maximum inline-body work per recursive root, shared by its helpers and sibling branches.
+    max_inline_work: usize,
 }
 
 impl EvaluationContext {
+    #[cfg(test)]
+    pub fn set_inline_limits(&mut self, depth: usize, work: usize) {
+        self.max_inline_depth = depth;
+        self.max_inline_work = work;
+    }
+
     /// Creates a new evaluation context.
     pub fn new(package_id: PackageId, initial_block: BlockId) -> Self {
         let entry_callable_scope =
@@ -32,6 +59,10 @@ impl EvaluationContext {
                 successor: None,
             }],
             scopes: vec![entry_callable_scope],
+            inline_work: 0,
+            recursive_root: None,
+            max_inline_depth: MAX_RECURSIVE_INLINE_DEPTH,
+            max_inline_work: MAX_RECURSIVE_INLINE_WORK,
         }
     }
 
@@ -69,9 +100,16 @@ impl EvaluationContext {
 
     /// Pops the currently active (call) scope.
     pub fn pop_scope(&mut self) -> Scope {
-        self.scopes
+        let scope = self
+            .scopes
             .pop()
-            .expect("there are no scopes in the evaluation context")
+            .expect("there are no scopes in the evaluation context");
+        // After the pop, the new length is the removed scope's index. Clear the
+        // budget root only when that scope exits, not when one of its descendants exits.
+        if self.recursive_root == Some(self.scopes.len()) {
+            self.recursive_root = None;
+        }
+        scope
     }
 
     /// Pushes a new active block.
@@ -81,8 +119,76 @@ impl EvaluationContext {
     }
 
     /// Pushes a new (call) scope.
-    pub fn push_scope(&mut self, s: Scope) {
+    pub fn push_scope(&mut self, mut s: Scope) {
+        s.inline_work_start = self.inline_work;
         self.scopes.push(s);
+    }
+
+    /// Checks the depth limit before entering an inline or newly emitted callable body.
+    ///
+    /// Only an active recursive root enables this limit; ordinary static expansion is
+    /// unaffected. This does not charge work or activate a root. On failure, the diagnostic
+    /// points to the proposed call's `span`, and the caller must not enter the new scope.
+    pub fn check_expansion_depth(&self, span: PackageSpan) -> std::result::Result<(), Error> {
+        // The entry scope has no callable, so the existing scope count is
+        // the callable depth after entering the proposed next scope.
+        if self.recursive_root.is_some() && self.scopes.len() > self.max_inline_depth {
+            return Err(Error::RecursiveExpansionLimitExceeded(
+                "depth",
+                self.max_inline_depth,
+                span,
+            ));
+        }
+        Ok(())
+    }
+
+    /// Charges one inline-body entry before the callee scope is pushed.
+    ///
+    /// Re-entering a matching specialization active in a runtime branch activates its
+    /// outermost root, retaining any earlier active root. All subsequent inline entries,
+    /// including helpers and sibling branches, share that root's work budget until it exits.
+    /// The root's saved work excludes its own entry, so the `>=` check counts that body too.
+    ///
+    /// Enforces both depth and work limits, reporting failure at the call's `span`.
+    /// Emitted runtime calls must use the separate depth check rather than charge inline work.
+    pub fn charge_inline_call(
+        &mut self,
+        callable: StoreItemId,
+        functor: FunctorApp,
+        span: PackageSpan,
+    ) -> std::result::Result<(), Error> {
+        // Count every inline entry, even before recursion is detected, so activating
+        // a root includes work already performed within it. Never let the counter wrap.
+        self.inline_work =
+            self.inline_work
+                .checked_add(1)
+                .ok_or(Error::RecursiveExpansionLimitExceeded(
+                    "work",
+                    self.max_inline_work,
+                    span,
+                ))?;
+        // Scopes are ordered outermost first. Keep the earliest matching runtime-branch
+        // scope, or an already active ancestor, so nested recursion cannot reset its budget.
+        if let Some(root) = self.scopes.iter().position(|scope| {
+            scope.matches_callable(callable, functor) && scope.is_currently_evaluating_branch()
+        }) {
+            self.recursive_root = Some(self.recursive_root.map_or(root, |active| active.min(root)));
+        }
+        // Check after activating the root so the first recursive re-entry is bounded too.
+        self.check_expansion_depth(span)?;
+        // Subtract the root's entry baseline to exclude unrelated earlier calls.
+        // The baseline was saved after charging the root itself; `>=` includes that
+        // body in the limit while allowing exactly max_inline_work bodies in total.
+        if let Some(root) = self.recursive_root
+            && self.inline_work - self.scopes[root].inline_work_start >= self.max_inline_work
+        {
+            return Err(Error::RecursiveExpansionLimitExceeded(
+                "work",
+                self.max_inline_work,
+                span,
+            ));
+        }
+        Ok(())
     }
 
     /// Determines whether we are currently in a dynamic branch context for any scope.
@@ -90,6 +196,62 @@ impl EvaluationContext {
         self.scopes
             .iter()
             .any(Scope::is_currently_evaluating_branch)
+    }
+
+    /// Different control counts still use the same controlled specialization.
+    pub fn is_callable_in_dynamic_branch(
+        &self,
+        callable: StoreItemId,
+        functor: FunctorApp,
+    ) -> bool {
+        self.scopes.iter().any(|scope| {
+            scope.matches_callable(callable, functor) && scope.is_currently_evaluating_branch()
+        })
+    }
+
+    /// Checks whether a known classical input component differs from the nearest active invocation.
+    pub fn has_changed_static_input(
+        &self,
+        callable: StoreItemId,
+        functor: FunctorApp,
+        args: &[Arg],
+    ) -> bool {
+        let Some(scope) = self
+            .scopes
+            .iter()
+            .rev()
+            .find(|scope| scope.matches_callable(callable, functor))
+        else {
+            return false;
+        };
+        args.iter().any(|arg| {
+            let Arg::Var(id, var) = arg else {
+                return false;
+            };
+            scope
+                .hybrid_vars
+                .get(id)
+                .is_some_and(|previous| has_changed_static_component(&var.value, previous))
+        })
+    }
+}
+
+fn has_changed_static_component(value: &Value, previous: &Value) -> bool {
+    match (value, previous) {
+        (Value::Array(values), Value::Array(previous)) => {
+            values.len() != previous.len()
+                || values
+                    .iter()
+                    .zip(previous.iter())
+                    .any(|(value, previous)| has_changed_static_component(value, previous))
+        }
+        (Value::Tuple(values, _), Value::Tuple(previous, _)) => values
+            .iter()
+            .zip(previous.iter())
+            .any(|(value, previous)| has_changed_static_component(value, previous)),
+        (Value::Qubit(_), _) => false,
+        (Value::Double(value), Value::Double(previous)) => value.to_bits() != previous.to_bits(),
+        _ => is_static_value(value) && value != previous,
     }
 }
 
@@ -129,9 +291,19 @@ pub struct Scope {
     /// Any locally constant arrays associated with this scope, along with the variable ID
     /// they are assigned (which happens after the scope is created).
     pub(crate) arrays: Vec<(Rc<Vec<Value>>, Option<VariableId>)>,
+    inline_work_start: usize,
 }
 
 impl Scope {
+    fn matches_callable(&self, callable: StoreItemId, functor: FunctorApp) -> bool {
+        self.package_id == callable.package
+            && self.callable.is_some_and(|(item, active)| {
+                item == callable.item
+                    && active.adjoint == functor.adjoint
+                    && (active.controlled > 0) == (functor.controlled > 0)
+            })
+    }
+
     /// Creates a new call scope.
     pub fn new(
         package_id: PackageId,
@@ -200,6 +372,7 @@ impl Scope {
             mutable_vars: FxHashSet::default(),
             dbg_context: ScopeDbgContext::default(),
             arrays: arrays.into_iter().map(|array| (array, None)).collect(),
+            inline_work_start: 0,
         }
     }
 
@@ -352,6 +525,13 @@ pub enum Arg {
 }
 
 impl Arg {
+    pub fn value(&self) -> &Value {
+        match self {
+            Self::Discard(value) => value,
+            Self::Var(_, var) => &var.value,
+        }
+    }
+
     /// Converts the argument into its underlying value.
     pub fn into_value(self) -> Value {
         match self {
@@ -433,5 +613,26 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Range(_)
         | Value::Result(Result::Val(_) | Result::Id(_))
         | Value::String(_) => ValueKind::Constant,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Value, has_changed_static_component, is_static_value};
+    use qsc_eval::val::Result;
+
+    #[test]
+    fn changed_runtime_result_ids_are_not_static_input_changes() {
+        let previous = Value::Tuple(
+            vec![Value::Int(3), Value::Result(Result::Id(0))].into(),
+            None,
+        );
+        let current = Value::Tuple(
+            vec![Value::Int(3), Value::Result(Result::Id(1))].into(),
+            None,
+        );
+        assert!(!is_static_value(&previous));
+        assert!(!is_static_value(&current));
+        assert!(!has_changed_static_component(&current, &previous));
     }
 }

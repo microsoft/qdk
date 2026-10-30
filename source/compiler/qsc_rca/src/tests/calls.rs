@@ -49,6 +49,56 @@ fn assert_call_sites_must_inline(
 }
 
 #[test]
+fn released_scratch_call_preserves_actual_allocation_and_inline_hints() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update(
+        r#"
+        operation Rec(n : Int) : Unit {
+            { use fresh = Qubit(); X(fresh); X(fresh); }
+            if n > 0 { Rec(n - 1); }
+        }
+        use flag = Qubit(); X(flag);
+        let depth = if MResetZ(flag) == One { 2 } else { 0 };
+        Rec(depth)
+        "#,
+    );
+    check_last_statement_compute_properties(
+        context.get_compute_properties(),
+        &expect![[r#"
+        ApplicationsGeneratorSet:
+            inherent: Dynamic:
+                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | QubitAllocation | MustBeInlined)
+                value_kind: Constant
+            dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn parameter_sized_scratch_retains_static_actual_size_without_promoting_rca() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update(
+        r#"
+        operation Rec(n : Int, size : Int) : Unit {
+            { use qs = Qubit[size]; X(qs[0]); X(qs[0]); }
+            if n > 0 { Rec(n - 1, size); }
+        }
+        use flag = Qubit(); X(flag);
+        let depth = if MResetZ(flag) == One { 2 } else { 0 };
+        Rec(depth, 2)
+        "#,
+    );
+    check_last_statement_compute_properties(
+        context.get_compute_properties(),
+        &expect![[r#"
+        ApplicationsGeneratorSet:
+            inherent: Dynamic:
+                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicIndex | LoopWithDynamicCondition | QubitAllocation | MustBeInlined)
+                value_kind: Constant
+            dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
 fn recursive_callable_return_sites_are_marked_must_be_inlined() {
     for profile in [Profile::Adaptive, Profile::AdaptiveRIF] {
         for (output, value) in [

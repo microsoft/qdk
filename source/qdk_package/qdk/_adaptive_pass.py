@@ -1280,6 +1280,8 @@ class AdaptiveProfilePass:
                     "Aggregate stack allocations for structs are not supported."
                 )
 
+        # Retain the static layout for bytecode compatibility and size accounting.
+        # Interpreters allocate fresh storage each time this instruction executes.
         addr = self._alloca_ptr
         self._alloca_ptr += num_words
         self._memory_size = max(self._memory_size, self._alloca_ptr)

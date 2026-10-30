@@ -1,5 +1,6 @@
 from __future__ import annotations
 from qdk import Result
+from dataclasses import dataclass
 import math
 import operator
 import struct
@@ -248,6 +249,31 @@ _FCMP_OPS: Dict[int, Callable[[float, float], bool]] = {
 }
 
 
+@dataclass
+class _CallFrame:
+    """Caller state saved before entering a QIR-defined function.
+
+    Attributes:
+        block: Caller block to resume when the callee returns.
+        previous_block: Caller's predecessor block, used to select PHI inputs.
+        pc: Instruction immediately after the call.
+        return_register: Caller register receiving the result, or ``_VOID_RETURN``
+            when the call has no result.
+        registers: Snapshot taken before binding callee arguments, preserving
+            caller values and allowing arguments to swap registers safely.
+        memory_size: Memory length before the call. Returning truncates only
+            callee allocations; writes through pointers to caller-owned memory
+            remain visible because memory itself is not snapshotted.
+    """
+
+    block: int
+    previous_block: int
+    pc: int
+    return_register: int
+    registers: list[int]
+    memory_size: int
+
+
 class _Interpreter:
     """Executes one shot. One instance per shot; not reusable."""
 
@@ -261,8 +287,7 @@ class _Interpreter:
         self._block_offsets = [block.instr_offset for block in program.blocks]
         self._registers = [0] * program.num_registers
         self._memory = list(program.constant_data)
-        # (return block, return pc, return register)
-        self._call_stack: List[Tuple[int, int, int]] = []
+        self._call_stack: list[_CallFrame] = []
         self._records: List[OutputRecordValue] = []
         self._block = program.entry_block
         self._previous_block = 0
@@ -315,19 +340,42 @@ class _Interpreter:
 
     def _op_call(self, instr: Instruction) -> None:
         function = self._program.functions[instr.aux0]
-        self._call_stack.append((self._block, self._pc + 1, instr.dst))
+        frame = _CallFrame(
+            self._block,
+            self._previous_block,
+            self._pc + 1,
+            instr.dst,
+            self._registers.copy(),
+            len(self._memory),
+        )
+        self._call_stack.append(frame)
         args = self._program.call_args
         for i in range(instr.aux1):
-            self._registers[function.param_base + i] = self._registers[
+            self._registers[function.param_base + i] = frame.registers[
                 args[instr.aux2 + i]
             ]
         self._block = function.func_entry_block
         self._pc = self._block_offsets[self._block]
 
     def _op_call_return(self, instr: Instruction) -> None:
-        self._block, self._pc, return_reg = self._call_stack.pop()
-        if return_reg != _VOID_RETURN:
-            self._registers[return_reg] = self._u(instr.src0, instr.opcode, 0)
+        """Resume the caller, preserving the result and shared-memory writes."""
+        frame = self._call_stack.pop()
+        # The result belongs to the callee's registers, which restoration will
+        # replace. Capture it first; void calls have no result operand to read.
+        value = (
+            self._u(instr.src0, instr.opcode, 0)
+            if frame.return_register != _VOID_RETURN
+            else None
+        )
+        # Resume after the call with the caller's control-flow and register state.
+        self._block, self._pc = frame.block, frame.pc
+        self._previous_block = frame.previous_block
+        self._registers = frame.registers
+        # Free only callee allocations, retaining writes to caller-owned memory.
+        del self._memory[frame.memory_size :]
+        if value is not None:
+            # Install the result after restoration so the saved registers cannot overwrite it.
+            self._registers[frame.return_register] = value
 
     # -- quantum -------------------------------------------------------------
 
@@ -556,10 +604,8 @@ class _Interpreter:
 
     def _op_alloca(self, instr: Instruction) -> None:
         num_words = self._u(instr.src0, instr.opcode, 0)
-        address = self._u(instr.src1, instr.opcode, 1)
-        end = address + num_words
-        if end > len(self._memory):
-            self._memory.extend([0] * (end - len(self._memory)))
+        address = len(self._memory)
+        self._memory.extend([0] * num_words)
         self._registers[instr.dst] = address
         self._pc += 1
 

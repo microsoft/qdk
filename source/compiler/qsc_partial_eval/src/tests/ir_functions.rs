@@ -36,6 +36,1138 @@ fn assert_ir_function_names(program: &Program, expected: &expect_test::Expect) {
 }
 
 #[test]
+fn finite_recursion_in_measurement_branch_keeps_repeated_array_length_known() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Rec(n : Int, target : Qubit) : Unit {
+                { use q = Qubit(); X(q); X(q); }
+                if n > 0 {
+                    if MResetZ(target) == Zero { Rec(n - 1, target); }
+                }
+                let values = [true, size = n];
+                if Length(values) == 2 { X(target); }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                Rec(2, target);
+                MResetZ(target)
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert_eq!(program.num_results, 3);
+    assert_eq!(ir_function_names(&program), ["X"]);
+}
+
+#[test]
+fn finite_recursion_keeps_repeated_array_length_known() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Rec(n : Int, target : Qubit) : Unit {
+                { use q = Qubit(); X(q); X(q); }
+                let values = [true, size = n];
+                if Length(values) == 2 { X(target); }
+                if n > 0 { Rec(n - 1, target); }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                Rec(2, target);
+                MResetZ(target)
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert_eq!(ir_function_names(&program), ["X"]);
+}
+
+#[test]
+fn finite_recursion_keeps_range_bounds_known() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Rec(n : Int, target : Qubit) : Unit {
+                { use q = Qubit(); X(q); X(q); }
+                for _ in 1..n { X(target); }
+                if n > 0 { Rec(n - 1, target); }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                Rec(2, target);
+                MResetZ(target)
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert_eq!(ir_function_names(&program), ["X"]);
+}
+
+#[test]
+fn finite_recursion_does_not_evaluate_unreachable_fail() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Rec(n : Int, target : Qubit) : Unit {
+                { use q = Qubit(); X(q); X(q); }
+                if n < 0 { fail "negative depth"; }
+                X(target);
+                if n > 0 { Rec(n - 1, target); }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                Rec(2, target);
+                MResetZ(target)
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert_eq!(ir_function_names(&program), ["X"]);
+}
+
+#[test]
+fn finite_recursion_keeps_array_size_with_unused_runtime_integer() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Size(n : Int, unused : Int) : Int {
+                { use q = Qubit(); X(q); X(q); }
+                if n > 0 { let ignored = Size(n - 1, unused); }
+                2
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use flag = Qubit(); X(flag);
+                let unused = if MResetZ(flag) == One { 1 } else { 0 };
+                let size = Size(2, unused);
+                use qs = Qubit[size];
+                MResetZ(qs[0])
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 3);
+    assert_eq!(ir_function_names(&program), ["X"]);
+}
+
+#[test]
+fn finite_recursion_keeps_array_size_with_unused_runtime_boolean() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Size(n : Int, unused : Bool) : Int {
+                { use q = Qubit(); X(q); X(q); }
+                if n > 0 { let ignored = Size(n - 1, unused); }
+                2
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use flag = Qubit(); X(flag);
+                let unused = MResetZ(flag) == One;
+                let size = Size(2, unused);
+                use qs = Qubit[size];
+                MResetZ(qs[0])
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 3);
+    assert_eq!(ir_function_names(&program), ["X"]);
+}
+
+#[test]
+fn finite_recursion_with_released_local_qubit_keeps_array_size_constant() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Size(n : Int) : Int {
+                { use q = Qubit(); X(q); X(q); }
+                if n > 0 { let ignored = Size(n - 1); }
+                2
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                let size = Size(2);
+                use qs = Qubit[size];
+                MResetZ(qs[0])
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn finite_recursion_with_released_local_qubit_keeps_computed_integer_constant() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Count(n : Int, target : Qubit) : Int {
+                { use q = Qubit(); X(q); X(q); }
+                X(target);
+                if n > 0 { Count(n - 1, target) + 1 } else { 0 }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let count = Count(2, target);
+                if count == 2 { X(target); }
+                MResetZ(target)
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn finite_recursion_with_empty_local_qubit_array_keeps_array_size_known() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            { use empty = Qubit[0]; }
+            if n > 0 {
+                if MResetZ(target) == Zero { Rec(n - 1, target); }
+            }
+            let values = [true, size = n];
+            if Length(values) == 2 { X(target); }
+        }
+        operation Main() : Result {
+            use target = Qubit();
+            Rec(2, target);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 1);
+    assert_eq!(program.num_results, 3);
+    assert_eq!(ir_function_names(&program), ["X"]);
+}
+
+#[test]
+fn runtime_recursion_with_empty_local_qubit_array_is_emitted_without_extra_qubits() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, flag : Qubit, target : Qubit) : Unit {
+            if n > 0 {
+                { use empty = Qubit[0]; }
+                X(target);
+                if MResetZ(flag) == Zero { Rec(n - 1, flag, target); }
+            }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            let depth = if MResetZ(flag) == Zero { 3 } else { 0 };
+            Rec(depth, flag, target);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_eq!(ir_function_names(&program), ["Rec", "X"]);
+}
+
+#[test]
+fn runtime_recursion_with_live_empty_array_preserves_later_length_use() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            use empty = Qubit[0];
+            if n > 0 {
+                X(target);
+                Rec(n - 1, target);
+            }
+            if Length(empty) != 0 { X(target); }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(flag) == Zero { 3 } else { 0 }, target);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_eq!(ir_function_names(&program), ["Rec", "X"]);
+}
+
+#[test]
+fn runtime_loop_recursion_with_live_empty_array_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            use empty = Qubit[0];
+            mutable count = n;
+            while count > 0 {
+                Rec(count - 1, target);
+                count = 0;
+            }
+            if Length(empty) == 0 { X(target); }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(flag) == Zero { 2 } else { 0 }, target);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_eq!(ir_function_names(&program), ["Rec", "X"]);
+}
+
+#[test]
+fn runtime_depth_recursion_reuses_released_local_qubit_isolated_from_entry_qubits() {
+    let source = r#"
+        namespace Test {
+            operation Rec(n : Int) : Unit {
+                { use fresh = Qubit(); X(fresh); X(fresh); }
+                if n > 0 { Rec(n - 1); }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use flag = Qubit();
+                X(flag);
+                let n = if MResetZ(flag) == One { 2 } else { 0 };
+                Rec(n);
+                MResetZ(flag)
+            }
+        }
+    "#;
+    let program = get_rir_program_with_adaptive_profile(source);
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(4), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(5), args( Result(0), )
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Branch Variable(2, Boolean), 3, 4
+        Block 1:Block:
+            Call id(3), args( Variable(0, Qubit), )
+            Return
+        Block 2:Block:
+            Variable(4, Integer) = Store Variable(3, Integer)
+            Call id(6), args( Variable(4, Integer), )
+            Call id(4), args( Qubit(0), Result(1), )
+            Call id(7), args( Result(1), Tag(0, 3), )
+            Return Integer(0)
+        Block 3:Block:
+            Variable(3, Integer) = Store Integer(2)
+            Jump(2)
+        Block 4:Block:
+            Variable(3, Integer) = Store Integer(0)
+            Jump(2)
+        Block 5:Block:
+            Call id(2), args( Qubit(1), )
+            Call id(2), args( Qubit(1), )
+            Variable(6, Integer) = Store Variable(5, Integer)
+            Variable(7, Boolean) = Icmp Sgt, Variable(6, Integer), Integer(0)
+            Branch Variable(7, Boolean), 7, 6
+        Block 6:Block:
+            Return
+        Block 7:Block:
+            Variable(8, Integer) = Store Variable(5, Integer)
+            Variable(9, Integer) = Sub Variable(8, Integer), Integer(1)
+            Call id(6), args( Variable(9, Integer), )
+            Jump(6)"#]],
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn released_fixed_arrays_in_mutual_recursion_have_independent_reservations() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation A(n : Int) : Unit {
+                { use qs = Qubit[2]; X(qs[0]); X(qs[0]); }
+                if n > 0 { B(n - 1); }
+            }
+            operation B(n : Int) : Unit {
+                { use qs = Qubit[2]; X(qs[1]); X(qs[1]); }
+                if n > 0 { A(n - 1); }
+            }
+            @EntryPoint()
+            operation Main() : Result[] {
+                use flag = Qubit(); X(flag);
+                let n = if MResetZ(flag) == One { 2 } else { 0 };
+                use before = Qubit(); X(before);
+                A(n);
+                { use between = Qubit(); X(between); X(between); A(n); }
+                use after = Qubit(); X(after);
+                B(n);
+                [MResetZ(before), MResetZ(after)]
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 7);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "A",
+            "B",
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(4), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(5), args( Result(0), )
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Branch Variable(2, Boolean), 3, 4
+        Block 1:Block:
+            Call id(3), args( Variable(0, Qubit), )
+            Return
+        Block 2:Block:
+            Variable(4, Integer) = Store Variable(3, Integer)
+            Call id(2), args( Qubit(1), )
+            Call id(6), args( Variable(4, Integer), )
+            Call id(2), args( Qubit(6), )
+            Call id(2), args( Qubit(6), )
+            Call id(6), args( Variable(4, Integer), )
+            Call id(2), args( Qubit(6), )
+            Call id(7), args( Variable(4, Integer), )
+            Call id(4), args( Qubit(1), Result(1), )
+            Call id(4), args( Qubit(6), Result(2), )
+            Call id(8), args( Integer(2), Tag(0, 3), )
+            Call id(9), args( Result(1), Tag(1, 5), )
+            Call id(9), args( Result(2), Tag(2, 5), )
+            Return Integer(0)
+        Block 3:Block:
+            Variable(3, Integer) = Store Integer(2)
+            Jump(2)
+        Block 4:Block:
+            Variable(3, Integer) = Store Integer(0)
+            Jump(2)
+        Block 5:Block:
+            Variable(6, Integer) = Store Integer(0)
+            Variable(6, Integer) = Store Integer(1)
+            Variable(6, Integer) = Store Integer(2)
+            Call id(2), args( Qubit(2), )
+            Call id(2), args( Qubit(2), )
+            Variable(7, Integer) = Store Variable(5, Integer)
+            Variable(8, Boolean) = Icmp Sgt, Variable(7, Integer), Integer(0)
+            Branch Variable(8, Boolean), 7, 6
+        Block 6:Block:
+            Return
+        Block 7:Block:
+            Variable(9, Integer) = Store Variable(5, Integer)
+            Variable(10, Integer) = Sub Variable(9, Integer), Integer(1)
+            Call id(7), args( Variable(10, Integer), )
+            Jump(6)
+        Block 8:Block:
+            Variable(12, Integer) = Store Integer(0)
+            Variable(12, Integer) = Store Integer(1)
+            Variable(12, Integer) = Store Integer(2)
+            Call id(2), args( Qubit(5), )
+            Call id(2), args( Qubit(5), )
+            Variable(13, Integer) = Store Variable(11, Integer)
+            Variable(14, Boolean) = Icmp Sgt, Variable(13, Integer), Integer(0)
+            Branch Variable(14, Boolean), 10, 9
+        Block 9:Block:
+            Return
+        Block 10:Block:
+            Variable(15, Integer) = Store Variable(11, Integer)
+            Variable(16, Integer) = Sub Variable(15, Integer), Integer(1)
+            Call id(6), args( Variable(16, Integer), )
+            Jump(9)"#]],
+    );
+}
+
+#[test]
+fn inlined_allocating_array_parameter_helper_uses_the_proved_owner_layout() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation FlipWithLocalQubit(qs : Qubit[]) : Unit {
+                use own = Qubit(); X(own); X(own); X(qs[0]);
+            }
+            operation Rec(n : Int, target : Qubit) : Unit {
+                { use qs = Qubit[2]; X(qs[0]); X(qs[0]); }
+                FlipWithLocalQubit([target]);
+                if n > 0 { Rec(n - 1, target); }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use (flag, target) = (Qubit(), Qubit()); X(flag);
+                let n = if MResetZ(flag) == One { 2 } else { 0 };
+                Rec(n, target);
+                MResetZ(target)
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 4);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(4), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(5), args( Result(0), )
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Branch Variable(2, Boolean), 3, 4
+        Block 1:Block:
+            Call id(3), args( Variable(0, Qubit), )
+            Return
+        Block 2:Block:
+            Variable(4, Integer) = Store Variable(3, Integer)
+            Variable(5, Integer) = Store Variable(4, Integer)
+            Call id(6), args( Variable(5, Integer), Qubit(1), )
+            Call id(4), args( Qubit(1), Result(1), )
+            Call id(7), args( Result(1), Tag(0, 3), )
+            Return Integer(0)
+        Block 3:Block:
+            Variable(3, Integer) = Store Integer(2)
+            Jump(2)
+        Block 4:Block:
+            Variable(3, Integer) = Store Integer(0)
+            Jump(2)
+        Block 5:Block:
+            Variable(8, Integer) = Store Integer(0)
+            Variable(8, Integer) = Store Integer(1)
+            Variable(8, Integer) = Store Integer(2)
+            Call id(2), args( Qubit(2), )
+            Call id(2), args( Qubit(2), )
+            Variable(9, Qubit) = Store Variable(7, Qubit)
+            Variable(10, Array(1, Qubit)) = StoreArray [Variable(9, Qubit)]
+            Call id(2), args( Qubit(2), )
+            Call id(2), args( Qubit(2), )
+            Call id(2), args( Variable(9, Qubit), )
+            Variable(11, Integer) = Store Variable(6, Integer)
+            Variable(12, Boolean) = Icmp Sgt, Variable(11, Integer), Integer(0)
+            Branch Variable(12, Boolean), 7, 6
+        Block 6:Block:
+            Return
+        Block 7:Block:
+            Variable(13, Integer) = Store Variable(6, Integer)
+            Variable(14, Integer) = Sub Variable(13, Integer), Integer(1)
+            Variable(15, Integer) = Store Variable(14, Integer)
+            Variable(16, Qubit) = Store Variable(7, Qubit)
+            Call id(6), args( Variable(15, Integer), Variable(16, Qubit), )
+            Jump(6)"#]],
+    );
+}
+
+fn assert_runtime_recursion_is_rejected(body: &str, helper: &str) {
+    use super::get_partial_evaluation_error_with_capabilities;
+    let error = get_partial_evaluation_error_with_capabilities(
+        &format!(
+            r#"
+                namespace Test {{
+                    operation Rec(n : Int) : Unit {{ {body} }}
+                    {helper}
+                    @EntryPoint()
+                    operation Main() : Unit {{
+                        use flag = Qubit(); X(flag);
+                        let n = if MResetZ(flag) == One {{ 2 }} else {{ 0 }};
+                        Rec(n);
+                    }}
+                }}
+            "#
+        ),
+        qsc::target::Profile::Adaptive.into(),
+    );
+    assert!(
+        matches!(error, crate::Error::UnsupportedRecursiveInlining(_)),
+        "{body}: {error:?}"
+    );
+}
+
+#[test]
+fn direct_runtime_recursion_with_unreleased_local_qubit_is_rejected() {
+    assert_runtime_recursion_is_rejected("use q = Qubit(); if n > 0 { Rec(n - 1); } Reset(q);", "");
+}
+
+#[test]
+fn runtime_recursion_with_empty_and_unreleased_nonempty_arrays_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"
+        use empty = Qubit[0];
+        use live = Qubit[1];
+        if n > 0 { Rec(n - 1); }
+        Reset(live[0]);
+        "#,
+        "",
+    );
+}
+
+#[test]
+fn direct_runtime_recursion_with_reset_local_used_only_for_release_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Rec(n : Int) : Unit {
+                use q = Qubit();
+                Reset(q);
+                if n > 0 { Rec(n - 1); }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use flag = Qubit();
+                Rec(if MResetZ(flag) == Zero { 2 } else { 1 });
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert!(
+        program
+            .callables
+            .iter()
+            .any(|(_, callable)| callable.name == "Rec")
+    );
+}
+
+#[test]
+fn runtime_recursion_with_reset_on_only_one_branch_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); X(q); if n % 2 == 0 { Reset(q); } if n > 0 { Rec(n - 1); }",
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_reset_skipped_by_short_circuit_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); X(q); let ignored = n % 2 == 0 and { Reset(q); true }; if n > 0 { Rec(n - 1); }",
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_gate_after_reset_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); X(q); if n > 0 { Rec(n - 1); } Reset(q);",
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_measurement_after_reentry_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); if n > 0 { Rec(n - 1); } let ignored = MResetZ(q);",
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_does_not_trust_a_helper_named_reset() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); if n > 0 { Rec(n - 1); }",
+        "operation Reset(q : Qubit) : Unit { X(q); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_unknown_qubit_effect_after_reset_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); Touch(q); if n > 0 { Rec(n - 1); }",
+        "operation Touch(q : Qubit) : Unit { X(q); X(q); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_reset_qubit_passed_to_allocating_helper_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); if n > 0 { Again(n - 1, q); }",
+        "operation Again(n : Int, q : Qubit) : Unit { Rec(n); X(q); Reset(q); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_preserves_qubits_captured_by_earlier_call_arguments() {
+    assert_runtime_recursion_is_rejected(
+        r#"use q = Qubit();
+           Apply(q, { Reset(q); if n > 0 { Rec(n - 1); } });"#,
+        "operation Apply(q : Qubit, ignored : Unit) : Unit { X(q); Reset(q); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_loop_carried_reset_local_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"use q = Qubit();
+           mutable count = n;
+           while count > 0 {
+               X(q); Reset(q);
+               Rec(count - 1);
+               count -= 1;
+           }"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_reset_local_aliased_in_tuple_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); Reset(q); let pair = (q, 0); if n > 0 { Rec(n - 1); }",
+        "",
+    );
+}
+
+#[test]
+fn mutual_runtime_recursion_with_unreleased_local_qubit_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "use q = Qubit(); if n > 0 { Again(n - 1); } Reset(q);",
+        "operation Again(n : Int) : Unit { Rec(n); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_qubit_release_skipped_by_logical_and_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            X(q);
+            let ignored = false and { Reset(q); QIR.Runtime.__quantum__rt__qubit_release(q); true };
+            if n > 0 { Rec(n - 1); }"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_qubit_release_skipped_by_logical_or_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            X(q);
+            let ignored = true or { Reset(q); QIR.Runtime.__quantum__rt__qubit_release(q); true };
+            if n > 0 { Rec(n - 1); }"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_qubit_release_skipped_by_logical_and_assignment_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            X(q);
+            mutable ignored = false;
+            set ignored and= { Reset(q); QIR.Runtime.__quantum__rt__qubit_release(q); true };
+            if n > 0 { Rec(n - 1); }"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_qubit_release_skipped_by_logical_or_assignment_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            X(q);
+            mutable ignored = true;
+            set ignored or= { Reset(q); QIR.Runtime.__quantum__rt__qubit_release(q); true };
+            if n > 0 { Rec(n - 1); }"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_in_array_update_index_before_local_qubit_release_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            let ignored = { QIR.Runtime.__quantum__rt__qubit_release(q); [false] }
+                w/ { if n > 0 { Rec(n - 1); } 0 } <- true;"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_in_array_update_replacement_before_local_qubit_release_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            let ignored = { QIR.Runtime.__quantum__rt__qubit_release(q); [false] }
+                w/ 0 <- { if n > 0 { Rec(n - 1); } true };"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_in_array_update_index_before_local_qubit_array_release_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"let qs = QIR.Runtime.AllocateQubitArray(1);
+            let ignored = { QIR.Runtime.ReleaseQubitArray(qs); [false] }
+                w/ { if n > 0 { Rec(n - 1); } 0 } <- true;"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_in_array_update_replacement_before_local_qubit_array_release_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"let qs = QIR.Runtime.AllocateQubitArray(1);
+            let ignored = { QIR.Runtime.ReleaseQubitArray(qs); [false] }
+                w/ 0 <- { if n > 0 { Rec(n - 1); } true };"#,
+        "",
+    );
+}
+
+fn assert_parameterized_local_qubit_layout_is_rejected(body: &str) {
+    use super::get_partial_evaluation_error_with_capabilities;
+    let error = get_partial_evaluation_error_with_capabilities(
+        &format!(
+            r#"
+                namespace Test {{
+                    operation Rec(n : Int, size : Int) : Unit {{
+                        {body}
+                        if n > 0 {{ Rec(n - 1, size); }}
+                    }}
+                    @EntryPoint()
+                    operation Main() : Unit {{
+                        use flag = Qubit(); X(flag);
+                        let n = if MResetZ(flag) == One {{ 2 }} else {{ 0 }};
+                        Rec(n, 2);
+                    }}
+                }}
+            "#
+        ),
+        qsc::target::Profile::Adaptive.into(),
+    );
+    assert!(
+        matches!(error, crate::Error::UnsupportedRecursiveInlining(_)),
+        "{body}: {error:?}"
+    );
+}
+
+#[test]
+fn runtime_recursion_with_aliased_local_qubit_is_rejected() {
+    assert_parameterized_local_qubit_layout_is_rejected(
+        "{ use q = Qubit(); let alias = q; X(alias); X(q); }",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_parameter_sized_local_qubit_array_is_rejected() {
+    assert_parameterized_local_qubit_layout_is_rejected(
+        "{ use qs = Qubit[size]; X(qs[0]); X(qs[0]); }",
+    );
+}
+
+#[test]
+fn parameter_sized_local_qubits_with_static_depth_preserve_finite_inline_fallback() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Rec(n : Int, size : Int, target : Qubit) : Unit {
+                { use qs = Qubit[size]; X(qs[0]); X(qs[0]); }
+                X(target);
+                if n > 0 { Rec(n - 1, size, target); }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                Rec(2, 2, target);
+                MResetZ(target)
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 3);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Call id(2), args( Qubit(1), )
+            Call id(2), args( Qubit(1), )
+            Call id(2), args( Qubit(0), )
+            Variable(2, Integer) = Store Integer(0)
+            Variable(2, Integer) = Store Integer(1)
+            Variable(2, Integer) = Store Integer(2)
+            Call id(2), args( Qubit(1), )
+            Call id(2), args( Qubit(1), )
+            Call id(2), args( Qubit(0), )
+            Variable(3, Integer) = Store Integer(0)
+            Variable(3, Integer) = Store Integer(1)
+            Variable(3, Integer) = Store Integer(2)
+            Call id(2), args( Qubit(1), )
+            Call id(2), args( Qubit(1), )
+            Call id(2), args( Qubit(0), )
+            Call id(4), args( Qubit(0), Result(0), )
+            Call id(5), args( Result(0), Tag(0, 3), )
+            Return Integer(0)
+        Block 1:Block:
+            Call id(3), args( Variable(1, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn released_local_qubit_boolean_measurement_is_materialized_before_recursive_reentry() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Rec(n : Int, target : Qubit) : Unit {
+                let observed = {
+                    use local = Qubit();
+                    X(local);
+                    MResetZ(local) == One
+                };
+                if n > 0 { Rec(n - 1, target); }
+                if observed { X(target); }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use (flag, target) = (Qubit(), Qubit()); X(flag);
+                let n = if MResetZ(flag) == One { 2 } else { 0 };
+                Rec(n, target);
+                MResetZ(target)
+            }
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 3);
+    assert_eq!(program.num_results, 3);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(4), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(5), args( Result(0), )
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Branch Variable(2, Boolean), 3, 4
+        Block 1:Block:
+            Call id(3), args( Variable(0, Qubit), )
+            Return
+        Block 2:Block:
+            Variable(4, Integer) = Store Variable(3, Integer)
+            Variable(5, Integer) = Store Variable(4, Integer)
+            Call id(6), args( Variable(5, Integer), Qubit(1), )
+            Call id(4), args( Qubit(1), Result(2), )
+            Call id(7), args( Result(2), Tag(0, 3), )
+            Return Integer(0)
+        Block 3:Block:
+            Variable(3, Integer) = Store Integer(2)
+            Jump(2)
+        Block 4:Block:
+            Variable(3, Integer) = Store Integer(0)
+            Jump(2)
+        Block 5:Block:
+            Call id(2), args( Qubit(2), )
+            Call id(4), args( Qubit(2), Result(1), )
+            Variable(8, Boolean) = Call id(5), args( Result(1), )
+            Variable(9, Boolean) = Store Variable(8, Boolean)
+            Variable(10, Boolean) = Store Variable(9, Boolean)
+            Variable(11, Boolean) = Store Variable(10, Boolean)
+            Variable(12, Integer) = Store Variable(6, Integer)
+            Variable(13, Boolean) = Icmp Sgt, Variable(12, Integer), Integer(0)
+            Branch Variable(13, Boolean), 7, 6
+        Block 6:Block:
+            Branch Variable(11, Boolean), 9, 8
+        Block 7:Block:
+            Variable(14, Integer) = Store Variable(6, Integer)
+            Variable(15, Integer) = Sub Variable(14, Integer), Integer(1)
+            Variable(16, Integer) = Store Variable(15, Integer)
+            Variable(17, Qubit) = Store Variable(7, Qubit)
+            Call id(6), args( Variable(16, Integer), Variable(17, Qubit), )
+            Jump(6)
+        Block 8:Block:
+            Return
+        Block 9:Block:
+            Call id(2), args( Variable(7, Qubit), )
+            Jump(8)"#]],
+    );
+}
+
+#[test]
+fn runtime_recursion_with_qubit_allocation_in_dynamic_range_is_rejected() {
+    use super::get_partial_evaluation_error_with_capabilities;
+    let error = get_partial_evaluation_error_with_capabilities(
+        r#"
+        namespace Test {
+            operation Rec(n : Int) : Unit {
+                for _ in 1..n { use q = Qubit(); X(q); X(q); }
+                if n > 0 { Rec(n - 1); }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use flag = Qubit(); X(flag);
+                let n = if MResetZ(flag) == One { 2 } else { 0 };
+                Rec(n);
+            }
+        }
+        "#,
+        qsc::target::Profile::Adaptive.into(),
+    );
+    assert!(
+        matches!(
+            &error,
+            crate::Error::Unexpected(message, _) if message == "dynamic variable in Range expression"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn runtime_recursion_reuses_conditionally_allocated_qubit_after_release() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int) : Unit {
+            if n > 0 { use q = Qubit(); X(q); X(q); }
+            if n > 0 { Rec(n - 1); }
+        }
+        operation Main() : Unit {
+            use flag = Qubit(); X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(n);
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn runtime_recursion_reuses_loop_local_qubit_after_release() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int) : Unit {
+            for _ in 1..2 { use q = Qubit(); X(q); X(q); }
+            if n > 0 { Rec(n - 1); }
+        }
+        operation Main() : Unit {
+            use flag = Qubit(); X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(n);
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn runtime_recursion_with_local_qubit_aliased_in_tuple_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "{ use q = Qubit(); let (a, b) = (q, q); X(a); X(b); } if n > 0 { Rec(n - 1); }",
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_borrowed_local_qubit_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"{ let q = QIR.Runtime.__quantum__rt__qubit_borrow();
+            X(q); X(q); QIR.Runtime.__quantum__rt__qubit_release(q); }
+            if n > 0 { Rec(n - 1); }"#,
+        "",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_local_qubit_returned_by_helper_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "{ use q = Qubit(); X(Alias(q)); X(q); } if n > 0 { Rec(n - 1); }",
+        "operation Alias(q : Qubit) : Qubit { q }",
+    );
+}
+
+#[test]
+fn runtime_recursion_with_local_qubit_captured_by_lambda_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        "{ use q = Qubit(); let flip = () => X(q); flip(); X(q); } if n > 0 { Rec(n - 1); }",
+        "",
+    );
+}
+
+#[test]
 fn unresolved_callable_body_inlines_with_static_arguments() {
     let program = get_rir_program_with_adaptive_profile(
         r#"
@@ -348,6 +1480,383 @@ fn recursive_callee_is_emitted() {
                 "Recurse",
                 "X",
             ]"#]],
+    );
+}
+
+#[test]
+fn recursive_immediate_measurement_comparison_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {
+            if n > 0 {
+                if MResetZ(q) == One { X(target); }
+                Rec(n - 1, q, target);
+            }
+        }
+        operation Main() : Unit {
+            use (q, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(q) == One { 2 } else { 0 }, q, target);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Rec",
+                "X",
+            ]"#]],
+    );
+}
+
+#[test]
+fn recursive_materialized_boolean_survives_reentry() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {
+            if n > 0 {
+                let saved = M(q) == One;
+                X(q);
+                Rec(n - 1, q, target);
+                if saved { X(target); }
+            }
+        }
+        operation Main() : Result {
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit());
+            X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(n, q, target);
+            Reset(q);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Rec",
+                "Reset",
+                "X",
+            ]"#]],
+    );
+    assert_eq!(program.get_callable(CallableId(2)).name, "X");
+    assert_eq!(
+        program.get_callable(CallableId(5)).name,
+        "__quantum__rt__read_result"
+    );
+    assert_eq!(program.get_callable(CallableId(6)).name, "Rec");
+    assert_eq!(
+        program.get_callable(CallableId(7)).name,
+        "__quantum__qis__m__body"
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(4), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(5), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 4
+            Block 1:Block:
+                Call id(3), args( Variable(0, Qubit), )
+                Return
+            Block 2:Block:
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Store Variable(4, Integer)
+                Call id(6), args( Variable(5, Integer), Qubit(1), Qubit(2), )
+                Call id(8), args( Qubit(1), )
+                Call id(4), args( Qubit(2), Result(2), )
+                Call id(10), args( Result(2), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Variable(3, Integer) = Store Integer(2)
+                Jump(2)
+            Block 4:Block:
+                Variable(3, Integer) = Store Integer(0)
+                Jump(2)
+            Block 5:Block:
+                Variable(9, Integer) = Store Variable(6, Integer)
+                Variable(10, Boolean) = Icmp Sgt, Variable(9, Integer), Integer(0)
+                Branch Variable(10, Boolean), 7, 6
+            Block 6:Block:
+                Return
+            Block 7:Block:
+                Call id(7), args( Variable(7, Qubit), Result(1), )
+                Variable(11, Boolean) = Call id(5), args( Result(1), )
+                Variable(12, Boolean) = Store Variable(11, Boolean)
+                Variable(13, Boolean) = Store Variable(12, Boolean)
+                Call id(2), args( Variable(7, Qubit), )
+                Variable(14, Integer) = Store Variable(6, Integer)
+                Variable(15, Integer) = Sub Variable(14, Integer), Integer(1)
+                Variable(16, Integer) = Store Variable(15, Integer)
+                Variable(17, Qubit) = Store Variable(7, Qubit)
+                Variable(18, Qubit) = Store Variable(8, Qubit)
+                Call id(6), args( Variable(16, Integer), Variable(17, Qubit), Variable(18, Qubit), )
+                Branch Variable(13, Boolean), 9, 8
+            Block 8:Block:
+                Jump(6)
+            Block 9:Block:
+                Call id(2), args( Variable(8, Qubit), )
+                Jump(8)
+            Block 10:Block:
+                Call id(9), args( Variable(19, Qubit), )
+                Return"#]],
+    );
+}
+
+#[test]
+fn recursive_boolean_measurement_helper_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Observe(q : Qubit) : Bool { M(q) == One }
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {
+            if n > 0 {
+                let saved = Observe(q);
+                X(q);
+                Rec(n - 1, q, target);
+                if saved { X(target); }
+            }
+        }
+        operation Main() : Unit {
+            use (q, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(q) == One { 2 } else { 0 }, q, target);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Observe",
+                "Rec",
+                "Reset",
+                "X",
+            ]"#]],
+    );
+}
+
+#[test]
+fn mutual_recursive_boolean_measurement_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation A(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                let saved = M(q) == One;
+                X(q);
+                B(n - 1, q);
+                if saved { X(q); }
+            }
+        }
+        operation B(n : Int, q : Qubit) : Unit { A(n, q); }
+        operation Main() : Unit {
+            use q = Qubit();
+            B(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "A",
+            "B",
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_measurement_proof_uses_selected_adjoint() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Step(n : Int, q : Qubit) : Unit is Adj {
+            body (...) {
+                let raw = M(q);
+                Rec(n - 1, q);
+                if raw == One { X(q); }
+            }
+            adjoint (...) {
+                if One != M(q) { X(q); }
+                Rec(n - 1, q);
+            }
+        }
+        operation Rec(n : Int, q : Qubit) : Unit {
+            if n > 0 { Adjoint Step(n, q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "Reset",
+            "Step__Adj",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_measurement_proof_rejects_live_controlled_adjoint_result() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Step(n : Int, q : Qubit) : Unit is Adj + Ctl {
+            body (...) {}
+            adjoint (...) {}
+            controlled (cs, ...) {}
+            controlled adjoint (cs, ...) {
+                let raw = M(q);
+                Rec(n - 1, cs[0], q);
+                if raw == One { X(q); }
+            }
+        }
+        operation Rec(n : Int, control : Qubit, q : Qubit) : Unit {
+            if n > 0 { Controlled Adjoint Step([control], (n, q)); }
+        }
+        operation Main() : Unit {
+            use (control, q) = (Qubit(), Qubit());
+            Rec(2, control, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_measurement_with_unused_result_parameter_keeps_inline_fallback() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit, unused : Result) : Unit {
+            if n > 0 {
+                if M(q) == One { X(q); }
+                Rec(n - 1, q, Zero);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(2, q, Zero);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_result_comparison_with_effectful_rhs_keeps_inline_fallback() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                if M(q) == { X(q); Rec(n - 1, q); M(q) } { X(q); }
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(2, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn raw_result_in_acyclic_caller_keeps_inline_fallback() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                if M(q) == One { X(q); }
+                Rec(n - 1, q);
+            }
+        }
+        operation Outer(n : Int, q : Qubit) : Unit {
+            let raw = M(q);
+            Rec(n, q);
+            if raw == One { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(2, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_measurement_argument_with_live_result_keeps_inline_fallback() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                if M({
+                    let raw = M(q);
+                    Rec(n - 1, q);
+                    if raw == One { X(q); }
+                    q
+                }) == One { X(q); }
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(2, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Reset",
+            "X",
+        ]"#]],
     );
 }
 

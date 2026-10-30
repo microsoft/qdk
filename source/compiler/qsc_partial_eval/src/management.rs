@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::rc::Rc;
+use std::{ops::Range, rc::Rc};
 
 use num_bigint::BigUint;
 use num_complex::Complex;
@@ -18,6 +18,7 @@ use rustc_hash::FxHashSet;
 #[derive(Default)]
 pub struct ResourceManager {
     qubits_in_use: Vec<bool>,
+    reserved_qubits: FxHashSet<usize>,
     qubit_id_map: IndexMap<usize, usize>,
     qubit_tracker: FxHashSet<Rc<Qubit>>,
     delayed_release_qubits: DelayedQubitReleaseStack,
@@ -63,6 +64,34 @@ impl ResourceManager {
             self.qubits_in_use.push(true);
             self.qubits_in_use.len() - 1
         };
+        self.allocate_qubit_at(qubit)
+    }
+
+    /// Dedicated storage remains unavailable to ordinary allocations even after its leases end.
+    pub fn reserve_qubits(&mut self, count: usize) -> Range<usize> {
+        let start = self.qubits_in_use.len();
+        self.qubits_in_use.resize(start + count, true);
+        let slots = start..self.qubits_in_use.len();
+        self.reserved_qubits.extend(slots.clone());
+        slots
+    }
+
+    pub fn allocate_reserved_qubit(&mut self, slots: &Range<usize>) -> Option<QubitRef> {
+        // Local-qubit lifetime proofs exclude parallel/delayed-release scopes.
+        if self.is_delaying_release() {
+            return None;
+        }
+        let slot = slots.clone().find(|slot| {
+            self.reserved_qubits.contains(slot)
+                && !self
+                    .qubit_id_map
+                    .iter()
+                    .any(|(_, physical)| physical == slot)
+        })?;
+        Some(self.allocate_qubit_at(slot))
+    }
+
+    fn allocate_qubit_at(&mut self, qubit: usize) -> QubitRef {
         let mut next_id = 0;
         // Iterate through the sequence of integers until we find one that is not present in the map.
         // This means that integer id is available for use as the qubit id that will map to the newly allocated qubit.
@@ -97,7 +126,10 @@ impl ResourceManager {
     }
 
     fn free_qubit_id(&mut self, qubit: Qubit) {
-        self.qubits_in_use[self.qubit_id_map[qubit.0]] = false;
+        let physical = self.qubit_id_map[qubit.0];
+        if !self.reserved_qubits.contains(&physical) {
+            self.qubits_in_use[physical] = false;
+        }
         self.qubit_id_map.remove(qubit.0);
         self.qubit_tracker.remove(&qubit);
     }
@@ -145,6 +177,88 @@ impl ResourceManager {
             .expect("qubit id should be in map");
         self.qubit_id_map.insert(q0, id1);
         self.qubit_id_map.insert(q1, id0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ResourceManager;
+
+    #[test]
+    fn released_reservations_cannot_be_reused_by_ordinary_allocations() {
+        let mut manager = ResourceManager::default();
+        let caller = manager.allocate_qubit();
+        let slots = manager.reserve_qubits(2);
+        let first = manager
+            .allocate_reserved_qubit(&slots)
+            .expect("first lease");
+        let second = manager
+            .allocate_reserved_qubit(&slots)
+            .expect("second lease");
+        assert_eq!(
+            (manager.map_qubit(&first), manager.map_qubit(&second)),
+            (1, 2)
+        );
+        assert!(manager.allocate_reserved_qubit(&slots).is_none());
+        manager.release_qubit(&first);
+        manager.release_qubit(&second);
+        assert!(first.try_deref().is_none());
+        assert!(second.try_deref().is_none());
+        let later = manager.allocate_qubit();
+        assert_eq!(manager.map_qubit(&later), 3);
+        manager.release_qubit(&caller);
+        let reused = manager.allocate_qubit();
+        assert_eq!(manager.map_qubit(&reused), 0);
+        assert_eq!(manager.qubit_count(), 4);
+    }
+
+    #[test]
+    fn independent_reservations_reuse_only_their_own_released_slots() {
+        let mut manager = ResourceManager::default();
+        let caller = manager.allocate_qubit();
+        manager.release_qubit(&caller);
+        let outer_slots = manager.reserve_qubits(1);
+        let helper_slots = manager.reserve_qubits(1);
+        let outer = manager
+            .allocate_reserved_qubit(&outer_slots)
+            .expect("outer lease");
+        let helper = manager
+            .allocate_reserved_qubit(&helper_slots)
+            .expect("helper lease");
+        assert_eq!(
+            (manager.map_qubit(&outer), manager.map_qubit(&helper)),
+            (1, 2)
+        );
+        manager.release_qubit(&outer);
+        let repeated = manager
+            .allocate_reserved_qubit(&outer_slots)
+            .expect("repeated lease");
+        assert_eq!(manager.map_qubit(&repeated), 1);
+        assert_eq!(manager.map_qubit(&helper), 2);
+        let ordinary = manager.allocate_qubit();
+        assert_eq!(manager.map_qubit(&ordinary), 0);
+        assert_eq!(manager.qubit_count(), 3);
+    }
+
+    #[test]
+    fn delayed_release_keeps_ordinary_accounting_and_excludes_reserved_leases() {
+        let mut manager = ResourceManager::default();
+        let slots = manager.reserve_qubits(1);
+        manager.start_delayed_release_layer(None);
+        assert!(manager.allocate_reserved_qubit(&slots).is_none());
+        let ordinary = manager.allocate_qubit();
+        assert_eq!(manager.map_qubit(&ordinary), 1);
+        manager.release_qubit(&ordinary);
+        manager.end_delayed_release_layer();
+        assert!(ordinary.try_deref().is_none());
+        let reserved_qubit = manager
+            .allocate_reserved_qubit(&slots)
+            .expect("reserved lease");
+        assert_eq!(manager.map_qubit(&reserved_qubit), 0);
+        manager.release_qubit(&reserved_qubit);
+        let ordinary = manager.allocate_qubit();
+        assert_eq!(manager.map_qubit(&ordinary), 1);
+        assert_eq!(manager.qubit_count(), 2);
     }
 }
 

@@ -91,6 +91,48 @@ fn compile_source_to_qir_result(
     )
 }
 
+fn qir_entry_body(qir: &str) -> &str {
+    qir.split_once("define i64 @ENTRYPOINT__main()")
+        .expect("entry point should exist")
+        .1
+        .split_once("{\n")
+        .expect("entry body should exist")
+        .1
+        .split_once("\n}")
+        .expect("entry body should terminate")
+        .0
+}
+
+fn run_test_in_subprocess(environment: &[(&str, &str)]) {
+    let thread = std::thread::current();
+    let mut child = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args(["--exact", thread.name().expect("named isolated test")])
+        .envs(environment.iter().copied())
+        .spawn()
+        .expect("start isolated native compiler");
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().expect("check compiler process") {
+            assert!(status.success(), "native compiler test failed: {status}");
+            break;
+        }
+        if started.elapsed() >= std::time::Duration::from_mins(2) {
+            child.kill().expect("terminate timed-out compiler");
+            child.wait().expect("reap timed-out compiler");
+            panic!("native compiler test exceeded 120 seconds");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn qir_entry_body_excludes_other_functions() {
+    let qir = "declare void @helper()\n\
+               define i64 @ENTRYPOINT__main() #0 {\n  ret i64 0\n}\n\
+               define internal void @other() {\n  ret void\n}\n";
+    assert_eq!(qir_entry_body(qir), "  ret i64 0");
+}
+
 #[test]
 fn expanding_polymorphic_recursion_reports_source_errors_on_every_compile_profile() {
     let sources = [
@@ -3841,6 +3883,72 @@ fn forwarded_callable_array_emits_both_operations() {
             qir.matches(x_call).count(),
             3,
             "{profile:?} must retain the second element's X:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn dynamic_recursion_reports_error_instead_of_overflowing() {
+    const CHILD_ENV: &str = "QDK_RECURSION_DIAGNOSTIC_CHILD";
+    if std::env::var_os(CHILD_ENV).is_none() {
+        run_test_in_subprocess(&[(CHILD_ENV, "1")]);
+        return;
+    }
+    // The recursion depth depends on a measurement, so inlining cannot unroll
+    // it. Previously the partial evaluator inlined forever and overflowed the
+    // stack; it must report a diagnostic instead.
+    let source = r#"
+        operation Recurse(count : Int, qs : Qubit[]) : Unit {
+            if count > 0 {
+                Recurse(count - 1, qs);
+                X(qs[0]);
+            }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit();
+            use qs = Qubit[1];
+            let count = if MResetZ(flag) == Zero { 2 } else { 0 };
+            Recurse(count, qs);
+            MResetZ(qs[0])
+        }
+        "#;
+    let errors = compile_source_to_qir_result(source, Profile::Adaptive.into())
+        .expect_err("runtime recursion depth cannot be unrolled");
+    let diagnostics = format_interpret_errors(errors);
+    assert!(
+        diagnostics.contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"),
+        "expected a recursive-inlining diagnostic:\n{diagnostics}"
+    );
+    let static_source = source.replace("if MResetZ(flag) == Zero { 2 } else { 0 }", "2");
+    let qir = compile_source_to_qir(&static_source, Profile::Adaptive.into());
+    assert_eq!(
+        qir.matches("call void @X(").count(),
+        2,
+        "a compile-time recursion depth must still unroll to two X gates:\n{qir}"
+    );
+}
+
+#[test]
+fn inline_adjoint_call_is_not_recursive_reentry() {
+    let source = r#"
+        operation Act(target : Qubit) : Unit is Adj {
+            body (...) { if M(target) == One { Adjoint Act(target); } }
+            adjoint (...) { X(target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            X(target);
+            Act(target);
+            MResetZ(target)
+        }
+        "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("br i1"),
+            "{profile:?} must compile the runtime branch:\n{qir}"
         );
     }
 }

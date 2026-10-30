@@ -10,9 +10,11 @@ mod tests;
 
 mod evaluation_context;
 mod management;
+mod resource_safety;
 
 use core::panic;
 use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Scope};
+pub use evaluation_context::{MAX_RECURSIVE_INLINE_DEPTH, MAX_RECURSIVE_INLINE_WORK};
 use management::{QuantumIntrinsicsChecker, ResourceManager};
 use miette::Diagnostic;
 use num_bigint::BigInt;
@@ -33,9 +35,9 @@ use qsc_fir::{
     fir::{
         self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, ExecGraphConfig, Expr,
         ExprId, ExprKind, Field, Functor, Global, Ident, LocalVarId, Mutability, PackageId,
-        PackageStore, PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl,
-        Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId,
-        StringComponent, UnOp,
+        PackageLookup, PackageStore, PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res,
+        SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId, StoreItemId,
+        StorePatId, StoreStmtId, StringComponent, UnOp,
     },
     ty::{FunctorSetValue, Prim, Ty},
 };
@@ -43,8 +45,8 @@ use qsc_fir::{
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 use qsc_lowerer::{map_fir_package_span_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
-    ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    RuntimeFeatureFlags, ValueKind,
+    ApplicationGeneratorSet, ComputeKind, ComputePropertiesLookup, ItemComputeProperties,
+    PackageStoreComputeProperties, RuntimeFeatureFlags, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -116,6 +118,20 @@ pub enum Error {
     #[diagnostic(help("try invoking the desired callable directly"))]
     UnexpectedDynamicValue(#[label] PackageSpan),
 
+    #[error("cannot inline a recursive call under runtime-dependent control flow")]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"))]
+    #[diagnostic(help(
+        "use compile-time-known inputs to bound recursive expansion or use a non-recursive implementation; inline expansion is subject to work and depth limits"
+    ))]
+    UnsupportedRecursiveInlining(#[label] PackageSpan),
+
+    #[error("recursive inline expansion exceeds the {0} limit of {1}")]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.RecursiveExpansionLimitExceeded"))]
+    #[diagnostic(help(
+        "simplify the recursive expansion or use a non-recursive implementation; compile-time-known arguments do not guarantee bounded expansion"
+    ))]
+    RecursiveExpansionLimitExceeded(&'static str, usize, #[label] PackageSpan),
+
     #[error("unsupported type `{0}` in custom intrinsic callable")]
     #[diagnostic(help(
         "variables of type `{0}` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures"
@@ -169,6 +185,8 @@ impl Error {
         match self {
             Self::CapabilityError(e) => map_fir_package_span_to_hir(e.span()),
             Self::UnexpectedDynamicValue(span)
+            | Self::UnsupportedRecursiveInlining(span)
+            | Self::RecursiveExpansionLimitExceeded(_, _, span)
             | Self::UnsupportedCustomIntrinsicType(_, span)
             | Self::EvaluationFailed(_, span)
             | Self::OutputResultLiteral(span)
@@ -198,6 +216,9 @@ struct PartialEvaluator<'a> {
     /// generated from. Distinct control counts (e.g. `Controlled` with 1 vs 3 controls) collapse to
     /// the same `FunctorSetValue` and therefore share a single emitted callable.
     ir_function_callables: FxHashMap<(StoreItemId, FunctorSetValue), CallableId>,
+    /// Only completed root analyses are cached; recursive descendants are not independently proven.
+    ir_function_resource_safety: FxHashMap<(PackageId, BlockId), bool>,
+    ir_function_qubit_layouts: FxHashMap<(PackageId, BlockId), Option<usize>>,
     /// Every QIR symbol name already assigned to an emitted IR function. Each callable
     /// specialization is resolved exactly once, so the first identity to claim a given bare name
     /// keeps it and any later collider is given a deterministic discriminating suffix. This keeps
@@ -210,10 +231,8 @@ struct PartialEvaluator<'a> {
     /// eligibility. `None` for non-`Call` entry shapes (e.g. `qirgen(expr)`, programmatic seeds),
     /// in which case no exclusion applies.
     entry_callable_item: Option<StoreItemId>,
-    /// Tracks the nesting depth of IR-function body emission. Used to assert that static qubit
-    /// allocation never occurs inside an emitted IR-function body while dynamic qubit allocation is
-    /// disabled.
-    ir_function_emission_depth: usize,
+    /// Each emission owns disjoint permanent storage, including an empty range for nonallocators.
+    ir_function_qubit_reservations: Vec<Vec<std::ops::Range<usize>>>,
     eval_context: EvaluationContext,
     program: Program,
     entry: Option<&'a ProgramEntry>,
@@ -321,9 +340,11 @@ impl<'a> PartialEvaluator<'a> {
             backend: QuantumIntrinsicsChecker::default(),
             callables_map: FxHashMap::default(),
             ir_function_callables: FxHashMap::default(),
+            ir_function_resource_safety: FxHashMap::default(),
+            ir_function_qubit_layouts: FxHashMap::default(),
             emitted_names: FxHashSet::default(),
             entry_callable_item: resolve_entry_callable_item(package_store, entry),
-            ir_function_emission_depth: 0,
+            ir_function_qubit_reservations: Vec::new(),
             program,
             entry,
             config,
@@ -567,14 +588,12 @@ impl<'a> PartialEvaluator<'a> {
         )
     }
 
-    fn eval_array_update_index(
+    fn eval_array_update_operands(
         &mut self,
-        array: &[Value],
         index_expr_id: ExprId,
         update_expr_id: ExprId,
-    ) -> Result<Value, Error> {
-        // Try to evaluate the index and update expressions to get their value, short-circuiting execution if any of the
-        // expressions is a return.
+    ) -> Result<(Value, Value), Error> {
+        // Capture both operands before reading the array, matching the execution graph.
         let index_expr_package_span = self.get_expr_package_span(index_expr_id);
         let index_control_flow = self.try_eval_expr(index_expr_id)?;
         let EvalControlFlow::Continue(index_value) = index_control_flow else {
@@ -583,6 +602,7 @@ impl<'a> PartialEvaluator<'a> {
                 index_expr_package_span,
             ));
         };
+        let index_value = self.copy_value_if_needed(index_value);
         let update_control_flow = self.try_eval_expr(update_expr_id)?;
         let EvalControlFlow::Continue(update_value) = update_control_flow else {
             return Err(Error::Unexpected(
@@ -590,13 +610,19 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(update_expr_id),
             ));
         };
+        let update_value = self.copy_value_if_needed(update_value);
+        Ok((index_value, update_value))
+    }
 
-        // Set the value at the specified index or range.
+    fn apply_array_update(
+        array: &[Value],
+        index_value: Value,
+        update_value: Value,
+        index_expr_package_span: PackageSpan,
+    ) -> Result<Value, Error> {
         let update_result = match index_value {
             Value::Int(index) => {
-                let elem_value = self.copy_value_if_needed(update_value);
-
-                update_index_single(array, index, elem_value, index_expr_package_span)
+                update_index_single(array, index, update_value, index_expr_package_span)
             }
             Value::Range(range) => update_index_range(
                 array,
@@ -1496,6 +1522,8 @@ impl<'a> PartialEvaluator<'a> {
         index_expr_id: ExprId,
         update_expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
+        let (index_value, update_value) =
+            self.eval_array_update_operands(index_expr_id, update_expr_id)?;
         // Get the value of the array to use it as the basis to perform the update.
         let array_expr = self.get_expr(array_expr_id);
         let ExprKind::Var(Res::Local(array_loc_id), _) = &array_expr.kind else {
@@ -1509,8 +1537,12 @@ impl<'a> PartialEvaluator<'a> {
             .unwrap_array();
 
         // Evaluate the updated array and update the corresponding bindings.
-        let new_array_value =
-            self.eval_array_update_index(&array, index_expr_id, update_expr_id)?;
+        let new_array_value = Self::apply_array_update(
+            &array,
+            index_value,
+            update_value,
+            self.get_expr_package_span(index_expr_id),
+        )?;
         self.update_bindings(array_expr_id, new_array_value)?;
         Ok(EvalControlFlow::Continue(Value::unit()))
     }
@@ -1650,23 +1682,71 @@ impl<'a> PartialEvaluator<'a> {
         // moved into the call scope; these are used to generate the `Instruction::Call` at the call
         // site instead of inlining the body. Eligible callees only have scalar/qubit leaf
         // parameters, so the operand mapping below cannot encounter composite values.
-        let ir_function_arg_operands = if matches!(self.get_expr_compute_kind(call_expr_id),
-            ComputeKind::Dynamic {runtime_features, ..} if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined))
-            || self.in_parallel_expr()
-        {
-            // A call site that has the `MustBeInlined` runtime feature flag set is not eligible to be emitted as an IR function
-            // based on Runtime Capabilities Analysis, so we fall through to the inline path
-            // OR we are currently in a parrallel expression which requires that all calls are inlined to ensure the whole parallel
-            // ends up in a single block.
+        let must_inline = matches!(self.get_expr_compute_kind(call_expr_id),
+            ComputeKind::Dynamic {runtime_features, ..} if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
+        let ir_function_arg_operands = if self.in_parallel_expr() {
             None
         } else {
             spec_decl
                 .filter(|spec_decl| {
-                    self.is_ir_function_eligible(store_item_id, spec_decl, callable_decl)
-                        // Resolve calls with the actual arguments before promoting
-                        // static inputs to runtime parameters.
+                    if !self.is_ir_function_eligible(store_item_id, spec_decl, callable_decl) {
+                        return false;
+                    }
+                    let has_static_qubit_layout = self
+                        .ir_function_qubit_layouts
+                        .get(&(store_item_id.package, spec_decl.block))
+                        .is_some_and(Option::is_some);
+                    let has_known_input = args.iter().any(|arg| {
+                        let value = arg.value();
+                        is_static_value(value) && !matches!(value, Value::Qubit(_))
+                    });
+                    let scalar_with_static_inputs = callable_decl.output != Ty::UNIT
+                        && args.iter().all(|arg| {
+                            let value = arg.value();
+                            is_static_value(value)
+                                || matches!(
+                                    try_get_eval_var_type(value),
+                                    Some(VarTy::Qubit | VarTy::Result)
+                                )
+                        });
+                    // Retain ordinary static expansion and scalar evaluation. Eligible Unit
+                    // re-entry under runtime control can emit even when known inputs change.
+                    if has_static_qubit_layout
+                        && (has_known_input || scalar_with_static_inputs)
+                        && (callable_decl.output != Ty::UNIT
+                            && args.iter().all(|arg| is_static_value(arg.value()))
+                            && self.eval_context.has_changed_static_input(
+                                store_item_id,
+                                functor_app,
+                                &args,
+                            )
+                            || !self
+                                .eval_context
+                                .is_callable_in_dynamic_branch(store_item_id, functor_app))
+                    {
+                        return false;
+                    }
+                    // Proving reusable local-qubit storage does not make unsupported runtime parameters safe.
+                    if has_static_qubit_layout
                         && !matches!(
-                            self.spec_inherent_compute_kind(store_item_id, functor_app),
+                            self.spec_application_generator_set(store_item_id, functor_app)
+                                .map(ApplicationGeneratorSet::generate_ir_function_application_compute_kind),
+                            Some(ComputeKind::Dynamic { runtime_features, .. })
+                                if !runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
+                                    && get_missing_runtime_features(
+                                        runtime_features,
+                                        self.program.config.capabilities,
+                                    ).is_empty()
+                        )
+                    {
+                        return false;
+                    }
+                    (!must_inline || has_static_qubit_layout)
+                        // Resolve calls inside the body with the actual arguments
+                        // before promoting static inputs to runtime parameters.
+                        && !matches!(
+                            self.spec_application_generator_set(store_item_id, functor_app)
+                                .map(|generator_set| generator_set.inherent),
                             Some(ComputeKind::Dynamic { runtime_features, .. })
                                 if runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
                         )
@@ -1695,7 +1775,8 @@ impl<'a> PartialEvaluator<'a> {
                     // when at least one argument is a runtime variable, so classical callables are still
                     // emitted as functions whenever they are actually invoked with runtime values.
                     matches!(
-                        self.spec_inherent_compute_kind(store_item_id, functor_app),
+                        self.spec_application_generator_set(store_item_id, functor_app)
+                            .map(|generator_set| generator_set.inherent),
                         Some(ComputeKind::Dynamic { .. })
                     )
                         || arg_operands
@@ -1703,6 +1784,25 @@ impl<'a> PartialEvaluator<'a> {
                             .any(|operand| matches!(operand, Operand::Variable(_)))
                 })
         };
+        // Runtime payloads do not prevent inline re-entry when a known input changes.
+        // Neither that change nor fully static arguments prove termination; the
+        // existing work and depth limits still bound the expansion.
+        if ir_function_arg_operands.is_none()
+            && self
+                .eval_context
+                .is_callable_in_dynamic_branch(store_item_id, functor_app)
+            && !args
+                .iter()
+                .chain(ctls_arg.iter())
+                .all(|arg| is_static_value(arg.value()))
+            && !self
+                .eval_context
+                .has_changed_static_input(store_item_id, functor_app, &args)
+        {
+            return Err(Error::UnsupportedRecursiveInlining(
+                self.get_expr_package_span(call_expr_id),
+            ));
+        }
         let call_scope = Scope::new(
             store_item_id.package,
             Some((store_item_id.item, functor_app)),
@@ -1747,14 +1847,24 @@ impl<'a> PartialEvaluator<'a> {
             }
             Some(spec_decl) => {
                 if let Some(arg_operands) = ir_function_arg_operands {
+                    // Emit a runtime call without charging inline work. This path checks
+                    // expansion depth only when a cache miss requires evaluating a new body.
                     self.eval_expr_call_to_ir_function(
                         store_item_id,
                         functor_app,
                         spec_decl,
                         callable_decl,
                         &arg_operands,
+                        self.get_expr_package_span(call_expr_id),
                     )?
                 } else {
+                    // Inlining evaluates the body at this call site. Charge its work and
+                    // enforce active recursion limits before entering the callee scope.
+                    self.eval_context.charge_inline_call(
+                        store_item_id,
+                        functor_app,
+                        self.get_expr_package_span(call_expr_id),
+                    )?;
                     self.eval_expr_call_to_spec(call_scope, store_item_id, functor_app, spec_decl)?
                 }
             }
@@ -1953,7 +2063,7 @@ impl<'a> PartialEvaluator<'a> {
         match callable_decl.name.name.as_ref() {
             // Qubit allocations and measurements have special handling.
             "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
-                Ok(self.allocate_qubit())
+                self.allocate_qubit(args_span)
             }
             "__quantum__rt__qubit_release" => self.release_qubit(args_value, args_span),
             "PermuteLabels" => {
@@ -2192,8 +2302,14 @@ impl<'a> PartialEvaluator<'a> {
     /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
     /// of being inlined. Inputs must have runtime-representable leaves; outputs must be Unit
     /// or a supported scalar (Int/Double/Bool). Ineligible specializations use the inline path.
+    /// Static qubits require proved, reserved local-qubit storage; unproved recursive measurement
+    /// lifetimes still force inlining.
+    /// The storage exception retains known inputs and finite scalar evaluation. At
+    /// runtime-controlled recursive re-entry, Unit returns permit emission even when known
+    /// inputs change; scalar results retain their existing expansion preference.
+    /// The caller additionally checks body resolution and folds fully static calls.
     fn is_ir_function_eligible(
-        &self,
+        &mut self,
         store_item_id: StoreItemId,
         spec_decl: &SpecDecl,
         callable_decl: &CallableDecl,
@@ -2250,7 +2366,9 @@ impl<'a> PartialEvaluator<'a> {
         // Every flattened input leaf must map to both an RIR operand and an
         // evaluator variable. Callable and composite leaves force inlining.
         let callable_package = self.package_store.get(store_item_id.package);
+        let mut has_result_parameters = false;
         for param in callable_package.derive_callable_input_params(callable_decl) {
+            has_result_parameters |= measurement_type_may_contain_result(&param.ty);
             let Ok(rir_ty) = map_fir_type_to_rir_type(&param.ty) else {
                 return false;
             };
@@ -2265,30 +2383,51 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        true
+        // RCA summaries can miss resources hidden by recursion, so check reachable calls
+        // independently. The package/block key distinguishes the selected specialization.
+        // Cache only completed root analyses: visiting a descendant during a cycle does not
+        // independently prove it safe. Target capabilities are fixed for this evaluator.
+        let root = (store_item_id.package, spec_decl.block);
+        if let Some(safe) = self.ir_function_resource_safety.get(&root) {
+            return *safe;
+        }
+        let dynamic_qubits = self
+            .program
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::DynamicQubitAllocation);
+        let qubit_layout = (!dynamic_qubits)
+            .then(|| ir_function_qubit_layout(self.package_store, root))
+            .flatten();
+        self.ir_function_qubit_layouts.insert(root, qubit_layout);
+        let safe = ir_function_resources_are_safe(
+            self.package_store,
+            root,
+            dynamic_qubits || qubit_layout.is_some(),
+            has_result_parameters,
+        );
+        self.ir_function_resource_safety.insert(root, safe);
+        safe
     }
 
-    /// Returns the resolved specialization's compute kind with static parameters.
-    /// Unresolved calls in its body force inlining; genuinely runtime bodies may
-    /// be emitted as IR functions, while static bodies can be constant-folded.
-    fn spec_inherent_compute_kind(
+    /// Returns the selected specialization's compute properties for both static and runtime inputs.
+    fn spec_application_generator_set(
         &self,
         store_item_id: StoreItemId,
         functor_app: FunctorApp,
-    ) -> Option<ComputeKind> {
+    ) -> Option<&ApplicationGeneratorSet> {
         let ItemComputeProperties::Callable(callable_compute_properties) = self
             .compute_properties
             .get_item(store_item_id, self.in_parallel_scope())
         else {
             return None;
         };
-        let generator_set = match (functor_app.adjoint, functor_app.controlled) {
+        match (functor_app.adjoint, functor_app.controlled) {
             (false, 0) => Some(&callable_compute_properties.body),
             (false, _) => callable_compute_properties.ctl.as_ref(),
             (true, 0) => callable_compute_properties.adj.as_ref(),
             (true, _) => callable_compute_properties.ctl_adj.as_ref(),
-        };
-        generator_set.map(|gen_set| gen_set.inherent)
+        }
     }
 
     /// Scans a specialization block for any residual FIR `Return` expression. After the
@@ -2316,6 +2455,7 @@ impl<'a> PartialEvaluator<'a> {
         spec_decl: &SpecDecl,
         callable_decl: &CallableDecl,
         arg_operands: &[Operand],
+        call_span: PackageSpan,
     ) -> Result<Value, Error> {
         let functor_set_value = functor_app_to_functor_set_value(functor_app);
         let cache_key = (store_item_id, functor_set_value);
@@ -2323,6 +2463,9 @@ impl<'a> PartialEvaluator<'a> {
         let callable_id = if let Some(callable_id) = self.ir_function_callables.get(&cache_key) {
             *callable_id
         } else {
+            // Emitting a new body grows the compiler stack; cached runtime
+            // calls do not enter another evaluation scope or consume inline work.
+            self.eval_context.check_expansion_depth(call_span)?;
             self.emit_ir_function(store_item_id, functor_app, spec_decl, callable_decl)?
         };
 
@@ -2368,6 +2511,13 @@ impl<'a> PartialEvaluator<'a> {
         callable_decl: &CallableDecl,
     ) -> Result<CallableId, Error> {
         let functor_set_value = functor_app_to_functor_set_value(functor_app);
+        let reserved_qubit_count = self
+            .ir_function_qubit_layouts
+            .get(&(store_item_id.package, spec_decl.block))
+            .copied()
+            .flatten()
+            .unwrap_or(0);
+        let qubit_reservation = self.resource_manager.reserve_qubits(reserved_qubit_count);
 
         // Map the specialization signature to the RIR input type and create fresh RIR variables for
         // each parameter. The parameter variables are threaded into the body as RIR operands so the
@@ -2513,9 +2663,10 @@ impl<'a> PartialEvaluator<'a> {
             successor: None,
         });
         self.eval_context.push_scope(body_scope);
-        self.ir_function_emission_depth += 1;
+        self.ir_function_qubit_reservations
+            .push(vec![qubit_reservation]);
         let eval_result = self.try_eval_block(spec_decl.block);
-        self.ir_function_emission_depth -= 1;
+        self.ir_function_qubit_reservations.pop();
         let body_value = eval_result?.into_value();
 
         // Terminate the function's final block. VOID (Unit-returning) IR functions emit a value-less
@@ -2945,6 +3096,8 @@ impl<'a> PartialEvaluator<'a> {
         index_expr_id: ExprId,
         update_expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
+        let (index_value, update_value) =
+            self.eval_array_update_operands(index_expr_id, update_expr_id)?;
         // Get the value of the array expression to use it as the basis to perform a replacement on.
         let array_control_flow = self.try_eval_expr(array_expr_id)?;
         let EvalControlFlow::Continue(array_value) = array_control_flow else {
@@ -2954,7 +3107,12 @@ impl<'a> PartialEvaluator<'a> {
             ));
         };
         let array = array_value.unwrap_array();
-        let updated_array = self.eval_array_update_index(&array, index_expr_id, update_expr_id)?;
+        let updated_array = Self::apply_array_update(
+            &array,
+            index_value,
+            update_value,
+            self.get_expr_package_span(index_expr_id),
+        )?;
         Ok(EvalControlFlow::Continue(updated_array))
     }
 
@@ -3744,7 +3902,7 @@ impl<'a> PartialEvaluator<'a> {
         compute_kind.is_variable_value_kind()
     }
 
-    fn allocate_qubit(&mut self) -> Value {
+    fn allocate_qubit(&mut self, span: PackageSpan) -> Result<Value, Error> {
         // Under the `DynamicQubitAllocation` capability, qubit allocation lowers to a runtime
         // `__quantum__rt__qubit_allocate` call that yields a runtime `ptr` variable rather than a
         // statically-modeled qubit id. These dynamic qubits are intentionally NOT registered with
@@ -3783,15 +3941,38 @@ impl<'a> PartialEvaluator<'a> {
 
             let var = map_rir_var_to_eval_var(rir_variable)
                 .expect("runtime qubit variable should map to an eval variable");
-            return Value::Var(var);
+            return Ok(Value::Var(var));
         }
 
-        debug_assert!(
-            self.ir_function_emission_depth == 0,
-            "static qubit allocation should not occur inside an IR-function body when dynamic qubit allocation is disabled"
-        );
-        let qubit = self.resource_manager.allocate_qubit();
-        Value::Qubit(qubit)
+        let qubit = if let Some(reservations) = self.ir_function_qubit_reservations.last_mut() {
+            if self.resource_manager.is_delaying_release()
+                || reservations.iter().all(std::ops::Range::is_empty)
+            {
+                return Err(Error::Unexpected(
+                    "static allocation has no proved local-qubit layout or entered a delayed-release scope".into(),
+                    span,
+                ));
+            }
+            if let Some(qubit) = reservations
+                .iter()
+                .find_map(|slots| self.resource_manager.allocate_reserved_qubit(slots))
+            {
+                qubit
+            } else {
+                // Inlined bodies keep their callers' lexical leases. Extend this
+                // owner's storage without borrowing another body's reservation.
+                let slots = self.resource_manager.reserve_qubits(1);
+                let qubit = self
+                    .resource_manager
+                    .allocate_reserved_qubit(&slots)
+                    .expect("a fresh reservation must have an available slot");
+                reservations.push(slots);
+                qubit
+            }
+        } else {
+            self.resource_manager.allocate_qubit()
+        };
+        Ok(Value::Qubit(qubit))
     }
 
     fn measure_qubits(&mut self, callable_decl: &CallableDecl, args_value: Value) -> Value {
@@ -5338,6 +5519,650 @@ fn functor_app_to_functor_set_value(functor_app: FunctorApp) -> FunctorSetValue 
         (true, false) => FunctorSetValue::Adj,
         (false, true) => FunctorSetValue::Ctl,
         (true, true) => FunctorSetValue::CtlAdj,
+    }
+}
+
+/// Proves a conservative local-qubit layout without specializing future runtime parameters.
+/// Allocating calls may overlap empty arrays or reset locals used only for later release.
+/// The largest local layout seeds a reservation that grows for simultaneous inline leases.
+/// Independently emitted bodies receive separate reservations.
+/// Conditional paths and loop iterations must preserve incoming leases and release their locals.
+/// Nonallocating call graphs need no layout; empty allocations can prove a zero-sized layout.
+fn ir_function_qubit_layout(store: &PackageStore, root: (PackageId, BlockId)) -> Option<usize> {
+    use qsc_fir::visit::Visitor;
+
+    let mut edges = FxHashMap::<_, Vec<_>>::default();
+    let mut allocating_bodies = FxHashSet::default();
+    let mut pending = vec![root];
+    while let Some(body) = pending.pop() {
+        if edges.contains_key(&body) {
+            continue;
+        }
+        let mut calls = ResourceCallScanner {
+            package: store.get(body.0),
+            package_id: body.0,
+            calls: Vec::new(),
+            unresolved: false,
+        };
+        calls.visit_block(body.1);
+        if calls.unresolved {
+            return None;
+        }
+        let mut callees = Vec::new();
+        for (item, functors) in calls.calls {
+            let Some(Global::Callable(callable)) = store.get_global(item) else {
+                return None;
+            };
+            let name = callable.name.name.as_ref();
+            if item.package == PackageId::CORE
+                && matches!(name, "__quantum__rt__qubit_allocate" | "AllocateQubitArray")
+            {
+                allocating_bodies.insert(body);
+                continue;
+            }
+            if item.package == PackageId::CORE
+                && matches!(name, "__quantum__rt__qubit_release" | "ReleaseQubitArray")
+            {
+                continue;
+            }
+            if type_may_contain_qubit(&callable.output)
+                || name == "PermuteLabels"
+                || functors.controlled > 0
+            {
+                return None;
+            }
+            if let CallableImpl::Spec(specs) = &callable.implementation {
+                let spec = get_spec_decl(specs, functors);
+                if spec.input.is_some() {
+                    return None;
+                }
+                let callee = (item.package, spec.block);
+                callees.push(callee);
+                pending.push(callee);
+            }
+        }
+        edges.insert(body, callees);
+    }
+    // Keep nonallocating recursion and acyclic allocation on their existing paths.
+    // Only recursive owners with reachable allocations need the storage exception.
+    let mut pending = edges[&root].clone();
+    let mut seen = FxHashSet::default();
+    while let Some(body) = pending.pop() {
+        if seen.insert(body) {
+            pending.extend(&edges[&body]);
+        }
+    }
+    if allocating_bodies.is_empty() || !seen.contains(&root) {
+        return None;
+    }
+    loop {
+        let mut changed = false;
+        for (body, callees) in &edges {
+            if callees.iter().any(|id| allocating_bodies.contains(id)) {
+                changed |= allocating_bodies.insert(*body);
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    let mut local_qubit_capacity = 0;
+    for body in edges.keys() {
+        let mut analysis = LocalQubitLifetimeAnalysis {
+            call_resolver: ResourceCallScanner {
+                package: store.get(body.0),
+                package_id: body.0,
+                calls: Vec::new(),
+                unresolved: false,
+            },
+            store,
+            allocating_bodies: &allocating_bodies,
+            live_leases: FxHashMap::default(),
+            lifetime_state: LocalQubitLifetimeState::default(),
+            pending_argument_uses: Vec::new(),
+            peak_live_qubits: 0,
+            is_safe: true,
+        };
+        analysis.visit_block(body.1);
+        if !analysis.is_safe || !analysis.live_leases.is_empty() {
+            return None;
+        }
+        local_qubit_capacity = local_qubit_capacity.max(analysis.peak_live_qubits);
+    }
+    Some(local_qubit_capacity)
+}
+
+fn type_may_contain_qubit(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(Prim::Qubit) | Ty::Udt(_) | Ty::Infer(_) | Ty::Param(_) | Ty::Err => true,
+        Ty::Array(element) => type_may_contain_qubit(element),
+        Ty::Tuple(elements) => elements.iter().any(type_may_contain_qubit),
+        Ty::Prim(_) | Ty::Arrow(_) => false,
+    }
+}
+
+struct LocalQubitLifetimeAnalysis<'a> {
+    call_resolver: ResourceCallScanner<'a>,
+    store: &'a PackageStore,
+    allocating_bodies: &'a FxHashSet<(PackageId, BlockId)>,
+    /// Includes zero-sized leases so their lexical releases remain balanced.
+    live_leases: FxHashMap<LocalVarId, usize>,
+    lifetime_state: LocalQubitLifetimeState,
+    pending_argument_uses: Vec<FxHashSet<LocalVarId>>,
+    peak_live_qubits: usize,
+    is_safe: bool,
+}
+
+#[derive(Clone, Default)]
+struct LocalQubitLifetimeState {
+    known_zero: FxHashSet<LocalVarId>,
+    release_only: FxHashSet<LocalVarId>,
+}
+
+impl LocalQubitLifetimeState {
+    fn join(&mut self, other: Self) {
+        self.known_zero
+            .retain(|local| other.known_zero.contains(local));
+        self.release_only.extend(other.release_only);
+    }
+}
+
+impl LocalQubitLifetimeAnalysis<'_> {
+    fn visit_call(&mut self, callee: ExprId, arg: ExprId) {
+        use qsc_fir::visit::Visitor;
+
+        let Some((item, functors)) = self.call_resolver.resolve_callee(callee) else {
+            self.is_safe = false;
+            return;
+        };
+        let Some(Global::Callable(callable)) = self.store.get_global(item) else {
+            self.is_safe = false;
+            return;
+        };
+        if item.package == PackageId::CORE
+            && matches!(
+                callable.name.name.as_ref(),
+                "__quantum__rt__qubit_release" | "ReleaseQubitArray"
+            )
+        {
+            if let ExprKind::Var(Res::Local(local), _) = self.get_expr(arg).kind {
+                self.is_safe &= self.live_leases.remove(&local).is_some();
+                self.lifetime_state.known_zero.remove(&local);
+                self.lifetime_state.release_only.remove(&local);
+            } else {
+                self.is_safe = false;
+            }
+            return;
+        }
+        if type_may_contain_qubit(&callable.output) {
+            // Allocation is supported only as a checked immutable binding.
+            self.is_safe = false;
+            return;
+        }
+        // Keep earlier arguments live through later argument effects and the call.
+        self.pending_argument_uses.push(FxHashSet::default());
+        self.visit_expr(callee);
+        self.visit_expr(arg);
+        let used = self.pending_argument_uses.pop().expect("call arguments");
+        self.is_safe &= used.is_disjoint(&self.lifetime_state.release_only);
+        self.lifetime_state
+            .known_zero
+            .retain(|local| !used.contains(local));
+        if functors == FunctorApp::default()
+            && is_qubit_reset(self.store, callable, item.package)
+            && let ExprKind::Var(Res::Local(local), _) = self.get_expr(arg).kind
+            && self.live_leases.contains_key(&local)
+        {
+            self.lifetime_state.known_zero.insert(local);
+        }
+        if let CallableImpl::Spec(specs) = &callable.implementation {
+            let body = (item.package, get_spec_decl(specs, functors).block);
+            if self.allocating_bodies.contains(&body) {
+                for (local, &count) in &self.live_leases {
+                    if count == 0 {
+                        continue;
+                    }
+                    self.is_safe &= self.lifetime_state.known_zero.contains(local)
+                        && self
+                            .pending_argument_uses
+                            .iter()
+                            .all(|args| !args.contains(local));
+                    self.lifetime_state.release_only.insert(*local);
+                }
+            }
+        }
+    }
+
+    fn visit_lease_preserving_path(
+        &mut self,
+        visit: impl FnOnce(&mut Self),
+    ) -> LocalQubitLifetimeState {
+        let incoming_leases = self.live_leases.clone();
+        let incoming_state = self.lifetime_state.clone();
+        visit(self);
+        // Branches and loop iterations may use their own local leases, but may
+        // neither release an incoming lease nor leave a new one live.
+        self.is_safe &= self.live_leases == incoming_leases;
+        self.live_leases = incoming_leases;
+        std::mem::replace(&mut self.lifetime_state, incoming_state)
+    }
+
+    fn allocation_size(&self, expr: ExprId) -> Option<usize> {
+        let ExprKind::Call(callee, arg) = self.call_resolver.package.get_expr(expr).kind else {
+            return None;
+        };
+        let (item, functors) = self.call_resolver.resolve_callee(callee)?;
+        if item.package != PackageId::CORE || functors != FunctorApp::default() {
+            return None;
+        }
+        let Some(Global::Callable(callable)) = self.store.get_global(item) else {
+            return None;
+        };
+        match (
+            callable.name.name.as_ref(),
+            &self.call_resolver.package.get_expr(arg).kind,
+        ) {
+            ("__quantum__rt__qubit_allocate", ExprKind::Tuple(items)) if items.is_empty() => {
+                Some(1)
+            }
+            ("AllocateQubitArray", ExprKind::Lit(fir::Lit::Int(size))) => {
+                usize::try_from(*size).ok()
+            }
+            _ => None,
+        }
+    }
+}
+
+impl<'a> qsc_fir::visit::Visitor<'a> for LocalQubitLifetimeAnalysis<'a> {
+    fn visit_stmt(&mut self, stmt: StmtId) {
+        if let StmtKind::Local(mutability, pat, expr) = self.get_stmt(stmt).kind
+            && type_may_contain_qubit(&self.get_pat(pat).ty)
+        {
+            let PatKind::Bind(ident) = &self.get_pat(pat).kind else {
+                self.is_safe = false;
+                return;
+            };
+            let Some(size) = self.allocation_size(expr) else {
+                self.is_safe = false;
+                return;
+            };
+            if mutability != Mutability::Immutable {
+                self.is_safe = false;
+                return;
+            }
+            self.live_leases.insert(ident.id, size);
+            let Some(live_qubit_count) = self
+                .live_leases
+                .values()
+                .try_fold(0usize, |n, count| n.checked_add(*count))
+            else {
+                self.is_safe = false;
+                return;
+            };
+            self.peak_live_qubits = self.peak_live_qubits.max(live_qubit_count);
+            return;
+        }
+        qsc_fir::visit::walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: ExprId) {
+        if let ExprKind::BinOp(BinOp::AndL | BinOp::OrL, lhs, rhs)
+        | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, lhs, rhs) = self.get_expr(expr).kind
+        {
+            self.visit_expr(lhs);
+            let rhs = self.visit_lease_preserving_path(|analysis| analysis.visit_expr(rhs));
+            self.lifetime_state.join(rhs);
+            return;
+        }
+        if let ExprKind::If(condition, yes, no) = self.get_expr(expr).kind {
+            self.visit_expr(condition);
+            let mut joined = self.visit_lease_preserving_path(|analysis| analysis.visit_expr(yes));
+            let no = if let Some(no) = no {
+                self.visit_lease_preserving_path(|analysis| analysis.visit_expr(no))
+            } else {
+                self.lifetime_state.clone()
+            };
+            joined.join(no);
+            self.lifetime_state = joined;
+            return;
+        }
+        if let ExprKind::While(condition, body) = self.get_expr(expr).kind {
+            // A later iteration may use an incoming lease before resetting it.
+            // Only iteration-local leases can become release-only inside a loop.
+            self.lifetime_state.known_zero.clear();
+            let incoming_state = self.lifetime_state.clone();
+            self.lifetime_state =
+                self.visit_lease_preserving_path(|analysis| analysis.visit_expr(condition));
+            let body = self.visit_lease_preserving_path(|analysis| analysis.visit_block(body));
+            self.lifetime_state.join(body);
+            self.is_safe &= self.lifetime_state.release_only == incoming_state.release_only;
+            self.lifetime_state = incoming_state;
+            return;
+        }
+        if let ExprKind::UpdateIndex(array, index, replacement) = self.get_expr(expr).kind {
+            // Array updates evaluate index and replacement before the container.
+            self.visit_expr(index);
+            self.visit_expr(replacement);
+            self.visit_expr(array);
+            return;
+        }
+        match &self.get_expr(expr).kind {
+            ExprKind::Var(Res::Local(local), _) if self.live_leases.contains_key(local) => {
+                self.is_safe &= !self.lifetime_state.release_only.contains(local);
+                self.lifetime_state.known_zero.remove(local);
+                for pending in &mut self.pending_argument_uses {
+                    pending.insert(*local);
+                }
+                return;
+            }
+            ExprKind::Closure(..) | ExprKind::Parallel(..) | ExprKind::Return(..) => {
+                self.is_safe = false;
+                return;
+            }
+            ExprKind::Assign(lhs, rhs)
+            | ExprKind::AssignOp(_, lhs, rhs)
+            | ExprKind::AssignField(lhs, _, rhs)
+            | ExprKind::AssignIndex(lhs, _, rhs)
+                if type_may_contain_qubit(&self.get_expr(*lhs).ty)
+                    || type_may_contain_qubit(&self.get_expr(*rhs).ty) =>
+            {
+                self.is_safe = false;
+                return;
+            }
+            ExprKind::Call(callee, arg) => {
+                self.visit_call(*callee, *arg);
+                return;
+            }
+            _ => {}
+        }
+        qsc_fir::visit::walk_expr(self, expr);
+    }
+
+    fn get_block(&self, id: BlockId) -> &'a Block {
+        self.call_resolver.package.get_block(id)
+    }
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        self.call_resolver.package.get_expr(id)
+    }
+    fn get_pat(&self, id: PatId) -> &'a Pat {
+        self.call_resolver.package.get_pat(id)
+    }
+    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
+        self.call_resolver.package.get_stmt(id)
+    }
+}
+
+fn is_qubit_reset(store: &PackageStore, callable: &CallableDecl, package_id: PackageId) -> bool {
+    let is_reset_intrinsic = |callable: &CallableDecl| {
+        !matches!(callable.implementation, CallableImpl::Spec(_))
+            && matches!(
+                callable.name.name.as_ref(),
+                "__quantum__qis__reset__body" | "__quantum__qis__mresetz__body"
+            )
+    };
+    if is_reset_intrinsic(callable) {
+        return true;
+    }
+    let CallableImpl::Spec(specs) = &callable.implementation else {
+        return false;
+    };
+    let package = store.get(package_id);
+    let input = package.get_pat(callable.input);
+    let PatKind::Bind(parameter) = &input.kind else {
+        return false;
+    };
+    if input.ty != Ty::Prim(Prim::Qubit) {
+        return false;
+    }
+    let [stmt] = package
+        .get_block(get_spec_decl(specs, FunctorApp::default()).block)
+        .stmts
+        .as_slice()
+    else {
+        return false;
+    };
+    let (StmtKind::Expr(expr) | StmtKind::Semi(expr)) = package.get_stmt(*stmt).kind else {
+        return false;
+    };
+    let ExprKind::Call(callee, arg) = package.get_expr(expr).kind else {
+        return false;
+    };
+    let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+        return false;
+    };
+    matches!(package.get_expr(arg).kind, ExprKind::Var(Res::Local(local), _) if local == parameter.id)
+        && matches!(store.get_global((item.package, item.item).into()), Some(Global::Callable(intrinsic)) if is_reset_intrinsic(intrinsic))
+}
+
+/// Checks selected reachable bodies rather than RCA summaries, which can be incomplete at cycles.
+/// Qubit allocation requires dynamic management or a separately proved static reservation.
+/// Static result slots can be used in
+/// acyclic functions. Recursive reuse additionally requires that no raw result can survive
+/// another invocation of its measuring body.
+fn ir_function_resources_are_safe(
+    store: &PackageStore,
+    root: (PackageId, BlockId),
+    allow_qubit_allocation: bool,
+    has_result_parameters: bool,
+) -> bool {
+    use qsc_fir::visit::Visitor;
+
+    // Build caller-to-callee edges for reachable selected bodies only. Mark bodies that
+    // directly invoke measurement intrinsics; recursive callers are identified below.
+    let mut edges = FxHashMap::<(PackageId, BlockId), Vec<(PackageId, BlockId)>>::default();
+    let mut measuring = FxHashSet::default();
+    let mut result_parameters = FxHashMap::default();
+    let mut custom_measurement = false;
+    let mut pending = vec![root];
+    while let Some(body) = pending.pop() {
+        if edges.contains_key(&body) {
+            continue;
+        }
+        let mut scanner = ResourceCallScanner {
+            package: store.get(body.0),
+            package_id: body.0,
+            calls: Vec::new(),
+            unresolved: false,
+        };
+        scanner.visit_block(body.1);
+        if scanner.unresolved {
+            // An unknown target could allocate or measure, so force the root to inline.
+            return false;
+        }
+        let mut callees = Vec::new();
+        for (item, functors) in scanner.calls {
+            let Some(Global::Callable(callable)) = store.get_global(item) else {
+                return false;
+            };
+            if let CallableImpl::Spec(specs) = &callable.implementation {
+                let parameters = store
+                    .get(item.package)
+                    .derive_callable_input_params(callable);
+                let callee = (item.package, get_spec_decl(specs, functors).block);
+                if parameters
+                    .iter()
+                    .any(|param| measurement_type_may_contain_result(&param.ty))
+                {
+                    result_parameters.insert(
+                        callee,
+                        parameters
+                            .iter()
+                            .filter(|param| measurement_type_may_contain_result(&param.ty))
+                            .filter_map(|param| param.var)
+                            .collect(),
+                    );
+                }
+                callees.push(callee);
+                pending.push(callee);
+            } else {
+                // Allocate/borrow intrinsics return qubits or nested arrays of qubits.
+                // Allocation requires either runtime management or the local-qubit lifetime proof.
+                let mut output = &callable.output;
+                while let Ty::Array(element) = output {
+                    output = element;
+                }
+                if !allow_qubit_allocation && matches!(output, Ty::Prim(Prim::Qubit)) {
+                    return false;
+                }
+                // Both custom and built-in measurements use static result slots, even
+                // when dynamic qubits are enabled. Associate the slot with its calling body.
+                let builtin_measurement = matches!(
+                    callable.name.name.as_ref(),
+                    "__quantum__qis__m__body" | "__quantum__qis__mresetz__body"
+                );
+                if callable.attrs.contains(&fir::Attr::Measurement) || builtin_measurement {
+                    measuring.insert(body);
+                    custom_measurement |= !builtin_measurement;
+                }
+            }
+        }
+        edges.insert(body, callees);
+    }
+    if measuring.is_empty() {
+        return true;
+    }
+    let all_measuring = measuring.clone();
+
+    // Pruning zero-indegree vertices leaves exactly cycles and their descendants.
+    // This includes measuring helpers called by recursion, not just measuring cycle members.
+    // Conversely, a measuring caller of nonmeasuring recursion is pruned and stays eligible.
+    // Shared callees and repeated edges alone do not imply recursion.
+    let mut incoming: FxHashMap<_, usize> = edges.keys().map(|id| (*id, 0)).collect();
+    for callees in edges.values() {
+        for callee in callees {
+            *incoming.get_mut(callee).expect("reachable body exists") += 1;
+        }
+    }
+    let mut ready: Vec<_> = incoming
+        .iter()
+        .filter_map(|(id, count)| (*count == 0).then_some(*id))
+        .collect();
+    while let Some(body) = ready.pop() {
+        measuring.remove(&body);
+        for callee in &edges[&body] {
+            let count = incoming.get_mut(callee).expect("reachable body exists");
+            *count -= 1;
+            if *count == 0 {
+                ready.push(*callee);
+            }
+        }
+    }
+    if measuring.is_empty() {
+        return true;
+    }
+    if has_result_parameters || custom_measurement {
+        return false;
+    }
+
+    resource_safety::measurement_uses_are_safe(store, &edges, &all_measuring, &result_parameters)
+}
+
+/// Unknown or nominal storage is not a proof that a result cannot escape.
+fn measurement_type_may_contain_result(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(Prim::Result) | Ty::Udt(_) | Ty::Infer(_) | Ty::Param(_) | Ty::Err => true,
+        Ty::Array(element) => measurement_type_may_contain_result(element),
+        Ty::Tuple(elements) => elements.iter().any(measurement_type_may_contain_result),
+        Ty::Prim(_) | Ty::Arrow(_) => false,
+    }
+}
+
+/// Recognizes the single-expression wrappers used by `M` and `MResetZ`, without trusting
+/// their names or extending the proof to arbitrary result-returning helpers.
+fn is_measurement_forwarder(store: &PackageStore, body: (PackageId, BlockId)) -> bool {
+    let package = store.get(body.0);
+    let [stmt] = package.get_block(body.1).stmts.as_slice() else {
+        return false;
+    };
+    let StmtKind::Expr(expr) = package.get_stmt(*stmt).kind else {
+        return false;
+    };
+    let ExprKind::Call(callee, arg) = package.get_expr(expr).kind else {
+        return false;
+    };
+    if package.get_expr(arg).ty != Ty::Prim(Prim::Qubit)
+        || !matches!(package.get_expr(arg).kind, ExprKind::Var(Res::Local(_), _))
+    {
+        return false;
+    }
+    let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+        return false;
+    };
+    let Some(Global::Callable(callable)) = store.get_global((item.package, item.item).into())
+    else {
+        return false;
+    };
+    !matches!(callable.implementation, CallableImpl::Spec(_))
+        && matches!(
+            callable.name.name.as_ref(),
+            "__quantum__qis__m__body" | "__quantum__qis__mresetz__body"
+        )
+}
+
+/// Collects call targets within one specialization body for the resource-safety graph.
+/// Callee bodies are traversed separately; any unresolved target forces conservative inlining.
+struct ResourceCallScanner<'a> {
+    package: &'a fir::Package,
+    package_id: PackageId,
+    calls: Vec<(StoreItemId, FunctorApp)>,
+    unresolved: bool,
+}
+
+impl ResourceCallScanner<'_> {
+    /// Resolves global references and lifted closures without evaluating callable expressions.
+    /// Functor wrappers preserve the selected body, adjoint, controlled, or controlled-adjoint
+    /// specialization. Local and computed callable values remain unresolved.
+    fn resolve_callee(&self, mut expr: ExprId) -> Option<(StoreItemId, FunctorApp)> {
+        let mut functors = FunctorApp::default();
+        loop {
+            match self.package.get_expr(expr).kind {
+                ExprKind::Var(Res::Item(item), _) => {
+                    return Some(((item.package, item.item).into(), functors));
+                }
+                ExprKind::Closure(_, item) => {
+                    return Some(((self.package_id, item).into(), functors));
+                }
+                ExprKind::UnOp(UnOp::Functor(functor), operand) => {
+                    // Adjoint applications cancel in pairs; controlled applications accumulate.
+                    match functor {
+                        Functor::Adj => functors.adjoint = !functors.adjoint,
+                        Functor::Ctl => functors.controlled += 1,
+                    }
+                    expr = operand;
+                }
+                _ => return None,
+            }
+        }
+    }
+}
+
+impl<'a> qsc_fir::visit::Visitor<'a> for ResourceCallScanner<'a> {
+    fn visit_expr(&mut self, expr: ExprId) {
+        if let ExprKind::Call(callee, _) = self.get_expr(expr).kind {
+            if let Some(call) = self.resolve_callee(callee) {
+                self.calls.push(call);
+            } else {
+                self.unresolved = true;
+            }
+        }
+        // Callee and argument expressions can themselves contain calls.
+        qsc_fir::visit::walk_expr(self, expr);
+    }
+
+    fn get_block(&self, id: BlockId) -> &'a Block {
+        self.package.get_block(id)
+    }
+
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        self.package.get_expr(id)
+    }
+
+    fn get_pat(&self, id: PatId) -> &'a Pat {
+        self.package.get_pat(id)
+    }
+
+    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
+        self.package.get_stmt(id)
     }
 }
 
