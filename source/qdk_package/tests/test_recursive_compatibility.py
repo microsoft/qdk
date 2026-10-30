@@ -340,6 +340,32 @@ def test_static_bound_preserves_runtime_result_when_recursive_descent_adds_contr
     check_result(source, profile, expected)
 
 
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+@pytest.mark.parametrize(
+    "target_preparation",
+    [
+        pytest.param("", id="measurement-zero"),
+        pytest.param("X(target);", id="measurement-one"),
+    ],
+)
+def test_adjoint_specialization_selected_under_runtime_control_preserves_result(
+    profile: qsharp.TargetProfile, target_preparation: str
+) -> None:
+    source = f"""
+        operation Act(target : Qubit) : Unit is Adj {{
+            body (...) {{ if M(target) == One {{ Adjoint Act(target); }} }}
+            adjoint (...) {{ X(target); }}
+        }}
+        operation Main() : Result {{
+            use target = Qubit();
+            {target_preparation}
+            Act(target);
+            MResetZ(target)
+        }}
+    """
+    check_result(source, profile, qsharp.Result.Zero)
+
+
 @pytest.mark.parametrize("depth,expected", [(1, 0), (3, 1)])
 def test_named_measurement_is_read_before_runtime_recursive_call(
     depth: int, expected: int
