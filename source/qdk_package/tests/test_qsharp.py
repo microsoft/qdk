@@ -398,39 +398,39 @@ def test_compiled_recursive_retry_preserves_budget_outcomes(
     )
 
 
-@pytest.mark.parametrize("depth", [0, 1, 2])
+@pytest.mark.parametrize("depth,expected", [(0, 2), (1, 0), (2, 2)])
 @pytest.mark.parametrize("allocation_operand", ["index", "replacement"])
 def test_compiled_array_update_finishes_local_qubit_scope_before_recursion(
-    depth: int, allocation_operand: str
+    depth: int, expected: int, allocation_operand: str
 ) -> None:
     local_scope = """
         use local = Qubit();
         X(local);
-        if MResetZ(local) == One { X(target); }
+        if MResetZ(local) == One { X(target); X(audit); }
     """
     index = f"{{ {local_scope} 0 }}" if allocation_operand == "index" else "0"
     replacement = (
         f"{{ {local_scope} true }}" if allocation_operand == "replacement" else "true"
     )
     source = f"""
-        operation Rec(depth : Int, target : Qubit) : Unit {{
+        operation Rec(depth : Int, target : Qubit, audit : Qubit) : Unit {{
             let ignored = {{
-                if depth > 0 {{ Rec(depth - 1, target); }}
+                if depth > 0 {{ Rec(depth - 1, target, audit); }}
                 Reset(target);
                 [false]
             }}
                 w/ {index} <- {replacement};
         }}
-        operation Main() : Result {{
-            use (flag, target) = (Qubit(), Qubit()); X(flag);
+        operation Main() : Int {{
+            use (flag, target, audit) = (Qubit(), Qubit(), Qubit()); X(flag);
             let depth = if MResetZ(flag) == One {{ {depth} }} else {{ 0 }};
-            Rec(depth, target);
-            MResetZ(target)
+            Rec(depth, target, audit);
+            let finalTarget = if MResetZ(target) == One {{ 1 }} else {{ 0 }};
+            let localEffects = if MResetZ(audit) == One {{ 2 }} else {{ 0 }};
+            finalTarget + localEffects
         }}
     """
-    check_recursive_result(
-        source, qsharp.TargetProfile.Adaptive, qsharp.Result.Zero, shots=1
-    )
+    check_recursive_result(source, qsharp.TargetProfile.Adaptive, expected, shots=1)
 
 
 @pytest.mark.parametrize("index,replacement", [("0", "value"), ("0..0", "[value]")])
