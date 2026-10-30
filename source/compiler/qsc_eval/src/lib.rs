@@ -1767,7 +1767,12 @@ impl State {
                 }
                 _ => panic!("value should be number"),
             },
-            UnOp::Unwrap => self.set_val_register(val),
+            UnOp::Unwrap => match val {
+                Value::Tuple(v, _) => {
+                    self.set_val_register(Value::Tuple(v, None));
+                }
+                _ => self.set_val_register(val),
+            },
         }
     }
 
@@ -2276,7 +2281,7 @@ fn eval_binop_eq(
             // failure.
             Err(Error::ResultLossComparisonUnsupported(rhs_span))
         }
-        (lhs, rhs) => Ok(Value::Bool(lhs.payload_eq(&rhs))),
+        (lhs, rhs) => Ok(Value::Bool(lhs == rhs)),
     }
 }
 
@@ -2312,7 +2317,7 @@ fn eval_binop_neq(
             Err(Error::ResultLossComparisonUnsupported(rhs_span))
         }
 
-        (lhs, rhs) => Ok(Value::Bool(!lhs.payload_eq(&rhs))),
+        (lhs, rhs) => Ok(Value::Bool(lhs != rhs)),
     }
 }
 

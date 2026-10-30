@@ -3636,24 +3636,17 @@ fn udt_unwrap() {
 }
 
 #[test]
-fn payload_equality_does_not_change_representation_equality() {
-    let tag = fir::StoreItemId {
-        package: PackageId::from(2usize),
-        item: fir::LocalItemId::from(0usize),
-    };
-    let tagged = Value::Tuple(Vec::new().into(), Some(tag.into()));
-    let plain = Value::unit();
-    assert!(tagged.payload_eq(&plain));
-    assert!(plain.payload_eq(&tagged));
-    assert_ne!(tagged, plain, "Rust equality must retain tuple metadata");
-    assert!(!tagged.payload_eq(&Value::Array(Vec::new().into())));
-    assert!(!tagged.payload_eq(&Value::Tuple(vec![Value::unit()].into(), None)));
-}
-
-#[test]
-fn payload_equality_preserves_nested_nan_inequality() {
-    let value = Value::Array(vec![Value::Tuple(vec![Value::Double(f64::NAN)].into(), None)].into());
-    assert!(!value.payload_eq(&value));
+fn udt_unwrap_nested_nan_is_not_equal_to_itself() {
+    check_expr(
+        "",
+        "{
+            newtype Box = (Double, Int);
+            let boxed = Box(0.0 / 0.0, 7);
+            let values = [boxed!];
+            (boxed! == boxed!, values == values, values != values)
+        }",
+        &expect!["(false, false, true)"],
+    );
 }
 
 #[test]
