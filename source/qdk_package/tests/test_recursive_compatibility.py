@@ -577,14 +577,21 @@ def test_result_as_bool_consumes_result_before_runtime_recursive_call(
     check_result(source, qsharp.TargetProfile.Adaptive, expected)
 
 
-@pytest.mark.parametrize("depth,expected", [(1, 1), (3, 0)])
+@pytest.mark.parametrize(
+    "depth",
+    [
+        pytest.param(2, id="reused-even-branch-result"),
+        pytest.param(3, id="reused-odd-branch-result"),
+    ],
+)
 def test_branch_selected_result_is_consumed_before_recursive_reentry(
-    depth: int, expected: int
+    depth: int,
 ) -> None:
     source = f"""
         operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {{
+            if n == {depth} {{ X(q); }}
+            // Reenter the selected measurement site with Zero after its first One.
             let measured = if n % 2 == 0 {{
-                X(q);
                 MResetZ(q)
             }} else {{ MResetZ(q) }};
             let alias = measured;
@@ -600,7 +607,7 @@ def test_branch_selected_result_is_consumed_before_recursive_reentry(
             if MResetZ(target) == One {{ 1 }} else {{ 0 }}
         }}
     """
-    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+    check_result(source, qsharp.TargetProfile.Adaptive, 1)
 
 
 @pytest.mark.parametrize("depth,expected", [(1, 1), (3, 0)])
