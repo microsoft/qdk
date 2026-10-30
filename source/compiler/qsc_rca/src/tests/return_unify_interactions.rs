@@ -18,6 +18,47 @@ use super::{PackageStoreSearch, PipelineContext, check_callable_compute_properti
 use crate::ComputePropertiesLookup;
 
 #[test]
+fn skipped_return_release_is_supported_only_after_lowering_proves_it_unreachable() {
+    let source = r#"
+        namespace Test {
+            operation Main() : Bool {
+                use q = Qubit();
+                let r = MResetZ(q) == One;
+                mutable value = true;
+                set value or= { r and (return true) };
+                value
+            }
+        }
+    "#;
+    let capabilities = Profile::AdaptiveRI.into();
+    let mut raw = super::CompilationContext::new(capabilities);
+    raw.update(source);
+    let callable = raw
+        .fir_store
+        .find_callable_id_by_name("Main")
+        .expect("Main");
+    let errors = qsc_passes::PassContext::run_fir_passes_on_fir(
+        &raw.fir_store,
+        callable.package,
+        capabilities,
+    )
+    .expect_err("raw conditional release remains unsupported");
+    assert!(format!("{errors:?}").contains("UseOfDynamicQubitRelease"));
+
+    let lowered = PipelineContext::new(source, "Test.Main()", capabilities);
+    let callable = lowered
+        .fir_store
+        .find_callable_id_by_name("Main")
+        .expect("Main");
+    qsc_passes::PassContext::run_fir_passes_on_fir(
+        &lowered.fir_store,
+        callable.package,
+        capabilities,
+    )
+    .expect("lowered callable has no conditional release");
+}
+
+#[test]
 fn pinned_return_statements_do_not_become_top_level_assignments() {
     let source = r#"
         function Pinned() : Int { return 0; }
