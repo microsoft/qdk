@@ -864,6 +864,9 @@ def run_qir(
         Exhaustion re-raises the last failure without returning partial results.
     :return: A list of measurement results, in the order they happened during the simulation.
     :rtype: List
+    :raises RuntimeError: If any GPU shot fails, including exceeding the eight-frame
+        call-stack limit or the allocation limit. The error identifies the zero-based
+        shot index and GPU error code. No partial results are returned.
     """
     if qodec is not None:
         from ._qodec._run import run_qir_with_qodec

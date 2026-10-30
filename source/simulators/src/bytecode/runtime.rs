@@ -161,8 +161,11 @@ const VOID_RETURN: u64 = 0xFFFF_FFFF_FFFF_FFFF;
 
 struct CallStackFrame {
     block_id: u64,
+    previous_block_id: u64,
     return_pc: u64,
     return_reg: u64,
+    registers: Vec<u64>,
+    memory_size: usize,
 }
 
 struct Runtime {
@@ -401,14 +404,19 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
 
                 rt.call_stack.push(CallStackFrame {
                     block_id: rt.current_block_id,
+                    previous_block_id: rt.previous_block_id,
                     return_pc: rt.pc + 1,
                     return_reg: instr.dst,
+                    registers: rt.registers.clone(),
+                    memory_size: rt.memory.len(),
                 });
 
                 let param_base = func.param_base_reg;
                 for i in 0..arg_count {
                     let arg_reg = program.call_args[arg_offset + i];
-                    let val = rt.read_reg(arg_reg);
+                    // Read the saved caller state so overlapping argument registers are safe.
+                    let val = rt.call_stack.last().expect("caller frame exists").registers
+                        [arg_reg as usize];
                     rt.write_reg(param_base + i as u64, val);
                 }
 
@@ -418,15 +426,17 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
 
             OP_CALL_RETURN => {
                 let frame = rt.call_stack.pop().expect("call stack underflow");
-                let return_block = frame.block_id;
-                let return_pc = frame.return_pc;
                 let return_reg = frame.return_reg;
-
-                rt.current_block_id = return_block;
-                rt.pc = return_pc;
-                if return_reg != VOID_RETURN {
-                    let ret_val = rt.resolve_u64(instr.src0, flags, 0);
-                    rt.write_reg(return_reg, ret_val);
+                let return_value =
+                    (return_reg != VOID_RETURN).then(|| rt.resolve_u64(instr.src0, flags, 0));
+                rt.current_block_id = frame.block_id;
+                rt.previous_block_id = frame.previous_block_id;
+                rt.pc = frame.return_pc;
+                rt.registers = frame.registers;
+                // Retain writes through caller-owned pointers; discard only callee allocations.
+                rt.memory.truncate(frame.memory_size);
+                if let Some(value) = return_value {
+                    rt.write_reg(return_reg, value);
                 }
             }
 
@@ -806,7 +816,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
             // ----- Memory operations -----
             OP_ALLOCA => {
                 let num_words = rt.resolve_u64(instr.src0, flags, 0);
-                let addr = rt.resolve_u64(instr.src1, flags, 1);
+                let addr = rt.memory.len() as u64;
                 let end = (addr + num_words) as usize;
                 if end > rt.memory.len() {
                     rt.memory.resize(end, 0);
