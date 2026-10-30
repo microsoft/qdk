@@ -7,6 +7,49 @@ use super::{
 };
 
 #[test]
+fn unwrapped_callable_preserves_its_operation() {
+    let source = r#"
+        newtype Fn = (Op : Qubit => Unit);
+        operation Main() : Result {
+            use q = Qubit();
+            let f = Fn(X);
+            (f!)(q);
+            MResetZ(q)
+        }
+        operation Expected() : Result {
+            use q = Qubit();
+            X(q);
+            MResetZ(q)
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Result(qsc_eval::val::Result::Val(true))
+        );
+        let expected = interpreter.qirgen("Expected()").expect("direct X QIR");
+        assert_eq!(
+            interpreter.qirgen("Main()").expect("unwrapped X QIR"),
+            expected
+        );
+        let target = eval_fragments(&mut interpreter, "Main");
+        assert_eq!(
+            interpreter
+                .qirgen_from_callable(&target, Value::unit())
+                .expect("runtime QIR"),
+            expected
+        );
+    }
+}
+
+#[test]
 fn runtime_saved_generic_closure_instantiates_capture_types() {
     let source = r#"
         operation Phase(n : Int, q : Qubit) : Unit is Adj + Ctl {

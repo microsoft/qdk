@@ -191,6 +191,11 @@ fn try_resolve_un_op_callee(
     package: &impl PackageLookup,
     locals_map: &impl LocalsLookup,
 ) -> (Option<Callee>, Option<Vec<LocalVarId>>) {
+    if operator == UnOp::Unwrap {
+        // The operand is a UDT value, not its stored callable. Defer resolution
+        // to lowering/partial evaluation, as for other aggregate projections.
+        return (None, None);
+    }
     // This is a best effort attempt to resolve a callee.
     let UnOp::Functor(functor_operator) = operator else {
         panic!("unary operator is expected to be a functor for a callee expression")
