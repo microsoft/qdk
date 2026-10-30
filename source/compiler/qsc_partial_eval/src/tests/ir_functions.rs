@@ -293,6 +293,55 @@ fn runtime_recursion_with_empty_local_qubit_array_is_emitted_without_extra_qubit
 }
 
 #[test]
+fn runtime_recursion_with_live_empty_array_preserves_later_length_use() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            use empty = Qubit[0];
+            if n > 0 {
+                X(target);
+                Rec(n - 1, target);
+            }
+            if Length(empty) != 0 { X(target); }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(flag) == Zero { 3 } else { 0 }, target);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_eq!(ir_function_names(&program), ["Rec", "X"]);
+}
+
+#[test]
+fn runtime_loop_recursion_with_live_empty_array_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            use empty = Qubit[0];
+            mutable count = n;
+            while count > 0 {
+                Rec(count - 1, target);
+                count = 0;
+            }
+            if Length(empty) == 0 { X(target); }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(flag) == Zero { 2 } else { 0 }, target);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_eq!(ir_function_names(&program), ["Rec", "X"]);
+}
+
+#[test]
 fn runtime_depth_recursion_reuses_released_local_qubit_isolated_from_entry_qubits() {
     let source = r#"
         namespace Test {
@@ -586,6 +635,19 @@ fn assert_runtime_recursion_is_rejected(body: &str, helper: &str) {
 #[test]
 fn direct_runtime_recursion_with_unreleased_local_qubit_is_rejected() {
     assert_runtime_recursion_is_rejected("use q = Qubit(); if n > 0 { Rec(n - 1); } Reset(q);", "");
+}
+
+#[test]
+fn runtime_recursion_with_empty_and_unreleased_nonempty_arrays_is_rejected() {
+    assert_runtime_recursion_is_rejected(
+        r#"
+        use empty = Qubit[0];
+        use live = Qubit[1];
+        if n > 0 { Rec(n - 1); }
+        Reset(live[0]);
+        "#,
+        "",
+    );
 }
 
 #[test]

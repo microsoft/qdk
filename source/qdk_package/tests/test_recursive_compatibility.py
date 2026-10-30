@@ -466,6 +466,51 @@ def test_empty_local_qubit_array_preserves_runtime_recursion(
 
 
 @pytest.mark.parametrize("depth,expected", [(1, 1), (2, 0)])
+def test_live_empty_qubit_array_preserves_runtime_recursion(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, target : Qubit) : Unit {{
+            use empty = Qubit[0];
+            if n > 0 {{
+                X(target);
+                Rec(n - 1, target);
+            }}
+            if Length(empty) != 0 {{ X(target); }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(flag) == Zero {{ {depth} }} else {{ 0 }}, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(0, 1), (1, 0), (2, 1)])
+def test_live_empty_qubit_array_preserves_loop_recursion(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, target : Qubit) : Unit {{
+            use empty = Qubit[0];
+            mutable count = n;
+            while count > 0 {{
+                Rec(count - 1, target);
+                count = 0;
+            }}
+            if Length(empty) == 0 {{ X(target); }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(flag) == Zero {{ {depth} }} else {{ 0 }}, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+@pytest.mark.parametrize("depth,expected", [(1, 1), (2, 0)])
 def test_conditional_local_qubit_is_released_before_recursive_call(
     depth: int, expected: int
 ) -> None:

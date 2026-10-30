@@ -5523,7 +5523,7 @@ fn functor_app_to_functor_set_value(functor_app: FunctorApp) -> FunctorSetValue 
 }
 
 /// Proves a conservative local-qubit layout without specializing future runtime parameters.
-/// Allocating calls may overlap only reset locals with no later use except release.
+/// Allocating calls may overlap empty arrays or reset locals used only for later release.
 /// The largest local layout seeds a reservation that grows for simultaneous inline leases.
 /// Independently emitted bodies receive separate reservations.
 /// Conditional paths and loop iterations must preserve incoming leases and release their locals.
@@ -5645,6 +5645,7 @@ struct LocalQubitLifetimeAnalysis<'a> {
     call_resolver: ResourceCallScanner<'a>,
     store: &'a PackageStore,
     allocating_bodies: &'a FxHashSet<(PackageId, BlockId)>,
+    /// Includes zero-sized leases so their lexical releases remain balanced.
     live_leases: FxHashMap<LocalVarId, usize>,
     lifetime_state: LocalQubitLifetimeState,
     pending_argument_uses: Vec<FxHashSet<LocalVarId>>,
@@ -5717,16 +5718,17 @@ impl LocalQubitLifetimeAnalysis<'_> {
         if let CallableImpl::Spec(specs) = &callable.implementation {
             let body = (item.package, get_spec_decl(specs, functors).block);
             if self.allocating_bodies.contains(&body) {
-                self.is_safe &= self.live_leases.keys().all(|local| {
-                    self.lifetime_state.known_zero.contains(local)
+                for (local, &count) in &self.live_leases {
+                    if count == 0 {
+                        continue;
+                    }
+                    self.is_safe &= self.lifetime_state.known_zero.contains(local)
                         && self
                             .pending_argument_uses
                             .iter()
-                            .all(|args| !args.contains(local))
-                });
-                self.lifetime_state
-                    .release_only
-                    .extend(self.live_leases.keys());
+                            .all(|args| !args.contains(local));
+                    self.lifetime_state.release_only.insert(*local);
+                }
             }
         }
     }
