@@ -1,0 +1,16 @@
+{
+  "reference": "origin/main",
+  "candidate": "HEAD",
+  "issues": {
+    "author": "amcasey",
+    "min_number": 3461,
+    "include": [3440]
+  },
+  "exclusions": [
+    {
+      "match": "*EkeraHastadFactoring*",
+      "reason": "Slow; excluded from this review"
+    }
+  ],
+  "report": "/exchange/from_copilot/review.md"
+}

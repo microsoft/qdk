@@ -1,0 +1,8 @@
+{
+  "reference": "HEAD^",
+  "candidate": "HEAD",
+  "repository": "../../..",
+  "name": "smoke",
+  "report": "/exchange/from_copilot/smoke-report.md",
+  "limits": { "jobs": 2, "shots": 2 }
+}

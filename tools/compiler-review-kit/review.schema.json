@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QDK review configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reference", "candidate"],
+  "properties": {
+    "reference": { "type": "string", "minLength": 1 },
+    "candidate": { "type": "string", "minLength": 1 },
+    "previously_reviewed": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Previous candidate for explicitly requested lost-fix tracking; omitted by default."
+    },
+    "historical_reference": { "type": "string", "minLength": 1 },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "repository": { "type": "string", "minLength": 1 },
+    "venv": { "type": "string", "minLength": 1 },
+    "work_dir": { "type": "string", "minLength": 1 },
+    "build_dir": { "type": "string", "minLength": 1 },
+    "report": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+    "cache_dir": { "type": "string", "minLength": 1 },
+    "cache_budget_mb": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Best-effort cache target in MiB. The current review is protected; overruns emit a warning."
+    },
+    "profiles": {
+      "type": "array",
+      "default": ["Base", "Adaptive_RIF", "Adaptive"],
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["Base", "Adaptive_RI", "Adaptive_RIF", "Adaptive"]
+      }
+    },
+    "debug_validation": {
+      "enum": ["targeted", "all", "none"],
+      "default": "none"
+    },
+    "keep_qir": { "type": "boolean" },
+    "issues": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+        "author": { "type": "string", "minLength": 1 },
+        "min_number": { "type": "integer", "minimum": 1 },
+        "include": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "clients": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "path"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "exclusions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["match", "reason"],
+        "properties": {
+          "match": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jobs": { "type": "integer", "minimum": 1 },
+        "compile_seconds": { "type": "integer", "minimum": 1 },
+        "simulate_seconds": { "type": "integer", "minimum": 1 },
+        "runner_seconds": { "type": "integer", "minimum": 1 },
+        "memory_mb": { "type": "integer", "minimum": 256 },
+        "shots": { "type": "integer", "minimum": 1 },
+        "seed": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
