@@ -232,10 +232,23 @@ def test_mutual_recursion_preserves_static_tuple_bound_and_runtime_result(
 
 @pytest.mark.parametrize("profile", PROFILES, ids=str)
 @pytest.mark.parametrize(
-    "depth,expected", [(2, qsharp.Result.Zero), (3, qsharp.Result.One)]
+    "control_preparation,depth,expected",
+    [
+        pytest.param("", 2, qsharp.Result.Zero, id="inactive-control-even-depth"),
+        pytest.param("", 3, qsharp.Result.Zero, id="inactive-control-odd-depth"),
+        pytest.param(
+            "X(control);", 2, qsharp.Result.Zero, id="active-control-even-depth"
+        ),
+        pytest.param(
+            "X(control);", 3, qsharp.Result.One, id="active-control-odd-depth"
+        ),
+    ],
 )
 def test_static_bound_preserves_runtime_result_in_controlled_adjoint_recursion(
-    profile: qsharp.TargetProfile, depth: int, expected: qsharp.Result
+    profile: qsharp.TargetProfile,
+    control_preparation: str,
+    depth: int,
+    expected: qsharp.Result,
 ) -> None:
     source = (
         """
@@ -257,13 +270,73 @@ def test_static_bound_preserves_runtime_result_in_controlled_adjoint_recursion(
         operation Main() : Result {{
             use (input, flag, target, control) = (Qubit(), Qubit(), Qubit(), Qubit());
             X(input);
-            X(control);
+            {control_preparation}
             Controlled Adjoint Rec([control], ({depth}, MResetZ(input), [flag, target]));
             Reset(control);
             MResetZ(target)
         }}
     """
     )
+    check_result(source, profile, expected)
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+@pytest.mark.parametrize(
+    "inherited_preparation,added_preparation,expected",
+    [
+        pytest.param(
+            "X(inherited);", "X(added);", qsharp.Result.Zero, id="both-controls-active"
+        ),
+        pytest.param(
+            "X(inherited);", "", qsharp.Result.One, id="added-control-inactive"
+        ),
+        pytest.param(
+            "", "X(added);", qsharp.Result.Zero, id="inherited-control-inactive"
+        ),
+    ],
+)
+def test_static_bound_preserves_runtime_result_when_recursive_descent_adds_control(
+    profile: qsharp.TargetProfile,
+    inherited_preparation: str,
+    added_preparation: str,
+    expected: qsharp.Result,
+) -> None:
+    source = f"""
+        operation Rec(
+            remaining : Int, payload : Result, qs : Qubit[]
+        ) : Unit is Adj + Ctl {{
+            body (...) {{}}
+            adjoint (...) {{}}
+            controlled (cs, ...) {{}}
+            controlled adjoint (cs, ...) {{
+                if remaining > 0 {{
+                    if MResetZ(qs[0]) == Zero {{
+                        if payload == One {{ Controlled X(cs, qs[1]); }}
+                        if remaining > 1 {{
+                            // The new control is no longer a data qubit.
+                            Controlled Controlled Adjoint Rec(
+                                [qs[2]],
+                                (cs, (remaining - 1, payload, [qs[0], qs[1]]))
+                            );
+                        }}
+                    }}
+                }}
+            }}
+        }}
+        operation Main() : Result {{
+            use (input, flag, target) = (Qubit(), Qubit(), Qubit());
+            use (inherited, added) = (Qubit(), Qubit());
+            X(input);
+            {inherited_preparation}
+            {added_preparation}
+            Controlled Adjoint Rec(
+                [inherited], (2, MResetZ(input), [flag, target, added])
+            );
+            Reset(inherited);
+            Reset(added);
+            MResetZ(target)
+        }}
+    """
     check_result(source, profile, expected)
 
 
