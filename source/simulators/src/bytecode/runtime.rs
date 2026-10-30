@@ -14,6 +14,9 @@
     clippy::cast_sign_loss
 )]
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     MeasurementResult, OutputRecord, QubitID, ResultID, Simulator,
     bytecode::{AdaptiveProgram, Instruction},
@@ -332,10 +335,21 @@ fn dispatch_reset<S: Simulator>(
 // Main interpreter entry point
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::too_many_lines)]
-pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Vec<OutputRecord> {
-    const MAX_STEPS: u64 = 10_000_000;
+/// Maximum number of bytecode instructions executed per shot before the
+/// interpreter gives up and reports an error.
+pub const MAX_STEPS: u64 = 10_000_000;
 
+/// Runs a single shot of `program` on `sim` and returns the recorded outputs.
+///
+/// # Errors
+///
+/// Returns an error if the program does not terminate within [`MAX_STEPS`]
+/// bytecode instructions.
+#[allow(clippy::too_many_lines)]
+pub fn run_shot<S: Simulator>(
+    program: &AdaptiveProgram<u64>,
+    sim: &mut S,
+) -> Result<Vec<OutputRecord>, String> {
     let entry_pc = program.block_table[program.entry_block as usize].instr_offset;
     let mut rt = Runtime::new(
         program.num_registers,
@@ -358,7 +372,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
 
             OP_RET => {
                 rt.exit_code = rt.resolve_u64(instr.dst, flags, 2);
-                break;
+                return Ok(records);
             }
 
             OP_JUMP => {
@@ -842,7 +856,9 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
         }
     }
 
-    records
+    Err(format!(
+        "program did not terminate within {MAX_STEPS} bytecode steps"
+    ))
 }
 
 fn block_pc(program: &AdaptiveProgram<u64>, block_id: u64) -> u64 {
