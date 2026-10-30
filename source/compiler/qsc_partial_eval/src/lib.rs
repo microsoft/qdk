@@ -3149,10 +3149,6 @@ impl<'a> PartialEvaluator<'a> {
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
         // Pop the current block node and create the necessary block nodes for the loop structure.
-        let cached_mappings = self
-            .eval_context
-            .get_current_scope()
-            .clone_static_var_mappings();
         let current_block_node = self.eval_context.pop_block_node();
         let conditional_block_node_id = self.create_program_block();
         let conditional_block_node = BlockNode {
@@ -3194,6 +3190,11 @@ impl<'a> PartialEvaluator<'a> {
         }
 
         self.fail_if_in_parallel_expr(self.get_expr_package_span(loop_expr_id))?;
+
+        let cached_mappings = self
+            .eval_context
+            .get_current_scope()
+            .clone_static_var_mappings();
 
         // Otherwise, branch to either the body block or the continuation block.
         let body_block_node_id = self.create_program_block();

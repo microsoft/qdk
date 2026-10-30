@@ -2174,3 +2174,40 @@ fn emitting_loop_avoids_propagating_static_variable_mappings_from_body() {
             Return"#]],
     );
 }
+
+#[test]
+fn emitting_loop_avoids_ignoring_variable_update_nested_in_condition() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int {
+            use q = Qubit();
+            mutable x = 0;
+            while ({ set x = 1; MResetZ(q) == One }) {
+                set x = 0;
+            }
+            x
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Jump(1)
+            Block 1:Block:
+                Variable(0, Integer) = Store Integer(1)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 2
+            Block 2:Block:
+                Variable(3, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(3, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Variable(0, Integer) = Store Integer(0)
+                Jump(1)"#]],
+    );
+}
