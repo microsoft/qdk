@@ -20,6 +20,62 @@ static CAPABILITIES_DYNAMIC_QUBIT_ALLOC: std::sync::LazyLock<TargetCapabilityFla
     });
 
 #[test]
+fn allocate_ten_thousand_qubits() {
+    // Avoid repeated array concatenation in AllocateQubitArray when measuring allocation.
+    let allocations = "QIR.Runtime.__quantum__rt__qubit_allocate(),".repeat(10000);
+    let source = format!(
+        r#"
+        namespace Test {{
+            operation op(first : Qubit, last : Qubit) : Unit {{ body intrinsic; }}
+            @EntryPoint()
+            operation Main() : Unit {{
+                let qs = [{allocations}];
+                op(qs[0], qs[9999]);
+                QIR.Runtime.ReleaseQubitArray(qs);
+            }}
+        }}
+    "#
+    );
+    let qir = compile_source_to_qir(&source, *CAPABILITIES);
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_t\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @op(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 9999 to ptr))
+          call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @op(ptr, ptr)
+
+        declare void @__quantum__rt__tuple_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="10000" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
 fn nested_for_over_qubit_slice_succeeds() {
     let source = "namespace Test {
             import Std.Intrinsic.*;

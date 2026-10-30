@@ -14,6 +14,39 @@ use qsc_data_structures::target::Profile;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
+fn resource_manager_reuses_lowest_ids_after_swapping_and_delayed_release() {
+    let mut manager = crate::management::ResourceManager::default();
+    let qs: Vec<_> = (0..4).map(|_| manager.allocate_qubit()).collect();
+    manager.swap_qubit_ids(0, 2);
+    manager.release_qubit(&qs[2]);
+    manager.release_qubit(&qs[1]);
+
+    let first = manager.allocate_qubit();
+    assert_eq!(first.deref().0, 1);
+    assert_eq!(manager.map_qubit(&first), 0);
+    let second = manager.allocate_qubit();
+    assert_eq!(second.deref().0, 2);
+    assert_eq!(manager.map_qubit(&second), 1);
+    assert_eq!(manager.map_qubit(&qs[0]), 2);
+    assert_eq!(manager.map_qubit(&qs[3]), 3);
+
+    manager.release_qubit(&qs[0]);
+    manager.start_delayed_release_layer(Some(1));
+    let in_layer = manager.allocate_qubit();
+    manager.release_qubit(&in_layer);
+    let delayed = manager.allocate_qubit();
+    assert_eq!(delayed.deref().0, 0);
+    assert_eq!(manager.map_qubit(&delayed), 2);
+    manager.release_qubit(&delayed);
+    manager.end_delayed_release_layer();
+
+    let reused = manager.allocate_qubit();
+    assert_eq!(reused.deref().0, 0);
+    assert_eq!(manager.map_qubit(&reused), 2);
+    assert_eq!(manager.qubit_count(), 4);
+}
+
+#[test]
 fn qubit_ids_are_correct_for_allocate_use_release_one_qubit() {
     let program = get_rir_program(indoc! {
         r#"
