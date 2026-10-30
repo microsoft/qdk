@@ -11,6 +11,7 @@ use expect_test::{Expect, expect};
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli};
+use qsc_data_structures::measurement::OneQubitMeasurement;
 use std::fmt::Write;
 
 #[test]
@@ -84,13 +85,13 @@ fn noiseless_gate() {
     for _ in 0..100 {
         let _ = sim.x(q);
         let res1 = sim
-            .m(q)
+            .measure_single_pauli(OneQubitMeasurement::Z, q)
             .expect("sparse simulator is infinite")
             .unwrap_bool();
         assert!(res1, "Expected True without noise.");
         let _ = sim.x(q);
         let res2 = sim
-            .m(q)
+            .measure_single_pauli(OneQubitMeasurement::Z, q)
             .expect("sparse simulator is infinite")
             .unwrap_bool();
         assert!(!res2, "Expected False without noise.");
@@ -110,12 +111,12 @@ fn bitflip_measurement() {
     let q = sim.qubit_allocate().expect("sparse simulator is infinite"); // Allocation is noiseless even with noise.
     for _ in 0..100 {
         let res1 = sim
-            .m(q)
+            .measure_single_pauli(OneQubitMeasurement::Z, q)
             .expect("sparse simulator is infinite")
             .unwrap_bool();
         assert!(res1, "Expected True for 100% bit flip noise.");
         let res2 = sim
-            .m(q)
+            .measure_single_pauli(OneQubitMeasurement::Z, q)
             .expect("sparse simulator is infinite")
             .unwrap_bool();
         assert!(!res2, "Expected False for 100% bit flip noise.");
@@ -138,7 +139,7 @@ fn noisy_measurement() {
         let q = sim.qubit_allocate().expect("sparse simulator is infinite"); // Allocation is noiseless even with noise.
         // sim.m sometimes applies X before measuring
         if sim
-            .m(q)
+            .measure_single_pauli(OneQubitMeasurement::Z, q)
             .expect("sparse simulator is infinite")
             .unwrap_bool()
         {
@@ -227,7 +228,9 @@ fn noisy_via_z() {
 fn measure_without_loss_returns_value() {
     let mut sim = SparseSim::new();
     let q = sim.qubit_allocate().expect("sparse simulator is infinite");
-    let res = sim.m(q).expect("sparse simulator is infinite");
+    let res = sim
+        .measure_single_pauli(OneQubitMeasurement::Z, q)
+        .expect("sparse simulator is infinite");
     assert!(
         matches!(res, val::Result::Val(_)),
         "Expected measurement to return a result"
@@ -239,7 +242,9 @@ fn measure_with_loss_returns_loss() {
     let mut sim = SparseSim::new();
     sim.set_loss(1.0); // Set loss probability to 100%
     let q = sim.qubit_allocate().expect("sparse simulator is infinite");
-    let res = sim.m(q).expect("sparse simulator is infinite");
+    let res = sim
+        .measure_single_pauli(OneQubitMeasurement::Z, q)
+        .expect("sparse simulator is infinite");
     assert_eq!(
         res,
         val::Result::Loss,
@@ -417,7 +422,7 @@ fn noise_config_mz_with_x_fault() {
     let mut sim = SparseSim::new_with_noise_config(config.into());
     let q = sim.qubit_allocate().expect("sparse simulator is infinite");
     let res = sim
-        .m(q)
+        .measure_single_pauli(OneQubitMeasurement::Z, q)
         .expect("sparse simulator is infinite")
         .unwrap_bool();
     assert!(
@@ -433,7 +438,7 @@ fn noise_config_mz_with_z_fault() {
     let mut sim = SparseSim::new_with_noise_config(config.into());
     let q = sim.qubit_allocate().expect("sparse simulator is infinite");
     let res = sim
-        .m(q)
+        .measure_single_pauli(OneQubitMeasurement::Z, q)
         .expect("sparse simulator is infinite")
         .unwrap_bool();
     assert!(
@@ -533,7 +538,9 @@ fn noise_config_mz_with_loss() {
     };
     let mut sim = SparseSim::new_with_noise_config(config.into());
     let q = sim.qubit_allocate().expect("sparse simulator is infinite");
-    let res = sim.m(q).expect("sparse simulator is infinite");
+    let res = sim
+        .measure_single_pauli(OneQubitMeasurement::Z, q)
+        .expect("sparse simulator is infinite");
     assert_eq!(
         res,
         val::Result::Loss,
@@ -555,7 +562,9 @@ fn noise_config_gate_loss_causes_measurement_loss() {
     let mut sim = SparseSim::new_with_noise_config(config.into());
     let q = sim.qubit_allocate().expect("sparse simulator is infinite");
     let _ = sim.x(q);
-    let res = sim.m(q).expect("sparse simulator is infinite");
+    let res = sim
+        .measure_single_pauli(OneQubitMeasurement::Z, q)
+        .expect("sparse simulator is infinite");
     assert_eq!(
         res,
         val::Result::Loss,

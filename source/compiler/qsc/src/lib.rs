@@ -40,8 +40,8 @@ pub mod project {
 }
 
 pub use qsc_data_structures::{
-    functors::FunctorApp, language_features::LanguageFeatures, namespaces::*, source::*,
-    span::Span, target::TargetCapabilityFlags,
+    functors::FunctorApp, language_features::LanguageFeatures, measurement::OneQubitMeasurement,
+    namespaces::*, source::*, span::Span, target::TargetCapabilityFlags,
 };
 
 pub use qsc_passes::{Error as PassError, PackageType, PassContext, lower_hir_to_fir};

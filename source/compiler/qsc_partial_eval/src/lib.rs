@@ -1974,6 +1974,8 @@ impl<'a> PartialEvaluator<'a> {
             }
             .map_err(std::convert::Into::into),
             "__quantum__qis__m__body" => Ok(self.measure_qubit(builder::m_decl(), &args_value)),
+            "__quantum__qis__mx__body" => Ok(self.measure_qubit(builder::mx_decl(), &args_value)),
+            "__quantum__qis__my__body" => Ok(self.measure_qubit(builder::my_decl(), &args_value)),
             "__quantum__qis__mresetz__body" => {
                 Ok(self.measure_qubit(builder::mresetz_decl(), &args_value))
             }

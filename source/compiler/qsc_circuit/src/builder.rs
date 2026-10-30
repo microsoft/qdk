@@ -121,8 +121,13 @@ impl Tracer for CircuitTracer {
                 called_at,
             );
         } else {
-            self.circuit_builder
-                .measurement(self.wire_map_builder.current(), "M", q, r, called_at);
+            self.circuit_builder.measurement(
+                self.wire_map_builder.current(),
+                name,
+                q,
+                r,
+                called_at,
+            );
         }
     }
 

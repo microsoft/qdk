@@ -1642,6 +1642,8 @@ fn known_gate_spec(callable_name: &str) -> Option<GateSpec<'static>> {
         // measurement gates
         "__quantum__qis__mresetz__body" => GateSpec::measurement_gate("MResetZ"),
         "__quantum__qis__m__body" => GateSpec::measurement_gate("M"),
+        "__quantum__qis__mx__body" => GateSpec::measurement_gate("MX"),
+        "__quantum__qis__my__body" => GateSpec::measurement_gate("MY"),
         _ => return None,
     };
     Some(name)

@@ -15,6 +15,7 @@ use crate::{
 use branching_state::BranchingState;
 use operation::Operation;
 use paulimer::{PauliObservable, UnitaryOp, core::PositionedPauliObservable, pauli::SparsePauli};
+use qsc_data_structures::measurement::OneQubitMeasurement;
 use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
@@ -344,6 +345,12 @@ impl StabilizerSimulator {
         }
     }
 
+    fn mz(&mut self, target: QubitID, result_id: ResultID) {
+        self.apply_idle_noise(target);
+        self.record_mz(target, result_id);
+        self.apply_noise(|config| &config.mz, &[target]);
+    }
+
     /// Measures a Z observable on the given `target` and reset the qubit to the zero state.
     fn mresetz_impl(&mut self, target: QubitID) -> MeasurementResult {
         if self.loss[target] {
@@ -580,10 +587,27 @@ impl Simulator for StabilizerSimulator {
         self.apply_noise(|config| &config.swap, &[q1, q2]);
     }
 
-    fn mz(&mut self, target: QubitID, result_id: ResultID) {
-        self.apply_idle_noise(target);
-        self.record_mz(target, result_id);
-        self.apply_noise(|config| &config.mz, &[target]);
+    fn measure_single_pauli(
+        &mut self,
+        pauli: OneQubitMeasurement,
+        target: QubitID,
+        result_id: ResultID,
+    ) {
+        match pauli {
+            OneQubitMeasurement::X => {
+                self.h(target);
+                self.mz(target, result_id);
+                self.h(target);
+            }
+            OneQubitMeasurement::Y => {
+                self.s_adj(target);
+                self.h(target);
+                self.mz(target, result_id);
+                self.h(target);
+                self.s(target);
+            }
+            OneQubitMeasurement::Z => self.mz(target, result_id),
+        }
     }
 
     fn mresetz(&mut self, target: QubitID, result_id: ResultID) {
@@ -742,6 +766,7 @@ mod tests {
         MeasurementResult, Simulator, cpu_full_state_simulator::FullStateSimulator,
         noise_config::CumulativeNoiseConfig,
     };
+    use qsc_data_structures::measurement::OneQubitMeasurement;
     use std::sync::Arc;
 
     fn sample_t_interference<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>(
@@ -751,7 +776,7 @@ mod tests {
         simulator.h(0);
         simulator.t(0);
         simulator.h(0);
-        simulator.mz(0, 0);
+        simulator.measure_single_pauli(OneQubitMeasurement::Z, 0, 0);
         simulator.measurements()[0]
     }
 
@@ -789,8 +814,8 @@ mod tests {
         simulator.t(1);
         simulator.h(0);
         simulator.h(1);
-        simulator.mz(0, 0);
-        simulator.mz(1, 1);
+        simulator.measure_single_pauli(OneQubitMeasurement::Z, 0, 0);
+        simulator.measure_single_pauli(OneQubitMeasurement::Z, 1, 1);
         usize::from(simulator.measurements()[0] == MeasurementResult::One) * 2
             + usize::from(simulator.measurements()[1] == MeasurementResult::One)
     }

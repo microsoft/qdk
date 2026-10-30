@@ -270,6 +270,107 @@ operation M(qubit : Qubit) : Result {
 }
 
 /// # Summary
+/// Performs a measurement of a single qubit in the
+/// Pauli _X_ basis.
+///
+/// # Input
+/// ## qubit
+/// Qubit to be measured.
+///
+/// # Output
+/// `Zero` if the +1 eigenvalue is observed, and `One` if
+/// the -1 eigenvalue is observed.
+///
+/// # Remarks
+/// The output result is given by
+/// the distribution
+/// $$
+/// \Pr(\texttt{Zero} | \ket{\psi}) =
+///         \braket{\psi | +} \braket{+ | \psi}
+/// $$ $$
+/// \Pr(\texttt{One} | \ket{\psi}) =
+///         \braket{\psi | -} \braket{- | \psi}
+/// $$
+/// where
+/// $$ \ket{+} = \frac{\ket{0} + \ket{1}}{\sqrt{2}} $$
+/// $$ \ket{-} = \frac{\ket{0} - \ket{1}}{\sqrt{2}} $$
+///
+/// Equivalent to:
+/// ```qsharp
+/// Measure([PauliX], [qubit]);
+/// ```
+operation MX(qubit : Qubit) : Result {
+    __quantum__qis__mx__body(qubit)
+}
+
+/// # Summary
+/// Performs a measurement of a single qubit in the
+/// Pauli _Y_ basis.
+///
+/// # Input
+/// ## qubit
+/// Qubit to be measured.
+///
+/// # Output
+/// `Zero` if the +1 eigenvalue is observed, and `One` if
+/// the -1 eigenvalue is observed.
+///
+/// # Remarks
+/// The output result is given by
+/// the distribution
+/// $$
+/// \Pr(\texttt{Zero} | \ket{\psi}) =
+///         \braket{\psi | i} \braket{i | \psi}
+/// $$ $$
+/// \Pr(\texttt{One} | \ket{\psi}) =
+///         \braket{\psi | -i} \braket{-i | \psi}
+/// $$
+/// where
+/// $$ \ket{i} = \frac{\ket{0} + i\ket{1}}{\sqrt{2}} $$
+/// $$ \ket{-i} = \frac{\ket{0} - i\ket{1}}{\sqrt{2}} $$
+///
+/// Equivalent to:
+/// ```qsharp
+/// Measure([PauliY], [qubit]);
+/// ```
+operation MY(qubit : Qubit) : Result {
+    __quantum__qis__my__body(qubit)
+}
+
+/// Performs a measurement of a single qubit in the
+/// Pauli _Z_ basis.
+///
+/// # Input
+/// ## qubit
+/// Qubit to be measured.
+///
+/// # Output
+/// `Zero` if the +1 eigenvalue is observed, and `One` if
+/// the -1 eigenvalue is observed.
+///
+/// # Remarks
+/// The output result is given by
+/// the distribution
+/// $$
+/// \begin{align}
+///     \Pr(\texttt{Zero} | \ket{\psi}) =
+///         \braket{\psi | 0} \braket{0 | \psi}.
+/// \end{align}
+/// $$
+///
+/// Equivalent to:
+/// ```qsharp
+/// Measure([PauliZ], [qubit]);
+/// ```
+/// and is equivalent to:
+/// ```qsharp
+/// M(qubit);
+/// ```
+operation MZ(qubit : Qubit) : Result {
+    __quantum__qis__m__body(qubit)
+}
+
+/// # Summary
 /// Performs a joint measurement of one or more qubits in the
 /// specified Pauli bases.
 ///
@@ -1213,4 +1314,4 @@ function Message(msg : String) : Unit {
     body intrinsic;
 }
 
-export AND, CCNOT, CNOT, Exp, H, I, M, Measure, R, R1, R1Frac, Reset, ResetAll, RFrac, Rx, Rxx, Ry, Ryy, Rz, Rzz, S, SWAP, SX, T, X, Y, Z, ApplyUnitary, Message;
+export AND, CCNOT, CNOT, Exp, H, I, M, MX, MY, MZ, Measure, R, R1, R1Frac, Reset, ResetAll, RFrac, Rx, Rxx, Ry, Ryy, Rz, Rzz, S, SWAP, SX, T, X, Y, Z, ApplyUnitary, Message;

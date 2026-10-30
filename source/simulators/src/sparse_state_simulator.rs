@@ -10,6 +10,8 @@ pub mod nearly_zero;
 #[cfg(test)]
 mod matrix_testing;
 #[cfg(test)]
+mod pauli_testing;
+#[cfg(test)]
 mod tests;
 
 use index_map::IndexMap;
@@ -18,9 +20,10 @@ use nearly_zero::NearlyZero;
 use num_bigint::BigUint;
 use num_complex::Complex64;
 use num_traits::{One, ToPrimitive, Zero};
+use qsc_data_structures::measurement::OneQubitMeasurement;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::{cell::RefCell, f64::consts::FRAC_1_SQRT_2, fmt::Write};
+use std::{cell::RefCell, f64::consts::FRAC_1_SQRT_2, f64::consts::FRAC_PI_2, fmt::Write};
 
 type SparseState = Vec<(BigUint, Complex64)>;
 type SparseStateMap = FxHashMap<BigUint, Complex64>;
@@ -172,7 +175,7 @@ impl SparseStateSim {
     /// no longer valid for use in other functions and will cause an error if used.
     /// # Panics
     ///
-    /// The function will panic if the given id does not correpsond to an allocated qubit.
+    /// The function will panic if the given id does not correspond to an allocated qubit.
     pub fn release(&mut self, id: usize) {
         if self.id_map.iter().count() == 1 {
             // This is a release of the last qubit.
@@ -300,10 +303,28 @@ impl SparseStateSim {
         self.joint_probability(&[id]).is_nearly_zero()
     }
 
+    /// Checks the internal state of the given qubit and returns true only if the given qubit is in exactly the |+⟩ state (eigenstate of Pauli X).
+    pub fn qubit_is_plus(&mut self, id: usize) -> bool {
+        self.h(id);
+        let res = self.joint_probability(&[id]).is_nearly_zero();
+        self.h(id);
+        res
+    }
+
+    /// Checks the internal state of the given qubit and returns true only if the given qubit is in exactly the |i⟩ state (eigenstate of Pauli Y).
+    pub fn qubit_is_plus_i(&mut self, id: usize) -> bool {
+        self.sadj(id);
+        self.h(id);
+        let res = self.joint_probability(&[id]).is_nearly_zero();
+        self.h(id);
+        self.s(id);
+        res
+    }
+
     /// Measures the qubit with the given id, collapsing the state based on the measured result.
     /// # Panics
     ///
-    /// This funciton will panic if the given identifier does not correspond to an allocated qubit.
+    /// This function will panic if the given identifier does not correspond to an allocated qubit.
     #[must_use]
     pub fn measure(&mut self, id: usize) -> bool {
         // We only need to flush the queue here if there are pending H, Rx, or Ry operations.
@@ -320,6 +341,80 @@ impl SparseStateSim {
         let res = random_sample < prob;
         self.collapse(loc, res, prob);
         res
+    }
+
+    /// Measures the qubit with the given id, in the specified Pauli basis, collapsing the state in the given basis. The state returned
+    /// post-measurement is compactly specified in the Z basis with the relevant basis transformation unitary kept pending in the queue.
+    /// # Panics
+    ///
+    /// This function will panic if the given identifier does not correspond to an allocated qubit.
+    #[must_use]
+    pub fn measure_single_pauli(&mut self, id: usize, pauli: OneQubitMeasurement) -> bool {
+        let mut flip_res = false;
+        let mut change_basis = true;
+
+        match pauli {
+            OneQubitMeasurement::Z => self.measure(id),
+            OneQubitMeasurement::X => {
+                let ry = self.ry_queue.get(id).copied();
+
+                // Rx commutes with X-basis measurement so we can safely ignore it IF it is the last operation in queue.
+                if ry.is_none() && self.rx_queue.contains_key(id) {
+                    self.rx_queue.remove(id);
+                }
+                // Ry rotations at +-pi/2 angles have the same affect as rotating X <-> Z bases.
+                if let Some(entry_ry) = ry {
+                    if (entry_ry - FRAC_PI_2).is_nearly_zero() {
+                        self.ry_queue.remove(id);
+                        change_basis = false;
+                    } else if (entry_ry + FRAC_PI_2).is_nearly_zero() {
+                        self.ry_queue.remove(id);
+                        flip_res = true;
+                        change_basis = false;
+                    }
+                }
+                if change_basis {
+                    self.h(id);
+                }
+                let res = flip_res ^ self.measure(id);
+                if flip_res {
+                    self.x(id);
+                }
+                self.h_flag.set_bit(id as u64, true);
+                res
+            }
+            OneQubitMeasurement::Y => {
+                let rx = self.rx_queue.get(id).copied();
+
+                // Ry commutes with Y-basis measurement so we can safely ignore it IF it is the last operation in queue.
+                self.ry_queue.remove(id);
+                // Rx rotations at +-pi/2 angles have the same affect as rotating Y <-> Z bases.
+                if let Some(entry_rx) = rx {
+                    if (entry_rx + FRAC_PI_2).is_nearly_zero() {
+                        self.rx_queue.remove(id);
+                        change_basis = false;
+                    } else if (entry_rx - FRAC_PI_2).is_nearly_zero() {
+                        self.rx_queue.remove(id);
+                        flip_res = true;
+                        change_basis = false;
+                    }
+                }
+                // A Hadamard simply flips the Y-basis measurement result.
+                if self.h_flag.bit(id as u64) {
+                    self.h_flag.set_bit(id as u64, false);
+                    flip_res = true;
+                }
+                if change_basis {
+                    self.rx(FRAC_PI_2, id);
+                }
+                let res = flip_res ^ self.measure(id);
+                if flip_res {
+                    self.x(id);
+                }
+                self.rx(-FRAC_PI_2, id);
+                res
+            }
+        }
     }
 
     /// Forces the collapse of the qubit with the given id to the specified value,

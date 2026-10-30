@@ -5,6 +5,7 @@ use crate::{
     MeasurementResult, Simulator, cpu_full_state_simulator::FullStateSimulator,
     noise_config::CumulativeNoiseConfig, stabilizer_simulator::StabilizerSimulator,
 };
+use qsc_data_structures::measurement::OneQubitMeasurement;
 use std::sync::Arc;
 
 fn check_forced_loss<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>() {
@@ -15,9 +16,9 @@ fn check_forced_loss<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>() {
     simulator.apply_loss_noise(1.0, 1);
     simulator.x(1);
     simulator.peek_loss(1, 0);
-    simulator.mz(1, 1);
-    simulator.mz(1, 2);
-    simulator.mz(0, 3);
+    simulator.measure_single_pauli(OneQubitMeasurement::Z, 1, 1);
+    simulator.measure_single_pauli(OneQubitMeasurement::Z, 1, 2);
+    simulator.measure_single_pauli(OneQubitMeasurement::Z, 0, 3);
 
     assert_eq!(
         simulator.measurements(),

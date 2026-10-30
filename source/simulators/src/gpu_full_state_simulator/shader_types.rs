@@ -152,6 +152,8 @@ pub enum OpID {
     Rzz = 19,
     Ccx = 20,
     Mz = 21,
+    Mx = 30,
+    My = 31,
     MResetZ = 22,
     MEveryZ = 23,
     Swap = 24,
@@ -207,6 +209,8 @@ impl TryFrom<u32> for OpID {
             19 => Ok(Self::Rzz),
             20 => Ok(Self::Ccx),
             21 => Ok(Self::Mz),
+            30 => Ok(Self::Mx),
+            31 => Ok(Self::My),
             22 => Ok(Self::MResetZ),
             23 => Ok(Self::MEveryZ),
             24 => Ok(Self::Swap),
@@ -250,6 +254,8 @@ pub mod ops {
     pub const RZZ: u32 = super::OpID::Rzz.as_u32();
     pub const CCX: u32 = super::OpID::Ccx.as_u32();
     pub const MZ: u32 = super::OpID::Mz.as_u32();
+    pub const MX: u32 = super::OpID::Mx.as_u32();
+    pub const MY: u32 = super::OpID::My.as_u32();
     pub const MRESETZ: u32 = super::OpID::MResetZ.as_u32();
     pub const MEVERYZ: u32 = super::OpID::MEveryZ.as_u32(); // Implicit at end of circuit (for now)
     pub const SWAP: u32 = super::OpID::Swap.as_u32();
@@ -281,6 +287,8 @@ pub mod ops {
                 | RY
                 | RZ
                 | MZ
+                | MX
+                | MY
                 | MRESETZ
                 | MATRIX
                 | MOVE
@@ -440,8 +448,8 @@ impl Op {
     /// Measure-only gate: projects qubit onto the measured state without resetting
     /// Matrix will need to be determined in the simulator based on the measurement outcome
     #[must_use]
-    pub fn new_mz_gate(qubit: u32, result_id: u32) -> Self {
-        let mut op = Self::new_1q_gate(ops::MZ, qubit);
+    pub fn new_m_pauli_gate(op_id: u32, qubit: u32, result_id: u32) -> Self {
+        let mut op = Self::new_1q_gate(op_id, qubit);
         // Store the result id in q2
         op.q2 = result_id;
         // Matrix will need to be determined in the simulator based on the measurement outcome
@@ -1158,7 +1166,9 @@ pub fn build_op_pool(compact_ops: &[bytecode::Op<u32>]) -> Vec<Op> {
                     ops::RYY => Op::new_ryy_gate(angle_f32, q1, q2),
                     ops::RZZ => Op::new_rzz_gate(angle_f32, q1, q2),
                     ops::SWAP => Op::new_swap_gate(q1, q2),
-                    ops::MZ => Op::new_mz_gate(q1, q2),
+                    ops::MX => Op::new_m_pauli_gate(ops::MX, q1, q2),
+                    ops::MY => Op::new_m_pauli_gate(ops::MY, q1, q2),
+                    ops::MZ => Op::new_m_pauli_gate(ops::MZ, q1, q2),
                     ops::MRESETZ => Op::new_mresetz_gate(q1, q2),
                     ops::MOVE => Op::new_move_gate(q1),
                     ops::CORRELATED_NOISE => {

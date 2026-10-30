@@ -58,6 +58,8 @@ pub enum QirInstructionId {
     RESET,
     M,
     MResetZ,
+    MX,
+    MY,
     MZ,
     Move,
     ReadResult,

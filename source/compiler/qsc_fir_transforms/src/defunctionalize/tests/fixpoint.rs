@@ -326,11 +326,11 @@ fn nested_hof_convergence() {
                 L3_AdjCtl_(H, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-                op(q);
-            }
             operation L3_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 L2_Empty_(op, q);
+            }
+            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
             }
             operation L2_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L1_Empty_(op, q);
@@ -353,11 +353,11 @@ fn nested_hof_convergence() {
                 L3_AdjCtl__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-                op(q);
-            }
             operation L3_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 L2_Empty_(op, q);
+            }
+            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
             }
             operation L2_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L1_Empty_(op, q);
@@ -476,11 +476,11 @@ fn nested_hof_controlled_forwarding() {
                 Outer_AdjCtl_(X, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation Outer_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                Inner_Ctl_(op, q);
-            }
             operation Inner_Ctl_(op : (Qubit => Unit is Ctl), q : Qubit) : Unit {
                 op(q);
+            }
+            operation Outer_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                Inner_Ctl_(op, q);
             }
             // entry
             Main()
@@ -497,11 +497,11 @@ fn nested_hof_controlled_forwarding() {
                 Outer_AdjCtl__X_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation Outer_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                Inner_Ctl_(op, q);
-            }
             operation Inner_Ctl_(op : (Qubit => Unit is Ctl), q : Qubit) : Unit {
                 op(q);
+            }
+            operation Outer_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                Inner_Ctl_(op, q);
             }
             operation Outer_AdjCtl__X_(q : Qubit) : Unit {
                 Inner_Ctl__X_(q);
@@ -557,11 +557,11 @@ fn nested_hof_four_levels() {
                 L4_AdjCtl_(H, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-                op(q);
-            }
             operation L3_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L2_Empty_(op, q);
+            }
+            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
             }
             operation L2_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L1_Empty_(op, q);
@@ -590,11 +590,11 @@ fn nested_hof_four_levels() {
                 L4_AdjCtl__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-                op(q);
-            }
             operation L3_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L2_Empty_(op, q);
+            }
+            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
             }
             operation L2_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L1_Empty_(op, q);
@@ -960,11 +960,11 @@ fn five_level_hof_chain_converges_at_max_iterations_boundary() {
                 L5_AdjCtl_(H, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-                op(q);
-            }
             operation L3_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L2_Empty_(op, q);
+            }
+            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
             }
             operation L2_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L1_Empty_(op, q);
@@ -999,11 +999,11 @@ fn five_level_hof_chain_converges_at_max_iterations_boundary() {
                 L5_AdjCtl__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-                op(q);
-            }
             operation L3_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L2_Empty_(op, q);
+            }
+            operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
             }
             operation L2_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 L1_Empty_(op, q);
@@ -1082,14 +1082,14 @@ fn transient_dynamic_resolves_after_outer_hof_specialization() {
                 ApplyOuter_Empty__AdjCtl_(ApplyMiddle_Empty_, H, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation ApplyInner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-                op(q);
-            }
             operation ApplyOuter_Empty__AdjCtl_(action : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 action(op, q);
             }
             operation ApplyMiddle_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 ApplyInner_Empty_(op, q);
+            }
+            operation ApplyInner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
             }
             // entry
             Main()
@@ -1109,14 +1109,14 @@ fn transient_dynamic_resolves_after_outer_hof_specialization() {
                 ApplyOuter_Empty__AdjCtl__ApplyMiddle_Empty___H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation ApplyInner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-                op(q);
-            }
             operation ApplyOuter_Empty__AdjCtl_(action : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 action(op, q);
             }
             operation ApplyMiddle_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 ApplyInner_Empty_(op, q);
+            }
+            operation ApplyInner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
             }
             operation ApplyOuter_Empty__AdjCtl__ApplyMiddle_Empty___H_(q : Qubit) : Unit {
                 ApplyMiddle_Empty__H_(q);

@@ -49,6 +49,8 @@ _GATE_MAP: list[tuple[QirInstructionId, int, int]] = [
 
 _MEAS_MAP: list[tuple[QirInstructionId, int]] = [
     (QirInstructionId.M, ids.MEAS_Z),
+    (QirInstructionId.MX, ids.MEAS_X),
+    (QirInstructionId.MY, ids.MEAS_Y),
     (QirInstructionId.MZ, ids.MEAS_Z),
     (QirInstructionId.MResetZ, ids.MEAS_RESET_Z),
 ]

@@ -14,7 +14,7 @@ use pyo3::{
     types::{PyDict, PyList},
 };
 use qdk_simulators::gpu_context;
-use qdk_simulators::shader_types::Op;
+use qdk_simulators::shader_types::{Op, ops};
 
 use std::sync::Mutex;
 
@@ -449,7 +449,11 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
             }
         },
         QirInstruction::TwoQubitGate(id, control, target) => match id {
-            QirInstructionId::M | QirInstructionId::MZ => Op::new_mz_gate(*control, *target),
+            QirInstructionId::M | QirInstructionId::MZ => {
+                Op::new_m_pauli_gate(ops::MZ, *control, *target)
+            }
+            QirInstructionId::MX => Op::new_m_pauli_gate(ops::MX, *control, *target),
+            QirInstructionId::MY => Op::new_m_pauli_gate(ops::MY, *control, *target),
             QirInstructionId::MResetZ => Op::new_mresetz_gate(*control, *target),
             QirInstructionId::CX | QirInstructionId::CNOT => Op::new_cx_gate(*control, *target),
             QirInstructionId::CY => Op::new_cy_gate(*control, *target),

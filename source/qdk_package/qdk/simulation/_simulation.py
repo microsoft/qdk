@@ -221,6 +221,22 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                     pyqir.ptr_id(call.args[1]),
                 )
             )
+        elif callee_name == "__quantum__qis__mx__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MX,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                )
+            )
+        elif callee_name == "__quantum__qis__my__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MY,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                )
+            )
         elif callee_name == "__quantum__qis__mz__body":
             self.gates.append(
                 (

@@ -127,6 +127,48 @@ operation CheckZero(qubit : Qubit) : Bool {
 }
 
 /// # Summary
+/// Checks whether a qubit is in the |+⟩ state, returning true if it is.
+///
+/// # Description
+/// This operation checks whether a qubit is in the |+⟩ state. It will return true only
+/// if the qubit is deterministically in the |+⟩ state, and will return false otherwise. This operation
+/// does not change the state of the qubit.
+///
+/// # Input
+/// ## qubit
+/// The qubit to check.
+/// # Output
+/// True if the qubit is in the |+⟩ state, false otherwise.
+///
+/// # Remarks
+/// This operation is useful for checking whether a qubit is in the |+⟩ state during simulation. It is not possible to check
+/// this on hardware without measuring the qubit, which could change the state.
+operation CheckPlus(qubit : Qubit) : Bool {
+    body intrinsic;
+}
+
+/// # Summary
+/// Checks whether a qubit is in the |i⟩ state, returning true if it is.
+///
+/// # Description
+/// This operation checks whether a qubit is in the |i⟩ state. It will return true only
+/// if the qubit is deterministically in the |i⟩ state, and will return false otherwise. This operation
+/// does not change the state of the qubit.
+///
+/// # Input
+/// ## qubit
+/// The qubit to check.
+/// # Output
+/// True if the qubit is in the |i⟩ state, false otherwise.
+///
+/// # Remarks
+/// This operation is useful for checking whether a qubit is in the |i⟩ state during simulation. It is not possible to check
+/// this on hardware without measuring the qubit, which could change the state.
+operation CheckPlusI(qubit : Qubit) : Bool {
+    body intrinsic;
+}
+
+/// # Summary
 /// Checks whether all qubits in the provided array are in the |0⟩ state. Returns true if they are.
 ///
 /// # Description
@@ -485,6 +527,8 @@ export
     DumpRegister,
     DumpOperation,
     CheckZero,
+    CheckPlus,
+    CheckPlusI,
     CheckAllZero,
     Fact,
     CheckOperationsAreEqual,

@@ -190,7 +190,8 @@ _TWO_QUBIT_ROTATIONS: Dict[int, str] = {
     GATE_MAP[name]: name for name in ("rxx", "ryy", "rzz")
 }
 
-_MEASURE_OPS: Dict[int, str] = {GATE_MAP["mz"]: "mz", GATE_MAP["mresetz"]: "mresetz"}
+_MEASURE_OPS: Dict[int, str] = {GATE_MAP["mx"]: "mx", GATE_MAP["my"]: "my", 
+                                GATE_MAP["mz"]: "mz",  GATE_MAP["mresetz"]: "mresetz"}
 
 _RESET_OPS: Dict[int, str] = {GATE_MAP["reset"]: "resetz"}
 

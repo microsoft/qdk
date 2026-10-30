@@ -985,3 +985,34 @@ fn source_locations_for_groups() {
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
 }
+
+#[test]
+fn measurement_name_is_preserved() {
+    let c = FakeCompilation::default();
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: usize::MAX,
+            max_loop_iterations: None,
+            source_locations: false,
+            group_by_scope: false,
+            prune_classical_qubits: false,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+    builder.measure(&[], "MX", 0, &0.into());
+
+    let circuit = builder.finish(&c);
+    let measurement = circuit
+        .component_grid
+        .iter()
+        .flat_map(|column| &column.components)
+        .find_map(|operation| match operation {
+            Operation::Measurement(measurement) => Some(measurement),
+            Operation::Unitary(_) | Operation::Ket(_) => None,
+        })
+        .expect("expected a measurement operation");
+
+    assert_eq!(measurement.gate, "MX");
+}

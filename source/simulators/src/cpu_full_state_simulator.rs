@@ -12,6 +12,7 @@ use nalgebra::Complex;
 use noisy_simulator::{
     Instrument, NoisySimulator as _, Operation, StateVectorSimulator, operation,
 };
+use qsc_data_structures::measurement::OneQubitMeasurement;
 use rand::{RngExt, SeedableRng as _, rngs::StdRng};
 use std::sync::{Arc, LazyLock};
 
@@ -114,6 +115,27 @@ static SWAP: LazyLock<Operation> = LazyLock::new(|| {
                 0., 1., 0., 0.;
                 0., 0., 0., 1.;])
     .expect("operation should be valid")
+});
+
+static MX: LazyLock<Instrument> = LazyLock::new(|| {
+    let mx0 = operation!([0.5, 0.5;
+                                    0.5, 0.5;])
+    .expect("operation should be valid");
+    let mx1 = operation!([0.5, -0.5;
+                                    -0.5, 0.5;])
+    .expect("operation should be valid");
+    Instrument::new(vec![mx0, mx1]).expect("instrument should be valid")
+});
+
+static MY: LazyLock<Instrument> = LazyLock::new(|| {
+    let i = Complex::I;
+    let my0 = operation!([0.5, -i * 0.5;
+                                    i * 0.5, 0.5;])
+    .expect("operation should be valid");
+    let my1 = operation!([0.5, i * 0.5;
+                                    -i * 0.5, 0.5;])
+    .expect("operation should be valid");
+    Instrument::new(vec![my0, my1]).expect("instrument should be valid")
 });
 
 static MZ: LazyLock<Instrument> = LazyLock::new(|| {
@@ -414,9 +436,13 @@ impl FullStateSimulator {
             .expect("apply_operation should succeed");
     }
 
-    /// Records a z-measurement on the given `target`.
-    fn record_mz(&mut self, target: QubitID, result_id: ResultID) {
-        let measurement = self.mz_impl(target);
+    /// Records a measurement in the specified Pauli basis on the given `target`.
+    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: OneQubitMeasurement) {
+        let measurement = match pauli {
+            OneQubitMeasurement::X => self.m_pauli_impl(target, &MX),
+            OneQubitMeasurement::Y => self.m_pauli_impl(target, &MY),
+            OneQubitMeasurement::Z => self.m_pauli_impl(target, &MZ),
+        };
         self.measurements[result_id] = measurement;
     }
 
@@ -426,17 +452,17 @@ impl FullStateSimulator {
         self.measurements[result_id] = measurement;
     }
 
-    /// Measures a Z observable on the given `target`.
-    fn mz_impl(&mut self, target: QubitID) -> MeasurementResult {
+    /// Measures an X observable on the given `target`.
+    fn m_pauli_impl(&mut self, target: QubitID, instrument: &Instrument) -> MeasurementResult {
         if self.loss[target] {
             self.loss[target] = false;
             return MeasurementResult::Loss;
         }
 
-        // MZ on `target`.
+        // Instrument on `target`.
         let r = self
             .state
-            .apply_instrument(&MZ, &[target])
+            .sample_instrument(instrument, &[target])
             .expect("apply_instrument should succeed");
 
         if r == 1 {
@@ -622,9 +648,15 @@ impl Simulator for FullStateSimulator {
         self.apply_noise(|config| &config.swap, &[q1, q2]);
     }
 
-    fn mz(&mut self, target: QubitID, result_id: ResultID) {
+    fn measure_single_pauli(
+        &mut self,
+        pauli: OneQubitMeasurement,
+        target: QubitID,
+        result_id: ResultID,
+    ) {
+        // todo!("Change noise type when new noise is configured")
         self.apply_idle_noise(target);
-        self.record_mz(target, result_id);
+        self.record_m_pauli(target, result_id, pauli);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 

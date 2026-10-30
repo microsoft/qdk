@@ -48,8 +48,12 @@ impl Backend for CustomSim {
         self.sim.h(q)
     }
 
-    fn m(&mut self, q: usize) -> Result<val::Result, String> {
-        self.sim.m(q)
+    fn measure_single_pauli(
+        &mut self,
+        pauli: qsc_data_structures::measurement::OneQubitMeasurement,
+        q: usize,
+    ) -> Result<val::Result, String> {
+        self.sim.measure_single_pauli(pauli, q)
     }
 
     fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
@@ -1558,6 +1562,59 @@ fn m() {
             res2
         }"#},
         &expect!["(One, false)"],
+    );
+}
+
+#[test]
+fn mx() {
+    check_intrinsic_result(
+        "",
+        indoc! {r#"{
+            use q = Qubit();
+            if not Microsoft.Quantum.Diagnostics.CheckZero(q) {
+                fail "Qubit should be in zero state.";
+            }
+            H(q);
+            let res1 = QIR.Intrinsic.__quantum__qis__mx__body(q);
+            if One == res1 {
+                fail "Qubit should measure Zero"
+            }
+            if not Microsoft.Quantum.Diagnostics.CheckPlus(q) {
+                fail "Qubit should be in |+> state.";
+            }
+            Z(q);
+            let res2 = (QIR.Intrinsic.__quantum__qis__mx__body(q), Microsoft.Quantum.Diagnostics.CheckPlus(q));
+            Reset(q);
+            res2
+        }"#},
+        &expect!["simulation error: qubit_is_plus operation not implemented"],
+    );
+}
+
+#[test]
+fn my() {
+    check_intrinsic_result(
+        "",
+        indoc! {r#"{
+            use q = Qubit();
+            if not Microsoft.Quantum.Diagnostics.CheckZero(q) {
+                fail "Qubit should be in zero state.";
+            }
+            H(q);
+            S(q);
+            let res1 = QIR.Intrinsic.__quantum__qis__my__body(q);
+            if One == res1 {
+                fail "Qubit should measure Zero"
+            }
+            if not Microsoft.Quantum.Diagnostics.CheckPlusI(q) {
+                fail "Qubit should be in |+i> state.";
+            }
+            Z(q);
+            let res2 = (QIR.Intrinsic.__quantum__qis__my__body(q), Microsoft.Quantum.Diagnostics.CheckPlusI(q));
+            Reset(q);
+            res2
+        }"#},
+        &expect!["simulation error: qubit_is_plus_i operation not implemented"],
     );
 }
 
