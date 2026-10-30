@@ -6,6 +6,185 @@ use super::{
     qir_entry_body,
 };
 use expect_test::expect;
+use std::fmt::Write;
+
+#[test]
+fn effectful_call_preserves_constant_allocation_size_and_runs_once() {
+    let source = r#"
+        operation Prep(q : Qubit) : Int {
+            X(q);
+            3
+        }
+        operation Main() : (Int, Result[]) {
+            use q = Qubit();
+            let n = Prep(q);
+            use qs = Qubit[n];
+            for x in qs { X(x); }
+            let rs = MResetEachZ(qs);
+            (n + (MResetZ(q) == One ? 10 | 0), rs)
+        }
+        operation Expected() : (Int, Result[]) {
+            use q = Qubit();
+            Prep(q);
+            use qs = Qubit[3];
+            for x in qs { X(x); }
+            let rs = MResetEachZ(qs);
+            (3 + (MResetZ(q) == One ? 10 | 0), rs)
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Tuple(
+                vec![
+                    Value::Int(13),
+                    Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 3].into()),
+                ]
+                .into(),
+                None,
+            ),
+        );
+        let expected = interpreter.qirgen("Expected()").expect("literal-size QIR");
+        let qir = interpreter.qirgen("Main()").expect("call-result-size QIR");
+        assert_eq!(qir, expected, "{profile:?}");
+        if profile == Profile::Adaptive {
+            assert_eq!(qir.matches("call i64 @Prep(").count(), 1, "{qir}");
+            assert!(qir.contains("ret i64 3"), "{qir}");
+        }
+        let target = eval_fragments(&mut interpreter, "Main");
+        assert_eq!(
+            interpreter
+                .qirgen_from_callable(&target, Value::unit())
+                .expect("runtime call-result-size QIR"),
+            expected,
+            "{profile:?}",
+        );
+    }
+}
+
+#[test]
+fn effectful_bool_call_keeps_shared_body_and_known_true_output() {
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+        operation Flag(q : Qubit) : Bool { X(q); true }
+        operation Main() : (Bool, Result) {
+            use q = Qubit();
+            let flag = Flag(q);
+            (flag, MResetZ(q))
+        }
+        "#,
+    );
+    let qir = interpreter.qirgen("Main()").expect("known Bool QIR");
+    assert_eq!(qir.matches("call zeroext i1 @Flag(").count(), 1, "{qir}");
+    assert_eq!(qir.matches("call void @X(").count(), 1, "{qir}");
+    assert!(qir.contains("ret i1 true"), "{qir}");
+    assert!(qir.contains("bool_record_output(i1 zeroext true,"), "{qir}");
+    let target = eval_fragments(&mut interpreter, "Main");
+    assert_eq!(
+        interpreter
+            .qirgen_from_callable(&target, Value::unit())
+            .expect("runtime QIR"),
+        qir
+    );
+}
+
+#[test]
+fn effectful_double_call_keeps_shared_body_and_known_output() {
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+        operation Angle(q : Qubit) : Double { X(q); 1.5 }
+        operation Main() : (Double, Result) {
+            use q = Qubit();
+            let angle = Angle(q);
+            (angle, MResetZ(q))
+        }
+        "#,
+    );
+    let qir = interpreter.qirgen("Main()").expect("known Double QIR");
+    assert_eq!(qir.matches("call double @Angle(").count(), 1, "{qir}");
+    assert_eq!(qir.matches("call void @X(").count(), 1, "{qir}");
+    assert!(qir.contains("ret double 1.5"), "{qir}");
+    assert!(qir.contains("double_record_output(double 1.5,"), "{qir}");
+    let target = eval_fragments(&mut interpreter, "Main");
+    assert_eq!(
+        interpreter
+            .qirgen_from_callable(&target, Value::unit())
+            .expect("runtime QIR"),
+        qir
+    );
+}
+
+#[test]
+fn repeated_constant_returning_calls_share_effects_without_expanding_the_call_graph() {
+    let mut source = String::from("operation Level0(q : Qubit) : Int { X(q); 3 }\n");
+    for level in 1..=8 {
+        let previous = level - 1;
+        writeln!(
+            source,
+            "operation Level{level}(q : Qubit) : Int {{ Level{previous}(q); Level{previous}(q); 3 }}"
+        )
+        .expect("writing to a String succeeds");
+    }
+    source.push_str(
+        "operation Main() : (Int, Result) { use q = Qubit(); let n = Level8(q); (n, MResetZ(q)) }",
+    );
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, &source);
+    let qir = interpreter.qirgen("Main()").expect("shared call graph QIR");
+    assert_eq!(qir.matches("call void @X(").count(), 1, "{qir}");
+    for level in 0..8 {
+        assert_eq!(
+            qir.matches(&format!("call i64 @Level{level}(")).count(),
+            2,
+            "{qir}",
+        );
+    }
+    assert!(qir.contains("int_record_output(i64 3,"), "{qir}");
+    let target = eval_fragments(&mut interpreter, "Main");
+    assert_eq!(
+        interpreter
+            .qirgen_from_callable(&target, Value::unit())
+            .expect("runtime QIR"),
+        qir
+    );
+}
+
+#[test]
+fn argument_dependent_results_remain_distinct_across_effectful_calls() {
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+        operation Echo(value : Int, q : Qubit) : Int { X(q); value }
+        operation Main() : (Int, Int, Result) {
+            use q = Qubit();
+            let first = Echo(2, q);
+            let second = Echo(5, q);
+            (first, second, MResetZ(q))
+        }
+        "#,
+    );
+    let qir = interpreter
+        .qirgen("Main()")
+        .expect("argument-dependent QIR");
+    assert!(qir.contains("int_record_output(i64 2,"), "{qir}");
+    assert!(qir.contains("int_record_output(i64 5,"), "{qir}");
+    assert_eq!(qir.matches("call void @X(").count(), 2, "{qir}");
+    assert!(!qir.contains("@Echo("), "{qir}");
+    let target = eval_fragments(&mut interpreter, "Main");
+    assert_eq!(
+        interpreter
+            .qirgen_from_callable(&target, Value::unit())
+            .expect("runtime QIR"),
+        qir
+    );
+}
 
 #[test]
 fn loop_condition_tuple_shift_preserves_measurement_selected_output() {

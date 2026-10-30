@@ -672,8 +672,24 @@ impl<'a> Analyzer<'a> {
         callable_decl: &'a CallableDecl,
         arg_compute_kinds: &[ComputeKind],
         compute_kind: &mut ComputeKind,
-        ir_function_compute_kind: ComputeKind,
+        mut ir_function_compute_kind: ComputeKind,
     ) -> bool {
+        let scalar_output = matches!(
+            callable_decl.output,
+            Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
+        );
+        let constant_ir_output =
+            scalar_output && !ir_function_compute_kind.is_variable_value_kind();
+
+        // Inline only when promoting the arguments would lose a known scalar result.
+        // Parameter-independent constants can cross an IR-call boundary without expanding effects.
+        if scalar_output && !compute_kind.is_variable_value_kind() && !constant_ir_output {
+            return true;
+        }
+        if !constant_ir_output && !matches!(ir_function_compute_kind, ComputeKind::Static) {
+            ir_function_compute_kind.set_variable_value_kind();
+        }
+
         // We should not try to emit the body of a function that has all static or constant arguments as an IR function.
         // These can be fully computed at partial eval time, and may contribute unnecessary advanced runtime features to the program.
         // We do emit operations, as those may have side effects separate from their capabilities, such as gate calls.

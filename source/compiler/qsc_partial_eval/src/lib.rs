@@ -198,6 +198,8 @@ struct PartialEvaluator<'a> {
     /// generated from. Distinct control counts (e.g. `Controlled` with 1 vs 3 controls) collapse to
     /// the same `FunctorSetValue` and therefore share a single emitted callable.
     ir_function_callables: FxHashMap<(StoreItemId, FunctorSetValue), CallableId>,
+    /// Scalar results proven constant while emitting the body with runtime parameters.
+    ir_function_constant_outputs: FxHashMap<CallableId, Value>,
     /// Every QIR symbol name already assigned to an emitted IR function. Each callable
     /// specialization is resolved exactly once, so the first identity to claim a given bare name
     /// keeps it and any later collider is given a deterministic discriminating suffix. This keeps
@@ -321,6 +323,7 @@ impl<'a> PartialEvaluator<'a> {
             backend: QuantumIntrinsicsChecker::default(),
             callables_map: FxHashMap::default(),
             ir_function_callables: FxHashMap::default(),
+            ir_function_constant_outputs: FxHashMap::default(),
             emitted_names: FxHashSet::default(),
             entry_callable_item: resolve_entry_callable_item(package_store, entry),
             ir_function_emission_depth: 0,
@@ -2360,7 +2363,8 @@ impl<'a> PartialEvaluator<'a> {
     /// Emits an eligible specialization as a QIR "IR function": a `Regular` RIR callable
     /// with a body, evaluated once with its parameters threaded as RIR variable operands, and
     /// deduplicated per `(StoreItemId, FunctorSetValue)`. At the call site an `Instruction::Call` to
-    /// the emitted callable is generated instead of inlining the body.
+    /// the emitted callable is generated instead of inlining the body. A scalar result proven
+    /// constant with runtime parameters is also retained for the caller's partial evaluation.
     fn eval_expr_call_to_ir_function(
         &mut self,
         store_item_id: StoreItemId,
@@ -2398,6 +2402,12 @@ impl<'a> PartialEvaluator<'a> {
         let instruction =
             Instruction::Call(callable_id, arg_operands.to_vec(), output_var, metadata);
         self.get_current_rir_block_mut().0.push(instruction);
+
+        // The call still runs its effects. Only the result can be replaced, and only with a
+        // constant obtained from the shared body, never from a particular call's arguments.
+        if let Some(value) = self.ir_function_constant_outputs.get(&callable_id) {
+            return Ok(value.clone());
+        }
 
         let ret_val = match output_var {
             None => Value::unit(),
@@ -2569,6 +2579,14 @@ impl<'a> PartialEvaluator<'a> {
         let eval_result = self.try_eval_block(spec_decl.block);
         self.ir_function_emission_depth -= 1;
         let body_value = eval_result?.into_value();
+
+        if matches!(
+            body_value,
+            Value::Int(_) | Value::Double(_) | Value::Bool(_)
+        ) {
+            self.ir_function_constant_outputs
+                .insert(callable_id, body_value.clone());
+        }
 
         // Terminate the function's final block. VOID (Unit-returning) IR functions emit a value-less
         // `Return`; scalar-returning IR functions materialize the trailing body value as the return

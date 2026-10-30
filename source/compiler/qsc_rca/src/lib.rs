@@ -401,7 +401,8 @@ impl ApplicationGeneratorSet {
 
     /// Generates the compute kind of a call assuming the callee is emitted as an IR function, in which case all
     /// arguments are considered dynamic and variable. This helps understand when emitting an IR function uses different
-    /// capabilities compared to inlining it.
+    /// capabilities compared to inlining it. Retain the inferred result kind so callers can distinguish
+    /// parameter-independent constants from values that require runtime return variables.
     #[must_use]
     pub fn generate_ir_function_application_compute_kind(&self) -> ComputeKind {
         let mut compute_kind = self.inherent;
@@ -414,9 +415,6 @@ impl ApplicationGeneratorSet {
                     compute_kind.aggregate(array_param_application.dynamic_size);
                 }
             }
-        }
-        if !matches!(compute_kind, ComputeKind::Static) {
-            compute_kind.set_variable_value_kind();
         }
         compute_kind
     }
