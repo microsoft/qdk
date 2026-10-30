@@ -576,6 +576,18 @@ class TestYokedSurfaceCode:
         isas = list(sc.provided_isa(ctx.isa, ctx))
         return isas[0], ctx
 
+    def test_square_shape(self):
+        """Memory uses a padded near-square grid with yoke boundaries."""
+        for num_qubits, shape in [
+            (1, (3, 3)),
+            (2, (4, 3)),
+            (382, (22, 22)),
+            (431, (23, 23)),
+            (441, (23, 23)),
+            (442, (24, 23)),
+        ]:
+            assert TwoDimensionalYokedSurfaceCode._square_shape(num_qubits) == shape
+
     def test_provides_memory_instruction(self):
         """Test that YokedSurfaceCode provides a MEMORY instruction."""
         ls_isa, ctx = self._get_lattice_surgery_isa()
