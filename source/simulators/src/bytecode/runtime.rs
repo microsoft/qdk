@@ -332,10 +332,12 @@ fn dispatch_reset<S: Simulator>(
 // Main interpreter entry point
 // ---------------------------------------------------------------------------
 
+/// Runs a single shot of `program` on `sim` and returns the recorded outputs.
+///
+/// The interpreter runs until the program returns; a program that never
+/// returns will not terminate.
 #[allow(clippy::too_many_lines)]
 pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Vec<OutputRecord> {
-    const MAX_STEPS: u64 = 10_000_000;
-
     let entry_pc = program.block_table[program.entry_block as usize].instr_offset;
     let mut rt = Runtime::new(
         program.num_registers,
@@ -347,7 +349,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
     // Output records captured during this shot, in execution order.
     let mut records: Vec<OutputRecord> = Vec::new();
 
-    for _ in 0..MAX_STEPS {
+    loop {
         let instr = program.instructions[rt.pc as usize];
         let op = instr.primary_opcode();
         let subcode = instr.sub_opcode();
@@ -358,7 +360,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
 
             OP_RET => {
                 rt.exit_code = rt.resolve_u64(instr.dst, flags, 2);
-                break;
+                return records;
             }
 
             OP_JUMP => {
@@ -841,8 +843,6 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
             _ => panic!("unsupported opcode 0x{op:02X} at pc={}", rt.pc),
         }
     }
-
-    records
 }
 
 fn block_pc(program: &AdaptiveProgram<u64>, block_id: u64) -> u64 {
