@@ -576,6 +576,45 @@ class TestYokedSurfaceCode:
         isas = list(sc.provided_isa(ctx.isa, ctx))
         return isas[0], ctx
 
+    def test_square_shape(self):
+        """Memory uses a padded near-square grid with yoke boundaries."""
+        expected_shapes = {
+            1: (3, 3),
+            2: (4, 3),
+            3: (4, 4),
+            4: (4, 4),
+            6: (5, 4),
+            17: (7, 6),
+            382: (22, 22),
+            431: (23, 23),
+            441: (23, 23),
+            442: (24, 23),
+            10**16 + 1: (100000003, 100000002),
+        }
+        for num_qubits, shape in expected_shapes.items():
+            assert TwoDimensionalYokedSurfaceCode._square_shape(num_qubits) == shape
+
+        previous_patches = 0
+        for num_qubits in range(1, 1025):
+            rows, columns = TwoDimensionalYokedSurfaceCode._square_shape(num_qubits)
+            a, b = rows - 2, columns - 2
+            assert 1 <= b <= a <= b + 1
+            assert (a - 1) ** 2 < num_qubits <= a**2
+            assert a * (b - 1) < num_qubits <= a * b
+            assert rows * columns >= previous_patches
+            previous_patches = rows * columns
+
+        # 431 is prime; exact factorization previously gave a 3 x 433 strip.
+        distance = 5
+        ls_isa, ctx = self._get_lattice_surgery_isa(distance=distance)
+        ysc = TwoDimensionalYokedSurfaceCode()
+        mem = list(ysc.provided_isa(ls_isa, ctx))[0][MEMORY]
+        lattice_surgery = ls_isa[LATTICE_SURGERY]
+        assert mem.expect_space(431) == lattice_surgery.expect_space(23 * 23)
+        assert mem.expect_time(431) == lattice_surgery.expect_time(23 * 23) * (
+            8 * distance * 21 + 2 * distance
+        )
+
     def test_provides_memory_instruction(self):
         """Test that YokedSurfaceCode provides a MEMORY instruction."""
         ls_isa, ctx = self._get_lattice_surgery_isa()

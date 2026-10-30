@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from dataclasses import dataclass
-from math import ceil
+from math import ceil, isqrt
 from typing import Generator
 
 from ..._instruction import ISATransform, constraint, LOGICAL
@@ -141,6 +141,10 @@ class TwoDimensionalYokedSurfaceCode(ISATransform):
     instruction based on lattice surgery instructions from a surface code like
     error correction code.
 
+    Memory qubits occupy a near-square grid, padded with unused patches when
+    necessary, with two additional rows and columns for the yoke boundaries.
+    Space, time, and logical error estimates include these padded patches.
+
     Attributes:
         crossing_prefactor: float
             The prefactor for logical error rate (Default is 0.016)
@@ -232,12 +236,14 @@ class TwoDimensionalYokedSurfaceCode(ISATransform):
     @staticmethod
     def _square_shape(num_qubits: int) -> tuple[int, int]:
         """
-        Given a number of qubits num_qubits, returns numbers (a + 2) and (b + 2)
-        such that a * b >= num_qubits and a and b are as close as possible.
+        For a positive number of qubits, return (a + 2, b + 2), including
+        yoke boundaries. The inner grid has a * b >= num_qubits and
+        b <= a <= b + 1. Choose the smallest possible longest side a, then
+        the smallest b that provides enough capacity; unused patches are padding.
         """
 
-        a = int(num_qubits**0.5)
-        while num_qubits % a != 0:
-            a -= 1
-        b = num_qubits // a
+        a = isqrt(num_qubits)
+        if a * a < num_qubits:
+            a += 1
+        b = (num_qubits + a - 1) // a
         return a + 2, b + 2
