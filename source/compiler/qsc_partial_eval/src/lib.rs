@@ -1695,7 +1695,7 @@ impl<'a> PartialEvaluator<'a> {
                     let has_static_qubit_layout = self
                         .ir_function_qubit_layouts
                         .get(&(store_item_id.package, spec_decl.block))
-                        .is_some_and(|layout| layout.is_some_and(|count| count > 0));
+                        .is_some_and(Option::is_some);
                     let has_known_input = args.iter().any(|arg| {
                         let value = arg.value();
                         is_static_value(value) && !matches!(value, Value::Qubit(_))
@@ -2403,7 +2403,7 @@ impl<'a> PartialEvaluator<'a> {
         let safe = ir_function_resources_are_safe(
             self.package_store,
             root,
-            dynamic_qubits || qubit_layout.is_some_and(|count| count > 0),
+            dynamic_qubits || qubit_layout.is_some(),
             has_result_parameters,
         );
         self.ir_function_resource_safety.insert(root, safe);
@@ -5527,6 +5527,7 @@ fn functor_app_to_functor_set_value(functor_app: FunctorApp) -> FunctorSetValue 
 /// The largest local layout seeds a reservation that grows for simultaneous inline leases.
 /// Independently emitted bodies receive separate reservations.
 /// Conditional paths and loop iterations must preserve incoming leases and release their locals.
+/// Nonallocating call graphs need no layout; empty allocations can prove a zero-sized layout.
 fn ir_function_qubit_layout(store: &PackageStore, root: (PackageId, BlockId)) -> Option<usize> {
     use qsc_fir::visit::Visitor;
 
@@ -5582,8 +5583,8 @@ fn ir_function_qubit_layout(store: &PackageStore, root: (PackageId, BlockId)) ->
         }
         edges.insert(body, callees);
     }
-    // Keep acyclic allocation on its existing inline path. Only an owner that can
-    // actually re-enter needs the new permanent-storage exception.
+    // Keep nonallocating recursion and acyclic allocation on their existing paths.
+    // Only recursive owners with reachable allocations need the storage exception.
     let mut pending = edges[&root].clone();
     let mut seen = FxHashSet::default();
     while let Some(body) = pending.pop() {
@@ -5591,7 +5592,7 @@ fn ir_function_qubit_layout(store: &PackageStore, root: (PackageId, BlockId)) ->
             pending.extend(&edges[&body]);
         }
     }
-    if !seen.contains(&root) {
+    if allocating_bodies.is_empty() || !seen.contains(&root) {
         return None;
     }
     loop {

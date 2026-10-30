@@ -443,6 +443,28 @@ def test_nested_tuple_swap_with_discard_in_recursive_helper(
     check_result(source, qsharp.TargetProfile.Adaptive, expected)
 
 
+@pytest.mark.parametrize("depth,expected", [(0, 0), (2, 0), (3, 1)])
+def test_empty_local_qubit_array_preserves_runtime_recursion(
+    depth: int, expected: int
+) -> None:
+    source = f"""
+        operation Rec(n : Int, flag : Qubit, target : Qubit) : Unit {{
+            if n > 0 {{
+                {{ use empty = Qubit[0]; }}
+                X(target);
+                if MResetZ(flag) == Zero {{ Rec(n - 1, flag, target); }}
+            }}
+        }}
+        operation Main() : Int {{
+            use (flag, target) = (Qubit(), Qubit());
+            let depth = if MResetZ(flag) == Zero {{ {depth} }} else {{ 0 }};
+            Rec(depth, flag, target);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    """
+    check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
 @pytest.mark.parametrize("depth,expected", [(1, 1), (2, 0)])
 def test_conditional_local_qubit_is_released_before_recursive_call(
     depth: int, expected: int

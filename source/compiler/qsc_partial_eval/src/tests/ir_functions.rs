@@ -245,6 +245,54 @@ fn finite_recursion_with_released_local_qubit_keeps_computed_integer_constant() 
 }
 
 #[test]
+fn finite_recursion_with_empty_local_qubit_array_keeps_array_size_known() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, target : Qubit) : Unit {
+            { use empty = Qubit[0]; }
+            if n > 0 {
+                if MResetZ(target) == Zero { Rec(n - 1, target); }
+            }
+            let values = [true, size = n];
+            if Length(values) == 2 { X(target); }
+        }
+        operation Main() : Result {
+            use target = Qubit();
+            Rec(2, target);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 1);
+    assert_eq!(program.num_results, 3);
+    assert_eq!(ir_function_names(&program), ["X"]);
+}
+
+#[test]
+fn runtime_recursion_with_empty_local_qubit_array_is_emitted_without_extra_qubits() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, flag : Qubit, target : Qubit) : Unit {
+            if n > 0 {
+                { use empty = Qubit[0]; }
+                X(target);
+                if MResetZ(flag) == Zero { Rec(n - 1, flag, target); }
+            }
+        }
+        operation Main() : Result {
+            use (flag, target) = (Qubit(), Qubit());
+            let depth = if MResetZ(flag) == Zero { 3 } else { 0 };
+            Rec(depth, flag, target);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_eq!(ir_function_names(&program), ["Rec", "X"]);
+}
+
+#[test]
 fn runtime_depth_recursion_reuses_released_local_qubit_isolated_from_entry_qubits() {
     let source = r#"
         namespace Test {
