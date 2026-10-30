@@ -925,7 +925,7 @@ pub mod qir {
                         self.infer_value(&item, value);
                     }
                 }
-                Value::Global(id, functor) => {
+                Value::Global(id, functor, _) => {
                     let info = self.callables.get(id).expect("runtime callable type");
                     let ty = self.fresh_type(&info.ty, &info.generics);
                     self.infer_callable(expected, &runtime_callable_ty(ty, *functor));
@@ -1752,7 +1752,7 @@ pub mod qir {
             Value::String(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::String)),
             Value::Tuple(_, _)
             | Value::Array(_)
-            | Value::Global(_, _)
+            | Value::Global(..)
             | Value::Closure(_)
             | Value::Var(_) => None,
         }
@@ -1890,7 +1890,7 @@ pub mod qir {
                     qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Range),
                 )
             }
-            Value::Global(id, functor) => {
+            Value::Global(id, functor, _) => {
                 return lower_global_to_expr(
                     package,
                     assigner,
@@ -2383,7 +2383,7 @@ pub mod qir {
                     .iter()
                     .for_each(|value| collect_concrete_qsharp_callables(value, callables));
             }
-            Value::Global(store_item_id, _) => {
+            Value::Global(store_item_id, _, _) => {
                 if !callables.contains(store_item_id) {
                     callables.insert(*store_item_id);
                 }

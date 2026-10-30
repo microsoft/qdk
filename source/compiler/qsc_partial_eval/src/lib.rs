@@ -1410,8 +1410,8 @@ impl<'a> PartialEvaluator<'a> {
                     map_fir_package_span_to_hir(expr.span),
                     args,
                     *callable,
-                )
-                .map_err(Error::from)?;
+                    qsc_eval::callable::TypeArgs::Empty,
+                )?;
                 Ok(EvalControlFlow::Continue(
                     self.snapshot_closure_captures(closure, false),
                 ))
@@ -1654,7 +1654,7 @@ impl<'a> PartialEvaluator<'a> {
         // Get the callable.
         let (store_item_id, functor_app, fixed_args) = match callee_control_flow.into_value() {
             Value::Closure(inner) => (inner.id, inner.functor, Some(inner.fixed_args)),
-            Value::Global(id, functor) => (id, functor, None),
+            Value::Global(id, functor, _) => (id, functor, None),
             _ => panic!("value is not callable"),
         };
         let global = self
@@ -3029,6 +3029,7 @@ impl<'a> PartialEvaluator<'a> {
                     item: item.item,
                 },
                 FunctorApp::default(),
+                qsc_eval::callable::TypeArgs::Empty,
             ),
             Res::Local(local_var_id) => {
                 let bound_value = self
@@ -4379,7 +4380,7 @@ impl<'a> PartialEvaluator<'a> {
 
             Value::BigInt(_)
             | Value::Closure(_)
-            | Value::Global(_, _)
+            | Value::Global(..)
             | Value::Pauli(_)
             | Value::Qubit(_)
             | Value::Range(_)
@@ -5235,7 +5236,9 @@ fn eval_un_op_with_literals(un_op: UnOp, value: Value) -> Value {
                 }
                 .into(),
             ),
-            Value::Global(id, app) => Value::Global(id, update_functor_app(functor, app)),
+            Value::Global(id, app, type_args) => {
+                Value::Global(id, update_functor_app(functor, app), type_args)
+            }
             _ => panic!("value should be callable"),
         },
         UnOp::Pos | UnOp::Unwrap => value,

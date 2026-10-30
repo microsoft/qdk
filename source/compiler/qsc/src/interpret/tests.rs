@@ -125,6 +125,158 @@ mod given_interpreter {
         }
 
         #[test]
+        fn saved_generic_closure_preserves_body_only_type_context() {
+            use qsc_eval::callable::TypeArgs;
+            use qsc_fir::ty::{GenericArg, Prim, Ty};
+
+            let mut interpreter = get_interpreter();
+            let (result, _) = line(
+                &mut interpreter,
+                "function Save<'T>(unused : 'T) : Unit -> Int {
+                    () -> { let values : 'T[] = []; 42 }
+                }
+                Save(1)",
+            );
+            let Value::Closure(closure) = result.expect("factory should evaluate") else {
+                panic!("expected closure");
+            };
+            assert!(closure.fixed_args.is_empty());
+            let TypeArgs::Bound(binding) = &closure.type_args else {
+                panic!("expected retained factory bindings");
+            };
+            assert_eq!(
+                binding.args.as_ref(),
+                &[GenericArg::Ty(Ty::Prim(Prim::Int))]
+            );
+            assert_ne!(binding.owner, closure.id);
+            assert_eq!(
+                closure.type_args.resolve_argument(
+                    qsc_fir::ty::ParamId::from(0),
+                    &mut qsc_eval::callable::TypeBudget::default(),
+                ),
+                Ok(GenericArg::Ty(Ty::Prim(Prim::Int))),
+            );
+        }
+
+        #[test]
+        fn nested_escaping_closure_retains_creator_type_context() {
+            use qsc_eval::callable::TypeArgs;
+            use qsc_fir::ty::{GenericArg, Prim, Ty};
+
+            let mut interpreter = get_interpreter();
+            let (result, _) = line(
+                &mut interpreter,
+                "function Save<'T>(unused : 'T) : Unit -> (Unit -> Int) {
+                    () -> { () -> { let values : 'T[] = []; 42 } }
+                }
+                Save(true)()",
+            );
+            let Value::Closure(closure) = result.expect("nested factory should evaluate") else {
+                panic!("expected closure");
+            };
+            let TypeArgs::Bound(binding) = &closure.type_args else {
+                panic!("expected retained lexical bindings");
+            };
+            assert_eq!(
+                binding.args.as_ref(),
+                &[GenericArg::Ty(Ty::Prim(Prim::Bool))]
+            );
+            let mut out = Cursor::new(Vec::new());
+            assert_eq!(
+                interpreter
+                    .invoke(
+                        &mut CursorReceiver::new(&mut out),
+                        Value::Closure(closure),
+                        Value::unit(),
+                    )
+                    .expect("escaped closure should execute"),
+                Value::Int(42),
+            );
+        }
+
+        #[test]
+        fn forwarding_generic_factory_preserves_scoped_templates() {
+            use qsc_eval::callable::TypeArgs;
+            use qsc_fir::ty::{GenericArg, ParamId, Prim, Ty};
+
+            let mut interpreter = get_interpreter();
+            let (result, _) = line(
+                &mut interpreter,
+                "function Save<'T>(unused : 'T) : Unit -> Int {
+                    () -> { let values : 'T[] = []; 42 }
+                }
+                function Forward<'U>(value : 'U) : Unit -> Int { Save(value) }
+                Forward(true)",
+            );
+            let Value::Closure(closure) = result.expect("forwarded factory should evaluate") else {
+                panic!("expected closure");
+            };
+            let TypeArgs::Bound(binding) = &closure.type_args else {
+                panic!("expected inner bindings");
+            };
+            let TypeArgs::Bound(parent) = &binding.context else {
+                panic!("expected caller bindings");
+            };
+            assert_ne!(binding.owner, parent.owner);
+            assert_eq!(
+                binding.args.as_ref(),
+                &[GenericArg::Ty(Ty::Param(ParamId::from(0)))],
+            );
+            assert_eq!(
+                parent.args.as_ref(),
+                &[GenericArg::Ty(Ty::Prim(Prim::Bool))]
+            );
+            assert_eq!(
+                closure.type_args.resolve_argument(
+                    ParamId::from(0),
+                    &mut qsc_eval::callable::TypeBudget::default(),
+                ),
+                Ok(GenericArg::Ty(Ty::Prim(Prim::Bool))),
+            );
+        }
+
+        #[test]
+        fn type_growing_simulation_retains_linear_metadata() {
+            use qsc_eval::callable::TypeArgs;
+            use qsc_fir::ty::{GenericArg, ParamId, Prim, Ty};
+
+            let mut interpreter = get_interpreter();
+            let (result, _) = line(
+                &mut interpreter,
+                "function Grow<'T>(x : 'T, n : Int) : Unit -> Int {
+                    if n == 0 {
+                        () -> { let values : 'T[] = []; 30 }
+                    } else {
+                        Grow((x, x), n - 1)
+                    }
+                }
+                Grow(1, 30)",
+            );
+            let Value::Closure(closure) = result.expect("finite recursion should simulate") else {
+                panic!("expected closure");
+            };
+            let mut context = &closure.type_args;
+            for _ in 0..30 {
+                let TypeArgs::Bound(binding) = context else {
+                    panic!("expected one compact binding per call");
+                };
+                assert_eq!(
+                    binding.args.as_ref(),
+                    &[GenericArg::Ty(Ty::Tuple(vec![
+                        Ty::Param(ParamId::from(0)),
+                        Ty::Param(ParamId::from(0)),
+                    ]))],
+                );
+                context = &binding.context;
+            }
+            let TypeArgs::Bound(root) = context else {
+                panic!("expected root instantiation");
+            };
+            assert_eq!(root.args.as_ref(), &[GenericArg::Ty(Ty::Prim(Prim::Int))]);
+            assert_eq!(root.context, TypeArgs::Empty);
+        }
+
+        #[test]
         fn config_value_works() {
             let mut interpreter = get_interpreter_with_config(
                 [
@@ -1446,12 +1598,14 @@ mod given_interpreter {
                 let (value, _) = line(&mut interpreter, expression);
                 let arrow = interpreter
                     .callable_arrow(&value.expect("runtime callable"))
+                    .expect("checked callable types")
                     .expect("callable metadata");
                 assert_eq!(arrow.to_string(), expected, "{expression}");
             }
             let (value, _) = line(&mut interpreter, "ReadAdjoint");
             let arrow = interpreter
                 .callable_arrow(&value.expect("reader"))
+                .expect("checked reader types")
                 .expect("reader metadata");
             let qsc_hir::ty::Ty::Arrow(input) = arrow.input.into_inner() else {
                 panic!("reader input should remain an arrow");

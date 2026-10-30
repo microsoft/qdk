@@ -21,7 +21,7 @@ pub enum Value {
     Bool(bool),
     Closure(Box<Closure>),
     Double(f64),
-    Global(StoreItemId, FunctorApp),
+    Global(StoreItemId, FunctorApp, crate::callable::TypeArgs),
     Int(i64),
     Pauli(Pauli),
     Qubit(QubitRef),
@@ -37,6 +37,7 @@ pub struct Closure {
     pub fixed_args: Rc<[Value]>,
     pub id: StoreItemId,
     pub functor: FunctorApp,
+    pub type_args: crate::callable::TypeArgs,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -181,8 +182,8 @@ impl Display for Value {
                     write!(f, "{v}")
                 }
             }
-            Value::Global(id, functor) if functor == &FunctorApp::default() => id.fmt(f),
-            Value::Global(id, functor) => write!(f, "{functor} {id}"),
+            Value::Global(id, functor, _) if functor == &FunctorApp::default() => id.fmt(f),
+            Value::Global(id, functor, _) => write!(f, "{functor} {id}"),
             Value::Int(v) => write!(f, "{v}"),
             Value::Pauli(v) => match v {
                 Pauli::I => write!(f, "PauliI"),
@@ -357,10 +358,16 @@ impl Value {
     /// This will panic if the [Value] is not a [`Value::Global`].
     #[must_use]
     pub fn unwrap_global(self) -> (StoreItemId, FunctorApp) {
-        let Value::Global(id, functor) = self else {
+        let Value::Global(id, functor, _) = self else {
             panic!("value should be Global, got {}", self.type_name());
         };
         (id, functor)
+    }
+
+    /// References a declaration without claiming a checked instantiation.
+    #[must_use]
+    pub fn global(id: StoreItemId, functor: FunctorApp) -> Self {
+        Self::Global(id, functor, crate::callable::TypeArgs::Unbound)
     }
 
     /// Convert the [Value] into an integer

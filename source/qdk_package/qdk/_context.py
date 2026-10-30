@@ -788,6 +788,10 @@ class Context:
         :raises TypeError: If a callable argument has an incompatible signature or
             lacks required functors. Python numeric coercions do not apply to
             callable signatures.
+        :raises QSharpError: If a callable belongs to a different context.
+
+        Callable values retain type arguments established by Q#. Python does not
+        infer type arguments for an unspecialized generic declaration.
 
         Example:
 

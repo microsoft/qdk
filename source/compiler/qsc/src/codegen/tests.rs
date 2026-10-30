@@ -4263,7 +4263,7 @@ fn callable_args_with_arrow_input_survives_dce() {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
         item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
     };
-    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+    let my_op_value = Value::global(my_op_fir_id, FunctorApp::default());
 
     // The synthetic Call path makes ApplyOp entry-reachable. Defunc specializes
     // it to ApplyOp{MyOp}, and the pipeline transforms it fully into a
@@ -4389,7 +4389,7 @@ fn callable_args_with_udt_wrapped_arrow_survives_dce() {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
         item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
     };
-    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+    let my_op_value = Value::global(my_op_fir_id, FunctorApp::default());
 
     // Build a Config UDT value: Config(MyOp, 42)
     // UDT values are Value::Tuple(Rc<[Value]>, Option<Rc<StoreItemId>>)
@@ -4479,7 +4479,7 @@ fn callable_with_udt_wrapped_arrow_generates_qir_via_callable_args() {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
         item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
     };
-    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+    let my_op_value = Value::global(my_op_fir_id, FunctorApp::default());
 
     let config_fir_id = qsc_fir::fir::StoreItemId {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
@@ -4615,7 +4615,7 @@ fn callable_with_nested_udt_wrapped_arrow_generates_qir_via_callable_args() {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
         item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
     };
-    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+    let my_op_value = Value::global(my_op_fir_id, FunctorApp::default());
 
     let config_fir_id = qsc_fir::fir::StoreItemId {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
@@ -5052,7 +5052,7 @@ fn check_runtime_controlled_generic_callable(
                 &format!("{{ let f : {input} => Unit is Adj + Ctl = {functor} Generic; f }}"),
             );
             assert!(
-                matches!(argument, Value::Global(_, _)),
+                matches!(argument, Value::Global(..)),
                 "{context}: must exercise a runtime generic global"
             );
             let mut output = Cursor::new(Vec::new());
@@ -5765,7 +5765,7 @@ fn check_runtime_functor_generic_callable(
             &format!("{{ let f : {input} => Unit {bound} = {functor} ApplyOp; f }}"),
         );
         assert!(
-            matches!(argument, Value::Global(_, _)),
+            matches!(argument, Value::Global(..)),
             "{context}: must exercise a runtime generic global"
         );
         let mut output = Cursor::new(Vec::new());
@@ -7041,7 +7041,7 @@ fn synthetic_path_arrow_and_int_tuple_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunOp", true), ("MyH", true)], caps);
 
-    let my_h = Value::Global(fir_id_for(pkg, items["MyH"]), FunctorApp::default());
+    let my_h = Value::global(fir_id_for(pkg, items["MyH"]), FunctorApp::default());
     let args = Value::Tuple(vec![my_h, Value::Int(3)].into(), None);
 
     let qir = callable_args_to_qir(&store, pkg, items["RunOp"], &args, caps);
@@ -7082,8 +7082,8 @@ fn synthetic_path_two_arrow_args_generates_qir() {
         caps,
     );
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(vec![do_h, do_x].into(), None);
 
     let qir = callable_args_to_qir(&store, pkg, items["ApplyBoth"], &args, caps);
@@ -7119,7 +7119,7 @@ fn synthetic_path_generic_target_infers_type_from_callable_arg() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("ApplyGeneric", true), ("DoHIfOne", true)], caps);
 
-    let do_h_if_one = Value::Global(fir_id_for(pkg, items["DoHIfOne"]), FunctorApp::default());
+    let do_h_if_one = Value::global(fir_id_for(pkg, items["DoHIfOne"]), FunctorApp::default());
     let args = Value::Tuple(vec![do_h_if_one, Value::Int(1)].into(), None);
 
     let target_hir = hir_id_for(pkg, items["ApplyGeneric"]);
@@ -7158,7 +7158,7 @@ fn callable_args_with_top_level_qubit_value_use_reinvoke_original() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("ApplyGeneric", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let qubit = Rc::new(qsc_eval::val::Qubit(0));
     let args = Value::Tuple(vec![do_h, Value::Qubit((&qubit).into())].into(), None);
 
@@ -7201,7 +7201,7 @@ fn synthetic_path_int_arrow_bool_tuple_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Middle", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(vec![Value::Int(2), do_x, Value::Bool(true)].into(), None);
 
     let qir = callable_args_to_qir(&store, pkg, items["Middle"], &args, caps);
@@ -7267,7 +7267,7 @@ fn synthetic_path_struct_with_callable_field_generates_qir() {
         caps,
     );
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let config = Value::Tuple(
         vec![do_h, Value::Int(42)].into(),
         Some(Rc::new(fir_id_for(pkg, items["Config"]))),
@@ -7335,7 +7335,7 @@ fn synthetic_path_single_global_arg_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Invoke", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
 
     let qir = callable_args_to_qir(&store, pkg, items["Invoke"], &do_x, caps);
     assert!(
@@ -7361,6 +7361,7 @@ fn synthetic_path_captureless_closure_adjoint_preserves_functor() {
         compile_and_locate_items(source, &[("Invoke", true), ("DoS", true)], caps);
 
     let adjoint_do_s = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: Vec::<Value>::new().into(),
         id: fir_id_for(pkg, items["DoS"]),
         functor: FunctorApp {
@@ -7484,6 +7485,7 @@ fn foreign_closure_arguments_preserve_package_identity() {
                 .expect("library must contain a lifted lambda");
             let library_package = store.insert(unit);
             let foreign = Value::Closure(Box::new(qsc_eval::val::Closure {
+                type_args: qsc_eval::callable::TypeArgs::Unbound,
                 id: fir_id_for(library_package, lambda),
                 fixed_args: if capturing {
                     vec![Value::Int(100)]
@@ -7494,6 +7496,7 @@ fn foreign_closure_arguments_preserve_package_identity() {
                 functor: FunctorApp::default(),
             }));
             let wrapped = Value::Closure(Box::new(qsc_eval::val::Closure {
+                type_args: qsc_eval::callable::TypeArgs::Unbound,
                 id: fir_id_for(user_package, items[".lambda"]),
                 fixed_args: vec![foreign.clone()].into(),
                 functor: FunctorApp::default(),
@@ -7503,7 +7506,7 @@ fn foreign_closure_arguments_preserve_package_identity() {
                 (
                     vec![
                         foreign,
-                        Value::Global(
+                        Value::global(
                             fir_id_for(user_package, items["DecoyA"]),
                             FunctorApp::default(),
                         ),
@@ -7585,6 +7588,7 @@ fn foreign_operation_closure_arrays_emit_the_library_gate() {
             let library_package = store.insert(unit);
             let argument = Value::Array(
                 vec![Value::Closure(Box::new(qsc_eval::val::Closure {
+                    type_args: qsc_eval::callable::TypeArgs::Unbound,
                     id: fir_id_for(library_package, lambda),
                     fixed_args: if capturing {
                         vec![Value::Bool(true)]
@@ -7651,6 +7655,7 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
     // The lifted lambda's input is `(shift, register)`; capturing `shift = 1`
     // leaves the explicit `register` slot for the synthetic entry to supply.
     let shifted_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Int(1)].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -8299,11 +8304,12 @@ fn synthetic_path_controlled_hof_forwarded_capturing_closure_generates_qir() {
     );
 
     // prepare = Global(PrepareIdentity); select = Closure capturing coeffs = [1].
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
     let select = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Array(Rc::new(vec![Value::Int(1)]))].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -8395,11 +8401,12 @@ fn synthetic_path_doubly_controlled_hof_forwarded_capturing_closure_generates_qi
         caps,
     );
 
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
     let select = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Array(Rc::new(vec![Value::Int(1)]))].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -8475,6 +8482,7 @@ fn synthetic_path_single_callable_doubly_controlled_hof_forwarded_capturing_clos
     );
 
     let select = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Array(Rc::new(vec![Value::Int(1)]))].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -8597,16 +8605,19 @@ fn same_target_multi_closure_args_route_to_synthetic_entry_and_generate_qir() {
 
     let apply_rz = fir_id_for(pkg, items["ApplyRz"]);
     let first = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Double(1.0)].into(),
         id: apply_rz,
         functor: FunctorApp::default(),
     }));
     let second = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Double(2.0)].into(),
         id: apply_rz,
         functor: FunctorApp::default(),
     }));
     let third = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Double(3.0)].into(),
         id: apply_rz,
         functor: FunctorApp::default(),
@@ -8681,11 +8692,13 @@ fn nested_closure_arg_routes_to_synthetic_entry_and_generates_inner_effect() {
     );
 
     let inner = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Double(4.0)].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
     let outer = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![inner].into(),
         id: fir_id_for(pkg, items["ApplyInner"]),
         functor: FunctorApp::default(),
@@ -8748,6 +8761,7 @@ fn classical_capture_closure_routes_to_synthetic_entry_qubit_capture_does_not() 
     // Keep the captured qubit alive for the duration of the closure value.
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -8792,7 +8806,7 @@ fn synthetic_path_array_arg_preserves_element_values() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunWith", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![
             do_x,
@@ -8833,7 +8847,7 @@ fn synthetic_path_empty_array_arg_does_not_panic() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunWith", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(vec![do_x, Value::Array(vec![].into())].into(), None);
 
     let qir = callable_args_to_qir(&store, pkg, items["RunWith"], &args, caps);
@@ -8869,7 +8883,7 @@ fn synthetic_path_nested_empty_array_arg_does_not_panic() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunNested", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![do_x, Value::Array(vec![Value::Array(vec![].into())].into())].into(),
         None,
@@ -8978,6 +8992,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     // The lifted lambda's input is `(reps, target)`; capturing `reps = 1` leaves the
     // explicit `target` slot for the closure invocation to supply.
     let rotation_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Int(1)].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -9013,6 +9028,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     // Keep the captured qubit alive for the duration of the closure value.
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -9060,6 +9076,7 @@ fn early_return_in_dynamic_branch_reinvoke_original_compiles_parity_target() {
     // Keep the captured qubit alive for the duration of the closure value.
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -9106,7 +9123,7 @@ fn synthetic_path_udt_wrapped_controlled_callable_preserves_functor() {
         caps,
     );
 
-    let controlled_do_x = Value::Global(
+    let controlled_do_x = Value::global(
         fir_id_for(pkg, items["DoX"]),
         FunctorApp {
             adjoint: false,
@@ -9163,7 +9180,7 @@ fn synthetic_path_single_field_struct_wrapping_callable_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunBoxed", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
 
     let qir = callable_args_to_qir(&store, pkg, items["RunBoxed"], &do_h, caps);
     assert!(
@@ -9195,7 +9212,7 @@ fn synthetic_path_struct_wrapping_callable_and_tag_generates_qir() {
         caps,
     );
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let boxed = Value::Tuple(
         vec![do_h, Value::Int(0)].into(),
         Some(Rc::new(fir_id_for(pkg, items["OpBox"]))),
@@ -9228,7 +9245,7 @@ fn synthetic_path_udt_wrapped_adjoint_callable_preserves_functor() {
         caps,
     );
 
-    let adjoint_do_s = Value::Global(
+    let adjoint_do_s = Value::global(
         fir_id_for(pkg, items["DoS"]),
         FunctorApp {
             adjoint: true,
@@ -9284,7 +9301,7 @@ fn synthetic_path_callable_with_double_and_string_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Tagged", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![Value::Double(1.5), do_h, Value::String("test".into())].into(),
         None,
@@ -9330,7 +9347,7 @@ fn synthetic_path_nested_struct_with_callable_generates_qir() {
         caps,
     );
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let inner = Value::Tuple(
         vec![do_x, Value::Int(1)].into(),
         Some(Rc::new(fir_id_for(pkg, items["OpBox"]))),
@@ -9384,7 +9401,7 @@ fn synthetic_path_callable_field_taking_udt_with_callable_generates_qir() {
         caps,
     );
 
-    let use_inner = Value::Global(fir_id_for(pkg, items["UseInner"]), FunctorApp::default());
+    let use_inner = Value::global(fir_id_for(pkg, items["UseInner"]), FunctorApp::default());
     let outer = Value::Tuple(
         vec![use_inner, Value::Int(1)].into(),
         Some(Rc::new(fir_id_for(pkg, items["Outer"]))),
@@ -9433,7 +9450,7 @@ fn synthetic_path_tuple_with_one_callable_among_many_scalars() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Wide", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![
             Value::Int(1),
@@ -9473,7 +9490,7 @@ fn plain_tuple_with_callable_takes_synthetic_path() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunPair", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     // Plain tuple — no UDT tag.
     let args = Value::Tuple(vec![do_h, Value::Int(2)].into(), None);
 
@@ -9514,8 +9531,8 @@ fn synthetic_path_struct_with_two_callable_fields_generates_qir() {
         caps,
     );
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let ops = Value::Tuple(
         vec![do_h, do_x].into(),
         Some(Rc::new(fir_id_for(pkg, items["Ops"]))),
@@ -9561,7 +9578,7 @@ fn synthetic_path_callable_with_pauli_and_result_values() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Measure", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![do_h, Value::Pauli(qsc_fir::fir::Pauli::Z)].into(),
         None,
@@ -9597,7 +9614,7 @@ fn callable_returning_closure_arg_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("DoOp", true), ("MakeOp", true)], caps);
 
-    let make_op = Value::Global(fir_id_for(pkg, items["MakeOp"]), FunctorApp::default());
+    let make_op = Value::global(fir_id_for(pkg, items["MakeOp"]), FunctorApp::default());
     let qir = callable_args_to_qir(&store, pkg, items["DoOp"], &make_op, caps);
     assert!(
         qir.contains("__quantum__qis__h__body"),
@@ -9684,19 +9701,20 @@ fn chemistry_like_sequential_partial_application_generates_qir() {
         caps,
     );
 
-    let first_step = Value::Global(
+    let first_step = Value::global(
         fir_id_for(pkg, items["ApplyFirstStep"]),
         FunctorApp::default(),
     );
-    let second_step = Value::Global(
+    let second_step = Value::global(
         fir_id_for(pkg, items["ApplySecondStep"]),
         FunctorApp::default(),
     );
-    let third_step = Value::Global(
+    let third_step = Value::global(
         fir_id_for(pkg, items["ApplyThirdStep"]),
         FunctorApp::default(),
     );
     let sequential = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![first_step, second_step].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -9780,11 +9798,11 @@ fn chemistry_like_controlled_factory_generates_qir() {
         caps,
     );
 
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
-    let select = Value::Global(
+    let select = Value::global(
         fir_id_for(pkg, items["SelectIdentity"]),
         FunctorApp::default(),
     );
@@ -9881,11 +9899,11 @@ fn chemistry_like_controlled_psp_wrapper_generates_qir() {
         caps,
     );
 
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
-    let select = Value::Global(
+    let select = Value::global(
         fir_id_for(pkg, items["SelectIdentity"]),
         FunctorApp::default(),
     );
@@ -10002,11 +10020,12 @@ fn chemistry_like_state_preparation_closure_with_empty_expansion_ops_generates_q
         None,
     );
     let prepare = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![state_params].into(),
         id: fir_id_for(pkg, items["ApplyStatePreparation"]),
         functor: FunctorApp::default(),
     }));
-    let select = Value::Global(
+    let select = Value::global(
         fir_id_for(pkg, items["SelectIdentity"]),
         FunctorApp::default(),
     );
@@ -10119,24 +10138,24 @@ fn chemistry_like_standard_qpe_callable_array_generates_qir() {
         caps,
     );
 
-    let state_prep = Value::Global(
+    let state_prep = Value::global(
         fir_id_for(pkg, items["PrepareSystems"]),
         FunctorApp::default(),
     );
     let controlled_unitaries = Value::Array(
         vec![
-            Value::Global(
+            Value::global(
                 fir_id_for(pkg, items["ControlledFirst"]),
                 FunctorApp::default(),
             ),
-            Value::Global(
+            Value::global(
                 fir_id_for(pkg, items["ControlledSecond"]),
                 FunctorApp::default(),
             ),
         ]
         .into(),
     );
-    let phase_prep = Value::Global(
+    let phase_prep = Value::global(
         fir_id_for(pkg, items["PreparePhase"]),
         FunctorApp::default(),
     );
@@ -10323,6 +10342,7 @@ fn chemistry_like_standard_qpe_callable_array_of_closures_generates_qir() {
         None,
     );
     let state_prep = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![state_prep_params].into(),
         id: fir_id_for(pkg, items["StatePreparation"]),
         functor: FunctorApp::default(),
@@ -10340,6 +10360,7 @@ fn chemistry_like_standard_qpe_callable_array_of_closures_generates_qir() {
                     None,
                 );
                 Value::Closure(Box::new(qsc_eval::val::Closure {
+                    type_args: qsc_eval::callable::TypeArgs::Unbound,
                     fixed_args: vec![params].into(),
                     id: rep_controlled_id,
                     functor: FunctorApp::default(),
@@ -10349,6 +10370,7 @@ fn chemistry_like_standard_qpe_callable_array_of_closures_generates_qir() {
             .into(),
     );
     let phase_prep = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![].into(),
         id: fir_id_for(pkg, items["PreparePhase"]),
         functor: FunctorApp::default(),
@@ -10473,11 +10495,11 @@ fn chemistry_like_iqpe_params_struct_generates_qir() {
         caps,
     );
 
-    let state_prep = Value::Global(
+    let state_prep = Value::global(
         fir_id_for(pkg, items["PrepareSystems"]),
         FunctorApp::default(),
     );
-    let rep_controlled_unitary = Value::Global(
+    let rep_controlled_unitary = Value::global(
         fir_id_for(pkg, items["RepControlledUnitary"]),
         FunctorApp::default(),
     );
@@ -10602,15 +10624,16 @@ fn chemistry_like_iqpe_with_controlled_psp_closure_generates_qir() {
         caps,
     );
 
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
-    let select = Value::Global(
+    let select = Value::global(
         fir_id_for(pkg, items["SelectIdentity"]),
         FunctorApp::default(),
     );
     let rep_controlled_unitary = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![prepare.clone(), select, Value::Int(1), Value::Int(1)].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),

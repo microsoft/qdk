@@ -74,8 +74,15 @@ fn resolve_closure_separates_callable_and_source_packages() {
         },
     );
 
-    let value = resolve_closure(&env, callable_package, source_span, &[capture], callable)
-        .expect("bound capture should resolve");
+    let value = resolve_closure(
+        &env,
+        callable_package,
+        source_span,
+        &[capture],
+        callable,
+        crate::callable::TypeArgs::Empty,
+    )
+    .expect("bound capture should resolve");
     let Value::Closure(closure) = value else {
         panic!("expected a closure value");
     };
@@ -94,12 +101,24 @@ fn resolve_closure_separates_callable_and_source_packages() {
         source_span,
         &[capture],
         callable,
+        crate::callable::TypeArgs::Empty,
     )
     .expect_err("unbound capture should fail");
     assert!(matches!(error, Error::UnboundName(span) if span == source_span));
 }
 
 fn check_expr(file: &str, expr: &str, expect: &Expect) {
+    match eval_expr(file, expr, ExecGraphConfig::NoDebug) {
+        Ok(value) => expect.assert_eq(&value.to_string()),
+        Err((err, _)) => expect.assert_debug_eq(&err),
+    }
+}
+
+fn eval_expr(
+    file: &str,
+    expr: &str,
+    config: ExecGraphConfig,
+) -> Result<Value, (Error, Vec<Frame>)> {
     let mut fir_lowerer = qsc_lowerer::Lowerer::new();
     let mut core = compile::core();
     run_core_passes(&mut core);
@@ -147,18 +166,44 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
     fir_store.insert(map_hir_package_to_fir(id), unit_fir);
 
     let mut out = Vec::new();
-    match eval_graph(
+    eval_graph(
         entry,
         &mut SparseSim::new(),
         &fir_store,
-        ExecGraphConfig::NoDebug,
+        config,
         map_hir_package_to_fir(id),
         &mut Env::default(),
         &mut GenericReceiver::new(&mut out),
-    ) {
-        Ok(value) => expect.assert_eq(&value.to_string()),
-        Err((err, _)) => expect.assert_debug_eq(&err),
-    }
+    )
+}
+
+fn check_generic_reference_metadata(config: ExecGraphConfig) {
+    let value = eval_expr(
+        "namespace Test { function Identity<'T>(value : 'T) : 'T { value } }",
+        "{ let f : Int -> Int = Test.Identity; f }",
+        config,
+    )
+    .expect("typed generic reference should evaluate");
+    let Value::Global(id, _, crate::callable::TypeArgs::Bound(binding)) = value else {
+        panic!("expected an instantiated global");
+    };
+    assert_eq!(binding.owner, id);
+    assert_eq!(
+        binding.args.as_ref(),
+        &[qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Prim(
+            qsc_fir::ty::Prim::Int
+        ))],
+    );
+}
+
+#[test]
+fn generic_reference_metadata_without_debug() {
+    check_generic_reference_metadata(ExecGraphConfig::NoDebug);
+}
+
+#[test]
+fn generic_reference_metadata_with_debug() {
+    check_generic_reference_metadata(ExecGraphConfig::Debug);
 }
 
 /// Same as [`check_expr`], but compiles an additional user-authored library package that the

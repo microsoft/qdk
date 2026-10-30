@@ -4,7 +4,7 @@
 //! This module contains the types and functions used to build the
 //! data-interop layer between Python and Q#.
 
-use crate::interpreter::{Closure, GlobalCallable, QSharpError, QasmError};
+use crate::interpreter::{Closure, GlobalCallable, QSharpError, QasmError, check_callable_owner};
 
 use super::{Pauli, Result};
 use num_bigint::BigInt;
@@ -281,11 +281,13 @@ where
 
 /// Given a type, convert a Python object into a Q# value of that type. This will recur through tuples and arrays,
 /// and will return an error if the type is not supported or the object cannot be converted.
+/// Opaque callable ownership is checked before resolving its interpreter-local type IDs.
 pub(super) fn pyobj_to_value(
     ctx: &interpret::Interpreter,
     py: Python,
     obj: &Py<PyAny>,
     ty: &Ty,
+    callable_owner: &Rc<()>,
 ) -> PyResult<Value> {
     match ty {
         Ty::Prim(prim_ty) => match prim_ty {
@@ -317,11 +319,11 @@ pub(super) fn pyobj_to_value(
                 )));
             }
             if objs.len() == 1 {
-                pyobj_to_value(ctx, py, &objs[0], &tup[0])
+                pyobj_to_value(ctx, py, &objs[0], &tup[0], callable_owner)
             } else {
                 let mut tuple = Vec::new();
                 for (obj, ty) in objs.iter().zip(tup) {
-                    tuple.push(pyobj_to_value(ctx, py, obj, ty)?);
+                    tuple.push(pyobj_to_value(ctx, py, obj, ty, callable_owner)?);
                 }
                 Ok(Value::Tuple(tuple.into(), None))
             }
@@ -331,19 +333,21 @@ pub(super) fn pyobj_to_value(
             let ty = &**ty;
             let mut array = Vec::new();
             for obj in &objs {
-                array.push(pyobj_to_value(ctx, py, obj, ty)?);
+                array.push(pyobj_to_value(ctx, py, obj, ty, callable_owner)?);
             }
             Ok(Value::Array(array.into()))
         }
-        Ty::Udt(_, res) => pyobj_to_udt(ctx, py, obj, ty, res),
+        Ty::Udt(_, res) => pyobj_to_udt(ctx, py, obj, ty, res, callable_owner),
         Ty::Arrow(..) => {
             if let Ok(callable) = extract_obj::<GlobalCallable>(py, obj, ty) {
-                let callable_val = callable.into();
+                check_callable_owner(&callable.1, callable_owner)?;
+                let callable_val = callable.0;
                 check_callable_types(ctx, &callable_val, ty)?;
                 return Ok(callable_val);
             }
             if let Ok(callable) = extract_obj::<Closure>(py, obj, ty) {
-                let callable_val = callable.into();
+                check_callable_owner(&callable.1, callable_owner)?;
+                let callable_val = callable.0;
                 check_callable_types(ctx, &callable_val, ty)?;
                 return Ok(callable_val);
             }
@@ -363,6 +367,7 @@ fn check_callable_types(
 ) -> PyResult<()> {
     let arrow = ctx
         .callable_arrow(callable_val)
+        .map_err(|error| PyTypeError::new_err(error.to_string()))?
         .ok_or(QSharpError::new_err("callable not found"))?;
     if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.input.borrow(), true) {
         Err(QSharpError::new_err(format!(
@@ -416,6 +421,7 @@ fn pyobj_to_udt(
     obj: &Py<PyAny>,
     ty: &Ty,
     res: &qsc::hir::Res,
+    callable_owner: &Rc<()>,
 ) -> PyResult<Value> {
     let qsc::hir::Res::Item(item_id) = res else {
         panic!("Udt should be an item");
@@ -452,7 +458,7 @@ fn pyobj_to_udt(
                         name, udt.name,
                     )));
                 };
-                tuple.push(pyobj_to_value(ctx, py, value, ty)?);
+                tuple.push(pyobj_to_value(ctx, py, value, ty, callable_owner)?);
             }
             Ok(Value::Tuple(tuple.into(), None))
         }
@@ -515,6 +521,7 @@ pub(crate) fn value_to_pyobj(
     ctx: &interpret::Interpreter,
     py: Python,
     value: &Value,
+    callable_owner: &Rc<()>,
 ) -> PyResult<Py<PyAny>> {
     match value {
         Value::Int(val) => val.into_py_any(py),
@@ -545,7 +552,7 @@ pub(crate) fn value_to_pyobj(
         Value::Tuple(values, None) => {
             let mut tuple = Vec::new();
             for val in values.iter() {
-                tuple.push(value_to_pyobj(ctx, py, val)?);
+                tuple.push(value_to_pyobj(ctx, py, val, callable_owner)?);
             }
 
             // Special case Value::UNIT maps to None.
@@ -580,7 +587,10 @@ pub(crate) fn value_to_pyobj(
                     let ty_fields = collect_udt_fields(udt)?;
                     let mut fields = Vec::new();
                     for (value, (name, _)) in values.iter().zip(ty_fields) {
-                        fields.push((name.to_string(), value_to_pyobj(ctx, py, value)?));
+                        fields.push((
+                            name.to_string(),
+                            value_to_pyobj(ctx, py, value, callable_owner)?,
+                        ));
                     }
                     UdtValue {
                         name: udt.name.to_string(),
@@ -593,16 +603,16 @@ pub(crate) fn value_to_pyobj(
         Value::Array(values) => {
             let mut array = Vec::with_capacity(values.len());
             for val in values.iter() {
-                array.push(value_to_pyobj(ctx, py, val)?);
+                array.push(value_to_pyobj(ctx, py, val, callable_owner)?);
             }
             PyList::new(py, array)?.into_py_any(py)
         }
         Value::Global(..) => {
-            let callable: GlobalCallable = value.clone().into();
+            let callable = GlobalCallable::new(value.clone(), callable_owner);
             callable.into_py_any(py)
         }
         Value::Closure(..) => {
-            let closure: Closure = value.clone().into();
+            let closure = Closure::new(value.clone(), callable_owner);
             closure.into_py_any(py)
         }
         Value::Qubit(..) | Value::Range(..) | Value::Var(..) => {

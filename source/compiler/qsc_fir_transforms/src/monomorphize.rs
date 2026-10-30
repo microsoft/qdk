@@ -78,7 +78,9 @@ use qsc_fir::fir::{
 
 use miette::Diagnostic;
 pub use qsc_data_structures::intrinsic_names::must_preserve_intrinsic_name;
-use qsc_fir::ty::{Arrow, FunctorSet, GenericArg, ParamId, Ty, TypeParameter};
+use qsc_fir::ty::{
+    Arrow, FunctorSet, GenericArg, MAX_TYPE_DEPTH, MAX_TYPE_NODES, ParamId, Ty, TypeParameter,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -86,10 +88,6 @@ use thiserror::Error;
 
 /// Per-invocation limits, including foreign-package and lifted-lambda specializations.
 const MAX_SPECIALIZATIONS: usize = 1024;
-/// Maximum nodes in one substituted type or a reference's generic-argument list.
-const MAX_TYPE_NODES: usize = 4096;
-/// Maximum type depth (a scalar has depth one), bounding recursive type consumers.
-const MAX_TYPE_DEPTH: usize = 128;
 
 /// Fatal resource-limit diagnostics. The intermediate store must not be consumed.
 #[derive(Clone, Debug, Diagnostic, Error)]

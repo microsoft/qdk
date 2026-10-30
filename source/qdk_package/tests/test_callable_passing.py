@@ -11,6 +11,114 @@ from qdk.simulation import run_qir
 from expecttest import assert_expected_inline
 
 
+def _generic_callable_context() -> qdk.Context:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    ctx.eval("""
+        function Identity<'T>(value : 'T) : 'T { value }
+        function MakeIdentity() : Int -> Int { Identity }
+        function SaveValue<'T>(value : 'T) : Unit -> 'T { () -> value }
+        function SaveArray<'T>(values : 'T[]) : Unit -> 'T[] { () -> values }
+        function BodyOnly<'T>(unused : 'T) : Unit -> Int {
+            () -> {
+                let values : 'T[] = [];
+                mutable count = 0;
+                for _ in values { set count += 1; }
+                count
+            }
+        }
+        function Forward<'T>(value : 'T) : Unit -> 'T { SaveValue(value) }
+        function Nested<'T>(value : 'T) : Unit -> (Unit -> 'T) {
+            () -> SaveValue(value)
+        }
+        operation Use(read : Unit -> Int) : Int { read() }
+        operation UseArray(read : Unit -> Int[]) : Int[] { read() }
+        operation UseBool(read : Unit -> Bool) : Bool { read() }
+        operation Apply(read : Int -> Int, value : Int) : Int { read(value) }
+    """)
+    return ctx
+
+
+def test_concrete_generic_global_from_factory_is_accepted() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.code.MakeIdentity()
+    assert ctx.code.Apply(saved, 7) == 7
+
+
+def test_concrete_generic_alias_is_accepted() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.eval("{ let read : Int -> Int = Identity; read }")
+    assert ctx.code.Apply(saved, 7) == 7
+
+
+def test_saved_empty_generic_array_retains_type_evidence() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.eval("{ let values : Int[] = []; SaveArray(values) }")
+    assert ctx.code.UseArray(saved) == []
+
+
+def test_saved_body_only_generic_preserves_simulation() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.eval("BodyOnly(1)")
+    assert ctx.code.Use(saved) == 0
+
+
+def test_forwarded_generic_factory_retains_type_evidence() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.eval("Forward(7)")
+    assert ctx.code.Use(saved) == 7
+
+
+def test_nested_escaped_generic_closure_retains_type_evidence() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.eval("Nested(7)()")
+    assert ctx.code.Use(saved) == 7
+
+
+def test_distinct_saved_generic_instantiations_remain_independent() -> None:
+    ctx = _generic_callable_context()
+    integer = ctx.eval("SaveValue(7)")
+    boolean = ctx.eval("SaveValue(true)")
+    assert ctx.code.Use(integer) == 7
+    assert ctx.code.UseBool(boolean) is True
+    with pytest.raises(TypeError, match="incompatible callable type"):
+        ctx.code.Use(boolean)
+
+
+def test_generic_declaration_is_not_inferred_from_python_arguments() -> None:
+    ctx = _generic_callable_context()
+    with pytest.raises(QSharpError, match="unsupported input type"):
+        ctx.code.Apply(ctx.code.Identity, 7)
+
+
+_generic_target_codegen_gap = pytest.mark.xfail(
+    strict=True,
+    raises=pytest.RaisesExc(
+        BaseException,
+        match=r"monomorphization left a generic callable `Identity` reachable",
+        check=lambda error: type(error).__name__ == "PanicException",
+    ),
+    reason="Phase 3 must forward a direct generic target's checked type arguments",
+)
+
+
+@_generic_target_codegen_gap
+def test_concrete_generic_instance_as_qir_entry_target() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.code.MakeIdentity()
+    program = ctx.compile(saved, 7)
+    assert run_qir(str(program), shots=1, type="cpu") == [7]
+
+
+@_generic_target_codegen_gap
+def test_concrete_generic_instance_as_static_circuit_entry_target() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.code.MakeIdentity()
+    circuit = ctx.circuit(
+        saved, 7, generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+    assert circuit is not None
+
+
 def _write_entry_project(root: Path, source: str) -> None:
     (root / "src").mkdir()
     (root / "qsharp.json").write_text("{}", encoding="utf-8")

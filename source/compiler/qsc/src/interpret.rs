@@ -84,6 +84,21 @@ use qsc_rca::PackageStoreComputeProperties;
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 
+fn runtime_functors_to_hir(
+    functors: qsc_fir::ty::FunctorSet,
+) -> std::result::Result<ty::FunctorSet, qsc_eval::callable::TypeArgsError> {
+    use qsc_fir::ty::{FunctorSet, FunctorSetValue};
+    let FunctorSet::Value(value) = functors else {
+        return Err(qsc_eval::callable::TypeArgsError::Unresolved);
+    };
+    Ok(ty::FunctorSet::Value(match value {
+        FunctorSetValue::Empty => ty::FunctorSetValue::Empty,
+        FunctorSetValue::Adj => ty::FunctorSetValue::Adj,
+        FunctorSetValue::Ctl => ty::FunctorSetValue::Ctl,
+        FunctorSetValue::CtlAdj => ty::FunctorSetValue::CtlAdj,
+    }))
+}
+
 /// Checks target capabilities without changing the interpreter's execution FIR.
 ///
 /// Raw FIR can contain constructs that codegen removes, such as a skipped return
@@ -628,7 +643,7 @@ impl Interpreter {
                 exported_items.push(PackageGlobal {
                     namespace: global.namespace,
                     name: global.name,
-                    value: Value::Global(store_item_id, FunctorApp::default()),
+                    value: Value::global(store_item_id, FunctorApp::default()),
                     is_test: term.is_test,
                 });
             }
@@ -648,22 +663,34 @@ impl Interpreter {
     }
 
     /// Get the input and output types of a given value representing a global item.
+    /// # Errors
+    /// Returns an error when retained instantiation metadata cannot be resolved within the type limits.
     /// # Panics
     /// Panics if the item is not callable or a type that can be invoked as a callable.
-    pub fn global_callable_ty(&self, item_id: &Value) -> Option<(ty::Ty, ty::Ty)> {
-        self.callable_arrow(item_id)
-            .map(|arrow| (arrow.input.into_inner(), arrow.output.into_inner()))
+    pub fn global_callable_ty(
+        &self,
+        item_id: &Value,
+    ) -> std::result::Result<Option<(ty::Ty, ty::Ty)>, qsc_eval::callable::TypeArgsError> {
+        Ok(self
+            .callable_arrow(item_id)?
+            .map(|arrow| (arrow.input.into_inner(), arrow.output.into_inner())))
     }
 
     /// Gets a runtime callable's public signature, including applied functors.
-    /// Captured arguments are not part of a closure's public input.
+    /// Uses retained checked type arguments; captures are not part of a closure's public input.
+    ///
+    /// # Errors
+    /// Returns an error for missing, inconsistent, or oversized instantiation metadata.
     ///
     /// # Panics
     /// Panics if the value does not represent a callable.
-    pub fn callable_arrow(&self, value: &Value) -> Option<ty::Arrow> {
-        let (item_id, functor, is_closure) = match value {
-            Value::Global(item_id, functor) => (*item_id, *functor, false),
-            Value::Closure(closure) => (closure.id, closure.functor, true),
+    pub fn callable_arrow(
+        &self,
+        value: &Value,
+    ) -> std::result::Result<Option<ty::Arrow>, qsc_eval::callable::TypeArgsError> {
+        let (item_id, functor, is_closure, type_args) = match value {
+            Value::Global(item_id, functor, type_args) => (*item_id, *functor, false, type_args),
+            Value::Closure(closure) => (closure.id, closure.functor, true, &closure.type_args),
             _ => panic!("value is not a callable"),
         };
 
@@ -673,10 +700,13 @@ impl Interpreter {
             .package_store()
             .get(package_id)
             .expect("package should exist in the package store");
-        let item = unit
+        let Some(item) = unit
             .package
             .items
-            .get(qsc_hir::hir::LocalItemId::from(usize::from(item_id.item)))?;
+            .get(qsc_hir::hir::LocalItemId::from(usize::from(item_id.item)))
+        else {
+            return Ok(None);
+        };
         let mut arrow = match &item.kind {
             qsc_hir::hir::ItemKind::Callable(decl) => {
                 let mut arrow = ty::Arrow {
@@ -705,6 +735,12 @@ impl Interpreter {
             },
             _ => panic!("item is not callable"),
         };
+        if matches!(type_args, qsc_eval::callable::TypeArgs::Bound(_)) {
+            *arrow.input.get_mut() =
+                self.instantiate_callable_ty(arrow.input.get_mut(), type_args)?;
+            *arrow.output.get_mut() =
+                self.instantiate_callable_ty(arrow.output.get_mut(), type_args)?;
+        }
         for _ in 0..functor.controlled {
             let input = arrow.input.get_mut();
             *input = ty::Ty::Tuple(vec![
@@ -712,7 +748,103 @@ impl Interpreter {
                 input.clone(),
             ]);
         }
-        Some(arrow)
+        Ok(Some(arrow))
+    }
+
+    fn instantiate_callable_ty(
+        &self,
+        ty: &ty::Ty,
+        type_args: &qsc_eval::callable::TypeArgs,
+    ) -> std::result::Result<ty::Ty, qsc_eval::callable::TypeArgsError> {
+        use qsc_eval::callable::{TypeArgsError, TypeBudget};
+        match ty {
+            ty::Ty::Param { id, .. } => {
+                let concrete = type_args.resolve_ty(
+                    &qsc_fir::ty::Ty::Param(qsc_fir::ty::ParamId::from(usize::from(*id))),
+                    &mut TypeBudget::default(),
+                )?;
+                self.runtime_ty_to_hir(concrete)
+            }
+            ty::Ty::Array(item) => Ok(ty::Ty::Array(Box::new(
+                self.instantiate_callable_ty(item, type_args)?,
+            ))),
+            ty::Ty::Tuple(items) => items
+                .iter()
+                .map(|item| self.instantiate_callable_ty(item, type_args))
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map(ty::Ty::Tuple),
+            ty::Ty::Arrow(arrow) => {
+                let functors = match *arrow.functors.borrow() {
+                    ty::FunctorSet::Value(value) => ty::FunctorSet::Value(value),
+                    ty::FunctorSet::Param(param, _) => runtime_functors_to_hir(
+                        type_args.resolve_functors(qsc_fir::ty::FunctorSet::Param(
+                            qsc_fir::ty::ParamId::from(usize::from(param)),
+                        ))?,
+                    )?,
+                    ty::FunctorSet::Infer(_) => return Err(TypeArgsError::Unresolved),
+                };
+                Ok(ty::Ty::Arrow(Rc::new(ty::Arrow {
+                    kind: arrow.kind,
+                    input: RefCell::new(
+                        self.instantiate_callable_ty(&arrow.input.borrow(), type_args)?,
+                    ),
+                    output: RefCell::new(
+                        self.instantiate_callable_ty(&arrow.output.borrow(), type_args)?,
+                    ),
+                    functors: RefCell::new(functors),
+                })))
+            }
+            _ => Ok(ty.clone()),
+        }
+    }
+
+    fn runtime_ty_to_hir(
+        &self,
+        ty: qsc_fir::ty::Ty,
+    ) -> std::result::Result<ty::Ty, qsc_eval::callable::TypeArgsError> {
+        use qsc_eval::callable::TypeArgsError;
+        use qsc_fir::ty::{Prim, Ty};
+        Ok(match ty {
+            Ty::Prim(prim) => ty::Ty::Prim(match prim {
+                Prim::BigInt => ty::Prim::BigInt,
+                Prim::Bool => ty::Prim::Bool,
+                Prim::Double => ty::Prim::Double,
+                Prim::Int => ty::Prim::Int,
+                Prim::Pauli => ty::Prim::Pauli,
+                Prim::Qubit => ty::Prim::Qubit,
+                Prim::Range => ty::Prim::Range,
+                Prim::RangeTo => ty::Prim::RangeTo,
+                Prim::RangeFrom => ty::Prim::RangeFrom,
+                Prim::RangeFull => ty::Prim::RangeFull,
+                Prim::Result => ty::Prim::Result,
+                Prim::String => ty::Prim::String,
+            }),
+            Ty::Array(item) => ty::Ty::Array(Box::new(self.runtime_ty_to_hir(*item)?)),
+            Ty::Tuple(items) => ty::Ty::Tuple(
+                items
+                    .into_iter()
+                    .map(|item| self.runtime_ty_to_hir(item))
+                    .collect::<std::result::Result<Vec<_>, _>>()?,
+            ),
+            Ty::Arrow(arrow) => ty::Ty::Arrow(Rc::new(ty::Arrow {
+                kind: match arrow.kind {
+                    fir::CallableKind::Function => qsc_hir::hir::CallableKind::Function,
+                    fir::CallableKind::Operation => qsc_hir::hir::CallableKind::Operation,
+                },
+                input: RefCell::new(self.runtime_ty_to_hir(*arrow.input)?),
+                output: RefCell::new(self.runtime_ty_to_hir(*arrow.output)?),
+                functors: RefCell::new(runtime_functors_to_hir(arrow.functors)?),
+            })),
+            Ty::Udt(fir::Res::Item(item)) => {
+                let id = qsc_hir::hir::ItemId {
+                    package: map_fir_package_to_hir(item.package),
+                    item: map_fir_local_item_to_hir(item.item),
+                };
+                let (udt, _) = self.udt_ty_from_item_id(&id);
+                ty::Ty::Udt(udt.name.clone(), qsc_hir::hir::Res::Item(id))
+            }
+            _ => return Err(TypeArgsError::Unresolved),
+        })
     }
 
     /// Given a package ID, returns all the types in the package.
@@ -1280,7 +1412,7 @@ impl Interpreter {
     fn hir_item_id_from_value(
         callable: &Value,
     ) -> std::result::Result<qsc_hir::hir::ItemId, Vec<Error>> {
-        let Value::Global(store_item_id, _) = callable else {
+        let Value::Global(store_item_id, _, _) = callable else {
             return Err(vec![Error::NotACallable]);
         };
 
@@ -1328,10 +1460,12 @@ impl Interpreter {
                     .into(),
                 id: Self::remap_store_item_id_for_codegen(inner.id),
                 functor: inner.functor,
+                type_args: inner.type_args,
             })),
-            Value::Global(store_item_id, functor_app) => Value::Global(
+            Value::Global(store_item_id, functor_app, type_args) => Value::Global(
                 Self::remap_store_item_id_for_codegen(store_item_id),
                 functor_app,
+                type_args,
             ),
             Value::Tuple(values, store_item_id) => Value::Tuple(
                 values
@@ -1945,7 +2079,7 @@ impl Interpreter {
         let mut out = GenericReceiver::new(&mut sink);
         let (store_item_id, functor_app) = match self.eval_fragments(&mut out, operation_expr)? {
             Value::Closure(b) => (b.id, b.functor),
-            Value::Global(item_id, functor_app) => (item_id, functor_app),
+            Value::Global(item_id, functor_app, _) => (item_id, functor_app),
             _ => return Err(vec![Error::NotAnOperation]),
         };
         let package = map_fir_package_to_hir(store_item_id.package);

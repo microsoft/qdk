@@ -800,6 +800,9 @@ impl FirCloner {
                     } => {
                         *expr_id = *self.expr_map.get(expr_id).unwrap_or(expr_id);
                     }
+                    qsc_fir::fir::ExecGraphExpr::Var(res) => {
+                        *res = self.remap_res(res);
+                    }
                     qsc_fir::fir::ExecGraphExpr::Array(_)
                     | qsc_fir::fir::ExecGraphExpr::ArrayRepeat
                     | qsc_fir::fir::ExecGraphExpr::BinOp {
@@ -820,8 +823,7 @@ impl FirCloner {
                     }
                     | qsc_fir::fir::ExecGraphExpr::UpdateIndex { mid_span: _ }
                     | qsc_fir::fir::ExecGraphExpr::Tuple(_)
-                    | qsc_fir::fir::ExecGraphExpr::UnOp(_)
-                    | qsc_fir::fir::ExecGraphExpr::Var(_) => {}
+                    | qsc_fir::fir::ExecGraphExpr::UnOp(_) => {}
                 }
                 ExecGraphNode::Expr(expr, span)
             }

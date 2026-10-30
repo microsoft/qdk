@@ -152,9 +152,10 @@ pub(crate) fn run_qasm_program(
     );
     match result {
         Ok(result) => {
+            let callable_owner = std::rc::Rc::new(());
             let list: Result<Vec<_>, _> = result
                 .iter()
-                .map(|v| value_to_pyobj(&interpreter, py, v))
+                .map(|v| value_to_pyobj(&interpreter, py, v, &callable_owner))
                 .collect();
             Ok(PyList::new(py, list?)?.into())
         }

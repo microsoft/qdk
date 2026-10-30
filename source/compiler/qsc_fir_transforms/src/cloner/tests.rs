@@ -228,6 +228,29 @@ fn clone_preserves_cross_package_res() {
 }
 
 #[test]
+fn clone_exec_graph_remaps_local_res() {
+    use qsc_fir::fir::ExecGraphExpr;
+
+    let (store, pkg_id) = compile_to_fir(LET_X_SOURCE);
+    let source = store.get(pkg_id);
+    let (pat, local) = find_local_bind(source, "x");
+    let mut target = Package::default();
+    let mut cloner = FirCloner::with_local_offset(&target, LocalVarId::from(10u32));
+    cloner.clone_pat(source, pat, &mut target);
+    let span = qsc_data_structures::span::Span::default();
+    assert_eq!(
+        cloner.remap_exec_graph_node(ExecGraphNode::Expr(
+            ExecGraphExpr::Var(Res::Local(local)),
+            span,
+        )),
+        ExecGraphNode::Expr(
+            ExecGraphExpr::Var(Res::Local(LocalVarId::from(10u32))),
+            span,
+        ),
+    );
+}
+
+#[test]
 fn self_item_remap_rewrites_item_resource() {
     let target = Package::default();
     let mut cloner = FirCloner::new(&target);
