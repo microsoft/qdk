@@ -990,7 +990,7 @@ def test_qodec_gpu_selection_is_explicitly_unsupported():
         run_qir("", qodec=codec, type="gpu")
 
 
-def test_physical_execution_does_not_import_ec_dependencies():
+def test_physical_execution_does_not_import_ec_dependencies(tmp_path):
     import subprocess
     from textwrap import dedent
 
@@ -1007,13 +1007,17 @@ def test_physical_execution_does_not_import_ec_dependencies():
         assert "qdk.simulation._qodec" not in sys.modules
     ''')
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, timeout=30
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
-def test_deq_dependency_is_only_required_when_selected(missing_dependency):
+def test_deq_dependency_is_only_required_when_selected(missing_dependency, tmp_path):
     import subprocess
     from textwrap import dedent
 
@@ -1049,6 +1053,7 @@ def test_deq_dependency_is_only_required_when_selected(missing_dependency):
             missing_dependency,
             str(FIXTURES / "repetition3.qodec.yaml"),
         ],
+        cwd=tmp_path,
         capture_output=True,
         text=True,
         timeout=30,
