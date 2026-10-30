@@ -2132,13 +2132,11 @@ fn recursive_operation_emits_to_ir_function() {
 
         define internal void @Recurse(i64 %var_0, ptr %var_1) {
         block_1:
-          %var_2 = load i64, ptr %var_0
-          %var_3 = icmp sgt i64 %var_2, 0
+          %var_3 = icmp sgt i64 %var_0, 0
           br i1 %var_3, label %block_2, label %block_3
         block_2:
           call void @X(ptr %var_1)
-          %var_5 = load i64, ptr %var_0
-          %var_6 = sub i64 %var_5, 1
+          %var_6 = sub i64 %var_0, 1
           call void @Recurse(i64 %var_6, ptr %var_1)
           br label %block_3
         block_3:
