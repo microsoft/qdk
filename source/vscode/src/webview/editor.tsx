@@ -16,6 +16,7 @@ import {
 } from "qsharp-lang/ux";
 
 import stateComputeWorkerSource from "./stateComputeWorker.inline.ts";
+import type { CircuitSvgSaveMessage } from "../circuitSvgProtocol.js";
 
 window.addEventListener("message", onMessage);
 window.addEventListener("load", main);
@@ -240,6 +241,15 @@ function runCircuit() {
   vscodeApi.postMessage({ command: "run" });
 }
 
+function exportCircuitSvg(contents: string, suggestedName: string) {
+  const message: CircuitSvgSaveMessage = {
+    type: "qdk.circuit/save-svg",
+    suggestedName,
+    contents,
+  };
+  vscodeApi.postMessage(message);
+}
+
 function App({ state }: { state: State }) {
   switch (state.viewType) {
     case "loading":
@@ -254,6 +264,7 @@ function App({ state }: { state: State }) {
             computeStateVizColumnsForCircuitModel:
               computeStateVizColumnsInWorker,
           }}
+          onExportSvg={exportCircuitSvg}
         ></CircuitPanel>
       );
     default:
