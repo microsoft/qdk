@@ -3,6 +3,8 @@
 
 #![allow(clippy::needless_raw_string_hashes, clippy::similar_names)]
 
+use crate::tests::get_rir_program_with_adaptive_profile;
+
 use super::{assert_blocks, assert_callable, get_rir_program};
 use expect_test::expect;
 use indoc::indoc;
@@ -986,6 +988,84 @@ fn dynamic_string_from_if_expression_with_concat_produces_branch_without_string(
             Block 2:Block:
                 Jump(1)
             Block 3:Block:
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn dynamic_variable_with_same_value_across_branches_treated_as_literal() {
+    let program = get_rir_program(indoc! {
+        r#"
+        operation Run(k : Int, m : Int) : Int {
+            use q = Qubit();
+            let x = MResetZ(q) == One ? k | m;
+            x + k
+        }
+
+        operation Main() : Int {
+            Run(1, 1)
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Variable(3, Integer) = Store Integer(1)
+                Call id(4), args( Integer(2), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(2, Integer) = Store Integer(1)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Integer) = Store Integer(1)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn dynamic_variable_with_same_value_across_branches_treated_as_literal_in_adaptive() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
+        operation Run(k : Int, m : Int) : Int {
+            use q = Qubit();
+            let x = MResetZ(q) == One ? k | m;
+            x + k
+        }
+
+        operation Main() : Int {
+            Run(1, 1)
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Variable(3, Integer) = Store Integer(1)
+                Call id(4), args( Integer(2), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(2, Integer) = Store Integer(1)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Integer) = Store Integer(1)
                 Jump(1)"#]],
     );
 }

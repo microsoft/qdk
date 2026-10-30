@@ -592,12 +592,14 @@ fn mutable_qubit_var_generates_successfully() {
 }
 
 #[test]
-fn mutable_qubit_var_generates_adaptive_successfully() {
+fn mutable_qubit_dynamic_var_generates_adaptive_successfully() {
     let program = get_rir_program_with_adaptive_profile(indoc! {r#"
         operation Main() : Unit {
             use q = Qubit();
-            mutable q = q;
-            H(q);
+            use a = Qubit();
+            use b = Qubit();
+            let c = M(q) == Zero ? a | b;
+            H(c);
         }
     "#});
 
@@ -607,12 +609,23 @@ fn mutable_qubit_var_generates_adaptive_successfully() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Qubit) = Store Qubit(0)
-                Call id(2), args( Variable(0, Qubit), )
-                Call id(4), args( Integer(0), Tag(0, 3), )
-                Return Integer(0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
-                Call id(3), args( Variable(1, Qubit), )
+                Variable(3, Qubit) = Store Variable(2, Qubit)
+                Call id(4), args( Variable(3, Qubit), )
+                Call id(6), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(2, Qubit) = Store Qubit(1)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Qubit) = Store Qubit(2)
+                Jump(1)
+            Block 4:Block:
+                Call id(5), args( Variable(4, Qubit), )
                 Return"#]],
     );
 }
