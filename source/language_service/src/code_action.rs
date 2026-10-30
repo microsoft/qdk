@@ -90,7 +90,12 @@ fn quick_fixes(
                 .iter()
                 .map(|(new_text, span)| TextEdit {
                     new_text: new_text.clone(),
-                    range: qsc::line_column::Range::from_span(encoding, &source.contents, span),
+                    // Edit spans are package offsets, so make them relative to this source.
+                    range: qsc::line_column::Range::from_span(
+                        encoding,
+                        &source.contents,
+                        &(*span - source.offset),
+                    ),
                 })
                 .collect();
             let title = code_action.title.clone();

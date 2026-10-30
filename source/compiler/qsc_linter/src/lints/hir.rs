@@ -1,16 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qsc_data_structures::span::Span;
+use qsc_data_structures::{span::Span, target::TargetCapabilityFlags};
+use qsc_frontend::resolve::NameKind;
 use qsc_hir::{
     hir::{
-        BinOp, Block, CallableDecl, CallableKind, Expr, ExprKind, Field, ItemKind, Res, SpecBody,
-        SpecDecl, Stmt, StmtKind, UnOp,
+        Attr, BinOp, Block, CallableDecl, CallableKind, Expr, ExprKind, Field, ItemId, ItemKind,
+        Pat, PatKind, Res, SpecBody, SpecDecl, Stmt, StmtKind, UnOp,
     },
     ty::{Prim, Ty},
     visit::{self, Visitor},
 };
 use std::fmt::Write;
+use std::path::Path;
 use std::rc::Rc;
 
 use crate::linter::{CodeAction, Compilation, hir::declare_hir_lints};
@@ -41,6 +43,7 @@ declare_hir_lints! {
     (DeprecatedWithOperator, LintLevel::Allow, "deprecated `w/` and `w/=` operators for structs", "`w/` and `w/=` operators for structs are deprecated, use `new` instead"),
     (DeprecatedDoubleColonOperator, LintLevel::Allow, "deprecated `::` for field access", "`::` operator is deprecated, use `.` instead"),
     (AmbiguousUnaryOperatorAfterIf, LintLevel::Warn, "ambiguous unary operator after if-expression", "consider wrapping the if-expression in parentheses or using a semicolon to clarify the intended use of the operator"),
+    (PreferMResetZ, LintLevel::Warn, "measurement without reset on a target that does not support qubit reuse", "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit"),
 }
 
 #[derive(Default)]
@@ -386,4 +389,167 @@ impl HirLintPass for AmbiguousUnaryOperatorAfterIf {
             }
         }
     }
+}
+
+/// Measurements that leave qubits in their measured state, as
+/// `(namespace, name, replacement)`, where `replacement` is the
+/// `Std.Measurement` operation that also resets the qubits to |0⟩.
+const MEASUREMENTS_WITHOUT_RESET: [(&str, &str, &str); 2] = [
+    ("Std.Intrinsic", "M", "MResetZ"),
+    ("Std.Measurement", "MeasureEachZ", "MResetEachZ"),
+];
+
+#[derive(Default)]
+struct PreferMResetZ {
+    level: LintLevel,
+    /// Whether the program declares a variable named `Std`, or any `Std` other than the
+    /// root namespace. Computed once, on first use.
+    std_shadowed_anywhere: Option<bool>,
+}
+
+impl PreferMResetZ {
+    /// Returns `true` if a `Std.*` path at `span` is sure to refer to the standard library.
+    /// Q# resolves qualified paths through variables, aliases and relative namespaces, so
+    /// it isn't if the program declares a variable named `Std`, has an alias or import
+    /// named `Std` in scope at `span`, or has a `Std` anywhere but at the root, like the
+    /// namespace `App.Std` or an export named `Std`.
+    fn std_path_is_unambiguous(&mut self, span: Span, compilation: Compilation) -> bool {
+        let ast = &compilation.compile_unit.ast;
+        let std_shadowed_anywhere = *self.std_shadowed_anywhere.get_or_insert_with(|| {
+            // Variables are checked across the whole package, because the scope lookup
+            // below misses a variable that is declared again later in the same scope.
+            let mut find_std = FindVariable {
+                name: "Std",
+                found: false,
+            };
+            find_std.visit_package(&compilation.compile_unit.package);
+            // Namespaces and exports declared in this package are importable from their
+            // parent namespace. Other packages only register the last segment of each
+            // namespace, so those are also checked by path, like `Lib.X.Std.Measurement`.
+            let globals = &ast.globals;
+            let std_importable =
+                globals
+                    .table(NameKind::Importable)
+                    .iter()
+                    .any(|(namespace, names)| {
+                        names.contains_key("Std")
+                            && !globals.format_namespace_name(namespace).is_empty()
+                    });
+            let std_in_namespace_path =
+                globals.table(NameKind::Term).iter().any(|(namespace, _)| {
+                    globals
+                        .format_namespace_name(namespace)
+                        .split('.')
+                        .skip(1)
+                        .any(|segment| segment == "Std")
+                });
+            find_std.found || std_importable || std_in_namespace_path
+        });
+        let std_in_scope = ast
+            .locals
+            .get_all_at_offset(span.lo)
+            .iter()
+            .any(|local| local.name().is_some_and(|name| name.as_ref() == "Std"));
+        !std_shadowed_anywhere && !std_in_scope
+    }
+}
+
+/// Finds whether a package declares a variable or parameter with a given name.
+struct FindVariable<'a> {
+    name: &'a str,
+    found: bool,
+}
+
+impl Visitor<'_> for FindVariable<'_> {
+    fn visit_pat(&mut self, pat: &Pat) {
+        if let PatKind::Bind(ident) = &pat.kind
+            && ident.name.as_ref() == self.name
+        {
+            self.found = true;
+        }
+        visit::walk_pat(self, pat);
+    }
+}
+
+/// Creates a lint for measurements without reset when the target does not
+/// support qubit reuse after measurement (the Base profile). On such targets,
+/// the compiler moves any later use of a measured qubit to a new qubit, and
+/// after a measurement without reset it must also copy the measured state to
+/// it with a CNOT gate. Measuring with `MResetZ` or `MResetEachZ` avoids that.
+impl HirLintPass for PreferMResetZ {
+    fn check_expr(&mut self, expr: &Expr, buffer: &mut Vec<Lint>, compilation: Compilation) {
+        if compilation
+            .capabilities
+            .contains(TargetCapabilityFlags::Adaptive)
+        {
+            return;
+        }
+
+        if let ExprKind::Var(Res::Item(item_id), _) = &expr.kind
+            && let Some(replacement) = measurement_with_reset(item_id, compilation)
+            && !is_in_simulation_only_callable(expr.span, compilation)
+            && !is_in_circuit_file(expr.span, compilation)
+        {
+            let mut lint = lint!(self, expr.span);
+            if self.std_path_is_unambiguous(expr.span, compilation) {
+                lint.code_action = Some(CodeAction {
+                    title: format!("Replace with `{replacement}` (resets after measuring)"),
+                    // Qualified, so that user items named like the replacement can't shadow it.
+                    edits: vec![(format!("Std.Measurement.{replacement}"), expr.span)],
+                });
+            }
+            buffer.push(lint);
+        }
+    }
+}
+
+/// If `item_id` refers to one of the [`MEASUREMENTS_WITHOUT_RESET`], returns the
+/// name of its replacement. Items are matched by namespace and name rather than
+/// by `ItemId`, so this needs no lookup and works without the standard library.
+fn measurement_with_reset(item_id: &ItemId, compilation: Compilation) -> Option<&'static str> {
+    let item = compilation.resolve_item_id(item_id);
+    let ItemKind::Callable(decl) = &item.kind else {
+        return None;
+    };
+    let &(namespace, _, replacement) = MEASUREMENTS_WITHOUT_RESET
+        .iter()
+        .find(|(_, name, _)| *name == decl.name.name.as_ref())?;
+    let parent = compilation.resolve_item_id(&ItemId {
+        package: item_id.package,
+        item: item.parent?,
+    });
+    match &parent.kind {
+        ItemKind::Namespace(parent_namespace, _)
+            if parent_namespace.name().as_ref() == namespace =>
+        {
+            Some(replacement)
+        }
+        _ => None,
+    }
+}
+
+/// Returns `true` if `span` is inside a callable that only runs in simulation: a test
+/// (`@Test()`) or the simulation body of an intrinsic (`@SimulatableIntrinsic()`).
+/// Like the capabilities check, the lint does not apply to them.
+fn is_in_simulation_only_callable(span: Span, compilation: Compilation) -> bool {
+    compilation.compile_unit.package.items.values().any(|item| {
+        item.attrs
+            .iter()
+            .any(|attr| matches!(attr, Attr::Test | Attr::SimulatableIntrinsic))
+            && item.span.contains(span.lo)
+    })
+}
+
+/// Returns `true` if `span` is inside a circuit file (`.qsc`). These are
+/// converted to generated Q# before compiling, so the user can't edit the code.
+fn is_in_circuit_file(span: Span, compilation: Compilation) -> bool {
+    compilation
+        .compile_unit
+        .sources
+        .find_by_offset(span.lo)
+        .is_some_and(|source| {
+            Path::new(source.name.as_ref())
+                .extension()
+                .is_some_and(|extension| extension == "qsc")
+        })
 }
