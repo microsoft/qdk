@@ -1204,6 +1204,57 @@ fn specialize_one(
     Ok((new_item_id, refs_out))
 }
 
+/// Gives a saved runtime closure its own concrete lifted target.
+///
+/// Lifted targets can inherit parameters without declaring a generic scheme.
+/// Runtime reconstruction supplies those bindings from checked capture and
+/// consumer types rather than from a call to the original generic factory.
+/// The normal pipeline still specializes generic references in the copied body.
+///
+/// # Errors
+///
+/// Returns the existing type-expansion diagnostic if substitution is too large,
+/// or `Ok(None)` when a copied type still lacks a parameter binding.
+pub fn instantiate_runtime_closure(
+    package: &mut Package,
+    target: LocalItemId,
+    arguments: impl IntoIterator<Item = (ParamId, GenericArg)>,
+) -> Result<Option<LocalItemId>, crate::PipelineError> {
+    let arguments: FxHashMap<_, _> = arguments.into_iter().collect();
+    let ItemKind::Callable(decl) = &package.get_item(target).kind else {
+        unreachable!("runtime closure target should be callable");
+    };
+    let mut source = extract_callable_body(package, decl);
+    source.id = package.id;
+    source
+        .items
+        .insert(target, package.get_item(target).clone());
+    validate_specialization_types(&source, decl, &arguments)?;
+
+    let mut cloner = FirCloner::from_assigner(qsc_fir::assigner::Assigner::from_package(package));
+    let target = cloner.clone_nested_item(&source, target, package);
+    substitute_types_in_cloned_nodes(package, &cloner, &arguments);
+    let ItemKind::Callable(decl) = &mut package.items.get_mut(target).expect("cloned target").kind
+    else {
+        unreachable!("cloned closure target should be callable");
+    };
+    decl.output = substitute_ty(&decl.output, &arguments);
+    decl.generics.clear();
+
+    let unresolved = cloner.pat_map().values().any(|&id| {
+        ty_contains_param(&package.get_pat(id).ty)
+    }) || cloner.block_map().values().any(|&id| {
+        ty_contains_param(&package.get_block(id).ty)
+    }) || cloner.expr_map().values().any(|&id| {
+        let expr = package.get_expr(id);
+        ty_contains_param(&expr.ty)
+            || matches!(&expr.kind, ExprKind::Var(_, args) if !is_fully_concrete(args))
+    }) || cloner.item_map().values().any(|&id| {
+        matches!(&package.get_item(id).kind, ItemKind::Callable(decl) if ty_contains_param(&decl.output))
+    });
+    Ok((!unresolved).then_some(target))
+}
+
 /// Scans a freshly created monomorphized callable and its transitive closure
 /// bodies for concrete generic references that require their own specializations.
 ///

@@ -668,6 +668,8 @@ class Context:
         :rtype: List[Any]
         :raises QSharpError: If there is an error interpreting the input.
         :raises ValueError: If the number of shots is less than 1.
+        :raises TypeError: If a callable argument has an incompatible signature or
+            lacks required functors. Arguments are checked before Q# execution.
         """
         ipython_helper()
 
@@ -783,6 +785,9 @@ class Context:
 
         :return: The compiled program. Use ``str()`` to get the QIR string.
         :rtype: QirInputData
+        :raises TypeError: If a callable argument has an incompatible signature or
+            lacks required functors. Python numeric coercions do not apply to
+            callable signatures.
 
         Example:
 
@@ -875,6 +880,8 @@ class Context:
         :return: The synthesized circuit.
         :rtype: Circuit
         :raises QSharpError: If there is an error synthesizing the circuit.
+        :raises TypeError: If a callable argument has an incompatible signature or
+            lacks required functors.
         """
         ipython_helper()
         start = monotonic()
@@ -926,6 +933,8 @@ class Context:
 
         :return: Program resources in terms of logical gate counts.
         :rtype: LogicalCounts
+        :raises TypeError: If a callable argument has an incompatible signature or
+            lacks required functors.
         """
         ipython_helper()
 

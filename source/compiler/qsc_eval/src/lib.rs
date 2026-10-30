@@ -1767,7 +1767,12 @@ impl State {
                 }
                 _ => panic!("value should be number"),
             },
-            UnOp::Unwrap => self.set_val_register(val),
+            UnOp::Unwrap => match val {
+                Value::Tuple(v, _) => {
+                    self.set_val_register(Value::Tuple(v, None));
+                }
+                _ => self.set_val_register(val),
+            },
         }
     }
 

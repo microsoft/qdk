@@ -102,6 +102,7 @@ use qsc_fir::{
 use thiserror::Error;
 
 use crate::package_assigners::PackageAssigners;
+pub use monomorphize::instantiate_runtime_closure;
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 
 /// Kinds of callable specializations that carry execution graphs.
@@ -1009,6 +1010,9 @@ pub fn run_pipeline_with_diagnostics(
 /// watermark, so seed bodies in foreign packages are rewritten with their own
 /// package's assigner without colliding with existing ids.
 ///
+/// Orphaned arena nodes are collected across all packages before rebuilding
+/// execution graphs, so subsequent RCA cannot treat them as top-level statements.
+///
 /// Returns warnings/fatal errors with the same partitioning contract as
 /// [`run_pipeline_with_diagnostics`]: consume the FIR only when
 /// [`PipelineResult::errors`] is empty. A fatal `return_unify` diagnostic (an
@@ -1060,6 +1064,13 @@ pub fn run_signature_preserving_subpipeline(
         seeds,
     );
     tuple_decompose::tuple_decompose_with_seeds(store, package_id, &mut assigners, seeds);
+
+    // RCA scans every package's statement arena for top-level code, so discard
+    // orphaned rewrite nodes before it can analyze them outside their callable.
+    let gc_packages: Vec<_> = store.iter().map(|(id, _)| id).collect();
+    for gc_pkg in gc_packages {
+        let _ = gc_unreachable::gc_unreachable(store.get_mut(gc_pkg));
+    }
 
     // The transforms above added statements and expressions to the pinned
     // bodies, invalidating the exec graphs the main pipeline rebuilt for them.

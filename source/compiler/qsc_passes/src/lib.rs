@@ -26,6 +26,7 @@ mod test_attribute;
 
 use callable_limits::CallableLimits;
 use capabilitiesck::{check_supported_capabilities_for_callable, lower_store, run_rca_pass};
+pub use entry_point::Error as EntryPointError;
 use entry_point::generate_entry_expr;
 use index_assignment::ConvertToWSlash;
 use loop_control::LoopControl;
@@ -308,4 +309,29 @@ pub fn run_rca_for_callable(
         .into_iter()
         .map(Error::CapabilitiesCk)
         .collect()
+}
+
+/// Checks declaration bodies and the entry separately, without treating each
+/// declaration's return type as a program output.
+#[must_use]
+pub fn check_fir_capabilities_by_scope(
+    fir_store: &fir::PackageStore,
+    compute_properties: &PackageStoreComputeProperties,
+    package_id: fir::PackageId,
+    capabilities: TargetCapabilityFlags,
+) -> Vec<(Option<fir::LocalItemId>, Vec<Error>)> {
+    capabilitiesck::check_supported_capabilities_by_scope(
+        fir_store.get(package_id),
+        compute_properties.get(package_id, false),
+        capabilities,
+        fir_store,
+    )
+    .into_iter()
+    .map(|(scope, errors)| {
+        (
+            scope,
+            errors.into_iter().map(Error::CapabilitiesCk).collect(),
+        )
+    })
+    .collect()
 }

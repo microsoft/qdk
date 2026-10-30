@@ -7,6 +7,30 @@ use super::{
 use expect_test::expect;
 use qsc_data_structures::target::Profile;
 
+#[test]
+fn effectful_call_with_constant_output_preserves_value_for_allocation() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update(
+        r#"
+        operation Prep(q : Qubit) : Int {
+            X(q);
+            3
+        }
+        use q = Qubit();
+        Prep(q)
+        "#,
+    );
+    check_last_statement_compute_properties(
+        context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
 fn assert_call_sites_must_inline(
     context: &CompilationContext,
     name: &str,

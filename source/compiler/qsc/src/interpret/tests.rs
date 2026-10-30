@@ -1414,6 +1414,55 @@ mod given_interpreter {
         }
 
         #[test]
+        fn runtime_callable_arrow_preserves_public_signature() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                r#"
+                    operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+                    function Save(n : Int) : Qubit => Unit is Adj + Ctl {
+                        q => { for _ in 1..n { Strong(q); } }
+                    }
+                    operation ReadAdjoint(op : Qubit => Unit is Adj) : Unit {
+                        use q = Qubit(); Adjoint op(q); Reset(q);
+                    }
+                "#,
+            );
+            is_only_value(&result, &output, &Value::unit());
+            for (expression, expected) in [
+                ("Strong", "(Qubit => Unit is Adj + Ctl)"),
+                ("Adjoint Strong", "(Qubit => Unit is Adj + Ctl)"),
+                (
+                    "Controlled Strong",
+                    "((Qubit[], Qubit) => Unit is Adj + Ctl)",
+                ),
+                (
+                    "Controlled Controlled (Save(2))",
+                    "((Qubit[], (Qubit[], Qubit)) => Unit is Adj + Ctl)",
+                ),
+                ("Save(2)", "(Qubit => Unit is Adj + Ctl)"),
+                ("Strong", "(Qubit => Unit is Adj + Ctl)"),
+            ] {
+                let (value, _) = line(&mut interpreter, expression);
+                let arrow = interpreter
+                    .callable_arrow(&value.expect("runtime callable"))
+                    .expect("callable metadata");
+                assert_eq!(arrow.to_string(), expected, "{expression}");
+            }
+            let (value, _) = line(&mut interpreter, "ReadAdjoint");
+            let arrow = interpreter
+                .callable_arrow(&value.expect("reader"))
+                .expect("reader metadata");
+            let qsc_hir::ty::Ty::Arrow(input) = arrow.input.into_inner() else {
+                panic!("reader input should remain an arrow");
+            };
+            assert_eq!(
+                input.functors.borrow().expect_value("declared bound"),
+                qsc_hir::ty::FunctorSetValue::Adj,
+            );
+        }
+
+        #[test]
         fn qirgen_twice_on_shared_interpreter_store_is_byte_identical() {
             // The FIR transform pipeline mutates every reachable package in
             // place, including std, so codegen must run on a throwaway clone of
@@ -3085,6 +3134,68 @@ mod given_interpreter {
                 "entry-less library construction should not panic and should pass RCA, got {:?}",
                 interpreter.err()
             );
+        }
+
+        #[test]
+        fn false_measured_guard_preserves_callable_and_skips_side_effects() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                qsc_data_structures::target::Profile::AdaptiveRI.into(),
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                r#"
+                function Inc(n : Int) : Int { n + 1 }
+                function Twice(n : Int) : Int { 2 * n }
+                operation Main() : Int {
+                    use q = Qubit();
+                    mutable f = Inc;
+                    let unused = (MResetZ(q) == One) and {
+                        Message("must not execute"); set f = Twice; true
+                    };
+                    f(3)
+                }
+            "#,
+            );
+            is_only_value(&result, &output, &Value::unit());
+            interpreter.qirgen("Main()").expect("inactive source QIR");
+            interpreter.get_rir("Main()").expect("inactive RIR");
+            let (result, output) = line(&mut interpreter, "Main()");
+            is_only_value(&result, &output, &Value::Int(4));
+        }
+
+        #[test]
+        fn entryless_library_accepts_measured_short_circuit_callable_reassignment() {
+            let source = r#"
+                namespace Test {
+                    function Inc(n : Int) : Int { n + 1 }
+                    function Twice(n : Int) : Int { 2 * n }
+                    operation Select() : Int {
+                        use q = Qubit();
+                        X(q);
+                        mutable f = Inc;
+                        let unused = (MResetZ(q) == One) and {
+                            Message("selected"); set f = Twice; true
+                        };
+                        f(3)
+                    }
+                }
+            "#;
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let mut interpreter = Interpreter::new(
+                SourceMap::new([("test".into(), source.into())], None),
+                PackageType::Lib,
+                Profile::AdaptiveRI.into(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+                Default::default(),
+            )
+            .unwrap_or_else(|errors| panic!("closed library callable: {errors:?}"));
+            interpreter.qirgen("Test.Select()").expect("library QIR");
+            let (result, output) = line(&mut interpreter, "Test.Select()");
+            assert_eq!(result.expect("library simulation"), Value::Int(6));
+            assert_eq!(output, "selected");
         }
 
         #[test]

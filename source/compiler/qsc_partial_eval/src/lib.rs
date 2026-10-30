@@ -198,6 +198,8 @@ struct PartialEvaluator<'a> {
     /// generated from. Distinct control counts (e.g. `Controlled` with 1 vs 3 controls) collapse to
     /// the same `FunctorSetValue` and therefore share a single emitted callable.
     ir_function_callables: FxHashMap<(StoreItemId, FunctorSetValue), CallableId>,
+    /// Scalar results proven constant while emitting the body with runtime parameters.
+    ir_function_constant_outputs: FxHashMap<CallableId, Value>,
     /// Every QIR symbol name already assigned to an emitted IR function. Each callable
     /// specialization is resolved exactly once, so the first identity to claim a given bare name
     /// keeps it and any later collider is given a deterministic discriminating suffix. This keeps
@@ -321,6 +323,7 @@ impl<'a> PartialEvaluator<'a> {
             backend: QuantumIntrinsicsChecker::default(),
             callables_map: FxHashMap::default(),
             ir_function_callables: FxHashMap::default(),
+            ir_function_constant_outputs: FxHashMap::default(),
             emitted_names: FxHashSet::default(),
             entry_callable_item: resolve_entry_callable_item(package_store, entry),
             ir_function_emission_depth: 0,
@@ -569,9 +572,10 @@ impl<'a> PartialEvaluator<'a> {
 
     fn eval_array_update_index(
         &mut self,
-        array: &[Value],
+        array_expr_id: ExprId,
         index_expr_id: ExprId,
         update_expr_id: ExprId,
+        in_place: bool,
     ) -> Result<Value, Error> {
         // Try to evaluate the index and update expressions to get their value, short-circuiting execution if any of the
         // expressions is a return.
@@ -590,16 +594,37 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(update_expr_id),
             ));
         };
+        let update_value = self.copy_value_if_needed(update_value);
+
+        // The execution graph evaluates index, replacement, then container.
+        // In-place updates read the target only after both operand effects.
+        let array_value = if in_place {
+            let ExprKind::Var(Res::Local(local), _) = &self.get_expr(array_expr_id).kind else {
+                panic!("array update target is expected to be a variable");
+            };
+            self.eval_context
+                .get_current_scope()
+                .get_classical_local_value(*local)
+                .clone()
+        } else {
+            let control_flow = self.try_eval_expr(array_expr_id)?;
+            let EvalControlFlow::Continue(value) = control_flow else {
+                return Err(Error::Unexpected(
+                    "embedded return in index expression".to_string(),
+                    self.get_expr_package_span(array_expr_id),
+                ));
+            };
+            value
+        };
+        let array = array_value.unwrap_array();
 
         // Set the value at the specified index or range.
         let update_result = match index_value {
             Value::Int(index) => {
-                let elem_value = self.copy_value_if_needed(update_value);
-
-                update_index_single(array, index, elem_value, index_expr_package_span)
+                update_index_single(&array, index, update_value, index_expr_package_span)
             }
             Value::Range(range) => update_index_range(
-                array,
+                &array,
                 range.start,
                 range.step,
                 range.end,
@@ -628,6 +653,9 @@ impl<'a> PartialEvaluator<'a> {
                 rhs_expr_id,
                 bin_op_expr_span,
             ),
+            Value::Tuple(ref values, _) if values.is_empty() => {
+                self.eval_bin_op_with_lhs_unit_operand(bin_op, rhs_expr_id)
+            }
             Value::Result(_) => self.eval_bin_op_with_lhs_result_operand(
                 bin_op,
                 &lhs_value,
@@ -711,6 +739,26 @@ impl<'a> PartialEvaluator<'a> {
                 lhs_span,
             )),
         }
+    }
+
+    fn eval_bin_op_with_lhs_unit_operand(
+        &mut self,
+        bin_op: BinOp,
+        rhs_expr_id: ExprId,
+    ) -> Result<EvalControlFlow, Error> {
+        // Unit has no runtime payload, but evaluating the RHS can still have effects.
+        let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
+        let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
+            return Err(Error::Unexpected(
+                "embedded return in RHS expression".to_string(),
+                self.get_expr_package_span(rhs_expr_id),
+            ));
+        };
+        assert!(
+            matches!(&rhs_value, Value::Tuple(values, _) if values.is_empty()),
+            "expected Unit value from RHS expression"
+        );
+        Ok(EvalControlFlow::Continue(Value::Bool(bin_op == BinOp::Eq)))
     }
 
     fn eval_bin_op_with_lhs_array_operand(
@@ -1262,6 +1310,7 @@ impl<'a> PartialEvaluator<'a> {
         let current_package_id = self.get_current_package_id();
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
         let expr = self.package_store.get_expr(store_expr_id);
+        let snapshot_captures = Self::type_may_contain_closure(&expr.ty);
         let scope_exec_graph = self.get_current_scope_exec_graph().clone();
         let scope = self.eval_context.get_current_scope_mut();
         scope.update_classical_locals_from_hybrid_locals();
@@ -1285,6 +1334,11 @@ impl<'a> PartialEvaluator<'a> {
             Ok(step_result) => {
                 let StepResult::Return(value) = step_result else {
                     panic!("evaluating a classical expression should always return a value");
+                };
+                let value = if snapshot_captures {
+                    self.snapshot_closure_captures(value, false)
+                } else {
+                    value
                 };
 
                 // Figure out the control flow kind.
@@ -1358,7 +1412,9 @@ impl<'a> PartialEvaluator<'a> {
                     *callable,
                 )
                 .map_err(Error::from)?;
-                Ok(EvalControlFlow::Continue(closure))
+                Ok(EvalControlFlow::Continue(
+                    self.snapshot_closure_captures(closure, false),
+                ))
             }
             ExprKind::Fail(_) => Err(Error::Unexpected(
                 "using a dynamic value in a fail statement is invalid".to_string(),
@@ -1496,21 +1552,8 @@ impl<'a> PartialEvaluator<'a> {
         index_expr_id: ExprId,
         update_expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
-        // Get the value of the array to use it as the basis to perform the update.
-        let array_expr = self.get_expr(array_expr_id);
-        let ExprKind::Var(Res::Local(array_loc_id), _) = &array_expr.kind else {
-            panic!("array expression in assign index expression is expected to be a variable");
-        };
-        let array = self
-            .eval_context
-            .get_current_scope()
-            .get_classical_local_value(*array_loc_id)
-            .clone()
-            .unwrap_array();
-
-        // Evaluate the updated array and update the corresponding bindings.
         let new_array_value =
-            self.eval_array_update_index(&array, index_expr_id, update_expr_id)?;
+            self.eval_array_update_index(array_expr_id, index_expr_id, update_expr_id, true)?;
         self.update_bindings(array_expr_id, new_array_value)?;
         Ok(EvalControlFlow::Continue(Value::unit()))
     }
@@ -1526,24 +1569,36 @@ impl<'a> PartialEvaluator<'a> {
         // evaluation.
         let lhs_expr = self.get_expr(lhs_expr_id);
         let lhs_expr_package_span = self.get_expr_package_span(lhs_expr_id);
-        let lhs_value = if matches!(lhs_expr.ty, Ty::Array(_)) {
+        if matches!(lhs_expr.ty, Ty::Array(_)) {
             let ExprKind::Var(Res::Local(lhs_loc_id), _) = &lhs_expr.kind else {
                 panic!("array expression in assign op expression is expected to be a variable");
             };
-            self.eval_context
+            let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
+            let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
+                return Err(Error::Unexpected(
+                    "embedded return in RHS expression".to_string(),
+                    self.get_expr_package_span(rhs_expr_id),
+                ));
+            };
+            // Array append reads its target after evaluating the RHS.
+            let mut lhs_array = self
+                .eval_context
                 .get_current_scope()
                 .get_classical_local_value(*lhs_loc_id)
                 .clone()
-        } else {
-            let lhs_control_flow = self.try_eval_expr(lhs_expr_id)?;
-            if lhs_control_flow.is_return() {
-                return Err(Error::Unexpected(
-                    "embedded return in assign op LHS expression".to_string(),
-                    lhs_expr_package_span,
-                ));
-            }
-            lhs_control_flow.into_value()
-        };
+                .unwrap_array();
+            Rc::make_mut(&mut lhs_array).extend_from_slice(&rhs_value.unwrap_array());
+            self.update_bindings(lhs_expr_id, Value::Array(lhs_array))?;
+            return Ok(EvalControlFlow::Continue(Value::unit()));
+        }
+        let lhs_control_flow = self.try_eval_expr(lhs_expr_id)?;
+        if lhs_control_flow.is_return() {
+            return Err(Error::Unexpected(
+                "embedded return in assign op LHS expression".to_string(),
+                lhs_expr_package_span,
+            ));
+        }
+        let lhs_value = lhs_control_flow.into_value();
         let lhs_value = self.copy_value_if_needed(lhs_value);
         let bin_op_control_flow = self.eval_bin_op(
             bin_op,
@@ -2308,7 +2363,8 @@ impl<'a> PartialEvaluator<'a> {
     /// Emits an eligible specialization as a QIR "IR function": a `Regular` RIR callable
     /// with a body, evaluated once with its parameters threaded as RIR variable operands, and
     /// deduplicated per `(StoreItemId, FunctorSetValue)`. At the call site an `Instruction::Call` to
-    /// the emitted callable is generated instead of inlining the body.
+    /// the emitted callable is generated instead of inlining the body. A scalar result proven
+    /// constant with runtime parameters is also retained for the caller's partial evaluation.
     fn eval_expr_call_to_ir_function(
         &mut self,
         store_item_id: StoreItemId,
@@ -2346,6 +2402,12 @@ impl<'a> PartialEvaluator<'a> {
         let instruction =
             Instruction::Call(callable_id, arg_operands.to_vec(), output_var, metadata);
         self.get_current_rir_block_mut().0.push(instruction);
+
+        // The call still runs its effects. Only the result can be replaced, and only with a
+        // constant obtained from the shared body, never from a particular call's arguments.
+        if let Some(value) = self.ir_function_constant_outputs.get(&callable_id) {
+            return Ok(value.clone());
+        }
 
         let ret_val = match output_var {
             None => Value::unit(),
@@ -2517,6 +2579,14 @@ impl<'a> PartialEvaluator<'a> {
         let eval_result = self.try_eval_block(spec_decl.block);
         self.ir_function_emission_depth -= 1;
         let body_value = eval_result?.into_value();
+
+        if matches!(
+            body_value,
+            Value::Int(_) | Value::Double(_) | Value::Bool(_)
+        ) {
+            self.ir_function_constant_outputs
+                .insert(callable_id, body_value.clone());
+        }
 
         // Terminate the function's final block. VOID (Unit-returning) IR functions emit a value-less
         // `Return`; scalar-returning IR functions materialize the trailing body value as the return
@@ -2945,16 +3015,8 @@ impl<'a> PartialEvaluator<'a> {
         index_expr_id: ExprId,
         update_expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
-        // Get the value of the array expression to use it as the basis to perform a replacement on.
-        let array_control_flow = self.try_eval_expr(array_expr_id)?;
-        let EvalControlFlow::Continue(array_value) = array_control_flow else {
-            return Err(Error::Unexpected(
-                "embedded return in index expression".to_string(),
-                self.get_expr_package_span(array_expr_id),
-            ));
-        };
-        let array = array_value.unwrap_array();
-        let updated_array = self.eval_array_update_index(&array, index_expr_id, update_expr_id)?;
+        let updated_array =
+            self.eval_array_update_index(array_expr_id, index_expr_id, update_expr_id, false)?;
         Ok(EvalControlFlow::Continue(updated_array))
     }
 
@@ -4135,6 +4197,50 @@ impl<'a> PartialEvaluator<'a> {
                 format!("unsupported value type in conversion {args_value:?}"),
                 args_span,
             )),
+        }
+    }
+
+    fn type_may_contain_closure(ty: &Ty) -> bool {
+        match ty {
+            Ty::Arrow(_) | Ty::Udt(_) => true,
+            Ty::Array(item) => Self::type_may_contain_closure(item),
+            Ty::Tuple(items) => items.iter().any(Self::type_may_contain_closure),
+            _ => false,
+        }
+    }
+
+    /// Copies dynamic storage only inside closure environments, including nested captures.
+    /// Values outside a capture retain their existing binding behavior.
+    fn snapshot_closure_captures(&mut self, value: Value, captured: bool) -> Value {
+        match value {
+            Value::Closure(mut closure) => {
+                closure.fixed_args = closure
+                    .fixed_args
+                    .iter()
+                    .cloned()
+                    .map(|value| self.snapshot_closure_captures(value, true))
+                    .collect();
+                Value::Closure(closure)
+            }
+            Value::Array(values) => Value::Array(
+                values
+                    .iter()
+                    .cloned()
+                    .map(|value| self.snapshot_closure_captures(value, captured))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
+            Value::Tuple(values, udt) => Value::Tuple(
+                values
+                    .iter()
+                    .cloned()
+                    .map(|value| self.snapshot_closure_captures(value, captured))
+                    .collect(),
+                udt,
+            ),
+            // Static evaluation can return closures containing mutable RIR storage.
+            value if captured => self.copy_value_if_needed(value),
+            value => value,
         }
     }
 

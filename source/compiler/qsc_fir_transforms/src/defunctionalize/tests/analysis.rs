@@ -34,6 +34,28 @@ fn check_flow_value(source: &str, expected: i64) {
     );
 }
 
+fn check_aggregate_hof_specialization(source: &str, expected: i64) {
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&store, package);
+    let outcome = defunctionalize(&mut store, package, &mut assigners);
+    assert_no_defunctionalization_errors(source, &outcome.diagnostics);
+    let generic = crate::test_utils::callable_id_by_name(store.get(package), "UseS");
+    let reachable = collect_reachable_from_entry(&store, package);
+    assert!(
+        !reachable.contains(&fir::StoreItemId::from((package, generic))),
+        "generic HOF must no longer be reachable:\n{source}"
+    );
+    assert!(
+        reachable.iter().any(|item| {
+            item.package == package
+                && matches!(&store.get(package).get_item(item.item).kind,
+                    ItemKind::Callable(decl) if decl.name.name.starts_with("UseS{"))
+        }),
+        "a specialization must actually be called:\n{source}"
+    );
+    check_flow_value(source, expected);
+}
+
 #[test]
 fn unresolved_factory_captures_defer_whole_dispatch_without_losing_known_candidates() {
     // A mutable capture can be unresolved before factory specialization. The
@@ -715,8 +737,6 @@ fn analysis_dynamic_callable_detected() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                op = X;
                 ApplyOp_AdjCtl__X_(q);
                 __quantum__rt__qubit_release(q);
             }
@@ -1441,6 +1461,488 @@ fn constructor_and_factory_return_field_projection_resolve_distinctly() {
 }
 
 #[test]
+fn factory_struct_field_into_hof_resolves_captures() {
+    let source = r#"
+        struct Entry { Value : Int, Subsystem : Int[] }
+        struct System { Count : Int, EntryAt : Int -> Entry }
+        function Make(base : Int, coeffs : Int[], subsystems : Int[][]) : System {
+            new System {
+                Count = 2,
+                EntryAt = i -> new Entry {
+                    Value = base + coeffs[i],
+                    Subsystem = subsystems[i]
+                }
+            }
+        }
+        function UseS(s : System, i : Int) : Int {
+            let entry = s.EntryAt(i);
+            s.Count * 1000 + entry.Value * 10 + entry.Subsystem[0]
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            let first = Make(3, [4, 6], [[1], [2]]);
+            let second = Make(10, [2, 8], [[3], [4]]);
+            (UseS(first, 0) + UseS(first, 1)) * 10000
+                + UseS(second, 0) + UseS(second, 1)
+        }
+        "#;
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let analysis = run_prepass_and_analysis(&mut store, package);
+    let sites: Vec<_> = analysis
+        .call_sites
+        .iter()
+        .filter(|site| resolve_item_name(&store, &site.hof_item_id).starts_with("UseS"))
+        .collect();
+    assert_eq!(sites.len(), 4);
+    for site in sites {
+        assert!(
+            matches!(&site.callable_arg, ConcreteCallable::Closure { captures, .. } if captures.len() == 3),
+            "factory field must resolve with scalar and array captures: {:?}",
+            site.callable_arg
+        );
+    }
+    check_flow_value(source, 41_634_307);
+}
+
+#[test]
+fn factory_struct_field_into_hof_rewrite() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int) : Config {
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config, x : Int) : Int { s.Count + s.F(x) }
+        @EntryPoint() operation Main() : Int {
+            let saved = Make(10);
+            UseS(saved, 1)
+        }
+        "#;
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype Config = (Int, (Int -> Int));
+        function Make(base : Int) : __UDT_Item_1__Package_2_ {
+            new Config {
+                Count = 2,
+                F = / * closure item = 5 captures = [base] * / _lambda_5
+            }
+
+        }
+        function UseS(s : __UDT_Item_1__Package_2_, x : Int) : Int {
+            s::Count + s::F(x)
+        }
+        operation Main() : Int {
+            let saved : __UDT_Item_1__Package_2_ = Make(10);
+            UseS(saved, 1)
+        }
+        function _lambda_5(base : Int, x : Int) : Int {
+            base + x
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype Config = (Int, (Int -> Int));
+        function Make(base : Int) : __UDT_Item_1__Package_2_ {
+            new Config {
+                Count = 2,
+                F = __defunc_consumed_closure_7
+            }
+
+        }
+        function UseS(s : __UDT_Item_1__Package_2_, x : Int) : Int {
+            s::Count + s::F(x)
+        }
+        operation Main() : Int {
+            let saved : __UDT_Item_1__Package_2_ = Make(10);
+            UseS_closure_(saved::Count, 1, 10)
+        }
+        function _lambda_5(base : Int, x : Int) : Int {
+            base + x
+        }
+        function UseS_closure_(s : Int, x : Int, __capture_0 : Int) : Int {
+            s + _lambda_5(__capture_0, x)
+        }
+        function __defunc_consumed_closure_7(_ : Int) : Int {
+            fail $"consumed closure stand-in invoked"
+        }
+        // entry
+        Main()
+    "#]],
+    );
+}
+
+#[test]
+fn single_aggregate_factory_stored_rewrite() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int) : Config {
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            let saved = Make(10);
+            UseS(saved)
+        }
+        "#;
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = / * closure item = 5 captures = [base] * / _lambda_5
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                let saved : __UDT_Item_1__Package_2_ = Make(10);
+                UseS(saved)
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = __defunc_consumed_closure_7
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                let saved : __UDT_Item_1__Package_2_ = Make(10);
+                UseS_closure_(saved::Count, 10)
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            function UseS_closure_(s : Int, __capture_0 : Int) : Int {
+                s + _lambda_5(__capture_0, 1)
+            }
+            function __defunc_consumed_closure_7(_ : Int) : Int {
+                fail $"consumed closure stand-in invoked"
+            }
+            // entry
+            Main()
+        "#]],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
+fn single_aggregate_factory_inline_rewrite() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int) : Config {
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int { UseS(Make(10)) }
+        "#;
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = / * closure item = 5 captures = [base] * / _lambda_5
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                UseS(Make(10))
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = __defunc_consumed_closure_7
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                UseS_closure_({
+                    let __aggregate_argument : __UDT_Item_1__Package_2_ = Make(10);
+                    __aggregate_argument::Count
+                }, 10)
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            function UseS_closure_(s : Int, __capture_0 : Int) : Int {
+                s + _lambda_5(__capture_0, 1)
+            }
+            function __defunc_consumed_closure_7(_ : Int) : Int {
+                fail $"consumed closure stand-in invoked"
+            }
+            // entry
+            Main()
+        "#]],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
+fn single_aggregate_factory_argument_forms_specialize() {
+    for argument in [
+        "UseS(Make(10))",
+        "{ let saved = Make(10); UseS(saved) }",
+        "{ let saved = Make(10); let alias = saved; UseS(alias) }",
+    ] {
+        let source = format!(
+            r#"
+            struct Inner {{ Tag : Int, F : Int -> Int }}
+            struct Outer {{ Tag : Int, Inner : Inner }}
+            function Make(base : Int) : Outer {{
+                new Outer {{ Tag = 100, Inner = new Inner {{ Tag = 20, F = x -> base + x }} }}
+            }}
+            function UseS(s : Outer) : Int {{ s.Tag + s.Inner.Tag + s.Inner.F(1) }}
+            @EntryPoint() operation Main() : Int {{ {argument} }}
+            "#
+        );
+        check_aggregate_hof_specialization(&source, 131);
+    }
+    for argument in [
+        "UseS(new Config { Count = 2, F = x -> 10 + x })",
+        "{ let saved = new Config { Count = 2, F = x -> 10 + x }; UseS(saved) }",
+    ] {
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, F : Int -> Int }}
+            function UseS(s : Config) : Int {{ s.Count + s.F(1) }}
+            @EntryPoint() operation Main() : Int {{ {argument} }}
+            "#
+        );
+        check_aggregate_hof_specialization(&source, 13);
+    }
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            mutable count = 2;
+            let saved = new Config { Count = count, F = x -> 10 + x };
+            set count = 20;
+            UseS(saved)
+        }
+        "#;
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
+fn single_aggregate_factory_is_evaluated_once() {
+    for (parameters, arguments, expected) in [
+        ("s : Config", "Make(10)", 41),
+        ("s : Config", "saved", 41),
+        ("s : Config, extra : Int", "Make(10), 0", 41),
+        ("s : Config, extra : Int", "saved, 0", 41),
+    ] {
+        let setup = if arguments.starts_with("Make") {
+            ""
+        } else {
+            "let saved = Make(10);"
+        };
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, Tag : Int, F : Int -> Int }}
+            function Make(base : Int) : Config {{
+                new Config {{ Count = base, Tag = 2 * base, F = x -> base + x }}
+            }}
+            function UseS({parameters}) : Int {{ s.Count + s.Tag + s.F(1) }}
+            @EntryPoint() operation Main() : Int {{
+                {setup}
+                UseS({arguments})
+            }}
+            "#
+        );
+        let (store, package_id) = compile_and_defunctionalize(&source);
+        let package = store.get(package_id);
+        let main = crate::test_utils::find_callable(package, "Main");
+        let make = crate::test_utils::callable_id_by_name(package, "Make");
+        let mut calls = 0;
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &main.implementation,
+            &mut |_, expr| {
+                if let fir::ExprKind::Call(callee, _) = expr.kind
+                    && let fir::ExprKind::Var(fir::Res::Item(target), _) =
+                        package.get_expr(callee).kind
+                    && target.package == package_id
+                    && target.item == make
+                {
+                    calls += 1;
+                }
+            },
+        );
+        assert_eq!(
+            calls, 1,
+            "retained fields must share one evaluation per factory expression: {parameters}, {arguments}"
+        );
+        check_flow_value(&source, expected);
+    }
+}
+
+#[test]
+fn single_aggregate_factory_captures_remain_distinct() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int, values : Int[]) : Config {
+            new Config { Count = 2, F = x -> base + values[x] }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            mutable base = 10;
+            let firstBase = base;
+            let first = Make(firstBase, [1, 3]);
+            set base = 20;
+            let secondBase = base;
+            let second = Make(secondBase, [2, 5]);
+            UseS(first) * 10000 + UseS(first) * 100 + UseS(second)
+        }
+        "#;
+    check_aggregate_hof_specialization(source, 151_527);
+}
+
+#[test]
+fn single_aggregate_factory_tuple_argument_specializes() {
+    for argument in ["UseS(Pack(10))", "{ let saved = Pack(10); UseS(saved) }"] {
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, F : Int -> Int }}
+            function Make(base : Int) : Config {{
+                new Config {{ Count = 2, F = x -> base + x }}
+            }}
+            function Pack(base : Int) : (Config, Int) {{ (Make(base), 1) }}
+            function UseS(s : Config, x : Int) : Int {{ s.Count + s.F(x) }}
+            @EntryPoint() operation Main() : Int {{ {argument} }}
+            "#
+        );
+        check_aggregate_hof_specialization(&source, 13);
+    }
+}
+
+#[test]
+fn factory_struct_field_into_hof_preserves_nested_fields_and_argument_forms() {
+    for argument in [
+        "UseS(Make(10))",
+        "{ let saved = Make(10); UseS(saved) }",
+        "{ let pair = (Make(10), 0); let (saved, _) = pair; UseS(saved) }",
+    ] {
+        check_flow_value(
+            &format!(
+                r#"
+                struct Inner {{ Tag : Int, F : Int -> Int }}
+                struct Outer {{ Tag : Int, Inner : Inner }}
+                function Make(base : Int) : Outer {{
+                    new Outer {{
+                        Tag = 100,
+                        Inner = new Inner {{ Tag = 20, F = x -> base + x }}
+                    }}
+                }}
+                function UseS(s : Outer) : Int {{
+                    s.Tag + s.Inner.Tag + s.Inner.F(1)
+                }}
+                @EntryPoint() operation Main() : Int {{ {argument} }}
+                "#
+            ),
+            131,
+        );
+    }
+}
+
+#[test]
+fn factory_struct_field_into_hof_declines_unsafe_producers() {
+    for prelude in ["fail \"factory failure\";", "let unused = 1 / base;"] {
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, F : Int -> Int }}
+            function Make(base : Int) : Config {{
+                {prelude}
+                new Config {{ Count = 2, F = x -> base + x }}
+            }}
+            function UseS(s : Config) : Int {{ s.Count + s.F(1) }}
+            @EntryPoint() operation Main() : Int {{
+                let saved = Make(0);
+                UseS(saved)
+            }}
+            "#
+        );
+        let (mut store, package) = compile_to_monomorphized_fir(&source);
+        let analysis = run_prepass_and_analysis(&mut store, package);
+        let site = analysis
+            .call_sites
+            .iter()
+            .find(|site| resolve_item_name(&store, &site.hof_item_id).starts_with("UseS"))
+            .expect("factory aggregate must reach the HOF");
+        assert!(
+            matches!(site.callable_arg, ConcreteCallable::Dynamic),
+            "unsafe producer must remain unresolved: {:?}",
+            site.callable_arg
+        );
+        check_errors(
+            &source,
+            &expect!["callable argument could not be resolved statically"],
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn factory_struct_field_into_hof_preserves_producer_effects() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        operation Make(base : Int, q : Qubit) : Config {
+            X(q);
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            use q = Qubit();
+            let saved = Make(10, q);
+            let value = UseS(saved);
+            if MResetZ(q) == One { value } else { 0 }
+        }
+        "#;
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
 fn identity_closure_over_global_callable_collapses() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
@@ -2027,10 +2529,7 @@ fn reaching_def_mutable_multi_assign() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -2099,12 +2598,7 @@ fn reaching_def_mutable_both_branches() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                } else {
-                    op = S;
-                }
+                if true {} else {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -4745,8 +5239,6 @@ fn mutable_local_not_promoted() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                op = X;
                 ApplyOp_AdjCtl__X_(q);
                 __quantum__rt__qubit_release(q);
             }
@@ -5116,17 +5608,10 @@ fn reaching_def_mutable_nested_branches() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 if true {
-                    if false {
-                        op = X;
-                    } else {
-                        op = T;
-                    }
+                    if false {} else {}
 
-                } else {
-                    op = S;
-                }
+                } else {}
 
                 if true {
                     if false {
@@ -5209,15 +5694,12 @@ fn callable_in_mutable_with_side_effects_in_if_expr() {
             operation Main() : Unit {
                 mutable __branch_guard : Bool = false;
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 {
                     __branch_guard = {
                         Y(q);
                         true
                     };
-                    if __branch_guard {
-                        op = X;
-                    }
+                    if __branch_guard {}
 
                 }
 
@@ -5328,12 +5810,7 @@ fn reaching_def_mutable_hof_param_substituted_condition() {
                 };
             }
             operation ApplyChoice_AdjCtl__H_(flag : Bool, q : Qubit) : Unit {
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if flag {
-                    op = X;
-                } else {
-                    op = Y;
-                }
+                if flag {} else {}
 
                 if flag {
                     X(q)
@@ -5504,8 +5981,6 @@ fn operand_block_set_specializes_to_reaching_definition() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
-                f = Bar;
                 let z : Int = 1;
                 Bar(5)
             }
@@ -5552,9 +6027,7 @@ fn operand_block_set_specializes_to_reaching_definition() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let z : Int = {
-                    f = Bar;
                     0
                 } + 1;
                 Bar(5)
@@ -5695,9 +6168,7 @@ fn straight_line_reassignment_is_position_sensitive() {
             operation Foo(x : Int) : Unit {}
             operation Bar(x : Int) : Unit {}
             operation Main() : Unit {
-                mutable f : (Int => Unit) = Foo;
                 Foo(1);
-                f = Bar;
                 Bar(2);
             }
             // entry
@@ -5756,8 +6227,6 @@ fn hof_operand_block_set_specializes_reaching_definition() {
                 g(x)
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
-                f = Bar;
                 let z : Int = 1;
                 Apply_Bar_(5)
             }
@@ -5814,9 +6283,7 @@ fn hof_operand_block_set_specializes_reaching_definition() {
                 g(x)
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let z : Int = {
-                    f = Bar;
                     0
                 } + 1;
                 Apply_Bar_(5)
@@ -5880,10 +6347,7 @@ fn operand_block_conditional_set_generates_branch_dispatch() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -5948,9 +6412,7 @@ fn operand_block_conditional_set_generates_branch_dispatch() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 let z : Int = if true {
-                    op = X;
                     0
                 } else {
                     0
@@ -6027,11 +6489,7 @@ fn operand_block_set_in_branch_uses_correct_arm() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = Y;
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -6101,11 +6559,8 @@ fn operand_block_set_in_branch_uses_correct_arm() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 if true {
-                    op = Y;
                     let z : Int = {
-                        op = X;
                         0
                     } + 0;
                 }
@@ -6533,9 +6988,7 @@ fn binop_andl_short_circuit_rhs_set_does_not_reach_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let b : Bool = false and {
-                    f = Bar;
                     true
                 };
                 if false {
@@ -6592,9 +7045,7 @@ fn binop_orl_short_circuit_rhs_set_does_not_reach_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let b : Bool = true or {
-                    f = Bar;
                     false
                 };
                 if true {
@@ -6654,12 +7105,10 @@ fn assignop_andl_short_circuit_rhs_set_does_not_reach_call() {
             }
             operation Main() : Int {
                 mutable __branch_guard : Bool = false;
-                mutable f : (Int -> Int) = Foo;
                 mutable b : Bool = false;
                 {
                     __branch_guard = b;
                     b = __branch_guard and {
-                        f = Bar;
                         false
                     }
 
@@ -6726,13 +7175,11 @@ fn update_field_replace_then_record_order_reaches_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let r : __UDT_Item_1__Package_2_ = new Rec {
                     A = Bar(5),
                     B = 0
                 }
                     w/::B <- {
-                    f = Bar;
                     0
                 };
                 r::A
@@ -6786,9 +7233,7 @@ fn update_index_container_last_order_reaches_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let arr : Int[] = [Bar(5), 0] w/ 1 <- {
-                    f = Bar;
                     0
                 };
                 arr[0]
@@ -6845,10 +7290,8 @@ fn assignop_non_logical_rhs_set_reaches_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 mutable acc : Int = 0;
                 acc += {
-                    f = Bar;
                     1
                 };
                 Bar(5)
@@ -6913,10 +7356,8 @@ fn orl_runtime_dynamic_condition_branch_split_dispatch() {
             }
             operation Main() : Int {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable f : (Int -> Int) = Foo;
                 let cond : Bool = MResetZ(q) == One;
                 let b : Bool = cond or {
-                    f = Bar;
                     false
                 };
                 let _generated_ident_67 : Int = if cond {
@@ -7913,6 +8354,357 @@ fn flow_tuple_declarations_observe_ordered_initializer_values() {
                 expected,
             );
         }
+    }
+}
+
+fn check_callable_assignment_expression_cleanup(statement: &str, reached: bool) {
+    for (replacement, marker, output) in [
+        ("B", 0, "before\nafter\n"),
+        (
+            r#"{ Message("replacement"); set marker += 7; B }"#,
+            if reached { 7 } else { 0 },
+            if reached {
+                "before\nreplacement\nafter\n"
+            } else {
+                "before\nafter\n"
+            },
+        ),
+    ] {
+        let statement = statement.replace("replacement", replacement);
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            function Consume(value : Unit) : Unit {{}}
+            @EntryPoint() operation Main() : Int {{
+                mutable f = A;
+                mutable marker = 0;
+                Message("before");
+                {statement}
+                Message("after");
+                f(10) * 100 + marker
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(if reached { 1200 + marker } else { 1100 }),
+            output,
+        );
+    }
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_local_initializer() {
+    check_callable_assignment_expression_cleanup("let ignored = (set f = replacement);", true);
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_tuple() {
+    check_callable_assignment_expression_cleanup("let pair = ((set f = replacement), 42);", true);
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_call_argument() {
+    check_callable_assignment_expression_cleanup("Consume((set f = replacement));", true);
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_lazy_operand() {
+    for reached in [false, true] {
+        for expression in [
+            format!("{reached} and ((set f = replacement) == ())"),
+            format!("{} or ((set f = replacement) == ())", !reached),
+        ] {
+            check_callable_assignment_expression_cleanup(
+                &format!("let ignored = {expression};"),
+                reached,
+            );
+        }
+    }
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_nested_write() {
+    check_callable_assignment_expression_cleanup(
+        "let ignored = (set f = { let inner = (set f = B); replacement });",
+        true,
+    );
+}
+
+/// The saved closure always uses A, while the current callable may become B.
+/// Ordered messages and an increment expose dropped, duplicated or moved RHS
+/// evaluation, including the skipped side of each short-circuit operator.
+fn check_callable_wrapper_effects_and_snapshots(
+    initializer: &str,
+    update: impl Fn(bool) -> String,
+) {
+    for reached in [false, true] {
+        let update = update(reached).replace(
+            "rhs",
+            r#"{ set f = { Message("assignment"); set marker += 7; B }; false }"#,
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &format!(
+                r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable marker = 0;
+                        mutable f = {initializer};
+                        let initial = f;
+                        let saved = (x -> initial(x));
+                        Message("before");
+                        {update}
+                        Message("after");
+                        f(10) * 10000 + saved(10) * 100 + marker
+                    }}
+                    "#
+            ),
+            qsc_eval::val::Value::Int(if reached { 121_107 } else { 111_100 }),
+            if reached {
+                "before\nassignment\nafter\n"
+            } else {
+                "before\nafter\n"
+            },
+        );
+    }
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_and_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_or_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_and_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_or_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+/// The first failure must still win when the replacement is reached, and
+/// neither its message nor its failure may run on a short-circuited path.
+fn check_callable_wrapper_failures(initializer: &str, update: impl Fn(bool) -> String) {
+    for reached in [false, true] {
+        let update = update(reached).replace(
+            "rhs",
+            r#"{ set f = { Message("replacement"); fail "assignment failed"; B }; false }"#,
+        );
+        let source = format!(
+            r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable f = {initializer};
+                        {update}
+                        let value = f(10);
+                        Message("after");
+                        fail "later failure";
+                        value
+                    }}
+                    "#
+        );
+        let error = crate::test_utils::eval_qsharp_original(&source)
+            .expect_err("the reached failure must execute");
+        assert!(
+            error.contains(if reached {
+                "assignment failed"
+            } else {
+                "later failure"
+            }),
+            "unexpected original failure: {error}"
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| format!("let _ = {reached} and rhs;"));
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| format!("let _ = {} or rhs;", !reached));
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_assign_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_assign_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_assign_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_assign_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_preserves_nested_writes_and_selected_effects() {
+    for reached in [false, true] {
+        for choose in [false, true] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable marker = 0;
+                    mutable f = {{ A }};
+                    let _ = {reached} and {{
+                        set f = {{
+                            set f = {{ Message("inner"); set marker += 1; B }};
+                            Message("outer");
+                            set marker += 10;
+                            if {choose} {{ B }} else {{ A }}
+                        }};
+                        false
+                    }};
+                    f(10) * 100 + marker
+                }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected_output(
+                &source,
+                qsc_eval::val::Value::Int(if reached {
+                    if choose { 1211 } else { 1111 }
+                } else {
+                    1100
+                }),
+                if reached { "inner\nouter\n" } else { "" },
+            );
+        }
+    }
+}
+
+/// An indexed write is not a whole-local store. Removing its base or replaying
+/// the alias would lose the array's original first callable.
+#[test]
+fn callable_wrapper_store_cleanup_preserves_partial_updates_and_aliases() {
+    for reached in [false, true] {
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            @EntryPoint() operation Main() : Int {{
+                mutable fs = [A, B];
+                let saved = fs;
+                let _ = {reached} and {{
+                    set fs w/= 0 <- {{ Message("replacement"); B }};
+                    false
+                }};
+                fs[0](10) * 100 + saved[0](10)
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(if reached { 1211 } else { 1111 }),
+            if reached { "replacement\n" } else { "" },
+        );
     }
 }
 

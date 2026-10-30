@@ -5,6 +5,67 @@ use super::*;
 use crate::PipelineStage;
 use crate::test_utils::compile_and_run_pipeline_to;
 
+#[test]
+fn fail_callable_defines_each_advertised_specialization() {
+    for (kind, functors) in [
+        (CallableKind::Function, FunctorSetValue::Empty),
+        (CallableKind::Operation, FunctorSetValue::Empty),
+        (CallableKind::Operation, FunctorSetValue::Adj),
+        (CallableKind::Operation, FunctorSetValue::Ctl),
+        (CallableKind::Operation, FunctorSetValue::CtlAdj),
+    ] {
+        let (mut store, package_id) =
+            crate::test_utils::compile_to_fir("operation Main() : Unit {}");
+        let package = store.get_mut(package_id);
+        let mut assigner = Assigner::from_package(package);
+        let output = if kind == CallableKind::Function {
+            Ty::Prim(Prim::Int)
+        } else {
+            Ty::UNIT
+        };
+        let item = alloc_fail_callable(
+            package,
+            &mut assigner,
+            "placeholder",
+            "placeholder invoked",
+            kind,
+            &Ty::Prim(Prim::Int),
+            &output,
+            functors,
+        );
+        let ItemKind::Callable(decl) = &package.get_item(item).kind else {
+            panic!("expected callable");
+        };
+        let CallableImpl::Spec(specs) = &decl.implementation else {
+            panic!("expected specializations");
+        };
+        assert_eq!(specs.adj.is_some(), functors.contains(&Functor::Adj));
+        assert_eq!(specs.ctl.is_some(), functors.contains(&Functor::Ctl));
+        assert_eq!(specs.ctl_adj.is_some(), functors == FunctorSetValue::CtlAdj);
+        let mut blocks = FxHashSet::default();
+        for spec in std::iter::once(&specs.body).chain(functored_specs(specs)) {
+            assert!(
+                blocks.insert(spec.block),
+                "specializations must own their blocks"
+            );
+            let block = package.get_block(spec.block);
+            assert_eq!(block.ty, output);
+            let StmtKind::Expr(expr) = package.get_stmt(block.stmts[0]).kind else {
+                panic!("expected fail statement");
+            };
+            assert!(matches!(package.get_expr(expr).kind, ExprKind::Fail(_)));
+        }
+        for spec in [specs.ctl.as_ref(), specs.ctl_adj.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            let controls = package.get_pat(spec.input.expect("controlled input"));
+            assert_eq!(controls.ty, Ty::Array(Box::new(Ty::Prim(Prim::Qubit))));
+            assert!(matches!(controls.kind, PatKind::Discard));
+        }
+    }
+}
+
 // A higher-order operation that applies `Controlled` twice to its callable
 // parameter. After defunctionalization the `op` parameter is replaced by the
 // concrete `Foo`, so the body's `Controlled Controlled op(...)` callee is

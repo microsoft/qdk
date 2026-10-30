@@ -20,6 +20,85 @@ use qsc_fir::{
 };
 
 #[test]
+fn early_return_skips_later_loop_conditional() {
+    for (early, branch, expected) in [
+        (true, true, 1),
+        (true, false, 1),
+        (false, true, 2),
+        (false, false, 3),
+    ] {
+        let source = format!(
+            r#"
+            @EntryPoint() operation Main() : Int {{
+                if {early} {{ return 1; }}
+                if {branch} {{ return 2; }} else {{ for i in [0] {{ return 3; }} }}
+                return 4;
+            }}
+            "#
+        );
+        check_value(&source, Value::Int(expected));
+    }
+}
+
+#[test]
+fn early_return_skips_condition_effects_before_returning_loop() {
+    check_value(
+        r#"
+        @EntryPoint() operation Main() : Int {
+            if true { return 1; }
+            if { fail "condition must not run"; true } {
+                return 2;
+            } else {
+                while false { return 3; }
+            }
+            return 4;
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn guarded_callable_defaults_preserve_functor_effects() {
+    for initializer in ["U", "[V, U][1]"] {
+        for (invocation, expected) in [
+            ("f(q)", true),
+            ("Adjoint f(q)", false),
+            ("Adjoint Adjoint f(q)", true),
+            ("Controlled f([c], q)", true),
+            ("Controlled Adjoint f([c], q)", false),
+        ] {
+            for stop in [false, true] {
+                let source = format!(
+                    r#"
+                    operation U(q : Qubit) : Unit is Adj + Ctl {{ S(q); }}
+                    operation V(q : Qubit) : Unit is Adj + Ctl {{ X(q); }}
+                    @EntryPoint()
+                    operation Main() : Result {{
+                        use q = Qubit();
+                        use c = Qubit();
+                        if {stop} {{ return Zero; }}
+                        H(q);
+                        S(q);
+                        X(c);
+                        let f = {initializer};
+                        {invocation};
+                        Reset(c);
+                        H(q);
+                        MResetZ(q)
+                    }}
+                    "#
+                );
+                check_value(
+                    &source,
+                    Value::Result(qsc_eval::val::Result::Val(!stop && expected)),
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn non_defaultable_tails_preserve_returned_payload_and_run_effects_only_on_fallthrough() {
     for stop in [false, true] {
         for (output, returned, tail, read, tag, expected_tag) in [

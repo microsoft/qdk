@@ -617,6 +617,8 @@ pub(crate) fn alloc_local_var(
 /// Used for arrow-typed return-slot defaults and consumed closure placeholders.
 /// The caller must establish that the placeholder is never invoked; `Fail`
 /// permits a body with any output type but does not preserve callable behavior.
+/// Every advertised functor has a separate fail-bodied specialization so
+/// analysis can safely consider the placeholder as a possible callable value.
 ///
 /// The generated name is `{name_prefix}_{item_id}`, using the package's assigner.
 #[allow(clippy::too_many_arguments)]
@@ -630,28 +632,7 @@ pub(crate) fn alloc_fail_callable(
     output_ty: &Ty,
     functors: FunctorSetValue,
 ) -> LocalItemId {
-    let msg_expr_id = alloc_expr(
-        package,
-        assigner,
-        Ty::Prim(Prim::String),
-        ExprKind::String(vec![StringComponent::Lit(Rc::from(fail_message))]),
-        package.synthetic_span(),
-    );
-    let fail_expr_id = alloc_expr(
-        package,
-        assigner,
-        output_ty.clone(),
-        ExprKind::Fail(msg_expr_id),
-        package.synthetic_span(),
-    );
-    let trailing_stmt = alloc_expr_stmt(package, assigner, fail_expr_id, package.synthetic_span());
-    let body_block = alloc_block(
-        package,
-        assigner,
-        vec![trailing_stmt],
-        output_ty.clone(),
-        package.synthetic_span(),
-    );
+    let body = alloc_fail_spec(package, assigner, fail_message, output_ty, false);
 
     let input_pat_id = alloc_discard_pat(
         package,
@@ -661,15 +642,15 @@ pub(crate) fn alloc_fail_callable(
     );
 
     let body_impl = SpecImpl {
-        body: SpecDecl {
-            span: package.synthetic_span(),
-            block: body_block,
-            input: None,
-            exec_graph: ExecGraph::default(),
-        },
-        adj: None,
-        ctl: None,
-        ctl_adj: None,
+        body,
+        adj: functors
+            .contains(&Functor::Adj)
+            .then(|| alloc_fail_spec(package, assigner, fail_message, output_ty, false)),
+        ctl: functors
+            .contains(&Functor::Ctl)
+            .then(|| alloc_fail_spec(package, assigner, fail_message, output_ty, true)),
+        ctl_adj: (functors == FunctorSetValue::CtlAdj)
+            .then(|| alloc_fail_spec(package, assigner, fail_message, output_ty, true)),
     };
 
     let new_item_id = assigner.next_item();
@@ -703,6 +684,58 @@ pub(crate) fn alloc_fail_callable(
     );
 
     new_item_id
+}
+
+/// Allocates a placeholder specialization that fails with `fail_message`.
+///
+/// Each call creates fresh arena nodes so specializations do not share ownership.
+/// The diverging `Fail` expression and its block are typed as `output_ty`.
+/// When `controlled` is true, the specialization also discards a `Qubit[]` control
+/// input; ordinary arguments are handled by the callable's shared input pattern.
+/// The execution graph is left empty for the pipeline's final rebuild.
+fn alloc_fail_spec(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    fail_message: &str,
+    output_ty: &Ty,
+    controlled: bool,
+) -> SpecDecl {
+    let msg_expr_id = alloc_expr(
+        package,
+        assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit(Rc::from(fail_message))]),
+        package.synthetic_span(),
+    );
+    let fail_expr_id = alloc_expr(
+        package,
+        assigner,
+        output_ty.clone(),
+        ExprKind::Fail(msg_expr_id),
+        package.synthetic_span(),
+    );
+    let trailing_stmt = alloc_expr_stmt(package, assigner, fail_expr_id, package.synthetic_span());
+    let block = alloc_block(
+        package,
+        assigner,
+        vec![trailing_stmt],
+        output_ty.clone(),
+        package.synthetic_span(),
+    );
+    let input = controlled.then(|| {
+        alloc_discard_pat(
+            package,
+            assigner,
+            Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
+            package.synthetic_span(),
+        )
+    });
+    SpecDecl {
+        span: package.synthetic_span(),
+        block,
+        input,
+        exec_graph: ExecGraph::default(),
+    }
 }
 
 /// Decomposes a `PatKind::Bind` pattern into a `PatKind::Tuple` of per-element

@@ -576,6 +576,44 @@ fn int_lit(package: &mut Package, assigner: &mut Assigner, value: i64) -> ExprId
 }
 
 #[test]
+fn scoped_postorder_deduplicates_nested_roots_without_visiting_unrelated_nodes() {
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let unrelated = int_lit(&mut package, &mut assigner, 99);
+    let outer = int_lit(&mut package, &mut assigner, 0);
+    let inner = int_lit(&mut package, &mut assigner, 0);
+    let shared = int_lit(&mut package, &mut assigner, 1);
+    let statement = alloc_expr_stmt(&mut package, &mut assigner, shared, PackageSpan::default());
+    let block = alloc_block(
+        &mut package,
+        &mut assigner,
+        vec![statement],
+        Ty::Prim(Prim::Int),
+        PackageSpan::default(),
+    );
+    package.exprs.get_mut(inner).expect("inner exists").kind = ExprKind::Block(block);
+    let tuple = package.exprs.get_mut(outer).expect("outer exists");
+    tuple.kind = ExprKind::Tuple(vec![inner, shared]);
+    tuple.ty = Ty::Tuple(vec![Ty::Prim(Prim::Int); 2]);
+    for (roots, expected) in [
+        (vec![], vec![]),
+        (vec![shared, shared], vec![shared]),
+        (vec![outer], vec![shared, inner, outer]),
+        (vec![inner, outer, inner], vec![shared, inner, outer]),
+        (vec![outer, shared, inner], vec![shared, inner, outer]),
+    ] {
+        assert_eq!(
+            expressions_in_postorder_from_roots(&package, roots),
+            expected
+        );
+    }
+    assert_eq!(
+        expressions_in_postorder(&package),
+        vec![unrelated, shared, inner, outer]
+    );
+}
+
+#[test]
 fn given_lit_is_side_effect_free() {
     let mut package = Package::default();
     let mut assigner = Assigner::default();
