@@ -6,7 +6,104 @@ use super::{
     qir_entry_body,
 };
 use expect_test::expect;
+use qsc_eval::output::CursorReceiver;
 use std::fmt::Write;
+use std::io::Cursor;
+
+fn check_controlled_phase_capture(body: &str) {
+    let source = format!(
+        r#"
+        operation Apply(op : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit is Adj + Ctl {{
+            op(q);
+        }}
+        function Make(op : Qubit => Unit is Adj + Ctl) : Qubit => Unit is Adj + Ctl {{
+            Apply(op, _)
+        }}
+        {body}
+    "#
+    );
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, &source);
+        let target = eval_fragments(&mut interpreter, "Run");
+        let captured = eval_fragments(&mut interpreter, "Make(Z)");
+        assert!(matches!(&captured, Value::Closure(closure) if closure.fixed_args.len() == 1));
+        let mut output = Cursor::new(Vec::new());
+        assert_eq!(
+            interpreter
+                .invoke(
+                    &mut CursorReceiver::new(&mut output),
+                    target.clone(),
+                    captured.clone()
+                )
+                .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors))),
+            Value::Result(qsc_eval::val::Result::Val(false)),
+            "{profile:?}",
+        );
+        let actual = interpreter
+            .qirgen_from_callable(&target, captured)
+            .expect("runtime captured phase QIR");
+        let expected = interpreter
+            .qirgen("Expected()")
+            .expect("direct controlled-Z QIR");
+        assert_eq!(actual, expected, "{profile:?}");
+    }
+}
+
+#[test]
+fn inactive_control_does_not_apply_captured_phase_operation() {
+    check_controlled_phase_capture(
+        r#"
+        operation Run(f : Qubit => Unit is Adj + Ctl) : Result {
+            use (control, target) = (Qubit(), Qubit());
+            H(target);
+            Controlled f([control], target);
+            H(target);
+            MResetZ(target)
+        }
+        operation Expected() : Result {
+            use (control, target) = (Qubit(), Qubit());
+            H(target);
+            Controlled Z([control], target);
+            H(target);
+            MResetZ(target)
+        }
+    "#,
+    );
+}
+
+#[test]
+fn coherent_control_preserves_captured_phase_against_independent_uncompute() {
+    check_controlled_phase_capture(
+        r#"
+        operation Run(f : Qubit => Unit is Adj + Ctl) : Result {
+            use (control, target) = (Qubit(), Qubit());
+            H(control);
+            X(target);
+            Controlled f([control], target);
+            Controlled Z([control], target);
+            H(control);
+            X(target);
+            MResetZ(control)
+        }
+        operation Expected() : Result {
+            use (control, target) = (Qubit(), Qubit());
+            H(control);
+            X(target);
+            Controlled Z([control], target);
+            Controlled Z([control], target);
+            H(control);
+            X(target);
+            MResetZ(control)
+        }
+    "#,
+    );
+}
 
 #[test]
 fn effectful_call_preserves_constant_allocation_size_and_runs_once() {
@@ -390,6 +487,66 @@ fn measured_short_circuit_callable_reassignment_compiles_on_restricted_profiles(
             .qirgen_from_callable(&target, Value::unit())
             .expect("runtime QIR");
         assert_eq!(source_qir, runtime_qir, "{profile:?}");
+        let expected_entry = if profile == Profile::Adaptive {
+            expect![[r#"
+                block_0:
+                  %var_0 = alloca i1
+                  %var_4 = alloca i1
+                  %var_5 = alloca i1
+                  %var_7 = alloca i64
+                  %var_8 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  store i1 false, ptr %var_0
+                  call void @X(ptr inttoptr (i64 0 to ptr))
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_2, ptr %var_0
+                  %var_11 = load i1, ptr %var_0
+                  store i1 %var_11, ptr %var_4
+                  store i1 false, ptr %var_5
+                  %var_14 = load i1, ptr %var_4
+                  br i1 %var_14, label %block_1, label %block_2
+                block_1:
+                  store i1 true, ptr %var_5
+                  br label %block_2
+                block_2:
+                  %var_15 = load i1, ptr %var_0
+                  br i1 %var_15, label %block_3, label %block_4
+                block_3:
+                  store i64 6, ptr %var_7
+                  br label %block_5
+                block_4:
+                  store i64 4, ptr %var_7
+                  br label %block_5
+                block_5:
+                  %var_17 = load i64, ptr %var_7
+                  store i64 %var_17, ptr %var_8
+                  %var_19 = load i64, ptr %var_8
+                  call void @__quantum__rt__int_record_output(i64 %var_19, ptr @0)
+                  ret i64 0"#]]
+        } else {
+            expect![[r#"
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+                  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+                  %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  br i1 %var_1, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_8 = phi i1 [false, %block_0], [true, %block_1]
+                  br i1 %var_1, label %block_3, label %block_4
+                block_3:
+                  br label %block_5
+                block_4:
+                  br label %block_5
+                block_5:
+                  %var_9 = phi i64 [6, %block_3], [4, %block_4]
+                  call void @__quantum__rt__int_record_output(i64 %var_9, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0"#]]
+        };
+        expected_entry.assert_eq(qir_entry_body(&source_qir));
     }
 }
 

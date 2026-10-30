@@ -1892,27 +1892,73 @@ fn evaluation_order_callable_captured_snapshot_reaches_qir() {
 
 #[test]
 fn evaluation_order_array_updates_evaluate_index_then_value_then_target() {
-    for update in [
-        "let updated = values w/ { set values = [6, 7]; 0 } <- replacement;",
-        "mutable updated = values; set updated w/= { set updated = [6, 7]; 0 } <- replacement;",
+    for (update, expected_trace) in [
+        (
+            "let updated = { set trace = 10 * trace + 3; values }
+                w/ { set trace = 10 * trace + 1; set values = [6, 7]; 0 }
+                <- { set trace = 10 * trace + 2; MResetZ(q); set values = [8, 9]; 11 };",
+            123,
+        ),
+        (
+            "mutable updated = values;
+                set updated w/= { set trace = 10 * trace + 1; set updated = [6, 7]; 0 }
+                <- { set trace = 10 * trace + 2; MResetZ(q); set updated = [8, 9]; 11 };",
+            12,
+        ),
     ] {
         let source = format!(
-            "operation Main() : Int {{
+            "operation Main() : (Int[], Int) {{
                 use q = Qubit();
+                mutable trace = 0;
                 mutable values = [4, 5];
-                let replacement = if MResetZ(q) == Zero {{ 1 }} else {{ 2 }};
                 {update}
-                updated[1]
+                (updated, trace)
             }}"
         );
         let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
         eval_fragments(&mut interpreter, &source);
-        assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::Int(7));
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Tuple(
+                vec![
+                    Value::Array(vec![Value::Int(11), Value::Int(9)].into()),
+                    Value::Int(expected_trace),
+                ]
+                .into(),
+                None,
+            ),
+        );
         for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
             let qir = compile_source_to_qir(&source, profile.into());
-            assert!(
-                qir.contains("call void @__quantum__rt__int_record_output(i64 7,"),
-                "{profile:?}, {update}: array update read its target too early:\n{qir}"
+            let outputs = qir_entry_body(&qir)
+                .lines()
+                .filter(|line| line.contains("_record_output("))
+                .map(|line| {
+                    line.split_once('(')
+                        .expect("output call")
+                        .1
+                        .split(',')
+                        .next()
+                        .expect("output operand")
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                outputs,
+                [
+                    "i64 2",
+                    "i64 2",
+                    "i64 11",
+                    "i64 9",
+                    &format!("i64 {expected_trace}")
+                ],
+                "{profile:?}, {update}: incorrect updated contents or effect order:\n{qir}",
+            );
+            assert_eq!(
+                qir_entry_body(&qir)
+                    .matches("call void @__quantum__qis__mresetz__body(")
+                    .count(),
+                1,
+                "{profile:?}: replacement measurement must execute once:\n{qir}",
             );
         }
     }
