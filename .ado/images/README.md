@@ -96,3 +96,9 @@ az artifacts universal publish \
   - In `build-images.yml` the task to "Download Python 3.15 source" had the "packageVersion" updated to "3.15.1"
   - In `qdk-build/Dockerfile` the filename in `ARG PY315_ARCHIVE=Python-3.15.0.tar.xz` was updated to `Python-3.15.1.tar.xz` and
     the sha256 value piped into the command `| sha256sum -c -` was updated to match that verified above.
+
+## Copilot sandbox images
+
+The `sandbox-agent` and `sandbox-proxy` directories contain the sandbox image definitions.
+The `build-sandbox-images.yml` ADO pipeline builds, scans, and publishes both images.
+See [the sandbox documentation](../../tools/copilot-sandbox/README.md) for local builds and usage.
