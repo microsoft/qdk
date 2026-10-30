@@ -1,6 +1,11 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import json
+from pathlib import Path
+import subprocess
+import sys
+
 import pytest
 
 from qdk import qsharp
@@ -20,12 +25,143 @@ RUNTIME_PAYLOAD_CASES = [
 
 
 def check_result(
-    source: str, profile: qsharp.TargetProfile, expected: qsharp.Result | int
+    source: str,
+    profile: qsharp.TargetProfile,
+    expected: qsharp.Result | int,
+    *,
+    entry_expr: str = "Main()",
+    shots: int = 4,
 ) -> None:
+    expected_value: str | int
+    if isinstance(expected, qsharp.Result):
+        expected_value = "One" if expected == qsharp.Result.One else "Zero"
+    else:
+        expected_value = expected
+    _run_probe_subprocess(
+        [str(Path(__file__).resolve())],
+        input_data=json.dumps(
+            {
+                "source": source,
+                "profile": str(profile),
+                "expected": expected_value,
+                "entry_expr": entry_expr,
+                "shots": shots,
+            }
+        ),
+    )
+
+
+def _run_probe_subprocess(
+    arguments: list[str], *, input_data: str = "", timeout: float = 120
+) -> None:
+    try:
+        result = subprocess.run(
+            [sys.executable, *arguments],
+            input=input_data,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AssertionError(
+            f"recursive probe timed out after {timeout} seconds\n"
+            f"stdout: {error.stdout!r}\nstderr: {error.stderr!r}"
+        ) from error
+    if result.returncode != 0:
+        raise AssertionError(
+            f"recursive probe failed with exit code {result.returncode}\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+
+
+def _check_result_in_process(
+    source: str,
+    profile: qsharp.TargetProfile,
+    expected: qsharp.Result | int,
+    *,
+    entry_expr: str,
+    shots: int,
+) -> None:
+    print("Interpreting source", flush=True)
     qsharp.init(target_profile=profile)
     qsharp.eval(source)
-    assert qsharp.eval("Main()") == expected
-    assert run_qir(str(qsharp.compile("Main()")), shots=4, type="cpu") == [expected] * 4
+    interpreted = qsharp.eval(entry_expr)
+    if interpreted != expected:
+        raise AssertionError(
+            f"source result mismatch: expected {expected!r}, got {interpreted!r}"
+        )
+    print("Compiling QIR", flush=True)
+    qir = str(qsharp.compile(entry_expr))
+    print("Executing QIR", flush=True)
+    compiled = run_qir(qir, shots=shots, type="cpu")
+    if compiled != [expected] * shots:
+        raise AssertionError(
+            f"compiled result mismatch: expected {[expected] * shots!r}, got {compiled!r}"
+        )
+
+
+def test_probe_subprocess_preserves_input_and_success() -> None:
+    _run_probe_subprocess(
+        [
+            "-c",
+            "import sys\n"
+            "if sys.stdin.read() != 'probe input': raise AssertionError('input changed')",
+        ],
+        input_data="probe input",
+    )
+
+
+def test_probe_subprocess_preserves_assertion_diagnostics() -> None:
+    with pytest.raises(AssertionError, match="probe assertion marker"):
+        _run_probe_subprocess(["-c", "raise AssertionError('probe assertion marker')"])
+
+
+def test_probe_subprocess_reports_abrupt_exit() -> None:
+    with pytest.raises(AssertionError, match="exit code 23"):
+        _run_probe_subprocess(["-c", "import os; os._exit(23)"])
+
+
+def test_probe_subprocess_kills_and_reaps_timed_out_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    killed: list[subprocess.Popen[str]] = []
+    original_kill = subprocess.Popen.kill
+
+    def record_kill(process: subprocess.Popen[str]) -> None:
+        killed.append(process)
+        original_kill(process)
+
+    monkeypatch.setattr(subprocess.Popen, "kill", record_kill)
+    with pytest.raises(AssertionError, match="timed out") as error:
+        _run_probe_subprocess(
+            [
+                "-c",
+                "import time; print('probe started', flush=True); time.sleep(60)",
+            ],
+            timeout=5,
+        )
+    assert "probe started" in str(error.value)
+    assert len(killed) == 1
+    assert killed[0].returncode is not None
+
+
+@pytest.mark.parametrize("optimization", ["0", "1"])
+def test_probe_subprocess_reports_source_result_mismatch(
+    optimization: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PYTHONOPTIMIZE", optimization)
+    with pytest.raises(AssertionError, match="source result mismatch"):
+        check_result("operation Main() : Int { 1 }", qsharp.TargetProfile.Adaptive, 2)
+
+
+def test_probe_subprocess_preserves_compiler_diagnostic() -> None:
+    with pytest.raises(AssertionError, match="Qdk.Qsc.PartialEval.OutputResultLiteral"):
+        check_result(
+            "operation Main() : Result { Zero }",
+            qsharp.TargetProfile.Adaptive,
+            qsharp.Result.Zero,
+        )
 
 
 @pytest.mark.parametrize("profile", PROFILES, ids=str)
@@ -848,3 +984,17 @@ def test_allocating_retry_preserves_success_and_known_budget_exhaustion(
         }}
     """
     check_result(source, qsharp.TargetProfile.Adaptive, expected)
+
+
+if __name__ == "__main__":
+    case = json.load(sys.stdin)
+    expected = case["expected"]
+    if isinstance(expected, str):
+        expected = {"Zero": qsharp.Result.Zero, "One": qsharp.Result.One}[expected]
+    _check_result_in_process(
+        case["source"],
+        getattr(qsharp.TargetProfile, case["profile"]),
+        expected,
+        entry_expr=case["entry_expr"],
+        shots=case["shots"],
+    )

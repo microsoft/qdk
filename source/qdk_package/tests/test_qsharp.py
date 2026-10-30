@@ -9,6 +9,8 @@ import qdk.code
 from contextlib import redirect_stdout
 import io
 
+from test_recursive_compatibility import check_result as check_recursive_result
+
 # Tests for the Python library for Q#
 
 
@@ -373,8 +375,7 @@ def test_compile_qir_str() -> None:
 def test_compiled_recursive_retry_preserves_budget_outcomes(
     budget: int, prepared: bool, expected: qsharp.Result
 ) -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
-    qsharp.eval("""
+    source = """
         operation Rus(budget : Int, q : Qubit, target : Qubit) : Unit {
             if budget > 0 {
                 if MResetZ(q) == Zero {
@@ -390,14 +391,11 @@ def test_compiled_recursive_retry_preserves_budget_outcomes(
             Reset(q);
             MResetZ(target)
         }
-    """)
+    """
     expression = f"Retry({budget}, {str(prepared).lower()})"
-
-    interpreted = qsharp.eval(expression)
-    compiled = run_qir(str(qsharp.compile(expression)), shots=4, type="cpu")
-
-    assert interpreted == expected
-    assert compiled == [expected] * 4
+    check_recursive_result(
+        source, qsharp.TargetProfile.Adaptive, expected, entry_expr=expression
+    )
 
 
 @pytest.mark.parametrize("depth", [0, 1, 2])
@@ -414,8 +412,7 @@ def test_compiled_array_update_finishes_local_qubit_scope_before_recursion(
     replacement = (
         f"{{ {local_scope} true }}" if allocation_operand == "replacement" else "true"
     )
-    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
-    qsharp.eval(f"""
+    source = f"""
         operation Rec(depth : Int, target : Qubit) : Unit {{
             let ignored = {{
                 if depth > 0 {{ Rec(depth - 1, target); }}
@@ -430,11 +427,10 @@ def test_compiled_array_update_finishes_local_qubit_scope_before_recursion(
             Rec(depth, target);
             MResetZ(target)
         }}
-    """)
-
-    assert qsharp.eval("Main()") == qsharp.Result.Zero
-    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
-    assert compiled == [qsharp.Result.Zero]
+    """
+    check_recursive_result(
+        source, qsharp.TargetProfile.Adaptive, qsharp.Result.Zero, shots=1
+    )
 
 
 @pytest.mark.parametrize("index,replacement", [("0", "value"), ("0..0", "[value]")])

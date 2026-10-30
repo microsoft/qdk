@@ -103,6 +103,28 @@ fn qir_entry_body(qir: &str) -> &str {
         .0
 }
 
+fn run_test_in_subprocess(environment: &[(&str, &str)]) {
+    let thread = std::thread::current();
+    let mut child = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args(["--exact", thread.name().expect("named isolated test")])
+        .envs(environment.iter().copied())
+        .spawn()
+        .expect("start isolated native compiler");
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().expect("check compiler process") {
+            assert!(status.success(), "native compiler test failed: {status}");
+            break;
+        }
+        if started.elapsed() >= std::time::Duration::from_mins(2) {
+            child.kill().expect("terminate timed-out compiler");
+            child.wait().expect("reap timed-out compiler");
+            panic!("native compiler test exceeded 120 seconds");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn qir_entry_body_excludes_other_functions() {
     let qir = "declare void @helper()\n\
@@ -3867,6 +3889,11 @@ fn forwarded_callable_array_emits_both_operations() {
 
 #[test]
 fn dynamic_recursion_reports_error_instead_of_overflowing() {
+    const CHILD_ENV: &str = "QDK_RECURSION_DIAGNOSTIC_CHILD";
+    if std::env::var_os(CHILD_ENV).is_none() {
+        run_test_in_subprocess(&[(CHILD_ENV, "1")]);
+        return;
+    }
     // The recursion depth depends on a measurement, so inlining cannot unroll
     // it. Previously the partial evaluator inlined forever and overflowed the
     // stack; it must report a diagnostic instead.

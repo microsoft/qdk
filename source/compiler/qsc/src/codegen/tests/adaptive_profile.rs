@@ -22,7 +22,7 @@ static CAPABILITIES_DYNAMIC_QUBIT_ALLOC: std::sync::LazyLock<TargetCapabilityFla
     });
 
 fn check_recursive_native_boundary(
-    source: String,
+    source: &str,
     limit: Option<&str>,
     gates: usize,
     measurements: usize,
@@ -92,39 +92,21 @@ fn check_recursive_native_boundary(
         return;
     }
 
-    // A separate process keeps the 120-second deadline responsive to stack
-    // overflow or a compiler loop, including in an optimized test binary.
-    let thread = std::thread::current();
-    let mut child = std::process::Command::new(std::env::current_exe().expect("test executable"))
-        .args(["--exact", thread.name().expect("named boundary test")])
-        .env(SOURCE_ENV, source)
-        .env(LIMIT_ENV, limit.unwrap_or(""))
-        .env(
+    super::run_test_in_subprocess(&[
+        (SOURCE_ENV, source),
+        (LIMIT_ENV, limit.unwrap_or("")),
+        (
             OUTPUT_ENV,
-            format!("{gates},{measurements},{},{}", emitted.0, emitted.1),
-        )
-        .env(PROFILE_ENV, profile.to_str())
-        .spawn()
-        .expect("start isolated native compiler");
-    let started = std::time::Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().expect("check compiler process") {
-            assert!(status.success(), "native boundary process failed: {status}");
-            break;
-        }
-        if started.elapsed() >= std::time::Duration::from_mins(2) {
-            child.kill().expect("terminate timed-out compiler");
-            child.wait().expect("reap timed-out compiler");
-            panic!("native recursive boundary exceeded 120 seconds");
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+            &format!("{gates},{measurements},{},{}", emitted.0, emitted.1),
+        ),
+        (PROFILE_ENV, profile.to_str()),
+    ]);
 }
 
 #[test]
 fn recursive_inline_production_depth_limit_counts_inline_and_emitted_bodies() {
     if std::env::var_os("QDK_RECURSIVE_INLINE_BOUNDARY_SOURCE").is_some() {
-        check_recursive_native_boundary(String::new(), None, 0, 0, Profile::AdaptiveRI, (0, 0));
+        check_recursive_native_boundary("", None, 0, 0, Profile::AdaptiveRI, (0, 0));
         return;
     }
     let depth = qsc_partial_eval::MAX_RECURSIVE_INLINE_DEPTH;
@@ -160,7 +142,7 @@ fn recursive_inline_production_depth_limit_counts_inline_and_emitted_bodies() {
                 }}"
             );
             check_recursive_native_boundary(
-                source,
+                &source,
                 above.then_some("depth"),
                 0,
                 n,
@@ -193,7 +175,7 @@ fn recursive_inline_production_depth_limit_counts_inline_and_emitted_bodies() {
                 .expect("write helper declaration");
         }
         check_recursive_native_boundary(
-            source,
+            &source,
             (helpers > depth - 2).then_some("depth"),
             1,
             1,
@@ -206,7 +188,7 @@ fn recursive_inline_production_depth_limit_counts_inline_and_emitted_bodies() {
 #[test]
 fn recursive_inline_production_work_limit_counts_helpers_but_not_emitted_calls() {
     if std::env::var_os("QDK_RECURSIVE_INLINE_BOUNDARY_SOURCE").is_some() {
-        check_recursive_native_boundary(String::new(), None, 0, 0, Profile::AdaptiveRI, (0, 0));
+        check_recursive_native_boundary("", None, 0, 0, Profile::AdaptiveRI, (0, 0));
         return;
     }
     let work = qsc_partial_eval::MAX_RECURSIVE_INLINE_WORK;
@@ -242,7 +224,7 @@ fn recursive_inline_production_work_limit_counts_helpers_but_not_emitted_calls()
                 }}"
             );
             check_recursive_native_boundary(
-                source,
+                &source,
                 above.then_some("work"),
                 padding,
                 1,
@@ -253,7 +235,7 @@ fn recursive_inline_production_work_limit_counts_helpers_but_not_emitted_calls()
     }
     let calls = work + 1;
     check_recursive_native_boundary(
-        format!(
+        &format!(
             "
             operation Main() : Result {{
                 use qs = Qubit[1];
