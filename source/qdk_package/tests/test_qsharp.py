@@ -442,7 +442,7 @@ def test_compiled_array_update_captures_replacement_before_container(
         operation Main() : Bool[] {{
             use q = Qubit();
             mutable value = MResetZ(q) == One;
-            let updated = {{ set value = not value; [false] }} w/ {index} <- {replacement};
+            let updated = {{ set value = not value; [true] }} w/ {index} <- {replacement};
             updated
         }}
     """)
@@ -458,14 +458,14 @@ def test_compiled_array_update_assignment_preserves_index_effects() -> None:
         operation Main() : Bool[] {
             use q = Qubit();
             mutable values = [false, false];
-            set values w/= { set values w/= 1 <- MResetZ(q) == Zero; 0 } <- false;
+            set values w/= { set values w/= 1 <- MResetZ(q) == Zero; 0 } <- true;
             values
         }
     """)
 
-    assert qsharp.eval("Main()") == [False, True]
+    assert qsharp.eval("Main()") == [True, True]
     compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
-    assert compiled == [[False, True]]
+    assert compiled == [[True, True]]
 
 
 def test_compile_qir_str_from_python_callable() -> None:
