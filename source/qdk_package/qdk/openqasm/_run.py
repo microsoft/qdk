@@ -145,7 +145,15 @@ def run(
         noise = None
 
     if callable:
-        for _ in range(shots):
+        seed = kwargs.get("seed")
+        shot_seed = seed
+        for shot in range(shots):
+            # We also don't want every shot to return the same results, so we update the seed for
+            # the next shot with the shot number. This keeps the behavior deterministic if a seed
+            # was provided.
+            if seed is not None:
+                shot_seed = shot + seed
+
             results.append(
                 {
                     "result": None,
@@ -163,7 +171,7 @@ def run(
                 qubit_loss=qubit_loss,
                 callable=callable,
                 args=args,
-                seed=kwargs.get("seed"),
+                seed=shot_seed,
                 sim_type=type,
                 num_qubits=num_qubits,
             )
