@@ -154,6 +154,67 @@ fn unwrapped_callable_preserves_its_operation() {
 }
 
 #[test]
+fn skipped_short_circuit_return_compiles_to_true() {
+    let source = r#"
+        namespace Test {
+            operation Main() : Bool {
+                use q = Qubit();
+                let r = MResetZ(q) == One;
+                mutable value = true;
+                set value or= { Message("rhs"); r and (return true) };
+                value
+            }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = super::compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("@__quantum__rt__bool_record_output(i1 zeroext true,"),
+            "{profile:?}: {qir}"
+        );
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Test.Main()"),
+            Value::Bool(true)
+        );
+        let target = eval_fragments(&mut interpreter, "Test.Main");
+        interpreter
+            .qirgen_from_callable(&target, Value::unit())
+            .expect("runtime QIR for skipped return");
+        interpreter
+            .qirgen("Test.Main()")
+            .expect("source QIR for skipped return");
+    }
+}
+
+#[test]
+fn measured_short_circuit_callable_reassignment_compiles_on_restricted_profiles() {
+    let source = r#"
+        function Inc(n : Int) : Int { n + 1 }
+        function Twice(n : Int) : Int { 2 * n }
+        operation Main() : Int {
+            use q = Qubit();
+            X(q);
+            mutable f = Inc;
+            let unused = (MResetZ(q) == One) and { set f = Twice; true };
+            f(3)
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::Int(6));
+        let source_qir = interpreter.qirgen("Main()").expect("source QIR");
+        let target = eval_fragments(&mut interpreter, "Main");
+        let runtime_qir = interpreter
+            .qirgen_from_callable(&target, Value::unit())
+            .expect("runtime QIR");
+        assert_eq!(source_qir, runtime_qir, "{profile:?}");
+    }
+}
+
+#[test]
 fn runtime_saved_generic_closure_instantiates_capture_types() {
     let source = r#"
         operation Phase(n : Int, q : Qubit) : Unit is Adj + Ctl {

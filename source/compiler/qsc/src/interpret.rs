@@ -78,11 +78,157 @@ use qsc_lowerer::{
     map_fir_local_item_to_hir, map_fir_package_to_hir, map_hir_local_item_to_fir,
     map_hir_package_to_fir,
 };
-use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
+use qsc_partial_eval::PartialEvalConfig;
 use qsc_passes::{PackageType, PassContext};
 use qsc_rca::PackageStoreComputeProperties;
 use rustc_hash::FxHashMap;
 use thiserror::Error;
+
+/// Checks target capabilities without changing the interpreter's execution FIR.
+///
+/// Raw FIR can contain constructs that codegen removes, such as a skipped return
+/// or an indirect callable dispatch. If the ordinary capability check rejects
+/// the package, try to prove each failing scope supported by running the codegen
+/// transform pipeline and capability checks on a disposable copy.
+///
+/// This fallback only admits closed roots: nongeneric Unit-input callables
+/// without a callable parent, or direct item calls to such callables with literal
+/// Unit arguments and no generic arguments. It never invents argument values or
+/// consults live interpreter locals. Every failing scope must pass independently.
+///
+/// On success, the returned compute properties describe the original store, not
+/// the transformed copies. They can still contain features eliminated only in
+/// those copies; acceptance does not rewrite the FIR used for execution/debugging.
+///
+/// # Errors
+/// Returns the original capability diagnostics if a scope is outside the proof
+/// boundary, its transformation fails, or its transformed package still violates
+/// target restrictions. Diagnostics from speculative lowering do not replace the
+/// original errors.
+///
+/// # Panics
+/// Panics if compiler invariants are violated, such as a failed capability check
+/// with no failing scope, or a scope referring to missing or non-callable FIR.
+fn validate_increment_capabilities(
+    store: &fir::PackageStore,
+    package_id: PackageId,
+    capabilities: TargetCapabilityFlags,
+) -> std::result::Result<PackageStoreComputeProperties, Vec<qsc_passes::Error>> {
+    // Keep already-supported programs on the normal path; only a rejection
+    // needs the more expensive transformed proof.
+    let original_errors = match PassContext::run_fir_passes_on_fir(store, package_id, capabilities)
+    {
+        Ok(properties) => return Ok(properties),
+        Err(errors) => errors,
+    };
+    // The failed check returned errors rather than its analysis. Recompute
+    // properties for scope attribution and for the eventual original-store result.
+    let properties = qsc_rca::Analyzer::init(store, capabilities).analyze_all();
+    // Some(item) identifies a declaration body; None identifies the entry.
+    // Group by owner rather than filtering particular diagnostic codes.
+    let scopes =
+        qsc_passes::check_fir_capabilities_by_scope(store, &properties, package_id, capabilities);
+    assert!(
+        !scopes.is_empty(),
+        "failed capability check must identify a scope"
+    );
+    let package = store.get(package_id);
+    // Prove scopes separately: pruning for one root must not hide another
+    // failing declaration before its own proof has been attempted.
+    for (scope, _) in scopes {
+        let target = if let Some(item) = scope {
+            fir::StoreItemId {
+                package: package_id,
+                item,
+            }
+        } else {
+            // An entry must identify its root syntactically. Calls through live
+            // locals, closures, or more complex entry expressions are not proved
+            // here; retain their original rejection rather than guessing values.
+            let entry = package.entry.expect("checked entry exists");
+            let fir::ExprKind::Call(callee, args) =
+                package.exprs.get(entry).expect("entry exists").kind
+            else {
+                return Err(original_errors);
+            };
+            let fir::ExprKind::Var(fir::Res::Item(target), generics) =
+                &package.exprs.get(callee).expect("callee exists").kind
+            else {
+                return Err(original_errors);
+            };
+            // Literal () needs no argument evaluation or generic substitution.
+            // An arbitrary expression returning Unit is outside this boundary.
+            if !generics.is_empty()
+                || !matches!(&package.exprs.get(args).expect("arguments exist").kind,
+                    fir::ExprKind::Tuple(items) if items.is_empty())
+            {
+                return Err(original_errors);
+            }
+            (target.package, target.item).into()
+        };
+        let target_package = store.get(target.package);
+        let item = target_package
+            .items
+            .get(target.item)
+            .expect("checked item exists");
+        let fir::ItemKind::Callable(decl) = &item.kind else {
+            unreachable!("only callable bodies have capability errors");
+        };
+        // A Unit-input, nongeneric root needs no invented argument/type evidence.
+        // A callable parent can indicate a nested or lifted declaration whose
+        // surrounding environment this proof does not reconstruct.
+        if !decl.generics.is_empty()
+            || target_package
+                .pats
+                .get(decl.input)
+                .expect("input exists")
+                .ty
+                != qsc_fir::ty::Ty::UNIT
+            || item.parent.is_some_and(|parent| {
+                target_package
+                    .items
+                    .get(parent)
+                    .is_some_and(|item| matches!(item.kind, fir::ItemKind::Callable(_)))
+            })
+        {
+            return Err(original_errors);
+        }
+        // Lowering can prune/specialize items and rebuild IDs or execution
+        // graphs. Keep all of those changes out of the interpreter's live store.
+        let mut validation_store = store.clone();
+        if scope.is_some() {
+            // A reference keeps this declaration reachable through the pipeline;
+            // it is not an invocation. For an entry scope, keep the actual entry.
+            crate::codegen::qir::seed_entry_with_callables(
+                &mut validation_store,
+                package_id,
+                &[target].into_iter().collect(),
+            );
+        }
+        let result =
+            crate::fir_transforms::run_pipeline_with_diagnostics(&mut validation_store, package_id);
+        if !result.errors.is_empty() {
+            // Failed lowering provides no proof of support. Preserve the
+            // diagnostics from the original representation seen by the caller.
+            return Err(original_errors);
+        }
+        // The synthetic reference is only a reachability root, not a request to
+        // record a callable as program output. Remove it before checking output
+        // restrictions; real entries retain their actual output contract.
+        if scope.is_some() {
+            validation_store.get_mut(package_id).entry = None;
+        }
+        // Recompute analysis for the transformed IDs and check the whole surviving
+        // package, including any specialized callees, not just the original root.
+        if PassContext::run_fir_passes_on_fir(&validation_store, package_id, capabilities).is_err()
+        {
+            return Err(original_errors);
+        }
+    }
+    // Every failing scope has a proof, but execution still uses the original
+    // FIR. Return its analysis, never properties keyed by transformed-clone IDs.
+    Ok(properties)
+}
 
 impl Error {
     #[must_use]
@@ -382,8 +528,9 @@ impl Interpreter {
             // The transform pipeline requires a package with an entry expression, and
             // entry-less library packages and eval calls via the Python interop layer can
             // arrive here. Guard the transform branch on the presence of an entry expression
-            // exactly like the language service does; when absent, fall back to
-            // running RCA on the original store.
+            // exactly like the language service does; when absent, validate
+            // declarations independently, proving closed roots through lowering
+            // and retaining raw-FIR rejection where no such proof is available.
             let transformed_store = if fir_store.get(fir_package_id).entry.is_some() {
                 let mut transformed_store = fir_store.clone();
                 let transform_result = crate::fir_transforms::run_pipeline_with_diagnostics(
@@ -410,31 +557,31 @@ impl Interpreter {
                 None
             };
 
-            let store_for_rca = transformed_store.as_ref().unwrap_or(&fir_store);
-
             // The computed properties are intentionally discarded — only the `?`
             // error propagation is used to surface capability violations.
-            let _compute_properties =
-                PassContext::run_fir_passes_on_fir(store_for_rca, fir_package_id, capabilities)
-                    .map_err(|caps_errors| {
-                        caps_errors
-                            .into_iter()
-                            .map(|error| {
-                                let sources = if let qsc_passes::Error::CapabilitiesCk(err) = &error
-                                {
-                                    let err_package = err.span().package;
-                                    &compiler
-                                        .package_store()
-                                        .get((Into::<usize>::into(err_package)).into())
-                                        .expect("package for error should exist in store")
-                                        .sources
-                                } else {
-                                    &source_package.sources
-                                };
-                                Error::Pass(WithSource::from_map(sources, error))
-                            })
-                            .collect::<Vec<_>>()
-                    })?;
+            let cap_results = if let Some(store) = &transformed_store {
+                PassContext::run_fir_passes_on_fir(store, fir_package_id, capabilities)
+            } else {
+                validate_increment_capabilities(&fir_store, fir_package_id, capabilities)
+            };
+            let _compute_properties = cap_results.map_err(|caps_errors| {
+                caps_errors
+                    .into_iter()
+                    .map(|error| {
+                        let sources = if let qsc_passes::Error::CapabilitiesCk(err) = &error {
+                            let err_package = err.span().package;
+                            &compiler
+                                .package_store()
+                                .get((Into::<usize>::into(err_package)).into())
+                                .expect("package for error should exist in store")
+                                .sources
+                        } else {
+                            &source_package.sources
+                        };
+                        Error::Pass(WithSource::from_map(sources, error))
+                    })
+                    .collect::<Vec<_>>()
+            })?;
         }
 
         Ok(Self {
@@ -1239,30 +1386,12 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        // Compile the expression. This operation will set the expression as
-        // the entry-point in the FIR store.
-        let (graph, compute_properties) = self.compile_entry_expr(expr)?;
-
-        let Some(compute_properties) = compute_properties else {
-            // This can only happen if capability analysis was not run. This would be a bug
-            // and we are in a bad state and can't proceed.
-            panic!("internal error: compute properties not set after lowering entry expression");
-        };
-        let package = self.fir_store.get(self.package);
-        let entry = ProgramEntry {
-            exec_graph: graph,
-            expr: (
-                self.package,
-                package
-                    .entry
-                    .expect("package must have an entry expression"),
-            )
-                .into(),
-        };
+        let prepared_fir = self.prepare_codegen_entry_expr(expr)?;
+        let entry = entry_from_codegen_fir(&prepared_fir);
         let (raw, ssa) = fir_to_rir(
-            &self.fir_store,
+            &prepared_fir.fir_store,
             self.capabilities,
-            &compute_properties,
+            &prepared_fir.compute_properties,
             &entry,
             PartialEvalConfig {
                 generate_debug_metadata: true,
@@ -1759,7 +1888,7 @@ impl Interpreter {
         self.lower_and_update_package(unit);
 
         let cap_results =
-            PassContext::run_fir_passes_on_fir(&self.fir_store, self.package, self.capabilities);
+            validate_increment_capabilities(&self.fir_store, self.package, self.capabilities);
 
         let compute_properties = cap_results.map_err(|caps_errors| {
             // if there are errors, convert them to interpreter errors

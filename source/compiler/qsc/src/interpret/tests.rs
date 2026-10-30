@@ -3137,6 +3137,68 @@ mod given_interpreter {
         }
 
         #[test]
+        fn false_measured_guard_preserves_callable_and_skips_side_effects() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                qsc_data_structures::target::Profile::AdaptiveRI.into(),
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                r#"
+                function Inc(n : Int) : Int { n + 1 }
+                function Twice(n : Int) : Int { 2 * n }
+                operation Main() : Int {
+                    use q = Qubit();
+                    mutable f = Inc;
+                    let unused = (MResetZ(q) == One) and {
+                        Message("must not execute"); set f = Twice; true
+                    };
+                    f(3)
+                }
+            "#,
+            );
+            is_only_value(&result, &output, &Value::unit());
+            interpreter.qirgen("Main()").expect("inactive source QIR");
+            interpreter.get_rir("Main()").expect("inactive RIR");
+            let (result, output) = line(&mut interpreter, "Main()");
+            is_only_value(&result, &output, &Value::Int(4));
+        }
+
+        #[test]
+        fn entryless_library_accepts_measured_short_circuit_callable_reassignment() {
+            let source = r#"
+                namespace Test {
+                    function Inc(n : Int) : Int { n + 1 }
+                    function Twice(n : Int) : Int { 2 * n }
+                    operation Select() : Int {
+                        use q = Qubit();
+                        X(q);
+                        mutable f = Inc;
+                        let unused = (MResetZ(q) == One) and {
+                            Message("selected"); set f = Twice; true
+                        };
+                        f(3)
+                    }
+                }
+            "#;
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let mut interpreter = Interpreter::new(
+                SourceMap::new([("test".into(), source.into())], None),
+                PackageType::Lib,
+                Profile::AdaptiveRI.into(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+                Default::default(),
+            )
+            .unwrap_or_else(|errors| panic!("closed library callable: {errors:?}"));
+            interpreter.qirgen("Test.Select()").expect("library QIR");
+            let (result, output) = line(&mut interpreter, "Test.Select()");
+            assert_eq!(result.expect("library simulation"), Value::Int(6));
+            assert_eq!(output, "selected");
+        }
+
+        #[test]
         fn restricted_profile_entryless_library_reports_transform_removable_violation() {
             // Documents a known limitation of the entry-less path. An early `return`
             // inside a measurement-conditioned scope is a profile violation

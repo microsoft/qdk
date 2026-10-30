@@ -484,7 +484,7 @@ pub mod qir {
         (callable_decl.span, ty)
     }
 
-    pub(super) fn seed_entry_with_callables(
+    pub(crate) fn seed_entry_with_callables(
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
