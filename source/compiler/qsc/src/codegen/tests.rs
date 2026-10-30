@@ -6878,7 +6878,6 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
           %var_6 = alloca i64
           %var_7 = alloca i64
           %var_10 = alloca i64
-          %var_11 = alloca i64
           %var_12 = alloca [2 x i64]
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -6915,19 +6914,17 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
           store i64 0, ptr %var_10
           br label %block_9
         block_9:
-          %var_21 = load i64, ptr %var_10
-          store i64 %var_21, ptr %var_11
-          %var_23 = load i64, ptr %var_3
-          %var_24 = load i64, ptr %var_7
+          %var_11 = load i64, ptr %var_10
+          %var_21 = load i64, ptr %var_3
+          %var_22 = load i64, ptr %var_7
           %var_12_0 = getelementptr [2 x i64], ptr %var_12, i64 0, i64 0
-          store i64 %var_23, ptr %var_12_0
+          store i64 %var_21, ptr %var_12_0
           %var_12_1 = getelementptr [2 x i64], ptr %var_12, i64 0, i64 1
-          store i64 %var_24, ptr %var_12_1
-          %var_26 = load i64, ptr %var_11
-          %var_27_offset_chk = icmp slt i64 %var_26, 0
-          %var_27_offset = select i1 %var_27_offset_chk, i64 1, i64 0
-          %var_27 = getelementptr [2 x i64], ptr %var_12, i64 %var_27_offset, i64 %var_26
-          %var_13 = load i64, ptr %var_27
+          store i64 %var_22, ptr %var_12_1
+          %var_24_offset_chk = icmp slt i64 %var_11, 0
+          %var_24_offset = select i1 %var_24_offset_chk, i64 1, i64 0
+          %var_24 = getelementptr [2 x i64], ptr %var_12, i64 %var_24_offset, i64 %var_11
+          %var_13 = load i64, ptr %var_24
           call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
           ret i64 0
         }
@@ -6987,8 +6984,6 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
           %var_2 = alloca i64
           %var_3 = alloca i64
           %var_6 = alloca i64
-          %var_7 = alloca i64
-          %var_9 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -7012,12 +7007,9 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
           store i64 0, ptr %var_6
           br label %block_6
         block_6:
-          %var_14 = load i64, ptr %var_6
-          store i64 %var_14, ptr %var_7
-          %var_16 = load i64, ptr %var_3
-          store i64 %var_16, ptr %var_9
-          %var_18 = load i64, ptr %var_9
-          call void @__quantum__rt__int_record_output(i64 %var_18, ptr @0)
+          %var_7 = load i64, ptr %var_6
+          %var_9 = load i64, ptr %var_3
+          call void @__quantum__rt__int_record_output(i64 %var_9, ptr @0)
           ret i64 0
         }
 
@@ -7087,7 +7079,6 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
           %var_18 = alloca i64
           %var_19 = alloca i64
           %var_22 = alloca i64
-          %var_23 = alloca i64
           %var_24 = alloca [2 x i64]
           %var_25 = alloca [3 x i64]
           call void @__quantum__rt__initialize(ptr null)
@@ -7161,32 +7152,30 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
           store i64 0, ptr %var_22
           br label %block_18
         block_18:
-          %var_45 = load i64, ptr %var_22
-          store i64 %var_45, ptr %var_23
-          %var_47 = load i64, ptr %var_3
-          %var_48 = load i64, ptr %var_7
+          %var_23 = load i64, ptr %var_22
+          %var_45 = load i64, ptr %var_3
+          %var_46 = load i64, ptr %var_7
           %var_24_0 = getelementptr [2 x i64], ptr %var_24, i64 0, i64 0
-          store i64 %var_47, ptr %var_24_0
+          store i64 %var_45, ptr %var_24_0
           %var_24_1 = getelementptr [2 x i64], ptr %var_24, i64 0, i64 1
-          store i64 %var_48, ptr %var_24_1
-          %var_50 = load i64, ptr %var_11
-          %var_51 = load i64, ptr %var_15
-          %var_52 = load i64, ptr %var_19
+          store i64 %var_46, ptr %var_24_1
+          %var_48 = load i64, ptr %var_11
+          %var_49 = load i64, ptr %var_15
+          %var_50 = load i64, ptr %var_19
           %var_25_0 = getelementptr [3 x i64], ptr %var_25, i64 0, i64 0
-          store i64 %var_50, ptr %var_25_0
+          store i64 %var_48, ptr %var_25_0
           %var_25_1 = getelementptr [3 x i64], ptr %var_25, i64 0, i64 1
-          store i64 %var_51, ptr %var_25_1
+          store i64 %var_49, ptr %var_25_1
           %var_25_2 = getelementptr [3 x i64], ptr %var_25, i64 0, i64 2
-          store i64 %var_52, ptr %var_25_2
-          %var_54 = load i64, ptr %var_23
-          %var_55_offset_chk = icmp slt i64 %var_54, 0
-          %var_55_offset = select i1 %var_55_offset_chk, i64 1, i64 0
-          %var_55 = getelementptr [2 x i64], ptr %var_24, i64 %var_55_offset, i64 %var_54
-          %var_26 = load i64, ptr %var_55
-          %var_56_offset_chk = icmp slt i64 %var_54, 0
-          %var_56_offset = select i1 %var_56_offset_chk, i64 1, i64 0
-          %var_56 = getelementptr [3 x i64], ptr %var_25, i64 %var_56_offset, i64 %var_54
-          %var_28 = load i64, ptr %var_56
+          store i64 %var_50, ptr %var_25_2
+          %var_52_offset_chk = icmp slt i64 %var_23, 0
+          %var_52_offset = select i1 %var_52_offset_chk, i64 1, i64 0
+          %var_52 = getelementptr [2 x i64], ptr %var_24, i64 %var_52_offset, i64 %var_23
+          %var_26 = load i64, ptr %var_52
+          %var_53_offset_chk = icmp slt i64 %var_23, 0
+          %var_53_offset = select i1 %var_53_offset_chk, i64 1, i64 0
+          %var_53 = getelementptr [3 x i64], ptr %var_25, i64 %var_53_offset, i64 %var_23
+          %var_28 = load i64, ptr %var_53
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
           call void @__quantum__rt__int_record_output(i64 %var_26, ptr @1)
           call void @__quantum__rt__int_record_output(i64 %var_28, ptr @2)
@@ -7254,34 +7243,27 @@ fn array_entry_used_as_argument_to_callable_with_inner_branch() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_1 = alloca i64
-          %var_2 = alloca i64
           %var_5 = alloca i1
-          %var_6 = alloca i64
-          %var_11 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           store i64 0, ptr %var_1
           br label %block_1
         block_1:
-          %var_14 = load i64, ptr %var_1
-          store i64 %var_14, ptr %var_2
-          %var_16 = load i64, ptr %var_2
-          %var_3 = icmp sle i64 %var_16, 0
+          %var_2 = load i64, ptr %var_1
+          %var_3 = icmp sle i64 %var_2, 0
           store i1 true, ptr %var_5
           br i1 %var_3, label %block_2, label %block_3
         block_2:
-          %var_19 = load i1, ptr %var_5
-          br i1 %var_19, label %block_4, label %block_5
+          %var_16 = load i1, ptr %var_5
+          br i1 %var_16, label %block_4, label %block_5
         block_3:
           store i1 false, ptr %var_5
           br label %block_2
         block_4:
-          %var_20 = load i64, ptr %var_1
-          store i64 %var_20, ptr %var_6
-          %var_22 = load i64, ptr %var_6
-          %var_23_offset_chk = icmp slt i64 %var_22, 0
-          %var_23_offset = select i1 %var_23_offset_chk, i64 1, i64 0
-          %var_23 = getelementptr [1 x ptr], ptr @array0, i64 %var_23_offset, i64 %var_22
-          %var_7 = load ptr, ptr %var_23
+          %var_6 = load i64, ptr %var_1
+          %var_17_offset_chk = icmp slt i64 %var_6, 0
+          %var_17_offset = select i1 %var_17_offset_chk, i64 1, i64 0
+          %var_17 = getelementptr [1 x ptr], ptr @array0, i64 %var_17_offset, i64 %var_6
+          %var_7 = load ptr, ptr %var_17
           call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_8, label %block_6, label %block_7
@@ -7292,10 +7274,8 @@ fn array_entry_used_as_argument_to_callable_with_inner_branch() {
           call void @X(ptr %var_7)
           br label %block_7
         block_7:
-          %var_24 = load i64, ptr %var_1
-          store i64 %var_24, ptr %var_11
-          %var_26 = load i64, ptr %var_11
-          %var_12 = add i64 %var_26, 1
+          %var_11 = load i64, ptr %var_1
+          %var_12 = add i64 %var_11, 1
           store i64 %var_12, ptr %var_1
           br label %block_1
         }
@@ -7357,7 +7337,6 @@ fn mutable_fixed_size_arrays_constant_update_after_dynamic_update() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_2 = alloca i64
-          %var_3 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -7370,11 +7349,9 @@ fn mutable_fixed_size_arrays_constant_update_after_dynamic_update() {
           store i64 10, ptr %var_2
           br label %block_3
         block_3:
-          %var_5 = load i64, ptr %var_2
-          store i64 %var_5, ptr %var_3
+          %var_3 = load i64, ptr %var_2
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
-          %var_7 = load i64, ptr %var_3
-          call void @__quantum__rt__int_record_output(i64 %var_7, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_3, ptr @1)
           call void @__quantum__rt__int_record_output(i64 3, ptr @2)
           ret i64 0
         }
@@ -7431,7 +7408,6 @@ fn mutable_fixed_size_arrays_snapshot_reassignment_uses_array_copy() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_2 = alloca i64
-          %var_3 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -7444,11 +7420,9 @@ fn mutable_fixed_size_arrays_snapshot_reassignment_uses_array_copy() {
           store i64 10, ptr %var_2
           br label %block_3
         block_3:
-          %var_5 = load i64, ptr %var_2
-          store i64 %var_5, ptr %var_3
+          %var_3 = load i64, ptr %var_2
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
-          %var_7 = load i64, ptr %var_3
-          call void @__quantum__rt__int_record_output(i64 %var_7, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_3, ptr @1)
           call void @__quantum__rt__int_record_output(i64 2, ptr @2)
           ret i64 0
         }
@@ -7516,6 +7490,7 @@ fn mutable_fixed_size_arrays_literal_assignment_after_dynamic_update() {
           store i64 10, ptr %var_2
           br label %block_3
         block_3:
+          %var_3 = load i64, ptr %var_2
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
           call void @__quantum__rt__int_record_output(i64 3, ptr @1)
           call void @__quantum__rt__int_record_output(i64 4, ptr @2)
@@ -7573,7 +7548,6 @@ fn mutable_fixed_size_arrays_concatenation_with_literal_array() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_2 = alloca i64
-          %var_3 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -7586,11 +7560,9 @@ fn mutable_fixed_size_arrays_concatenation_with_literal_array() {
           store i64 10, ptr %var_2
           br label %block_3
         block_3:
-          %var_5 = load i64, ptr %var_2
-          store i64 %var_5, ptr %var_3
+          %var_3 = load i64, ptr %var_2
           call void @__quantum__rt__array_record_output(i64 3, ptr @0)
-          %var_7 = load i64, ptr %var_3
-          call void @__quantum__rt__int_record_output(i64 %var_7, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_3, ptr @1)
           call void @__quantum__rt__int_record_output(i64 2, ptr @2)
           call void @__quantum__rt__int_record_output(i64 3, ptr @3)
           ret i64 0

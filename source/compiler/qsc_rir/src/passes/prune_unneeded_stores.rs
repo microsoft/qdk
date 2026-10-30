@@ -43,7 +43,11 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
             &mut index_vars_in_block,
         );
 
-        for var in used_vars_in_block {
+        // Check each variable used in the block that is not a function argument.
+        for var in used_vars_in_block
+            .into_iter()
+            .filter(|v| !callable.input_vars.contains(v))
+        {
             if !used_vars.insert(var)
                 || stored_vars_before_block.contains(&var)
                 || index_vars_in_block.contains(&var)
