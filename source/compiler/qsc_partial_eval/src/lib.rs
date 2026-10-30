@@ -2031,6 +2031,11 @@ impl<'a> PartialEvaluator<'a> {
             "Tanh" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().tanh())),
             "Sqrt" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().sqrt())),
             "Log" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().ln())),
+            "Exp" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().exp())),
+            "Exp" => Err(Error::Unimplemented(
+                "exponential of a dynamic value".to_string(),
+                callee_expr_span,
+            )),
             "IntAsBigInt" if args_statically_known => {
                 Ok(Value::BigInt(BigInt::from(args_value.unwrap_int())))
             }

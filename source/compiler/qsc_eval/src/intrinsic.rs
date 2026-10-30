@@ -147,6 +147,7 @@ pub(crate) fn call<B: Backend>(
         "Tanh" => Ok(Value::Double(arg.unwrap_double().tanh())),
         "Sqrt" => Ok(Value::Double(arg.unwrap_double().sqrt())),
         "Log" => Ok(Value::Double(arg.unwrap_double().ln())),
+        "Exp" => Ok(Value::Double(arg.unwrap_double().exp())),
         "DrawRandomInt" => {
             let [lo, hi] = unwrap_tuple(arg);
             let lo = lo.unwrap_int();

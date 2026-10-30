@@ -22,7 +22,7 @@ The driver first validates intrinsics, collapses simulatable intrinsics, and cle
 2. `return_unify` — rewrite bodies to single-exit form, removing `Return` nodes while preserving path-local side effects (e.g. qubit release).
 3. `cond_normalize` — preserve selection-time conditions before callable analysis and dispatch rewriting.
 4. `defunctionalize` — specialize known callable choices and rewrite calls to direct dispatch. Unresolved alternatives remain dynamic rather than being discarded in favor of a known branch.
-5. `udt_erase` — replace UDT values and struct expressions with tuple/scalar form across the reachable package closure. Core Complex addition, subtraction, multiplication and unary signs lower to scalar component operations before nominal identity is lost.
+5. `udt_erase` — replace UDT values and struct expressions with tuple/scalar form across the reachable package closure. Core Complex addition, subtraction, multiplication, division, exponentiation and unary signs lower to scalar component operations before nominal identity is lost.
 6. `tuple_compare_lower` — lower equality/inequality on non-empty tuples to element-wise scalar comparisons.
 7. `tuple_decompose` — decompose eligible tuple-valued locals into scalar fields.
 8. `arg_promote` — flatten tuple-valued callable parameters and update call sites.
@@ -45,9 +45,13 @@ when their callee gains control flow that needs normalization. Closure cleanup t
 computed callees as live dependencies, just like call arguments; consuming one
 use does not make another invocation disposable.
 
-Complex component lowering currently covers addition, subtraction, multiplication,
-unary signs, and the corresponding compound assignments. Division and
-exponentiation are not covered by this lowering.
+Complex component lowering covers addition, subtraction, multiplication, division,
+exponentiation, unary signs, and the corresponding compound assignments. Division
+retains zero-denominator errors and their original operand spans. Exponentiation
+uses the evaluator's principal-branch formula and scalar math intrinsics.
+Its internal exponential helper uses full evaluation's `f64::exp` at compile
+time. Code generation reports unsupported exponentials of dynamic values rather
+than introducing an LLVM intrinsic or runtime dependency.
 
 Monomorphization identifies a specialization by the package-qualified source
 callable and its concrete generic arguments. Recursive references retain the

@@ -46,6 +46,17 @@ fn complex_arithmetic_erases_to_scalar_values_without_losing_operand_effects() {
         ("Complex(1.0, 2.0) + 3.0i", 1.0, 5.0),
         ("(1.0 + 2.0i) - (3.0 + 4.0i)", -2.0, -2.0),
         ("(1.0 + 2.0i) * (3.0 + 4.0i)", -5.0, 10.0),
+        ("(3.0 + 4.0i) / (1.0 + 2.0i)", 2.2, -0.4),
+        (
+            "2.0i ^ (2.0 + 0.0i)",
+            -4.0,
+            4.0 * std::f64::consts::PI.sin(),
+        ),
+        (
+            "2.0i ^ 1.0i",
+            (-std::f64::consts::FRAC_PI_2).exp() * 2.0_f64.ln().cos(),
+            (-std::f64::consts::FRAC_PI_2).exp() * 2.0_f64.ln().sin(),
+        ),
         ("-(1.0 + 2.0i)", -1.0, -2.0),
         ("3.0 - 2.0i", 3.0, -2.0),
         ("2.0i - 3.0", -3.0, 2.0),
@@ -119,6 +130,55 @@ fn complex_arithmetic_erases_to_scalar_values_without_losing_operand_effects() {
 }
 
 #[test]
+fn complex_division_and_power_preserve_operand_and_assignment_effects() {
+    for operator in ["/", "^"] {
+        let source = format!(
+            r#"
+            function Mark(label : String, value : Complex) : Complex {{ Message(label); value }}
+            @EntryPoint() operation Main() : (Double, Double, Double, Double) {{
+                mutable value = Complex(1.0, 2.0);
+                let result = Mark("lhs", value) {operator} {{
+                    set value = Complex(7.0, 8.0);
+                    Mark("rhs", Complex(3.0, 4.0))
+                }};
+                set value {operator}= {{
+                    Message("assign");
+                    set value = Complex(9.0, 10.0);
+                    Complex(2.0, 1.0)
+                }};
+                (result.Real, result.Imag, value.Real, value.Imag)
+            }}
+        "#
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+        crate::test_utils::generate_qir(&source);
+    }
+}
+
+#[test]
+fn complex_division_preserves_zero_denominator_errors() {
+    for denominator in ["0.0i", "Complex(0.0, -0.0)", "Complex(1e-200, 1e-200)"] {
+        for operation in [
+            format!("let value = 2.0i / {denominator};"),
+            format!("mutable value = 2.0i; set value /= {denominator};"),
+        ] {
+            let source = format!(
+                r#"
+                @EntryPoint() operation Main() : Double {{
+                    {operation}
+                    value.Real
+                }}
+            "#
+            );
+            let error = crate::test_utils::eval_qsharp_original(&source)
+                .expect_err("zero denominator must fail");
+            assert!(error.starts_with("DivZero("), "{error}");
+            crate::test_utils::check_semantic_equivalence(&source);
+        }
+    }
+}
+
+#[test]
 fn complex_lowering_preserves_user_failure_and_does_not_reinterpret_ordinary_tuples() {
     let source = r#"
         function Stop() : Complex { fail "complex operand"; }
@@ -158,44 +218,66 @@ fn complex_lowering_preserves_user_failure_and_does_not_reinterpret_ordinary_tup
 }
 
 #[test]
-fn measurement_dependent_complex_components_generate_scalar_qir() {
-    for measured_one in [false, true] {
-        let source = format!(
-            r#"
+fn measurement_dependent_complex_components_respect_codegen_support() {
+    for (operator, instruction) in [
+        ("*", Some("fmul double")),
+        ("/", Some("fdiv double")),
+        ("^", None),
+    ] {
+        for measured_one in [false, true] {
+            let source = format!(
+                r#"
             @EntryPoint() operation Main() : Double {{
                 use q = Qubit();
                 {preparation}
                 let real = MResetZ(q) == One ? 2.0 | 1.0;
-                let z = Complex(real, 3.0) * Complex(2.0, 1.0);
+                let z = Complex(real, 3.0) {operator} Complex(2.0, 1.0);
                 z.Real + z.Imag
             }}
         "#,
-            preparation = if measured_one { "X(q);" } else { "" }
-        );
-        crate::test_utils::check_semantic_equivalence_with_expected(
-            &source,
-            qsc_eval::val::Value::Double(if measured_one { 9.0 } else { 6.0 }),
-        );
-        let (store, package_id) =
-            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Full);
-        for profile in [
-            qsc_data_structures::target::Profile::AdaptiveRIF,
-            qsc_data_structures::target::Profile::Adaptive,
-        ] {
-            let capabilities = profile.into();
-            let properties = qsc_rca::Analyzer::init(&store, capabilities).analyze_all();
-            let package = store.get(package_id);
-            let entry = qsc_partial_eval::ProgramEntry {
-                exec_graph: package.entry_exec_graph.clone(),
-                expr: (package_id, package.entry.expect("entry expression")).into(),
-            };
-            let qir = qsc_codegen::qir::fir_to_qir(&store, capabilities, &properties, &entry)
-                .expect("dynamic Complex scalar lowering");
-            assert!(qir.contains("fmul double"), "{qir}");
-            assert!(
-                qir.contains("call void @__quantum__rt__double_record_output"),
-                "{qir}"
+                preparation = if measured_one { "X(q);" } else { "" }
             );
+            if operator == "*" {
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Double(if measured_one { 9.0 } else { 6.0 }),
+                );
+            } else {
+                crate::test_utils::check_semantic_equivalence(&source);
+            }
+            let (store, package_id) =
+                crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Full);
+            for profile in [
+                qsc_data_structures::target::Profile::AdaptiveRIF,
+                qsc_data_structures::target::Profile::Adaptive,
+            ] {
+                let capabilities = profile.into();
+                let properties = qsc_rca::Analyzer::init(&store, capabilities).analyze_all();
+                let package = store.get(package_id);
+                let entry = qsc_partial_eval::ProgramEntry {
+                    exec_graph: package.entry_exec_graph.clone(),
+                    expr: (package_id, package.entry.expect("entry expression")).into(),
+                };
+                let qir = qsc_codegen::qir::fir_to_qir(&store, capabilities, &properties, &entry);
+                if operator == "^" {
+                    assert!(
+                        matches!(qir, Err(qsc_partial_eval::Error::Unimplemented(ref message, _))
+                        if message == "exponential of a dynamic value"),
+                        "{qir:?}"
+                    );
+                    continue;
+                }
+                let qir = qir.expect("dynamic Complex scalar lowering");
+                assert!(
+                    qir.contains(instruction.expect("supported instruction")),
+                    "{qir}"
+                );
+                assert!(!qir.contains("llvm.exp"), "{qir}");
+                assert!(
+                    qir.contains("call void @__quantum__rt__double_record_output"),
+                    "{qir}"
+                );
+            }
         }
     }
 }

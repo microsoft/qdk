@@ -43,43 +43,46 @@
 //!
 //! # Supported boundary
 //!
-//! Covers binary `+`, `-`, `*`, their compound assignments, and unary `+`/`-`.
+//! Covers binary `+`, `-`, `*`, `/`, `^`, their compound assignments, and unary `+`/`-`.
 //! Mixed Double/Complex addition and subtraction accepted by the frontend are
 //! handled without inventing an imaginary field for the Double operand.
-//! Multiplication requires two Complex operands. Division, exponentiation and
-//! other operators are left to their existing paths, not approximated here.
+//! Multiplication, division and exponentiation require two Complex operands.
 //! Ordinary tuples and user-defined types with the same shape do not qualify.
 
 use crate::fir_builder::{
-    alloc_assign_expr, alloc_bin_op_expr, alloc_block, alloc_expr, alloc_expr_stmt,
-    alloc_field_expr, alloc_local_var, alloc_local_var_expr, alloc_tuple_expr,
+    alloc_assign_expr, alloc_bin_op_expr, alloc_block, alloc_call_expr, alloc_discard_pat,
+    alloc_expr, alloc_expr_stmt, alloc_field_expr, alloc_item_var_expr, alloc_local_var,
+    alloc_local_var_expr, alloc_tuple_expr,
 };
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BinOp, ExprId, ExprKind, LocalVarId, Mutability, Package, PackageLookup, PackageSpan, Res,
-        StmtId, StoreItemId, UnOp,
+        BinOp, CallableDecl, CallableImpl, CallableKind, ExprId, ExprKind, Ident, Item, ItemId,
+        ItemKind, Lit, LocalVarId, Mutability, Package, PackageLookup, PackageSpan, Pat, PatKind,
+        Res, StmtId, StoreItemId, UnOp, Visibility,
     },
-    ty::{Prim, Ty},
+    ty::{Arrow, FunctorSet, FunctorSetValue, Prim, Ty},
 };
-use rustc_hash::FxHashSet;
+use rustc_hash::FxHashMap;
+use std::rc::Rc;
 
-/// Records expressions whose original type is exactly the core Complex UDT.
+/// Records expressions whose original type is exactly the core Complex UDT,
+/// retaining their original spans for division-by-zero diagnostics.
 ///
 /// Call before erasing any expression types in this package. The result is a
 /// package-local identity snapshot, not a test of the erased tuple shape:
 /// `Expr(id, Complex)` becomes `Expr(id, (Double, Double))` during erasure, but
-/// `id` remains in this set. Arrays or other UDTs containing Complex are not
+/// `id` remains in this map. Arrays or other UDTs containing Complex are not
 /// themselves Complex values; their constituent expressions are tracked
 /// individually. This function does not mutate the package.
-pub(super) fn find_values(package: &Package) -> FxHashSet<ExprId> {
+pub(super) fn find_values(package: &Package) -> FxHashMap<ExprId, PackageSpan> {
     package
         .exprs
         .iter()
         .filter_map(|(id, expr)| {
             matches!(expr.ty, Ty::Udt(Res::Item(item))
             if StoreItemId::from((item.package, item.item)) == StoreItemId::complex())
-            .then_some(id)
+            .then_some((id, expr.span))
         })
         .collect()
 }
@@ -120,10 +123,11 @@ pub(super) fn find_values(package: &Package) -> FxHashSet<ExprId> {
 ///
 /// # Requires
 ///
-/// - `complex_values` was collected before nominal erasure in this package.
+/// - `complex_values` was collected before nominal erasure in this package,
+///   including spans that constructor erasure may subsequently replace.
 /// - Operand expressions have already been erased in structural postorder.
 /// - Input is well-typed FIR: an unmarked arithmetic operand is Double, and
-///   multiplication/unary signs operate on Complex values.
+///   multiplication/division/exponentiation/unary signs operate on Complex values.
 ///
 /// # Mutations
 ///
@@ -134,25 +138,29 @@ pub(super) fn lower(
     package: &mut Package,
     assigner: &mut Assigner,
     id: ExprId,
-    complex_values: &FxHashSet<ExprId>,
+    complex_values: &FxHashMap<ExprId, PackageSpan>,
 ) {
     let expr = package.get_expr(id);
     let value_id = match &expr.kind {
         ExprKind::AssignOp(_, lhs, _) => *lhs,
         _ => id,
     };
-    if !complex_values.contains(&value_id) {
+    if !complex_values.contains_key(&value_id) {
         return;
     }
 
     let expr = expr.clone();
     let (op, lhs, rhs, assign) = match expr.kind {
-        ExprKind::BinOp(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul), lhs, rhs) => {
-            (Some(op), lhs, Some(rhs), false)
-        }
-        ExprKind::AssignOp(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul), lhs, rhs) => {
-            (Some(op), lhs, Some(rhs), true)
-        }
+        ExprKind::BinOp(
+            op @ (BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Exp),
+            lhs,
+            rhs,
+        ) => (Some(op), lhs, Some(rhs), false),
+        ExprKind::AssignOp(
+            op @ (BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Exp),
+            lhs,
+            rhs,
+        ) => (Some(op), lhs, Some(rhs), true),
         ExprKind::UnOp(UnOp::Neg | UnOp::Pos, value) => (None, value, None, false),
         _ => return,
     };
@@ -162,7 +170,7 @@ pub(super) fn lower(
         package,
         assigner,
         lhs,
-        complex_values.contains(&lhs),
+        complex_values.contains_key(&lhs),
         &mut statements,
     );
     let right = rhs.map(|rhs| {
@@ -170,7 +178,7 @@ pub(super) fn lower(
             package,
             assigner,
             rhs,
-            complex_values.contains(&rhs),
+            complex_values.contains_key(&rhs),
             &mut statements,
         )
     });
@@ -179,21 +187,27 @@ pub(super) fn lower(
         assigner,
         span: expr.span,
     };
-    let real;
-    let imag;
-    if let Some(op) = op {
-        [real, imag] = builder.calculate(op, left, right.expect("binary right operand"));
-    } else {
-        let a = builder.read(left, 0);
-        let b = builder.read(left, 1);
-        if matches!(expr.kind, ExprKind::UnOp(UnOp::Neg, _)) {
-            real = builder.negate(a);
-            imag = builder.negate(b);
-        } else {
-            real = a;
-            imag = b;
+    let [real, imag] = if let Some(op) = op {
+        let right = right.expect("binary right operand");
+        match op {
+            BinOp::Div => builder.divide(
+                left,
+                right,
+                &mut statements,
+                complex_values[&rhs.expect("right operand")],
+            ),
+            BinOp::Exp => builder.power(left, right, &mut statements),
+            _ => builder.calculate(op, left, right),
         }
-    }
+    } else {
+        let real = builder.read(left, 0);
+        let imag = builder.read(left, 1);
+        if matches!(expr.kind, ExprKind::UnOp(UnOp::Neg, _)) {
+            [builder.negate(real), builder.negate(imag)]
+        } else {
+            [real, imag]
+        }
+    };
     let value = alloc_tuple_expr(
         builder.package,
         builder.assigner,
@@ -290,6 +304,220 @@ struct Components<'a> {
 }
 
 impl Components<'_> {
+    /// Lowers division using the evaluator's denominator and component formulas.
+    /// A discarded remainder checks for zero without changing floating-point
+    /// division, and labels errors with the original right operand's span.
+    fn divide(
+        &mut self,
+        left: (LocalVarId, bool),
+        right: (LocalVarId, bool),
+        statements: &mut Vec<StmtId>,
+        rhs_span: PackageSpan,
+    ) -> [ExprId; 2] {
+        let real = self.read(right, 0);
+        let real_again = self.read(right, 0);
+        let imag = self.read(right, 1);
+        let imag_again = self.read(right, 1);
+        let real_squared = self.binary(BinOp::Mul, real, real_again);
+        let imag_squared = self.binary(BinOp::Mul, imag, imag_again);
+        let denominator = self.binary(BinOp::Add, real_squared, imag_squared);
+        let denominator = self.save(denominator, statements);
+        let zero = self.literal(0.0);
+        let denominator_read = self.read(denominator, 0);
+        let check = self.binary(BinOp::Mod, zero, denominator_read);
+        self.package
+            .exprs
+            .get_mut(denominator_read)
+            .expect("denominator read")
+            .span = rhs_span;
+        statements.push(alloc_expr_stmt(
+            self.package,
+            self.assigner,
+            check,
+            self.span,
+        ));
+
+        let left_real = self.read(left, 0);
+        let right_real = self.read(right, 0);
+        let left_imag = self.read(left, 1);
+        let right_imag = self.read(right, 1);
+        let real_product = self.binary(BinOp::Mul, left_real, right_real);
+        let imag_product = self.binary(BinOp::Mul, left_imag, right_imag);
+        let numerator = self.binary(BinOp::Add, real_product, imag_product);
+        let denominator_read = self.read(denominator, 0);
+        let real = self.binary(BinOp::Div, numerator, denominator_read);
+
+        let left_imag = self.read(left, 1);
+        let right_real = self.read(right, 0);
+        let left_real = self.read(left, 0);
+        let right_imag = self.read(right, 1);
+        let imag_real = self.binary(BinOp::Mul, left_imag, right_real);
+        let real_imag = self.binary(BinOp::Mul, left_real, right_imag);
+        let numerator = self.binary(BinOp::Sub, imag_real, real_imag);
+        let denominator_read = self.read(denominator, 0);
+        let imag = self.binary(BinOp::Div, numerator, denominator_read);
+        [real, imag]
+    }
+
+    /// Lowers the principal-branch formula `exp(right * log(left))`, saving
+    /// intermediate scalars and retaining the evaluator's arithmetic order.
+    fn power(
+        &mut self,
+        left: (LocalVarId, bool),
+        right: (LocalVarId, bool),
+        statements: &mut Vec<StmtId>,
+    ) -> [ExprId; 2] {
+        let real = self.read(left, 0);
+        let real_again = self.read(left, 0);
+        let imag = self.read(left, 1);
+        let imag_again = self.read(left, 1);
+        let real_squared = self.binary(BinOp::Mul, real, real_again);
+        let imag_squared = self.binary(BinOp::Mul, imag, imag_again);
+        let magnitude_squared = self.binary(BinOp::Add, real_squared, imag_squared);
+        let log = self.math("Log", vec![magnitude_squared]);
+        let half = self.literal(0.5);
+        let log_real = self.binary(BinOp::Mul, half, log);
+        let log_real = self.save(log_real, statements);
+        let imag = self.read(left, 1);
+        let real = self.read(left, 0);
+        let log_imag = self.math("ArcTan2", vec![imag, real]);
+        let log_imag = self.save(log_imag, statements);
+
+        let exponent_real = self.read(right, 0);
+        let log_real_read = self.read(log_real, 0);
+        let exponent_imag = self.read(right, 1);
+        let log_imag_read = self.read(log_imag, 0);
+        let real_product = self.binary(BinOp::Mul, exponent_real, log_real_read);
+        let imag_product = self.binary(BinOp::Mul, exponent_imag, log_imag_read);
+        let magnitude = self.binary(BinOp::Sub, real_product, imag_product);
+        let magnitude = self.math("Exp", vec![magnitude]);
+        let magnitude = self.save(magnitude, statements);
+
+        let exponent_real = self.read(right, 0);
+        let log_imag_read = self.read(log_imag, 0);
+        let exponent_imag = self.read(right, 1);
+        let log_real_read = self.read(log_real, 0);
+        let real_imag = self.binary(BinOp::Mul, exponent_real, log_imag_read);
+        let imag_real = self.binary(BinOp::Mul, exponent_imag, log_real_read);
+        let angle = self.binary(BinOp::Add, real_imag, imag_real);
+        let angle = self.save(angle, statements);
+        let angle_read = self.read(angle, 0);
+        let cosine = self.math("Cos", vec![angle_read]);
+        let magnitude_read = self.read(magnitude, 0);
+        let real = self.binary(BinOp::Mul, magnitude_read, cosine);
+        let angle_read = self.read(angle, 0);
+        let sine = self.math("Sin", vec![angle_read]);
+        let magnitude_read = self.read(magnitude, 0);
+        let imag = self.binary(BinOp::Mul, magnitude_read, sine);
+        [real, imag]
+    }
+
+    fn save(&mut self, value: ExprId, statements: &mut Vec<StmtId>) -> (LocalVarId, bool) {
+        bind_operand(self.package, self.assigner, value, false, statements)
+    }
+
+    fn literal(&mut self, value: f64) -> ExprId {
+        alloc_expr(
+            self.package,
+            self.assigner,
+            Ty::Prim(Prim::Double),
+            ExprKind::Lit(Lit::Double(value)),
+            self.span,
+        )
+    }
+
+    /// Reuses or synthesizes a scalar intrinsic declaration in this package.
+    /// The internal `Exp` helper retains full evaluation's `f64::exp` behavior;
+    /// it is evaluated at compile time and cannot be emitted as a runtime call.
+    fn math(&mut self, name: &str, args: Vec<ExprId>) -> ExprId {
+        let scalar = Ty::Prim(Prim::Double);
+        let input = if args.len() == 1 {
+            scalar.clone()
+        } else {
+            Ty::Tuple(vec![scalar.clone(); args.len()])
+        };
+        let existing = self.package.items.iter().find_map(|(id, item)| {
+            matches!(&item.kind, ItemKind::Callable(decl)
+                if decl.name.name.as_ref() == name
+                    && decl.kind == CallableKind::Function
+                    && self.package.get_pat(decl.input).ty == input
+                    && decl.output == scalar
+                    && matches!(decl.implementation, CallableImpl::Intrinsic))
+            .then_some(id)
+        });
+        let item = existing.unwrap_or_else(|| {
+            let input_pat = if args.len() == 1 {
+                alloc_discard_pat(self.package, self.assigner, input.clone(), self.span)
+            } else {
+                let fields = (0..args.len())
+                    .map(|_| {
+                        alloc_discard_pat(self.package, self.assigner, scalar.clone(), self.span)
+                    })
+                    .collect();
+                let id = self.assigner.next_pat();
+                self.package.pats.insert(
+                    id,
+                    Pat {
+                        id,
+                        span: self.span,
+                        ty: input.clone(),
+                        kind: PatKind::Tuple(fields),
+                    },
+                );
+                id
+            };
+            let id = self.assigner.next_item();
+            self.package.items.insert(
+                id,
+                Item {
+                    id,
+                    span: self.span,
+                    parent: None,
+                    doc: Rc::from(""),
+                    attrs: Vec::new(),
+                    visibility: Visibility::Internal,
+                    kind: ItemKind::Callable(Box::new(CallableDecl {
+                        span: self.span,
+                        kind: CallableKind::Function,
+                        name: Ident {
+                            id: LocalVarId::from(0_u32),
+                            span: self.span,
+                            name: Rc::from(name),
+                        },
+                        generics: Vec::new(),
+                        input: input_pat,
+                        output: scalar.clone(),
+                        functors: FunctorSetValue::Empty,
+                        implementation: CallableImpl::Intrinsic,
+                        attrs: Vec::new(),
+                    })),
+                },
+            );
+            id
+        });
+        let callee = alloc_item_var_expr(
+            self.package,
+            self.assigner,
+            ItemId {
+                package: self.package.id,
+                item,
+            },
+            Ty::Arrow(Box::new(Arrow {
+                kind: CallableKind::Function,
+                input: Box::new(input.clone()),
+                output: Box::new(scalar.clone()),
+                functors: FunctorSet::Value(FunctorSetValue::Empty),
+            })),
+            self.span,
+        );
+        let args = if args.len() == 1 {
+            args[0]
+        } else {
+            alloc_tuple_expr(self.package, self.assigner, args, input, self.span)
+        };
+        alloc_call_expr(self.package, self.assigner, callee, args, scalar, self.span)
+    }
+
     /// Returns `[real, imaginary]` expressions for Add, Sub or Mul.
     ///
     /// # Before / after
@@ -374,7 +602,7 @@ impl Components<'_> {
     }
 
     /// Allocates a Double-valued scalar binary operation using already-built
-    /// Double operands. Callers select Add, Sub or Mul; no folding occurs here.
+    /// Double operands. Callers select arithmetic operators; no folding occurs here.
     fn binary(&mut self, op: BinOp, lhs: ExprId, rhs: ExprId) -> ExprId {
         alloc_bin_op_expr(
             self.package,
