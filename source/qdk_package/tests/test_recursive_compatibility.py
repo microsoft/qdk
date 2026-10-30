@@ -250,6 +250,49 @@ def test_static_recursion_bound_preserves_measured_integer(
 
 @pytest.mark.parametrize("profile", PROFILES, ids=str)
 @pytest.mark.parametrize(
+    "preparation,expected",
+    [
+        pytest.param("", 4, id="both-captures-zero"),
+        pytest.param("if n == 1 { X(q); }", 5, id="inner-capture-one"),
+        pytest.param("if n == 2 { X(q); }", 6, id="outer-capture-one"),
+        pytest.param("X(q);", 7, id="both-captures-one"),
+    ],
+)
+def test_static_bound_executes_recursively_forwarded_runtime_closure(
+    profile: qsharp.TargetProfile, preparation: str, expected: int
+) -> None:
+    source = f"""
+        operation Rec(
+            n : Int, action : (Unit => Unit), q : Qubit, targets : Qubit[]
+        ) : Unit {{
+            if n == 0 {{
+                action();
+            }} else {{
+                {preparation}
+                let flag = MResetZ(q) == One;
+                let destination = targets[n - 1];
+                let next = () => {{
+                    if flag {{ X(destination); }}
+                    action();
+                }};
+                if MResetZ(q) == Zero {{ Rec(n - 1, next, q, targets); }}
+            }}
+        }}
+        operation Main() : Int {{
+            use (q, audit) = (Qubit(), Qubit());
+            use targets = Qubit[2];
+            Rec(2, () => {{ X(audit); }}, q, targets);
+            let inner = if MResetZ(targets[0]) == One {{ 1 }} else {{ 0 }};
+            let outer = if MResetZ(targets[1]) == One {{ 2 }} else {{ 0 }};
+            let baseAction = if MResetZ(audit) == One {{ 4 }} else {{ 0 }};
+            inner + outer + baseAction
+        }}
+    """
+    check_result(source, profile, expected)
+
+
+@pytest.mark.parametrize("profile", PROFILES, ids=str)
+@pytest.mark.parametrize(
     "depth,expected", [(2, qsharp.Result.Zero), (3, qsharp.Result.One)]
 )
 def test_static_bound_in_tuple_preserves_runtime_result(
