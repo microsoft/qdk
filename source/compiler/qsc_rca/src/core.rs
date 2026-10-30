@@ -8,8 +8,7 @@ use crate::{
     ElementParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
-        AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, LocalsLookup,
-        try_resolve_callee,
+        Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, LocalsLookup, try_resolve_callee,
     },
     errors::get_missing_runtime_features,
     scaffolding::{InternalItemComputeProperties, InternalPackageStoreComputeProperties},
@@ -1338,19 +1337,11 @@ impl<'a> Analyzer<'a> {
                 .take()
                 .expect("last analyzed compute kind should be set after visiting an expression");
 
-            let package_id = self.get_current_package_id();
-            let package = self.package_store.get(package_id);
-
-            // We analyze both the condition expression and the block N times, where N is the analysis stabilization limit.
-            // The reason why we need a stabilization limit is because there can be up-to N levels of indirection for the
-            // condition due to variable assignments.
-            // The number of statements with assignments in the condition expression and the loop block is a good proxy for
-            // the worst case scenario regarding the propagation of properties throughout variables. Because of this, we use
-            // it as the stabilization limit.
-            let stabilization_limit = AssignmentStmtCounter::new(package).count_in_block(block_id)
-                + AssignmentStmtCounter::new(package).count_in_expr(condition_expr_id);
+            // Iterate to a fixed point: assignments join compute kinds, so loop-carried locals
+            // only gain runtime features or become variable. This finite lattice guarantees
+            // convergence, unlike an assignment count, which can truncate tuple-shift chains.
             let mut block_compute_kind = None;
-            for _ in 0..=stabilization_limit {
+            loop {
                 let application_instance = self.get_current_application_instance();
                 let previous_locals_map = application_instance.locals_map.clone();
                 let previous_condition_compute_kind = condition_expr_compute_kind;

@@ -6,6 +6,55 @@ use expect_test::expect;
 use qsc_data_structures::target::Profile;
 
 #[test]
+fn loop_body_tuple_shift_propagates_measurement_dependency_to_first_bool() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let measured = MResetZ(q) == One;
+        mutable (i, a, b, c, d, e, f) = (0, false, false, false, false, false, false);
+        while i < 7 {
+            set (i, a, b, c, d, e, f) = (i + 1, b, c, d, e, f, measured);
+        }
+        a"#,
+    );
+    check_last_statement_compute_properties(
+        compilation_context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn loop_condition_tuple_shift_preserves_fixed_measurement_handle() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let measured = MResetZ(q);
+        mutable (i, a, b, c, d, e, f) = (0, Zero, Zero, Zero, Zero, Zero, Zero);
+        while {
+            set (i, a, b, c, d, e, f) = (i + 1, b, c, d, e, f, measured);
+            i < 7
+        } {}
+        a"#,
+    );
+    check_last_statement_compute_properties(
+        compilation_context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
 fn check_rca_for_classical_for_loop() {
     let mut compilation_context = CompilationContext::default();
     compilation_context.update(

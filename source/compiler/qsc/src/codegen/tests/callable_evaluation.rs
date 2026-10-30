@@ -5,6 +5,110 @@ use super::{
     Profile, Value, eval_fragments, format_interpret_errors, interpreter_with_capabilities,
     qir_entry_body,
 };
+use expect_test::expect;
+
+#[test]
+fn loop_condition_tuple_shift_preserves_measurement_selected_output() {
+    let source = r#"
+        operation Main() : Int {
+            use q = Qubit();
+            X(q);
+            let measured = MResetZ(q) == One;
+            mutable (i, a, b, c, d) = (0, false, false, false, false);
+            while {
+                set (i, a, b, c, d) = (i + 1, b, c, d, measured);
+                i < 5
+            } {}
+            mutable output = 0;
+            if a { set output = 5; }
+            output
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::Int(5));
+        let source_qir = interpreter.qirgen("Main()").expect("source QIR");
+        let target = eval_fragments(&mut interpreter, "Main");
+        let runtime_qir = interpreter
+            .qirgen_from_callable(&target, Value::unit())
+            .expect("runtime QIR");
+        assert_eq!(source_qir, runtime_qir, "{profile:?}");
+        if profile != Profile::Adaptive {
+            expect![[r#"
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+                  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  br i1 %var_0, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_24 = phi i64 [0, %block_0], [5, %block_1]
+                  call void @__quantum__rt__int_record_output(i64 %var_24, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0"#]]
+            .assert_eq(qir_entry_body(&source_qir));
+        }
+    }
+}
+
+#[test]
+fn loop_carried_result_selection_requires_dynamic_result_support() {
+    let source = r#"
+        namespace Test {
+            operation Main() : (Result, Int) {
+                use (q1, q2) = (Qubit(), Qubit());
+                X(q2);
+                let m1 = M(q1);
+                let m2 = M(q2);
+                mutable (r0, r1, r2, r3, r4, r5) = (Zero, Zero, Zero, Zero, Zero, Zero);
+                mutable (i, b, s) = (0, false, Zero);
+                while i < 7 {
+                    set s = b ? m1 | m2;
+                    set (r0, r1, r2, r3, r4, r5) = (r1, r2, r3, r4, r5, s);
+                    set b = r0 == One;
+                    set i += 1;
+                }
+                mutable output = 0;
+                if r0 == One { set output = 5; }
+                ResetAll([q1, q2]);
+                (r0, output)
+            }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+        let errors = super::compile_source_to_qir_result(source, profile.into())
+            .expect_err("measurement-dependent Result selection requires dynamic Result support");
+        assert!(!errors.is_empty());
+        for error in errors {
+            assert!(
+                format!("{error:?}").contains("UseOfDynamicResult"),
+                "{error:?}"
+            );
+        }
+    }
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Test.Main()"),
+        Value::Tuple(
+            vec![
+                Value::Result(qsc_eval::val::Result::Val(true)),
+                Value::Int(5)
+            ]
+            .into(),
+            None
+        )
+    );
+    interpreter
+        .qirgen("Test.Main()")
+        .expect("Adaptive source QIR");
+    let target = eval_fragments(&mut interpreter, "Test.Main");
+    interpreter
+        .qirgen_from_callable(&target, Value::unit())
+        .expect("Adaptive runtime QIR");
+}
 
 #[test]
 fn unwrapped_callable_preserves_its_operation() {
