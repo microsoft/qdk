@@ -662,7 +662,7 @@ impl Interpreter {
         self.package_globals(self.package)
     }
 
-    /// Get the input and output types of a given value representing a global item.
+    /// Gets a runtime global or closure's instantiated public input and output types.
     /// # Errors
     /// Returns an error when retained instantiation metadata cannot be resolved within the type limits.
     /// # Panics
@@ -678,6 +678,8 @@ impl Interpreter {
 
     /// Gets a runtime callable's public signature, including applied functors.
     /// Uses retained checked type arguments; captures are not part of a closure's public input.
+    /// Unbound declarations retain unresolved type parameters for the interop boundary
+    /// to reject; this method does not infer arguments from Python values.
     ///
     /// # Errors
     /// Returns an error for missing, inconsistent, or oversized instantiation metadata.
@@ -1554,6 +1556,9 @@ impl Interpreter {
     /// and simulator but using the current compilation.
     /// Arguments must match the callable's signature, including required functors.
     /// Language bindings are responsible for validating caller-supplied values.
+    /// The target must be a global value with no applied functors; closures can be
+    /// supplied as arguments. Retained instantiations are consumed in private FIR,
+    /// without changing the interpreter's source store or simulation behavior.
     pub fn qirgen_from_callable(
         &mut self,
         callable: &Value,
@@ -2075,8 +2080,8 @@ impl Interpreter {
 
     /// Evaluate the name of an operation, or any expression that evaluates to a callable,
     /// and return the Item ID and function application for the callable.
-    /// Examples: "Microsoft.Quantum.Diagnostics.DumpMachine", "(qs: Qubit[]) => H(qs[0])",
-    /// "Controlled SWAP"
+    /// Examples: `Microsoft.Quantum.Diagnostics.DumpMachine`, `(qs: Qubit[]) => H(qs[0])`,
+    /// `Controlled SWAP`.
     fn eval_to_operation(
         &mut self,
         operation_expr: &str,
@@ -2109,12 +2114,13 @@ impl Interpreter {
 pub enum CircuitEntryPoint {
     /// An operation. This must be a callable name or a lambda
     /// expression that only takes qubits as arguments.
-    /// e.g. "Sample.Main" , "qs => H(qs[0])"
+    /// For example, `Sample.Main` or `qs => H(qs[0])`.
     /// The callable name must be visible in the current package.
     Operation(String),
     /// An explicitly provided entry expression.
     EntryExpr(String),
-    /// A global callable with arguments.
+    /// A callable with arguments. Static generation requires a global target;
+    /// simulation and classical tracing also accept closures.
     Callable(Value, Value),
     /// The entry point for the current package.
     EntryPoint,

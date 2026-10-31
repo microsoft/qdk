@@ -4,6 +4,11 @@
 //! The Q# partial evaluator residualizes a Q# program, producing RIR from FIR.
 //! It does this by evaluating all purely classical expressions and generating RIR instructions for expressions that are
 //! not purely classical.
+//!
+//! Codegen preparation supplies concrete runtime callable instances and removes
+//! `SimulatableIntrinsic` bodies before this stage. Such bodies are never simulated
+//! here: externally implemented intrinsics produce calls in the residual program.
+//! Built-in intrinsics and codegen no-op diagnostics use their dedicated handling.
 
 #[cfg(test)]
 mod tests;

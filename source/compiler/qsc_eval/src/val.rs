@@ -14,6 +14,9 @@ use crate::{AsIndex, Error, PackageSpan, Range as EvalRange};
 
 pub const DEFAULT_RANGE_STEP: i64 = 1;
 
+/// An interpreter value. Cloning preserves callable identities and type evidence;
+/// reference-counted arrays, tuples, and closure capture buffers remain shared.
+/// Cloning does not validate signatures or create codegen specializations.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Array(Rc<Vec<Value>>),
@@ -21,6 +24,7 @@ pub enum Value {
     Bool(bool),
     Closure(Box<Closure>),
     Double(f64),
+    /// Callable identity, applied functors, and checked arguments or an unbound declaration.
     Global(StoreItemId, FunctorApp, crate::callable::TypeArgs),
     Int(i64),
     Pauli(Pauli),
@@ -32,11 +36,14 @@ pub enum Value {
     Var(Var),
 }
 
+/// A callable with fixed arguments and the lexical type context from its creation.
+/// Type evidence can be needed by the body even when absent from the public signature.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Closure {
     pub fixed_args: Rc<[Value]>,
     pub id: StoreItemId,
     pub functor: FunctorApp,
+    /// Shared type bindings, separate from captured values and evaluation frames.
     pub type_args: crate::callable::TypeArgs,
 }
 

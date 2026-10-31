@@ -916,6 +916,8 @@ impl Lowerer {
             hir::ExprKind::Var(res, args) => {
                 let res = self.lower_res(res);
                 let args: Vec<_> = args.iter().map(|arg| self.lower_generic_arg(arg)).collect();
+                // Generic references must use the full expression node so evaluation
+                // can retain their checked arguments; compressed Var nodes omit them.
                 let exec_expr = if matches!(res, fir::Res::Item(_)) && !args.is_empty() {
                     None
                 } else {

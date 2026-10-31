@@ -1,10 +1,10 @@
 # qsc_fir_transforms
 
-The production FIR-to-FIR rewrite pipeline. It runs after FIR lowering and before downstream consumers such as partial evaluation and backend code generation, producing FIR that is semantically equivalent to the input but easier for those consumers to handle.
+The production FIR-to-FIR rewrite pipeline. It runs after FIR lowering and before partial evaluation and backend code generation. It preserves codegen semantics, including replacing simulation-only intrinsic implementations with their external-call contracts. It is not run before ordinary interpreter simulation.
 
 ## What to know before diving in
 
-- **It is one pipeline, not a toolbox of independent passes.** The passes are ordered and assume each other's output. Several intermediate states deliberately violate FIR invariants that later passes restore, so running a pass in isolation or reordering passes is generally unsound. Treat `run_pipeline_with_diagnostics` (and the staged `run_pipeline_to_with_diagnostics`) as the only supported way to invoke them.
+- **It is one pipeline, not a toolbox of independent passes.** The passes are ordered and assume each other's output. Several intermediate states deliberately violate FIR invariants that later passes restore, so running a pass in isolation or reordering passes is generally unsound. Use the pipeline entry points, including `run_pipeline_with_diagnostics`, `run_pipeline_to_with_diagnostics`, and its shared-budget counterpart, rather than calling individual passes.
 
 - **Rewrites are reachability-driven.** Most passes start from the package entry expression. UDT erasure includes pinned roots and works at package granularity across that reachable closure. Argument promotion includes pinned bodies and dependencies in safety checks and caller rewrites, but preserves pinned root signatures.
 
@@ -16,7 +16,7 @@ The production FIR-to-FIR rewrite pipeline. It runs after FIR lowering and befor
 
 ## Pass order
 
-The driver first validates intrinsics, collapses simulatable intrinsics, and clears orphaned nodes. The main rewrite schedule is:
+The driver first validates intrinsics, collapses simulatable intrinsics, and clears orphaned nodes. Their simulation bodies do not contribute calls, effects, or constants to partial evaluation. Built-in intrinsic handling remains separate, and codegen no-op intrinsic calls are lowered immediately after monomorphization. The main rewrite schedule is:
 
 1. `monomorphize` — specialize reachable generic callables to concrete types.
 2. `return_unify` — rewrite bodies to single-exit form, removing `Return` nodes while preserving path-local side effects (e.g. qubit release).
@@ -53,7 +53,8 @@ Monomorphization identifies a specialization by the package-qualified source
 callable and its concrete generic arguments. Recursive references retain the
 generic source identity until those arguments are substituted, so same-type,
 mutual, and finite changing-type cycles resolve to the matching concrete targets.
-Each invocation allows at most 1024 specializations across all packages.
+Each codegen preparation allows at most 1024 specializations across all packages,
+shared by runtime-instance preparation and the subsequent pipeline.
 Types constructed for specializations and each reference's type-argument list
 are limited to 4096 type nodes and depth 128, counting a leaf as depth one.
 Existing types outside specialization are not subject to these limits.
@@ -65,6 +66,32 @@ continually nests its recursive type arguments can therefore be rejected,
 including programs previously accepted by profiles that evaluated those calls
 classically. These are specialization limits, not runtime recursion limits or
 new backend support for recursive results.
+
+## Runtime callable inputs
+
+Evaluation retains checked type/functor arguments and lexical contexts on callable
+values without changing source identities or choosing different simulation bodies.
+Python interop validates instantiated public signatures and context ownership;
+it does not infer generic arguments from Python values.
+
+Codegen consumes that evidence in a private FIR store. It uses
+`instantiate_runtime_closure` for runtime targets and
+`run_pipeline_to_with_specialization_budget` for the following pipeline.
+The budget belongs to that codegen store and must not be reused for an independent
+compilation.
+Parameter discovery is cached by source identity, and matching source/argument
+instances share a specialization without merging their captured values or charging
+the budget twice. Named local declarations keep their own generic binders.
+
+The ordinary monomorphizer can still derive arguments from statically checked
+FIR capture and arrow types. That is distinct from the removed inference from
+erased runtime payloads. Nominal runtime values are reconstructed with typed
+constructors and keep their identities until normal UDT erasure.
+
+Runtime values containing non-lowerable identities or foreign closures use the
+pinned route. It specializes dependencies before signature-preserving rewriting
+and invokes the prepared target with runtime values; it does not require the
+returned target ID to equal the original interpreter ID.
 
 Callable capability weakening does not change value layout: an adjointable or
 controllable operation can populate a less-capable operation binding without

@@ -2,6 +2,15 @@
 // Licensed under the MIT License.
 
 //! Checked callable instantiations retained independently of runtime values.
+//!
+//! Evaluation shares argument templates and their lexical binding contexts rather
+//! than eagerly constructing expanded types. Reflection and codegen resolve those
+//! templates later, subject to the FIR type node/depth limits. This metadata neither
+//! selects simulation implementations nor retains simulator frames.
+//!
+//! An escaping callable can retain a long chain of type contexts. Normal `Rc`
+//! destruction of that chain is recursive and can exhaust the host stack at extreme
+//! depths; bounded type materialization does not bound the context-chain length.
 
 #[cfg(test)]
 mod tests;
@@ -22,16 +31,20 @@ pub enum TypeArgs {
     /// A declaration supplied without a checked source instantiation.
     #[default]
     Unbound,
-    /// A checked callable with no generic parameters.
+    /// No remaining type bindings, including an already-specialized callable.
     Empty,
+    /// Checked argument templates with the context needed to resolve them.
     Bound(Rc<Instantiation>),
 }
 
 /// An immutable binding environment owned by one callable declaration.
 #[derive(Clone, PartialEq)]
 pub struct Instantiation {
+    /// Declaration whose positional parameters these arguments bind.
     pub owner: StoreItemId,
+    /// Argument templates, interpreted in `context` rather than this declaration.
     pub args: Rc<[GenericArg]>,
+    /// Shared lexical context in which the argument templates were established.
     pub context: TypeArgs,
 }
 
@@ -48,12 +61,15 @@ pub enum TypeArgsError {
 }
 
 /// Shared budget for materializing one type or a forest of type arguments.
+/// A failed resolution may consume part of the budget; use a fresh budget to retry.
 #[derive(Default)]
 pub struct TypeBudget {
     nodes: usize,
 }
 
 impl TypeArgs {
+    /// Records checked templates without resolving or expanding them.
+    /// An empty argument list needs no binding environment and produces `Empty`.
     #[must_use]
     pub fn bind(owner: StoreItemId, args: Vec<GenericArg>, context: Self) -> Self {
         if args.is_empty() {
@@ -100,6 +116,11 @@ impl TypeArgs {
             .ok_or(TypeArgsError::Missing(param))
     }
 
+    /// Resolves one positional argument through its recorded lexical context.
+    ///
+    /// # Errors
+    /// Returns an error for missing or unresolved evidence, a wrong-kind reference,
+    /// or a type expansion exceeding the supplied budget or depth limit.
     pub fn resolve_argument(
         &self,
         param: ParamId,
@@ -114,6 +135,11 @@ impl TypeArgs {
         }
     }
 
+    /// Follows functor-parameter references until a concrete capability set is reached.
+    ///
+    /// # Errors
+    /// Returns an error for missing bindings, type arguments in functor positions,
+    /// or an unresolved functor inference variable.
     pub fn resolve_functors(&self, mut functors: FunctorSet) -> Result<FunctorSet, TypeArgsError> {
         let mut context = self;
         while let FunctorSet::Param(param) = functors {
@@ -130,6 +156,12 @@ impl TypeArgs {
         }
     }
 
+    /// Materializes a checked type template while retaining nominal UDT identities.
+    /// Every constructed type node is charged to the supplied budget.
+    ///
+    /// # Errors
+    /// Returns an error for missing, wrong-kind, or unresolved bindings, or when
+    /// materialization exceeds the node budget or maximum type depth.
     pub fn resolve_ty(&self, ty: &Ty, budget: &mut TypeBudget) -> Result<Ty, TypeArgsError> {
         self.resolve_ty_at_depth(ty, budget, 1)
     }

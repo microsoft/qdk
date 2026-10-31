@@ -1246,7 +1246,8 @@ fn extract_callable_value(py: Python, callable: &Py<PyAny>, owner: &Rc<()>) -> P
         ));
     };
 
-    // Ensure the value is either a callabe with no functors or a closure with no functors
+    // Direct invocation targets cannot have applied functors. Callable arguments
+    // use signature compatibility instead and can retain their functor applications.
     match &callable_val {
         Value::Closure(closure) if closure.functor == FunctorApp::default() => {}
         Value::Global(_, functor, _) if *functor == FunctorApp::default() => {}
@@ -1674,6 +1675,8 @@ where
     }
 }
 
+/// An opaque Q# global handle accepted by its originating interpreter's APIs.
+/// Retains checked type arguments and an ownership token, not the interpreter itself.
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 struct GlobalCallable(Value, Rc<()>);
@@ -1687,6 +1690,9 @@ impl GlobalCallable {
     }
 }
 
+/// An opaque Q# closure handle with captured values and lexical type evidence.
+/// Its ownership token prevents use with another interpreter without retaining
+/// the original interpreter. For codegen, pass it as an argument to a global wrapper.
 #[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 struct Closure(Value, Rc<()>);

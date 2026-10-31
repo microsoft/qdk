@@ -2253,6 +2253,13 @@ fn spec_from_functor_app(functor: FunctorApp) -> Spec {
     }
 }
 
+/// Captures local values and retains the supplied lexical type context.
+/// Cloning captures neither invokes the target nor materializes its type arguments.
+/// Evaluation supplies the current frame's context; already-concrete codegen
+/// inputs can use `TypeArgs::Empty`.
+///
+/// # Errors
+/// Returns `Error::UnboundName` at `span` if any requested capture is unavailable.
 pub fn resolve_closure(
     env: &Env,
     package: PackageId,

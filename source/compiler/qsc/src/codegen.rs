@@ -56,8 +56,9 @@ pub mod qir {
     ///
     /// - `SyntheticEntry`: the prepared FIR carries a self-contained synthetic
     ///   entry expression; build QIR via `entry_from_codegen_fir` + `fir_to_qir`.
-    /// - `ReinvokeOriginal`: the original target must be re-invoked through
-    ///   `fir_to_qir_from_callable` with the recorded callable id and args.
+    /// - `ReinvokeOriginal`: invoke the returned target and argument values through
+    ///   `fir_to_qir_from_callable`. The target may be a private specialization;
+    ///   runtime payload identities are preserved instead of materialized as FIR.
     pub enum CallableArgsBackend {
         SyntheticEntry,
         ReinvokeOriginal {
@@ -885,10 +886,10 @@ pub mod qir {
 
     /// Seeds the package entry with a synthetic `Call(target, args)` expression.
     ///
-    /// Builds args matching the target callable's pure input type: callable-typed positions
-    /// are filled with Var references to the concrete callables from the `args` Value;
-    /// non-callable positions get typed placeholder literals (which are never evaluated —
-    /// they exist only to make the Call structurally valid for defunctionalization).
+    /// Materializes the validated argument values with their declared nominal types.
+    /// Captures become local bindings evaluated before the call. The resulting entry
+    /// is self-contained and is executed directly, not followed by a second invocation
+    /// of the original callable.
     #[allow(clippy::too_many_lines)]
     fn seed_entry_with_call_to_target(
         fir_store: &mut qsc_fir::fir::PackageStore,
@@ -1172,8 +1173,10 @@ pub mod qir {
 
     /// Creates a typed placeholder expression for a non-callable input position.
     ///
-    /// Uses `Lit(Int(0))` with the declared type. The placeholder is never evaluated —
-    /// it exists only to make the synthetic Call structurally valid for pipeline passes.
+    /// Uses `Lit(Int(0))` with the declared type for structural seed paths. This is
+    /// not a conversion or a valid default for arbitrary types: callers must replace
+    /// the placeholder before executing it. Validated Python argument trees do not
+    /// use the incomplete-tuple fallback that creates these placeholders.
     fn make_placeholder_expr(
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
@@ -1756,11 +1759,13 @@ pub mod qir {
     /// pin-based approach when args contain runtime identities that cannot be
     /// represented as FIR values.
     ///
-    /// The fallback pins the original target for DCE survival so that
-    /// `fir_to_qir_from_callable` can still use its ID for partial evaluation.
+    /// The fallback pins the prepared target for DCE survival so that
+    /// `fir_to_qir_from_callable` can invoke it with runtime argument values.
     /// Arguments must already be compatible with the callable's signature.
     /// Runtime callables must carry their checked instantiations; missing type
     /// evidence remains a diagnostic rather than being inferred from values.
+    /// This declaration-based wrapper supplies no explicit target type arguments;
+    /// interpreter entry points use the typed preparation path below.
     pub fn prepare_codegen_fir_from_callable_args(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
@@ -1776,6 +1781,11 @@ pub mod qir {
         )
     }
 
+    /// Prepares a callable instance and its arguments using retained type bindings.
+    ///
+    /// Runtime specialization and the following pipeline share one budget. Only
+    /// private FIR copies and rebuilt argument values are changed; source identities
+    /// and interpreter-owned values remain available for later evaluation or codegen.
     pub(crate) fn prepare_codegen_fir_from_typed_callable_args(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
@@ -1906,8 +1916,10 @@ pub mod qir {
     /// Pin-based fallback for callable args containing non-lowerable closure captures.
     ///
     /// Seeds concrete (non-arrow-input) callables into the entry for reachability,
-    /// pins arrow-input callables and the target for DCE survival, and lets
-    /// `fir_to_qir_from_callable` handle specialization at QIR generation time.
+    /// pins arrow-input callables and the prepared target for DCE survival, and
+    /// invokes the returned values directly during partial evaluation. A Mono-only
+    /// pass first specializes their dependencies; subsequent pinned-body rewrites
+    /// preserve the runtime argument layout.
     fn prepare_codegen_fir_from_callable_args_pinned(
         package_store: &PackageStore,
         mut fir_store: qsc_fir::fir::PackageStore,

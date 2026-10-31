@@ -43,7 +43,8 @@
 //!
 //! The shared discovery keys close same-type and finite changing-type cycles,
 //! including mutual recursion, without allocating a duplicate for a back edge.
-//! Each invocation allows at most 1024 concrete specializations across packages.
+//! Each codegen preparation allows at most 1024 concrete specializations across
+//! packages, shared by runtime-instance preparation and subsequent pipeline passes.
 //! A specialization's constructed type or reference's type-argument forest may
 //! contain at most 4096 type nodes, with depth at most 128 (a leaf has depth one).
 //! Substituted sizes are checked before constructing the expanded tree. Generic
@@ -90,6 +91,8 @@ use thiserror::Error;
 const MAX_SPECIALIZATIONS: usize = 1024;
 
 /// One budget shared by runtime-instance preparation and the normal pipeline.
+/// Its prepared targets belong to one codegen store; do not reuse the budget
+/// with another store or an independent compilation.
 #[derive(Default)]
 pub struct SpecializationBudget {
     used: usize,
@@ -657,8 +660,10 @@ fn collect_generic_refs_in_expr(
 /// A `Var(Res::Item(id), args)` with a non-empty `args` list is a direct
 /// generic reference (a call or a first-class use). A `Closure(captures, item)`
 /// may target a generic lambda whose concrete type arguments are not written
-/// out anywhere, so they are reconstructed from the capture and arrow types via
-/// [`infer_closure_generic_args`]. Both kinds are deduplicated through `seen`.
+/// out anywhere, so they are reconstructed from statically checked FIR capture
+/// and arrow types via [`infer_closure_generic_args`]. This does not inspect runtime
+/// value payloads; runtime instances supply separately retained arguments.
+/// Both kinds are deduplicated through `seen`.
 fn collect_generic_refs_in_expr_ids(
     pkg_id: PackageId,
     pkg: &Package,

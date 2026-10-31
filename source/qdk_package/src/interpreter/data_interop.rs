@@ -264,9 +264,9 @@ where
             None
         }
         Ty::Arrow(arrow) => {
-            // Reject unsupported types in the input and output of the callable, but allow any primitive types as those won't
-            // be coming from Python directly. Primarily this ends up rejecting callables with generic type parameters,
-            // to avoid having to infer concrete types on the fly.
+            // Callable inputs/outputs stay inside Q#, so primitive interop restrictions
+            // do not apply there. Remaining type parameters are still rejected: a
+            // checked generic instance is supported, an uninstantiated declaration is not.
             if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.input.borrow(), true) {
                 return Some(ty);
             }
@@ -282,6 +282,9 @@ where
 /// Given a type, convert a Python object into a Q# value of that type. This will recur through tuples and arrays,
 /// and will return an error if the type is not supported or the object cannot be converted.
 /// Opaque callable ownership is checked before resolving its interpreter-local type IDs.
+/// Arrow positions validate the instantiated signature, including callable kind,
+/// nominal identities, and required functors. Scalar Python coercions are not
+/// applied within those signatures; conversion does not infer generic arguments.
 pub(super) fn pyobj_to_value(
     ctx: &interpret::Interpreter,
     py: Python,
@@ -392,6 +395,8 @@ fn check_callable_types(
 }
 
 /// Signature compatibility does not use Python's primitive value coercions.
+/// Inputs are contravariant, outputs covariant, and available functors must include
+/// those required by the receiving type. Non-arrow leaves retain nominal equality.
 fn callable_type_accepts(expected: &Ty, actual: &Ty) -> bool {
     match (expected, actual) {
         (Ty::Arrow(expected), Ty::Arrow(actual)) => {
