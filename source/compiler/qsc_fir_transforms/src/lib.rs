@@ -102,7 +102,10 @@ use qsc_fir::{
 use thiserror::Error;
 
 use crate::package_assigners::PackageAssigners;
-pub use monomorphize::instantiate_runtime_closure;
+pub use monomorphize::{
+    Error as MonomorphizationError, SpecializationBudget, instantiate_runtime_closure,
+    runtime_callable_parameters,
+};
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 
 /// Kinds of callable specializations that carry execution graphs.
@@ -291,6 +294,7 @@ fn run_pipeline_to_impl(
     package_id: PackageId,
     stage: PipelineStage,
     pinned_items: &[StoreItemId],
+    specialization_budget: &mut SpecializationBudget,
 ) -> PipelineResult {
     assert!(
         store.get(package_id).entry.is_some(),
@@ -313,7 +317,12 @@ fn run_pipeline_to_impl(
 
     let mut result = PipelineResult::default();
 
-    if let Err(error) = monomorphize::monomorphize(store, package_id, &mut assigners) {
+    if let Err(error) = monomorphize::monomorphize_with_budget(
+        store,
+        package_id,
+        &mut assigners,
+        specialization_budget,
+    ) {
         result.errors.push(error.into());
         return result;
     }
@@ -935,7 +944,28 @@ pub fn run_pipeline_to_with_diagnostics(
     stage: PipelineStage,
     pinned_items: &[StoreItemId],
 ) -> PipelineResult {
-    run_pipeline_to_impl(store, package_id, stage, pinned_items)
+    run_pipeline_to_impl(
+        store,
+        package_id,
+        stage,
+        pinned_items,
+        &mut SpecializationBudget::default(),
+    )
+}
+
+/// Runs a pipeline stage sharing the budget already used to instantiate runtime callables.
+/// Fatal diagnostics prohibit consuming the partially transformed store.
+///
+/// # Panics
+/// Panics if the package has no entry expression.
+pub fn run_pipeline_to_with_specialization_budget(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    stage: PipelineStage,
+    pinned_items: &[StoreItemId],
+    budget: &mut SpecializationBudget,
+) -> PipelineResult {
+    run_pipeline_to_impl(store, package_id, stage, pinned_items, budget)
 }
 
 /// Runs the full FIR optimization pipeline on the given package, returning

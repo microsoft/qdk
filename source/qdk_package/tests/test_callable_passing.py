@@ -38,40 +38,68 @@ def _generic_callable_context() -> qdk.Context:
     return ctx
 
 
-def test_concrete_generic_global_from_factory_is_accepted() -> None:
+def test_concrete_generic_global_from_factory_with_local_generic_caller() -> None:
     ctx = _generic_callable_context()
+    ctx.eval("""
+        function UseLocal(read : Int -> Int, value : Int) : Int {
+            function Id<'T>(x : 'T) : 'T { x }
+            Id(read(value))
+        }
+    """)
     saved = ctx.code.MakeIdentity()
     assert ctx.code.Apply(saved, 7) == 7
+    assert ctx.code.UseLocal(saved, 7) == 7
+    assert run_qir(str(ctx.compile(ctx.code.UseLocal, saved, 7)), shots=1, type="cpu") == [7]
+    method = qsharp.CircuitGenerationMethod.Static
+    assert str(ctx.circuit(ctx.code.UseLocal, saved, 7, generation_method=method)) == str(
+        ctx.circuit("UseLocal(MakeIdentity(), 7)", generation_method=method)
+    )
 
 
-def test_concrete_generic_alias_is_accepted() -> None:
+def test_concrete_generic_alias_with_unused_local_generic_caller() -> None:
     ctx = _generic_callable_context()
+    ctx.eval("""
+        function UseLocal(read : Int -> Int, value : Int) : Int {
+            function Unused<'T>(x : 'T) : 'T { x }
+            read(value)
+        }
+    """)
     saved = ctx.eval("{ let read : Int -> Int = Identity; read }")
     assert ctx.code.Apply(saved, 7) == 7
+    assert ctx.code.UseLocal(saved, 7) == 7
+    assert run_qir(str(ctx.compile(ctx.code.UseLocal, saved, 7)), shots=1, type="cpu") == [7]
+    method = qsharp.CircuitGenerationMethod.Static
+    assert str(ctx.circuit(ctx.code.UseLocal, saved, 7, generation_method=method)) == str(
+        ctx.circuit("UseLocal(MakeIdentity(), 7)", generation_method=method)
+    )
 
 
 def test_saved_empty_generic_array_retains_type_evidence() -> None:
     ctx = _generic_callable_context()
     saved = ctx.eval("{ let values : Int[] = []; SaveArray(values) }")
     assert ctx.code.UseArray(saved) == []
+    assert run_qir(str(ctx.compile(ctx.code.UseArray, saved)), shots=1, type="cpu") == [[]]
 
 
-def test_saved_body_only_generic_preserves_simulation() -> None:
+def test_saved_body_only_generic_retains_type_evidence() -> None:
     ctx = _generic_callable_context()
     saved = ctx.eval("BodyOnly(1)")
     assert ctx.code.Use(saved) == 0
+    assert run_qir(str(ctx.compile(ctx.code.Use, saved)), shots=1, type="cpu") == [0]
 
 
 def test_forwarded_generic_factory_retains_type_evidence() -> None:
     ctx = _generic_callable_context()
     saved = ctx.eval("Forward(7)")
     assert ctx.code.Use(saved) == 7
+    assert run_qir(str(ctx.compile(ctx.code.Use, saved)), shots=1, type="cpu") == [7]
 
 
 def test_nested_escaped_generic_closure_retains_type_evidence() -> None:
     ctx = _generic_callable_context()
     saved = ctx.eval("Nested(7)()")
     assert ctx.code.Use(saved) == 7
+    assert run_qir(str(ctx.compile(ctx.code.Use, saved)), shots=1, type="cpu") == [7]
 
 
 def test_distinct_saved_generic_instantiations_remain_independent() -> None:
@@ -80,6 +108,8 @@ def test_distinct_saved_generic_instantiations_remain_independent() -> None:
     boolean = ctx.eval("SaveValue(true)")
     assert ctx.code.Use(integer) == 7
     assert ctx.code.UseBool(boolean) is True
+    assert run_qir(str(ctx.compile(ctx.code.Use, integer)), shots=1, type="cpu") == [7]
+    assert run_qir(str(ctx.compile(ctx.code.UseBool, boolean)), shots=1, type="cpu") == [True]
     with pytest.raises(TypeError, match="incompatible callable type"):
         ctx.code.Use(boolean)
 
@@ -90,18 +120,6 @@ def test_generic_declaration_is_not_inferred_from_python_arguments() -> None:
         ctx.code.Apply(ctx.code.Identity, 7)
 
 
-_generic_target_codegen_gap = pytest.mark.xfail(
-    strict=True,
-    raises=pytest.RaisesExc(
-        BaseException,
-        match=r"monomorphization left a generic callable `Identity` reachable",
-        check=lambda error: type(error).__name__ == "PanicException",
-    ),
-    reason="Phase 3 must forward a direct generic target's checked type arguments",
-)
-
-
-@_generic_target_codegen_gap
 def test_concrete_generic_instance_as_qir_entry_target() -> None:
     ctx = _generic_callable_context()
     saved = ctx.code.MakeIdentity()
@@ -109,7 +127,6 @@ def test_concrete_generic_instance_as_qir_entry_target() -> None:
     assert run_qir(str(program), shots=1, type="cpu") == [7]
 
 
-@_generic_target_codegen_gap
 def test_concrete_generic_instance_as_static_circuit_entry_target() -> None:
     ctx = _generic_callable_context()
     saved = ctx.code.MakeIdentity()
@@ -315,7 +332,11 @@ def test_saved_generic_closure_preserves_capture_types(
             unused : 'Unused, read : ('T, Qubit) => Unit is Adj + Ctl, value : 'T
         ) : Qubit => Unit is Adj + Ctl { read(value, _) }
         function Missing<'T>(unused : 'T) : Qubit => Unit is Adj + Ctl {
-            q => { let values : 'T[] = []; if Length(values) == 0 { S(q); } }
+            q => {
+                function Id<'U>(value : 'U) : 'U { value }
+                let values : 'T[] = [];
+                if Id(Length(values) == 0) { S(q); }
+            }
         }
         operation Run(f : Qubit => Unit is Adj + Ctl) : Result {
             use q = Qubit();
@@ -352,8 +373,9 @@ def test_saved_generic_closure_preserves_capture_types(
     assert run_qir(
         str(qsharp.compile("Run(Missing(1))")), shots=3, type="cpu"
     ) == [qsharp.Result.Zero] * 3
-    with pytest.raises(QSharpError, match=r"Qdk\.Qsc\.EntryPoint\.MissingTypeArguments"):
-        qsharp.compile(Run, missing)
+    assert run_qir(
+        str(qsharp.compile(Run, missing)), shots=3, type="cpu"
+    ) == [qsharp.Result.Zero] * 3
 
 
 @pytest.mark.parametrize(

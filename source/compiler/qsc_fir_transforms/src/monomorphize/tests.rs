@@ -393,6 +393,56 @@ fn specialization_budget_accepts_the_limit_and_back_edges_but_rejects_new_target
             "never allocate the first forbidden clone"
         );
     }
+
+    check_runtime_budget_boundary(false);
+    check_runtime_budget_boundary(true);
+}
+
+fn check_runtime_budget_boundary(additional: bool) {
+    let last = if additional { "Other(7)" } else { "Id(7)" };
+    let (mut store, package) = crate::test_utils::compile_to_fir(&format!(
+        "function Id<'T>(x : 'T) : 'T {{ x }}
+             function Other<'T>(x : 'T) : 'T {{ x }}
+             operation Main() : Int {{ let _ = Id(7); {last} }}"
+    ));
+    let id = crate::test_utils::callable_id_by_name(store.get(package), "Id");
+    let mut budget = SpecializationBudget {
+        used: MAX_SPECIALIZATIONS - 1,
+        ..SpecializationBudget::default()
+    };
+    instantiate_runtime_closure(
+        store.get_mut(package),
+        id,
+        [(
+            ParamId::from(0),
+            GenericArg::Ty(Ty::Prim(qsc_fir::ty::Prim::Int)),
+        )],
+        &mut budget,
+    )
+    .expect("last runtime specialization fits")
+    .expect("checked type argument");
+    let result = crate::run_pipeline_to_with_specialization_budget(
+        &mut store,
+        package,
+        crate::PipelineStage::Mono,
+        &[],
+        &mut budget,
+    );
+    if additional {
+        assert!(matches!(
+            result.errors.as_slice(),
+            [crate::PipelineError::Monomorphize(
+                Error::SpecializationLimit(_)
+            )]
+        ));
+    } else {
+        assert_pipeline_succeeded("reuse prepared target without charging twice", &result);
+        assert_eq!(
+            try_eval_fir_entry(&store, package),
+            Ok(qsc_eval::val::Value::Int(7))
+        );
+    }
+    assert_eq!(budget.used, MAX_SPECIALIZATIONS);
 }
 
 /// Substitution in a cloned lambda must discover Id's concrete arguments even
@@ -409,11 +459,21 @@ fn mono_generic_dependencies_in_cloned_lambdas() {
         let source = format!(
             "function Id<'T>(x : 'T) : 'T {{ x }}
              function Unused<'T>(x : 'T) : 'T {{ x }}
-             function Outer<'T>(x : 'T) : 'T {{ {body} }}
+             function Outer<'T>(x : 'T) : 'T {{
+                 function LocalUnused<'A, 'B>(a : 'A, b : 'B) : ('A, 'B) {{ (a, b) }}
+                 {body}
+             }}
              operation Main() : Int {{
                  let _ = Outer(2.0);
                  Outer(7)
              }}"
+        );
+        let (before, before_id) = crate::test_utils::compile_to_fir(&source);
+        let outer = crate::test_utils::callable_id_by_name(before.get(before_id), "Outer");
+        assert_eq!(
+            runtime_callable_parameters(before.get(before_id), outer),
+            FxHashSet::from_iter([ParamId::from(0)]),
+            "{case}: local declarations do not add parameters to Outer"
         );
         let (store, package_id) = compile_and_monomorphize(&source);
         assert_unique_reachable_specializations(

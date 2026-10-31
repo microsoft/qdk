@@ -68,7 +68,7 @@ use qsc_fir::fir::{
     BlockId, CallableDecl, CallableImpl, CallableKind, ExecGraph, Expr, ExprId, ExprKind, Field,
     FieldAssign, FieldPath, Ident, Item, ItemId, ItemKind, LocalItemId, Mutability, Package,
     PackageId, PackageLookup, PackageStore, PatId, Res, SpecDecl, SpecImpl, StmtId, StoreItemId,
-    Visibility,
+    UnOp, Visibility,
 };
 use qsc_fir::ty::{Arrow, FunctorSetValue, Ty};
 use std::rc::Rc;
@@ -492,7 +492,7 @@ fn wrap_operand_evaluation(
         .kind = ExprKind::Block(block);
 }
 
-/// Eliminates UDT constructors and identity field reads after type erasure.
+/// Eliminates UDT constructors, unwraps, and identity field reads after type erasure.
 ///
 /// Empty field paths select the whole value, including tuple-valued fields of
 /// single-field newtypes. Nonempty paths on tuple records still select real
@@ -505,6 +505,7 @@ fn wrap_operand_evaluation(
 /// # Before
 /// ```text
 /// Call(Var(Item(UdtConstructor)), arg)
+/// UnOp(Unwrap, record)
 /// Field(record, Path([]))
 /// ```
 /// # After
@@ -549,6 +550,7 @@ fn lower_identity_expr(package: &mut Package, udt_cache: &UdtCache, expr_id: Exp
                 }
                 record_id
             }
+            ExprKind::UnOp(UnOp::Unwrap, record_id) => record_id,
             _ => return changed,
         };
         let source = package.exprs.get(source).expect("source should exist");

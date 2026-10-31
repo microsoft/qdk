@@ -608,13 +608,13 @@ fn runtime_saved_generic_closure_instantiates_capture_types() {
         }
         let target = eval_fragments(&mut interpreter, "Run");
         let missing = eval_fragments(&mut interpreter, "Missing(1)");
-        let errors = interpreter
+        let runtime_qir = interpreter
             .qirgen_from_callable(&target, missing)
-            .expect_err("a body-only type parameter has no runtime type evidence");
-        assert!(
-            format_interpret_errors(errors).contains("MissingTypeArguments"),
-            "{profile:?}: report missing evidence instead of reaching monomorphization"
-        );
+            .expect("body-only type arguments are retained by the saved closure");
+        let body_only_source = interpreter
+            .qirgen("Run(Missing(1))")
+            .expect("body-only source instantiation");
+        assert_eq!(runtime_qir, body_only_source);
     }
 }
 

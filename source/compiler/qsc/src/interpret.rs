@@ -18,7 +18,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     codegen::qir::{
         CallableArgsBackend, CodegenFir, entry_from_codegen_fir, prepare_codegen_fir,
-        prepare_codegen_fir_from_callable_args, prepare_codegen_fir_from_fir_store,
+        prepare_codegen_fir_from_fir_store, prepare_codegen_fir_from_typed_callable_args,
     },
     error::{self, WithStack},
     incremental::Compiler,
@@ -1401,25 +1401,29 @@ impl Interpreter {
         Some(format!("{qualified_name}()"))
     }
 
-    /// Extracts an HIR `ItemId` from a runtime `Value::Global`.
+    /// Extracts an HIR `ItemId` and the retained instantiation from a runtime global.
     ///
     /// Maps the FIR-domain package and item IDs back to their HIR equivalents
-    /// for use with the HIR package store in codegen preparation.
+    /// for codegen preparation without discarding its checked type arguments.
     ///
     /// # Errors
     ///
     /// Returns `Error::NotACallable` if the value is not a `Value::Global`.
     fn hir_item_id_from_value(
         callable: &Value,
-    ) -> std::result::Result<qsc_hir::hir::ItemId, Vec<Error>> {
-        let Value::Global(store_item_id, _, _) = callable else {
+    ) -> std::result::Result<(qsc_hir::hir::ItemId, &qsc_eval::callable::TypeArgs), Vec<Error>>
+    {
+        let Value::Global(store_item_id, _, type_args) = callable else {
             return Err(vec![Error::NotACallable]);
         };
 
-        Ok(qsc_hir::hir::ItemId {
-            package: map_fir_package_to_hir(store_item_id.package),
-            item: map_fir_local_item_to_hir(store_item_id.item),
-        })
+        Ok((
+            qsc_hir::hir::ItemId {
+                package: map_fir_package_to_hir(store_item_id.package),
+                item: map_fir_local_item_to_hir(store_item_id.item),
+            },
+            type_args,
+        ))
     }
 
     /// Normalizes a `StoreItemId` through the HIR↔FIR mapping round-trip.
@@ -1559,11 +1563,12 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let callable_id = Self::hir_item_id_from_value(callable)?;
+        let (callable_id, type_args) = Self::hir_item_id_from_value(callable)?;
         let backend_args = Self::remap_value_for_codegen(args);
-        let (prepared_fir, backend) = prepare_codegen_fir_from_callable_args(
+        let (prepared_fir, backend) = prepare_codegen_fir_from_typed_callable_args(
             self.compiler.package_store(),
             callable_id,
+            type_args,
             &backend_args,
             self.capabilities,
         )?;
@@ -1723,11 +1728,12 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let callable_id = Self::hir_item_id_from_value(callable)?;
+        let (callable_id, type_args) = Self::hir_item_id_from_value(callable)?;
         let backend_args = Self::remap_value_for_codegen(args);
-        let (prepared_fir, backend) = prepare_codegen_fir_from_callable_args(
+        let (prepared_fir, backend) = prepare_codegen_fir_from_typed_callable_args(
             self.compiler.package_store(),
             callable_id,
+            type_args,
             &backend_args,
             self.capabilities,
         )?;

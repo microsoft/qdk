@@ -4798,9 +4798,17 @@ fn callable_args_to_qir(
                     format_interpret_errors(errors)
                 )
             });
+    prepared_callable_to_qir(&codegen_fir, backend, capabilities)
+}
+
+fn prepared_callable_to_qir(
+    codegen_fir: &super::qir::CodegenFir,
+    backend: CallableArgsBackend,
+    capabilities: TargetCapabilityFlags,
+) -> String {
     match backend {
         CallableArgsBackend::SyntheticEntry => {
-            let entry = crate::codegen::qir::entry_from_codegen_fir(&codegen_fir);
+            let entry = crate::codegen::qir::entry_from_codegen_fir(codegen_fir);
             qsc_codegen::qir::fir_to_qir(
                 &codegen_fir.fir_store,
                 capabilities,
@@ -4859,6 +4867,26 @@ fn runtime_argument_global(interpreter: &crate::interpret::Interpreter, name: &s
         .value
 }
 
+/// Uses source typing to establish the target and argument instantiations
+/// without executing the target.
+fn checked_runtime_invocation(
+    interpreter: &mut crate::interpret::Interpreter,
+    target: &str,
+    argument: &str,
+) -> (Value, Value) {
+    let value = eval_fragments(
+        interpreter,
+        &format!(
+            "{{ let selected = {target}; let args = ({argument}); \
+             if false {{ selected(args); }} (selected, args) }}"
+        ),
+    );
+    let Value::Tuple(values, _) = value else {
+        panic!("checked invocation must return target and arguments");
+    };
+    (values[0].clone(), values[1].clone())
+}
+
 #[test]
 fn runtime_callable_argument_generic_bindings_are_consistent_and_scoped() {
     let source = r#"
@@ -4877,20 +4905,19 @@ fn runtime_callable_argument_generic_bindings_are_consistent_and_scoped() {
     ] {
         let mut interpreter = interpreter_with_capabilities(profile.into());
         eval_fragments(&mut interpreter, source);
-        let identity = runtime_argument_global(&interpreter, "Identity");
         let errors = interpreter
             .qirgen("Test.Wrong(Test.Identity)")
             .expect_err("source typing must reject inconsistent generic arguments");
         assert!(format!("{errors:?}").contains("TyMismatch"));
 
-        let pair = runtime_argument_global(&interpreter, "Pair");
-        let args = Value::Tuple(vec![Value::Int(1), identity.clone()].into(), None);
+        let (pair, args) =
+            checked_runtime_invocation(&mut interpreter, "Test.Pair", "1, Test.Identity");
         interpreter
             .qirgen_from_callable(&pair, args)
-            .expect("shared type requirements should infer Int");
+            .expect("checked shared type arguments should compile");
 
-        let independent = runtime_argument_global(&interpreter, "Independent");
-        let args = Value::Tuple(vec![Value::Double(0.5), identity].into(), None);
+        let (independent, args) =
+            checked_runtime_invocation(&mut interpreter, "Test.Independent", "0.5, Test.Identity");
         interpreter
             .qirgen_from_callable(&independent, args)
             .expect("distinct declarations' type parameters must not conflict");
@@ -4932,15 +4959,7 @@ fn runtime_callable_argument_valid_values_match_source_qir() {
             ("Test.Each", "[Test.Identity]"),
         ] {
             let source_call = format!("{target}({argument})");
-            let target = eval_fragments(&mut interpreter, target);
-            let args = match argument {
-                "Test.Identity" => runtime_argument_global(&interpreter, "Identity"),
-                "[]" => Value::Array(Vec::new().into()),
-                "[Test.Identity]" => {
-                    Value::Array(vec![runtime_argument_global(&interpreter, "Identity")].into())
-                }
-                _ => eval_fragments(&mut interpreter, argument),
-            };
+            let (target, args) = checked_runtime_invocation(&mut interpreter, target, argument);
             let qir = interpreter
                 .qirgen_from_callable(&target, args)
                 .expect("valid callable arguments must still compile");
@@ -5097,7 +5116,7 @@ fn check_runtime_controlled_generic_callable(
 }
 
 #[test]
-fn runtime_type_inference_resolves_functors_from_later_reader() {
+fn runtime_checked_type_arguments_resolves_functors_from_later_reader() {
     check_runtime_nested_functor_inference(
         "(((Qubit => Unit is Adj + Ctl), Qubit) => Unit is Adj + Ctl)",
         "Apply",
@@ -5106,7 +5125,7 @@ fn runtime_type_inference_resolves_functors_from_later_reader() {
 }
 
 #[test]
-fn runtime_type_inference_resolves_functors_inside_array_values() {
+fn runtime_checked_type_arguments_resolves_functors_inside_array_values() {
     check_runtime_nested_functor_inference(
         "(((Qubit => Unit is Adj + Ctl), Qubit) => Unit is Adj + Ctl)[]",
         "[Apply]",
@@ -5115,7 +5134,7 @@ fn runtime_type_inference_resolves_functors_inside_array_values() {
 }
 
 #[test]
-fn runtime_type_inference_resolves_functors_inside_tuple_values() {
+fn runtime_checked_type_arguments_resolves_functors_inside_tuple_values() {
     check_runtime_nested_functor_inference(
         "((((Qubit => Unit is Adj + Ctl), Qubit) => Unit is Adj + Ctl), Int)",
         "(Apply, 7)",
@@ -5144,7 +5163,7 @@ fn check_runtime_nested_functor_inference(value_type: &str, value: &str, invoke:
         ("Forward", format!("({value}, MakeReader())")),
         ("Reverse", format!("(MakeReader(), {value})")),
     ] {
-        check_runtime_type_inference(
+        check_runtime_checked_type_arguments(
             &source,
             target,
             &arguments,
@@ -5155,8 +5174,8 @@ fn check_runtime_nested_functor_inference(value_type: &str, value: &str, invoke:
 }
 
 #[test]
-fn runtime_type_inference_keeps_functor_instantiations_independent() {
-    check_runtime_type_inference(
+fn runtime_checked_type_arguments_keeps_functor_instantiations_independent() {
+    check_runtime_checked_type_arguments(
         r#"
         operation Flip(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[0]); }
         operation Apply(op : Qubit[] => Unit, qs : Qubit[]) : Unit { op(qs); }
@@ -5178,7 +5197,7 @@ fn runtime_type_inference_keeps_functor_instantiations_independent() {
 }
 
 #[test]
-fn runtime_functor_inference_accepts_mixed_capabilities_in_both_array_orders() {
+fn runtime_checked_functor_arguments_accepts_mixed_capabilities_in_both_array_orders() {
     let source = r#"
         operation Strong<'T>(value : 'T, q : Qubit) : Unit is Adj + Ctl { X(q); }
         operation Weak<'T>(value : 'T, q : Qubit) : Unit is Adj { X(q); }
@@ -5193,7 +5212,7 @@ fn runtime_functor_inference_accepts_mixed_capabilities_in_both_array_orders() {
         "[AsAdjoint(Strong), AsAdjoint(Weak)]",
         "[AsAdjoint(Weak), AsAdjoint(Strong)]",
     ] {
-        check_runtime_type_inference(
+        check_runtime_checked_type_arguments(
             source,
             "Run",
             argument,
@@ -5271,7 +5290,7 @@ const COMMON_CALLABLE_TYPE_SOURCE: &str = r#"
 "#;
 
 fn check_runtime_common_callable_type(target: &str, argument: &str) {
-    check_runtime_type_inference(
+    check_runtime_checked_type_arguments(
         COMMON_CALLABLE_TYPE_SOURCE,
         target,
         argument,
@@ -5311,7 +5330,7 @@ fn runtime_common_callable_type_supports_factories_with_different_output_capabil
         "([AsFactory(StrongFactory), AsFactory(WeakFactory)], MakeReader())",
         "([AsFactory(WeakFactory), AsFactory(StrongFactory)], MakeReader())",
     ] {
-        check_runtime_type_inference(
+        check_runtime_checked_type_arguments(
             source,
             "Run",
             argument,
@@ -5364,7 +5383,7 @@ fn check_runtime_higher_order_consumers(reader_first: bool) {
         } else {
             ("Run", format!("({consumers}, MakeReader())"))
         };
-        check_runtime_type_inference(
+        check_runtime_checked_type_arguments(
             source,
             target,
             &argument,
@@ -5428,7 +5447,7 @@ fn check_runtime_capability_chain(duplicate: bool) {
                 {arguments}
             }}"
         );
-        check_runtime_type_inference(
+        check_runtime_checked_type_arguments(
             CAPABILITY_CHAIN_SOURCE,
             target,
             &expression,
@@ -5439,7 +5458,7 @@ fn check_runtime_capability_chain(duplicate: bool) {
 }
 
 #[test]
-fn runtime_type_inference_reads_later_array_elements() {
+fn runtime_checked_type_arguments_reads_later_array_elements() {
     let source = r#"
         operation Run<'T>(values : 'T[][], op : Qubit => Unit) : Result {
             use q = Qubit();
@@ -5448,7 +5467,7 @@ fn runtime_type_inference_reads_later_array_elements() {
         }
     "#;
     for argument in ["([[], [7]], X)", "([[7], []], X)"] {
-        check_runtime_type_inference(
+        check_runtime_checked_type_arguments(
             source,
             "Run",
             argument,
@@ -5459,8 +5478,8 @@ fn runtime_type_inference_reads_later_array_elements() {
 }
 
 #[test]
-fn runtime_type_inference_reads_deeply_nested_array_elements() {
-    check_runtime_type_inference(
+fn runtime_checked_type_arguments_reads_deeply_nested_array_elements() {
+    check_runtime_checked_type_arguments(
         r#"
         operation Run<'T>(values : 'T[][][], op : Qubit => Unit) : Result {
             use q = Qubit();
@@ -5476,8 +5495,8 @@ fn runtime_type_inference_reads_deeply_nested_array_elements() {
 }
 
 #[test]
-fn runtime_type_inference_preserves_callback_correlations() {
-    check_runtime_type_inference(
+fn runtime_checked_type_arguments_preserves_callback_correlations() {
+    check_runtime_checked_type_arguments(
         r#"
         function Identity<'V>(value : 'V) : 'V { value }
         operation Run<'T, 'U>(f : 'T -> 'U, value : 'T) : 'U { f(value) }
@@ -5490,8 +5509,8 @@ fn runtime_type_inference_preserves_callback_correlations() {
 }
 
 #[test]
-fn runtime_type_inference_preserves_callback_correlations_in_reverse_order() {
-    check_runtime_type_inference(
+fn runtime_checked_type_arguments_preserves_callback_correlations_in_reverse_order() {
+    check_runtime_checked_type_arguments(
         r#"
         function Identity<'V>(value : 'V) : 'V { value }
         operation Run<'T, 'U>(value : 'T, f : 'T -> 'U) : 'U { f(value) }
@@ -5504,8 +5523,8 @@ fn runtime_type_inference_preserves_callback_correlations_in_reverse_order() {
 }
 
 #[test]
-fn runtime_type_inference_keeps_callback_instantiations_independent() {
-    check_runtime_type_inference(
+fn runtime_checked_type_arguments_keeps_callback_instantiations_independent() {
+    check_runtime_checked_type_arguments(
         r#"
         function Identity<'V>(value : 'V) : 'V { value }
         operation Run<'T, 'U>(left : 'T, right : 'U, f : 'T -> 'T, g : 'U -> 'U) : ('T, 'U) {
@@ -5519,7 +5538,7 @@ fn runtime_type_inference_keeps_callback_instantiations_independent() {
     );
 }
 
-fn check_runtime_type_inference(
+fn check_runtime_checked_type_arguments(
     source: &str,
     target: &str,
     argument: &str,
@@ -5535,9 +5554,9 @@ fn check_runtime_type_inference(
             expected,
             "{context}: source result"
         );
-        let value = eval_fragments(&mut interpreter, argument);
+        let (target_value, value) = checked_runtime_invocation(&mut interpreter, target, argument);
         let actual = interpreter
-            .qirgen_from_callable(&runtime_argument_global(&interpreter, target), value)
+            .qirgen_from_callable(&target_value, value)
             .unwrap_or_else(|errors| {
                 panic!("{context}: {}", format_interpret_errors(errors));
             });
@@ -5654,9 +5673,9 @@ fn runtime_callable_entry_accepts_concrete_type_evidence() {
                 "(ReadInt, { let values : Int[] = []; values })",
             ),
         ] {
-            let argument = eval_fragments(&mut interpreter, expression);
+            let (target, argument) = checked_runtime_invocation(&mut interpreter, name, expression);
             let actual = interpreter
-                .qirgen_from_callable(&runtime_argument_global(&interpreter, name), argument)
+                .qirgen_from_callable(&target, argument)
                 .unwrap_or_else(|errors| {
                     panic!("{profile:?}, {name}: {}", format_interpret_errors(errors));
                 });
@@ -5861,21 +5880,8 @@ fn runtime_callable_argument_preserves_nominal_udt_identity() {
             ("Test.Alias", "Test.Identity"),
             ("Test.TupleInput", "Test.PairValue(1, 2)!, Test.Identity"),
         ] {
-            let target_value = eval_fragments(&mut interpreter, target);
-            let args = if target == "Test.TupleInput" {
-                Value::Tuple(
-                    vec![
-                        eval_fragments(&mut interpreter, "Test.PairValue(1, 2)!"),
-                        runtime_argument_global(&interpreter, "Identity"),
-                    ]
-                    .into(),
-                    None,
-                )
-            } else if argument == "Test.Identity" {
-                runtime_argument_global(&interpreter, "Identity")
-            } else {
-                eval_fragments(&mut interpreter, argument)
-            };
+            let (target_value, args) =
+                checked_runtime_invocation(&mut interpreter, target, argument);
             let native = interpreter
                 .qirgen_from_callable(&target_value, args)
                 .expect("matching UDT declarations and erased payloads must remain valid");
@@ -5935,17 +5941,17 @@ fn runtime_callable_argument_generic_nominal_callbacks_accept_matching_values() 
     for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
         let mut interpreter = generic_nominal_callback_interpreter(profile);
         for callback in ["Test.IdB", "Test.MakeB(0)"] {
-            let value = eval_fragments(&mut interpreter, callback);
-            let read = runtime_argument_global(&interpreter, "ReadB");
-            for (target, args) in [
-                ("Forward", vec![value.clone(), read.clone()]),
-                ("Reverse", vec![read.clone(), value.clone()]),
+            for (target, arguments) in [
+                ("Forward", format!("{callback}, Test.ReadB")),
+                ("Reverse", format!("Test.ReadB, {callback}")),
             ] {
+                let (callee, args) = checked_runtime_invocation(
+                    &mut interpreter,
+                    &format!("Test.{target}"),
+                    &arguments,
+                );
                 interpreter
-                    .qirgen_from_callable(
-                        &runtime_argument_global(&interpreter, target),
-                        Value::Tuple(args.into(), None),
-                    )
+                    .qirgen_from_callable(&callee, args)
                     .unwrap_or_else(|errors| {
                         panic!("{profile:?}: {target}, {callback}: {errors:?}");
                     });
@@ -5963,19 +5969,19 @@ fn runtime_callable_argument_generic_nominal_callbacks_check_deferred_aggregates
             ("ReadHolderB", "new Test.HolderB { Callback = Test.IdB }"),
             ("ReadPairB", "Test.CallbackPair(0, Test.IdB)!"),
         ] {
-            let matching = eval_fragments(&mut interpreter, expression);
-            let read = runtime_argument_global(&interpreter, reader);
             for (target, reverse) in [("Forward", false), ("Reverse", true)] {
-                let args = if reverse {
-                    vec![read.clone(), matching.clone()]
+                let arguments = if reverse {
+                    format!("Test.{reader}, {expression}")
                 } else {
-                    vec![matching.clone(), read.clone()]
+                    format!("{expression}, Test.{reader}")
                 };
-                let context = format!("{profile:?}: {target}, {reader}");
-                let result = interpreter.qirgen_from_callable(
-                    &runtime_argument_global(&interpreter, target),
-                    Value::Tuple(args.into(), None),
+                let (callee, args) = checked_runtime_invocation(
+                    &mut interpreter,
+                    &format!("Test.{target}"),
+                    &arguments,
                 );
+                let context = format!("{profile:?}: {target}, {reader}");
+                let result = interpreter.qirgen_from_callable(&callee, args);
                 result.unwrap_or_else(|errors| panic!("{context}: {errors:?}"));
             }
         }
@@ -7098,7 +7104,7 @@ fn synthetic_path_two_arrow_args_generates_qir() {
 }
 
 #[test]
-fn synthetic_path_generic_target_infers_type_from_callable_arg() {
+fn synthetic_path_generic_target_uses_checked_type_arguments() {
     let source = indoc::indoc! {r#"
         namespace Test {
             operation ApplyGeneric<'T>(op : 'T => Unit, value : 'T) : Result {
@@ -7123,8 +7129,22 @@ fn synthetic_path_generic_target_infers_type_from_callable_arg() {
     let args = Value::Tuple(vec![do_h_if_one, Value::Int(1)].into(), None);
 
     let target_hir = hir_id_for(pkg, items["ApplyGeneric"]);
-    let (_codegen_fir, backend) = prepare_codegen_fir_from_callable_args(
-        &store, target_hir, &args, caps,
+    let target_types = qsc_eval::callable::TypeArgs::bind(
+        fir_id_for(pkg, items["ApplyGeneric"]),
+        vec![
+            qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Int)),
+            qsc_fir::ty::GenericArg::Functor(qsc_fir::ty::FunctorSet::Value(
+                qsc_fir::ty::FunctorSetValue::Empty,
+            )),
+        ],
+        qsc_eval::callable::TypeArgs::Empty,
+    );
+    let (codegen_fir, backend) = super::qir::prepare_codegen_fir_from_typed_callable_args(
+        &store,
+        target_hir,
+        &target_types,
+        &args,
+        caps,
     )
     .unwrap_or_else(|errors| {
         panic!(
@@ -7137,10 +7157,10 @@ fn synthetic_path_generic_target_infers_type_from_callable_arg() {
         "lowerable generic target args should use the synthetic entry"
     );
 
-    let qir = callable_args_to_qir(&store, pkg, items["ApplyGeneric"], &args, caps);
+    let qir = prepared_callable_to_qir(&codegen_fir, backend, caps);
     assert!(
         qir.contains("__quantum__qis__h__body"),
-        "expected generic target to infer T = Int and emit H:\n{qir}"
+        "expected checked T = Int target and emit H:\n{qir}"
     );
 }
 
@@ -7163,8 +7183,22 @@ fn callable_args_with_top_level_qubit_value_use_reinvoke_original() {
     let args = Value::Tuple(vec![do_h, Value::Qubit((&qubit).into())].into(), None);
 
     let target_hir = hir_id_for(pkg, items["ApplyGeneric"]);
-    let (_codegen_fir, backend) = prepare_codegen_fir_from_callable_args(
-        &store, target_hir, &args, caps,
+    let target_types = qsc_eval::callable::TypeArgs::bind(
+        fir_id_for(pkg, items["ApplyGeneric"]),
+        vec![
+            qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Qubit)),
+            qsc_fir::ty::GenericArg::Functor(qsc_fir::ty::FunctorSet::Value(
+                qsc_fir::ty::FunctorSetValue::Empty,
+            )),
+        ],
+        qsc_eval::callable::TypeArgs::Empty,
+    );
+    let (_codegen_fir, backend) = super::qir::prepare_codegen_fir_from_typed_callable_args(
+        &store,
+        target_hir,
+        &target_types,
+        &args,
+        caps,
     )
     .unwrap_or_else(|errors| {
         panic!(
