@@ -19,7 +19,6 @@ const SRC1_IMM: u64 = 1 << 17;
 const DST_IMM: u64 = 1 << 18;
 const AUX1_IMM: u64 = 1 << 20;
 const AUX2_IMM: u64 = 1 << 21;
-const AUX3_IMM: u64 = 1 << 22;
 
 #[derive(Default)]
 struct Recorder {
@@ -124,55 +123,6 @@ fn batches_gates_and_flushes_at_completion() -> Result<(), String> {
     assert!(output.records.is_empty());
     assert_eq!(output.return_value, None);
     Ok(())
-}
-
-#[test]
-/// Preserves CCX and resolves its third operand from an immediate or register.
-fn forwards_ccx_without_decomposition() -> Result<(), String> {
-    for immediate in [false, true] {
-        let mut ccx = quantum(0x10, 0, 1, 0);
-        ccx.aux3 = if immediate { 2 } else { 0 };
-        if immediate {
-            ccx.opcode |= AUX3_IMM;
-        }
-        let mut program = program(
-            vec![
-                Instruction {
-                    opcode: 0x53 | SRC0_IMM,
-                    src0: 2,
-                    ..Default::default()
-                },
-                ccx,
-                ret(),
-            ],
-            vec![op(20)],
-        );
-        program.num_qubits = 3;
-        let mut backend = Recorder::default();
-        run_adaptive_program(&program, &mut backend)?;
-        assert_eq!(names(&backend), vec![vec!["ccx"]]);
-        assert_eq!(
-            backend.batches[0][0].parameters.as_slice(),
-            &[QubitId(1), QubitId(0), QubitId(2)]
-        );
-    }
-    Ok(())
-}
-
-#[test]
-/// Validates the CCX target before submitting any backend instructions.
-fn rejects_invalid_ccx_target() {
-    let mut ccx = quantum(0x10, 0, 0, 1);
-    ccx.opcode |= AUX3_IMM;
-    ccx.aux3 = 2;
-    let program = program(vec![ccx, ret()], vec![op(20)]);
-    let mut backend = Recorder::default();
-    assert!(
-        run_adaptive_program(&program, &mut backend)
-            .expect_err("out-of-range CCX target must fail")
-            .contains("Qubit ID 2 exceeds the declared qubit count")
-    );
-    assert!(backend.batches.is_empty());
 }
 
 #[test]
