@@ -6,7 +6,11 @@ mod counting;
 mod factories;
 mod temporal;
 
-use crate::{QuantumBackend, QuantumBackendInstruction, run_qir, run_qsharp_call, run_qsharp_expr};
+use crate::{
+    QuantumBackend, QuantumBackendInstruction, run_adaptive_program, run_qir, run_qsharp_call,
+    run_qsharp_expr,
+};
+use qdk_simulators::bytecode::AdaptiveProgram;
 use qsc::interpret::{Interpreter, Value};
 use rustc_hash::FxHashMap;
 use serde::Serialize;
@@ -201,6 +205,50 @@ mod tests {
         Ok(())
     }
 
+    /// Profiles lowered bytecode through both boxed profiler implementations.
+    #[test]
+    fn boxed_profilers_profile_adaptive_program() -> Result<(), String> {
+        use qdk_simulators::bytecode::{Block, Instruction, Op};
+
+        let program = AdaptiveProgram {
+            num_qubits: 1,
+            num_results: 0,
+            num_registers: 0,
+            entry_block: 0,
+            instructions: vec![
+                Instruction {
+                    opcode: 0x10 | (1 << 16) | (1 << 20) | (1 << 21),
+                    ..Default::default()
+                },
+                Instruction {
+                    opcode: 0x02 | (1 << 18),
+                    ..Default::default()
+                },
+            ],
+            block_table: vec![Block::from_tuple((0, 2))],
+            function_table: vec![],
+            phi_entries: vec![],
+            switch_cases: vec![],
+            call_args: vec![],
+            constant_data: vec![],
+            quantum_ops: vec![Op::from_tuple((2, 0, 0, 0, 0))],
+        };
+        let profilers: [Box<dyn Profiler + Send + Sync>; 2] = [
+            Box::new(SequentialCountingProfiler::new(
+                10,
+                FxHashMap::from_iter([("x".into(), 0.25)]),
+            )?),
+            Box::new(TemporalProfiler::new(TemporalProfilerConfig::default())),
+        ];
+        for mut profiler in profilers {
+            let result = profiler.profile_adaptive_program(&program)?;
+            assert_eq!(result.totals.logical_compute_qubits, 1);
+            assert!(result.totals.total_operations_count > 0);
+            assert!(result.totals.total_runtime_sec > 0.0);
+        }
+        Ok(())
+    }
+
     /// Omits the trace count for both absent and empty traces.
     #[test]
     fn profiler_result_debug_without_trace_operations() {
@@ -319,6 +367,22 @@ pub trait Profiler: QuantumBackend {
         Self: Sized,
     {
         run_qsharp_expr(interpreter, expr, self).map_err(|error| error.to_string())?;
+        Ok(self.get_result())
+    }
+
+    /// Executes one shot of lowered adaptive QIR and returns accumulated profiling data.
+    ///
+    /// Inherits the well-formed bytecode requirements and error behavior of
+    /// [`run_adaptive_program`]. Program output is discarded; prior profile data
+    /// is retained, and backend changes are not rolled back after an error.
+    fn profile_adaptive_program(
+        &mut self,
+        program: &AdaptiveProgram<u64>,
+    ) -> Result<ProfilerResult, String>
+    where
+        Self: Sized,
+    {
+        run_adaptive_program(program, self)?;
         Ok(self.get_result())
     }
 }

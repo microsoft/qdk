@@ -36,7 +36,7 @@ pub use profilers::{
     TemporalProfilerConfig, TemporalProfiles, TimeSeries, TotalCounts, TumblingWindowAggregator,
 };
 pub use runner::{
-    Batcher, DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, QsharpRunError, RunOutput, run_qir,
-    run_qir_with_batch_size, run_qsharp_call, run_qsharp_expr,
+    Batcher, DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, QsharpRunError, RunOutput,
+    run_adaptive_program, run_qir, run_qir_with_batch_size, run_qsharp_call, run_qsharp_expr,
 };
 pub use transpilers::{RzQftTranspiler, SwapTransplier, Transpiler};

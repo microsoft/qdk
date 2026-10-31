@@ -308,6 +308,28 @@ impl Profiler {
         })?;
         Ok(result.into())
     }
+
+    /// Profiles one shot of trusted, well-formed 64-bit adaptive bytecode.
+    ///
+    /// Accepts the dictionary returned by `AdaptiveProfilePass(Bytecode.Bit64)`
+    /// via `AdaptiveProgram.as_dict()`. Profile data accumulates across calls.
+    /// Conversion errors retain their Python exception types; execution failures
+    /// raise `RuntimeError`. Program output is discarded.
+    fn profile_adaptive_program(
+        &mut self,
+        py: Python<'_>,
+        program: &Bound<'_, PyDict>,
+    ) -> PyResult<ProfilerResult> {
+        use qep::Profiler as _;
+
+        let program = crate::qir_simulation::adaptive_program_from_pydict::<u64>(program)?;
+        py.detach(|| {
+            self.backend_mut()
+                .profile_adaptive_program(&program)
+                .map(Into::into)
+                .map_err(PyRuntimeError::new_err)
+        })
+    }
 }
 
 /// Sequential instruction-counting profiler exposed to Python.

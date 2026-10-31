@@ -128,6 +128,34 @@ instructions to keep counting on the array-index path after name resolution.
 `QuantumBackendInstruction` is the sole instruction representation used by the runner,
 backends, profiler, and tests.
 
+## Adaptive bytecode runner
+
+`run_adaptive_program(&program, &mut backend)` executes one already-lowered
+`qdk_simulators::bytecode::AdaptiveProgram<u64>` using the Rust `run_shot`
+interpreter. It does not parse `.ll` or `.bc` files. Programs must satisfy the
+interpreter's well-formed bytecode requirements.
+
+The runner adapts `QuantumBackend` to the simulator trait and uses `Batcher`.
+Gates flush at the default capacity of 10,000 instructions or on successful
+completion. Measurements use immediate `mz`/`mz_reset` barriers and cache their
+values in local result slots for classical control flow. Classical result writes
+update only those local slots. Backend state is not reset between invocations.
+
+The return type is `Result<RunOutput, String>`. Records contain leaf result,
+boolean, integer, and double values; labels and `return_value` are `None`.
+Array/tuple markers are omitted by the bytecode interpreter. Programs without
+output-recording instructions produce no output records.
+
+CCX is forwarded as a single `ccx` instruction with its two controls followed
+by its target. Decomposition is left to the backend's transpiler adapter.
+SX-adjoint is decomposed into H, S-adjoint, H. Movement, loss inspection, and
+explicit noise operations return errors because the QEP instruction set cannot
+represent them. Backend failures and invalid backend responses are returned as
+errors as well. Since simulator methods cannot return errors, the first adapter
+error is retained until interpretation finishes; subsequent backend calls are
+suppressed and pending instructions are discarded. Already-executed backend
+changes are not rolled back.
+
 ## QIR Runner
 
 QIR Runner is a Driver.
@@ -156,6 +184,30 @@ and for its exact definition see the instruction table in `instructions.rs`.
 ## Quantum Execution Profiler
 
 A Profiler is a Backend that models a specific QPU (Quantum processing unit/quantum engine).
+
+`Profiler::profile_adaptive_program(&program)` executes one shot of already-lowered
+64-bit adaptive bytecode and returns the accumulated profiling data, discarding
+program output. It uses the adaptive bytecode runner described above.
+
+The Python `Profiler` base class exposes the same method to both counting and
+temporal profilers. Pass the dictionary emitted by the existing Python lowering
+pass, rather than a PyQIR module or raw LLVM bitcode:
+
+```python
+import pyqir
+from qdk._adaptive_pass import AdaptiveProfilePass, Bytecode
+from qdk.qre import SequentialCountingProfiler
+
+module = pyqir.Module.from_ir(pyqir.Context(), qir_text)
+program = AdaptiveProfilePass(Bytecode.Bit64).run(module)
+profiler = SequentialCountingProfiler(10, {"x": 0.25, "mz": 0.5})
+result = profiler.profile_adaptive_program(program.as_dict())
+```
+
+Only trusted, well-formed bytecode is supported. Dictionary conversion errors
+retain their Python exception types, and execution failures raise `RuntimeError`.
+Repeated calls retain earlier profiling data; failures do not roll back
+instructions that have already reached the backend.
 
 Profiler can be implemented as:
  * Rust struct implementing `trait QuantumBackend`.
