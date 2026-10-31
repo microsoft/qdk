@@ -390,3 +390,45 @@ fn qubit_arrays_should_be_able_to_be_threaded_through_early_return() {
         "#]],
     );
 }
+
+#[test]
+fn early_return_preserves_operand_and_scope_cleanup_order() {
+    let result = compile_no_hoist_return_unified(indoc! {r#"
+        namespace Test {
+            operation Before(q : Qubit) : Unit { body intrinsic; }
+            operation Operand(q : Qubit) : Unit { body intrinsic; }
+            operation After(q : Qubit) : Unit { body intrinsic; }
+            operation Value(q : Qubit) : Bool { Operand(q); false }
+            @EntryPoint() operation Main() : Bool {
+                use outer = Qubit();
+                for _ in [0] {
+                    use qs = Qubit[2];
+                    {
+                        use inner = Qubit();
+                        Before(outer);
+                        Before(qs[0]);
+                        return Value(inner);
+                    }
+                    After(outer);
+                }
+                false
+            }
+        }
+    "#});
+    let mut suffix = result.after.as_str();
+    for effect in [
+        "Value(inner)",
+        "__quantum__rt__qubit_release(inner);",
+        "ReleaseQubitArray(qs);",
+        "__quantum__rt__qubit_release(outer);",
+        "__has_returned = true;",
+    ] {
+        let (_, rest) = suffix
+            .split_once(effect)
+            .unwrap_or_else(|| panic!("missing ordered effect {effect}\n{}", result.after));
+        suffix = rest;
+    }
+    assert!(!suffix.contains("__quantum__rt__qubit_release(inner);"));
+    assert!(!suffix.contains("ReleaseQubitArray(qs);"));
+    assert!(!result.after.contains("After(outer)"), "{}", result.after);
+}
