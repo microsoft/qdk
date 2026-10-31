@@ -27,7 +27,75 @@ pub struct ResourceManager {
     next_var: usize,
 }
 
+#[derive(Clone)]
+pub(crate) struct QubitStateSnapshot {
+    qubits_in_use: Vec<bool>,
+    qubit_id_map: IndexMap<usize, usize>,
+    qubit_tracker: FxHashSet<Rc<Qubit>>,
+}
+
 impl ResourceManager {
+    /// Register a caller-supplied qubit before evaluating any statements.
+    /// This is an input boundary, not a way to revive released allocations.
+    pub(crate) fn register_input_qubit(&mut self, q: &QubitRef) -> bool {
+        let Some(q) = q.try_deref() else {
+            return false;
+        };
+        if self.qubit_id_map.contains_key(q.0) {
+            return self
+                .qubit_tracker
+                .get(&q)
+                .is_some_and(|active| Rc::ptr_eq(active, &q));
+        }
+        let slot = self.qubits_in_use.len();
+        self.qubits_in_use.push(true);
+        self.qubit_id_map.insert(q.0, slot);
+        self.qubit_tracker.insert(q);
+        true
+    }
+
+    pub(crate) fn save_qubit_state(&self) -> QubitStateSnapshot {
+        QubitStateSnapshot {
+            qubits_in_use: self.qubits_in_use.clone(),
+            qubit_id_map: self.qubit_id_map.clone(),
+            qubit_tracker: self.qubit_tracker.clone(),
+        }
+    }
+
+    pub(crate) fn restore_qubit_state(&mut self, state: QubitStateSnapshot) {
+        self.qubits_in_use = state.qubits_in_use;
+        self.qubit_id_map = state.qubit_id_map;
+        self.qubit_tracker = state.qubit_tracker;
+    }
+
+    pub(crate) fn merge_qubit_state(&mut self, other: QubitStateSnapshot) {
+        if self.qubits_in_use.len() < other.qubits_in_use.len() {
+            self.qubits_in_use.resize(other.qubits_in_use.len(), false);
+        }
+        for (slot, other_in_use) in other.qubits_in_use.iter().enumerate() {
+            self.qubits_in_use[slot] |= other_in_use;
+        }
+
+        for (id, slot) in other.qubit_id_map.iter() {
+            if !self.qubit_id_map.contains_key(id) {
+                self.qubit_id_map.insert(id, *slot);
+            }
+        }
+        self.qubit_tracker.extend(other.qubit_tracker);
+    }
+
+    pub fn is_qubit_live(&self, q: &QubitRef) -> bool {
+        q.try_deref().is_some_and(|q| {
+            // A snapshot can keep a released qubit alive after its numeric ID
+            // has been reused. Require the allocation currently tracked for it.
+            self.qubit_id_map.contains_key(q.0)
+                && self
+                    .qubit_tracker
+                    .get(&q)
+                    .is_some_and(|active| Rc::ptr_eq(active, &q))
+        })
+    }
+
     pub fn map_qubit(&self, q: &QubitRef) -> usize {
         let q = q.deref();
         *self
@@ -190,5 +258,58 @@ impl Backend for QuantumIntrinsicsChecker {
             | "PostSelectZ" => Some(Ok(Value::unit())),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod input_qubit_tests {
+    use super::*;
+
+    #[test]
+    fn imported_qubit_preserves_identity_across_release_and_reuse() {
+        let mut manager = ResourceManager::default();
+        let external = Rc::new(Qubit(0));
+        let original = QubitRef::from(&external);
+        assert!(manager.register_input_qubit(&original));
+        assert!(manager.register_input_qubit(&original));
+        assert!(manager.is_qubit_live(&original));
+        let conflicting = Rc::new(Qubit(0));
+        assert!(!manager.register_input_qubit(&QubitRef::from(&conflicting)));
+        let snapshot = manager.save_qubit_state();
+        manager.release_qubit(&original);
+        assert!(!manager.is_qubit_live(&original));
+        let replacement = manager.allocate_qubit();
+        let replacement_owner = replacement.deref();
+        assert_eq!(replacement_owner.0, external.0, "the numeric ID is reused");
+        assert!(!Rc::ptr_eq(&replacement_owner, &external));
+        assert!(manager.is_qubit_live(&replacement));
+        assert!(!manager.is_qubit_live(&original));
+        manager.restore_qubit_state(snapshot);
+        assert!(manager.is_qubit_live(&original));
+        assert!(!manager.is_qubit_live(&replacement));
+    }
+
+    #[test]
+    fn imported_expired_qubit_is_rejected() {
+        let q = Rc::new(Qubit(2));
+        let reference = QubitRef::from(&q);
+        drop(q);
+        assert!(!ResourceManager::default().register_input_qubit(&reference));
+    }
+
+    #[test]
+    fn imported_sparse_ids_and_new_allocations_use_distinct_slots() {
+        let mut manager = ResourceManager::default();
+        let first = Rc::new(Qubit(42));
+        let second = Rc::new(Qubit(0));
+        let first_ref = QubitRef::from(&first);
+        let second_ref = QubitRef::from(&second);
+        assert!(manager.register_input_qubit(&first_ref));
+        assert!(manager.register_input_qubit(&second_ref));
+        let fresh = manager.allocate_qubit();
+        assert_eq!(manager.map_qubit(&first_ref), 0);
+        assert_eq!(manager.map_qubit(&second_ref), 1);
+        assert_eq!(manager.map_qubit(&fresh), 2);
+        assert!(manager.is_qubit_live(&fresh));
     }
 }

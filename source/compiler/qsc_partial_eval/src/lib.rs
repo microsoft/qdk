@@ -86,6 +86,13 @@ pub fn partially_evaluate(
 }
 
 /// Partially evaluates a callable with the specified arguments.
+///
+/// The caller must supply live qubit arguments, including qubits captured by
+/// closures. Their identities are registered as inputs to this evaluation;
+/// releases performed by this evaluation are tracked independently. A
+/// `QubitRef` carries no source-manager liveness information beyond its weak
+/// reference, so a reference retained by another owner cannot establish that
+/// the source manager has not released it.
 pub fn partially_evaluate_call(
     package_store: &PackageStore,
     compute_properties: &PackageStoreComputeProperties,
@@ -549,6 +556,19 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn invoke(mut self, callable: StoreItemId, args: Value) -> Result<Program, Error> {
+        // Import caller-owned identities once, before evaluating the body.
+        // Later uses must pass the manager's allocation-aware liveness check;
+        // an external strong reference must not mask a release in this call.
+        for qubit in args.qubits() {
+            if !self.resource_manager.register_input_qubit(&qubit) {
+                return Err(
+                    EvalError::QubitUsedAfterRelease(map_fir_package_span_to_hir(
+                        fir::PackageSpan::new(callable.package, Default::default()),
+                    ))
+                    .into(),
+                );
+            }
+        }
         // Evaluate the callalbe.
         let ret_val = self.eval_global_call(callable, args)?.into_value();
         let global = self
@@ -1911,11 +1931,11 @@ impl<'a> PartialEvaluator<'a> {
         let qubits = args_value.qubits();
         let qubits_len = qubits.len();
         if qubits_len > 0 {
-            let qubits = qubits
+            let live_qubits = qubits
                 .iter()
-                .filter_map(|q| q.try_deref().map(|q| q.0))
-                .collect::<Vec<_>>();
-            if qubits.len() != qubits_len {
+                .filter(|q| self.resource_manager.is_qubit_live(q))
+                .count();
+            if live_qubits != qubits_len {
                 return if callable_decl.name.name.as_ref() == "__quantum__rt__qubit_release" {
                     Err(EvalError::QubitDoubleRelease(args_span).into())
                 } else {
@@ -2599,8 +2619,10 @@ impl<'a> PartialEvaluator<'a> {
         // Evaluate the body expression.
         // First, we cache the current static variable mappings so that we can restore them later.
         let cached_mappings = self.clone_current_static_var_map();
+        let qubit_state_before_branch = self.resource_manager.save_qubit_state();
         let if_true_block_id =
             self.eval_expr_if_branch(body_expr_id, continuation_block_node_id, maybe_if_expr_var)?;
+        let qubit_state_after_true = self.resource_manager.save_qubit_state();
 
         // Evaluate the otherwise expression (if any), and determine the block to branch to if the condition is false.
         let if_false_block_id = if let Some(otherwise_expr_id) = otherwise_expr_id {
@@ -2608,6 +2630,8 @@ impl<'a> PartialEvaluator<'a> {
             let post_if_true_mappings = self.clone_current_static_var_map();
             // Restore the cached mappings from before evaluating the true block.
             self.overwrite_current_static_var_map(cached_mappings);
+            self.resource_manager
+                .restore_qubit_state(qubit_state_before_branch);
             let if_false_block_id = self.eval_expr_if_branch(
                 otherwise_expr_id,
                 continuation_block_node_id,
@@ -2622,9 +2646,19 @@ impl<'a> PartialEvaluator<'a> {
             // the variable is no longer static across the if expression.
             self.keep_matching_static_var_mappings(&cached_mappings);
 
+            // With no otherwise branch, the false path leaves resources exactly
+            // as they were before the true branch was evaluated.
+            self.resource_manager
+                .restore_qubit_state(qubit_state_before_branch);
+
             // Since there is no otherwise block, we branch to the continuation block.
             continuation_block_node_id
         };
+
+        // Preserve the true branch's peak qubit count even when its extra
+        // allocations have been released and the false path is implicit.
+        self.resource_manager
+            .merge_qubit_state(qubit_state_after_true);
 
         // Finally, we insert the branch instruction.
         let condition_value_var = condition_value.unwrap_var();

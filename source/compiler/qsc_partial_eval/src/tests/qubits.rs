@@ -492,6 +492,151 @@ fn qubit_double_release_triggers_runtime_error() {
 }
 
 #[test]
+fn released_qubit_inside_dynamic_branch_reports_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    Op(q);
+                }
+            }
+        }
+        "#,
+    });
+
+    assert!(matches!(
+        error,
+        crate::Error::EvaluationFailed(message, _)
+            if message == "qubit used after release"
+    ));
+}
+
+#[test]
+fn released_qubit_id_reused_inside_dynamic_branch_reports_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                    Op(fresh);
+                    Op(q);
+                    QIR.Runtime.__quantum__rt__qubit_release(fresh);
+                }
+            }
+        }
+        "#,
+    });
+
+    assert!(matches!(
+        error,
+        crate::Error::EvaluationFailed(message, _)
+            if message == "qubit used after release"
+    ));
+}
+
+#[test]
+fn released_qubit_id_reused_in_else_branch_reports_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+
+                if MResetZ(control) == One {
+                    Op(q);
+                } else {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                    Op(fresh);
+                    Op(q);
+                    QIR.Runtime.__quantum__rt__qubit_release(fresh);
+                }
+            }
+        }
+        "#,
+    });
+
+    assert!(matches!(
+        error,
+        crate::Error::EvaluationFailed(message, _)
+            if message == "qubit used after release"
+    ));
+}
+
+#[test]
+fn fresh_qubit_after_release_inside_dynamic_branch_is_live() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                    Op(fresh);
+                    QIR.Runtime.__quantum__rt__qubit_release(fresh);
+                }
+            }
+        }
+        "#,
+    });
+
+    assert_eq!(program.num_qubits, 2);
+}
+
+#[test]
+fn dynamic_branch_without_else_preserves_peak_qubit_count() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+
+                if MResetZ(control) == One {
+                    use qs = Qubit[3];
+                    Op(qs[0]);
+                    Op(qs[1]);
+                    Op(qs[2]);
+                }
+            }
+        }
+        "#,
+    });
+
+    // The branch-local qubits are released, but its peak slots remain part
+    // of the statically allocated program even on an implicit false path.
+    assert_eq!(program.num_qubits, 4);
+}
+
+#[test]
 fn qubit_relabel_in_dynamic_block_triggers_capability_error() {
     let error = get_partial_evaluation_error(indoc! {
         r#"

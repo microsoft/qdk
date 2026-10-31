@@ -65,6 +65,23 @@ fn contains_return_in_while_stmt(package: &Package, stmt_id: StmtId) -> bool {
     }
 }
 
+// Only follow straight-line blocks: a return inside a loop or one arm of
+// a conditional does not establish that the containing statement returns.
+fn stmt_unconditionally_returns(package: &Package, stmt_id: StmtId) -> bool {
+    let (StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id)) = package.get_stmt(stmt_id).kind else {
+        return false;
+    };
+    match package.get_expr(expr_id).kind {
+        ExprKind::Return(_) => true,
+        ExprKind::Block(block_id) => package
+            .get_block(block_id)
+            .stmts
+            .iter()
+            .any(|&stmt_id| stmt_unconditionally_returns(package, stmt_id)),
+        _ => false,
+    }
+}
+
 fn sync_block_type_to_stmt_or_unit(package: &mut Package, block_id: BlockId) {
     let trailing_ty = match package.get_block(block_id).stmts.last() {
         Some(&stmt_id) => match package.get_stmt(stmt_id).kind {
@@ -247,6 +264,10 @@ enum FlagBlockOutput {
     Unit,
 }
 
+fn ends_unit_block(package: &Package, stmt_id: StmtId, output: FlagBlockOutput) -> bool {
+    matches!(output, FlagBlockOutput::Unit) && stmt_unconditionally_returns(package, stmt_id)
+}
+
 impl FlagBlockOutput {
     fn lazy(self) -> Self {
         match self {
@@ -338,11 +359,9 @@ fn transform_block_stmts_with_flags(
         // - does it hold a `while` loop that itself contains a `return`?
         // - does it contain a `return` anywhere?
         // - is it the block's final trailing expression (the block's value)?
-        let has_return_in_while = match &package.get_stmt(stmt_id).kind {
-            StmtKind::Expr(e) | StmtKind::Semi(e) => contains_return_in_while_expr(package, *e),
-            _ => false,
-        };
+        let has_return_in_while = contains_return_in_while_stmt(package, stmt_id);
         let has_return = contains_return_in_stmt(package, stmt_id);
+        let ends_unit_block = ends_unit_block(package, stmt_id, output);
         let is_final_trailing_expr = output.final_trailing_expr_strategy().is_some()
             && index == original_stmts.len() - 1
             && matches!(package.get_stmt(stmt_id).kind, StmtKind::Expr(_));
@@ -451,6 +470,11 @@ fn transform_block_stmts_with_flags(
             has_return,
             seen_return_bearing_stmt,
         );
+        // The return has already emitted its cleanup and flag/slot writes.
+        // Any remaining statements on this straight-line path are unreachable.
+        if ends_unit_block {
+            break;
+        }
     }
 
     new_stmts
