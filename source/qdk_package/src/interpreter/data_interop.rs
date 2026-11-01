@@ -321,15 +321,11 @@ pub(super) fn pyobj_to_value(
                     objs.len()
                 )));
             }
-            if objs.len() == 1 {
-                pyobj_to_value(ctx, py, &objs[0], &tup[0], callable_owner)
-            } else {
-                let mut tuple = Vec::new();
-                for (obj, ty) in objs.iter().zip(tup) {
-                    tuple.push(pyobj_to_value(ctx, py, obj, ty, callable_owner)?);
-                }
-                Ok(Value::Tuple(tuple.into(), None))
+            let mut tuple = Vec::new();
+            for (obj, ty) in objs.iter().zip(tup) {
+                tuple.push(pyobj_to_value(ctx, py, obj, ty, callable_owner)?);
             }
+            Ok(Value::Tuple(tuple.into(), None))
         }
         Ty::Array(ty) => {
             let objs = extract_obj::<Vec<Py<PyAny>>>(py, obj, ty)?;

@@ -7028,6 +7028,65 @@ fn nested_callable_arrays_control_each_target() {
 // ---- Synthetic path: arrow + non-callable params (tuple input) ----
 
 #[test]
+fn checked_args_reject_mismatched_tuple_arity() {
+    let source = indoc::indoc! {r#"
+        function Id(value : Int) : Int { value }
+        operation Run(read : Int -> Int, value : Int) : Int { read(value) }
+    "#};
+    let caps = Profile::AdaptiveRI.into();
+    let (store, package, items) =
+        compile_and_locate_items(source, &[("Run", true), ("Id", true)], caps);
+    let read = Value::global(fir_id_for(package, items["Id"]), FunctorApp::default());
+    let incomplete_args = Value::Tuple(vec![read].into(), None);
+
+    qsc_fir_transforms::test_utils::assert_panics_with(
+        "tuple argument arity must match its checked type",
+        || {
+            let _ = prepare_codegen_fir_from_callable_args(
+                &store,
+                hir_id_for(package, items["Run"]),
+                &incomplete_args,
+                caps,
+            );
+        },
+    );
+}
+
+#[test]
+fn checked_args_pinned_generic_target_uses_unit_entry() {
+    let source = "operation Ignore<'T>(value : 'T) : Unit {}";
+    let caps = Profile::AdaptiveRI.into();
+    let (store, package, items) = compile_and_locate_items(source, &[("Ignore", true)], caps);
+    let type_args = qsc_eval::callable::TypeArgs::bind(
+        fir_id_for(package, items["Ignore"]),
+        vec![qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Prim(
+            qsc_fir::ty::Prim::Qubit,
+        ))],
+        qsc_eval::callable::TypeArgs::Empty,
+    );
+    let qubit = Rc::new(qsc_eval::val::Qubit(0));
+    let args = Value::Qubit((&qubit).into());
+
+    let (prepared, backend) = super::qir::prepare_codegen_fir_from_typed_callable_args(
+        &store,
+        hir_id_for(package, items["Ignore"]),
+        &type_args,
+        &args,
+        caps,
+    )
+    .expect("runtime qubit argument should use pinned preparation");
+
+    assert!(matches!(
+        backend,
+        CallableArgsBackend::ReinvokeOriginal { .. }
+    ));
+    let package = prepared.fir_store.get(prepared.fir_package_id);
+    let entry = package.get_expr(package.entry.expect("pinned route must seed an entry"));
+    assert_eq!(entry.ty, qsc_fir::ty::Ty::UNIT);
+    assert!(matches!(&entry.kind, FirExprKind::Tuple(elements) if elements.is_empty()));
+}
+
+#[test]
 fn synthetic_path_arrow_and_int_tuple_generates_qir() {
     // Target takes (op: Qubit => Unit, count: Int). `args` supplies both the
     // Global callable and a plain Int count in their respective tuple slots.

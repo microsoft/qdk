@@ -67,6 +67,37 @@ def test_run_checks_noise_before_callable_arguments(
     assert capsys.readouterr().out == ""
 
 
+def _singleton_tuple_context() -> qdk.Context:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    ctx.eval("""
+        function Id(x : Int) : Int { x }
+        operation Run(read : Int -> Int, value : (Int,)) : Int {
+            let (x,) = value;
+            read(x)
+        }
+    """)
+    return ctx
+
+
+def test_python_invocation_preserves_singleton_tuple() -> None:
+    ctx = _singleton_tuple_context()
+
+    assert ctx.eval("Run(Id, (7,))") == 7
+    assert ctx.code.Run(ctx.code.Id, (7,)) == 7
+    with pytest.raises(TypeError, match="mismatched tuple arity"):
+        ctx.code.Run(ctx.code.Id, (7, 8))
+
+
+def test_python_compilation_preserves_singleton_tuple() -> None:
+    ctx = _singleton_tuple_context()
+
+    source_qir = str(ctx.compile("Run(Id, (7,))"))
+    callable_qir = str(ctx.compile(ctx.code.Run, ctx.code.Id, (7,)))
+
+    assert run_qir(source_qir, shots=1, type="cpu") == [7]
+    assert run_qir(callable_qir, shots=1, type="cpu") == [7]
+
+
 def _generic_callable_context() -> qdk.Context:
     ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
     ctx.eval("""

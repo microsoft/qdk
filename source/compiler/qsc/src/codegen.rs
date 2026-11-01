@@ -1023,12 +1023,12 @@ pub mod qir {
         package.entry_exec_graph = Default::default();
     }
 
-    /// Builds an args expression matching the target's input type.
+    /// Lowers checked arguments with their declared tuple shape and element types.
     ///
-    /// For callable-typed positions, uses the corresponding callable from `args`.
-    /// For non-callable positions, uses `lower_value_to_expr` if the value is available
-    /// in `args`, otherwise creates a typed placeholder literal.
-    #[allow(clippy::too_many_lines)]
+    /// Non-lowerable runtime identities must use the pinned preparation route.
+    ///
+    /// # Panics
+    /// Panics if a tuple argument does not match its checked shape.
     fn build_synthetic_args(
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
@@ -1037,66 +1037,17 @@ pub mod qir {
         callable_types: &RuntimeCallableTypes,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
-        match input_ty {
-            qsc_fir::ty::Ty::Tuple(elem_tys) if elem_tys.is_empty() => {
-                // Unit input — create empty tuple expression.
-                let expr_id = assigner.next_expr();
-                package.exprs.insert(
-                    expr_id,
-                    qsc_fir::fir::Expr {
-                        id: expr_id,
-                        span: package.synthetic_span(),
-                        ty: qsc_fir::ty::Ty::Tuple(Vec::new()),
-                        kind: qsc_fir::fir::ExprKind::Tuple(Vec::new()),
-                        exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
-                            ..qsc_fir::fir::ExecGraphIdx::ZERO,
-                    },
+        match (input_ty, args) {
+            (Ty::Tuple(elem_tys), Value::Tuple(arg_elems, _)) => {
+                assert_eq!(
+                    elem_tys.len(),
+                    arg_elems.len(),
+                    "tuple argument arity must match its checked type"
                 );
-                expr_id
-            }
-            qsc_fir::ty::Ty::Tuple(elem_tys) => {
-                // Multi-param input — walk each position.
-                // If args is a Tuple of same length, pair element-wise.
-                // Otherwise, match the first callable-typed position to args.
-                let arg_elems: Vec<&Value> = match args {
-                    Value::Tuple(vs, _) if vs.len() == elem_tys.len() => vs.iter().collect(),
-                    _ => {
-                        // Args doesn't match tuple structure — build with
-                        // args placed at the first arrow-typed position.
-                        let mut elem_ids = Vec::with_capacity(elem_tys.len());
-                        let mut args_used = false;
-                        for elem_ty in elem_tys {
-                            if !args_used && ty_is_arrow_or_contains_arrow(elem_ty) {
-                                elem_ids.push(lower_value_to_expr(
-                                    package,
-                                    assigner,
-                                    args,
-                                    Some(elem_ty),
-                                    callable_types,
-                                    pending_stmts,
-                                ));
-                                args_used = true;
-                            } else {
-                                elem_ids.push(make_placeholder_expr(package, assigner, elem_ty));
-                            }
-                        }
-                        let expr_id = assigner.next_expr();
-                        package.exprs.insert(
-                            expr_id,
-                            qsc_fir::fir::Expr {
-                                id: expr_id,
-                                span: package.synthetic_span(),
-                                ty: input_ty.clone(),
-                                kind: qsc_fir::fir::ExprKind::Tuple(elem_ids),
-                                exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
-                                    ..qsc_fir::fir::ExecGraphIdx::ZERO,
-                            },
-                        );
-                        return expr_id;
-                    }
-                };
+                if elem_tys.is_empty() {
+                    return make_unit_expr(package, assigner);
+                }
 
-                // Element-wise matching: lower each arg against its declared type.
                 let mut elem_ids = Vec::with_capacity(elem_tys.len());
                 for (elem_ty, arg_val) in elem_tys.iter().zip(arg_elems.iter()) {
                     elem_ids.push(build_synthetic_args(
@@ -1122,68 +1073,25 @@ pub mod qir {
                 );
                 expr_id
             }
-            qsc_fir::ty::Ty::Arrow(_) => {
-                // Arrow-typed position — the args must be a callable value.
-                lower_value_to_expr(
-                    package,
-                    assigner,
-                    args,
-                    Some(input_ty),
-                    callable_types,
-                    pending_stmts,
-                )
-            }
-            qsc_fir::ty::Ty::Array(_) => {
-                // Array position — lower the value, threading the declared element
-                // type so empty (and nested-empty) arrays carry their real element
-                // type instead of `Ty::Err`.
-                lower_value_to_expr(
-                    package,
-                    assigner,
-                    args,
-                    Some(input_ty),
-                    callable_types,
-                    pending_stmts,
-                )
-            }
-            _ => {
-                // Non-callable position — lower value if possible, otherwise placeholder.
-                match args {
-                    Value::Qubit(_) | Value::Var(_) => {
-                        make_placeholder_expr(package, assigner, input_ty)
-                    }
-                    _ => lower_value_to_expr(
-                        package,
-                        assigner,
-                        args,
-                        Some(input_ty),
-                        callable_types,
-                        pending_stmts,
-                    ),
-                }
-            }
+            (Ty::Tuple(_), _) => panic!(
+                "expected a tuple argument for checked type {input_ty}, found {}",
+                args.type_name()
+            ),
+            _ => lower_value_to_expr(
+                package,
+                assigner,
+                args,
+                Some(input_ty),
+                callable_types,
+                pending_stmts,
+            ),
         }
     }
 
-    /// Returns true if the type is an Arrow or contains an Arrow in tuple structure.
-    fn ty_is_arrow_or_contains_arrow(ty: &qsc_fir::ty::Ty) -> bool {
-        match ty {
-            qsc_fir::ty::Ty::Arrow(_) => true,
-            qsc_fir::ty::Ty::Tuple(elems) => elems.iter().any(ty_is_arrow_or_contains_arrow),
-            _ => false,
-        }
-    }
-
-    /// Creates a typed placeholder expression for a non-callable input position.
-    ///
-    /// Uses `Lit(Int(0))` with the declared type for structural seed paths. This is
-    /// not a conversion or a valid default for arbitrary types: callers must replace
-    /// the placeholder before executing it. Validated Python argument trees do not
-    /// use the incomplete-tuple fallback that creates these placeholders.
-    fn make_placeholder_expr(
+    /// Creates an empty tuple expression of type Unit.
+    fn make_unit_expr(
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
-        ty: &qsc_fir::ty::Ty,
     ) -> qsc_fir::fir::ExprId {
         let expr_id = assigner.next_expr();
         package.exprs.insert(
@@ -1191,8 +1099,8 @@ pub mod qir {
             qsc_fir::fir::Expr {
                 id: expr_id,
                 span: package.synthetic_span(),
-                ty: ty.clone(),
-                kind: qsc_fir::fir::ExprKind::Lit(qsc_fir::fir::Lit::Int(0)),
+                ty: Ty::UNIT,
+                kind: qsc_fir::fir::ExprKind::Tuple(Vec::new()),
                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
                     ..qsc_fir::fir::ExecGraphIdx::ZERO,
             },
@@ -1972,10 +1880,7 @@ pub mod qir {
         if concrete_callables.is_empty() {
             let package = fir_store.get_mut(fir_package_id);
             let mut assigner = qsc_fir::assigner::Assigner::from_package(package);
-            let unit = make_placeholder_expr(package, &mut assigner, &Ty::UNIT);
-            package.exprs.get_mut(unit).expect("entry exists").kind =
-                qsc_fir::fir::ExprKind::Tuple(Vec::new());
-            package.entry = Some(unit);
+            package.entry = Some(make_unit_expr(package, &mut assigner));
         }
         pinned_callables.push(target_callable);
         warnings.extend(run_codegen_pipeline_with_budget(
