@@ -1,0 +1,49 @@
+[package]
+name = "executor_protocol"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# The `conformance` module: checks of the traits' rules, for implementers' tests.
+conformance = []
+
+[dependencies]
+futures-core = { workspace = true }
+
+[dev-dependencies]
+# The guide tests run the conformance checks on their own implementers.
+executor_protocol = { path = ".", features = ["conformance"] }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+bench = false
+
+# Each bench is a plain binary: it asserts that the variants it measures
+# agree, then prints their times and ratios.
+[[bench]]
+name = "adapter_overhead"
+harness = false
+
+[[bench]]
+name = "instruction_calls"
+harness = false
+
+[[bench]]
+name = "protocol_overhead"
+harness = false
+
+[[bench]]
+name = "readout_tags"
+harness = false
+
+[[bench]]
+name = "shot_replies_wake"
+harness = false
