@@ -1,0 +1,8 @@
+qdk[ec]>=1.33.0
+qodec>=0.2.0
+paulimer>=0.2.0
+binar>=0.1.0
+deq-runtime>=0.5.7; platform_machine == "AMD64" or platform_machine == "x86_64"
+scipy>=1.10.0
+matplotlib>=3.7.0
+ipykernel>=6.0,<7

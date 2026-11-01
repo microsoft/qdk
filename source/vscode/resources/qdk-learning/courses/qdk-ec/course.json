@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "title": "Develop and Test a QEC Protocol with QDK",
+  "shortDescription": "Design, validate, upgrade, compile, and benchmark fault-tolerant quantum error correction protocols using qodec, qdk.ec, qdk.simulation, and deq.",
+  "units": [
+    {
+      "id": "overview",
+      "title": "Course Overview & QDK-EC Setup",
+      "dir": "00-overview"
+    },
+    {
+      "id": "stabilizer-codes",
+      "title": "Define & Profile a Stabilizer Code",
+      "dir": "01-stabilizer-codes"
+    },
+    {
+      "id": "instruction-sets",
+      "title": "Build a Baseline Qodec & Instruction Set",
+      "dir": "02-instruction-sets"
+    },
+    {
+      "id": "gadget-anatomy",
+      "title": "Inspect Gadget Circuits, Checks & Readouts",
+      "dir": "03-gadget-anatomy"
+    },
+    {
+      "id": "validate-and-audit",
+      "title": "Validate & Fill Gadgets with Audit and GadgetProfile",
+      "dir": "04-validate-and-audit"
+    },
+    {
+      "id": "circuit-distance",
+      "title": "Characterize Circuit Distance & Problematic Errors",
+      "dir": "05-circuit-distance"
+    },
+    {
+      "id": "fault-tolerant-gadgets",
+      "title": "Upgrade Gadgets for Fault Tolerance",
+      "dir": "06-fault-tolerant-gadgets"
+    },
+    {
+      "id": "qsharp-compilation",
+      "title": "Compile Logical Experiments from Q#",
+      "dir": "07-qsharp-compilation"
+    },
+    {
+      "id": "openqasm-integration",
+      "title": "Call Qodec Instructions from OpenQASM 3",
+      "dir": "08-openqasm-integration"
+    },
+    {
+      "id": "simulation-and-decoding",
+      "title": "Noisy Simulation, Decoding & Confidence Filtering",
+      "dir": "09-simulation-and-decoding"
+    },
+    {
+      "id": "magne-capstone",
+      "title": "Capstone: Custom Gadgets & Neutral-Atom Evaluation",
+      "dir": "10-magne-capstone"
+    }
+  ],
+  "environment": {
+    "importChecks": [
+      "qdk",
+      "qodec",
+      "paulimer",
+      "binar"
+    ]
+  }
+}
