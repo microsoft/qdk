@@ -1019,7 +1019,6 @@ fn dynamic_variable_with_same_value_across_branches_treated_as_literal() {
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
-                Variable(3, Integer) = Store Integer(1)
                 Call id(4), args( Integer(2), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
@@ -1058,7 +1057,6 @@ fn dynamic_variable_with_same_value_across_branches_treated_as_literal_in_adapti
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
-                Variable(3, Integer) = Store Integer(1)
                 Call id(4), args( Integer(2), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:

@@ -2729,24 +2729,52 @@ impl<'a> PartialEvaluator<'a> {
             .push(branch_ins);
 
         // Return the value of the if expression.
-        let if_expr_value = if let Some(if_expr_var) = maybe_if_expr_var {
-            Value::Var(map_rir_var_to_eval_var(if_expr_var).map_err(|()| {
-                Error::Unexpected(
-                    format!(
-                        "dynamic value of type {} in conditional expression",
-                        if_expr_var.ty
-                    ),
-                    self.get_expr_package_span(if_expr_id),
+        let if_expr_value = self.if_expr_value(if_expr_id, if_expr, maybe_if_expr_var)?;
+        Ok(EvalControlFlow::Continue(if_expr_value))
+    }
+
+    /// Returns the value of the if expression, either as a static value if it can be determined at compile time,
+    /// or as a dynamic value, or as a unit value if no else branch exists.
+    fn if_expr_value(
+        &mut self,
+        if_expr_id: ExprId,
+        if_expr: &Expr,
+        maybe_if_expr_var: Option<rir::Variable>,
+    ) -> Result<Value, Error> {
+        Ok(if let Some(if_expr_var) = maybe_if_expr_var {
+            if let Some(literal) = self.safe_static_value(if_expr_var.variable_id)
+                && let Some(value) = map_rir_literal_to_eval_value(
+                    literal,
+                    map_rir_type_to_eval_var_type(if_expr_var.ty).map_err(|()| {
+                        Error::Unexpected(
+                            format!(
+                                "dynamic value of type {} in conditional expression",
+                                if_expr_var.ty
+                            ),
+                            self.get_expr_package_span(if_expr_id),
+                        )
+                    })?,
                 )
-            })?)
+            {
+                value
+            } else {
+                Value::Var(map_rir_var_to_eval_var(if_expr_var).map_err(|()| {
+                    Error::Unexpected(
+                        format!(
+                            "dynamic value of type {} in conditional expression",
+                            if_expr_var.ty
+                        ),
+                        self.get_expr_package_span(if_expr_id),
+                    )
+                })?)
+            }
         } else if matches!(if_expr.ty, Ty::Prim(Prim::String)) {
             // Dynamic strings are treated as the empty string for the purpose of partial evaluation since RCA prevents
             // any dynamic string from affecting control flow.
             Value::String("".into())
         } else {
             Value::unit()
-        };
-        Ok(EvalControlFlow::Continue(if_expr_value))
+        })
     }
 
     fn eval_expr_if_branch(
