@@ -2010,6 +2010,140 @@ fn evaluation_order_array_construction_and_update_operands_follow_source_order()
     }
 }
 
+const DISCARDED_IF_WITH_LOOP_SOURCE: &str = r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+        operation Main() : (Int, Int) { (F(true), F(false)) }
+    "#;
+
+#[test]
+fn discarded_if_with_loop_preserves_early_return_and_fallthrough_outputs() {
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(DISCARDED_IF_WITH_LOOP_SOURCE, profile.into());
+        let records: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(records.len(), 2, "{profile:?}: {qir}");
+        assert!(records[0].contains("i64 1,"), "{profile:?}: {qir}");
+        assert!(records[1].contains("i64 7,"), "{profile:?}: {qir}");
+    }
+}
+
+#[test]
+fn base_rejects_int_output_after_discarded_if_lowering() {
+    let errors = compile_source_to_qir_result(DISCARDED_IF_WITH_LOOP_SOURCE, Profile::Base.into())
+        .expect_err("Base must reject integer outputs without panicking");
+    let diagnostics = format_interpret_errors(errors);
+    assert!(
+        diagnostics.contains("Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"),
+        "{diagnostics}"
+    );
+}
+
+#[test]
+fn discarded_if_without_loop_preserves_fallthrough_output() {
+    let source = r#"
+        operation Main() : Int {
+            if false { return 1; }
+            if true { 5 } else { 6 }
+            7
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 7);
+    }
+}
+
+#[test]
+fn return_inside_discarded_if_loop_reaches_output() {
+    let source = r#"
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn first_return_bearing_tail_if_records_fallthrough_value() {
+    let source = r#"
+        operation Main() : Int {
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 5);
+    }
+}
+
+#[test]
+fn measurement_selected_early_return_with_discarded_if_matches_semicolon_qir() {
+    assert_measurement_selected_discarded_if_matches_semicolon_qir(true);
+}
+
+#[test]
+fn measurement_selected_fallthrough_with_discarded_if_matches_semicolon_qir() {
+    assert_measurement_selected_discarded_if_matches_semicolon_qir(false);
+}
+
+fn assert_measurement_selected_discarded_if_matches_semicolon_qir(prepare_flag: bool) {
+    let preparation = if prepare_flag { "X(flag);" } else { "" };
+    let source = |terminator: &str| {
+        format!(
+            r#"
+            operation F(c : Bool, target : Qubit) : Int {{
+                if c {{ return 1; }}
+                if true {{ X(target); 5 }} else {{ 6 }}{terminator}
+                7
+            }}
+            operation Main() : (Int, Result) {{
+                use flag = Qubit();
+                use target = Qubit();
+                {preparation}
+                let value = F(MResetZ(flag) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        )
+    };
+    let capabilities = Profile::Adaptive.into();
+    let actual = compile_source_to_qir(&source(""), capabilities);
+    let expected = compile_source_to_qir(&source(";"), capabilities);
+    assert_eq!(actual, expected);
+}
+
 #[test]
 fn early_return_skips_later_loop_conditional() {
     let source = r#"

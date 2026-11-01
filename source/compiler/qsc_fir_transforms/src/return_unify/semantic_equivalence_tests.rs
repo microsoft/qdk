@@ -20,6 +20,183 @@ use qsc_fir::{
 };
 
 #[test]
+fn discarded_if_after_taken_return_skips_its_condition() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true { return 1; }
+            if { fail "condition must not run"; true } {
+                while false { return 9; }
+                5
+            } else { 6 }
+            7
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn discarded_if_after_untaken_return_preserves_fallthrough() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+        "#,
+        Value::Int(7),
+    );
+}
+
+#[test]
+fn return_inside_discarded_if_loop_exits_callable() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn discarded_if_executes_side_effect_once() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            mutable value = 0;
+            if false { return 1; }
+            if true { set value += 2; 5 } else { 6 }
+            value
+        }
+        "#,
+        Value::Int(2),
+    );
+}
+
+#[test]
+fn semicolon_if_after_untaken_return_preserves_fallthrough() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 };
+            7
+        }
+        "#,
+        Value::Int(7),
+    );
+}
+
+#[test]
+fn first_return_bearing_tail_if_preserves_fallthrough_value() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+        "#,
+        Value::Int(5),
+    );
+}
+
+#[test]
+fn measurement_selected_early_return_skips_discarded_if_gate() {
+    check_value(
+        r#"
+        operation F(c : Bool, target : Qubit) : Int {
+            if c { return 1; }
+            if true { X(target); 5 } else { 6 }
+            7
+        }
+        @EntryPoint()
+        operation Main() : (Int, Result) {
+            use flag = Qubit();
+            use target = Qubit();
+            X(flag);
+            let value = F(MResetZ(flag) == One, target);
+            (value, MResetZ(target))
+        }
+        "#,
+        Value::Tuple(
+            vec![
+                Value::Int(1),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measurement_selected_fallthrough_executes_discarded_if_gate_once() {
+    check_value(
+        r#"
+        operation F(c : Bool, target : Qubit) : Int {
+            if c { return 1; }
+            if true { X(target); 5 } else { 6 }
+            7
+        }
+        @EntryPoint()
+        operation Main() : (Int, Result) {
+            use flag = Qubit();
+            use target = Qubit();
+            let value = F(MResetZ(flag) == One, target);
+            (value, MResetZ(target))
+        }
+        "#,
+        Value::Tuple(
+            vec![
+                Value::Int(7),
+                Value::Result(qsc_eval::val::Result::Val(true)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
 fn early_return_skips_later_loop_conditional() {
     for (early, branch, expected) in [
         (true, true, 1),

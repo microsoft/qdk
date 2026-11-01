@@ -320,6 +320,7 @@ pub(super) struct FlagContext<'a> {
 /// if not __has_returned { bar(); }
 /// if not __has_returned { baz() } else { __return_slot }
 /// ```
+#[allow(clippy::too_many_lines)]
 fn transform_block_stmts_with_flags(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -346,6 +347,14 @@ fn transform_block_stmts_with_flags(
         let is_final_trailing_expr = output.final_trailing_expr_strategy().is_some()
             && index == original_stmts.len() - 1
             && matches!(package.get_stmt(stmt_id).kind, StmtKind::Expr(_));
+
+        // Ignored expression values are discarded even without a source semicolon.
+        if !is_final_trailing_expr
+            && let StmtKind::Expr(expr_id) = package.get_stmt(stmt_id).kind
+            && package.get_expr(expr_id).ty != Ty::UNIT
+        {
+            package.stmts.get_mut(stmt_id).expect("stmt not found").kind = StmtKind::Semi(expr_id);
+        }
 
         // We are already past an early return, and the rest of the block can't
         // be guarded one statement at a time (e.g. a later binding is needed by
