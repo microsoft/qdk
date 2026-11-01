@@ -425,6 +425,7 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Closure(_)
         | Value::Double(_)
         | Value::Global(..)
+        | Value::GlobalWithArgs(..)
         | Value::Int(_)
         | Value::Pauli(_)
         | Value::Qubit(_)

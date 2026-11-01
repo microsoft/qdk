@@ -26,7 +26,8 @@ impl FunctionEvaluator {
     pub(crate) fn new(function_val: Value) -> Result<Self, String> {
         let package = match &function_val {
             Value::Closure(closure) => closure.id.package,
-            Value::Global(id, _, _) => id.package,
+            Value::Global(id, _) => id.package,
+            Value::GlobalWithArgs(global) => global.id.package,
             _ => return Err("classical arithmetic function must be callable".to_string()),
         };
 

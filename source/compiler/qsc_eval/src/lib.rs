@@ -1084,7 +1084,7 @@ impl State {
                     }
                     ExprKind::Var(Res::Item(item), args) => {
                         let id = StoreItemId::from((item.package, item.item));
-                        self.set_val_register(Value::Global(
+                        self.set_val_register(Value::global_with_args(
                             id,
                             FunctorApp::default(),
                             TypeArgs::bind(id, args.clone(), self.type_args.clone()),
@@ -1363,7 +1363,10 @@ impl State {
                 Some(inner.fixed_args),
                 inner.type_args,
             ),
-            Value::Global(id, functor, type_args) => (id, functor, None, type_args),
+            Value::Global(id, functor) => (id, functor, None, TypeArgs::Empty),
+            Value::GlobalWithArgs(global) => {
+                (global.id, global.functor, None, global.type_args.clone())
+            }
             _ => panic!("value is not callable"),
         };
 
@@ -1767,11 +1770,14 @@ impl State {
                         .into(),
                     ));
                 }
-                Value::Global(id, app, type_args) => {
-                    self.set_val_register(Value::Global(
-                        id,
-                        update_functor_app(functor, app),
-                        type_args,
+                Value::Global(id, app) => {
+                    self.set_val_register(Value::Global(id, update_functor_app(functor, app)));
+                }
+                Value::GlobalWithArgs(global) => {
+                    self.set_val_register(Value::global_with_args(
+                        global.id,
+                        update_functor_app(functor, global.functor),
+                        global.type_args.clone(),
                     ));
                 }
                 _ => panic!("value should be callable"),
@@ -2006,7 +2012,8 @@ impl State {
     fn counting_call(&mut self, name: &str, arg: Value, span: PackageSpan) -> Result<Value, Error> {
         let counting_key = |arg: Value| match arg {
             Value::Closure(closure) => make_counting_key(closure.id, closure.functor),
-            Value::Global(id, functor, _) => make_counting_key(id, functor),
+            Value::Global(id, functor) => make_counting_key(id, functor),
+            Value::GlobalWithArgs(global) => make_counting_key(global.id, global.functor),
             _ => panic!("value should be callable"),
         };
         match name {
@@ -2229,10 +2236,11 @@ fn merge_fixed_args(fixed_args: Option<Rc<[Value]>>, arg: Value) -> Value {
     }
 }
 
+#[inline]
 fn resolve_binding(env: &Env, res: Res, span: PackageSpan) -> Result<Value, Error> {
     Ok(match res {
         Res::Err => panic!("resolution error"),
-        Res::Item(item) => Value::Global(
+        Res::Item(item) => Value::global_with_args(
             StoreItemId {
                 package: item.package,
                 item: item.item,

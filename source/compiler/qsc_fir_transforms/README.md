@@ -71,6 +71,10 @@ new backend support for recursive results.
 
 Evaluation retains checked type/functor arguments and lexical contexts on callable
 values without changing source identities or choosing different simulation bodies.
+Concrete global values keep the inline representation; globals with retained or
+unbound arguments share a separate instance allocation. Callable metadata therefore
+does not enlarge scalar `Value` slots, and concrete post-monomorphization references
+do not allocate an instance merely to represent empty type bindings.
 Python interop validates instantiated public signatures and context ownership;
 it does not infer generic arguments from Python values.
 

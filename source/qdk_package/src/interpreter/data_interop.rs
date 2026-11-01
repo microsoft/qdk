@@ -612,7 +612,7 @@ pub(crate) fn value_to_pyobj(
             }
             PyList::new(py, array)?.into_py_any(py)
         }
-        Value::Global(..) => {
+        Value::Global(..) | Value::GlobalWithArgs(..) => {
             let callable = GlobalCallable::new(value.clone(), callable_owner);
             callable.into_py_any(py)
         }

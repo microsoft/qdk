@@ -1659,7 +1659,8 @@ impl<'a> PartialEvaluator<'a> {
         // Get the callable.
         let (store_item_id, functor_app, fixed_args) = match callee_control_flow.into_value() {
             Value::Closure(inner) => (inner.id, inner.functor, Some(inner.fixed_args)),
-            Value::Global(id, functor, _) => (id, functor, None),
+            Value::Global(id, functor) => (id, functor, None),
+            Value::GlobalWithArgs(global) => (global.id, global.functor, None),
             _ => panic!("value is not callable"),
         };
         let global = self
@@ -3028,7 +3029,7 @@ impl<'a> PartialEvaluator<'a> {
     fn eval_expr_var(&mut self, res: &Res) -> Value {
         match res {
             Res::Err => panic!("resolution error"),
-            Res::Item(item) => Value::Global(
+            Res::Item(item) => Value::global_with_args(
                 StoreItemId {
                     package: item.package,
                     item: item.item,
@@ -4386,6 +4387,7 @@ impl<'a> PartialEvaluator<'a> {
             Value::BigInt(_)
             | Value::Closure(_)
             | Value::Global(..)
+            | Value::GlobalWithArgs(..)
             | Value::Pauli(_)
             | Value::Qubit(_)
             | Value::Range(_)
@@ -5241,8 +5243,13 @@ fn eval_un_op_with_literals(un_op: UnOp, value: Value) -> Value {
                 }
                 .into(),
             ),
-            Value::Global(id, app, type_args) => {
-                Value::Global(id, update_functor_app(functor, app), type_args)
+            value @ (Value::Global(..) | Value::GlobalWithArgs(..)) => {
+                let global = value.global_instance().expect("global callable");
+                Value::global_with_args(
+                    global.id,
+                    update_functor_app(functor, global.functor),
+                    global.type_args,
+                )
             }
             _ => panic!("value should be callable"),
         },

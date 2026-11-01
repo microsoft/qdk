@@ -184,10 +184,18 @@ fn check_generic_reference_metadata(config: ExecGraphConfig) {
         config,
     )
     .expect("typed generic reference should evaluate");
-    let Value::Global(id, _, crate::callable::TypeArgs::Bound(binding)) = value else {
+    let cloned = value.clone();
+    let Value::GlobalWithArgs(global) = value else {
         panic!("expected an instantiated global");
     };
-    assert_eq!(binding.owner, id);
+    let Value::GlobalWithArgs(cloned) = cloned else {
+        panic!("expected a cloned global");
+    };
+    assert!(std::rc::Rc::ptr_eq(&global, &cloned));
+    let crate::callable::TypeArgs::Bound(binding) = &global.type_args else {
+        panic!("expected checked bindings");
+    };
+    assert_eq!(binding.owner, global.id);
     assert_eq!(
         binding.args.as_ref(),
         &[qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Prim(

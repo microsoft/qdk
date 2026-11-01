@@ -1250,8 +1250,9 @@ fn extract_callable_value(py: Python, callable: &Py<PyAny>, owner: &Rc<()>) -> P
     // use signature compatibility instead and can retain their functor applications.
     match &callable_val {
         Value::Closure(closure) if closure.functor == FunctorApp::default() => {}
-        Value::Global(_, functor, _) if *functor == FunctorApp::default() => {}
-        Value::Closure(_) | Value::Global(..) => {
+        Value::Global(_, functor) if *functor == FunctorApp::default() => {}
+        Value::GlobalWithArgs(global) if global.functor == FunctorApp::default() => {}
+        Value::Closure(_) | Value::Global(..) | Value::GlobalWithArgs(..) => {
             return Err(QSharpError::new_err(
                 "callable must have no applied functors (`Adjoint` or `Controlled`)",
             ));
@@ -1684,7 +1685,9 @@ struct GlobalCallable(Value, Rc<()>);
 impl GlobalCallable {
     fn new(val: Value, owner: &Rc<()>) -> Self {
         match val {
-            val @ Value::Global(..) => GlobalCallable(val, Rc::clone(owner)),
+            val @ (Value::Global(..) | Value::GlobalWithArgs(..)) => {
+                GlobalCallable(val, Rc::clone(owner))
+            }
             _ => panic!("expected global callable"),
         }
     }

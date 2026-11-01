@@ -20,6 +20,29 @@ fn owner(item: usize) -> StoreItemId {
 
 #[test]
 fn checked_empty_instantiation_is_not_an_unbound_declaration() {
+    #[cfg(target_pointer_width = "64")]
+    assert!(
+        std::mem::size_of::<crate::val::Value>() <= 32,
+        "callable metadata must not enlarge every scalar value"
+    );
+    let concrete = crate::val::Value::global_with_args(
+        owner(0),
+        qsc_data_structures::functors::FunctorApp::default(),
+        TypeArgs::Empty,
+    );
+    assert!(matches!(concrete, crate::val::Value::Global(..)));
+    let unbound = crate::val::Value::global(
+        owner(0),
+        qsc_data_structures::functors::FunctorApp::default(),
+    );
+    assert!(matches!(unbound, crate::val::Value::GlobalWithArgs(..)));
+    assert_eq!(
+        unbound
+            .global_instance()
+            .expect("global declaration")
+            .type_args,
+        TypeArgs::Unbound
+    );
     assert_ne!(
         TypeArgs::bind(owner(0), Vec::new(), TypeArgs::Unbound),
         TypeArgs::Unbound

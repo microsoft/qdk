@@ -231,11 +231,14 @@ pub mod qir {
         /// Panics if a referenced target does not identify a callable in the FIR store.
         fn instantiate_value(&mut self, value: &Value) -> Result<Value, Vec<Error>> {
             Ok(match value {
-                Value::Global(id, functor, args) => Value::Global(
-                    self.instantiate_target(*id, args)?,
-                    *functor,
-                    TypeArgs::Empty,
-                ),
+                Value::Global(..) | Value::GlobalWithArgs(..) => {
+                    let global = value.global_instance().expect("global callable");
+                    Value::global_with_args(
+                        self.instantiate_target(global.id, &global.type_args)?,
+                        global.functor,
+                        TypeArgs::Empty,
+                    )
+                }
                 Value::Closure(closure) => {
                     let id = self.instantiate_target(closure.id, &closure.type_args)?;
                     let fixed_args = closure
@@ -1370,8 +1373,15 @@ pub mod qir {
                     qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Range),
                 )
             }
-            Value::Global(id, functor, _) => {
-                return lower_global_to_expr(package, assigner, *id, *functor, callable_types);
+            Value::Global(..) | Value::GlobalWithArgs(..) => {
+                let global = value.global_instance().expect("global callable");
+                return lower_global_to_expr(
+                    package,
+                    assigner,
+                    global.id,
+                    global.functor,
+                    callable_types,
+                );
             }
             Value::Closure(c) => {
                 return lower_closure_to_expr(package, assigner, c, callable_types, pending_stmts);
@@ -1730,9 +1740,10 @@ pub mod qir {
                     .iter()
                     .for_each(|value| collect_concrete_qsharp_callables(value, callables));
             }
-            Value::Global(store_item_id, _, _) => {
-                if !callables.contains(store_item_id) {
-                    callables.insert(*store_item_id);
+            Value::Global(..) | Value::GlobalWithArgs(..) => {
+                let global = value.global_instance().expect("global callable");
+                if !callables.contains(&global.id) {
+                    callables.insert(global.id);
                 }
             }
             Value::Tuple(values, _) => values
@@ -2022,7 +2033,8 @@ pub mod qir {
             | Value::String(_)
             | Value::Range(_)
             | Value::Result(qsc_eval::val::Result::Val(_))
-            | Value::Global(..) => true,
+            | Value::Global(..)
+            | Value::GlobalWithArgs(..) => true,
             Value::Tuple(vs, _) => vs
                 .iter()
                 .all(|value| value_is_fir_lowerable(value, package)),

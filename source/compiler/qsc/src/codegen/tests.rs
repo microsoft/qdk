@@ -5071,7 +5071,7 @@ fn check_runtime_controlled_generic_callable(
                 &format!("{{ let f : {input} => Unit is Adj + Ctl = {functor} Generic; f }}"),
             );
             assert!(
-                matches!(argument, Value::Global(..)),
+                matches!(argument, Value::Global(..) | Value::GlobalWithArgs(..)),
                 "{context}: must exercise a runtime generic global"
             );
             let mut output = Cursor::new(Vec::new());
@@ -5784,7 +5784,7 @@ fn check_runtime_functor_generic_callable(
             &format!("{{ let f : {input} => Unit {bound} = {functor} ApplyOp; f }}"),
         );
         assert!(
-            matches!(argument, Value::Global(..)),
+            matches!(argument, Value::Global(..) | Value::GlobalWithArgs(..)),
             "{context}: must exercise a runtime generic global"
         );
         let mut output = Cursor::new(Vec::new());

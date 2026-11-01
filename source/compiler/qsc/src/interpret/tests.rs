@@ -132,7 +132,9 @@ mod given_interpreter {
             let mut interpreter = get_interpreter();
             let (result, _) = line(
                 &mut interpreter,
-                "function Save<'T>(unused : 'T) : Unit -> Int {
+                "function Bounce(read : Unit -> Int) : Int { read() }
+                function Save<'T>(unused : 'T) : Unit -> Int {
+                    let _ = Bounce(() -> 0);
                     () -> { let values : 'T[] = []; 42 }
                 }
                 Save(1)",

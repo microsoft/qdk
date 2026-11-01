@@ -691,8 +691,13 @@ impl Interpreter {
         value: &Value,
     ) -> std::result::Result<Option<ty::Arrow>, qsc_eval::callable::TypeArgsError> {
         let (item_id, functor, is_closure, type_args) = match value {
-            Value::Global(item_id, functor, type_args) => (*item_id, *functor, false, type_args),
-            Value::Closure(closure) => (closure.id, closure.functor, true, &closure.type_args),
+            Value::Global(..) | Value::GlobalWithArgs(..) => {
+                let global = value.global_instance().expect("global callable");
+                (global.id, global.functor, false, global.type_args)
+            }
+            Value::Closure(closure) => {
+                (closure.id, closure.functor, true, closure.type_args.clone())
+            }
             _ => panic!("value is not a callable"),
         };
 
@@ -739,9 +744,9 @@ impl Interpreter {
         };
         if matches!(type_args, qsc_eval::callable::TypeArgs::Bound(_)) {
             *arrow.input.get_mut() =
-                self.instantiate_callable_ty(arrow.input.get_mut(), type_args)?;
+                self.instantiate_callable_ty(arrow.input.get_mut(), &type_args)?;
             *arrow.output.get_mut() =
-                self.instantiate_callable_ty(arrow.output.get_mut(), type_args)?;
+                self.instantiate_callable_ty(arrow.output.get_mut(), &type_args)?;
         }
         for _ in 0..functor.controlled {
             let input = arrow.input.get_mut();
@@ -1410,21 +1415,20 @@ impl Interpreter {
     ///
     /// # Errors
     ///
-    /// Returns `Error::NotACallable` if the value is not a `Value::Global`.
+    /// Returns `Error::NotACallable` if the value is not a global callable.
     fn hir_item_id_from_value(
         callable: &Value,
-    ) -> std::result::Result<(qsc_hir::hir::ItemId, &qsc_eval::callable::TypeArgs), Vec<Error>>
-    {
-        let Value::Global(store_item_id, _, type_args) = callable else {
+    ) -> std::result::Result<(qsc_hir::hir::ItemId, qsc_eval::callable::TypeArgs), Vec<Error>> {
+        let Some(global) = callable.global_instance() else {
             return Err(vec![Error::NotACallable]);
         };
 
         Ok((
             qsc_hir::hir::ItemId {
-                package: map_fir_package_to_hir(store_item_id.package),
-                item: map_fir_local_item_to_hir(store_item_id.item),
+                package: map_fir_package_to_hir(global.id.package),
+                item: map_fir_local_item_to_hir(global.id.item),
             },
-            type_args,
+            global.type_args,
         ))
     }
 
@@ -1468,11 +1472,14 @@ impl Interpreter {
                 functor: inner.functor,
                 type_args: inner.type_args,
             })),
-            Value::Global(store_item_id, functor_app, type_args) => Value::Global(
-                Self::remap_store_item_id_for_codegen(store_item_id),
-                functor_app,
-                type_args,
-            ),
+            value @ (Value::Global(..) | Value::GlobalWithArgs(..)) => {
+                let global = value.global_instance().expect("global callable");
+                Value::global_with_args(
+                    Self::remap_store_item_id_for_codegen(global.id),
+                    global.functor,
+                    global.type_args,
+                )
+            }
             Value::Tuple(values, store_item_id) => Value::Tuple(
                 values
                     .iter()
@@ -1573,7 +1580,7 @@ impl Interpreter {
         let (prepared_fir, backend) = prepare_codegen_fir_from_typed_callable_args(
             self.compiler.package_store(),
             callable_id,
-            type_args,
+            &type_args,
             &backend_args,
             self.capabilities,
         )?;
@@ -1738,7 +1745,7 @@ impl Interpreter {
         let (prepared_fir, backend) = prepare_codegen_fir_from_typed_callable_args(
             self.compiler.package_store(),
             callable_id,
-            type_args,
+            &type_args,
             &backend_args,
             self.capabilities,
         )?;
@@ -2090,7 +2097,8 @@ impl Interpreter {
         let mut out = GenericReceiver::new(&mut sink);
         let (store_item_id, functor_app) = match self.eval_fragments(&mut out, operation_expr)? {
             Value::Closure(b) => (b.id, b.functor),
-            Value::Global(item_id, functor_app, _) => (item_id, functor_app),
+            Value::Global(id, functor) => (id, functor),
+            Value::GlobalWithArgs(global) => (global.id, global.functor),
             _ => return Err(vec![Error::NotAnOperation]),
         };
         let package = map_fir_package_to_hir(store_item_id.package);

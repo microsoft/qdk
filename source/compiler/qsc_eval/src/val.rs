@@ -15,7 +15,7 @@ use crate::{AsIndex, Error, PackageSpan, Range as EvalRange};
 pub const DEFAULT_RANGE_STEP: i64 = 1;
 
 /// An interpreter value. Cloning preserves callable identities and type evidence;
-/// reference-counted arrays, tuples, and closure capture buffers remain shared.
+/// reference-counted arrays, tuples, global instances, and closure capture buffers remain shared.
 /// Cloning does not validate signatures or create codegen specializations.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -24,8 +24,10 @@ pub enum Value {
     Bool(bool),
     Closure(Box<Closure>),
     Double(f64),
-    /// Callable identity, applied functors, and checked arguments or an unbound declaration.
-    Global(StoreItemId, FunctorApp, crate::callable::TypeArgs),
+    /// A concrete callable with no remaining type bindings.
+    Global(StoreItemId, FunctorApp),
+    /// A callable carrying retained bindings or an uninstantiated declaration.
+    GlobalWithArgs(Rc<Global>),
     Int(i64),
     Pauli(Pauli),
     Qubit(QubitRef),
@@ -34,6 +36,15 @@ pub enum Value {
     String(Rc<str>),
     Tuple(Rc<[Value]>, Option<Rc<StoreItemId>>),
     Var(Var),
+}
+
+/// A global callable instance. Keeping its metadata outside `Value` avoids
+/// increasing the storage required by every primitive and aggregate element.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Global {
+    pub id: StoreItemId,
+    pub functor: FunctorApp,
+    pub type_args: crate::callable::TypeArgs,
 }
 
 /// A callable with fixed arguments and the lexical type context from its creation.
@@ -189,8 +200,12 @@ impl Display for Value {
                     write!(f, "{v}")
                 }
             }
-            Value::Global(id, functor, _) if functor == &FunctorApp::default() => id.fmt(f),
-            Value::Global(id, functor, _) => write!(f, "{functor} {id}"),
+            Value::Global(id, functor) if *functor == FunctorApp::default() => id.fmt(f),
+            Value::Global(id, functor) => write!(f, "{functor} {id}"),
+            Value::GlobalWithArgs(global) if global.functor == FunctorApp::default() => {
+                global.id.fmt(f)
+            }
+            Value::GlobalWithArgs(global) => write!(f, "{} {}", global.functor, global.id),
             Value::Int(v) => write!(f, "{v}"),
             Value::Pauli(v) => match v {
                 Pauli::I => write!(f, "PauliI"),
@@ -362,19 +377,53 @@ impl Value {
 
     /// Convert the [Value] into a global tuple
     /// # Panics
-    /// This will panic if the [Value] is not a [`Value::Global`].
+    /// Panics if the value is not a global callable.
     #[must_use]
     pub fn unwrap_global(self) -> (StoreItemId, FunctorApp) {
-        let Value::Global(id, functor, _) = self else {
+        let Some(global) = self.global_instance() else {
             panic!("value should be Global, got {}", self.type_name());
         };
-        (id, functor)
+        (global.id, global.functor)
     }
 
     /// References a declaration without claiming a checked instantiation.
     #[must_use]
     pub fn global(id: StoreItemId, functor: FunctorApp) -> Self {
-        Self::Global(id, functor, crate::callable::TypeArgs::Unbound)
+        Self::global_with_args(id, functor, crate::callable::TypeArgs::Unbound)
+    }
+
+    /// References a callable with its retained checked instantiation.
+    #[must_use]
+    #[inline]
+    pub fn global_with_args(
+        id: StoreItemId,
+        functor: FunctorApp,
+        type_args: crate::callable::TypeArgs,
+    ) -> Self {
+        if matches!(type_args, crate::callable::TypeArgs::Empty) {
+            Self::Global(id, functor)
+        } else {
+            Self::GlobalWithArgs(Rc::new(Global {
+                id,
+                functor,
+                type_args,
+            }))
+        }
+    }
+
+    /// Gets a uniform view of a global's identity, functors, and type evidence.
+    /// Concrete globals stay inline; cloning retained evidence only shares its bindings.
+    #[must_use]
+    pub fn global_instance(&self) -> Option<Global> {
+        match self {
+            Self::Global(id, functor) => Some(Global {
+                id: *id,
+                functor: *functor,
+                type_args: crate::callable::TypeArgs::Empty,
+            }),
+            Self::GlobalWithArgs(global) => Some(global.as_ref().clone()),
+            _ => None,
+        }
     }
 
     /// Convert the [Value] into an integer
@@ -462,7 +511,7 @@ impl Value {
             Value::Bool(_) => "Bool",
             Value::Closure(..) => "Closure",
             Value::Double(_) => "Double",
-            Value::Global(..) => "Global",
+            Value::Global(..) | Value::GlobalWithArgs(..) => "Global",
             Value::Int(_) => "Int",
             Value::Pauli(_) => "Pauli",
             Value::Qubit(_) => "Qubit",
@@ -489,6 +538,7 @@ impl Value {
             | Value::Bool(_)
             | Value::Double(_)
             | Value::Global(..)
+            | Value::GlobalWithArgs(..)
             | Value::Int(_)
             | Value::Pauli(_)
             | Value::Range(_)
