@@ -221,13 +221,19 @@ impl Scope {
         self.static_vars = static_vars;
     }
 
-    /// Keeps only the static literal value mappings that are also present in the provided other mapping.
+    /// Keeps only identical static literal values present in both mappings.
     pub fn keep_matching_static_var_mappings(
         &mut self,
         other_mappings: &FxHashMap<VariableId, Literal>,
     ) {
+        // Literal's approximate Double equality is not safe for constant propagation.
         self.static_vars
-            .retain(|var_id, lit| Some(&*lit) == other_mappings.get(var_id));
+            .retain(|var_id, lit| match (&*lit, other_mappings.get(var_id)) {
+                (Literal::Double(left), Some(Literal::Double(right))) => {
+                    left.to_bits() == right.to_bits()
+                }
+                (left, right) => Some(left) == right,
+            });
     }
 
     /// Gets the value of a hybrid local variable.

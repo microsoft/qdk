@@ -2125,6 +2125,228 @@ fn emitting_classical_for_loop_propagates_variables_properly() {
 }
 
 #[test]
+fn zero_iteration_exit_reads_condition_value_when_body_restores_initial_value() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int {
+            use q = Qubit();
+            mutable x = 0;
+            while ({ set x = 1; MResetZ(q) == One }) {
+                set x = 0;
+            }
+            x
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Jump(1)
+            Block 1:Block:
+                Variable(0, Integer) = Store Integer(1)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 2
+            Block 2:Block:
+                Variable(3, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(3, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Variable(0, Integer) = Store Integer(0)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn zero_iteration_exit_reads_condition_value_when_body_writes_another_value() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int {
+            use q = Qubit();
+            mutable x = 0;
+            while ({ set x = 1; MResetZ(q) == One }) {
+                set x = 2;
+            }
+            x
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Jump(1)
+            Block 1:Block:
+                Variable(0, Integer) = Store Integer(1)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 2
+            Block 2:Block:
+                Variable(3, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(3, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Variable(0, Integer) = Store Integer(2)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn empty_loop_body_preserves_condition_constant_at_exit() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int {
+            use q = Qubit();
+            mutable x = 0;
+            while ({ set x = 1; MResetZ(q) == One }) {}
+            x
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Jump(1)
+            Block 1:Block:
+                Variable(0, Integer) = Store Integer(1)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 2
+            Block 2:Block:
+                Call id(4), args( Integer(1), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn zero_iteration_exit_does_not_fold_to_body_final_value() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int {
+            use q = Qubit();
+            mutable x = 0;
+            while ({ set x = 1; MResetZ(q) == One }) {
+                set x = 3;
+                set x = 0;
+            }
+            x
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Jump(1)
+            Block 1:Block:
+                Variable(0, Integer) = Store Integer(1)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 2
+            Block 2:Block:
+                Variable(3, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(3, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Variable(0, Integer) = Store Integer(3)
+                Variable(0, Integer) = Store Integer(0)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn zero_iteration_exit_does_not_merge_near_equal_double_values() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Bool {
+            use q = Qubit();
+            mutable x = 1.0;
+            while ({ set x = 0.00000000000000001; MResetZ(q) == One }) {
+                set x = 0.0;
+            }
+            x == 0.0
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Double) = Store Double(1)
+                Jump(1)
+            Block 1:Block:
+                Variable(0, Double) = Store Double(0.00000000000000001)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 2
+            Block 2:Block:
+                Variable(3, Double) = Store Variable(0, Double)
+                Variable(4, Boolean) = Fcmp Oeq, Variable(3, Double), Double(0)
+                Variable(5, Boolean) = Store Variable(4, Boolean)
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Variable(0, Double) = Store Double(0)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn zero_iteration_exit_preserves_condition_assigned_signed_zero() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Double {
+            use q = Qubit();
+            mutable x = 1.0;
+            while ({ set x = -0.0; MResetZ(q) == One }) {
+                set x = 0.0;
+            }
+            x
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Double) = Store Double(1)
+                Jump(1)
+            Block 1:Block:
+                Variable(0, Double) = Store Double(-0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 2
+            Block 2:Block:
+                Variable(3, Double) = Store Variable(0, Double)
+                Call id(4), args( Variable(3, Double), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Variable(0, Double) = Store Double(0)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
 fn emitting_loop_avoids_propagating_static_variable_mappings_from_body() {
     let program = get_rir_program_with_adaptive_profile(indoc! {r#"
         operation Main() : Int {

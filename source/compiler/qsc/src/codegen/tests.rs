@@ -2145,6 +2145,137 @@ fn assert_measurement_selected_discarded_if_matches_semicolon_qir(prepare_flag: 
 }
 
 #[test]
+fn loop_condition_assignment_qir_reads_value_after_one_iteration() {
+    let source = r#"
+        operation Main() : (Int, Int) {
+            use q = Qubit();
+            X(q);
+            mutable x = 0;
+            mutable iterations = 0;
+            while ({ set x = 1; MResetZ(q) == One }) {
+                set x = 0;
+                set iterations += 1;
+            }
+            (x, iterations)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Tuple(vec![Value::Int(1), Value::Int(1)].into(), None),
+    );
+    let qir = interpreter.qirgen("Main()").expect("one-iteration QIR");
+    expect![[r#"
+        block_0:
+          %var_1 = alloca i64
+          %var_2 = alloca i64
+          %var_5 = alloca i64
+          %var_7 = alloca i64
+          %var_8 = alloca i64
+          call void @__quantum__rt__initialize(ptr null)
+          call void @X(ptr inttoptr (i64 0 to ptr))
+          store i64 0, ptr %var_1
+          store i64 0, ptr %var_2
+          br label %block_1
+        block_1:
+          store i64 1, ptr %var_1
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_3 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_3, label %block_2, label %block_3
+        block_2:
+          store i64 0, ptr %var_1
+          %var_19 = load i64, ptr %var_2
+          store i64 %var_19, ptr %var_5
+          %var_21 = load i64, ptr %var_5
+          %var_6 = add i64 %var_21, 1
+          store i64 %var_6, ptr %var_2
+          br label %block_1
+        block_3:
+          %var_12 = load i64, ptr %var_1
+          store i64 %var_12, ptr %var_7
+          %var_14 = load i64, ptr %var_2
+          store i64 %var_14, ptr %var_8
+          call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
+          %var_16 = load i64, ptr %var_7
+          call void @__quantum__rt__int_record_output(i64 %var_16, ptr @1)
+          %var_17 = load i64, ptr %var_8
+          call void @__quantum__rt__int_record_output(i64 %var_17, ptr @2)
+          ret i64 0"#]].assert_eq(qir_entry_body(&qir));
+}
+
+#[test]
+fn loop_condition_assignment_qir_reads_value_after_two_iterations() {
+    let source = r#"
+        operation Main() : (Int, Int) {
+            use q = Qubit();
+            X(q);
+            mutable x = 0;
+            mutable iterations = 0;
+            while ({ set x = 1; MResetZ(q) == One }) {
+                set x = 0;
+                set iterations += 1;
+                if iterations < 2 { X(q); }
+            }
+            (x, iterations)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Tuple(vec![Value::Int(1), Value::Int(2)].into(), None),
+    );
+    let qir = interpreter.qirgen("Main()").expect("two-iteration QIR");
+    expect![[r#"
+        block_0:
+          %var_1 = alloca i64
+          %var_2 = alloca i64
+          %var_5 = alloca i64
+          %var_7 = alloca i64
+          %var_9 = alloca i64
+          %var_10 = alloca i64
+          call void @__quantum__rt__initialize(ptr null)
+          call void @X(ptr inttoptr (i64 0 to ptr))
+          store i64 0, ptr %var_1
+          store i64 0, ptr %var_2
+          br label %block_1
+        block_1:
+          store i64 1, ptr %var_1
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_3 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_3, label %block_2, label %block_3
+        block_2:
+          store i64 0, ptr %var_1
+          %var_21 = load i64, ptr %var_2
+          store i64 %var_21, ptr %var_5
+          %var_23 = load i64, ptr %var_5
+          %var_6 = add i64 %var_23, 1
+          store i64 %var_6, ptr %var_2
+          %var_25 = load i64, ptr %var_2
+          store i64 %var_25, ptr %var_7
+          %var_27 = load i64, ptr %var_7
+          %var_8 = icmp slt i64 %var_27, 2
+          br i1 %var_8, label %block_4, label %block_5
+        block_3:
+          %var_14 = load i64, ptr %var_1
+          store i64 %var_14, ptr %var_9
+          %var_16 = load i64, ptr %var_2
+          store i64 %var_16, ptr %var_10
+          call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
+          %var_18 = load i64, ptr %var_9
+          call void @__quantum__rt__int_record_output(i64 %var_18, ptr @1)
+          %var_19 = load i64, ptr %var_10
+          call void @__quantum__rt__int_record_output(i64 %var_19, ptr @2)
+          ret i64 0
+        block_4:
+          call void @X(ptr inttoptr (i64 0 to ptr))
+          br label %block_5
+        block_5:
+          br label %block_1"#]].assert_eq(qir_entry_body(&qir));
+}
+
+#[test]
 fn early_return_skips_later_loop_conditional() {
     let source = r#"
         operation Main() : Int {
