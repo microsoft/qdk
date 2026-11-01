@@ -49,11 +49,13 @@ def test_concrete_generic_global_from_factory_with_local_generic_caller() -> Non
     saved = ctx.code.MakeIdentity()
     assert ctx.code.Apply(saved, 7) == 7
     assert ctx.code.UseLocal(saved, 7) == 7
-    assert run_qir(str(ctx.compile(ctx.code.UseLocal, saved, 7)), shots=1, type="cpu") == [7]
+    assert run_qir(
+        str(ctx.compile(ctx.code.UseLocal, saved, 7)), shots=1, type="cpu"
+    ) == [7]
     method = qsharp.CircuitGenerationMethod.Static
-    assert str(ctx.circuit(ctx.code.UseLocal, saved, 7, generation_method=method)) == str(
-        ctx.circuit("UseLocal(MakeIdentity(), 7)", generation_method=method)
-    )
+    assert str(
+        ctx.circuit(ctx.code.UseLocal, saved, 7, generation_method=method)
+    ) == str(ctx.circuit("UseLocal(MakeIdentity(), 7)", generation_method=method))
 
 
 def test_concrete_generic_alias_with_unused_local_generic_caller() -> None:
@@ -67,18 +69,22 @@ def test_concrete_generic_alias_with_unused_local_generic_caller() -> None:
     saved = ctx.eval("{ let read : Int -> Int = Identity; read }")
     assert ctx.code.Apply(saved, 7) == 7
     assert ctx.code.UseLocal(saved, 7) == 7
-    assert run_qir(str(ctx.compile(ctx.code.UseLocal, saved, 7)), shots=1, type="cpu") == [7]
+    assert run_qir(
+        str(ctx.compile(ctx.code.UseLocal, saved, 7)), shots=1, type="cpu"
+    ) == [7]
     method = qsharp.CircuitGenerationMethod.Static
-    assert str(ctx.circuit(ctx.code.UseLocal, saved, 7, generation_method=method)) == str(
-        ctx.circuit("UseLocal(MakeIdentity(), 7)", generation_method=method)
-    )
+    assert str(
+        ctx.circuit(ctx.code.UseLocal, saved, 7, generation_method=method)
+    ) == str(ctx.circuit("UseLocal(MakeIdentity(), 7)", generation_method=method))
 
 
 def test_saved_empty_generic_array_retains_type_evidence() -> None:
     ctx = _generic_callable_context()
     saved = ctx.eval("{ let values : Int[] = []; SaveArray(values) }")
     assert ctx.code.UseArray(saved) == []
-    assert run_qir(str(ctx.compile(ctx.code.UseArray, saved)), shots=1, type="cpu") == [[]]
+    assert run_qir(str(ctx.compile(ctx.code.UseArray, saved)), shots=1, type="cpu") == [
+        []
+    ]
 
 
 def test_saved_body_only_generic_retains_type_evidence() -> None:
@@ -109,7 +115,9 @@ def test_distinct_saved_generic_instantiations_remain_independent() -> None:
     assert ctx.code.Use(integer) == 7
     assert ctx.code.UseBool(boolean) is True
     assert run_qir(str(ctx.compile(ctx.code.Use, integer)), shots=1, type="cpu") == [7]
-    assert run_qir(str(ctx.compile(ctx.code.UseBool, boolean)), shots=1, type="cpu") == [True]
+    assert run_qir(
+        str(ctx.compile(ctx.code.UseBool, boolean)), shots=1, type="cpu"
+    ) == [True]
     with pytest.raises(TypeError, match="incompatible callable type"):
         ctx.code.Use(boolean)
 
@@ -125,6 +133,82 @@ def test_concrete_generic_instance_as_qir_entry_target() -> None:
     saved = ctx.code.MakeIdentity()
     program = ctx.compile(saved, 7)
     assert run_qir(str(program), shots=1, type="cpu") == [7]
+
+
+def test_adaptive_qir_emits_ir_function_for_passed_generic_callable() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval("""
+        operation ApplyGeneric<'T>(op : 'T => Unit, value : 'T) : Unit {
+            op(value);
+        }
+        operation Run(invoke : ((Qubit => Unit), Qubit) => Unit) : Result {
+            use q = Qubit();
+            invoke(X, q);
+            MResetZ(q)
+        }
+    """)
+    # The saved instance carries 'T = Qubit across the Python compilation boundary.
+    saved = ctx.eval(
+        "{ let invoke : ((Qubit => Unit), Qubit) => Unit = ApplyGeneric; invoke }"
+    )
+
+    qir = str(ctx.compile(ctx.code.Run, saved))
+
+    assert_expected_inline(
+        qir,
+        """\
+@0 = internal constant [4 x i8] c"0_r\\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @"ApplyGeneric<Qubit, Empty>{X}"(ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @0)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+
+define internal void @"ApplyGeneric<Qubit, Empty>{X}"(ptr %var_0) {
+block_1:
+  call void @X(ptr %var_0)
+  ret void
+}
+
+define internal void @X(ptr %var_1) {
+block_2:
+  call void @__quantum__qis__x__body(ptr %var_1)
+  ret void
+}
+
+declare void @__quantum__qis__x__body(ptr)
+
+declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
+attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+; module flags
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+!0 = !{i32 1, !"qir_major_version", i32 2}
+!1 = !{i32 7, !"qir_minor_version", i32 1}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}
+!5 = !{i32 5, !"float_computations", !{!"double"}}
+!6 = !{i32 7, !"backwards_branching", i2 3}
+!7 = !{i32 1, !"arrays", i1 true}
+!8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}
+""",
+    )
+    assert run_qir(qir, shots=1, type="cpu") == [qsharp.Result.One]
 
 
 def test_concrete_generic_instance_as_static_circuit_entry_target() -> None:
@@ -230,7 +314,9 @@ def test_callable_argument_signature_compatibility(
                 with pytest.raises(QSharpError, match="unsupported input type: `Param"):
                     invoke()
             else:
-                with pytest.raises(TypeError, match="incompatible callable type: expected .*found"):
+                with pytest.raises(
+                    TypeError, match="incompatible callable type: expected .*found"
+                ):
                     invoke()
 
 
@@ -246,9 +332,17 @@ def test_callable_argument_signature_compatibility(
 @pytest.mark.parametrize(
     "entry_path",
     [
-        "context-run", "context-invoke", "module-run", "module-invoke",
-        "context-compile", "module-compile", "circuit-static", "circuit-simulate",
-        "logical-counts", "estimate", "trace",
+        "context-run",
+        "context-invoke",
+        "module-run",
+        "module-invoke",
+        "context-compile",
+        "module-compile",
+        "circuit-static",
+        "circuit-simulate",
+        "logical-counts",
+        "estimate",
+        "trace",
     ],
 )
 def test_callable_mismatch_is_rejected_before_effects(
@@ -295,7 +389,9 @@ def test_callable_mismatch_is_rejected_before_effects(
         ),
         "logical-counts": lambda: ctx.logical_counts(Probe, Bad),
         "estimate": lambda: qsharp.estimate(Probe, None, Bad),
-        "trace": lambda: trace_from_entry_expr(Probe, use_trace_backend=True, args=(Bad,)),
+        "trace": lambda: trace_from_entry_expr(
+            Probe, use_trace_backend=True, args=(Bad,)
+        ),
     }
     with pytest.raises(TypeError, match="expected .*Int -> Int.*found .*Int -> Double"):
         paths[entry_path]()
@@ -366,16 +462,21 @@ def test_saved_generic_closure_preserves_capture_types(
             qsharp.compile(f"RunPair({first}, {second})"),
             qsharp.compile(RunPair, *saved),
         ]:
-            assert run_qir(str(program), shots=3, type="cpu") == expected, (first, second)
+            assert run_qir(str(program), shots=3, type="cpu") == expected, (
+                first,
+                second,
+            )
 
     missing = qsharp.eval("Missing(1)")
     assert qsharp.run(Run, 3, missing) == [qsharp.Result.Zero] * 3
-    assert run_qir(
-        str(qsharp.compile("Run(Missing(1))")), shots=3, type="cpu"
-    ) == [qsharp.Result.Zero] * 3
-    assert run_qir(
-        str(qsharp.compile(Run, missing)), shots=3, type="cpu"
-    ) == [qsharp.Result.Zero] * 3
+    assert (
+        run_qir(str(qsharp.compile("Run(Missing(1))")), shots=3, type="cpu")
+        == [qsharp.Result.Zero] * 3
+    )
+    assert (
+        run_qir(str(qsharp.compile(Run, missing)), shots=3, type="cpu")
+        == [qsharp.Result.Zero] * 3
+    )
 
 
 @pytest.mark.parametrize(
