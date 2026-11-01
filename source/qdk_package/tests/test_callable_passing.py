@@ -45,6 +45,28 @@ def test_saved_dump_operation_preserves_codegen_noop_behavior(
     assert "diagnostic callback executed" not in capsys.readouterr().out
 
 
+def test_run_checks_noise_before_callable_arguments(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    ctx = qdk.Context()
+    ctx.eval("""
+        function Bad(n : Int) : Double { 0.5 }
+        operation Use(read : Int -> Int) : Int {
+            Message("target executed");
+            read(1)
+        }
+    """)
+
+    with pytest.raises(
+        Exception, match=r"^Incorrect Pauli noise probabilities\.$"
+    ) as error:
+        ctx.run(ctx.code.Use, 1, ctx.code.Bad, noise=(1.0, 1.0, 1.0))
+    assert type(error.value) is Exception
+    with pytest.raises(TypeError, match="incompatible callable type"):
+        ctx.run(ctx.code.Use, 1, ctx.code.Bad, noise=(0.0, 0.0, 0.0))
+    assert capsys.readouterr().out == ""
+
+
 def _generic_callable_context() -> qdk.Context:
     ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
     ctx.eval("""

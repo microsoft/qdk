@@ -261,6 +261,16 @@ def test_cross_context_callable_as_argument_raises() -> None:
         context_b.code.InvokeWithFive(context_a.code.AddOne)
 
 
+def test_run_checks_callable_context_before_noise() -> None:
+    left = qdk.Context()
+    right = qdk.Context()
+    left.eval("operation Read() : Int { 7 }")
+    saved = left.eval("Read")
+
+    with pytest.raises(QSharpError, match="different Context"):
+        right.run(saved, 1, noise=(1.0, 1.0, 1.0))
+
+
 @pytest.mark.parametrize(
     "entry_path", ["argument", "target-run", "target-compile", "target-circuit"]
 )

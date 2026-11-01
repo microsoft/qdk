@@ -833,17 +833,11 @@ impl Interpreter {
 
         let result = match callable_val {
             Some(callable) => {
-                let (input_ty, output_ty) = self
-                    .interpreter
-                    .global_callable_ty(&callable)
-                    .map_err(|error| PyTypeError::new_err(error.to_string()))?
-                    .ok_or(QSharpError::new_err("callable not found"))?;
-                let args = args_to_values(
+                let args = prepare_callable_args(
                     &self.interpreter,
                     py,
+                    &callable,
                     args,
-                    &input_ty,
-                    &output_ty,
                     &self.callable_owner,
                 )?;
 
@@ -886,20 +880,8 @@ impl Interpreter {
     ) -> PyResult<Py<PyAny>> {
         let callable = extract_callable_value(py, &callable, &self.callable_owner)?;
         let mut receiver = OptionalCallbackReceiver { callback, py };
-        let (input_ty, output_ty) = self
-            .interpreter
-            .global_callable_ty(&callable)
-            .map_err(|error| PyTypeError::new_err(error.to_string()))?
-            .ok_or(QSharpError::new_err("callable not found"))?;
-
-        let args = args_to_values(
-            &self.interpreter,
-            py,
-            args,
-            &input_ty,
-            &output_ty,
-            &self.callable_owner,
-        )?;
+        let args =
+            prepare_callable_args(&self.interpreter, py, &callable, args, &self.callable_owner)?;
 
         match self.interpreter.invoke(&mut receiver, callable, args) {
             Ok(value) => value_to_pyobj(&self.interpreter, py, &value, &self.callable_owner),
@@ -925,18 +907,11 @@ impl Interpreter {
                 QSharpError::new_err("either entry_expr or callable must be specified")
             })?;
             let callable = extract_callable_value(py, &callable, &self.callable_owner)?;
-            let (input_ty, output_ty) = self
-                .interpreter
-                .global_callable_ty(&callable)
-                .map_err(|error| PyTypeError::new_err(error.to_string()))?
-                .ok_or(QSharpError::new_err("callable not found"))?;
-
-            let args = args_to_values(
+            let args = prepare_callable_args(
                 &self.interpreter,
                 py,
+                &callable,
                 args,
-                &input_ty,
-                &output_ty,
                 &self.callable_owner,
             )?;
             match self.interpreter.qirgen_from_callable(&callable, args) {
@@ -977,17 +952,11 @@ impl Interpreter {
             (None, Some(operation), None) => CircuitEntryPoint::Operation(operation),
             (None, None, Some(callable)) => {
                 let callable = extract_callable_value(py, &callable, &self.callable_owner)?;
-                let (input_ty, output_ty) = self
-                    .interpreter
-                    .global_callable_ty(&callable)
-                    .map_err(|error| PyTypeError::new_err(error.to_string()))?
-                    .ok_or(QSharpError::new_err("callable not found"))?;
-                let args = args_to_values(
+                let args = prepare_callable_args(
                     &self.interpreter,
                     py,
+                    &callable,
                     args,
-                    &input_ty,
-                    &output_ty,
                     &self.callable_owner,
                 )?;
                 CircuitEntryPoint::Callable(callable, args)
@@ -1040,17 +1009,11 @@ impl Interpreter {
                 QSharpError::new_err("either entry_expr or callable must be specified")
             })?;
             let callable = extract_callable_value(py, &callable, &self.callable_owner)?;
-            let (input_ty, output_ty) = self
-                .interpreter
-                .global_callable_ty(&callable)
-                .map_err(|error| PyTypeError::new_err(error.to_string()))?
-                .ok_or(QSharpError::new_err("callable not found"))?;
-            let args = args_to_values(
+            let args = prepare_callable_args(
                 &self.interpreter,
                 py,
+                &callable,
                 args,
-                &input_ty,
-                &output_ty,
                 &self.callable_owner,
             )?;
             estimate_call(&mut self.interpreter, callable, args, job_params)
@@ -1096,17 +1059,11 @@ impl Interpreter {
                 QSharpError::new_err("either entry_expr or callable must be specified")
             })?;
             let callable = extract_callable_value(py, &callable, &self.callable_owner)?;
-            let (input_ty, output_ty) = self
-                .interpreter
-                .global_callable_ty(&callable)
-                .map_err(|error| PyTypeError::new_err(error.to_string()))?
-                .ok_or(QSharpError::new_err("callable not found"))?;
-            let args = args_to_values(
+            let args = prepare_callable_args(
                 &self.interpreter,
                 py,
+                &callable,
                 args,
-                &input_ty,
-                &output_ty,
                 &self.callable_owner,
             )?;
             logical_counts_call(&mut self.interpreter, callable, args)
@@ -1171,17 +1128,11 @@ impl Interpreter {
                 QSharpError::new_err("either entry_expr or callable must be specified")
             })?;
             let callable = extract_callable_value(py, &callable, &self.callable_owner)?;
-            let (input_ty, output_ty) = self
-                .interpreter
-                .global_callable_ty(&callable)
-                .map_err(|error| PyTypeError::new_err(error.to_string()))?
-                .ok_or(QSharpError::new_err("callable not found"))?;
-            let args = args_to_values(
+            let args = prepare_callable_args(
                 &self.interpreter,
                 py,
+                &callable,
                 args,
-                &input_ty,
-                &output_ty,
                 &self.callable_owner,
             )?;
             ::qre::trace_call(&mut self.interpreter, callable, args)
@@ -1194,22 +1145,30 @@ impl Interpreter {
     }
 }
 
-fn args_to_values(
+/// Reflects an entry callable and converts its Python arguments.
+/// Callers must first validate the handle with `extract_callable_value`.
+/// Keeping extraction separate lets `run` check ownership before noise settings,
+/// then prepare arguments after those settings have been validated.
+fn prepare_callable_args(
     ctx: &interpret::Interpreter,
     py: Python,
+    callable: &Value,
     args: Option<Py<PyAny>>,
-    input_ty: &Ty,
-    output_ty: &Ty,
     callable_owner: &Rc<()>,
 ) -> PyResult<Value> {
+    let (input_ty, output_ty) = ctx
+        .global_callable_ty(callable)
+        .map_err(|error| PyTypeError::new_err(error.to_string()))?
+        .ok_or(QSharpError::new_err("callable not found"))?;
+
     // If the types are not supported, we can't convert the arguments or return value.
     // Check this before trying to convert the arguments, and return an error if the types are not supported.
-    if let Some(ty) = first_unsupported_interop_ty(ctx, input_ty, false) {
+    if let Some(ty) = first_unsupported_interop_ty(ctx, &input_ty, false) {
         return Err(QSharpError::new_err(format!(
             "unsupported input type: `{ty}`"
         )));
     }
-    if let Some(ty) = first_unsupported_interop_ty(ctx, output_ty, false) {
+    if let Some(ty) = first_unsupported_interop_ty(ctx, &output_ty, false) {
         return Err(QSharpError::new_err(format!(
             "unsupported output type: `{ty}`"
         )));
@@ -1229,7 +1188,7 @@ fn args_to_values(
             )));
         };
         // This conversion will produce errors if the types don't match or can't be converted.
-        Ok(pyobj_to_value(ctx, py, &args, input_ty, callable_owner)?)
+        Ok(pyobj_to_value(ctx, py, &args, &input_ty, callable_owner)?)
     }
 }
 
