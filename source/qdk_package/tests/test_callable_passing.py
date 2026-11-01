@@ -475,19 +475,17 @@ def test_callable_mismatch_is_rejected_before_effects(
     assert capsys.readouterr().out == ""
 
 
-@pytest.mark.parametrize(
-    "target_profile",
-    [
+@pytest.fixture(
+    params=[
         qsharp.TargetProfile.Base,
         qsharp.TargetProfile.Adaptive_RI,
         qsharp.TargetProfile.Adaptive_RIF,
         qsharp.TargetProfile.Adaptive,
     ],
+    ids=["Base", "Adaptive_RI", "Adaptive_RIF", "Adaptive"],
 )
-def test_saved_generic_closure_preserves_capture_types(
-    target_profile: qsharp.TargetProfile,
-) -> None:
-    qsharp.init(target_profile=target_profile)
+def saved_capture_context(request: pytest.FixtureRequest) -> None:
+    qsharp.init(target_profile=request.param)
     qsharp.eval("""
         operation Phase(n : Int, q : Qubit) : Unit is Adj + Ctl {
             for _ in 1..n { S(q); }
@@ -523,26 +521,47 @@ def test_saved_generic_closure_preserves_capture_types(
             first : Qubit => Unit is Adj + Ctl, second : Qubit => Unit is Adj + Ctl
         ) : Result[] { [Run(first), Run(second)] }
     """)
-    from qdk.code import Run, RunPair
 
+
+def _check_saved_capture_pair(first: str, second: str) -> None:
+    from qdk.code import RunPair
+
+    saved = (qsharp.eval(first), qsharp.eval(second))
     expected = [[qsharp.Result.Zero, qsharp.Result.One]] * 3
-    for first, second in [
-        ("SaveInt(Phase, 1)", "SaveInt(Phase, 3)"),
-        ("Save(Phase, 1)", "Save(Phase, 3)"),
-        ("SaveSecond((), Phase, 1)", "SaveSecond((), Phase, 3)"),
-        ("Save(Phase, 1)", "Save(PhaseArray, [3])"),
-        ("Save(PhaseCount, Count(1))", "Save(Phase, 3)"),
+    assert qsharp.run(RunPair, 3, *saved) == expected
+    for program in [
+        qsharp.compile(f"RunPair({first}, {second})"),
+        qsharp.compile(RunPair, *saved),
     ]:
-        saved = (qsharp.eval(first), qsharp.eval(second))
-        assert qsharp.run(RunPair, 3, *saved) == expected, (first, second)
-        for program in [
-            qsharp.compile(f"RunPair({first}, {second})"),
-            qsharp.compile(RunPair, *saved),
-        ]:
-            assert run_qir(str(program), shots=3, type="cpu") == expected, (
-                first,
-                second,
-            )
+        assert run_qir(str(program), shots=3, type="cpu") == expected
+
+
+def test_saved_capture_nongeneric_scalar_values(saved_capture_context: None) -> None:
+    _check_saved_capture_pair("SaveInt(Phase, 1)", "SaveInt(Phase, 3)")
+
+
+def test_saved_capture_generic_scalar_values(saved_capture_context: None) -> None:
+    _check_saved_capture_pair("Save(Phase, 1)", "Save(Phase, 3)")
+
+
+def test_saved_capture_preceding_unused_type_parameter(
+    saved_capture_context: None,
+) -> None:
+    _check_saved_capture_pair("SaveSecond((), Phase, 1)", "SaveSecond((), Phase, 3)")
+
+
+def test_saved_capture_scalar_and_array_types(saved_capture_context: None) -> None:
+    _check_saved_capture_pair("Save(Phase, 1)", "Save(PhaseArray, [3])")
+
+
+def test_saved_capture_nominal_and_scalar_types(saved_capture_context: None) -> None:
+    _check_saved_capture_pair("Save(PhaseCount, Count(1))", "Save(Phase, 3)")
+
+
+def test_saved_capture_body_only_type_with_local_generic(
+    saved_capture_context: None,
+) -> None:
+    from qdk.code import Run
 
     missing = qsharp.eval("Missing(1)")
     assert qsharp.run(Run, 3, missing) == [qsharp.Result.Zero] * 3
