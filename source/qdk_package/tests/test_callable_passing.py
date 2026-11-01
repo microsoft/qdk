@@ -246,12 +246,55 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 
 def test_concrete_generic_instance_as_static_circuit_entry_target() -> None:
-    ctx = _generic_callable_context()
-    saved = ctx.code.MakeIdentity()
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    ctx.eval("""
+        operation Flip<'T>(unused : 'T) : Result {
+            use q = Qubit();
+            X(q);
+            MResetZ(q)
+        }
+    """)
+    saved = ctx.eval("{ let op : Int => Result = Flip; op }")
+
     circuit = ctx.circuit(
         saved, 7, generation_method=qsharp.CircuitGenerationMethod.Static
     )
-    assert circuit is not None
+
+    assert_expected_inline(
+        str(circuit),
+        """q_0    ── X ──── M ──── |0〉 ──
+                 ╘════════════
+""",
+    )
+
+
+def test_saved_body_only_generic_closure_as_static_circuit_argument() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    ctx.eval("""
+        function MakeFlip<'T>(unused : 'T) : Qubit => Unit {
+            q => {
+                let values : 'T[] = [];
+                X(q);
+            }
+        }
+        operation Run(op : Qubit => Unit) : Result {
+            use q = Qubit();
+            op(q);
+            MResetZ(q)
+        }
+    """)
+    saved = ctx.eval("MakeFlip(7)")
+
+    circuit = ctx.circuit(
+        ctx.code.Run, saved, generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+
+    assert_expected_inline(
+        str(circuit),
+        """q_0    ── X ──── M ──── |0〉 ──
+                 ╘════════════
+""",
+    )
 
 
 def _write_entry_project(root: Path, source: str) -> None:
