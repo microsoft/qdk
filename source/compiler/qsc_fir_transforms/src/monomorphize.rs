@@ -602,11 +602,14 @@ fn mono_key(source: StoreItemId, args: &[GenericArg]) -> String {
 /// Functor set arguments use compact identifiers (`Empty`, `Adj`, `Ctl`,
 /// `AdjCtl`) instead of the user-facing display forms. A bounded set of
 /// intrinsic names is exempt because downstream FIR consumers recognize them
-/// by literal name.
+/// by literal name. Runtime specialization can precede simulation-body collapse,
+/// so both intrinsic representations preserve those names.
 fn mono_name(decl: &CallableDecl, args: &[GenericArg]) -> Rc<str> {
     use std::fmt::Write;
-    if matches!(decl.implementation, CallableImpl::Intrinsic)
-        && must_preserve_intrinsic_name(&decl.name.name)
+    if matches!(
+        decl.implementation,
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_)
+    ) && must_preserve_intrinsic_name(&decl.name.name)
     {
         return Rc::clone(&decl.name.name);
     }

@@ -11,6 +11,40 @@ from qdk.simulation import run_qir
 from expecttest import assert_expected_inline
 
 
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_saved_dump_operation_preserves_codegen_noop_behavior(
+    target_profile: qsharp.TargetProfile, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ctx = qdk.Context(target_profile=target_profile)
+    ctx.eval("""
+        operation Use(op : (Int, Qubit[] => Unit) => Unit) : Unit {
+            op(1, qs => {
+                Message("diagnostic callback executed");
+                X(qs[0]);
+            });
+        }
+    """)
+    saved = ctx.eval("Std.Diagnostics.DumpOperation")
+
+    assert ctx.code.Use(saved) is None
+    assert "diagnostic callback executed" in capsys.readouterr().out
+    source_qir = str(ctx.compile("Use(Std.Diagnostics.DumpOperation)"))
+    saved_qir = str(ctx.compile(ctx.code.Use, saved))
+
+    assert saved_qir == source_qir
+    assert "DumpOperation" not in saved_qir
+    assert "__quantum__qis__x__body" not in saved_qir
+    assert run_qir(saved_qir, shots=1, type="cpu") == [()]
+    assert "diagnostic callback executed" not in capsys.readouterr().out
+
+
 def _generic_callable_context() -> qdk.Context:
     ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
     ctx.eval("""

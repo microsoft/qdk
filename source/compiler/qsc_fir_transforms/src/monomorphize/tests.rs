@@ -1714,7 +1714,42 @@ fn mono_generic_dump_operation_preserves_literal_name_after_pipeline_collapse() 
     );
 }
 
-// This is a marker in case we ever need to add tests for intrinsic generics that should not be mangled.
+#[test]
+fn runtime_dump_operation_preserves_literal_name_before_pipeline_collapse() {
+    let (mut store, package) = crate::test_utils::compile_to_fir(
+        "operation Main() : Unit { Std.Diagnostics.DumpOperation(1, qs => H(qs[0])); }",
+    );
+    let source = find_library_callable(&store, package, "DumpOperation");
+    let package = store.get_mut(source.package);
+    assert!(matches!(
+        find_callable(package, "DumpOperation").implementation,
+        CallableImpl::SimulatableIntrinsic(_)
+    ));
+
+    let target = instantiate_runtime_closure(
+        package,
+        source.item,
+        [(
+            ParamId::from(0),
+            GenericArg::Functor(FunctorSet::Value(qsc_fir::ty::FunctorSetValue::Empty)),
+        )],
+        &mut SpecializationBudget::default(),
+    )
+    .expect("runtime specialization should succeed")
+    .expect("checked functor argument");
+
+    let ItemKind::Callable(decl) = &package.get_item(target).kind else {
+        panic!("runtime specialization should be callable");
+    };
+    assert_eq!(decl.name.name.as_ref(), "DumpOperation");
+    assert!(matches!(decl.implementation, CallableImpl::Intrinsic));
+    assert!(matches!(
+        package.get_item(source.item).kind,
+        ItemKind::Callable(ref decl)
+            if matches!(decl.implementation, CallableImpl::SimulatableIntrinsic(_))
+    ));
+}
+
 #[test]
 fn mono_unrelated_generic_intrinsic_still_mangles_name() {
     let source = indoc! {r#"
