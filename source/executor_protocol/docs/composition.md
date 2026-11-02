@@ -143,6 +143,12 @@ Each rule's edges and every test are in
 | at each call                   | a batch's shots against the driver's or the job's; a batch of `InstructionCall`s against the executor's set; a batch's shots against those the executor holds; a closed or failed executor                                                                                                  | `Run` (`Rejected::ShotNotHeld`); `InstructionSet::check_batch`; `Rejected::{ShotNotHeld, Closed, EarlierFailure}` (`executor_fn`, `ExecutorLifecycle`) |
 | at each call                   | within a batch, a tag names one readout of each shot, where an executor reports by tag ([readout tags](replies.md#readout-tags))                                                                                                                                                            | `check_unique_tags` (`Rejected::Instruction`)                                                                                                          |
 
+Placed whole (`.run_on(..)` alone, or after `.shots(..)`), an `executor_fn`
+refuses on its own thread, after `call` accepted the call: a refusal of its
+check, of its `make_state` or for want of room fails the call's reply, and the
+executor refuses every later call ([Where an executor
+runs](executors.md#where-an-executor-runs-run_on)).
+
 ## Conformance checks
 
 The rules that the compiler cannot check are checks in `conformance` (the

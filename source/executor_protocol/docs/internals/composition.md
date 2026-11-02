@@ -723,8 +723,8 @@ state.
 
 Each promise of [Composition](../composition.md), [Planned
 features](../planned.md), [Rejections and retries](../rejections.md) and the API
-docs of `AdapterExecutor` that the sections above do not pin, in each page's
-order, with the tests that pin it.
+docs of `AdapterExecutor` and of `conformance` that the sections above do not
+pin, in each page's order, with the tests that pin it.
 
 From [Composition](../composition.md):
 
@@ -761,3 +761,9 @@ elsewhere:
 | A function that makes the chain's executor returns it by this name                                                                                                       | `a_function_returns_an_adapter_written_by_hand_over_an_executor_for_shr` (`src/tests/compose.rs`) |
 | When the close of the executor the adapter gave panics, as with the first panic of the drops of the states below, the panic reaches the closer once every state is freed | `closing_frees_each_state_below_an_adapter_written_by_hand_then_raises_the_first_drops_panic`     |
 | A later close does not close that executor again                                                                                                                         | `a_close_of_an_adapters_executor_that_panicked_is_not_run_again`                                  |
+
+From the API docs of `conformance`, in `src/tests/conformance.rs`:
+
+| Promise                                                                             | Tests                                                                                                                                                                                     |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Each check panics, naming the rule broken, when the implementation does not keep it | each check's `_catches_` tests, such as `accepts_calls_after_a_refusal_catches_a_failure_at_a_refusal` and `reports_once_catches_totals_reported_twice`, which expect the panic's message |

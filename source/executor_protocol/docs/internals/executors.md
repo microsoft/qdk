@@ -443,6 +443,18 @@ The orders may differ otherwise:
   on one thread, only the calls that reached the executor it places
   (`its_report_counts_only_the_calls_that_reached_the_executor_it_places`,
   `src/tests/placement.rs`).
+- A refusal of the executor's own (its check's, its state closure's, or for
+  want of room) arrives, placed whole, on the executor's thread, after `call`
+  accepted the call: it fails the call's reply, and every later call is refused
+  (`a_call_its_executor_refuses_on_its_thread_fails_its_reply`,
+  `after_a_refusal_on_its_thread_it_refuses_every_later_call`, in
+  `src/tests/placement.rs`, which place an executor with no shot strategy, and
+  refuse for want of room; the check's and the state closure's refusals take
+  the same path, unpinned).
+  With a thread per shot, `call` refuses it, and the executor stays usable
+  (`the_check_refuses_a_call_before_any_state_is_made`,
+  `a_refused_call_leaves_it_usable`, in
+  `src/tests/executor_fn/one_per_shot/placed.rs`).
 
 In parallel, the outcomes of a batch's shots interleave
 (`an_executor_hands_over_each_shots_events_as_they_come`), each shot's in
@@ -664,8 +676,8 @@ shot for the same user seed: each of those has a formula of its own.
 
 Each promise of [Executors](../executors.md), the [Glossary](../glossary.md) and
 the [guide walkthroughs](../guides.md) of a simulator and of an existing
-backend, and of the API docs of the executor types, that the sections above do
-not pin, in each page's order, with the tests that pin it.
+backend, and of the API docs of the executor types and of `Fold`, that the
+sections above do not pin, in each page's order, with the tests that pin it.
 
 From [Executors](../executors.md):
 
@@ -731,3 +743,13 @@ From the API docs of the executor types:
 | `PlacedExecutor`'s drop absorbs the panic of a caller's waker, or of an instruction's drop, as it cancels a call, and the calls after it are cancelled still                                                                                                                                                                  | `a_waker_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled`, `an_instructions_drop_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled` (`src/tests/placement.rs`)                                                                                                                                                                          |
 | A state's drop that panics as a job dropped unrun, a stopping job or a job ending after `drop` frees the placed executor stays off the placement's thread                                                                                                                                                                     | `a_states_drop_that_panics_as_a_job_dropped_unrun_frees_it_stays_off_the_placements_thread`, `a_states_drop_that_panics_as_a_stopping_job_frees_it_stays_off_the_placements_thread`, `a_states_drop_that_panics_as_a_job_ending_after_drop_frees_it_stays_off_the_placements_thread` (`src/tests/placement.rs`)                                                         |
 | A placed executor's `close` waits for the calls queued, those whose replies were dropped included                                                                                                                                                                                                                             | `closing_waits_for_the_calls_whose_replies_were_dropped` (`src/tests/placement.rs`)                                                                                                                                                                                                                                                                                     |
+
+From the API docs of `Fold`, in `src/tests/executor.rs` (a pair's default and
+its order are pinned in [Adapters: the detailed rules](adapters.md)):
+
+| Promise                                                                        | Tests                                                                              |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Integers fold by adding, and the default, zero, adds nothing, in any order     | `integers_fold_by_adding`, `zero_adds_nothing`, `integers_fold_in_any_order`       |
+| Ordered maps fold value by value, and the empty map adds nothing, in any order | `maps_fold_value_by_value`, `the_empty_map_adds_nothing`, `maps_fold_in_any_order` |
+| An integer's fold that overflows panics, as `+` does in a debug build          | `an_integers_fold_that_overflows_panics`                                           |
+| Pairs fold part by part                                                        | `pairs_fold_part_by_part`                                                          |

@@ -117,7 +117,9 @@ from the implementer's logic alone:
 - `promise` is what the executor offers (`Capabilities`), described as given.
 - `make_state` makes the state a shot's calls run on (a simulator's qubits) from
   the shot's context (`ShotContext`), at the first call that needs it. Its `Err`
-  refuses the call, and a later call tries again.
+  refuses the call, and a later call tries again (placed whole, the executor
+  refuses every later call: [Where an executor
+  runs](#where-an-executor-runs-run_on)).
 - `logic` runs a call's instructions on the state, and pushes each readout to
   `Outcomes`. Its `Err` fails the call: the outcomes pushed before it are handed
   over, the reply ends with its reason, and the executor refuses every later
@@ -248,13 +250,17 @@ placements:
   engine's GPU context). Until then, a chain runs on a thread of its own.
 
 A placed executor's reply is an `IncrementalReply`, which an asynchronous task
-can await. A refusal or a failure on the executor's thread fails the call's
-reply, and the executor refuses every later call. Its `close` waits for the
-calls queued, then gives the report. Dropped without `close`, it cancels the
-calls not yet started, and does not wait for its states to be freed: call
-`close` to free what they hold (a device, GPU memory) before building another
-executor on it. Panics, jobs dropped unrun, and where the executor it places is
-closed and dropped, are in [A placed executor: the
+can await. A failure on the executor's thread fails the call's reply, and the
+executor refuses every later call. So does a refusal there: placed whole
+(`.run_on(..)` alone, or after `.shots(..)`), an `executor_fn` refuses on its
+thread, after `call` accepted the call, a new shot past its promise, a call its
+`.check` refuses, and a state `make_state` cannot make; under
+`.run_on(..).shots(..)`, `call` refuses them, and the executor stays usable. Its
+`close` waits for the calls queued, then gives the report. Dropped without
+`close`, it cancels the calls not yet started, and does not wait for its states
+to be freed: call `close` to free what they hold (a device, GPU memory) before
+building another executor on it. Panics, jobs dropped unrun, and where the
+executor it places is closed and dropped, are in [A placed executor: the
 rules](internals/executors.md#a-placed-executor-the-rules).
 
 The order of `.shots` and `.run_on` says where the shots run:

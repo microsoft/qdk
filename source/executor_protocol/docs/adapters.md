@@ -235,15 +235,18 @@ An adapter keeps an executor's rules:
   made and its logic runs, as an executor's check does. A `make_state` that
   refuses refuses the call too, before the logic runs, and leaves nothing made.
 - **A refusal below refuses the call.** The first call below, a send or a run,
-  refused, refuses the call with the same refusal. The index it names is that of
-  the instruction in the call below, not in the call (planned: a way for the
+  refused, refuses the call with the same refusal, whatever the logic returns,
+  and the adapter serves the next call, unless that refusal is for an earlier
+  failure below, which fails the adapter too. The index it names is that of the
+  instruction in the call below, not in the call (planned: a way for the
   logic to map it). A call refused below is refused though its logic ran, so a
   logic changes its state only after `send(..)?` or `run(..)?`. With a state per
   shot, a send gives no such order: `send` returns `Ok` before the shots' sends
   go below merged, so a call refused there leaves the kept states as its logic
   left them.
-- **An error or a failure below fails the adapter.** The logic's error, or a
-  failure below, fails the call and the adapter, and nothing more goes down.
+- **An error or a failure below fails the adapter.** The logic's error, unless
+  the call was refused below as above, or a failure below, fails the call and
+  the adapter, and nothing more goes down.
 - **Closing closes below once.** Closing it gives the report below, closing what
   is below once, whatever failed.
 

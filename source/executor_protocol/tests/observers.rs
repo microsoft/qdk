@@ -147,8 +147,9 @@ fn the_toys_promise() -> Capabilities {
 /// `received`, a handle the test keeps a clone of: the toy, taking its
 /// instructions as calls of its set, by opcode, checked first
 /// ([`check_calls`]), a state per shot, its shots' coins drawn from
-/// [`SEED`]. Its check is a function pointer, the type's default for a
-/// check, so the type names it with no parameter of its own.
+/// [`SEED`]. Its check, a function pointer, has the type
+/// `NoCheck<InstructionCall>`, the default of that type parameter, so the
+/// return type leaves it out.
 fn simulator_recording(
     received: Received,
 ) -> OnePerShotExecutor<
@@ -158,10 +159,10 @@ fn simulator_recording(
     impl ExecutorLogic<InstructionCall, Shot>,
 > {
     let ops = toy_ops();
-    let start = |shot: ShotContext| Ok((shot.shot(), ToyState::start(shot)?));
-    let run = move |(shot, toy): &mut Shot,
-                    input: &ProgramInput<'_, InstructionCall>,
-                    outcomes: &mut Outcomes<'_>| {
+    let start = |context: ShotContext| Ok((context.shot(), ToyState::start(context)?));
+    let logic = move |(shot, toy): &mut Shot,
+                      input: &ProgramInput<'_, InstructionCall>,
+                      outcomes: &mut Outcomes<'_>| {
         received.record(*shot, input.instructions());
         for call in input.instructions() {
             toy.apply(ops[call.opcode](call), outcomes);
@@ -169,7 +170,7 @@ fn simulator_recording(
         Ok(())
     };
     let check: fn(&ProgramInput<'_, InstructionCall>) -> Result<(), Rejected> = check_calls;
-    executor_fn(the_toys_promise(), start, run)
+    executor_fn(the_toys_promise(), start, logic)
         .check(check)
         .seed(SEED)
         .shots(OnePerShot)
@@ -198,9 +199,9 @@ fn simulator_stopping_at_reset(
 > {
     let ops = toy_ops();
     let reset = toy_set().opcode("reset").expect("the toy's set has reset");
-    let run = move |toy: &mut ToyState,
-                    input: &ProgramInput<'_, InstructionCall>,
-                    outcomes: &mut Outcomes<'_>| {
+    let logic = move |toy: &mut ToyState,
+                      input: &ProgramInput<'_, InstructionCall>,
+                      outcomes: &mut Outcomes<'_>| {
         for call in input.instructions() {
             if call.opcode == reset {
                 return Err(stop());
@@ -209,7 +210,7 @@ fn simulator_stopping_at_reset(
         }
         Ok(())
     };
-    executor_fn(the_toys_promise(), ToyState::start, run)
+    executor_fn(the_toys_promise(), ToyState::start, logic)
         .seed(SEED)
         .shots(OnePerShot)
 }
@@ -226,22 +227,22 @@ fn simulator_refusing_shot(
     impl ExecutorLogic<InstructionCall, ToyState>,
 > {
     let ops = toy_ops();
-    let start = move |shot: ShotContext| {
-        if shot.shot() == down {
+    let start = move |context: ShotContext| {
+        if context.shot() == down {
             let reason = format!("the device of shot {down} is down");
             return Err(Rejected::Unavailable(reason));
         }
-        ToyState::start(shot)
+        ToyState::start(context)
     };
-    let run = move |toy: &mut ToyState,
-                    input: &ProgramInput<'_, InstructionCall>,
-                    outcomes: &mut Outcomes<'_>| {
+    let logic = move |toy: &mut ToyState,
+                      input: &ProgramInput<'_, InstructionCall>,
+                      outcomes: &mut Outcomes<'_>| {
         for call in input.instructions() {
             toy.apply(ops[call.opcode](call), outcomes);
         }
         Ok(())
     };
-    executor_fn(the_toys_promise(), start, run)
+    executor_fn(the_toys_promise(), start, logic)
         .seed(SEED)
         .shots(OnePerShot)
 }
