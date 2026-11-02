@@ -109,7 +109,8 @@ pub struct Capabilities {
     /// [`Adapter::accepts`](crate::Adapter::accepts), which
     /// [`compose`](fn@crate::compose) offers upstream of it whatever it offers
     /// ([`AdapterBoundary::offered_upstream`]); one that states none and passes
-    /// its calls through as they are offers downstream's.
+    /// its calls through as they are offers downstream's, and one that states
+    /// none and sends a set of its own offers none.
     /// [`resets`](Capabilities::resets) is not derived from it: a component
     /// need not describe a set.
     pub instruction_set: Option<Arc<InstructionSet>>,

@@ -329,3 +329,34 @@ fn an_unmet_yes_or_no_need_says_which_component_lacks_it() {
         ]
     );
 }
+
+/// A component that offers one yes/no capability alone, such as a
+/// simulator that resumes shots and does nothing else, or a device that only
+/// resets, meets the need for it and no other yes/no need: each need is
+/// checked against its own capability, whichever others are offered.
+#[test]
+fn a_yes_or_no_need_is_met_by_its_own_capability_alone() {
+    let offering_only = [
+        Capabilities::default().with_resumable_shots(true),
+        Capabilities::default().with_resets(true),
+        Capabilities::default().with_replayable(true),
+        Capabilities::default().with_log_probability(true),
+    ];
+    let needing_only = [
+        Needs::default().with_resumable_shots(true),
+        Needs::default().with_resets(true),
+        Needs::default().with_replayable(true),
+        Needs::default().with_log_probability(true),
+    ];
+    let met: Vec<Vec<bool>> = (offering_only.iter())
+        .map(|offered| {
+            (needing_only.iter())
+                .map(|needs| offered.admit("lone", &ShotSet::one(1), needs).is_ok())
+                .collect()
+        })
+        .collect();
+    let its_own_alone: Vec<Vec<bool>> = (0..4)
+        .map(|offered| (0..4).map(|needed| needed == offered).collect())
+        .collect();
+    assert_eq!(met, its_own_alone);
+}

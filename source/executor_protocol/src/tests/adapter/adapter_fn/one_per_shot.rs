@@ -9,9 +9,10 @@ use std::sync::atomic::Ordering;
 use std::task::Waker;
 
 use super::{
-    DropLog, Dropped, DroppedBelow, HeldOpen, Pulse, Senders, Unmade, after_a_stop,
+    DropLog, Dropped, DroppedBelow, HeldOpen, Offering, Pulse, Senders, Unmade, after_a_stop,
     ample_simulator, close_counted, count_and_pass, decodable, decode, device, device_promising,
-    finds_no_syndrome, holding_until_busy, no_calls, one, panics_decoding, pass_unless_empty,
+    each_capability_alone, finds_no_syndrome, flip_and_toss_flip_first, flip_first_set,
+    holding_until_busy, lower, no_calls, one, outcomes, panics_decoding, pass_unless_empty,
     pulse_device, recorded, refusal_after_a_panic, scant_simulator, send_down,
     unmet_needs_of_a_job_beyond_the_scant_simulator,
 };
@@ -20,13 +21,16 @@ use crate::tests::executor_fn::{
     powering_down_badly, promise,
 };
 use crate::tests::test_double::{TestDoubleExecutor, TestDoubleModel, run, step};
-use crate::tests::{Bits, PanicsOnClose, bits_set, ends_soon, flip_and_toss, shots, values};
+use crate::tests::{
+    Bits, PanicsOnClose, bits_set, ends_soon, flip_and_toss, reversed_set, shots, values,
+};
 use crate::{
-    AdapterError, Below, BuildError, Capabilities, Close, ComponentId, Describe, Executor,
-    ExecutorFn, ExecutorLogic, IncrementalReply, InstructionBatch, InstructionBatchRef, MakeState,
-    Need, OnePerShot, OnePerShotExecutor, Outcome, Outcomes, OwnThread, ProgramInput, Rejected,
-    Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose,
-    conformance, executor_fn, reply_channel, wait,
+    AdapterError, AdapterLogic, Below, BuildError, Capabilities, Close, ComponentId, Describe,
+    Executor, ExecutorFn, ExecutorLogic, IncrementalReply, InstructionBatch, InstructionBatchRef,
+    InstructionCall, MakeState, Need, OnePerShot, OnePerShotAdapter, OnePerShotExecutor, Outcome,
+    Outcomes, OwnThread, ProgramInput, Rejected, Reply, ReplyStatus, ShotContext, ShotId,
+    ShotOutcome, ShotSet, Value, adapter_fn, compose, conformance, executor_fn, reply_channel,
+    wait,
 };
 
 /// The shots of the target chain's run: not a range.
@@ -35,6 +39,21 @@ const SHOTS: [ShotId; 4] = [2, 5, 6, 11];
 /// The tests' executor of `model`, seeded with 7.
 fn below(model: TestDoubleModel) -> TestDoubleExecutor<TestDoubleModel> {
     TestDoubleExecutor::with_model(model, 7)
+}
+
+/// A lowering from [`flip_first_set`] to [`reversed_set`] ([`lower`]), a
+/// state per shot.
+fn lowering() -> OnePerShotAdapter<
+    InstructionCall,
+    InstructionCall,
+    (),
+    impl MakeState<()>,
+    impl AdapterLogic<InstructionCall, InstructionCall, ()>,
+> {
+    adapter_fn(no_state, lower)
+        .accepts(flip_first_set())
+        .sends(reversed_set())
+        .shots(OnePerShot)
 }
 
 /// The state of an adapter that keeps none.
@@ -645,6 +664,67 @@ fn it_offers_nothing_the_executor_below_does_not() {
         unmet_needs_of_a_job_beyond_the_scant_simulator(executor),
         every_need
     );
+}
+
+/// A device below, given the run's seed, that offers one yes/no capability
+/// alone ([`each_capability_alone`]), each in turn, under an adapter with a
+/// state per shot: an observer that draws nothing offers that capability
+/// alone, as the device does; a noise adapter whose states draw with
+/// [`NOISE`] offers it too, unless it is the stated exception (the log
+/// probability), with [`NOISE`] added to the ids drawn with.
+#[test]
+fn it_passes_each_capability_up_on_its_own() {
+    for lone in each_capability_alone() {
+        let observer = adapter_fn(no_state, pass).shots(OnePerShot);
+        let executor = compose(observer, Offering(lone.clone())).expect("bools fit");
+        assert_eq!(executor.capabilities(), lone);
+        let noise = adapter_fn(drawing, losing_reads)
+            .drawing(NOISE)
+            .shots(OnePerShot);
+        let executor =
+            compose(noise, Offering(lone.clone())).expect("the device is given the run's seed");
+        let mut expected = lone.drawing(NOISE).expect("nothing below draws with NOISE");
+        expected.log_probability = false;
+        assert_eq!(executor.capabilities(), expected);
+    }
+}
+
+/// A lowering with a state per shot, from a set that names the flip `flip`
+/// and puts it first to one that numbers the bits' instructions otherwise,
+/// over the bits ([`lowering`]): it offers upstream the set it accepts, not
+/// the one below.
+#[test]
+fn a_rewriter_offers_the_set_it_accepts() {
+    let executor = compose(
+        lowering(),
+        TestDoubleExecutor::with_model(Bits::default(), 7),
+    )
+    .expect("the bits have every instruction it sends");
+    let offered = executor.capabilities().instruction_set;
+    assert_eq!(offered.as_deref(), Some(&flip_first_set()));
+}
+
+/// A lowering with a state per shot that renames the flip and numbers the
+/// calls otherwise ([`lowering`]), run on two shots, gives what the
+/// program written in the bits' own set gives alone: each call reaches the
+/// bits as the instruction it names, and each read keeps its tag.
+#[test]
+fn a_logic_that_rewrites_each_call_keeps_its_tags() {
+    let mut lowered = compose(
+        lowering(),
+        TestDoubleExecutor::with_model(Bits::default(), 7),
+    )
+    .expect("the bits have every instruction it sends");
+    let mut bare = TestDoubleExecutor::with_model(Bits::default(), 7);
+    let two = shots(&[0, 1]);
+    for (program, written) in flip_and_toss_flip_first()
+        .iter()
+        .zip(flip_and_toss(&bits_set()))
+    {
+        let through = values(&outcomes(&mut lowered, &two, program));
+        assert!(!through.is_empty(), "each batch reads a bit");
+        assert_eq!(through, values(&outcomes(&mut bare, &two, &written)));
+    }
 }
 
 /// `noise >> simulator` ([`noisy`]) keeps the promise of `replayable`:

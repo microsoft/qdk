@@ -454,7 +454,8 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     /// Its options ([`AdapterFn::accepts`], [`AdapterFn::sends`],
     /// [`AdapterFn::check`], [`AdapterFn::drawing`],
     /// [`AdapterFn::state_report`]) are given before, as on
-    /// [`executor_fn`](fn@crate::executor_fn).
+    /// [`executor_fn`](fn@crate::executor_fn), in any order: each keeps the
+    /// others given before it.
     #[must_use]
     pub fn shots(self, strategy: OnePerShot) -> OnePerShotAdapter<I, O, S, M, L, C, R> {
         let OnePerShot = strategy;

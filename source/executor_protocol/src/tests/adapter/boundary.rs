@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use super::adapter_fn::{Offering, each_capability_alone};
 use crate::tests::map_executor;
 use crate::tests::test_double::TestDoubleExecutor;
 use crate::tests::{
@@ -415,4 +416,38 @@ fn an_adapter_that_draws_reads_no_log_probability_in_its_offer_when_built() {
     )
     .expect("the noise model draws with its own id");
     assert_eq!(read.get(), Some(false));
+}
+
+/// A noise model written by hand, drawing with [`NOISE`] and passing each
+/// call down, over a device given the run's seed that offers one yes/no
+/// capability alone, each in turn: it offers what the device offers, with
+/// [`NOISE`] added to the ids drawn with, but no log probability, which
+/// leaves out its draws.
+#[test]
+fn a_drawing_adapter_written_by_hand_offers_each_capability_below_but_the_log_probability() {
+    struct Noise;
+    impl Adapter for Noise {
+        type Accepts = bool;
+        type Sends = bool;
+
+        fn draws(&self) -> Option<ComponentId> {
+            Some(NOISE)
+        }
+    }
+    impl<E: Executor<InstructionBatch<bool>> + Close> Apply<E> for Noise {
+        type Output = E;
+
+        fn apply(self, downstream: E) -> E {
+            downstream
+        }
+    }
+    for lone in each_capability_alone() {
+        let noisy =
+            compose(Noise, Offering(lone.clone())).expect("the device is given the run's seed");
+        let mut expected = lone
+            .drawing(NOISE)
+            .expect("nothing below draws with `noise`");
+        expected.log_probability = false;
+        assert_eq!(noisy.capabilities(), expected);
+    }
 }

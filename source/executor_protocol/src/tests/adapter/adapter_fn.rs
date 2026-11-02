@@ -2138,6 +2138,72 @@ fn it_offers_nothing_the_executor_below_does_not() {
     );
 }
 
+/// An executor below that offers what it is made with, and answers each
+/// call done, reading nothing.
+pub(super) struct Offering(pub(super) Capabilities);
+
+impl Executor<InstructionBatch<bool>> for Offering {
+    type Reply = ImmediateReply<ShotOutcome>;
+
+    fn call(&mut self, _: InstructionBatchRef<'_, bool>) -> Result<Self::Reply, Rejected> {
+        Ok(ImmediateReply::default())
+    }
+}
+
+impl Describe for Offering {
+    fn capabilities(&self) -> Capabilities {
+        self.0.clone()
+    }
+}
+
+impl Close for Offering {
+    type Report = ();
+
+    fn close(&mut self) {}
+}
+
+/// Each yes/no capability alone, given the run's seed beside it: resumable
+/// shots, resets, replayable shots, then each shot's log probability.
+pub(super) fn each_capability_alone() -> [Capabilities; 4] {
+    let seeded = Capabilities {
+        run_seed: Some(0x5EED),
+        ..Capabilities::default()
+    };
+    [
+        seeded.clone().with_resumable_shots(true),
+        seeded.clone().with_resets(true),
+        seeded.clone().with_replayable(true),
+        seeded.with_log_probability(true),
+    ]
+}
+
+/// A device below, given the run's seed, that offers one yes/no capability
+/// alone ([`each_capability_alone`]), each in turn, under an adapter with
+/// one state that passes each call down: drawing nothing, it offers that
+/// capability alone, as the device does; drawing with the id `noise`, it
+/// offers it too, unless it is a stated exception (the log probability,
+/// replayable shots), with `noise` added to the ids drawn with.
+#[test]
+fn it_passes_each_capability_up_on_its_own() {
+    let noise = ComponentId::named("noise");
+    for lone in each_capability_alone() {
+        let observer =
+            compose(adapter_fn(no_state, pass), Offering(lone.clone())).expect("bools fit");
+        assert_eq!(observer.capabilities(), lone);
+        let drawing = compose(
+            adapter_fn(no_state, pass).drawing(noise),
+            Offering(lone.clone()),
+        )
+        .expect("the device is given the run's seed");
+        let mut expected = lone
+            .drawing(noise)
+            .expect("nothing below draws with `noise`");
+        expected.log_probability = false;
+        expected.replayable = false;
+        assert_eq!(drawing.capabilities(), expected);
+    }
+}
+
 /// A lowering offers upstream the set it accepts, not the one below.
 #[test]
 fn a_rewriter_offers_the_set_it_accepts() {
@@ -2148,6 +2214,46 @@ fn a_rewriter_offers_the_set_it_accepts() {
         .expect("the bits have every instruction it sends");
     let offered = executor.capabilities().instruction_set;
     assert_eq!(offered.as_deref(), Some(&flip_first_set()));
+}
+
+/// A lowering that draws with the id `noise`, its options given in another
+/// order (the set it sends before the set it accepts, a check and a report
+/// of its state after them), over the bits, given the run's seed: it offers
+/// the set it accepts and the id it draws with, as given in the usual order,
+/// and each read reaches the bits as the instruction it names.
+#[test]
+fn its_options_given_in_any_order_make_the_same_adapter() {
+    let noise = ComponentId::named("noise");
+    let usual = adapter_fn(no_state, lower)
+        .accepts(flip_first_set())
+        .sends(reversed_set())
+        .drawing(noise);
+    let usual = compose(usual, TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits have every instruction it sends");
+    let reordered = adapter_fn(no_state, lower)
+        .sends(reversed_set())
+        .accepts(flip_first_set())
+        .drawing(noise)
+        .check(|_: &ProgramInput<'_, InstructionCall>| Ok(()))
+        .state_report(|(): &()| ());
+    let mut reordered = compose(
+        reordered,
+        TestDoubleExecutor::with_model(Bits::default(), 7),
+    )
+    .expect("the bits have every instruction it sends");
+    let offered = reordered.capabilities();
+    assert_eq!(offered.instruction_set.as_deref(), Some(&flip_first_set()));
+    assert!(offered.rng_ids.contains(noise), "{offered:?}");
+    assert_eq!(offered, usual.capabilities());
+    let mut bare = TestDoubleExecutor::with_model(Bits::default(), 7);
+    let two = shots(&[0, 1]);
+    for (program, written) in flip_and_toss_flip_first()
+        .iter()
+        .zip(flip_and_toss(&bits_set()))
+    {
+        let through = values(&outcomes(&mut reordered, &two, program));
+        assert_eq!(through, values(&outcomes(&mut bare, &two, &written)));
+    }
 }
 
 /// A lowering that sends `h`, which the bits lack, is refused when the

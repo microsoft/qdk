@@ -31,6 +31,10 @@ use crate::{
     Operand, OperandKind, Rejected, Reply, ReplyStatus, RngIds, ShotContext, ShotId, ShotOutcome,
     ShotSet, TypedInstruction, Value, compose, conformance, executor_fn, shot_seed, wait,
 };
+use crate::{
+    AdapterError, Below, Chain, DefaultDriver, JobFaults, Needs, Outcomes, ProgramInput,
+    StaticProgram, adapter_fn, driver,
+};
 
 use OperandKind::Block;
 
@@ -1831,6 +1835,21 @@ fn an_adapter_that_makes_calls_by_opcode_and_states_the_set_it_sends_is_composed
     }
 }
 
+/// The same adapter, stating the set it sends and none it accepts: the
+/// flips it is called with are not calls by opcode, and the set it sends
+/// does not describe them, so it offers no set upstream, though the bits
+/// below offer theirs.
+#[test]
+fn an_adapter_that_states_the_set_it_sends_and_none_it_accepts_offers_no_set() {
+    let lower = LowerFlips {
+        sends: Some(Arc::new(bits_set())),
+        accepts: None,
+    };
+    let executor = compose(lower, TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the adapter states the set it sends");
+    assert_eq!(executor.capabilities().instruction_set, None);
+}
+
 /// A decoder stating only the set it accepts, a coin among them, upstream
 /// of workers whose set has no coin: what it sends is typed, so its set is
 /// not matched downstream, and the executor composed describes it in place
@@ -1941,4 +1960,84 @@ fn a_typed_adapter_stating_the_set_it_accepts_over_no_set_is_refused() {
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
     assert_eq!(faults.0[0].error, BuildError::NoInstructionSetDownstream);
+}
+
+/// The state of an adapter that keeps none.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the signature a state closure has"
+)]
+fn no_state(_: ShotContext) -> Result<(), Rejected> {
+    Ok(())
+}
+
+/// The logic of an adapter that sends each call down as it is.
+fn pass(
+    (): &mut (),
+    input: &ProgramInput<'_, bool>,
+    below: &mut Below<'_, bool>,
+    _: &mut Outcomes<'_>,
+) -> Result<(), AdapterError> {
+    below.send(input.instructions())
+}
+
+/// The needs `chain` refuses, in order, for a job of one shot whose program
+/// needs `needs`; none when the job is given to it.
+fn unmet_needs<E>(chain: Chain<DefaultDriver, bool, E>, needs: Needs) -> Vec<Need>
+where
+    E: Executor<InstructionBatch<bool>> + Close,
+{
+    let program = StaticProgram::new(needs, vec![vec![true]]);
+    match chain.run(program, [0]) {
+        Ok(_) => Vec::new(),
+        Err(JobFaults(faults)) => (faults.iter())
+            .map(|fault| match fault {
+                Rejected::Unmet(unmet) => unmet.need,
+                other => panic!("the job's faults are its unmet needs: {other:?}"),
+            })
+            .collect(),
+    }
+}
+
+/// A noise model, an adapter with one state that draws, and an observer,
+/// one that draws nothing, both upstream of a simulator whose shots resume,
+/// replay and report their log probability, in either order: the chain
+/// offers what the upstream one offers, built against what the downstream
+/// one offers, so a job needing replayable shots or the log probability is
+/// refused, as the noise model offers neither, and one needing resumable
+/// shots, which both pass up, is given to the chain.
+#[test]
+fn a_chain_of_two_adapters_offers_what_the_upstream_one_offers_over_the_downstream_one() {
+    let simulator = || {
+        let promise = Capabilities::default()
+            .with_resumable_shots(true)
+            .with_replayable(true);
+        executor_fn(
+            promise,
+            |_| Ok(()),
+            |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        )
+        .log_probability(|(): &()| -0.5)
+        .seed(7)
+        .shots(OnePerShot)
+    };
+    let noise = || adapter_fn(no_state, pass).drawing(ComponentId::named("noise"));
+    let observer = || adapter_fn(no_state, pass);
+    let noise_above = || {
+        (driver() >> noise() >> observer() >> simulator())
+            .expect("the simulator is given the run's seed")
+    };
+    let noise_below = || {
+        (driver() >> observer() >> noise() >> simulator())
+            .expect("the simulator is given the run's seed")
+    };
+    let replayed = Needs::default()
+        .with_replayable(true)
+        .with_log_probability(true);
+    let resumed = Needs::default().with_resumable_shots(true);
+    let neither = [Need::Replayable, Need::LogProbability];
+    assert_eq!(unmet_needs(noise_above(), replayed.clone()), neither);
+    assert_eq!(unmet_needs(noise_below(), replayed), neither);
+    assert_eq!(unmet_needs(noise_above(), resumed.clone()), []);
+    assert_eq!(unmet_needs(noise_below(), resumed), []);
 }

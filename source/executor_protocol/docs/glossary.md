@@ -177,10 +177,10 @@ what they belong to; the names in code are the crate's.
   `state_report` and `log_probability` read only the shot's state and what they
   captured when built, both orders give the same outcomes and report, and a
   failed call reports no state made for it in either. Drivers have no axes
-  spelled as methods yet: a job's program states its needs,
-  `AdaptiveProgram::needs` for an adaptive program, its driver's
-  `Driver::needs` for a program of another form. The seed is not an axis,
-  since no part offers it: it is the run's ([Seed](#shots-and-states)).
+  spelled as methods yet: a job's needs are stated by an adaptive program
+  (`AdaptiveProgram::needs`), or by its driver for a program of another form
+  (`Driver::needs`). The seed is not an axis, since no part offers it: it is
+  the run's ([Seed](#shots-and-states)).
 
 - **Wrapper**: an executor that wraps another of the same message, or is made of
   one, and continues it, such as the one `.shots(..)` or `.run_on(..)` puts on

@@ -758,6 +758,7 @@ From [Composition](../composition.md):
 | The crate's driver sends a `StaticProgram`'s batches each to every shot of the job in one call, in order | `a_static_program_gives_every_shots_outcomes_batch_after_batch` (`src/tests/program/static_program.rs`), `below_the_debugger_each_shots_batch_is_a_call_of_its_own` (`tests/observers.rs`; its run alone makes a call per batch) |
 | A set of shots names at least one shot, and each shot once                                               | `a_shot_set_names_at_least_one_shot`, `a_shot_set_names_each_shot_once` (`src/tests/shot.rs`)                                                                                                                                    |
 | Observers stacked in one chain each see what they see alone                                              | `stacked_observers_each_see_what_they_see_alone` (`tests/observers.rs`)                                                                                                                                                          |
+| Through two adapters, a job's needs are checked against what the upstream one offers, in either order    | `a_chain_of_two_adapters_offers_what_the_upstream_one_offers_over_the_downstream_one` (`src/tests/compose/adapters.rs`)                                                                                                          |
 
 From [Planned features](../planned.md):
 

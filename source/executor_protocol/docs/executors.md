@@ -11,12 +11,12 @@ where it runs (`.run_on`), an executor's life, an executor written by hand
 
 ## Capabilities and needs
 
-A component says what it offers (`Describe::capabilities`), and a job's program
-says what it needs (a `Needs`: a `StaticProgram`'s; `AdaptiveProgram::needs`
-for an adaptive program; or, for a program of another form, its driver's,
-`Driver::needs`). `compose` builds the chain from the
-executor upstream; when a job is given to the chain, each need of its program
-is checked against what the chain offers, before anything runs:
+A component says what it offers (`Describe::capabilities`), and a job's needs (a
+`Needs`) are stated by an adaptive program (`AdaptiveProgram::needs`), or by its
+driver for a program of another form (`Driver::needs`), as the crate's driver
+states a `StaticProgram`'s. `compose` builds the chain from the executor
+upstream; when a job is given to the chain, each need of its program is checked
+against what the chain offers, before anything runs:
 
 ```mermaid
 sequenceDiagram
