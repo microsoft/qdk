@@ -353,6 +353,9 @@ lists them, with the order to read them in.
 
 ## Detailed documentation
 
+The tests that pin the promises of the pages below and of the API docs are
+listed beside each promise in the detailed rules, in `docs/internals/`.
+
 | Document                                                                   | Contents                                                                                                                                                                                                                        |
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Composition](docs/composition.md)                                         | Putting parts together: composing a run with `>>`, a chain and its job, what is checked and when, the conformance checks, chains for several users                                                                              |

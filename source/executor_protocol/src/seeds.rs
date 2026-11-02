@@ -303,17 +303,14 @@ impl ShotContext {
 /// builds it
 /// ([`AdapterBoundary::drawing_seeds`](crate::AdapterBoundary::drawing_seeds)).
 ///
-/// Needed so that the adapter draws from its own seeds, under the id it
-/// states once, in `draws`: with the run's seed alone it would make each
-/// shot's context with [`ShotContext::new`], whose `seed` is the last
-/// executor's, and its draws would then repeat the executor's: a readout
-/// error of ½ over fair coins, drawing as the coins do, flips exactly the
-/// coins that come up One, and every readout reads Zero. The seeds bind
-/// the id, so the adapter's shot `j` draws from the `seed` of
-/// [`AdapterSeeds::shot`], its own
-/// (`an_adapter_written_by_hand_draws_otherwise_than_the_last_executor`),
-/// the one an [`adapter_fn`](fn@crate::adapter_fn) drawing with that id has
-/// (`an_adapter_written_by_hand_draws_from_the_seeds_an_adapter_fn_with_its_id_draws_from`).
+/// Needed so that the adapter draws from its own seeds, under the id it states
+/// once, in `draws`: with the run's seed alone it would make each shot's
+/// context with [`ShotContext::new`], whose `seed` is the last executor's, and
+/// its draws would then repeat the executor's: a readout error of ½ over fair
+/// coins, drawing as the coins do, flips exactly the coins that come up One,
+/// and every readout reads Zero. The seeds bind the id, so the adapter's shot
+/// `j` draws from the `seed` of [`AdapterSeeds::shot`], its own, the one an
+/// [`adapter_fn`](fn@crate::adapter_fn) drawing with that id has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AdapterSeeds {
     run_seed: u64,

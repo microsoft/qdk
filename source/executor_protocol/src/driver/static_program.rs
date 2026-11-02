@@ -186,13 +186,11 @@ impl<I: Instruction> Interpret<StaticProgram<I>> for DefaultInterpreter {
 /// chain was consumed by its run, which has closed its executor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StaticProgramError {
-    /// The chain refused the batch, a refusal kept as the chain typed it
-    /// (`a_static_program_stops_at_the_first_batch_the_chain_refuses`):
-    /// none of the batch ran, unless the refusal's class is
+    /// The chain refused the batch, a refusal kept as the chain typed it: none
+    /// of the batch ran, unless the refusal's class is
     /// [`RetryClass::Resend`](crate::RetryClass::Resend), such as
-    /// [`Rejected::NoReply`]'s (`every_known_reason_has_its_retry_class`),
-    /// which says that no verdict came over a link, so the work may have
-    /// run.
+    /// [`Rejected::NoReply`]'s, which says that no verdict came over a link, so
+    /// the work may have run.
     Refused {
         /// The batch's index in the program.
         batch: usize,

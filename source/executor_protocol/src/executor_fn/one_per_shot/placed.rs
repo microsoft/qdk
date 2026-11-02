@@ -36,17 +36,13 @@ where
     ///
     /// # Panics
     ///
-    /// When `executor` was called already: the state it holds is then on
-    /// its placement's thread, and taking it back is not built. When it
-    /// holds a state from before it was placed, and a `Clone` of the
-    /// logic, of a report closure or of the placement panics as that
-    /// state's shot's copies are made, the state and the placement are
-    /// then freed as the panic unwinds, each drop's panic absorbed
-    /// (`a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_from_before_raising_its_own_panic`,
-    /// `a_placement_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_from_before_raising_its_own_panic`,
-    /// `a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_placement_raising_its_own_panic`).
-    /// A report closure's copy is made as in `call`
-    /// (`a_shots_copy_that_panics_frees_the_copies_made_before_it_raising_its_own_panic`).
+    /// When `executor` was called already: the state it holds is then on its
+    /// placement's thread, and taking it back is not built. When it holds a
+    /// state from before it was placed, and a `Clone` of the logic, of a report
+    /// closure or of the placement panics as that state's shot's copies are
+    /// made, the state and the placement are then freed as the panic unwinds,
+    /// each drop's panic absorbed. A report closure's copy is made as in
+    /// `call`.
     fn apply(self, executor: PlacedExecutor<ExecutorFn<I, S, M, P, C, L, R>, T>) -> Self::Executor {
         let (executor, placement, lifecycle) = executor.into_unstarted();
         let placement = HeldPart::new(placement);
@@ -107,46 +103,39 @@ where
 ///   ([`Rejected::ShotNotHeld`]) before any state is made, and a state
 ///   that cannot be made refuses the call with the state closure's
 ///   refusal: nothing runs, and the states made for the call are dropped;
-/// - each shot's placement holds its state until it closes or is dropped:
-///   under [`OwnThread`](crate::OwnThread), one thread per shot held, as
-///   many as the promise's [`states`](Capabilities::states) allows;
-///   dropped, each shot cancels its calls not yet started, as a
-///   [`PlacedExecutor`] does, so a call's reply ends
-///   [`ReplyStatus::Cancelled`](crate::ReplyStatus::Cancelled) once a shot
-///   of it was cancelled, unless a shot of it failed: a failure outranks a
-///   cancellation, whatever the shots' order
-///   (`a_failed_shot_outranks_a_cancelled_one`); the shots running finish,
-///   and each state is then dropped on its placement once that placement
-///   started (a state held from before it was placed, and not called
-///   since, is dropped where it is, where its calls ran); a state's drop
-///   that panics is then absorbed, as a [`PlacedExecutor`]'s drop absorbs
-///   it, so that `drop` never panics (`close` raises it, as a refused
-///   call does for the states made for it); so is the drop of what its
-///   closures and the placement capture, each in a catch of its own
-///   (`dropped_it_frees_what_its_closures_and_placement_capture_raising_no_panic_of_their_drops`);
-/// - the shots of a batch run in parallel, so their outcomes interleave,
-///   each shot's in order ([`ShotReplies`]); a logic that fails on a
-///   shot fails the call, though the other shots of the batch may have
-///   run, and every later call is refused, whatever shots it names, from
-///   the moment the failure happens on the shot's placement, whether or
-///   not its reply was polled: before the check, before any state is made
-///   and before any shot runs. The shots' executors share their first
-///   failure for that, and each call reads it once (one atomic load). A
-///   call accepted before the failure, and queued on the failed shot behind
-///   the failing call, does not run there: its reply fails with `an earlier
-///   call failed: …`, not named by the shot, and its other shots, before or
-///   after the failed one in the batch, may run
-///   (`a_call_queued_behind_a_shots_failure_fails_while_its_other_shots_run`).
-///   A call being started as the failure happens can miss it: it is
-///   refused still when the failed shot comes first in its batch and the
-///   failure is recorded before that shot is given the call (the crate's
-///   test `a_failure_before_its_shot_gets_the_call_refuses_it_if_first`);
-///   otherwise the call is accepted, and its reply fails: with the failure
-///   named by its shot (`shot j: …`) when the failed shot refused the call,
-///   after the shots before it in the batch may have run
-///   (`a_failure_before_its_shot_gets_the_call_fails_its_reply_if_later`),
-///   or as above when the failed shot had queued it behind the failing
-///   call;
+/// - each shot's placement holds its state until it closes or is dropped: under
+///   [`OwnThread`](crate::OwnThread), one thread per shot held, as many as the
+///   promise's [`states`](Capabilities::states) allows; dropped, each shot
+///   cancels its calls not yet started, as a [`PlacedExecutor`] does, so a
+///   call's reply ends
+///   [`ReplyStatus::Cancelled`](crate::ReplyStatus::Cancelled) once a shot of
+///   it was cancelled, unless a shot of it failed: a failure outranks a
+///   cancellation, whatever the shots' order; the shots running finish, and
+///   each state is then dropped on its placement once that placement started (a
+///   state held from before it was placed, and not called since, is dropped
+///   where it is, where its calls ran); a state's drop that panics is then
+///   absorbed, as a [`PlacedExecutor`]'s drop absorbs it, so that `drop` never
+///   panics (`close` raises it, as a refused call does for the states made for
+///   it); so is the drop of what its closures and the placement capture, each
+///   in a catch of its own;
+/// - the shots of a batch run in parallel, so their outcomes interleave, each
+///   shot's in order ([`ShotReplies`]); a logic that fails on a shot fails the
+///   call, though the other shots of the batch may have run, and every later
+///   call is refused, whatever shots it names, from the moment the failure
+///   happens on the shot's placement, whether or not its reply was polled:
+///   before the check, before any state is made and before any shot runs. The
+///   shots' executors share their first failure for that, and each call reads
+///   it once (one atomic load). A call accepted before the failure, and queued
+///   on the failed shot behind the failing call, does not run there: its reply
+///   fails with `an earlier call failed: …`, not named by the shot, and its
+///   other shots, before or after the failed one in the batch, may run. A call
+///   being started as the failure happens can miss it: it is refused still when
+///   the failed shot comes first in its batch and the failure is recorded
+///   before that shot is given the call; otherwise the call is accepted, and
+///   its reply fails: with the failure named by its shot (`shot j: …`) when the
+///   failed shot refused the call, after the shots before it in the batch may
+///   have run, or as above when the failed shot had queued it behind the
+///   failing call;
 /// - a panic inside `call`, on the caller's thread (the check's, a state
 ///   closure's, a `Clone`'s of the logic, of a report closure or of the
 ///   placement as a shot's copies are made, or a shot's placement's as it
@@ -293,34 +282,23 @@ where
     ///
     /// # Panics
     ///
-    /// When the check or a state closure panics, or a `Clone` of the
-    /// logic, of a report closure or of the placement, as a new shot's
-    /// copies are made: the shot's state, when made, is then freed as the
-    /// panic unwinds, its drop's panic absorbed
-    /// (`a_shots_copy_of_the_logic_that_panics_reaches_the_caller_before_its_state_is_made`,
-    /// `a_shots_copy_that_panics_frees_the_copies_made_before_it_raising_its_own_panic`,
-    /// `a_shots_copy_of_the_placement_that_panics_frees_its_state_raising_its_own_panic`);
-    /// or a shot's placement as it starts, at the shot's first call
-    /// ([`OwnThread`](crate::OwnThread)
-    /// when the system cannot make a thread), or as it is handed a job
-    /// ([`PlacedExecutor`]'s `call`); or, when the call is refused (a state
-    /// closure's refusal) or fails as it is handed to a shot, the drop of
-    /// a state made for the call whose placement never started (the first
-    /// such drop's panic, once every such state is dropped, on the
-    /// caller's thread;
-    /// `a_refused_call_frees_every_state_made_for_it_then_raises_the_first_drops_panic`,
-    /// `a_call_whose_shot_fails_frees_the_states_of_its_unstarted_shots_then_raises_the_first_drops_panic`,
-    /// in `src/tests/executor_fn/one_per_shot/placed.rs`).
-    /// A shot fails as it is handed the call when its placement runs the
-    /// job there and then (a placement that runs each job as it is
-    /// handed); on [`OwnThread`](crate::OwnThread), only when the shot's
-    /// thread fails before `call` reads its reply, a race. The panic
-    /// reaches the caller, though the shots queued before it in the batch
-    /// may run, and every later call is refused with
-    /// [`Rejected::EarlierFailure`]: with the failed logic's reason after
-    /// a shot failed
-    /// (`after_a_shots_failure_and_an_unstarted_states_drop_panic_later_calls_get_the_logics_reason`),
-    /// otherwise with `the executor panicked during the call`.
+    /// When the check or a state closure panics, or a `Clone` of the logic, of
+    /// a report closure or of the placement, as a new shot's copies are made:
+    /// the shot's state, when made, is then freed as the panic unwinds, its
+    /// drop's panic absorbed; or a shot's placement as it starts, at the shot's
+    /// first call ([`OwnThread`](crate::OwnThread) when the system cannot make
+    /// a thread), or as it is handed a job ([`PlacedExecutor`]'s `call`); or,
+    /// when the call is refused (a state closure's refusal) or fails as it is
+    /// handed to a shot, the drop of a state made for the call whose placement
+    /// never started (the first such drop's panic, once every such state is
+    /// dropped, on the caller's thread). A shot fails as it is handed the call
+    /// when its placement runs the job there and then (a placement that runs
+    /// each job as it is handed); on [`OwnThread`](crate::OwnThread), only when
+    /// the shot's thread fails before `call` reads its reply, a race. The panic
+    /// reaches the caller, though the shots queued before it in the batch may
+    /// run, and every later call is refused with [`Rejected::EarlierFailure`]:
+    /// with the failed logic's reason after a shot failed, otherwise with
+    /// `the executor panicked during the call`.
     fn call(&mut self, batch: InstructionBatchRef<'_, I>) -> Result<Self::Reply, Rejected> {
         let Self {
             seed,
@@ -394,44 +372,33 @@ where
     ///
     /// When a shot's placement panics as it is handed a job at close
     /// ([`PlacedExecutor`]'s `close`): the shots not closed yet are then
-    /// dropped before the panic leaves `close`, not as it unwinds, so that
-    /// a placement that panics too as their drops hand it a job (against
-    /// [`Placement`]'s rule) does not abort the process, and the first
-    /// panic is the one raised. When a report closure (`log_probability`'s
-    /// or `state_report`'s), or the drop of a state it reports, panics on a
-    /// shot's placement: that panic is raised again here, its payload
-    /// unchanged, as when not placed (the type's doc), once the shots not
-    /// closed yet were dropped on their placements, unread, so when several
-    /// shots' closures or drops would panic, the first shot's panic is
-    /// raised. So too when the report's `Q::default` panics, here or on a
-    /// shot's placement, outside an unwind: every call accepted has ended
-    /// first, none cancelled
-    /// (`a_close_whose_reports_default_panics_ends_every_call_queued_first`),
-    /// and every shot not closed yet is dropped on its placement, and
-    /// waited for, before the panic leaves `close`
-    /// (`a_close_whose_reports_default_panics_frees_every_state_first`). A
-    /// later `close` reports no shot's state (it calls `Q::default` again,
-    /// which may panic again)
-    /// (`a_close_after_its_reports_default_panicked_reports_nothing`).
-    /// A state whose drop panics as `close` frees it, left out of the report,
-    /// panics on its placement, not here: the panic hook reports it, and
-    /// `close` goes on; unless that shot's placement stopped (a call panicked
-    /// on it): the state is then dropped here, on the closer's thread, and the
-    /// first such panic leaves `close` once the other shots are freed. Not
-    /// placed, such a state is dropped in the call that failed, whose caller
-    /// the first such drop's panic reaches
-    /// ([`OnePerShotExecutor`](crate::OnePerShotExecutor)). Never for the drop
-    /// of what a shot's copies of the closures, or its placement, capture: each
-    /// is absorbed, as `drop` does, both where `close` frees
-    /// it (a shot's placement, and the copies too of a shot whose placement
-    /// stopped or whose state it leaves out:
-    /// `once_stopped_close_frees_the_shots_copies_of_the_closures_raising_no_panic_of_their_drops`,
-    /// `close_frees_the_copies_and_placement_of_a_shot_left_out_raising_no_panic_of_their_drops`,
-    /// `once_stopped_close_raises_the_states_drop_panic_though_its_placements_drop_panics_too`)
-    /// and where the shot's placement frees it (the copies of a shot it
-    /// reports, which `close` does not wait for; the placement of such a
-    /// shot `close` frees:
-    /// `a_reported_shots_copies_and_placement_are_freed_raising_no_panic_of_their_drops`).
+    /// dropped before the panic leaves `close`, not as it unwinds, so that a
+    /// placement that panics too as their drops hand it a job (against
+    /// [`Placement`]'s rule) does not abort the process, and the first panic is
+    /// the one raised. When a report closure (`log_probability`'s or
+    /// `state_report`'s), or the drop of a state it reports, panics on a shot's
+    /// placement: that panic is raised again here, its payload unchanged, as
+    /// when not placed (the type's doc), once the shots not closed yet were
+    /// dropped on their placements, unread, so when several shots' closures or
+    /// drops would panic, the first shot's panic is raised. So too when the
+    /// report's `Q::default` panics, here or on a shot's placement, outside an
+    /// unwind: every call accepted has ended first, none cancelled, and every
+    /// shot not closed yet is dropped on its placement, and waited for, before
+    /// the panic leaves `close`. A later `close` reports no shot's state (it
+    /// calls `Q::default` again, which may panic again). A state whose drop
+    /// panics as `close` frees it, left out of the report, panics on its
+    /// placement, not here: the panic hook reports it, and `close` goes on;
+    /// unless that shot's placement stopped (a call panicked on it): the state
+    /// is then dropped here, on the closer's thread, and the first such panic
+    /// leaves `close` once the other shots are freed. Not placed, such a state
+    /// is dropped in the call that failed, whose caller the first such drop's
+    /// panic reaches ([`OnePerShotExecutor`](crate::OnePerShotExecutor)). Never
+    /// for the drop of what a shot's copies of the closures, or its placement,
+    /// capture: each is absorbed, as `drop` does, both where `close` frees it
+    /// (a shot's placement, and the copies too of a shot whose placement
+    /// stopped or whose state it leaves out) and where the shot's placement
+    /// frees it (the copies of a shot it reports, which `close` does not wait
+    /// for; the placement of such a shot `close` frees).
     fn close(&mut self) -> ExecutorReport<Q> {
         let report = self.shots.close(
             PlacedExecutor::wait_for_calls,

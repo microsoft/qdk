@@ -9,18 +9,19 @@ makes one, how a waiting caller is woken, and how readouts are named.
 ## Execution models
 
 One executor serves every way of driving it: the executor chooses how its
-reply's events are made, and the driver chooses how it takes them. Each
-model below is a call a driver makes, and a test runs it. The tests are in
-`src/tests/reply.rs` and `src/tests/reply/asynchronous.rs`.
+reply's events are made, and the driver chooses how it takes them. Each model
+below is a call a driver makes, and a test runs it, in the [tests of
+replies](../src/tests/reply.rs) and of [async
+replies](../src/tests/reply/asynchronous.rs).
 
-| Model                                                   | The driver calls                                                                                       | Shown by                                                                                                                                 |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| synchronous: the whole reply, the thread parked         | `wait(reply, &mut out)`                                                                                | `one_reply_is_taken_four_ways`, `wait_parks_until_woken_instead_of_spinning`, `a_wake_from_another_thread_before_the_park_is_not_lost`   |
-| polling: the events so far, other work between polls    | `reply.poll_events(&mut out, waker)`, with its own waker or `Waker::noop()`                            | `one_reply_is_taken_four_ways`, `a_driver_with_a_noop_waker_does_its_own_work_between_polls`                                             |
-| async: the whole reply, as a `Future`                   | `wait_async(reply).await`                                                                              | `one_reply_is_taken_four_ways`, `wait_async_is_a_future_of_the_whole_reply`                                                              |
-| stream: the events as they come, as a `Stream`          | `async_events(reply)`, then `next().await` on each batch of events                                     | `one_reply_is_taken_four_ways`, `async_events_gives_each_batch_of_events_as_it_comes`                                                    |
-| several calls in flight                                 | `poll_events` on each reply, each with its own waker; or several tasks, each awaiting one              | `a_driver_keeps_several_calls_in_flight_and_sleeps_until_one_wakes_it`, `an_async_task_awaiting_a_call_leaves_its_thread_to_other_tasks` |
-| work elsewhere: the reply filled in from another thread | the executor calls `reply_channel()` and returns the `IncrementalReply`; the work `push`es or `relay`s | `relay_and_wait_pass_events_across_threads`, `one_reply_is_taken_four_ways`                                                              |
+| Model                                                   | The driver calls                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| synchronous: the whole reply, the thread parked         | `wait(reply, &mut out)`                                                                                |
+| polling: the events so far, other work between polls    | `reply.poll_events(&mut out, waker)`, with its own waker or `Waker::noop()`                            |
+| async: the whole reply, as a `Future`                   | `wait_async(reply).await`                                                                              |
+| stream: the events as they come, as a `Stream`          | `async_events(reply)`, then `next().await` on each batch of events                                     |
+| several calls in flight                                 | `poll_events` on each reply, each with its own waker; or several tasks, each awaiting one              |
+| work elsewhere: the reply filled in from another thread | the executor calls `reply_channel()` and returns the `IncrementalReply`; the work `push`es or `relay`s |
 
 ### Reading the sequence diagrams
 
@@ -67,12 +68,11 @@ impl Executor<InstructionBatch<bool>> for OnAThread {
 }
 ```
 
-The test [`one_reply_is_taken_four_ways`](../src/tests/reply.rs) calls it
-four times and takes the reply four ways: blocking (`wait`), polling
-(`poll_events`), as a `Future` (`wait_async`) and as a `Stream`
-(`async_events`). The `Future` and the `Stream` are driven by `block_on`,
-the tests' one-task runtime
-([The tests drive futures with `block_on`](internals/replies.md#the-tests-drive-futures-with-block_on)).
+A [test of replies](../src/tests/reply.rs) calls it four times and takes the
+reply four ways: blocking (`wait`), polling (`poll_events`), as a `Future`
+(`wait_async`) and as a `Stream` (`async_events`). The `Future` and the `Stream`
+are driven by `block_on`, the tests' one-task runtime ([The tests drive futures
+with `block_on`](internals/replies.md#the-tests-drive-futures-with-block_on)).
 Each way gets the same events, and the executor does not change:
 
 ```rust
@@ -92,17 +92,13 @@ pub trait Reply {
 }
 ```
 
-`poll_events` moves the events available now to the end of `out` and
-never blocks. The events of one shot come in the order its executor gives
-them, not sorted by tag
-(`outcomes_keep_the_order_the_logic_pushes_them_in`,
-`src/tests/executor_fn.rs`). An adapter may give them in another order,
-and the outcomes of shots run in parallel interleave
-(`an_executor_hands_over_each_shots_events_as_they_come`,
-`src/tests/shot_states.rs`). So a consumer matches each readout by its
-shot and tag ([Readout tags](#readout-tags)), not by its place in the
-reply. The order for each kind of executor and adapter is in
-[The order of a reply's events](internals/replies.md#the-order-of-a-replys-events).
+`poll_events` moves the events available now to the end of `out` and never
+blocks. The events of one shot come in the order its executor gives them, not
+sorted by tag. An adapter may give them in another order, and the outcomes of
+shots run in parallel interleave. So a consumer matches each readout by its shot
+and tag ([Readout tags](#readout-tags)), not by its place in the reply. The
+order for each kind of executor and adapter is in [The order of a reply's
+events](internals/replies.md#the-order-of-a-replys-events).
 
 After a poll that returns `ReplyStatus::Pending`, the reply keeps
 that poll's waker and wakes it once a new poll could deliver more events
@@ -145,32 +141,28 @@ its inner reply's outcomes before it goes on (a program's walk, say), may
 call `wait` inside its `call` and return an `ImmediateReply`; an async caller
 upstream of it then holds its thread for the whole call.
 
-**How finely events come is the executor's choice.** An executor that runs
-the batch inside `call` hands over every outcome at the first poll; one
-whose work runs on a worker pushes each outcome as it is made; an
-executor whose shots run on placements of their own
-(`.run_on(OwnThread).shots(OnePerShot)`) hands over each shot's
-outcomes as soon as that shot has them (`ShotReplies`). A driver gets the events
-as finely as the executor it calls hands them over, whichever way it takes
-them, and several calls in flight are several replies, each woken on its own
-([several calls in flight](internals/replies.md#several-calls-in-flight)).
-An adapter whose logic waits below (`Below::run`) hands over nothing before
-that logic returns, not even what its sends below already read
-(`a_call_returns_only_once_its_logic_returns_though_a_send_below_already_read`,
-`src/tests/adapter/adapter_fn.rs`).
+**How finely events come is the executor's choice.** An executor that runs the
+batch inside `call` hands over every outcome at the first poll; one whose work
+runs on a worker pushes each outcome as it is made; an executor whose shots run
+on placements of their own (`.run_on(OwnThread).shots(OnePerShot)`) hands over
+each shot's outcomes as soon as that shot has them (`ShotReplies`). A driver
+gets the events as finely as the executor it calls hands them over, whichever
+way it takes them, and several calls in flight are several replies, each woken
+on its own ([several calls in
+flight](internals/replies.md#several-calls-in-flight)). An adapter whose logic
+waits below (`Below::run`) hands over nothing before that logic returns, not
+even what its sends below already read.
 
 ### One call
 
 An executor that runs the batch inside `call` returns an `ImmediateReply`: its
-first poll hands over every event and the final status (`Done` or `Failed`),
-so it never keeps the waker and `wait` never parks. The toy executor of the
-guide tests (`toy_simulator`, in `tests/toy/simulator.rs`) is one. An executor
-whose work runs elsewhere makes the two ends of a reply with `reply_channel()`
-and returns the `IncrementalReply` at once; the `ReplySender` pushes each event
-as it is made and wakes the caller. If the work ends before the first poll,
-that poll hands over every event with `Done`, as `ImmediateReply`'s does (test
-`a_reply_ended_before_its_first_poll_hands_over_everything_then`,
-`src/tests/reply.rs`).
+first poll hands over every event and the final status (`Done` or `Failed`), so
+it never keeps the waker and `wait` never parks. The toy executor of the guide
+tests (`toy_simulator`, in `tests/toy/simulator.rs`) is one. An executor whose
+work runs elsewhere makes the two ends of a reply with `reply_channel()` and
+returns the `IncrementalReply` at once; the `ReplySender` pushes each event as
+it is made and wakes the caller. If the work ends before the first poll, that
+poll hands over every event with `Done`, as `ImmediateReply`'s does.
 
 Both replies implement `Reply`, so the caller reads them the same way:
 
@@ -206,21 +198,16 @@ sequenceDiagram
   end
 ```
 
-The rules of a reply's end, each with its tests in `src/tests/reply.rs`
-unless named otherwise:
+The rules of a reply's end:
 
-- A `ReplySender` dropped before it ends the reply (its thread panicked)
-  ends it with `Failed`, so the caller is not left waiting
-  (`a_dropped_reply_sender_fails_its_reply`).
-- A caller that drops its reply does not stop the work: the
-  `ReplySender` still pushes and ends it, and nobody takes the events
-  (`a_dropped_reply_leaves_its_reply_sender_free_to_push_and_end`).
-- Dropping a placed executor cancels its calls not yet started: their
-  replies end `ReplyStatus::Cancelled`
-  (`dropped_it_cancels_the_calls_not_yet_started`,
-  `src/tests/placement.rs`). `wait`, `wait_async` and `async_events`
-  give a cancelled reply as an error, and a driver that tells it from a
-  failure polls the reply (`wait_gives_a_cancelled_reply_as_an_error`).
+- A `ReplySender` dropped before it ends the reply (its thread panicked) ends it
+  with `Failed`, so the caller is not left waiting.
+- A caller that drops its reply does not stop the work: the `ReplySender` still
+  pushes and ends it, and nobody takes the events.
+- Dropping a placed executor cancels its calls not yet started: their replies
+  end `ReplyStatus::Cancelled`. `wait`, `wait_async` and `async_events` give a
+  cancelled reply as an error, and a driver that tells it from a failure polls
+  the reply.
 
 Cancellation at an executor's `close` is planned, with no milestone yet,
 for a caller that stops a run before its batches end: a user who
@@ -232,15 +219,13 @@ cancelled are in
 
 ### A worker relays an inner reply
 
-An executor whose work runs on a worker thread can pass the reply of an
-inner executor up with `relay`, which ends the caller's reply as the inner
-reply ends: done, failed or cancelled
-(`relay_and_wait_pass_events_across_threads`,
-`relay_passes_a_cancellation_up`, `src/tests/reply.rs`). Such an executor
-is a pattern, not a type of this crate; the debugger's step
-([guides](guides.md#a-paused-debugger-the-step-completes-the-reply)) is
-one. Its sequence is drawn in
-[A worker relays an inner reply: the sequence](internals/replies.md#a-worker-relays-an-inner-reply-the-sequence).
+An executor whose work runs on a worker thread can pass the reply of an inner
+executor up with `relay`, which ends the caller's reply as the inner reply ends:
+done, failed or cancelled. Such an executor is a pattern, not a type of this
+crate; the debugger's step
+([guides](guides.md#a-paused-debugger-the-step-completes-the-reply)) is one. Its
+sequence is drawn in [A worker relays an inner reply: the
+sequence](internals/replies.md#a-worker-relays-an-inner-reply-the-sequence).
 
 ## The waking model
 
@@ -317,20 +302,17 @@ pub fn readouts(batch: &[Op]) -> impl Iterator<Item = (usize, u32)> {
 
 and calls `check_unique_tags(readouts(batch))?` with its other checks. An
 adapter that maps each of its tags to distinct tags downstream (the static
-guide's repetition code: logical tag `t` becomes physical tags `3t`,
-`3t + 1`, `3t + 2`) needs no check of its own: the downstream executor
-refuses the repeat, and the adapter maps the index back to its own
-instruction. An adapter that sends fresh tags down checks its own tags, as
-the run-time guide's code does
-(`the_device_and_the_code_refuse_a_tag_repeated_within_a_batch`).
+guide's repetition code: logical tag `t` becomes physical tags `3t`, `3t + 1`,
+`3t + 2`) needs no check of its own: the downstream executor refuses the repeat,
+and the adapter maps the index back to its own instruction. An adapter that
+sends fresh tags down checks its own tags, as the code of the [run-time
+instruction set guide](../tests/runtime_isa.rs) does.
 
-The rule is pinned by the tests of `src/tests/outcome.rs`, among them
-`a_readout_that_repeats_a_tag_is_refused_at_its_index` and
-`distinct_tags_are_accepted`, and by the conformance check
-`refuses_a_tag_repeated_within_a_batch`
-([Conformance checks](composition.md#conformance-checks)). Every test,
-the other conformance check and what the check costs are in
-[Readout tags: the rules](internals/replies.md#readout-tags-the-rules).
+The rule is pinned by the conformance check
+`refuses_a_tag_repeated_within_a_batch` ([Conformance
+checks](composition.md#conformance-checks)) and by the tests listed, with the
+other conformance check and what the check costs, in [Readout tags: the
+rules](internals/replies.md#readout-tags-the-rules).
 
 **Planned, with no milestone yet: a readout register.** Programs name
 readouts by slots they reuse: a runtime's result slot is written by a

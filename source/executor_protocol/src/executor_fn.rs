@@ -56,13 +56,9 @@ use crate::{
 ///   to the panic hook, which reports it;
 /// - `drop` never panics: a state's drop that panics as the executor is
 ///   dropped, the implementer's code, is absorbed, after the panic hook
-///   reported it (Rust API Guidelines, C-DTOR-FAIL); call `close` to see
-///   it (`dropped_it_frees_its_state_raising_no_panic_of_its_drop`). So is
-///   the drop of what its closures capture, each closure in a catch of its
-///   own; `close` raises only the state's
-///   (`dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops`,
-///   `dropped_as_a_panic_unwinds_it_frees_what_its_closures_capture_raising_none`;
-///   these three in `src/tests/executor_fn.rs`);
+///   reported it (Rust API Guidelines, C-DTOR-FAIL); call `close` to see it. So
+///   is the drop of what its closures capture, each closure in a catch of its
+///   own; `close` raises only the state's;
 /// - it refuses every call once closed or once a call failed
 ///   ([`ExecutorLifecycle`]), and so does every wrapper put on it
 ///   ([`ExecutorFn::shots`], [`ExecutorFn::run_on`]), in any order: a
@@ -145,9 +141,9 @@ pub struct ExecutorFn<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)>
 ///
 /// # Example
 ///
-/// An executor of a device of one bit, whose logic flips and reads it,
-/// called on shot 0 (copied from the crate's test
-/// `plain_functions_are_passed_by_name` and the items it uses):
+/// An executor of a device of one bit, whose logic flips and reads it, called
+/// on shot 0 (copied from the crate's tests of `executor_fn`, with the items
+/// they use):
 ///
 /// ```
 /// use executor_protocol::{
@@ -248,16 +244,12 @@ where
 }
 
 impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
-    /// This executor, refusing the calls `check` refuses, before their
-    /// state is made and before the logic runs: what the logic cannot
-    /// run whatever the state, such as a qubit beyond the device's, or a
-    /// batch that repeats a readout's tag
-    /// ([`check_unique_tags`](crate::check_unique_tags)). It replaces the
-    /// check given before, if any, freeing it, and raising no panic of its
-    /// drop, as `drop` does
-    /// (`a_replaced_closure_is_freed_raising_no_panic_of_its_drop`, in
-    /// `src/tests/executor_fn.rs`); without
-    /// one, every call is accepted.
+    /// This executor, refusing the calls `check` refuses, before their state is
+    /// made and before the logic runs: what the logic cannot run whatever the
+    /// state, such as a qubit beyond the device's, or a batch that repeats a
+    /// readout's tag ([`check_unique_tags`](crate::check_unique_tags)). It
+    /// replaces the check given before, if any, freeing it, and raising no
+    /// panic of its drop, as `drop` does; without one, every call is accepted.
     #[must_use]
     pub fn check<V>(self, check: V) -> ExecutorFn<I, S, M, P, V, L, R>
     where
@@ -305,50 +297,43 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
         }
     }
 
-    /// This executor, making with `state_report` the report of each state
-    /// it holds, when it closes, as the state's calls left it: what dies
-    /// with the state, such as the largest bond dimension of an MPS, the
-    /// weight it discarded, or a profiler's counts. Since the report sees
-    /// each state as its calls left it, a state can track across its calls
-    /// what it needs reported, such as a peak (the largest bond it reached,
-    /// though a later call shrank it) or a count, and `state_report` reads
-    /// it, by reference, once (the crate's test
-    /// `a_state_reports_what_it_tracked_across_its_calls`). Each state's
-    /// report is folded once into the executor's
+    /// This executor, making with `state_report` the report of each state it
+    /// holds, when it closes, as the state's calls left it: what dies with the
+    /// state, such as the largest bond dimension of an MPS, the weight it
+    /// discarded, or a profiler's counts. Since the report sees each state as
+    /// its calls left it, a state can track across its calls what it needs
+    /// reported, such as a peak (the largest bond it reached, though a later
+    /// call shrank it) or a count, and `state_report` reads it, by reference,
+    /// once. Each state's report is folded once into the executor's
     /// ([`ExecutorReport::states`]), starting from the empty report, in an
-    /// order not promised: by [`Fold`]'s rules, the total does not depend
-    /// on it. It replaces the one given before, if any, freeing it as
+    /// order not promised: by [`Fold`]'s rules, the total does not depend on
+    /// it. It replaces the one given before, if any, freeing it as
     /// [`ExecutorFn::check`] does; without one, the report is `()`.
     ///
-    /// Every state held at close is reported, as its calls left it, a
-    /// failed one included, since the executor keeps it until it closes;
-    /// but not a state made for a call that failed, or for a later one,
-    /// whether its shot ran or not: a failed call reports no shot of it, so
-    /// that every order of [`.shots`](ExecutorFn::shots) and
-    /// [`.run_on`](ExecutorFn::run_on) reports the same states, as `futures`'
-    /// `try_join_all` drops the others' results. Nor is a placed state whose
-    /// placement stopped (its logic panicked, or a job was dropped unrun;
-    /// [`PlacedExecutor`]).
-    /// Neither `state_report` nor `log_probability` runs on a state left
-    /// out, in any order (the crate's test
-    /// `the_report_closures_never_read_a_state_made_for_a_failed_call`).
-    /// A shot that never ran holds no state, so it has no report, and a
+    /// Every state held at close is reported, as its calls left it, a failed
+    /// one included, since the executor keeps it until it closes; but not a
+    /// state made for a call that failed, or for a later one, whether its shot
+    /// ran or not: a failed call reports no shot of it, so that every order of
+    /// [`.shots`](ExecutorFn::shots) and [`.run_on`](ExecutorFn::run_on)
+    /// reports the same states, as `futures`' `try_join_all` drops the others'
+    /// results. Nor is a placed state whose placement stopped (its logic
+    /// panicked, or a job was dropped unrun; [`PlacedExecutor`]). Neither
+    /// `state_report` nor `log_probability` runs on a state left out, in any
+    /// order. A shot that never ran holds no state, so it has no report, and a
     /// second `close` reports no state. Under
-    /// `.run_on(placement).shots(OnePerShot)`, each shot's report is
-    /// made on its placement once that placement started, by a copy of
-    /// `state_report` (hence the bounds `Clone + Send` there, as for the
-    /// logic); a state held from before it was placed, and not called
-    /// since, is reported where it is, where its calls ran; should it panic
-    /// there, `close` raises the panic again in its caller, as when not
-    /// placed.
+    /// `.run_on(placement).shots(OnePerShot)`, each shot's report is made on
+    /// its placement once that placement started, by a copy of `state_report`
+    /// (hence the bounds `Clone + Send` there, as for the logic); a state held
+    /// from before it was placed, and not called since, is reported where it
+    /// is, where its calls ran; should it panic there, `close` raises the panic
+    /// again in its caller, as when not placed.
     ///
     /// # Example
     ///
-    /// A simulator whose states count their flips, and report them under
-    /// their shot (`Flips`, whose fold adds them shot by shot), runs shots
-    /// 0 and 1, then shot 1 again; closing folds each state's report once.
-    /// Excerpt of the crate's test
-    /// `closing_reports_each_state_once_as_its_calls_left_it`:
+    /// A simulator whose states count their flips, and report them under their
+    /// shot (`Flips`, whose fold adds them shot by shot), runs shots 0 and 1,
+    /// then shot 1 again; closing folds each state's report once. Excerpt of
+    /// the crate's tests of a state per shot:
     ///
     /// ```ignore
     /// let mut executor = executor_fn(promise(), Flipped::new, count_flips)
@@ -379,15 +364,13 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
         }
     }
 
-    /// This executor, whose states draw from the run's seed `seed`: shot
-    /// `j`'s state is made from `ShotContext::new(seed, j)`, whose
-    /// [`seed`](ShotContext::seed) depends only on `seed` and `j`, so that
-    /// a shot draws the same values whatever the other shots of the run,
-    /// and whatever the shot form: one state, [`OnePerShot`], placed
-    /// either way (the crate's test
-    /// `a_shot_draws_the_same_values_in_every_shot_form`). It replaces the
-    /// seed given before, if any, for the states made after it: a state
-    /// already made keeps the seed it was made from, so give the seed
+    /// This executor, whose states draw from the run's seed `seed`: shot `j`'s
+    /// state is made from `ShotContext::new(seed, j)`, whose
+    /// [`seed`](ShotContext::seed) depends only on `seed` and `j`, so that a
+    /// shot draws the same values whatever the other shots of the run, and
+    /// whatever the shot form: one state, [`OnePerShot`], placed either way. It
+    /// replaces the seed given before, if any, for the states made after it: a
+    /// state already made keeps the seed it was made from, so give the seed
     /// before the first call.
     ///
     /// Without it, no run's seed reaches the states: their context names
@@ -402,9 +385,9 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     ///
     /// # Example
     ///
-    /// A simulator whose state is a value drawn from its shot's seed, given
-    /// the run's seed, then a state per shot. Two lines of the crate's test
-    /// `a_shot_draws_the_same_values_in_every_shot_form`:
+    /// A simulator whose state is a value drawn from its shot's seed, given the
+    /// run's seed, then a state per shot. Two lines of the crate's tests of
+    /// `executor_fn`:
     ///
     /// ```ignore
     /// let drawing = || executor_fn(promise(), draw_value, read_drawn_bits).seed(SEED);
@@ -602,15 +585,11 @@ where
     /// When `log_probability`, `state_report` or the report's `Q::default`
     /// panics, or the drop of the state it reports, outside an unwind: the
     /// panic reaches the caller, placed or not ([`PlacedExecutor`]), whereas
-    /// `drop` absorbs it (`close_frees_its_state_then_raises_its_drops_panic`).
-    /// The state is taken first, so it is freed before the panic leaves, and a
-    /// later `close` reports no state (it calls `Q::default` again, which may
-    /// panic again)
-    /// (`a_close_whose_reports_default_panics_frees_every_state_first`,
-    /// `a_close_after_its_reports_default_panicked_reports_nothing`). A panic
-    /// of that drop while the panic of a report closure or of `Q::default`
-    /// unwinds is left to the panic hook
-    /// (`a_reports_default_panic_wins_over_its_states_drops`).
+    /// `drop` absorbs it. The state is taken first, so it is freed before the
+    /// panic leaves, and a later `close` reports no state (it calls
+    /// `Q::default` again, which may panic again). A panic of that drop while
+    /// the panic of a report closure or of `Q::default` unwinds is left to the
+    /// panic hook.
     fn close(&mut self) -> ExecutorReport<Q> {
         // Known issue, open (it needs two bugs at once; blocks neither this
         // commit nor a later one): run from a `drop` while another panic
@@ -739,8 +718,7 @@ pub type NoCheck<I> = fn(&ProgramInput<'_, I>) -> Result<(), Rejected>;
 /// to one shot (one state, for a single shot; under [`OnePerShot`], one per
 /// shot), and so does an `adapter_fn`'s under [`OnePerShot`]; a one-state
 /// `adapter_fn` makes one state, from its first call's first shot, and keeps it
-/// for every shot, as a profiler's counts sum all its shots
-/// (`a_one_state_adapters_state_spans_the_shots_of_its_calls`). Hence not
+/// for every shot, as a profiler's counts sum all its shots. Hence not
 /// `make_shot_state`: that last state is not a shot's, and the name would
 /// suggest it is made anew for each shot.
 ///

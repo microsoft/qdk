@@ -41,18 +41,15 @@ fn accepts(&self) -> Option<Arc<InstructionSet>> {
 }
 ```
 
-A toy that lacks one of them is refused when the code is composed with it
-(`the_code_is_built_only_against_an_executor_that_runs_its_gadgets`).
+A toy that lacks one of them is refused when the code is composed with it.
 
-An adapter that changes the instruction set states the set it accepts
-(or `None`), never the one downstream, which its caller cannot send. A driver
-that needs an instruction the code lacks is refused when composed
-(`a_driver_is_composed_only_with_a_code_that_has_the_instructions_it_needs`,
-in `tests/static_isa.rs`).
-A way for a type to give its own description, so that the two cannot
-drift, is left until an executor needs one; until then a test matches
-every variant to a call of its description
-(`each_description_names_every_instruction_it_stands_for`).
+An adapter that changes the instruction set states the set it accepts (or
+`None`), never the one downstream, which its caller cannot send. A driver that
+needs an instruction the code lacks is refused when composed. A way for a type
+to give its own description, so that the two cannot drift, is left until an
+executor needs one; until then a test of the [static instruction set
+guide](../tests/static_isa.rs) matches every variant to a call of its
+description.
 
 ### A run-time set: a description
 
@@ -81,13 +78,13 @@ A set's name is its identity: sets of one name are matched by mnemonic
 ([compatibility](#compatibility)), so name a set for its source (`qep`,
 `c4c6`), not for its role in a chain (`device`, `sent`).
 
-Each instruction has an opcode, its position in the order the set
-declares it: here `coin` is 0 and `reset` 4. A call carries the opcode,
-not the mnemonic, so an executor checks and dispatches it by an index; a
-name is resolved once, when a program or an adapter is built. A log or a
-debugger gets the names back with `set.display(&call)`, from
-`a_call_is_displayed_with_its_mnemonic`, on the tests' `device()`, a set
-whose `rz` takes a block and a real:
+Each instruction has an opcode, its position in the order the set declares it:
+here `coin` is 0 and `reset` 4. A call carries the opcode, not the mnemonic, so
+an executor checks and dispatches it by an index; a name is resolved once, when
+a program or an adapter is built. A log or a debugger gets the names back with
+`set.display(&call)`. From the [tests of
+calls](../src/tests/instruction_set/call.rs), on their `device()`, a set whose
+`rz` takes a block and a real:
 
 ```rust
 let set = device();
@@ -98,25 +95,20 @@ assert_eq!(set.display(&rz).to_string(), "rz(block 2, real 0.5)");
 ```
 
 An opcode means something only in its set. A part of a set, or the same
-instructions in another order, numbers them differently, so an adapter
-resolves the names it sends against the set downstream, never against its own
-(`a_part_of_a_set_numbers_its_instructions_in_its_own_order`). The run-time
-guide's code (`Encoding`) does so when the chain is built, and each call
-then goes down as its gadget with no name looked up.
+instructions in another order, numbers them differently, so an adapter resolves
+the names it sends against the set downstream, never against its own. The
+run-time guide's code (`Encoding`) does so when the chain is built, and each
+call then goes down as its gadget with no name looked up.
 
-An executor dispatches a call through an `OpcodeTable`, which it builds
-from its set once: `set.table(|mnemonic| …)` holds the entry the closure
-gives for each instruction at the instruction's opcode
-(`a_table_holds_each_instructions_entry_at_its_opcode`), and is refused
-with every mnemonic it gives none for, so that all are seen at once
-(`a_table_reports_every_instruction_without_an_entry`).
+An executor dispatches a call through an `OpcodeTable`, which it builds from its
+set once: `set.table(|mnemonic| …)` holds the entry the closure gives for each
+instruction at the instruction's opcode, and is refused with every mnemonic it
+gives none for, so that all are seen at once.
 
-Building or copying a call of up to three operands allocates no
-memory, nor does an `ImmediateReply` of at most one event built with
-`push`
-(`a_call_of_up_to_inline_operands_allocates_nothing`,
-`an_immediate_reply_of_at_most_one_event_allocates_nothing`;
-[Calls and replies that allocate nothing](internals/instruction-sets.md#calls-and-replies-that-allocate-nothing)).
+Building or copying a call of up to three operands allocates no memory, nor does
+an `ImmediateReply` of at most one event built with `push` ([Calls and replies
+that allocate
+nothing](internals/instruction-sets.md#calls-and-replies-that-allocate-nothing)).
 
 ### What an instruction does
 
@@ -148,78 +140,58 @@ fn stim() -> InstructionSet {
 }
 ```
 
-Two actions are the same when they are written the same, up to the order
-of a Pauli's factors and of a Clifford's images
-(`a_paulis_factors_compare_whatever_their_order`); steps in another order
-differ (`actions_with_their_steps_in_another_order_differ`). The full
-rule is in
-[When two actions are the same](internals/instruction-sets.md#when-two-actions-are-the-same).
-An instruction may declare no action (`InstructionSet::with`), as a
-vendor's instruction may not; it is then matched only in a set of its
-name ([compatibility](#compatibility)).
+Two actions are the same when they are written the same, up to the order of a
+Pauli's factors and of a Clifford's images; steps in another order differ. The
+full rule is in [When two actions are the
+same](internals/instruction-sets.md#when-two-actions-are-the-same). An
+instruction may declare no action (`InstructionSet::with`), as a vendor's
+instruction may not; it is then matched only in a set of its name
+([compatibility](#compatibility)).
 
 Known issue, open: nothing checks an action's blocks against the `Block`
-operands of its instruction, so a description that disagrees with itself
-is matched as written; a loader that reads both from one Qodec instruction
-keeps them together
-(`an_instruction_whose_action_and_operands_disagree_on_its_blocks_is_not_matched`,
-ignored, in `src/tests/instruction_set.rs`).
+operands of its instruction, so a description that disagrees with itself is
+matched as written; a loader that reads both from one Qodec instruction keeps
+them together (a test of the fix is written, and ignored until the fix lands).
 
 ### Compatibility
 
-One set's instructions are matched in another's by
-`InstructionSet::opcodes_in`, which gives each its opcode there
-(`the_map_gives_each_instructions_opcode_in_the_other_set`). An
-instruction is matched to one taking operands of the same kinds in the
-same order:
+One set's instructions are matched in another's by `InstructionSet::opcodes_in`,
+which gives each its opcode there. An instruction is matched to one taking
+operands of the same kinds in the same order:
 
-- **By mnemonic, in a set of the same name**, with no action needed: a
-  set's name is its identity
-  (`a_set_without_actions_is_matched_by_mnemonic_in_a_set_of_its_name`).
-- **By action, whatever its mnemonic, in a set of another name**, when
-  both sets declare what it does: Stim's `R` is the toy's `reset`
-  (`an_instruction_is_matched_by_action_under_another_mnemonic`).
-- **Refused otherwise**: between sets of other names, an instruction
-  whose action either set leaves undeclared
-  (`an_instruction_whose_action_either_set_leaves_undeclared_is_refused`).
+- **By mnemonic, in a set of the same name**, with no action needed: a set's
+  name is its identity.
+- **By action, whatever its mnemonic, in a set of another name**, when both sets
+  declare what it does: Stim's `R` is the toy's `reset`.
+- **Refused otherwise**: between sets of other names, an instruction whose
+  action either set leaves undeclared.
 
 A mnemonic that both sets declare to do different things is refused as
-`DifferentAction`, even where another instruction does the same
-(`a_mnemonic_both_sets_declare_doing_different_things_is_refused_whatever_their_names`).
-Every instruction not matched is reported, so that all can be fixed at
-once (`every_instruction_not_matched_is_reported`).
+`DifferentAction`, even where another instruction does the same. Every
+instruction not matched is reported, so that all can be fixed at once.
 
 One set fits another (`InstructionSet::fits`) when each of its
 instructions is matched there. So:
 
-- a part of a set fits the set (`a_part_of_a_set_fits_the_set`), and a
-  set does not fit a part of itself
-  (`a_set_does_not_fit_a_part_of_itself`);
-- opcodes do not matter: two sets that declare the same instructions in
-  another order fit each other
-  (`sets_declaring_the_same_instructions_in_another_order_fit_each_other`);
-- operands match by position: a `measure` taking a tag then a block does
-  not fit one taking a block then a tag
-  (`an_instruction_taking_its_operands_in_another_order_downstream_does_not_fit`).
+- a part of a set fits the set, and a set does not fit a part of itself;
+- opcodes do not matter: two sets that declare the same instructions in another
+  order fit each other;
+- operands match by position: a `measure` taking a tag then a block does not fit
+  one taking a block then a tag.
 
 Since a part fits the whole, a component states only the instructions it
 uses, and composes with any component downstream that accepts them, in
 any order:
 
-- **An adapter** states the instructions it sends (`Adapter::sends`).
-  `compose` checks them against the set downstream, and copies its calls
-  into the downstream numbering where it numbers them otherwise
-  (`calls_in_another_numbering_are_renumbered_on_their_way_down`).
+- **An adapter** states the instructions it sends (`Adapter::sends`). `compose`
+  checks them against the set downstream, and copies its calls into the
+  downstream numbering where it numbers them otherwise.
 - **A driver** states the instructions its program sends
-  (`Needs::with_instructions`). A set the chain lacks is refused when
-  composed, with every instruction that does not fit
-  (`a_set_the_executor_lacks_is_refused_with_every_instruction_that_does_not_fit`).
-  A driver of `InstructionCall`s whose set numbers its instructions
-  otherwise runs its own instructions, each batch copied into the chain's
-  numbering
-  (`a_driver_whose_set_is_in_another_order_runs_its_own_instructions`). A
-  typed driver's calls reach the executor as they are
-  (`a_typed_driver_in_another_order_runs_its_instructions_as_they_are`).
+  (`Needs::with_instructions`). A set the chain lacks is refused when composed,
+  with every instruction that does not fit. A driver of `InstructionCall`s whose
+  set numbers its instructions otherwise runs its own instructions, each batch
+  copied into the chain's numbering. A typed driver's calls reach the executor
+  as they are.
 
 A caller that calls an executor directly, without a run, sends calls in
 the executor's numbering: the set the executor describes
@@ -238,30 +210,22 @@ what a driver of each instruction type gets are in
 A description is checked in three places, each before anything runs:
 
 1. **When the chain is built**: what an adapter sends must fit the set
-   downstream, and every fault of the parts built together is reported at
-   once
-   (`an_adapter_accepting_what_the_downstream_set_lacks_is_refused_when_built`,
-   `every_build_fault_is_reported_at_once`); a part composed with the
-   executor first is built on its own, before what is upstream of it
-   ([Composing a run](composition.md#composing-a-run)).
-2. **When a driver is composed, or by hand with `Capabilities::admit`**:
-   the instructions a caller needs must fit the set the chain accepts,
-   and their unmet need lists each that does not
-   (`every_needed_instruction_not_offered_is_reported`,
-   `a_driver_whose_needs_the_chain_lacks_is_refused_when_composed`).
-   `compose` reports every unmet need of the driver
-   (`every_need_of_a_driver_that_the_chain_lacks_is_reported`); `admit`
-   returns only the first, in a fixed order where the instructions come
-   after qubits, feedback, resets, replayable and probabilities, so an
-   earlier unmet need hides the instructions'
-   (`several_unmet_needs_are_reported_one_at_a_time_in_a_fixed_order`).
-3. **At each call**, by an executor of `InstructionCall`s, since the
-   compiler cannot: `InstructionSet::check_batch` refuses the batch with
-   `Rejected::Instruction` at its first call whose opcode the set lacks or
-   whose operands are of other kinds. The conformance check
-   `conformance::refuses_calls_outside_its_set` checks that an executor
-   keeps the rule
-   (`the_device_and_the_code_refuse_calls_outside_their_sets`).
+   downstream, and every fault of the parts built together is reported at once;
+   a part composed with the executor first is built on its own, before what is
+   upstream of it ([Composing a run](composition.md#composing-a-run)).
+2. **When a driver is composed, or by hand with `Capabilities::admit`**: the
+   instructions a caller needs must fit the set the chain accepts, and their
+   unmet need lists each that does not. `compose` reports every unmet need of
+   the driver; `admit` returns only the first, in a fixed order where the
+   instructions come after qubits, feedback, resets, replayable and
+   probabilities, so an earlier unmet need hides the instructions'.
+3. **At each call**, by an executor of `InstructionCall`s, since the compiler
+   cannot: `InstructionSet::check_batch` refuses the batch with
+   `Rejected::Instruction` at its first call whose opcode the set lacks or whose
+   operands are of other kinds. The conformance check
+   `conformance::refuses_calls_outside_its_set` checks that an executor keeps
+   the rule, and the [run-time instruction set guide](../tests/runtime_isa.rs)
+   runs it on its device and its code.
 
 The errors of each check, its tests, and what checking each call costs
 are in
@@ -322,16 +286,14 @@ rz.gadget.yaml:
    three of the fixture's instructions by hand, their Stim circuits
    written as calls.
 2. **Matching the downstream set by action.** The physical set of this fixture
-   names its instructions after Stim (`R`, `M`, `X`), not after the
-   executor downstream (`reset`, `measure`, `x`). A loader would read each
-   instruction's `in`, `out` and `action` into an `Action`
-   (`InstructionSet::with_action`), so that the sets are matched by action;
-   an instruction without one is refused ([compatibility](#compatibility);
-   `an_instruction_the_code_sends_without_an_action_is_refused_when_built`).
-   An instruction with `in` and `out` but no `action` (the fixture's
-   `idle`) is the identity, as Qodec checks it, so a loader would declare
-   `Action::new([1], [1])` for it. Parsing Qodec's Paulis and steps stays
-   with the loader.
+   names its instructions after Stim (`R`, `M`, `X`), not after the executor
+   downstream (`reset`, `measure`, `x`). A loader would read each instruction's
+   `in`, `out` and `action` into an `Action` (`InstructionSet::with_action`), so
+   that the sets are matched by action; an instruction without one is refused
+   when the chain is built ([compatibility](#compatibility)). An instruction
+   with `in` and `out` but no `action` (the fixture's `idle`) is the identity,
+   as Qodec checks it, so a loader would declare `Action::new([1], [1])` for it.
+   Parsing Qodec's Paulis and steps stays with the loader.
 3. **Ancillas.** `idle` uses qubits 3 and 4, outside the block. A loader
    would name them as ancillas, placed after every block and shared by all
    gadgets, so that the qubits a code needs are one block and the most
@@ -350,14 +312,12 @@ rz.gadget.yaml:
    constant argument of a gadget's call (as `M(0.01) 0`), an `OperandKind`
    for a `bit` parameter (a run-time input) and for a variadic block
    operand.
-5. **Readouts and decoding.** A logical readout is the parity of the
-   circuit readouts its gadget names, and one of them without a value
-   leaves it without one
-   (`a_circuit_readout_with_no_value_leaves_its_logical_readout_without_one`).
-   Still missing: a logical readout that is a parity plus a constant bit,
-   and a decoder, which reads the checks' readouts and tracks the Pauli
-   frame (`in[0].z[0]` reads the frame, and counts as 0 in the guide)
-   through the shot, seeing every readout of the shot.
+5. **Readouts and decoding.** A logical readout is the parity of the circuit
+   readouts its gadget names, and one of them without a value leaves it without
+   one. Still missing: a logical readout that is a parity plus a constant bit,
+   and a decoder, which reads the checks' readouts and tracks the Pauli frame
+   (`in[0].z[0]` reads the frame, and counts as 0 in the guide) through the
+   shot, seeing every readout of the shot.
 6. **What would be refused when built.** Until each is supported, a
    loader would refuse it when the chain is built, naming the gadget, so
    that a code never runs wrongly: Pauli frame updates, feed-forward (steps
@@ -370,25 +330,24 @@ The guide's example shows items 2 and 5, except what item 5 lists as
 still missing; the decoder of item 5 would run with the code, not in it.
 
 **Region execution of adaptive programs (planned),** for programs whose
-measurements decide what runs next, such as the phase estimation of H₂.
-None of it is built yet. A runtime (planned) would be an adapter that runs
-the program's classical part itself and sends its quantum regions
-downstream. The last executors of its chains would be
-`Executor<InstructionBatch<RegionInstruction>>` (a planned type): the
-regions' instructions would be a type, which the compiler would check the
-runtime against, and an executor would refuse only qubits and results
-beyond its own, so nothing would need describing. A description is for when
-the gates a program uses (QIR's) and those an executor accepts can differ:
-an executor of native gates, or one that simulates only Clifford gates,
-would describe them, and the runtime would state the gates it sends
-(`Adapter::sends`), which `compose` matches in the set described downstream
-when the chain is built, so a missing gate would be refused then instead of
-in the middle of the program. The executor downstream of the runtime would
-keep its type: what it describes would be the gates inside its regions, not
-the variants of `RegionInstruction`. What exists is `Rejected::at_origin`:
-it renumbers a refusal from downstream so that it names the instruction the
-adapter received, as the repetition code does
-(`a_refusal_names_the_logical_instruction`).
+measurements decide what runs next, such as the phase estimation of H₂. None of
+it is built yet. A runtime (planned) would be an adapter that runs the program's
+classical part itself and sends its quantum regions downstream. The last
+executors of its chains would be `Executor<InstructionBatch<RegionInstruction>>`
+(a planned type): the regions' instructions would be a type, which the compiler
+would check the runtime against, and an executor would refuse only qubits and
+results beyond its own, so nothing would need describing. A description is for
+when the gates a program uses (QIR's) and those an executor accepts can differ:
+an executor of native gates, or one that simulates only Clifford gates, would
+describe them, and the runtime would state the gates it sends
+(`Adapter::sends`), which `compose` matches in the set described downstream when
+the chain is built, so a missing gate would be refused then instead of in the
+middle of the program. The executor downstream of the runtime would keep its
+type: what it describes would be the gates inside its regions, not the variants
+of `RegionInstruction`. What exists is `Rejected::at_origin`: it renumbers a
+refusal from downstream so that it names the instruction the adapter received,
+as the repetition code of the [static instruction set
+guide](../tests/static_isa.rs) does.
 
 **A device over a link (L1 and L0, planned, with no milestone yet).** A
 remote device, such as one behind a cloud service, is reached over a link.

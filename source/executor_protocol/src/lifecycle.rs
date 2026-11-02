@@ -250,8 +250,7 @@ impl PartsFailure {
 ///
 /// An executor whose shots share one counter: a `true` counts, a `false` is
 /// where its device stops, after the instructions before it ran. Once its
-/// device stopped, it refuses every call (the crate's test
-/// `a_counter_refuses_calls_after_its_device_stops`).
+/// device stopped, it refuses every call.
 ///
 /// ```
 /// use executor_protocol::{

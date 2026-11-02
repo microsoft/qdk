@@ -2,14 +2,16 @@
 
 [Protocol overview](../../README.md).
 
-This page is for maintainers of the crate, and for those who need a rule
-at its edge: the protocol's rules that the other pages build on; levels,
-roles and the three laws; how adapters compose; the parts of a run and
-the rules of composition in full, with every boundary of calls by opcode
-and what a boundary costs; the executor form and composing by hand; the
-rules of a job given to a chain; and the known limits of what is built,
-with the planned features that lift them. A user putting parts together
-needs none of it to start, and starts at [Composition](../composition.md).
+This page is for maintainers of the crate, and for those who need a rule at its
+edge: the protocol's rules that the other pages build on; levels, roles and the
+three laws; how adapters compose; the parts of a run and the rules of
+composition in full, with every boundary of calls by opcode and what a boundary
+costs; the executor form and composing by hand; the rules of a job given to a
+chain; the known limits of what is built, with the planned features that lift
+them; and, last, the tests of the promises of [Composition](../composition.md),
+of the planned features, of rejections and of the API docs of `AdapterExecutor`
+that the sections do not cite. A user putting parts together needs none of it to
+start, and starts at [Composition](../composition.md).
 
 ## What this crate does
 
@@ -716,3 +718,46 @@ State queries are not shots, so no message carries them: a query such as
 the energy of a variational circuit, an expectation value of a Pauli sum,
 is planned, with no milestone yet, as a trait on executors that hold a
 state.
+
+## The tests of the user pages' promises
+
+Each promise of [Composition](../composition.md), [Planned
+features](../planned.md), [Rejections and retries](../rejections.md) and the API
+docs of `AdapterExecutor` that the sections above do not pin, in each page's
+order, with the tests that pin it.
+
+From [Composition](../composition.md):
+
+| Promise                                                                                               | Tests                                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A run turned into a future runs nothing until it is polled                                            | `a_run_turned_into_a_future_runs_nothing_until_polled` (`src/tests/compose/run.rs`)                                                                                                                                             |
+| The interpreter sends a `StaticProgram`'s batches each to every shot of the job in one call, in order | `a_static_program_gives_every_shots_outcomes_batch_after_batch` (`src/tests/driver/static_program.rs`), `below_the_debugger_each_shots_batch_is_a_call_of_its_own` (`tests/observers.rs`; its run alone makes a call per batch) |
+| A set of shots names at least one shot, and each shot once                                            | `a_shot_set_names_at_least_one_shot`, `a_shot_set_names_each_shot_once` (`src/tests/shot.rs`)                                                                                                                                   |
+| Observers stacked in one chain each see what they see alone                                           | `stacked_observers_each_see_what_they_see_alone` (`tests/observers.rs`)                                                                                                                                                         |
+
+From [Planned features](../planned.md):
+
+| Promise                                                                                                                                                    | Tests                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| A call on a qubit that a static program does not state is found at its batch only by the executor's check, and the outcomes of earlier batches are dropped | `a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_batch` (`src/tests/driver/static_program.rs`) |
+
+From [Rejections and retries](../rejections.md):
+
+| Promise                                                                                                                    | Tests                                                                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Each reason has its retry class                                                                                            | `every_known_reason_has_its_retry_class` (`src/tests/rejected.rs`)                                                                                                                        |
+| An `Unrecognized` reason keeps the far end's class and text                                                                | `an_unrecognized_reason_keeps_the_far_ends_class_and_text` (`src/tests/rejected.rs`)                                                                                                      |
+| A driver of more shots than the executor holds is refused with `Unmet(States)` when composed, and by `Capabilities::admit` | `a_driver_of_more_shots_than_the_executor_holds_is_refused_when_composed` (`src/tests/compose.rs`), `more_shots_than_states_are_unmet_even_with_the_default_needs` (`src/tests/needs.rs`) |
+| A busy device refuses with `Unavailable`, and the same message runs when sent again                                        | `a_busy_device_refuses_the_call_and_prepares_the_state_at_the_next` (`tests/per_shot_executor.rs`)                                                                                        |
+| A state that cannot be made yet refuses the call downstream of an adapter too                                              | `a_state_that_cannot_be_made_refuses_the_call_through_an_adapter` (`src/tests/compose/adapters.rs`)                                                                                       |
+
+From the API docs of `AdapterExecutor`, the executor `compose` makes of an
+adapter written by hand, in `src/tests/compose/adapters.rs` unless named
+elsewhere:
+
+| Promise                                                                                                                                                                  | Tests                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Dropped over the crate's executors, it raises no panic of the drops of their states                                                                                      | `dropping_frees_each_state_below_an_adapter_written_by_hand_raising_no_panic_of_their_drops`      |
+| A function that makes the chain's executor returns it by this name                                                                                                       | `a_function_returns_an_adapter_written_by_hand_over_an_executor_for_shr` (`src/tests/compose.rs`) |
+| When the close of the executor the adapter gave panics, as with the first panic of the drops of the states below, the panic reaches the closer once every state is freed | `closing_frees_each_state_below_an_adapter_written_by_hand_then_raises_the_first_drops_panic`     |
+| A later close does not close that executor again                                                                                                                         | `a_close_of_an_adapters_executor_that_panicked_is_not_run_again`                                  |

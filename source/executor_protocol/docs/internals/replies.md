@@ -2,15 +2,15 @@
 
 [Protocol overview](../../README.md).
 
-This page is for maintainers of the crate, and for those who need a rule
-at its edge: the order of a reply's events for each kind of executor; how
-the two replies of one call differ, and how they end when a side is
-dropped or cancelled; a worker relaying an inner reply; the waking cycle
-step by step, how each way of taking a reply sleeps, why `wait` loses no
-wake, several calls in flight and async tasks, with the tests' runtimes;
-and the rules and tests of readout tags, with what the check costs. A
-user taking or making replies needs none of it to start, and starts at
-[Replies](../replies.md).
+This page is for maintainers of the crate, and for those who need a rule at its
+edge: the order of a reply's events for each kind of executor; how the two
+replies of one call differ, and how they end when a side is dropped or
+cancelled; a worker relaying an inner reply; the waking cycle step by step, how
+each way of taking a reply sleeps, why `wait` loses no wake, several calls in
+flight and async tasks, with the tests' runtimes; the rules and tests of readout
+tags, with what the check costs; and, last, the tests of the promises of
+[Replies](../replies.md) that the sections do not cite. A user taking or making
+replies needs none of it to start, and starts at [Replies](../replies.md).
 
 ## The order of a reply's events
 
@@ -410,3 +410,15 @@ a batch of one readout (no allocation), and 1.5 to 13 ns per readout for
 ten thousand, by how scrambled the tags are
 (`cargo bench -p executor_protocol --bench readout_tags`). A runtime that
 sends a batch at each measurement pays the first.
+
+## The tests of the user page's promises
+
+Each promise of [Replies](../replies.md) that the sections above do not pin, in
+the page's order, with the tests that pin it.
+
+| Promise                                                                                                                     | Tests                                                                                                             |
+| --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Polling: a driver with `Waker::noop()` does its own work between polls                                                      | `a_driver_with_a_noop_waker_does_its_own_work_between_polls` (`src/tests/reply.rs`)                               |
+| Async: `wait_async` is a `Future` of the whole reply                                                                        | `wait_async_is_a_future_of_the_whole_reply` (`src/tests/reply/asynchronous.rs`)                                   |
+| Stream: `async_events` gives each batch of events as it comes                                                               | `async_events_gives_each_batch_of_events_as_it_comes` (`src/tests/reply/asynchronous.rs`)                         |
+| An adapter whose logic waits below hands over nothing before that logic returns, not even what its sends below already read | `a_call_returns_only_once_its_logic_returns_though_a_send_below_already_read` (`src/tests/adapter/adapter_fn.rs`) |

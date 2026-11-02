@@ -107,8 +107,8 @@ pub struct AdapterFn<I, O, S, M, L, C = NoCheck<I>, R = NoStateReport> {
 /// code's lowering and decoder), or records them (a debugger).
 ///
 /// The adapter keeps the rules of every executor of the crate, as
-/// [`executor_fn`](fn@crate::executor_fn) does (the tests named from here
-/// on are in `src/tests/adapter/adapter_fn.rs`, unless a file is named):
+/// [`executor_fn`](fn@crate::executor_fn) does (the crate's
+/// `docs/internals/adapters.md` lists the tests that pin them):
 ///
 /// - a call is refused when closed ([`Rejected::Closed`]) and after a call
 ///   failed ([`Rejected::EarlierFailure`]), before anything runs; then
@@ -141,63 +141,47 @@ pub struct AdapterFn<I, O, S, M, L, C = NoCheck<I>, R = NoStateReport> {
 /// - a send's reply cancelled below ends the call cancelled, unless the
 ///   call fails, and fails the adapter, as a failure does: the call keeps
 ///   no state made for it, and every later call is refused;
-/// - when a send's reply fails, or is cancelled, depends on the executor
-///   below. One that answers within its call, as an
-///   [`executor_fn`](fn@crate::executor_fn) does unless placed, has ended
-///   the send's reply when the send returns: a failure is the send's
-///   `Err`, and nothing more goes down. One that answers later, as one
-///   placed on another thread
-///   ([`ExecutorFn::run_on`](crate::ExecutorFn::run_on)), ends it when its
-///   work ends. The adapter sees an end that came during the call by the
-///   logic's next run, or as the logic returns: the sends the logic made
-///   in between still go down. An end that comes only after the call
-///   returned leaves a call that did not fail in it its state, as the
-///   adapter learns of that end only as the call's reply is read
-///   ([`AdapterFn::state_report`];
-///   `a_state_whose_calls_reply_below_failed_later_is_reported`), and
-///   fails the adapter as the call's reply gives it: the reply ends at
-///   once, when that send's
-///   reply is polled, with the call's own failure if it has one, the one
-///   later calls are refused with
-///   (`a_call_that_failed_ends_with_its_own_failure_though_a_send_fails_after_it_returned`).
-///   Known issue: should that reply be dropped before it ends, the
-///   adapter fails only when the executor below refuses a later call for
-///   that failure;
+/// - when a send's reply fails, or is cancelled, depends on the executor below.
+///   One that answers within its call, as an
+///   [`executor_fn`](fn@crate::executor_fn) does unless placed, has ended the
+///   send's reply when the send returns: a failure is the send's `Err`, and
+///   nothing more goes down. One that answers later, as one placed on another
+///   thread ([`ExecutorFn::run_on`](crate::ExecutorFn::run_on)), ends it when
+///   its work ends. The adapter sees an end that came during the call by the
+///   logic's next run, or as the logic returns: the sends the logic made in
+///   between still go down. An end that comes only after the call returned
+///   leaves a call that did not fail in it its state, as the adapter learns of
+///   that end only as the call's reply is read ([`AdapterFn::state_report`]),
+///   and fails the adapter as the call's reply gives it: the reply ends at
+///   once, when that send's reply is polled, with the call's own failure if it
+///   has one, the one later calls are refused with. Known issue: should that
+///   reply be dropped before it ends, the adapter fails only when the executor
+///   below refuses a later call for that failure;
 /// - should the check, `make_state` or the logic panic, the panic reaches the
-///   caller, and the adapter fails (`the executor panicked during the
-///   call`). So does the panic of the drop of a state made for a call that
-///   is refused or fails, freed in a catch of its own
-///   (`a_refused_call_frees_the_state_made_for_it_and_raises_its_drops_panic`,
-///   `a_failed_call_frees_the_state_made_for_it_and_raises_its_drops_panic`);
-///   freed as another panic unwinds, it leaves its own to the panic hook
-///   (`a_logics_panic_reaches_the_caller_though_its_new_states_drop_panics_too`).
+///   caller, and the adapter fails (`the executor panicked during the call`).
+///   So does the panic of the drop of a state made for a call that is refused
+///   or fails, freed in a catch of its own; freed as another panic unwinds, it
+///   leaves its own to the panic hook.
 ///
 /// At close, the state is reported, if the adapter is given how
 /// ([`AdapterFn::state_report`]), and dropped, then the executor below is
-/// closed: the report is its report, beside the adapter's if it has one.
-/// The executor below is closed once, whatever failed, a report closure's
-/// or the state's drop's panic included, which reaches the closer once it
-/// is closed: a later close gives an empty report and closes nothing below
-/// (`a_close_whose_state_drop_panics_closes_below_then_raises_it`).
+/// closed: the report is its report, beside the adapter's if it has one. The
+/// executor below is closed once, whatever failed, a report closure's or the
+/// state's drop's panic included, which reaches the closer once it is closed: a
+/// later close gives an empty report and closes nothing below.
 ///
-/// The adapter's executor, dropped rather than closed, never panics for
-/// the adapter's parts: the state's drop that panics is absorbed, in a
-/// catch of its own, after the panic hook reported it, during an unwind
-/// too; call `close` to see it
-/// (`dropped_it_frees_its_state_raising_no_panic_of_its_drop`). So is the
-/// drop of what its closures capture, each closure in a catch of its own;
-/// `close` raises only the state's
-/// (`dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops`).
-/// The executor below is dropped by its own rule.
+/// The adapter's executor, dropped rather than closed, never panics for the
+/// adapter's parts: the state's drop that panics is absorbed, in a catch of its
+/// own, after the panic hook reported it, during an unwind too; call `close` to
+/// see it. So is the drop of what its closures capture, each closure in a catch
+/// of its own; `close` raises only the state's. The executor below is dropped
+/// by its own rule.
 ///
-/// Each reply a call below gives, a send's or a run's, is held in a catch
-/// of its own from the moment it is given: its drop's panic is absorbed,
-/// whether it is dropped pending, with the call's reply or as the logic's
-/// panic unwinds, where two would abort the process
-/// (`a_dropped_replys_pending_sends_are_freed_raising_no_panic_of_their_drops`,
-/// `a_failed_calls_pending_sends_are_freed_raising_no_panic_of_their_drops`),
-/// or once it ended, its call having run
-/// (`a_reply_from_below_whose_drop_panics_once_ended_leaves_the_call_done`).
+/// Each reply a call below gives, a send's or a run's, is held in a catch of
+/// its own from the moment it is given: its drop's panic is absorbed, whether
+/// it is dropped pending, with the call's reply or as the logic's panic
+/// unwinds, where two would abort the process, or once it ended, its call
+/// having run.
 ///
 /// The state closure is given the context of the call's first shot
 /// (`ShotContext::shot`), as a one-state
@@ -277,17 +261,14 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
         self
     }
 
-    /// This adapter, refusing the calls `check` refuses, before their state
-    /// is made and before the logic runs, so that nothing runs and nothing
-    /// goes below: what the logic cannot serve whatever the state, such as
-    /// an instruction a lowering has no rule for, or a qubit beyond those
-    /// it offers. It replaces the check given before, if any, freeing it,
-    /// and raising no panic of its drop, as `drop` does (the crate's test
-    /// `a_replaced_closure_is_freed_raising_no_panic_of_its_drop`, in
-    /// `src/tests/adapter/adapter_fn.rs`); without one, every call is
+    /// This adapter, refusing the calls `check` refuses, before their state is
+    /// made and before the logic runs, so that nothing runs and nothing goes
+    /// below: what the logic cannot serve whatever the state, such as an
+    /// instruction a lowering has no rule for, or a qubit beyond those it
+    /// offers. It replaces the check given before, if any, freeing it, and
+    /// raising no panic of its drop, as `drop` does; without one, every call is
     /// accepted. The same option as
-    /// [`ExecutorFn::check`](crate::ExecutorFn::check), with the same
-    /// meaning.
+    /// [`ExecutorFn::check`](crate::ExecutorFn::check), with the same meaning.
     #[must_use]
     pub fn check<V>(self, check: V) -> AdapterFn<I, O, S, M, L, V, R>
     where
@@ -321,28 +302,24 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     /// whatever the grouping of `>>`. An adapter given none adds no pair:
     /// its report is the one below, unchanged ([`NoStateReport`]).
     ///
-    /// Every state held at close is reported, a failed one included, but
-    /// not a state made for a call that was refused or failed in it (the
-    /// logic's `Err`, a call below that did not go on, a send's reply that
-    /// failed or was cancelled before the call returned), nor one made for
-    /// a call that panicked. Unlike an executor, which reports no state
-    /// made for a call that failed or for a later one, the adapter learns
-    /// that a send's reply failed after the call returned only as the
-    /// reply is read, so it keeps, and reports, the states made for that
-    /// call
-    /// (`a_state_whose_calls_reply_below_failed_later_is_reported`), and,
-    /// with a state per shot, those made for a later call it admitted
-    /// before the failure was recorded (as that reply was read)
-    /// (`a_state_made_for_a_call_admitted_before_an_earlier_failure_was_recorded_is_reported`).
-    /// A shot that never ran has no state, so no report, and a second
-    /// `close` reports none.
+    /// Every state held at close is reported, a failed one included, but not a
+    /// state made for a call that was refused or failed in it (the logic's
+    /// `Err`, a call below that did not go on, a send's reply that failed or
+    /// was cancelled before the call returned), nor one made for a call that
+    /// panicked. Unlike an executor, which reports no state made for a call
+    /// that failed or for a later one, the adapter learns that a send's reply
+    /// failed after the call returned only as the reply is read, so it keeps,
+    /// and reports, the states made for that call, and, with a state per shot,
+    /// those made for a later call it admitted before the failure was recorded
+    /// (as that reply was read). A shot that never ran has no state, so no
+    /// report, and a second `close` reports none.
     ///
     /// # Example
     ///
-    /// A profiler that counts its shots' instructions, a state per shot,
-    /// over an executor; its counts are folded over the shots, beside the
-    /// executor's report. Excerpt of the crate's test
-    /// `a_counting_adapters_report_is_folded_over_its_shots`:
+    /// A profiler that counts its shots' instructions, a state per shot, over
+    /// an executor; its counts are folded over the shots, beside the executor's
+    /// report. Excerpt of the crate's tests of an adapter with a state per
+    /// shot:
     ///
     /// ```ignore
     /// let counting = adapter_fn(no_counts, count_and_send)
@@ -640,13 +617,9 @@ impl<I, O, S, M, L, C, D: Close> Close for AdapterFnExecutor<I, O, S, M, L, C, N
     /// # Panics
     ///
     /// When the state's drop panics: the panic reaches the caller once the
-    /// executor below is closed
-    /// (`a_close_whose_state_drop_panics_closes_below_then_raises_it`), and
-    /// when the close below panics too, its panic is left to the panic hook
-    /// (`a_state_drops_panic_wins_over_the_close_belows`). When only the
-    /// close below panics, its panic reaches the caller
-    /// (`a_close_belows_panic_reaches_the_closer_when_nothing_panicked_before`;
-    /// these three in `src/tests/adapter/adapter_fn.rs`).
+    /// executor below is closed, and when the close below panics too, its panic
+    /// is left to the panic hook. When only the close below panics, its panic
+    /// reaches the caller.
     fn close(&mut self) -> D::Report {
         self.lifecycle.close();
         let states = self.held.take_raising_first();
@@ -669,19 +642,12 @@ where
     ///
     /// # Panics
     ///
-    /// When `state_report` (or `Q::default`), or the state's drop, panics:
-    /// the panic reaches the caller once the state is dropped and the
-    /// executor below is closed, `state_report`'s when both panic
-    /// (`a_close_whose_state_report_panics_closes_below_then_raises_it`,
-    /// `a_close_whose_reports_default_panics_closes_below_then_raises_it`,
-    /// `a_state_reports_panic_reaches_the_closer_though_the_states_drop_panics_too`).
-    /// When the close below panics too, that first panic still reaches the
-    /// caller, and the close below's is left to the panic hook
-    /// (`a_state_reports_panic_wins_over_the_close_belows`,
-    /// `a_state_drops_panic_wins_over_the_close_belows`). When only the
-    /// close below panics, its panic reaches the caller
-    /// (`a_close_belows_panic_reaches_the_closer_when_nothing_panicked_before`;
-    /// these six in `src/tests/adapter/adapter_fn.rs`).
+    /// When `state_report` (or `Q::default`), or the state's drop, panics: the
+    /// panic reaches the caller once the state is dropped and the executor
+    /// below is closed, `state_report`'s when both panic. When the close below
+    /// panics too, that first panic still reaches the caller, and the close
+    /// below's is left to the panic hook. When only the close below panics, its
+    /// panic reaches the caller.
     fn close(&mut self) -> (Q, D::Report) {
         self.lifecycle.close();
         let states = self.held.take_raising_first();
@@ -1090,19 +1056,15 @@ fn repeated_tag(of_shot: &[ShotOutcome], tags: &mut Vec<u32>) -> Option<u32> {
 }
 
 /// The reply to a call of an [`adapter_fn`]: what its logic wrote, then the
-/// events of each send's reply, polled in the order of the sends, each as
-/// they come: first what they read when polled during the call
-/// ([`Below::send`]), then the rest
-/// (`a_sends_readouts_pass_up_in_the_order_its_reply_gives_them`,
-/// `a_later_sends_readouts_pass_up_before_those_an_earlier_send_gives_later`,
-/// in `src/tests/adapter/adapter_fn.rs`). It ends when every send's reply has
-/// ended, or, failed, at the first that fails, with the call's own failure
-/// if it has one, else that reply's. When every one has ended,
-/// it ends failed with the call's own failure (the logic's, a call below
-/// refused after another went down, a run whose reply failed, was
-/// cancelled or was not whole, or a send's reply that failed during the
-/// call, which drops the others: it ends at the first poll) if any, else
-/// cancelled if one was, else done.
+/// events of each send's reply, polled in the order of the sends, each as they
+/// come: first what they read when polled during the call ([`Below::send`]),
+/// then the rest. It ends when every send's reply has ended, or, failed, at the
+/// first that fails, with the call's own failure if it has one, else that
+/// reply's. When every one has ended, it ends failed with the call's own
+/// failure (the logic's, a call below refused after another went down, a run
+/// whose reply failed, was cancelled or was not whole, or a send's reply that
+/// failed during the call, which drops the others: it ends at the first poll)
+/// if any, else cancelled if one was, else done.
 ///
 /// # Type parameters
 ///

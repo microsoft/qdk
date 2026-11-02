@@ -78,11 +78,9 @@ pub trait Adapter {
     /// and renumbered into it; except one that makes calls by opcode from
     /// instructions of another type, which must state what it sends, and one
     /// that decodes calls by opcode into typed instructions, whose calls are
-    /// checked only upstream of it, against this set.
-    /// It is read before [`build`](Adapter::build), which cannot change it
-    /// (`a_code_stating_its_offer_whole_from_downstreams_offers_the_set_it_accepts`),
-    /// so an adapter whose set depends on downstream's is given downstream's
-    /// set when constructed.
+    /// checked only upstream of it, against this set. It is read before
+    /// [`build`](Adapter::build), which cannot change it, so an adapter whose
+    /// set depends on downstream's is given downstream's set when constructed.
     #[must_use]
     fn accepts(&self) -> Option<Arc<InstructionSet>> {
         None
@@ -94,27 +92,24 @@ pub trait Adapter {
     /// [`adapter_fn`](fn@adapter_fn) is given it, and an adapter written by
     /// hand is given its seeds, bound to this id, when built
     /// ([`AdapterBoundary::drawing_seeds`]), so that it states the id here
-    /// only. `None` when it draws none.
-    /// Refused with [`BuildError::RngInUse`] when a component downstream
-    /// draws with it, and with [`BuildError::NoRunSeed`] when no run's seed
-    /// reaches it: only an [`executor_fn`](fn@crate::executor_fn) given a
-    /// seed passes one up today. So an adapter written by hand that draws
-    /// is tested composed over such an executor, which is how it gets its
-    /// seeds (`tests/simulator.rs`:
-    /// `a_noise_model_written_by_hand_draws_from_its_own_seeds_in_either_grouping`).
-    /// An adapter that draws offers its id with those below it
-    /// ([`Capabilities::rng_ids`]) and no `probabilities`, whatever it
-    /// offers ([`AdapterBoundary::offered_upstream`]): the log probability
-    /// its downstream executor reports does not hold its draws. One id per
-    /// adapter: one that draws several streams derives them from its one
-    /// seed, as a JAX key is split: stream `k` of a shot from
+    /// only. `None` when it draws none. Refused with [`BuildError::RngInUse`]
+    /// when a component downstream draws with it, and with
+    /// [`BuildError::NoRunSeed`] when no run's seed reaches it: only an
+    /// [`executor_fn`](fn@crate::executor_fn) given a seed passes one up today.
+    /// So an adapter written by hand that draws is tested composed over such an
+    /// executor, which is how it gets its seeds, as in the simulator guide
+    /// (`tests/simulator.rs`). An adapter that draws offers its id with those
+    /// below it ([`Capabilities::rng_ids`]) and no `probabilities`, whatever it
+    /// offers ([`AdapterBoundary::offered_upstream`]): the log probability its
+    /// downstream executor reports does not hold its draws. One id per adapter:
+    /// one that draws several streams derives them from its one seed, as a JAX
+    /// key is split: stream `k` of a shot from
     /// [`shot_seed`](crate::shot_seed)`(s, k)`, with `k` in the place of the
     /// shot and `s` the adapter's seed for the shot
-    /// ([`AdapterSeeds::shot`](crate::AdapterSeeds::shot)). The streams of
-    /// one shot then have distinct seeds, since `k ↦ shot_seed(s, k)` is
-    /// one-to-one (`a_runs_shots_never_share_a_seed`); across shots, and
-    /// against other components' seeds, they are distinct only as 64-bit
-    /// hashes, not by construction.
+    /// ([`AdapterSeeds::shot`](crate::AdapterSeeds::shot)). The streams of one
+    /// shot then have distinct seeds, since `k ↦ shot_seed(s, k)` is
+    /// one-to-one; across shots, and against other components' seeds, they are
+    /// distinct only as 64-bit hashes, not by construction.
     #[must_use]
     fn draws(&self) -> Option<ComponentId> {
         None

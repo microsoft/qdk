@@ -36,33 +36,29 @@ use crate::{Message, Rejected, Reply, ShotId};
 ///   [`RetryClass::Resend`](crate::RetryClass::Resend), such as
 ///   [`Rejected::NoReply`]: no verdict arrived over a link, so work may
 ///   have run ([`Executor::call`]).
-/// - A failure once work has started fails the reply, not the call: the
-///   reply ends with [`ReplyStatus::Failed`](crate::ReplyStatus::Failed). An
-///   executor whose state carries over from one call to the next (a shot's
-///   state, or the states of its shots) then refuses its later calls
-///   ([`Rejected::EarlierFailure`]), since that state is no longer the one
-///   its caller expects. A later call in flight as the failure happens
-///   ends with it too once the failure is recorded as the executor's (on
-///   an [`ExecutorLifecycle`](crate::ExecutorLifecycle): with `fail` when
-///   it failed inside `call`, or by a reply bound with `bind` as that reply
-///   is polled): refused, or failed with no more events, since it would run on
+/// - A failure once work has started fails the reply, not the call: the reply
+///   ends with [`ReplyStatus::Failed`](crate::ReplyStatus::Failed). An executor
+///   whose state carries over from one call to the next (a shot's state, or the
+///   states of its shots) then refuses its later calls
+///   ([`Rejected::EarlierFailure`]), since that state is no longer the one its
+///   caller expects. A later call in flight as the failure happens ends with it
+///   too once the failure is recorded as the executor's (on an
+///   [`ExecutorLifecycle`](crate::ExecutorLifecycle): with `fail` when it
+///   failed inside `call`, or by a reply bound with `bind` as that reply is
+///   polled): refused, or failed with no more events, since it would run on
 ///   that state; a poll that runs as the failure is recorded may still leave
-///   the reply pending and hand over that poll's own events, and the next
-///   poll ends it (a known issue, noted at
-///   [`LifecycleBoundReply`](crate::LifecycleBoundReply)'s source;
-///   `a_reply_left_pending_as_an_earlier_failure_is_recorded_ends_at_its_next_poll`,
-///   in `src/tests/lifecycle.rs`). Refusing a new call ends no call already in
-///   flight: placed per shot, the executor refuses a call once a shot's state
-///   failed, yet a call in flight on other shots may still end done. Until
-///   the failure is recorded, such a call may end as its own work does: an
-///   executor of several shots may have handed over the events of shots
-///   that ran before, and a call on other shots may end done
-///   (`a_call_queued_behind_a_shots_failure_fails_while_its_other_shots_run`,
-///   `a_call_on_other_shots_ends_done_while_the_failing_reply_is_unpolled`,
-///   in `src/tests/executor_fn/one_per_shot/placed.rs`; a design question,
-///   open, recorded at [`ShotReplies`](crate::ShotReplies)'s source). The
-///   `conformance` check `ends_calls_in_flight_at_an_earlier_failure`
-///   polls the failing call's reply first.
+///   the reply pending and hand over that poll's own events, and the next poll
+///   ends it (a known issue, noted at
+///   [`LifecycleBoundReply`](crate::LifecycleBoundReply)'s source). Refusing a
+///   new call ends no call already in flight: placed per shot, the executor
+///   refuses a call once a shot's state failed, yet a call in flight on other
+///   shots may still end done. Until the failure is recorded, such a call may
+///   end as its own work does: an executor of several shots may have handed
+///   over the events of shots that ran before, and a call on other shots may
+///   end done (a design question, open, recorded at
+///   [`ShotReplies`](crate::ShotReplies)'s source). The `conformance` check
+///   `ends_calls_in_flight_at_an_earlier_failure` polls the failing call's
+///   reply first.
 /// - Once closed ([`Close`]), it refuses every call.
 /// - A wrapper never forgets a refusal. A wrapper is an executor that
 ///   wraps another, or is made of one, and continues it, as `.shots(..)`
@@ -223,8 +219,7 @@ impl<A: Fold, B: Fold> Fold for (A, B) {
 
 /// Ends an executor's work and returns its report. A driver never closes the
 /// chain it calls: its run does, once, when the program's future has ended
-/// ([`Run`](crate::Run),
-/// `a_run_closes_its_executor_once_after_the_drivers_last_call`).
+/// ([`Run`](crate::Run)).
 ///
 /// The rules of `close` (later calls rejected, a second report empty) are
 /// not checked by the type system. To keep them, an executor that passes
@@ -244,17 +239,15 @@ pub trait Close {
     /// hand gives, whose composed executor rejects them for it
     /// ([`Executor`]'s contract). A second `close` returns an empty report.
     ///
-    /// A reply dropped before its end does not stop its call's work, and
-    /// what `close` does with that work is the executor's own: one made
-    /// with [`executor_fn`](fn@crate::executor_fn) and not placed ran it
-    /// inside `call`, so none is left; a placed one
+    /// A reply dropped before its end does not stop its call's work, and what
+    /// `close` does with that work is the executor's own: one made with
+    /// [`executor_fn`](fn@crate::executor_fn) and not placed ran it inside
+    /// `call`, so none is left; a placed one
     /// ([`PlacedExecutor`](crate::PlacedExecutor), and
-    /// [`OnePerShotPlacedExecutor`](crate::OnePerShotPlacedExecutor)
-    /// through each shot's `PlacedExecutor`) waits for the calls queued,
-    /// those whose replies were dropped included
-    /// (`closing_waits_for_the_calls_whose_replies_were_dropped`). Known
-    /// limit, open, which no test pins: stopping that work goes with the
-    /// planned cancellation.
+    /// [`OnePerShotPlacedExecutor`](crate::OnePerShotPlacedExecutor) through
+    /// each shot's `PlacedExecutor`) waits for the calls queued, those whose
+    /// replies were dropped included. Known limit, open, which no test pins:
+    /// stopping that work goes with the planned cancellation.
     fn close(&mut self) -> Self::Report;
 }
 

@@ -59,37 +59,29 @@ pub struct Capabilities {
     /// shot's outcomes do not depend on which shots share its executor (the
     /// conformance kit's `gives_each_shot_alone_what_it_gives_among_others`).
     pub replayable: bool,
-    /// Whether it can prepare a qubit again during a shot (a reset). An
-    /// adapter passes downstream's on by default, one that changes the
-    /// instruction set included (it may change it, through
+    /// Whether it can prepare a qubit again during a shot (a reset). An adapter
+    /// passes downstream's on by default, one that changes the instruction set
+    /// included (it may change it, through
     /// `AdapterBoundary::offered_upstream`): where sets are described, the
     /// instructions matched are what guarantee a reset, since a caller that
-    /// resets has a reset instruction in its set, which a chain whose set
-    /// lacks one refuses
-    /// (`a_driver_resetting_upstream_of_a_code_without_a_reset_is_refused_when_composed`,
-    /// in `tests/runtime_isa.rs`). It informs only a caller that describes
-    /// no set.
+    /// resets has a reset instruction in its set, which a chain whose set lacks
+    /// one refuses. It informs only a caller that describes no set.
     pub resets: bool,
     /// Whether the report at close gives each shot's log probability, over
-    /// every draw made for it. Only a simulator knows it; not hardware, and
-    /// not a sampler that returns values only. An adapter may turn it off
-    /// (`an_adapter_turning_probabilities_off_offers_none`) but never on,
-    /// whatever it offers ([`AdapterBoundary::offered_upstream`]): its
-    /// report passes up the log probability from below, so it is never
-    /// offered upstream of an adapter that draws
-    /// (`a_driver_needing_probabilities_is_refused_upstream_of_an_adapter_that_draws_and_states_its_offer_whole`),
-    /// not even by one above that draws nothing
-    /// (`a_driver_needing_probabilities_is_refused_through_an_adapter_offering_them_above_one_that_draws`).
+    /// every draw made for it. Only a simulator knows it; not hardware, and not
+    /// a sampler that returns values only. An adapter may turn it off but never
+    /// on, whatever it offers ([`AdapterBoundary::offered_upstream`]): its
+    /// report passes up the log probability from below, so it is never offered
+    /// upstream of an adapter that draws, not even by one above that draws
+    /// nothing.
     pub probabilities: bool,
     /// The ids of the components that draw random numbers at or downstream of
     /// it, each with its own seed per shot: a component that draws is refused
     /// when built against one that already draws with its id
-    /// ([`Capabilities::drawing`]). Derived by
-    /// [`compose`](fn@crate::compose): an adapter offers those below it and
-    /// its own ([`Adapter::draws`](crate::Adapter::draws)), whatever it
-    /// offers ([`AdapterBoundary::offered_upstream`];
-    /// `adapters_drawing_with_the_same_id_are_refused_through_one_that_states_its_offer_whole`,
-    /// `an_adapter_writing_other_ids_into_its_offer_offers_those_below_and_its_own`).
+    /// ([`Capabilities::drawing`]). Derived by [`compose`](fn@crate::compose):
+    /// an adapter offers those below it and its own
+    /// ([`Adapter::draws`](crate::Adapter::draws)), whatever it offers
+    /// ([`AdapterBoundary::offered_upstream`]).
     pub rng_ids: RngIds,
     /// The run's seed the components at or downstream of it draw from: the
     /// one the last executor is given
@@ -103,16 +95,13 @@ pub struct Capabilities {
     /// capability, so neither compared nor shown: two simulators given
     /// other seeds offer the same.
     pub(crate) run_seed: Option<u64>,
-    /// The instruction set it accepts, whatever the type of its
-    /// instructions; `None` when it does not say, and then a caller that
-    /// needs any instruction is refused. An adapter states the set it
-    /// accepts in [`Adapter::accepts`](crate::Adapter::accepts), which
-    /// [`compose`](fn@crate::compose) offers upstream of it whatever it
-    /// offers ([`AdapterBoundary::offered_upstream`];
-    /// `a_code_stating_its_offer_whole_from_downstreams_offers_the_set_it_accepts`);
-    /// one that states none and passes its calls through as they are
-    /// offers downstream's
-    /// (`an_adapter_passing_its_calls_through_offers_the_set_downstream_whatever_its_offer`).
+    /// The instruction set it accepts, whatever the type of its instructions;
+    /// `None` when it does not say, and then a caller that needs any
+    /// instruction is refused. An adapter states the set it accepts in
+    /// [`Adapter::accepts`](crate::Adapter::accepts), which
+    /// [`compose`](fn@crate::compose) offers upstream of it whatever it offers
+    /// ([`AdapterBoundary::offered_upstream`]); one that states none and passes
+    /// its calls through as they are offers downstream's.
     /// [`resets`](Capabilities::resets) is not derived from it: a component
     /// need not describe a set.
     pub instruction_set: Option<Arc<InstructionSet>>,

@@ -38,18 +38,15 @@ use crate::{OnePerShot, OnePerShotAdapter};
 /// close the states are dropped, with what they own, before the executor
 /// below is closed.
 ///
-/// A runtime whose results name no shot, as a code's runtime's, which come
-/// in the order of its instructions, needs a state per shot
-/// ([`.shots(OnePerShot)`](AdapterFn::shots)). With one state, it serves
-/// all the call's shots at once, and its results cannot tell them apart:
-/// a run below gives the readouts of every shot, by shot, each shot's in
-/// its reply's order
-/// (`an_owned_run_gives_its_readouts_by_shot_each_in_the_order_read`),
-/// where it expects one shot's. Glue that gives it the one readout per tag it
-/// expects gives it the lowest-numbered shot's, and every shot is given
-/// that shot's outcomes, with no error; glue that checks that the reads
-/// match its readouts one to one fails the call at its first batch that
-/// reads.
+/// A runtime whose results name no shot, as a code's runtime's, which come in
+/// the order of its instructions, needs a state per shot
+/// ([`.shots(OnePerShot)`](AdapterFn::shots)). With one state, it serves all
+/// the call's shots at once, and its results cannot tell them apart: a run
+/// below gives the readouts of every shot, by shot, each shot's in its reply's
+/// order, where it expects one shot's. Glue that gives it the one readout per
+/// tag it expects gives it the lowest-numbered shot's, and every shot is given
+/// that shot's outcomes, with no error; glue that checks that the reads match
+/// its readouts one to one fails the call at its first batch that reads.
 ///
 /// The repetition code as such a runtime, with its glue, is worked in
 /// `tests/static_isa/code_runtime.rs`, described in `docs/adapters.md`

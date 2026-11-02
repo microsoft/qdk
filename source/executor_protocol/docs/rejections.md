@@ -20,17 +20,14 @@ A run that started and could not finish is not a rejection: its reply ends
 with `ReplyStatus::Failed`.
 
 Design question, open: an executor placed with `run_on` refuses on its own
-thread, so a refusal there fails the call's reply and the executor, which
-then refuses every later call with `EarlierFailure`
-(`after_a_refusal_on_its_thread_it_refuses_every_later_call`;
-[Executors](executors.md#where-an-executor-runs-run_on)), even a refusal
-of class `Later`. One comes from a busy device under
-`.shots(OnePerShot).run_on(placement)`, whose states are made on the
-executor's thread. Whether such a refusal should leave the executor open
-is not decided.
+thread, so a refusal there fails the call's reply and the executor, which then
+refuses every later call with `EarlierFailure`
+([Executors](executors.md#where-an-executor-runs-run_on)), even a refusal of
+class `Later`. One comes from a busy device under
+`.shots(OnePerShot).run_on(placement)`, whose states are made on the executor's
+thread. Whether such a refusal should leave the executor open is not decided.
 
-Each reason has its class (`src/rejected.rs`;
-`every_known_reason_has_its_retry_class`, `src/tests/rejected.rs`):
+Each reason has its class ([`src/rejected.rs`](../src/rejected.rs)):
 
 ```rust
 pub fn retry(&self) -> RetryClass {
@@ -51,12 +48,10 @@ pub fn retry(&self) -> RetryClass {
 }
 ```
 
-A caller that acts on "may have run" matches the class, not a reason, so it
-also handles a reason it does not know: a reason from a newer far end will
-come as `Unrecognized`, with the class the far end gave it, from a decoder
-of reasons that is planned
-([below](#a-reason-this-end-does-not-know-planned-decoder);
-`an_unrecognized_reason_keeps_the_far_ends_class_and_text`).
+A caller that acts on "may have run" matches the class, not a reason, so it also
+handles a reason it does not know: a reason from a newer far end will come as
+`Unrecognized`, with the class the far end gave it, from a decoder of reasons
+that is planned ([below](#a-reason-this-end-does-not-know-planned-decoder)).
 
 ## The reasons, and what produces them
 
@@ -76,20 +71,13 @@ of reasons that is planned
 ### A limit, or a shortage now: `Unmet` or `Unavailable`
 
 A device that holds at most two shots' states declares it
-(`Capabilities::with_states(2)`). A driver of three shots is beyond
-that limit whenever it is composed with it: `Unmet(States)`, refused
-before anything runs
-(`a_driver_of_more_shots_than_the_executor_holds_is_refused_when_composed`,
-`src/tests/compose.rs`; by hand,
-`more_shots_than_states_are_unmet_even_with_the_default_needs`,
-`src/tests/needs.rs`). The caller splits the shots into runs one after
-the other. Within the limit, the memory may still be in use now (another
-run holds it): the executor refuses with `Unavailable`, class `Later`.
-Nothing ran, and the same message runs when sent again
-(`a_busy_device_refuses_the_call_and_prepares_the_state_at_the_next`,
-`tests/per_shot_executor.rs`), downstream of an adapter too
-(`a_state_that_cannot_be_made_refuses_the_call_through_an_adapter`,
-`src/tests/compose/adapters.rs`).
+(`Capabilities::with_states(2)`). A driver of three shots is beyond that limit
+whenever it is composed with it: `Unmet(States)`, refused before anything runs;
+`Capabilities::admit` refuses it too, for a caller that checks by hand. The
+caller splits the shots into runs one after the other. Within the limit, the
+memory may still be in use now (another run holds it): the executor refuses with
+`Unavailable`, class `Later`. Nothing ran, and the same message runs when sent
+again, downstream of an adapter too.
 
 Nothing in this crate produces the planned four yet; they are defined so
 that their reason codes (`reason_code`) keep their meaning when layers L1

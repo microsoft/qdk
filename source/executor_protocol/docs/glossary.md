@@ -71,12 +71,10 @@ what they belong to; the names in code are the crate's.
   each job given to the chain: a `StaticProgram`, or any `Drive`
   ([A chain and its job](composition.md#a-chain-and-its-job)).
 - **Job**: what a `Chain` is given to run, `chain.run(program, shots)`: a
-  program and its shots. It is checked before any call, every fault at
-  once (`JobFaults`): its shots, its needs against what the chain offers,
-  and the program's own faults; of several shots named twice, only the
-  least is reported
-  (`a_job_that_names_several_shots_twice_reports_the_least`;
-  [A chain and its job](composition.md#a-chain-and-its-job)).
+  program and its shots. It is checked before any call, every fault at once
+  (`JobFaults`): its shots, its needs against what the chain offers, and the
+  program's own faults; of several shots named twice, only the least is reported
+  ([A chain and its job](composition.md#a-chain-and-its-job)).
 - **Static program** (`StaticProgram`): a program of fixed batches, sent
   in order to every shot of its job, which decides nothing on its
   outcomes; a batch refused or failed stops it
@@ -122,20 +120,17 @@ what they belong to; the names in code are the crate's.
   - **What**: what the part does with a call: its logic
     ([Making an executor](executors.md#making-an-executor-executor_fn),
     [Adapters](adapters.md#a-state-and-a-logic-adapter_fn));
-  - **Promise**: what it offers and admits, checked when the chain is
-    built (what it offers) and at each call (what it admits, `.check`):
-    an executor's `promise` argument; an adapter's sets, `.accepts(set)`
-    and `.sends(set)`, and the id it draws with, `.drawing(id)`; and, on
-    both, `.check(f)`, which refuses a call before the state is made and
-    the logic runs
-    (`the_check_refuses_a_call_before_the_state_is_made_and_the_logic_runs`,
-    for each facility). Options that change what an adapter offers or
-    needs (`.offers(..)`, `.needs(..)`) are planned, and so is a facility
-    that checks each call against the instruction set its part promises,
-    so that `.check` holds only the part's other rules
-    ([Capabilities and needs](executors.md#capabilities-and-needs),
-    [Seeds](adapters.md#seeds-drawingid),
-    [Planned features](planned.md));
+  - **Promise**: what it offers and admits, checked when the chain is built
+    (what it offers) and at each call (what it admits, `.check`): an executor's
+    `promise` argument; an adapter's sets, `.accepts(set)` and `.sends(set)`,
+    and the id it draws with, `.drawing(id)`; and, on both, `.check(f)`, which
+    refuses a call before the state is made and the logic runs. Options that
+    change what an adapter offers or needs
+    (`.offers(..)`, `.needs(..)`) are planned, and so is a facility that checks
+    each call against the instruction set its part promises, so that `.check`
+    holds only the part's other rules ([Capabilities and
+    needs](executors.md#capabilities-and-needs),
+    [Seeds](adapters.md#seeds-drawingid), [Planned features](planned.md));
   - **Shots**: whose state the logic sees: one state by default, a state
     per shot given `.shots(OnePerShot)`, on both facilities; grouped and
     sharded strategies are planned
@@ -157,39 +152,27 @@ what they belong to; the names in code are the crate's.
     `.state_report(f)`; `.log_probability` on adapters is planned
     ([Reports](adapters.md#reports-state_reportf)).
 
-  The options above are methods of what the facility returns, so the
-  compiler has them given before `.shots` and `.run_on`. Each of these two
-  puts a wrapper on the part made so far, the later around the earlier, so
-  their order says where the shots run: `.shots(OnePerShot)` then
-  `.run_on(OwnThread)` runs every shot on one thread
-  (`placed_after_one_per_shot_every_shot_runs_on_the_one_thread`), the
-  other order each shot on a thread of its own
-  (`placed_before_one_per_shot_each_shot_runs_on_a_thread_of_its_own`). For a
+  The options above are methods of what the facility returns, so the compiler
+  has them given before `.shots` and `.run_on`. Each of these two puts a wrapper
+  on the part made so far, the later around the earlier, so their order says
+  where the shots run: `.shots(OnePerShot)` then `.run_on(OwnThread)` runs every
+  shot on one thread, the other order each shot on a thread of its own. For a
   run that does not fail, of a logic that keeps its state in the shot's state,
   whose `make_state` makes the same state whatever thread it runs on, and whose
   `state_report` and `log_probability` read only the shot's state and what they
-  captured when built, both orders give the same outcomes and report
-  (`both_orders_of_the_wrappers_give_the_same_outcomes_and_report`; with a
-  seeded simulator,
-  `a_run_gives_the_same_outcomes_and_report_wherever_the_shots_states_run`),
-  and a failed call reports no state made for it in either
-  (`a_failed_call_reports_no_state_made_for_it_in_every_order`). Drivers have
-  no axes spelled as methods yet: a driver states its needs in `Drive::needs`.
-  The seed is not an axis, since no part offers it: it is the run's
+  captured when built, both orders give the same outcomes and report, and a
+  failed call reports no state made for it in either. Drivers have no axes
+  spelled as methods yet: a driver states its needs in `Drive::needs`. The seed
+  is not an axis, since no part offers it: it is the run's
   ([Seed](#shots-and-states)).
 
-- **Wrapper**: an executor that wraps another of the same message, or is
-  made of one, and continues it, such as the one `.shots(..)` or
-  `.run_on(..)` puts on an executor. A wrapper never forgets a refusal:
-  once the executor it wraps is closed or failed, it refuses every call,
-  in either order of the two
-  (`given_a_state_per_shot_then_placed_after_a_failure_it_refuses_at_call`,
-  `given_a_state_per_shot_then_placed_after_close_it_refuses_at_call`,
-  `placed_then_given_a_state_per_shot_after_a_failure_it_still_refuses`,
-  `placed_then_given_a_state_per_shot_after_close_it_still_refuses`;
-  [An executor fails](internals/executors.md#an-executor-fails)). An adapter's
-  executor wraps the one below too, but runs other calls on it; these
-  pages call it an adapter.
+- **Wrapper**: an executor that wraps another of the same message, or is made of
+  one, and continues it, such as the one `.shots(..)` or `.run_on(..)` puts on
+  an executor. A wrapper never forgets a refusal: once the executor it wraps is
+  closed or failed, it refuses every call, in either order of the two ([An
+  executor fails](internals/executors.md#an-executor-fails)). An adapter's
+  executor wraps the one below too, but runs other calls on it; these pages call
+  it an adapter.
 
 ## Shots and states
 
@@ -307,14 +290,12 @@ what they belong to; the names in code are the crate's.
   number the same instructions otherwise, calls are renumbered at their
   boundary
   ([A run-time set: a description](instruction-sets.md#a-run-time-set-a-description)).
-- **Action** (`Action`): what an instruction does, declared as Qodec
-  declares it: the blocks it takes and gives, then its steps. Sets of
-  different names are matched by action, whatever the mnemonics, and
-  between them an instruction whose action either set leaves undeclared
-  is refused (`sets_of_other_names_still_need_actions`); sets of the same
-  name are matched by mnemonic, with no action needed
-  (`a_set_without_actions_is_matched_by_mnemonic_in_a_set_of_its_name`;
-  [What an instruction does](instruction-sets.md#what-an-instruction-does),
+- **Action** (`Action`): what an instruction does, declared as Qodec declares
+  it: the blocks it takes and gives, then its steps. Sets of different names are
+  matched by action, whatever the mnemonics, and between them an instruction
+  whose action either set leaves undeclared is refused; sets of the same name
+  are matched by mnemonic, with no action needed ([What an instruction
+  does](instruction-sets.md#what-an-instruction-does),
   [Compatibility](instruction-sets.md#compatibility)).
 
 ## Refusals and failures

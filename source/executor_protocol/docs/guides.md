@@ -28,12 +28,10 @@ placement on a thread of its own included
 ## Running a program
 
 [`tests/simulator.rs`](../tests/simulator.rs) is what a user of a simulator
-writes. Its program, `FlipACoin` (a `Drive`), flips a coin on qubit 0 of
-each shot and reads it; with the shots it runs, it is a driver, composed
-with the toy simulator built with its seed. Waited for, the run gives the
-program's output, one outcome per shot, and the executor's report, here of
-the one batch sent
-(`a_program_runs_on_an_executor_when_composed_and_waited_for`):
+writes. Its program, `FlipACoin` (a `Drive`), flips a coin on qubit 0 of each
+shot and reads it; with the shots it runs, it is a driver, composed with the toy
+simulator built with its seed. Waited for, the run gives the program's output,
+one outcome per shot, and the executor's report, here of the one batch sent:
 
 ```rust
 let (program, shots, seed) = (FlipACoin { qubits: 1 }, shots(), 7);
@@ -41,79 +39,65 @@ let run = compose(Driver::new(program, shots), toy_simulator(seed))?;
 let (output, report) = run.wait();
 ```
 
-This guide binds its program to its shots as a `Driver`. Given instead as
-a job to a chain headed by the interpreter, as in the README's example
-(`chain.run(program, shots)`), the same program runs the same
-(`a_drive_program_given_to_a_chain_runs_as_its_driver_runs`, in
-`src/tests/driver/interpreter.rs`;
-`a_chain_runs_a_job_as_its_program_written_as_a_driver_runs`, in
-`src/tests/compose/chain.rs`).
+This guide binds its program to its shots as a `Driver`. Given instead as a job
+to a chain headed by the interpreter, as in the README's example
+(`chain.run(program, shots)`), the same program runs the same.
 
-What a user relies on, each shown by a test:
+What a user relies on, each shown by a test of
+[`tests/simulator.rs`](../tests/simulator.rs):
 
-- Only the executor draws here, so a run is reproduced by the executor's
-  seed: an executor built with the same seed gives the same outcomes
-  (`an_executor_built_with_the_same_seed_gives_the_same_outcomes`), and one
-  built with another seed gives others
-  (`an_executor_built_with_another_seed_gives_other_outcomes`).
-- A shot draws the same outcomes whichever shots run beside it: the even
-  shots and the odd shots, run apart, read the coins they read together
-  (`a_shots_outcomes_do_not_depend_on_the_shots_run_beside_it`).
+- Only the executor draws here, so a run is reproduced by the executor's seed:
+  an executor built with the same seed gives the same outcomes, and one built
+  with another seed gives others.
+- A shot draws the same outcomes whichever shots run beside it: the even shots
+  and the odd shots, run apart, read the coins they read together.
 - A program that needs more qubits than the simulator has is refused when
-  composed, with the need it does not meet
-  (`a_program_needing_more_than_the_executor_offers_is_refused_when_composed`).
-- A refused batch runs nothing: after a batch refused for its last
-  instruction, each shot reads the coin it read before
-  (`a_refused_batch_changes_no_shot`). The toy names the first instruction
-  it does not accept
-  (`a_batch_out_of_the_toys_range_is_refused_at_its_first_bad_instruction`).
+  composed, with the need it does not meet.
+- A refused batch runs nothing: after a batch refused for its last instruction,
+  each shot reads the coin it read before. The toy names the first instruction
+  it does not accept.
 
-The guide also runs the
-[conformance kit](composition.md#conformance-checks) on the toy, as an
-implementer's tests can: the tests named `the_toy_…` check that it takes
-calls after a refusal, refuses them once closed, reports once, gives each
-shot alone what it gives among the others, and continues a shot from one
-call to the next. [The README's example](../README.md#an-example) puts
-the toy in a longer chain, with a profiler and a debugger between the
-interpreter and the toy, and gives the program as the chain's job.
+The guide also runs the [conformance kit](composition.md#conformance-checks) on
+the toy, as an implementer's tests can: its tests of the toy check that it takes
+calls after a refusal, refuses them once closed, reports once, gives each shot
+alone what it gives among the others, and continues a shot from one call to the
+next. [The README's example](../README.md#an-example) puts the toy in a longer
+chain, with a profiler and a debugger between the interpreter and the toy, and
+gives the program as the chain's job.
 
 ## An existing backend and a profiler
 
-A tool built before the protocol has components of its own: backends that
-run batches, and profilers that count what runs. `tests/existing_tool.rs`
-writes one of each on the protocol. QEP, a tool outside this repository
-that runs QIR programs on backends of its own and was written before the
-protocol, is one such tool: its backends and profilers can be written this
-way, as the guide shows.
+A tool built before the protocol has components of its own: backends that run
+batches, and profilers that count what runs.
+[`tests/existing_tool.rs`](../tests/existing_tool.rs) writes one of each on the
+protocol. QEP, a tool outside this repository that runs QIR programs on backends
+of its own and was written before the protocol, is one such tool: its backends
+and profilers can be written this way, as the guide shows.
 
-What the protocol adds, each shown by a test:
+What the protocol adds, each shown by a test of
+[`tests/existing_tool.rs`](../tests/existing_tool.rs):
 
-- A lost qubit is read as `Value::Error(ErrorKind::Loss)`, and the batch
-  goes on (`a_lost_qubit_is_read_as_a_loss_and_the_batch_goes_on`).
-- The profiler's random bits replay from the run's seed
-  (`a_profiles_draws_replay_from_the_runs_seed`), and its counts are a
-  report folded over shots
-  (`a_profile_of_many_shots_is_the_sum_of_their_counts`).
-- Within a batch, a tag names one readout of each shot
-  ([readout tags](replies.md#readout-tags);
-  `each_executor_refuses_a_tag_repeated_within_a_batch`).
+- A lost qubit is read as `Value::Error(ErrorKind::Loss)`, and the batch goes
+  on.
+- The profiler's random bits replay from the run's seed, and its counts are a
+  report folded over shots.
+- Within a batch, a tag names one readout of each shot ([readout
+  tags](replies.md#readout-tags)).
 
 ### Running an existing backend
 
 A backend written before the protocol, or for another interface, names its
-instructions in its own way, by string or by its own ids, and answers in
-its own form. To run it on the protocol unchanged, put an executor around it,
-a bridge, that takes `InstructionCall`s of a described set and translates
-each call. A bridge is an executor, not a new protocol layer: there is no
-`Bridge` trait. The guide's bridge is written with `executor_fn`, so it
-holds only the translation, and the facility keeps the protocol's rules.
-The translation is per instruction, so build it once, when the bridge is
-built: `InstructionSet::table` asks for the backend's name of each
-mnemonic, and refuses the set, with every mnemonic the backend does not
-name, when one is missing
-(`the_bridge_is_refused_at_build_with_each_instruction_the_backend_does_not_name`).
-A call is then translated by its opcode, with no lookup by name. From
-`backend_bridge` in `tests/existing_tool/bridge.rs`:
+instructions in its own way, by string or by its own ids, and answers in its own
+form. To run it on the protocol unchanged, put an executor around it, a bridge,
+that takes `InstructionCall`s of a described set and translates each call. A
+bridge is an executor, not a new protocol layer: there is no `Bridge` trait. The
+guide's bridge is written with `executor_fn`, so it holds only the translation,
+and the facility keeps the protocol's rules. The translation is per instruction,
+so build it once, when the bridge is built: `InstructionSet::table` asks for the
+backend's name of each mnemonic, and refuses the set, with every mnemonic the
+backend does not name, when one is missing. A call is then translated by its
+opcode, with no lookup by name. From `backend_bridge` in
+`tests/existing_tool/bridge.rs`:
 
 ```rust
 let names = set.table(|mnemonic| {
@@ -137,58 +121,44 @@ tag:
 })
 ```
 
-The rest is the backend's own: its operands, here the qubits without the
-tags, since the backend returns its results in order; and its results,
-which the bridge reports under the batch's tags in order
-(`the_bridge_gives_each_result_the_tag_of_its_readout`). The backend's
-`Err` does not say whether work started, so the reply ends `Failed` with no
-outcome, as it does when the results do not match the tags in number
-(`the_bridge_fails_the_reply_with_no_events_when_the_backend_errs`,
-`the_bridge_fails_the_reply_with_no_events_on_a_wrong_number_of_results`).
-Either failure leaves the backend in a state its caller's program never
-made, so the bridge's logic returns it as an `Err`, and `executor_fn`
-fails the bridge, which refuses its later calls with `EarlierFailure`
-(`the_bridge_refuses_calls_after_the_backend_errs`,
-`the_bridge_refuses_calls_after_a_wrong_number_of_results`). A batch it
-refuses, with a call outside its set or a repeated tag, ran nothing, so the
-bridge takes the corrected batch (`the_bridge_accepts_calls_after_a_refusal`).
-It admits a batch on its lifecycle before it checks the batch, so that once
-closed, or after a failure, it says so whatever the batch
-(`a_closed_bridge_says_closed_whatever_the_batch`,
-`a_failed_bridge_names_its_failure_whatever_the_batch`).
+The rest is the backend's own: its operands, here the qubits without the tags,
+since the backend returns its results in order; and its results, which the
+bridge reports under the batch's tags in order. The backend's `Err` does not say
+whether work started, so the reply ends `Failed` with no outcome, as it does
+when the results do not match the tags in number. Either failure leaves the
+backend in a state its caller's program never made, so the bridge's logic
+returns it as an `Err`, and `executor_fn` fails the bridge, which refuses its
+later calls with `EarlierFailure`. A batch it refuses, with a call outside its
+set or a repeated tag, ran nothing, so the bridge takes the corrected batch. It
+admits a batch on its lifecycle before it checks the batch, so that once closed,
+or after a failure, it says so whatever the batch.
 
-Use it for a backend that exists already, one that names its instructions
-by string or by id; for a backend of ids, the table holds its id of each
-opcode instead. An executor written for the protocol takes its instruction
-type directly, as the toy does. The guide's bridge holds one shot's state,
-the backend, and describes the set it runs, so a `Driver` of one shot
-composes with it (`a_driver_runs_its_calls_on_the_bridge`). It promises no
-other limit (`Capabilities::default()`, lowered to one state): an existing
-backend does not say how many qubits it has, so no qubit count is checked
-over the bridge, and a driver that needs more fails at run time, by the
-backend's error. It drops its backend when it closes, so nothing reads the
-backend after a run; a port of an existing tool would give the backend
+Use it for a backend that exists already, one that names its instructions by
+string or by id; for a backend of ids, the table holds its id of each opcode
+instead. An executor written for the protocol takes its instruction type
+directly, as the toy does. The guide's bridge holds one shot's state, the
+backend, and describes the set it runs, so a `Driver` of one shot composes with
+it. It promises no other limit (`Capabilities::default()`, lowered to one
+state): an existing backend does not say how many qubits it has, so no qubit
+count is checked over the bridge, and a driver that needs more fails at run
+time, by the backend's error. It drops its backend when it closes, so nothing
+reads the backend after a run; a port of an existing tool would give the backend
 back when it closes (in its report, say).
 
 ## Observers: a profiler and a debugger
 
-An observer is an adapter that watches the calls of a chain: the profiler
-sends each call down as it is
-(`the_profiler_sends_each_call_down_as_the_program_sent_it`), and the
-debugger sends each shot's call down alone, so that it can read what it
-logs (`below_the_debugger_each_shots_batch_is_a_call_of_its_own`); each
-passes up what comes back, except where the debugger's list below says
-otherwise.
-It states no instruction set, and passes on the one below; over an
-executor that describes none, the chain is refused when it is built
-(`NoInstructionSetDownstream`), since what it sends could not be checked
-(`a_passing_adapter_of_calls_by_opcode_over_no_set_is_refused`).
-`tests/observers.rs` writes two, each with `adapter_fn` and a state per
-shot, in a function of its own, and composes them with `>>` between the
-crate's interpreter and a simulator, the toy taking its instructions as
-calls. From `stacked_observers_each_see_what_they_see_alone`, where
-`THE_JOB_FITS` states the run's precondition: its shots are distinct, and
-the toy meets the program's needs:
+An observer is an adapter that watches the calls of a chain: the profiler sends
+each call down as it is, and the debugger sends each shot's call down alone, so
+that it can read what it logs; each passes up what comes back, except where the
+debugger's list below says otherwise. It states no instruction set, and passes
+on the one below; over an executor that describes none, the chain is refused
+when it is built (`NoInstructionSetDownstream`), since what it sends could not
+be checked. [`tests/observers.rs`](../tests/observers.rs) writes two, each with
+`adapter_fn` and a state per shot, in a function of its own, and composes them
+with `>>` between the crate's interpreter and a simulator, the toy taking its
+instructions as calls. From its test of the two observers stacked, where
+`THE_JOB_FITS` states the run's precondition: its shots are distinct, and the
+toy meets the program's needs:
 
 ```rust
 let chain = interpreter() >> profiler() >> debugger(log.clone()) >> simulator();
@@ -196,92 +166,60 @@ let chain = chain.expect("the observers fit");
 let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
 ```
 
-- **The profiler** counts the calls each shot sends below, by opcode,
-  and sends them down as they are (`Below::send`;
-  `the_profiler_sends_each_call_down_as_the_program_sent_it`). The run's
-  report gives its counts, folded over the shots, beside the report below.
-  They are exact for a run whose calls all succeed below
-  (`the_profilers_report_counts_each_instruction_over_the_shots`); for the
-  shots of a call refused or failed below, they are unspecified until it
-  is decided whether a profile counts what was sent or what ran: today,
-  whether such a call is counted depends on its place in the shot. It
-  changes no outcome (`the_profiler_changes_no_outcome`), and the
-  simulator reports what it reports alone: equal sends of the shots of a
-  call go below as one call
-  (`below_the_profiler_the_shots_equal_calls_go_as_one`).
-- **The debugger** logs each shot's calls with what each read, so it waits
-  for the readouts below (`Below::run`) and passes them up
-  (`the_debugger_runs_each_call_below_as_the_program_sent_it`,
-  `the_debugger_logs_each_shots_calls_with_what_they_read`,
-  `the_debugger_changes_no_outcome`). A call is logged before it runs,
-  and what it read after: a call that failed below is logged with its
-  reason and fails the run, and, in a log given to one debugger alone, is
-  the shot's last
-  (`the_debugger_logs_a_call_that_fails_below_with_its_reason`); a call
-  that panics below is logged with no outcome
-  (`the_debugger_logs_a_call_that_panics_below_without_an_outcome`). The user
-  keeps a handle on its log, gives the debugger a clone, as of an `Arc`,
-  and reads the log after the run. A log records one chain's run, as a
-  chain runs one job: give each chain a `DebugLog` of its own, since one
-  log given to two chains adds their calls to each shot's, with nothing to
-  tell the runs apart. Two debuggers in one chain may share a log, to log
-  the calls above and below an adapter in one place: each call holds its own
-  result
-  (`each_logged_call_holds_its_own_result_when_debuggers_share_a_log`). It
-  reports nothing, so the run's report is the one below. Waiting for one
-  shot's readouts sends that shot's call down alone: below the debugger, a
-  call is made per shot and batch
-  (`below_the_debugger_each_shots_batch_is_a_call_of_its_own`), the shots
-  of a call one by one, in the call's order. Six things follow:
-  - It is transparent over an executor that offers `replayable`, whose
-    shots' outcomes do not depend on which shots share it
-    (`the_debugger_changes_no_outcome`; planned: `.needs(..)` on adapters,
-    to require it when the chain is built).
-  - A refusal below of one shot, after an earlier shot of the call ran,
-    fails the run, where alone the run is refused
-    (`under_the_debugger_a_shot_refused_after_another_ran_fails_the_run`).
-  - A call the check below refuses whole refuses the run, and is logged
-    with its reason in the call's first shot alone: the refusal ends the
-    call before the other shots send it
-    (`the_debugger_logs_a_refused_call_in_the_calls_first_shot_alone`).
-  - A call cancelled below ends failed, and fails the debugger, which
-    refuses every later call, where alone the call ends cancelled
-    (`under_the_debugger_a_call_cancelled_below_fails_the_call_and_the_debugger`).
-  - A reply below that is not whole, one that reads a tag of a shot twice
-    or a shot it was not given, fails the call and the debugger, where
-    alone its readouts pass up as they came: `Below::run` checks what it
-    waits for, and the log holds why
-    (`under_the_debugger_a_reply_that_reads_a_tag_twice_fails_the_run`,
-    `under_the_debugger_a_reply_that_reads_a_shot_not_given_fails_the_run`).
-  - Each call blocks the thread that called the debugger until its
-    readouts come below, as any adapter that waits on `Below::run`, a
-    reactor, does; to keep the caller free, run the chain on a thread of
-    its own (`a_chain_of_observers_runs_on_another_thread`; planned:
-    `run_on` on adapters, to place it as an executor is placed).
-- **An observer is transparent**: each shot's readouts pass up in the
-  order the reply below gives them, when that reply is whole (one that is
-  not fails the call under the debugger, as above). That order is the one
-  the shot read them in when the executor below keeps it, as the simulator
-  does (`the_observers_pass_each_shots_readouts_up_in_the_order_read`), and
-  not always when it is an `adapter_fn`
-  ([Adapters](internals/adapters.md#the-order-of-a-runs-readouts):
-  `an_observer_that_runs_passes_up_each_shots_readouts_in_the_replys_order`,
-  `a_later_sends_readouts_pass_up_before_those_an_earlier_send_gives_later`);
-  the debugger logs them in that order
-  (`the_debugger_logs_each_calls_readouts_in_the_order_read`); a
-  batch the simulator's check refuses whole is refused alike under each
-  observer
-  (`a_batch_the_simulators_check_refuses_is_refused_alike_under_each_observer`),
-  and so is a program that reads a tag twice, when it is given to the chain
-  (`a_program_that_reads_a_tag_twice_is_refused_alike_under_each_observer`).
+- **The profiler** counts the calls each shot sends below, by opcode, and sends
+  them down as they are (`Below::send`). The run's report gives its counts,
+  folded over the shots, beside the report below. They are exact for a run whose
+  calls all succeed below; for the shots of a call refused or failed below, they
+  are unspecified until it is decided whether a profile counts what was sent or
+  what ran: today, whether such a call is counted depends on its place in the
+  shot. It changes no outcome, and the simulator reports what it reports alone:
+  equal sends of the shots of a call go below as one call.
+- **The debugger** logs each shot's calls with what each read, so it waits for
+  the readouts below (`Below::run`) and passes them up. A call is logged before
+  it runs, and what it read after: a call that failed below is logged with its
+  reason and fails the run, and, in a log given to one debugger alone, is the
+  shot's last; a call that panics below is logged with no outcome. The user
+  keeps a handle on its log, gives the debugger a clone, as of an `Arc`, and
+  reads the log after the run. A log records one chain's run, as a chain runs
+  one job: give each chain a `DebugLog` of its own, since one log given to two
+  chains adds their calls to each shot's, with nothing to tell the runs apart.
+  Two debuggers in one chain may share a log, to log the calls above and below
+  an adapter in one place: each call holds its own result. It reports nothing,
+  so the run's report is the one below. Waiting for one shot's readouts sends
+  that shot's call down alone: below the debugger, a call is made per shot and
+  batch, the shots of a call one by one, in the call's order. Six things follow:
+  - It is transparent over an executor that offers `replayable`, whose shots'
+    outcomes do not depend on which shots share it (planned: `.needs(..)` on
+    adapters, to require it when the chain is built).
+  - A refusal below of one shot, after an earlier shot of the call ran, fails
+    the run, where alone the run is refused.
+  - A call the check below refuses whole refuses the run, and is logged with its
+    reason in the call's first shot alone: the refusal ends the call before the
+    other shots send it.
+  - A call cancelled below ends failed, and fails the debugger, which refuses
+    every later call, where alone the call ends cancelled.
+  - A reply below that is not whole, one that reads a tag of a shot twice or a
+    shot it was not given, fails the call and the debugger, where alone its
+    readouts pass up as they came: `Below::run` checks what it waits for, and
+    the log holds why.
+  - Each call blocks the thread that called the debugger until its readouts come
+    below, as any adapter that waits on `Below::run`, a reactor, does; to keep
+    the caller free, run the chain on a thread of its own (planned: `run_on` on
+    adapters, to place it as an executor is placed).
+- **An observer is transparent**: each shot's readouts pass up in the order the
+  reply below gives them, when that reply is whole (one that is not fails the
+  call under the debugger, as above). That order is the one the shot read them
+  in when the executor below keeps it, as the simulator does, and not always
+  when it is an `adapter_fn`
+  ([Adapters](internals/adapters.md#the-order-of-a-runs-readouts)); the debugger
+  logs them in that order; a batch the simulator's check refuses whole is
+  refused alike under each observer, and so is a program that reads a tag twice,
+  when it is given to the chain.
 - **Grouping does not matter**: the two stacked give the same run and log
-  grouped in each of the five ways `>>` allows
-  (`the_observers_grouped_any_way_give_the_same_run_and_log`), and each
-  sees what it sees alone
-  (`stacked_observers_each_see_what_they_see_alone`).
-- **A chain of observers may move to another thread** to run, and the
-  user's log handle reads what its shots ran there
-  (`a_chain_of_observers_runs_on_another_thread`).
+  grouped in each of the five ways `>>` allows, and each sees what it sees
+  alone.
+- **A chain of observers may move to another thread** to run, and the user's log
+  handle reads what its shots ran there.
 
 Each function returns the type its last option gives, `.shots(OnePerShot)`,
 since `>>` takes an adapter by its type: its state and logic closures named
@@ -297,9 +235,9 @@ holds calls; this one holds none.
 ## A static ISA: a repetition code
 
 A code, such as one Qodec describes, lowers a logical instruction set onto a
-physical one, and decodes the physical readouts into logical outcomes on the
-way up. In `tests/static_isa.rs` the code is a three-qubit repetition code,
-and the logical instructions are a type of their own, `Logical`
+physical one, and decodes the physical readouts into logical outcomes on the way
+up. In [`tests/static_isa.rs`](../tests/static_isa.rs) the code is a three-qubit
+repetition code, and the logical instructions are a type of their own, `Logical`
 (`static_isa/logical.rs`); each goes down as its gadget
 (`static_isa/repetition3.rs`):
 
@@ -344,35 +282,28 @@ sequenceDiagram
   end
 ```
 
-A refusal on a block it does not have comes before anything goes down.
-`Decode` delivers each logical outcome when the third readout of its
-logical tag arrives, as the majority of the three. Composed with an
-executor, `RepetitionCode::default() >> toy_simulator(seed)` is an
-executor of logical shots: `RepetitionCode`
-(`static_isa/repetition_code.rs`), the code as an adapter, maps the
-simulator once (`Apply`), putting one `Repetition3` upstream of it, so the
-code draws nothing and each logical shot draws from its physical shot's
-seeds. The guide
-gives `RepetitionCode` a `>>` with the toy simulator, which a crate may do for
-its own adapter in a few lines; `compose(code, executor)` is the same without
-it. The code draws nothing, so each shot's log probability is the one the
-executor downstream reports, as the run-time guide's code checks
-(`the_code_passes_on_the_log_probability_of_the_executor_downstream`).
+A refusal on a block it does not have comes before anything goes down. `Decode`
+delivers each logical outcome when the third readout of its logical tag arrives,
+as the majority of the three. Composed with an executor,
+`RepetitionCode::default() >> toy_simulator(seed)` is an executor of logical
+shots: `RepetitionCode` (`static_isa/repetition_code.rs`), the code as an
+adapter, maps the simulator once (`Apply`), putting one `Repetition3` upstream
+of it, so the code draws nothing and each logical shot draws from its physical
+shot's seeds. The guide gives `RepetitionCode` a `>>` with the toy simulator,
+which a crate may do for its own adapter in a few lines;
+`compose(code, executor)` is the same without it. The code draws nothing, so
+each shot's log probability is the one the executor downstream reports, as the
+run-time guide's code checks.
 
 The guide writes the same code twice more, with the facilities of
-[Adapters](adapters.md): as a logic (`static_isa/repetition_fn.rs`, made
-an adapter by `adapter_fn`), whose chain reads what the code's own adapter
-reads, with one state or a state per shot
-(`the_code_as_a_logic_reads_what_its_adapter_reads`); and as a runtime
-that owns its backend for each shot's life, shaped as a Qodec runtime is
-(`static_isa/code_runtime.rs`, made an adapter by `owning_adapter_fn`
-with `.shots(OnePerShot)`), whose chain reads what the code as a logic
-reads
-(`a_runtime_that_owns_its_backend_reads_what_the_code_as_a_logic_reads`).
-Given one state for several shots by mistake, that runtime fails its first
-call that reads, since the run below gives every shot's reads where it
-expects one shot's
-(`a_runtime_with_one_state_fails_its_first_reading_call`).
+[Adapters](adapters.md): as a logic (`static_isa/repetition_fn.rs`, made an
+adapter by `adapter_fn`), whose chain reads what the code's own adapter reads,
+with one state or a state per shot; and as a runtime that owns its backend for
+each shot's life, shaped as a Qodec runtime is (`static_isa/code_runtime.rs`,
+made an adapter by `owning_adapter_fn` with `.shots(OnePerShot)`), whose chain
+reads what the code as a logic reads. Given one state for several shots by
+mistake, that runtime fails its first call that reads, since the run below gives
+every shot's reads where it expects one shot's.
 
 The general rule:
 
@@ -382,31 +313,26 @@ The general rule:
   a compile error, which no test pins, and the compiler checks each
   instruction's shape. The next guide runs a
   repetition code whose sets are known only at run time.
-- **The type still has a description**: the toy describes its set, and
-  `compose` checks that it runs every instruction the gadgets send, when
-  it puts the code upstream of the toy's shots
-  (`the_code_is_built_only_against_an_executor_that_runs_its_gadgets`). It
-  states the logical set, not the physical one, so a driver that needs an
-  instruction the code lacks is refused when composed
-  (`a_driver_is_composed_only_with_a_code_that_has_the_instructions_it_needs`).
-  The type and its description are written apart; a test keeps them
-  together, matching each variant to an instruction of the description
-  (`each_description_names_every_instruction_it_stands_for`).
+- **The type still has a description**: the toy describes its set, and `compose`
+  checks that it runs every instruction the gadgets send, when it puts the code
+  upstream of the toy's shots. It states the logical set, not the physical one,
+  so a driver that needs an instruction the code lacks is refused when composed.
+  The type and its description are written apart; a test keeps them together,
+  matching each variant to an instruction of the description.
 - **A lowering keeps the message kind and changes the instruction set**; it
   is an adapter, and the reply of the executor it makes wraps the inner
   reply (`Decode`, as `MappedReply` does), mapping its events and passing
   the caller's waker down.
-- **An instruction refusal keeps its meaning across the lowering**: nothing
-  ran, and the index names the caller's instruction
-  (`a_refusal_names_the_logical_instruction`).
+- **An instruction refusal keeps its meaning across the lowering**: nothing ran,
+  and the index names the caller's instruction.
 
 ## A run-time ISA: a code given as data
 
-`tests/runtime_isa.rs` runs a code known only at run time, as Qodec gives
-it: part of the repetition code of the Python runtime's fixture
-(`repetition3.qodec.yaml`), upstream of the toy. It is example code,
-evidence that the protocol meets the needs of a code's adapter, not an
-adapter for use; a loader of Qodec files would replace its data.
+[`tests/runtime_isa.rs`](../tests/runtime_isa.rs) runs a code known only at run
+time, as Qodec gives it: part of the repetition code of the Python runtime's
+fixture (`repetition3.qodec.yaml`), upstream of the toy. It is example code,
+evidence that the protocol meets the needs of a code's adapter, not an adapter
+for use; a loader of Qodec files would replace its data.
 
 The code is plain data (`runtime_isa/code.rs`): the logical
 [instruction set](instruction-sets.md#a-run-time-set-a-description) it
@@ -452,66 +378,42 @@ types:
 call it receives costs about 16 ns per call when it adopts the numbering,
 against 18 when its batches are copied (batches of 10 000, one core).
 
-What the guide shows, each rule with its tests:
+What the guide shows, each rule pinned by a test:
 
 - **A logical call goes down as its gadget**: block `b` is qubits `3b` to
-  `3b + 2`, and each circuit readout gets a fresh tag
-  (`each_logical_call_goes_down_as_its_gadget`). The test sees what goes
-  down through an observer below the code: its helper `recorded` composes
-  an `adapter_fn` that logs each batch before it sends it down, between
-  `Encoding` and the device (`compose(Encoding::new(code), recorder)`,
-  then `compose(chain, device(8))`), so an observer of the calls a code
-  sends, such as a profiler of them (shown with this recorder), composes
-  below the code as it does over a simulator.
-- **The code offers a block per three qubits**, and is refused on fewer
-  than three (`the_code_offers_a_block_per_three_qubits`), or on a device
-  that does not say how many it has
-  (`a_device_that_does_not_say_how_many_qubits_it_has_is_refused_when_built`).
-- **Readouts come back up as the code reads them**: a logical readout is
-  the parity of its circuit readouts, and one without a value leaves it
-  without one
-  (`a_circuit_readout_with_no_value_leaves_its_logical_readout_without_one`),
-  and a reply that ends before every bit came up fails
-  (`a_logical_readout_missing_a_circuit_readout_fails_the_reply`).
-- **Every fault of the parts built together is reported when they are
-  composed, at once**: what the gadgets call that the device lacks, as
-  `compose` checks it
-  (`a_code_sending_what_the_device_lacks_is_refused_when_built`), then
-  the code's own faults, in the order `Encoding::build` states
-  (`every_build_fault_is_reported_at_once`); a code with a fault is never
-  resolved, whatever is downstream
-  (`a_logical_instruction_without_a_gadget_is_refused_when_built`). An
-  instruction the gadgets call whose action the code does not declare is
-  refused too, since what it does cannot be checked
-  (`an_instruction_the_code_sends_without_an_action_is_refused_when_built`).
-  A part composed with the executor first is built on its own, before
-  what is upstream of it, so its faults come back without those
-  (`a_part_composed_with_the_executor_first_reports_its_faults_before_upstream_is_built`,
-  `a_part_composed_with_the_executor_first_reports_its_faults_before_a_drivers_needs_are_checked`;
-  [Composing a run](composition.md#composing-a-run)).
-- **The code describes the logical set**, so the chain upstream of it is
-  checked against what it accepts (`the_code_describes_the_logical_set`),
-  and a driver is composed with it only when the code has every instruction
-  it needs
-  (`a_driver_is_composed_only_with_a_code_that_has_the_instructions_it_needs`).
-  The code passes the device's resets on, and the instructions matched
-  guarantee a reset: a driver that resets, upstream of a code with no
-  reset, is refused when composed, its reset named
-  (`a_driver_resetting_upstream_of_a_code_without_a_reset_is_refused_when_composed`).
+  `3b + 2`, and each circuit readout gets a fresh tag. Its test sees what goes
+  down through an observer below the code: its helper `recorded` composes an
+  `adapter_fn` that logs each batch before it sends it down, between `Encoding`
+  and the device (`compose(Encoding::new(code), recorder)`, then
+  `compose(chain, device(8))`), so an observer of the calls a code sends, such
+  as a profiler of them (shown with this recorder), composes below the code as
+  it does over a simulator.
+- **The code offers a block per three qubits**, and is refused on fewer than
+  three, or on a device that does not say how many it has.
+- **Readouts come back up as the code reads them**: a logical readout is the
+  parity of its circuit readouts, and one without a value leaves it without one,
+  and a reply that ends before every bit came up fails.
+- **Every fault of the parts built together is reported when they are composed,
+  at once**: what the gadgets call that the device lacks, as `compose` checks
+  it, then the code's own faults, in the order `Encoding::build` states; a code
+  with a fault is never resolved, whatever is downstream. An instruction the
+  gadgets call whose action the code does not declare is refused too, since what
+  it does cannot be checked. A part composed with the executor first is built on
+  its own, before what is upstream of it, so its faults come back without those
+  ([Composing a run](composition.md#composing-a-run)).
+- **The code describes the logical set**, so the chain upstream of it is checked
+  against what it accepts, and a driver is composed with it only when the code
+  has every instruction it needs. The code passes the device's resets on, and
+  the instructions matched guarantee a reset: a driver that resets, upstream of
+  a code with no reset, is refused when composed, its reset named.
 - **A driver in another order is served, and a fast one builds its calls by
-  name.** A driver whose set declares the logical instructions in another
-  order is composed with the code, and each of its batches is copied into the
-  code's numbering
-  (`a_driver_in_another_order_runs_its_own_instructions_on_the_code`); a
-  call at an opcode the driver's set lacks is refused, or an earlier call
-  of the batch that the code's set refuses, if there is one
-  (`the_code_in_a_drivers_numbering_refuses_calls_outside_the_drivers_set`;
-  the earlier call, `a_renumbered_batch_is_refused_at_its_first_call_outside`).
-  A driver that cannot afford the copy builds its calls by name with the set
-  the code describes, and states that set as its needs, so its calls are in
-  the code's numbering, run as it means them
-  (`a_driver_builds_its_calls_by_name_with_the_codes_set`), and pass as
-  they are
+  name.** A driver whose set declares the logical instructions in another order
+  is composed with the code, and each of its batches is copied into the code's
+  numbering; a call at an opcode the driver's set lacks is refused, or an
+  earlier call of the batch that the code's set refuses, if there is one. A
+  driver that cannot afford the copy builds its calls by name with the set the
+  code describes, and states that set as its needs, so its calls are in the
+  code's numbering, run as it means them, and pass as they are
   ([Compatibility](internals/instruction-sets.md#compatibility-the-rules)):
 
   ```rust
@@ -523,22 +425,15 @@ What the guide shows, each rule with its tests:
       .expect("the code accepts its own set");
   ```
 
-- **A refusal names the logical call**: a call outside the logical set or
-  on a block the code does not have is refused before anything goes down
-  (`a_call_outside_the_logical_set_is_refused_before_anything_goes_down`,
-  `a_call_on_a_block_the_code_lacks_is_refused_before_anything_goes_down`),
-  and a physical refusal is reported at the logical call whose gadget holds
-  it (`a_downstream_refusal_names_the_logical_call`).
-- **The device and the code keep the rules of a described set and of
-  readout tags**, as the conformance kit checks them
-  (`the_device_and_the_code_refuse_calls_outside_their_sets`,
-  `the_device_and_the_code_refuse_a_tag_repeated_within_a_batch`; the code
-  checks its logical tags itself, since it sends fresh tags down), and
-  closing the code closes the device
-  (`closing_the_code_closes_what_it_wraps`).
+- **A refusal names the logical call**: a call outside the logical set or on a
+  block the code does not have is refused before anything goes down, and a
+  physical refusal is reported at the logical call whose gadget holds it.
+- **The device and the code keep the rules of a described set and of readout
+  tags**, as the conformance kit checks them (the code checks its logical tags
+  itself, since it sends fresh tags down), and closing the code closes the
+  device.
 - **The code draws nothing**: each shot's log probability is the one the
-  executor downstream states, passed on in its report
-  (`the_code_passes_on_the_log_probability_of_the_executor_downstream`).
+  executor downstream states, passed on in its report.
 
 What the example leaves out (ancillas, parameters, gadgets on several
 blocks, checks of the gadgets, Pauli frames, feed-forward, gadgets that move
@@ -556,20 +451,16 @@ step completes the held reply (the arrows read as in
 
 ### A paused debugger: the step completes the reply
 
-The debugger of the guide tests (`tests/debugger/debugger.rs`) holds a
-batch while paused: `call` makes a `reply_channel()`, keeps the batch with its
+The debugger of the guide tests (`tests/debugger/debugger.rs`) holds a batch
+while paused: `call` makes a `reply_channel()`, keeps the batch with its
 `ReplySender`, and returns the `IncrementalReply` at once. A step, on another
 thread, sends the batch on and `relay`s the executor's reply into that
-`ReplySender`, which wakes the driver (test
-`a_driver_thread_waits_while_another_thread_steps`). The step holds the
-debugger's state lock until the reply ends, so a `call` made during a step
-waits for it.
+`ReplySender`, which wakes the driver. The step holds the debugger's state lock
+until the reply ends, so a `call` made during a step waits for it.
 
-In a chain, the debugger is composed as an adapter, `Debuggers`,
-which puts one on the executor and keeps its handle:
-`debuggers.handle()` steps the debugger from any thread while a
-run waits on its own (test
-`a_debugger_composed_into_a_chain_hands_out_its_handle`).
+In a chain, the debugger is composed as an adapter, `Debuggers`, which puts one
+on the executor and keeps its handle: `debuggers.handle()` steps the debugger
+from any thread while a run waits on its own.
 
 ```mermaid
 sequenceDiagram

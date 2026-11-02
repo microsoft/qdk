@@ -443,11 +443,9 @@ pub enum BuildError {
     /// reaches it: the last executor below is given none
     /// ([`ExecutorFn::seed`](crate::ExecutorFn::seed)). Refused when built
     /// rather than at its first draw, since a seed made up for it would draw
-    /// the same values in every run, and one drawn from the system could
-    /// not be replayed; an [`adapter_fn`](fn@crate::adapter_fn) and an
-    /// adapter written by hand alike
-    /// (`an_adapter_drawing_with_no_run_seed_below_is_refused`,
-    /// `an_adapter_written_by_hand_drawing_with_no_run_seed_below_is_refused`).
+    /// the same values in every run, and one drawn from the system could not be
+    /// replayed; an [`adapter_fn`](fn@crate::adapter_fn) and an adapter written
+    /// by hand alike.
     ///
     /// Only an [`executor_fn`](fn@crate::executor_fn) given a seed passes
     /// one up today. An executor written by hand cannot state one yet

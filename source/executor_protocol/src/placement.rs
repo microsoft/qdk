@@ -136,12 +136,11 @@ impl<F: FnMut(PlacementJob) + Send + 'static> Placement for F {
     }
 }
 
-/// An executor run where a [`Placement`] says, made by `.run_on(place)`:
-/// its calls are queued and run, in order, in the jobs it hands its
-/// placement, one job at a time. A call returns at once when the
-/// placement schedules the job to run elsewhere, and after its work when
-/// the placement runs the job inline (`|job: PlacementJob| job()`;
-/// `on_a_placement_that_runs_its_job_inline_a_call_returns_with_its_work_done`).
+/// An executor run where a [`Placement`] says, made by `.run_on(place)`: its
+/// calls are queued and run, in order, in the jobs it hands its placement, one
+/// job at a time. A call returns at once when the placement schedules the job
+/// to run elsewhere, and after its work when the placement runs the job inline
+/// (`|job: PlacementJob| job()`).
 ///
 /// - Its reply is an [`IncrementalReply`]: the events come as the
 ///   executor it places hands them over on its thread, which wakes the
@@ -209,51 +208,36 @@ impl<F: FnMut(PlacementJob) + Send + 'static> Placement for F {
 /// It is [`Send`] when the executor it places and the placement are, so
 /// that a run can move it to the driver's thread; its replies always are.
 ///
-/// Dropped, it cancels the calls queued and not yet started: none of them
-/// runs, and each one's reply ends [`ReplyStatus::Cancelled`], so that a
-/// dropped executor frees its states after the call in progress at most,
-/// as dropping tokio's `JoinSet`, Java's `shutdownNow` and Python's
+/// Dropped, it cancels the calls queued and not yet started: none of them runs,
+/// and each one's reply ends [`ReplyStatus::Cancelled`], so that a dropped
+/// executor frees its states after the call in progress at most, as dropping
+/// tokio's `JoinSet`, Java's `shutdownNow` and Python's
 /// `shutdown(cancel_futures=True)` cancel the work not yet started. A call
 /// already running is not stopped (a call cannot be stopped mid-way): it
-/// finishes, and its reply ends as it would have. Then the executor it
-/// places is dropped on its placement (in a last job), where its calls ran,
-/// as an executor that must run on one thread needs ([`OwnThread`]);
-/// dropped before its first call, it drops that executor where it is.
-/// The caller's code that panics as a call is cancelled, its waker or an
-/// instruction's drop as the call's batch is dropped, is absorbed, after
-/// the panic hook reported it, as on the placement's thread: the calls
-/// after it are cancelled still, and `drop` raises no caller's panic,
-/// during an unwind too, where a panic would abort the process (Rust API
-/// Guidelines, C-DTOR-FAIL), as
-/// `a_waker_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled`,
-/// `an_instructions_drop_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled`,
-/// `dropped_it_raises_no_panic_of_a_callers_waker` and
-/// `dropped_it_raises_no_panic_of_an_instructions_drop` pin.
-/// `drop` does not wait for that last job: what the states hold (a device,
-/// GPU memory) may still be held when it returns, so call `close`, which
-/// waits, to free it before building another executor on it. Once its
-/// placement stopped, no job runs any more: the executor it places is then
-/// dropped by `close`, or else with the last of it and its jobs, usually
-/// on the thread that drops it (a known issue, flagged at its `Drop`).
-/// A state's drop that panics (the implementer's code) is raised only by
-/// `close`, which frees the states before it returns (the type's `close`).
-/// Wherever else the executor it places is freed, the panic is absorbed,
-/// after the panic hook reported it: in its last job, by `drop` (before
-/// the first call, or once its placement stopped), or by a job still
-/// ending, or dropped unrun, that releases it last once its placement
-/// stopped; so `drop` never panics, and no panic reaches the placement's
-/// thread
-/// (`once_stopped_its_drop_frees_the_states_raising_no_panic_of_their_drops`,
-/// `a_states_drop_that_panics_as_a_job_dropped_unrun_frees_it_stays_off_the_placements_thread`,
-/// `a_states_drop_that_panics_as_a_stopping_job_frees_it_stays_off_the_placements_thread`,
-/// `a_states_drop_that_panics_as_a_job_ending_after_drop_frees_it_stays_off_the_placements_thread`).
-/// The executors of the crate absorb that panic in their own drop, and the
-/// drops of what their closures capture, also when `close` frees them
-/// (`once_stopped_its_close_frees_what_the_closures_capture_raising_no_panic_of_their_drops`).
-/// Its own drop absorbs that of the placement, or of what it captures once
-/// started
-/// (`before_its_first_call_its_drop_frees_what_its_placement_captures_raising_no_panic_of_its_drop`,
-/// `once_started_its_drop_frees_what_its_placement_captures_raising_no_panic_of_its_drop`).
+/// finishes, and its reply ends as it would have. Then the executor it places
+/// is dropped on its placement (in a last job), where its calls ran, as an
+/// executor that must run on one thread needs ([`OwnThread`]); dropped before
+/// its first call, it drops that executor where it is. The caller's code that
+/// panics as a call is cancelled, its waker or an instruction's drop as the
+/// call's batch is dropped, is absorbed, after the panic hook reported it, as
+/// on the placement's thread: the calls after it are cancelled still, and
+/// `drop` raises no caller's panic, during an unwind too, where a panic would
+/// abort the process (Rust API Guidelines, C-DTOR-FAIL). `drop` does not wait
+/// for that last job: what the states hold (a device, GPU memory) may still be
+/// held when it returns, so call `close`, which waits, to free it before
+/// building another executor on it. Once its placement stopped, no job runs any
+/// more: the executor it places is then dropped by `close`, or else with the
+/// last of it and its jobs, usually on the thread that drops it (a known issue,
+/// flagged at its `Drop`). A state's drop that panics (the implementer's code)
+/// is raised only by `close`, which frees the states before it returns (the
+/// type's `close`). Wherever else the executor it places is freed, the panic is
+/// absorbed, after the panic hook reported it: in its last job, by `drop`
+/// (before the first call, or once its placement stopped), or by a job still
+/// ending, or dropped unrun, that releases it last once its placement stopped;
+/// so `drop` never panics, and no panic reaches the placement's thread. The
+/// executors of the crate absorb that panic in their own drop, and the drops of
+/// what their closures capture, also when `close` frees them. Its own drop
+/// absorbs that of the placement, or of what it captures once started.
 ///
 /// # Type parameters
 ///
@@ -642,16 +626,15 @@ where
     ///
     /// # Panics
     ///
-    /// When its placement panics as it is handed the close's job (as
-    /// `call`'s): the report of the executor it places is then lost. When
-    /// the executor it places panics as it closes, on its placement (a
-    /// report closure's, or its report's `Default`): that panic is raised again
-    /// here, its payload unchanged, as `std::thread::scope` raises a scoped
-    /// thread's panic in its caller (the type's doc). Once its placement
-    /// stopped, `close` frees the executor it places here: the panic of a
-    /// state's drop (the implementer's code; the first one's, once every state
-    /// is freed) then reaches the caller
-    /// (`once_stopped_its_close_raises_the_first_panic_of_a_states_drop`).
+    /// When its placement panics as it is handed the close's job (as `call`'s):
+    /// the report of the executor it places is then lost. When the executor it
+    /// places panics as it closes, on its placement (a report closure's, or its
+    /// report's `Default`): that panic is raised again here, its payload
+    /// unchanged, as `std::thread::scope` raises a scoped thread's panic in its
+    /// caller (the type's doc). Once its placement stopped, `close` frees the
+    /// executor it places here: the panic of a state's drop (the implementer's
+    /// code; the first one's, once every state is freed) then reaches the
+    /// caller.
     fn close(&mut self) -> E::Report {
         self.lifecycle.close();
         if self.runner.is_none() {

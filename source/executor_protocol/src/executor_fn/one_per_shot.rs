@@ -61,8 +61,7 @@ use crate::{
 /// .log_probability(|state| state.log_p)
 /// ```
 ///
-/// and a run of eight shots on it, from
-/// `a_program_with_feedback_runs_its_next_batch_on_the_shots_it_chose`
+/// and a run of eight shots on it, from the per-shot executor guide
 /// (`tests/per_shot_executor.rs`):
 ///
 /// ```ignore
@@ -141,15 +140,11 @@ impl<I, S, M, P, C, L, R> ShotStrategy<ExecutorFn<I, S, M, P, C, L, R>> for OneP
 ///   whether its shot ran it or not, as after a failure, but as the panic
 ///   leaves: a panic of a state's drop is left to the panic hook, so that
 ///   the call's panic is the one that reaches the caller.
-/// - `drop` never panics: a state's drop that panics as the executor is
-///   dropped is absorbed, each state in a catch of its own, after the
-///   panic hook reported it (Rust API Guidelines, C-DTOR-FAIL); call
-///   `close` to see the first one
-///   (`dropped_it_frees_every_state_raising_no_panic_of_their_drops`, in
-///   `src/tests/executor_fn/one_per_shot.rs`). So
-///   is the drop of what its closures capture, each closure in a catch of
-///   its own; `close` raises only the states'
-///   (`dropped_it_frees_what_each_closure_captures_raising_no_panic_of_their_drops`).
+/// - `drop` never panics: a state's drop that panics as the executor is dropped
+///   is absorbed, each state in a catch of its own, after the panic hook
+///   reported it (Rust API Guidelines, C-DTOR-FAIL); call `close` to see the
+///   first one. So is the drop of what its closures capture, each closure in a
+///   catch of its own; `close` raises only the states'.
 /// - Its report counts the calls it accepted, and gives each state's log
 ///   probability and report, when it is given how to make them
 ///   ([`ExecutorFn::state_report`]), as their calls left them, the failed
@@ -353,12 +348,8 @@ where
     /// caller, placed or not ([`PlacedExecutor`]), whereas `drop` absorbs it.
     /// The states are taken first, so they are freed before the panic leaves,
     /// and a later `close` reports none of them (it calls `Q::default` again,
-    /// which may panic again)
-    /// (`a_close_whose_reports_default_panics_frees_every_state_first`,
-    /// `a_close_after_its_reports_default_panicked_reports_nothing`). A panic
-    /// of a state's drop as the panic of a report closure or of `Q::default`
-    /// leaves is left to the panic hook
-    /// (`a_reports_default_panic_wins_over_its_states_drops`).
+    /// which may panic again). A panic of a state's drop as the panic of a
+    /// report closure or of `Q::default` leaves is left to the panic hook.
     fn close(&mut self) -> ExecutorReport<Q> {
         // Known issue, open (it needs two bugs at once; blocks neither this
         // commit nor a later one): run from a `drop` while another panic

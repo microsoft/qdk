@@ -72,18 +72,13 @@ impl<'a> AdapterBoundary<'a> {
     /// shot `j`'s state from. So one seed replays the whole chain, each
     /// adapter that draws under an id of its own.
     ///
-    /// `None` when the adapter draws nothing
-    /// (`an_adapter_that_draws_nothing_is_given_no_seeds`). One that draws
-    /// where no run's seed reaches it is refused
-    /// ([`BuildError::NoRunSeed`]), and then gets `None` too
-    /// (`an_adapter_refused_for_no_run_seed_is_given_no_seeds`). One
-    /// refused for another reason, such as [`BuildError::RngInUse`], may
-    /// still get them; it is never applied. `build`
-    /// runs even when the adapter is refused, so that every fault is
+    /// `None` when the adapter draws nothing. One that draws where no run's
+    /// seed reaches it is refused ([`BuildError::NoRunSeed`]), and then gets
+    /// `None` too. One refused for another reason, such as
+    /// [`BuildError::RngInUse`], may still get them; it is never applied.
+    /// `build` runs even when the adapter is refused, so that every fault is
     /// reported: an adapter keeps the `Option`, and takes its seeds in
-    /// [`apply`](crate::Apply::apply), which runs only once the chain is
-    /// built
-    /// (`an_adapter_written_by_hand_drawing_with_no_run_seed_below_is_refused`).
+    /// [`apply`](crate::Apply::apply), which runs only once the chain is built.
     #[must_use]
     pub fn drawing_seeds(&self) -> Option<AdapterSeeds> {
         Some(AdapterSeeds::new(self.downstream.run_seed?, self.drawing?))
@@ -106,21 +101,18 @@ impl<'a> AdapterBoundary<'a> {
     }
 
     /// What the adapter offers upstream: what downstream offers, the qubit
-    /// count included, with the instruction set the adapter accepts and the
-    /// ids it draws with, and no `probabilities` if it draws
-    /// ([`Adapter::draws`];
-    /// `an_adapter_that_draws_reads_no_probabilities_in_its_offer_when_built`).
-    /// An adapter changes what it changes: a code offers a qubit per block
-    /// of qubits downstream.
-    /// [`compose`](fn@crate::compose) keeps the fields it derives as
-    /// derived, whatever the adapter offers, even an offer it assigns
-    /// whole: the run's seed ([`drawing_seeds`](Self::drawing_seeds)); the
-    /// instruction set, the one the adapter states in [`Adapter::accepts`],
-    /// or downstream's for one that states none and passes its calls
-    /// through as they are ([`Capabilities::instruction_set`]); and the ids
-    /// drawn with, those below the adapter and its own
-    /// ([`Capabilities::rng_ids`]). The offer may turn `probabilities` off,
-    /// never on ([`Capabilities::probabilities`]).
+    /// count included, with the instruction set the adapter accepts and the ids
+    /// it draws with, and no `probabilities` if it draws ([`Adapter::draws`]).
+    /// An adapter changes what it changes: a code offers a qubit per block of
+    /// qubits downstream. [`compose`](fn@crate::compose) keeps the fields it
+    /// derives as derived, whatever the adapter offers, even an offer it
+    /// assigns whole: the run's seed ([`drawing_seeds`](Self::drawing_seeds));
+    /// the instruction set, the one the adapter states in [`Adapter::accepts`],
+    /// or downstream's for one that states none and passes its calls through as
+    /// they are ([`Capabilities::instruction_set`]); and the ids drawn with,
+    /// those below the adapter and its own ([`Capabilities::rng_ids`]). The
+    /// offer may turn `probabilities` off, never on
+    /// ([`Capabilities::probabilities`]).
     ///
     /// An offer assigned whole states every limit, the shots' states, the
     /// feedback and the resets included, so an adapter that assigns one

@@ -453,26 +453,23 @@ where
     }
 }
 
-/// An adapter written by hand `A` upstream of the executor `E`: the
-/// executor `compose` and `>>` give, as [`AdapterFnExecutor`] is an
-/// [`adapter_fn`](fn@crate::adapter_fn)'s. It runs on the executor `A`
-/// gives ([`Apply::apply`]), applied to `E` (whose calls are renumbered on
-/// their way down where `E` numbers them otherwise), and keeps it to the
-/// protocol's rules of an executor: it offers what the adapter offers
-/// upstream ([`AdapterBoundary::offered_upstream`]), refuses every call
-/// once closed or after a call failed, a call that panicked included, and
-/// closes the executor `A` gave once; it reports what that executor
-/// reports. So an adapter written by hand states only its own logic: the
-/// executor it gives runs or refuses each call, and closes the executor
-/// downstream of it. Dropped, it drops that executor, and so `E` where that
-/// executor holds it: over the crate's executors, which absorb every panic
-/// of their drops (their states' and what their closures capture), it
-/// raises none
-/// (`dropping_frees_each_state_below_an_adapter_written_by_hand_raising_no_panic_of_their_drops`).
+/// An adapter written by hand `A` upstream of the executor `E`: the executor
+/// `compose` and `>>` give, as [`AdapterFnExecutor`] is an
+/// [`adapter_fn`](fn@crate::adapter_fn)'s. It runs on the executor `A` gives
+/// ([`Apply::apply`]), applied to `E` (whose calls are renumbered on their way
+/// down where `E` numbers them otherwise), and keeps it to the protocol's rules
+/// of an executor: it offers what the adapter offers upstream
+/// ([`AdapterBoundary::offered_upstream`]), refuses every call once closed or
+/// after a call failed, a call that panicked included, and closes the executor
+/// `A` gave once; it reports what that executor reports. So an adapter written
+/// by hand states only its own logic: the executor it gives runs or refuses
+/// each call, and closes the executor downstream of it. Dropped, it drops that
+/// executor, and so `E` where that executor holds it: over the crate's
+/// executors, which absorb every panic of their drops (their states' and what
+/// their closures capture), it raises none.
 ///
 /// A function that makes the chain's executor returns it by this name:
-/// `-> AdapterExecutor<Counter, Toy>`
-/// (`a_function_returns_an_adapter_written_by_hand_over_an_executor_for_shr`).
+/// `-> AdapterExecutor<Counter, Toy>`.
 //
 // Known issues, open.
 // - Blocks a later unit (`.log_probability` on adapters): the report of
@@ -569,15 +566,12 @@ where
     ///
     /// # Panics
     ///
-    /// When the close of the executor `A` gave panics, as with the first
-    /// panic of the drops of the states that the crate's executors below it
-    /// free as they close, the panic reaches the caller once every one is
-    /// freed
-    /// (`closing_frees_each_state_below_an_adapter_written_by_hand_then_raises_the_first_drops_panic`),
-    /// and a later close does not close that executor again
-    /// (`a_close_of_an_adapters_executor_that_panicked_is_not_run_again`).
-    /// `E` is closed only by that executor's close, where it reaches `E`:
-    /// one that panics before then leaves `E` to its drop.
+    /// When the close of the executor `A` gave panics, as with the first panic
+    /// of the drops of the states that the crate's executors below it free as
+    /// they close, the panic reaches the caller once every one is freed, and a
+    /// later close does not close that executor again. `E` is closed only by
+    /// that executor's close, where it reaches `E`: one that panics before then
+    /// leaves `E` to its drop.
     fn close(&mut self) -> Self::Report {
         self.lifecycle.close();
         close_below_once(&mut self.executor, &mut self.executor_closed)

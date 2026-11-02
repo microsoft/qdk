@@ -2,14 +2,16 @@
 
 [Protocol overview](../../README.md).
 
-This page is for maintainers of the crate, and for those who need a rule
-at its edge: calls and replies that allocate nothing; when two actions
-are the same; compatibility in full, with each way an instruction is
-matched or refused, how a boundary renumbers calls, and what a driver of
-each instruction type gets; and the three checks in full, with their
-errors, the conformance kit's check of calls, and what checking costs. A
-user describing or matching sets needs none of it to start, and starts
-at [Instruction sets](../instruction-sets.md).
+This page is for maintainers of the crate, and for those who need a rule at its
+edge: calls and replies that allocate nothing; when two actions are the same;
+compatibility in full, with each way an instruction is matched or refused, how a
+boundary renumbers calls, and what a driver of each instruction type gets; and
+the three checks in full, with their errors, the conformance kit's check of
+calls, and what checking costs; and, last, the tests of the promises of
+[Instruction sets](../instruction-sets.md) and of the static and run-time
+instruction set guides that the sections do not cite. A user describing or
+matching sets needs none of it to start, and starts at [Instruction
+sets](../instruction-sets.md).
 
 ## Calls and replies that allocate nothing
 
@@ -351,3 +353,39 @@ to drop the check, so every executor keeps it.
   the boundary downstream of it;
 - an adapter that sends a call of its own for each call, its batches
   copied at the boundary or, adopting the downstream numbering, passed.
+
+## The tests of the user pages' promises
+
+Each promise of [Instruction sets](../instruction-sets.md) and of the [guide
+walkthroughs](../guides.md) of the two instruction set guides that the sections
+above do not pin, in each page's order, with the tests that pin it.
+
+From [Instruction sets](../instruction-sets.md):
+
+| Promise                                                                                                                                                                                                                       | Tests                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| The static guide's repetition code is refused when composed with a toy that lacks an instruction its gadgets send                                                                                                             | `the_code_is_built_only_against_an_executor_that_runs_its_gadgets` (`tests/static_isa.rs`)                                                   |
+| A test matches every variant of an instruction type to a call of its description                                                                                                                                              | `each_description_names_every_instruction_it_stands_for` (`tests/static_isa.rs`)                                                             |
+| `set.display(&call)` shows a call with its mnemonic                                                                                                                                                                           | `a_call_is_displayed_with_its_mnemonic` (`src/tests/instruction_set/call.rs`)                                                                |
+| A part of a set numbers its instructions in its own order                                                                                                                                                                     | `a_part_of_a_set_numbers_its_instructions_in_its_own_order` (`src/tests/instruction_set.rs`)                                                 |
+| `set.table(..)` holds each instruction's entry at its opcode, and is refused with every mnemonic given no entry                                                                                                               | `a_table_holds_each_instructions_entry_at_its_opcode`, `a_table_reports_every_instruction_without_an_entry` (`src/tests/instruction_set.rs`) |
+| Known issue: an instruction whose action and `Block` operands disagree on its blocks is matched as written                                                                                                                    | `an_instruction_whose_action_and_operands_disagree_on_its_blocks_is_not_matched` (`src/tests/instruction_set.rs`, ignored until fixed)       |
+| An instruction the code sends without an action is refused when the chain is built                                                                                                                                            | `an_instruction_the_code_sends_without_an_action_is_refused_when_built` (`tests/runtime_isa.rs`)                                             |
+| A circuit readout with no value leaves its logical readout without one                                                                                                                                                        | `a_circuit_readout_with_no_value_leaves_its_logical_readout_without_one` (`tests/runtime_isa.rs`)                                            |
+| An instruction refusal keeps its meaning across the lowering: nothing ran (a refusal of the code's own sends nothing down), and `Rejected::at_origin` names the instruction the adapter received, as the repetition code does | `a_refusal_names_the_logical_instruction` (`tests/static_isa.rs`)                                                                            |
+
+From the guide [A run-time ISA: a code given as
+data](../guides.md#a-run-time-isa-a-code-given-as-data), in
+`tests/runtime_isa.rs` (the static guide's promises are in the table above):
+
+| Promise                                                                                                     | Tests                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| A logical call goes down as its gadget, each circuit readout with a fresh tag                               | `each_logical_call_goes_down_as_its_gadget`                                                                                                    |
+| The code offers a block per three qubits, and is refused on fewer than three                                | `the_code_offers_a_block_per_three_qubits`                                                                                                     |
+| The code is refused on a device that does not say how many qubits it has                                    | `a_device_that_does_not_say_how_many_qubits_it_has_is_refused_when_built`                                                                      |
+| A reply that ends before every circuit readout came up fails                                                | `a_logical_readout_missing_a_circuit_readout_fails_the_reply`                                                                                  |
+| A code with a fault is never resolved, whatever is downstream                                               | `a_logical_instruction_without_a_gadget_is_refused_when_built`                                                                                 |
+| The code describes the logical set, against which the chain upstream is checked                             | `the_code_describes_the_logical_set`                                                                                                           |
+| A driver whose set declares the logical instructions in another order runs its own instructions on the code | `a_driver_in_another_order_runs_its_own_instructions_on_the_code`                                                                              |
+| A call outside the logical set, or on a block the code does not have, is refused before anything goes down  | `a_call_outside_the_logical_set_is_refused_before_anything_goes_down`, `a_call_on_a_block_the_code_lacks_is_refused_before_anything_goes_down` |
+| The code draws nothing: each shot's log probability is the one the executor downstream states               | `the_code_passes_on_the_log_probability_of_the_executor_downstream`                                                                            |
