@@ -35,15 +35,6 @@ use crate::{
 /// One adapter, or adapters composed: what composes upstream of an executor. It
 /// is implemented by the crate, for every [`Adapter`], for
 /// [`ComposedAdapters`], and for [`NoAdapter`].
-//
-// The notes are on this trait, not only on `Adapter`: a `>>` that cannot
-// take its right side reports this bound, the executor taken as adapters,
-// and shows none of `Adapter`'s notes; `compose` reports `Adapter`'s.
-#[diagnostic::on_unimplemented(
-    note = "`>>` takes an executor on its right only where it is implemented for that executor",
-    note = "an adapter on the left returned as a bare `impl Adapter` does not compose over an executor: return the facility's type, its closures named by role (`MakeState`, `AdapterLogic`; see `executor_protocol::compose`)",
-    note = "an adapter written by hand composes with an executor when it implements `Apply<E>` for every `E: Executor<InstructionBatch<Sends>> + Close`, not for one executor's type (see `executor_protocol::Apply`)"
-)]
 pub trait Adapters: sealed::AdapterList {
     /// The instructions the most upstream adapter is called with.
     type Accepts;

@@ -29,7 +29,8 @@ use crate::{OnePerShot, OnePerShotAdapter};
 ///
 /// It is an [`adapter_fn`](fn@crate::adapter_fn) in every other way: the
 /// same options ([`AdapterFn::accepts`], [`AdapterFn::sends`],
-/// [`AdapterFn::check`], [`AdapterFn::drawing`]), a state per shot under
+/// [`AdapterFn::check`], [`AdapterFn::drawing`],
+/// [`AdapterFn::state_report`]), a state per shot under
 /// [`OnePerShot`] ([`AdapterFn::shots`]), and the same rules, those of
 /// [`adapter_fn`](fn@crate::adapter_fn) and of [`OnePerShotAdapter`]: what
 /// the state sends or runs through its [`BelowHandle`] while its logic

@@ -190,9 +190,9 @@ profiler is a counting function and a three-line body
 ## Getting started
 
 The executors themselves live in other crates. This crate gives the contract,
-and the facilities that make each part from your own logic (`executor_fn`,
-`adapter_fn`), keeping for it the rules every part follows: admitting and
-refusing calls, failing and closing, seeding, the replies.
+and the facilities that make an executor or an adapter from your own logic
+(`executor_fn`, `adapter_fn`), keeping for it the rules every part follows:
+admitting and refusing calls, failing and closing, seeding, the replies.
 
 What to write, by task, and where it is explained:
 

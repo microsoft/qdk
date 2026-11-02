@@ -47,8 +47,8 @@ use crate::{
 // `Adapter`, the rule for two adapters being the one left to try; adapters
 // composed are passed where an `Adapter` is expected (planned,
 // `docs/planned.md`); and an executor is put where an adapter is expected
-// (followed by another part, or after a part whose `>>` its crate did not
-// implement).
+// (after a part whose `>>` its crate did not implement, such as
+// `driver() >> hand`, `hand` an executor of another crate).
 #[diagnostic::on_unimplemented(
     note = "an adapter written by hand implements `Apply<E>` for every \
             `E: Executor<InstructionBatch<Sends>> + Close`, not for one executor's type \

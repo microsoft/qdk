@@ -629,7 +629,9 @@ executor of another crate written so is composed with `>>` after each of
 the four, grouped either way
 (`an_executor_written_by_hand_is_composed_with_shr_after_each_public_left_type`,
 `tests/executor_by_hand.rs`). A macro
-that writes these impls is planned, with no milestone yet, for when a
+that writes a crate's `>>` impls (these, with an executor on the right,
+and those with its adapters or its driver on the left) is planned, with
+no milestone yet, for when a
 second crate gives its adapters `>>`, such as a crate of codes or of
 noise models, or its driver, such as a QIR runtime's crate, whose driver
 gets `>>` today only once lifted, `ChainHead::new(driver) >> …`.

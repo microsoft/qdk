@@ -256,6 +256,7 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     /// readout's tag ([`check_unique_tags`](crate::check_unique_tags)). It
     /// replaces the check given before, if any, freeing it, and raising no
     /// panic of its drop, as `drop` does; without one, every call is accepted.
+    /// Give it before the first call.
     #[must_use]
     pub fn check<V>(self, check: V) -> ExecutorFn<I, S, M, P, V, L, R>
     where
@@ -282,7 +283,8 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     /// state reported ([`ExecutorFn::state_report`]), when the executor
     /// closes, into the report ([`ExecutorReport::log_p`]), and never on a
     /// state left out of it. It replaces the one given before, if any,
-    /// freeing it as [`ExecutorFn::check`] does.
+    /// freeing it as [`ExecutorFn::check`] does. Give it before the first
+    /// call.
     #[must_use]
     pub fn log_probability<W>(self, log_probability: W) -> ExecutorFn<I, S, M, P, C, W, R>
     where
@@ -314,7 +316,8 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     /// ([`ExecutorReport::states`]), starting from the empty report, in an
     /// order not promised: by [`Fold`]'s rules, the total does not depend on
     /// it. It replaces the one given before, if any, freeing it as
-    /// [`ExecutorFn::check`] does; without one, the report is `()`.
+    /// [`ExecutorFn::check`] does; without one, the report is `()`. Give it
+    /// before the first call.
     ///
     /// Every state held at close is reported, as its calls left it, a failed
     /// one included, since the executor keeps it until it closes; but not a

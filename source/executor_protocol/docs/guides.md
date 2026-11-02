@@ -167,6 +167,7 @@ toy meets the program's needs:
 ```rust
 let chain = driver() >> profiler() >> debugger(log.clone()) >> simulator();
 let chain = chain.expect("the observers fit");
+// SHOTS is [2, 5, 6, 11]: the job's shots, not a plain range.
 let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
 ```
 

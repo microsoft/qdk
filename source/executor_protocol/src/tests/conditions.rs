@@ -3170,6 +3170,35 @@ fn a_failed_run_takes_in_no_condition_it_read_on_a_shot_it_was_not_given() {
     );
 }
 
+/// A decoder with one state, on shots 0 and 2, writes each shot's readout
+/// of an earlier round, then runs both below, on a faulty runtime that
+/// rejects each shot it runs and reads shot 1 too, inconsistent: the call
+/// fails, as the run read a shot it was not given, and its reply hands over
+/// both readouts the decoder wrote, rejected, shot 2's too, though in shot
+/// order the run read shot 1 between shots 0 and 2, and nothing on shot 1.
+#[test]
+fn a_failed_run_takes_in_its_own_shots_conditions_read_after_a_shot_it_was_not_given() {
+    let mut decoder = compose(
+        adapter_fn(no_state, writes_then_runs),
+        ReadsAnotherShot { other: 1 },
+    )
+    .expect("steps fit steps");
+    let reply = decoder.call(InstructionBatchRef {
+        shots: &shots(&[0, 2]),
+        instructions: &[Step::Read(0)],
+    });
+    let mut outcomes = Vec::new();
+    let ended = wait(reply.expect("the decoder accepts the batch"), &mut outcomes);
+    ended.expect_err("the run reads shot 1, which it was not given");
+    assert_eq!(
+        marked(&outcomes),
+        [
+            (0, 100, ShotConditions::REJECTED),
+            (2, 100, ShotConditions::REJECTED)
+        ]
+    );
+}
+
 /// A layer sends a call on shot 1 below, to a faulty runtime whose reply
 /// reads shot 2 too, inconsistent; in a later call on shot 2, with nothing
 /// to send, it writes a result of its own: that result carries the
