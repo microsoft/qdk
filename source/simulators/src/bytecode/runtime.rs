@@ -18,7 +18,6 @@ use crate::{
     MeasurementResult, OutputRecord, QubitID, ResultID, Simulator,
     bytecode::{AdaptiveProgram, Instruction},
 };
-use qsc_data_structures::measurement::OneQubitMeasurement;
 
 // ---------------------------------------------------------------------------
 // Opcode constants — must stay in sync with the Python `_adaptive_bytecode.py`
@@ -309,9 +308,9 @@ fn dispatch_measure<S: Simulator>(
     let result_id = rt.resolve_u64(instr.aux2, instr.opcode, 5) as ResultID;
 
     match op.op_id {
-        OPID_MX => sim.measure_single_pauli(OneQubitMeasurement::X, qubit, result_id),
-        OPID_MY => sim.measure_single_pauli(OneQubitMeasurement::Y, qubit, result_id),
-        OPID_MZ => sim.measure_single_pauli(OneQubitMeasurement::Z, qubit, result_id),
+        OPID_MX => sim.mx(qubit, result_id),
+        OPID_MY => sim.my(qubit, result_id),
+        OPID_MZ => sim.mz(qubit, result_id),
         OPID_MRESETZ => sim.mresetz(qubit, result_id),
         _ => panic!("unsupported measure op_id={}", op.op_id),
     }

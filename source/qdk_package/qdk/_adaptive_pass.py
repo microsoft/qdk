@@ -25,7 +25,9 @@ class Bytecode(Enum):
 
 
 # ---------------------------------------------------------------------------
-# Gate name → OpID mapping (must match shader_types.rs OpID enum)
+# Gate name → OpID mapping (must match shader_types.rs OpID enum, except
+# mx/my, which only the CPU/Clifford runtime handles natively; the GPU path
+# lowers them via ``expand_pauli_measurements``)
 # ---------------------------------------------------------------------------
 
 GATE_MAP: Dict[str, int] = {
@@ -62,6 +64,13 @@ GATE_MAP: Dict[str, int] = {
 
 # Gates that take a result ID as a second argument
 MEASURE_GATES = {"m", "mx", "my", "mz", "mresetz"}
+
+# Basis changes (before, after) used to lower X/Y-basis measurements to ``mz``
+# when ``expand_pauli_measurements`` is set.
+PAULI_MEASURE_EXPANSIONS: Dict[str, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {
+    "mx": (("h",), ("h",)),
+    "my": (("s__adj", "h"), ("h", "s")),
+}
 
 # Gates that reset a qubit (single qubit argument, no result)
 RESET_GATES = {"reset"}
@@ -324,7 +333,15 @@ def void_return(bytecode_kind: Bytecode) -> int:
 class AdaptiveProfilePass:
     """Walks Adaptive Profile QIR and emits the intermediate format for Rust."""
 
-    def __init__(self, bytecode_kind: Bytecode):
+    def __init__(
+        self, bytecode_kind: Bytecode, expand_pauli_measurements: bool = False
+    ):
+        """
+        :param bytecode_kind: Integer width of the emitted bytecode.
+        :param expand_pauli_measurements: Lower ``mx``/``my`` into a basis change,
+            ``mz``, and the inverse basis change, for backends without native
+            X/Y-basis measurement.
+        """
         # Output tables.
         self.blocks: List[Block] = []
         self.instructions: List[Instruction] = []
@@ -338,6 +355,7 @@ class AdaptiveProfilePass:
 
         # Internal tracking.
         self._bytecode_kind = bytecode_kind
+        self._expand_pauli_measurements = expand_pauli_measurements
         self._int_bits = bytecode_kind.value
         self._next_reg: int = 0
         self._next_block: int = 0
@@ -1029,6 +1047,12 @@ class AdaptiveProfilePass:
         gate_name = callee_name.replace("__quantum__qis__", "").replace("__body", "")
         op_id = GATE_MAP[gate_name]
         if gate_name in MEASURE_GATES:
+            if (
+                self._expand_pauli_measurements
+                and gate_name in PAULI_MEASURE_EXPANSIONS
+            ):
+                self._emit_expanded_pauli_measurement(call, gate_name)
+                return
             q = self._resolve_qubit_operand(call.args[0])
             r = self._resolve_result_operand(call.args[1])
             qop_idx = self._emit_quantum_op(op_id, q.val, r.val)
@@ -1084,6 +1108,27 @@ class AdaptiveProfilePass:
             aux2=q2,
             aux3=q3,
         )
+
+    def _emit_expanded_pauli_measurement(
+        self, call: pyqir.Call, gate_name: str
+    ) -> None:
+        """Emit an X/Y-basis measurement as a basis change, ``mz``, and the inverse."""
+        before, after = PAULI_MEASURE_EXPANSIONS[gate_name]
+        q1, q2, q3 = self._resolve_qubit_operands([call.args[0]])
+        r = self._resolve_result_operand(call.args[1])
+        no_angle = FloatOperand(0.0, self._bytecode_kind)          
+
+        # Emit basis change gates before measurement.
+        for name in before:
+            qop_idx = self._emit_quantum_op(GATE_MAP[name], q1.val, q2.val, q3.val, no_angle.val)
+            self._emit(OP_QUANTUM_GATE, src0=no_angle, aux0=qop_idx, aux1=q1, aux2=q2, aux3=q3)
+        # Emit the measurement.
+        qop_idx = self._emit_quantum_op(GATE_MAP["mz"], q1.val, r.val)
+        # Emit inverse basis change gates after measurement.
+        self._emit(OP_MEASURE, aux0=qop_idx, aux1=q1, aux2=r)
+        for name in after:
+            qop_idx = self._emit_quantum_op(GATE_MAP[name], q1.val, q2.val, q3.val, no_angle.val)
+            self._emit(OP_QUANTUM_GATE, src0=no_angle, aux0=qop_idx, aux1=q1, aux2=q2, aux3=q3)
 
     def _emit_noise_intrinsic_call(self, call: pyqir.Call) -> None:
         """Emit a noise intrinsic call.

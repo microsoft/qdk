@@ -1848,16 +1848,16 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
             operation _lambda_3(arg : Int, hole : Qubit) : Unit {
                 Repeat_AdjCtl__H_(arg, hole)
             }
-            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
                 if n > 0 {
-                    _lambda_3(__capture_0, q);
+                    H(q);
                     Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
-            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
                 if n > 0 {
-                    H(q);
+                    _lambda_3(__capture_0, q);
                     Repeat_Empty__closure_(n - 1, q, 1);
                 }
 

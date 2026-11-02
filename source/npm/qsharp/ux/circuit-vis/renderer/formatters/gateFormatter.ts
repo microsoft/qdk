@@ -341,10 +341,15 @@ const _measure = (
     "qs-line-measure",
   );
   meter.style.pointerEvents = "none";
-  const basis = label === "MX" ? "X" : label === "MY" ? "Y" : undefined;
+  const basis = label === "MX" ? "X" : label === "MY" ? "Y" : label === "MZ" ? "Z" : undefined;
   const elements = [mBox, mArc, meter];
   if (basis !== undefined) {
-    const basisLabel = text(basis, x + 8, y + 8 + argsFontSize / 2, argsFontSize);
+    const basisLabel = text(
+      basis,
+      x + width - 8,
+      y + 8 + argsFontSize / 2,
+      argsFontSize,
+    );
     basisLabel.classList.add("measurement-basis");
     basisLabel.style.pointerEvents = "none";
     elements.push(basisLabel);

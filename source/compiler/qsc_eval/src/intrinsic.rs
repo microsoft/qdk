@@ -14,7 +14,6 @@ use crate::{
     val::{self, Value, unwrap_tuple},
 };
 use num_bigint::BigInt;
-use qsc_data_structures::measurement::OneQubitMeasurement;
 use qsc_fir::fir::PackageStoreLookup;
 use rand::{RngExt, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -289,8 +288,7 @@ pub(crate) fn call<B: Backend>(
             one_qubit_gate(|q| sim.reset(q, call_stack), arg, name_span, arg_span)
         }
         "__quantum__qis__m__body" => Ok(Value::Result(
-            sim.measure_single_pauli(
-                OneQubitMeasurement::Z,
+            sim.m(
                 arg.unwrap_qubit()
                     .try_deref()
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?
@@ -300,8 +298,7 @@ pub(crate) fn call<B: Backend>(
             .map_err(|e| Error::SimulationError(e, name_span))?,
         )),
         "__quantum__qis__mx__body" => Ok(Value::Result(
-            sim.measure_single_pauli(
-                OneQubitMeasurement::X,
+            sim.mx(
                 arg.unwrap_qubit()
                     .try_deref()
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?
@@ -311,8 +308,7 @@ pub(crate) fn call<B: Backend>(
             .map_err(|e| Error::SimulationError(e, name_span))?,
         )),
         "__quantum__qis__my__body" => Ok(Value::Result(
-            sim.measure_single_pauli(
-                OneQubitMeasurement::Y,
+            sim.my(
                 arg.unwrap_qubit()
                     .try_deref()
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?

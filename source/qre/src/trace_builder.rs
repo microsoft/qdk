@@ -5,7 +5,7 @@
 mod tests;
 
 use qsc::{
-    Backend, BackendResult, OneQubitMeasurement,
+    Backend, BackendResult,
     interpret::{self, GenericReceiver, Interpreter, Value},
 };
 use rand::RngExt;
@@ -148,21 +148,8 @@ impl Backend for TraceBuilder {
     }
 
     fn m(&mut self, q: usize) -> Result<BackendResult, String> {
-        self.measure_single_pauli(OneQubitMeasurement::Z, q)
-    }
-
-    fn measure_single_pauli(
-        &mut self,
-        pauli: OneQubitMeasurement,
-        q: usize,
-    ) -> Result<BackendResult, String> {
         let val = self.measurement_result(q);
-        let instruction_id = match pauli {
-            OneQubitMeasurement::X => instruction_ids::MEAS_X,
-            OneQubitMeasurement::Y => instruction_ids::MEAS_Y,
-            OneQubitMeasurement::Z => instruction_ids::MEAS_Z,
-        };
-        self.push_gate(instruction_id, vec![self.map_qubit(q)], vec![]);
+        self.push_gate(instruction_ids::MEAS_Z, vec![self.map_qubit(q)], vec![]);
         Ok(val.into())
     }
 

@@ -452,7 +452,8 @@ impl FullStateSimulator {
         self.measurements[result_id] = measurement;
     }
 
-    /// Measures an X observable on the given `target`.
+    /// Measures the given observable on the given `target`.
+    /// Used by the `Simulator::mx`, `Simulator::my`, and `Simulator::mz` methods.
     fn m_pauli_impl(&mut self, target: QubitID, instrument: &Instrument) -> MeasurementResult {
         if self.loss[target] {
             self.loss[target] = false;
@@ -648,15 +649,22 @@ impl Simulator for FullStateSimulator {
         self.apply_noise(|config| &config.swap, &[q1, q2]);
     }
 
-    fn measure_single_pauli(
-        &mut self,
-        pauli: OneQubitMeasurement,
-        target: QubitID,
-        result_id: ResultID,
-    ) {
+    fn mx(&mut self, target: QubitID, result_id: ResultID) {
+        self.apply_idle_noise(target);
+        self.record_m_pauli(target, result_id, OneQubitMeasurement::X);
+        self.apply_noise(|config| &config.mz, &[target]);
+    }
+
+    fn my(&mut self, target: QubitID, result_id: ResultID) {
+        self.apply_idle_noise(target);
+        self.record_m_pauli(target, result_id, OneQubitMeasurement::Y);
+        self.apply_noise(|config| &config.mz, &[target]);
+    }
+
+    fn mz(&mut self, target: QubitID, result_id: ResultID) {
         // todo!("Change noise type when new noise is configured")
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, pauli);
+        self.record_m_pauli(target, result_id, OneQubitMeasurement::Z);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 

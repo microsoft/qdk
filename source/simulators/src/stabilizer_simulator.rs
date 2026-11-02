@@ -299,8 +299,8 @@ impl StabilizerSimulator {
     }
 
     /// Records a z-measurement on the given `target`.
-    fn record_mz(&mut self, target: QubitID, result_id: ResultID) {
-        let measurement = self.mz_impl(target);
+    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: OneQubitMeasurement) {
+        let measurement = self.m_pauli_impl(target, pauli);
         self.measurements[result_id] = measurement;
     }
 
@@ -311,13 +311,17 @@ impl StabilizerSimulator {
     }
 
     /// Measures a Z observable on the given `target`.
-    fn mz_impl(&mut self, target: QubitID) -> MeasurementResult {
+    fn m_pauli_impl(&mut self, target: QubitID, pauli: OneQubitMeasurement) -> MeasurementResult {
         if self.loss[target] {
             self.loss[target] = false;
             return MeasurementResult::Loss;
         }
 
-        let observable = [paulimer::core::z(target)].into();
+        let observable = match pauli {
+            OneQubitMeasurement::X => [paulimer::core::x(target)].into(),
+            OneQubitMeasurement::Y => [paulimer::core::y(target)].into(),
+            OneQubitMeasurement::Z => [paulimer::core::z(target)].into(),
+        };
         let one_probability = self.state.outcome_probability(&observable, true);
         // Snap numerical residue so deterministic measurements do not consume randomness.
         let outcome = if one_probability.is_nearly_zero() {
@@ -345,12 +349,6 @@ impl StabilizerSimulator {
         }
     }
 
-    fn mz(&mut self, target: QubitID, result_id: ResultID) {
-        self.apply_idle_noise(target);
-        self.record_mz(target, result_id);
-        self.apply_noise(|config| &config.mz, &[target]);
-    }
-
     /// Measures a Z observable on the given `target` and reset the qubit to the zero state.
     fn mresetz_impl(&mut self, target: QubitID) -> MeasurementResult {
         if self.loss[target] {
@@ -358,7 +356,7 @@ impl StabilizerSimulator {
             return MeasurementResult::Loss;
         }
 
-        let result = self.mz_impl(target);
+        let result = self.m_pauli_impl(target, OneQubitMeasurement::Z);
         if result == MeasurementResult::One {
             self.state.pauli(&[paulimer::core::x(target)].into());
         }
@@ -587,27 +585,22 @@ impl Simulator for StabilizerSimulator {
         self.apply_noise(|config| &config.swap, &[q1, q2]);
     }
 
-    fn measure_single_pauli(
-        &mut self,
-        pauli: OneQubitMeasurement,
-        target: QubitID,
-        result_id: ResultID,
-    ) {
-        match pauli {
-            OneQubitMeasurement::X => {
-                self.h(target);
-                self.mz(target, result_id);
-                self.h(target);
-            }
-            OneQubitMeasurement::Y => {
-                self.s_adj(target);
-                self.h(target);
-                self.mz(target, result_id);
-                self.h(target);
-                self.s(target);
-            }
-            OneQubitMeasurement::Z => self.mz(target, result_id),
-        }
+    fn mx(&mut self, target: QubitID, result_id: ResultID) {
+        self.apply_idle_noise(target);
+        self.record_m_pauli(target, result_id, OneQubitMeasurement::X);
+        self.apply_noise(|config| &config.mz, &[target]);
+    }
+
+    fn my(&mut self, target: QubitID, result_id: ResultID) {
+        self.apply_idle_noise(target);
+        self.record_m_pauli(target, result_id, OneQubitMeasurement::Y);
+        self.apply_noise(|config| &config.mz, &[target]);
+    }
+
+    fn mz(&mut self, target: QubitID, result_id: ResultID) {
+        self.apply_idle_noise(target);
+        self.record_m_pauli(target, result_id, OneQubitMeasurement::Z);
+        self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn mresetz(&mut self, target: QubitID, result_id: ResultID) {
@@ -766,7 +759,6 @@ mod tests {
         MeasurementResult, Simulator, cpu_full_state_simulator::FullStateSimulator,
         noise_config::CumulativeNoiseConfig,
     };
-    use qsc_data_structures::measurement::OneQubitMeasurement;
     use std::sync::Arc;
 
     fn sample_t_interference<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>(
@@ -776,7 +768,7 @@ mod tests {
         simulator.h(0);
         simulator.t(0);
         simulator.h(0);
-        simulator.measure_single_pauli(OneQubitMeasurement::Z, 0, 0);
+        simulator.mz(0, 0);
         simulator.measurements()[0]
     }
 
@@ -814,8 +806,8 @@ mod tests {
         simulator.t(1);
         simulator.h(0);
         simulator.h(1);
-        simulator.measure_single_pauli(OneQubitMeasurement::Z, 0, 0);
-        simulator.measure_single_pauli(OneQubitMeasurement::Z, 1, 1);
+        simulator.mz(0, 0);
+        simulator.mz(1, 1);
         usize::from(simulator.measurements()[0] == MeasurementResult::One) * 2
             + usize::from(simulator.measurements()[1] == MeasurementResult::One)
     }
