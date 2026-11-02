@@ -77,3 +77,7 @@ harness = false
 [[bench]]
 name = "typeck"
 harness = false
+
+[[bench]]
+name = "qir_allocation"
+harness = false
