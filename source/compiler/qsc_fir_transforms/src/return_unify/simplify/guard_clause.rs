@@ -34,6 +34,8 @@
 //!
 //! The guard-set and lazy continuation must then reference exactly those
 //! locals, or the rule refuses to fire.
+//! The continuation must not write either slot: otherwise the final merge
+//! is needed to select the result of a return inside the continuation.
 
 use qsc_fir::{
     assigner::Assigner,
@@ -45,7 +47,10 @@ use crate::fir_builder::{
     alloc_block, alloc_block_expr, alloc_expr_stmt, alloc_if_expr, alloc_not_expr,
 };
 
-use super::{extract_local_read, identify_merge_or_trailing_slot, match_slot_set_arm};
+use super::{
+    expr_writes_to_merge_slots, extract_local_read, identify_merge_or_trailing_slot,
+    match_slot_set_arm,
+};
 use crate::return_unify::lower::SynthSlots;
 
 /// Apply the guard-clause collapse rule to `block_id`.
@@ -108,11 +113,14 @@ fn try_apply_once(
     } else {
         return false;
     };
-    let Some(rest_block_id) =
+    let Some(rest_expr_id) =
         identify_continuation(package, stmt_ids[cont_idx], has_returned, &block_ty)
     else {
         return false;
     };
+    if expr_writes_to_merge_slots(package, rest_expr_id, has_returned, return_slot) {
+        return false;
+    }
 
     // Build the replacement: `if c { v } else { rest_block }`.
     let v_stmt = alloc_expr_stmt(package, assigner, v_id, package.synthetic_span());
@@ -130,19 +138,12 @@ fn try_apply_once(
         block_ty.clone(),
         package.synthetic_span(),
     );
-    let else_expr = alloc_block_expr(
-        package,
-        assigner,
-        rest_block_id,
-        block_ty.clone(),
-        package.synthetic_span(),
-    );
     let new_if = alloc_if_expr(
         package,
         assigner,
         cond_id,
         then_expr,
-        Some(else_expr),
+        Some(rest_expr_id),
         block_ty.clone(),
         package.synthetic_span(),
     );
@@ -242,7 +243,7 @@ fn then_arm_is_unit_noop(package: &Package, then_expr_id: ExprId) -> bool {
 }
 
 /// Identifies the `if not __has_returned { rest_block }` continuation
-/// statement and returns the underlying `rest_block` id. The continuation
+/// statement and returns the underlying block expression id. The continuation
 /// may carry an else arm (e.g. the canonical lazy-continuation `else
 /// __ret_val`); the else arm is dropped along with the merge.
 ///
@@ -253,13 +254,14 @@ fn then_arm_is_unit_noop(package: &Package, then_expr_id: ExprId) -> bool {
 ///   binding emitted by `create_flag_trailing_expr_for_slot`,
 ///   where the lazy continuation is the let-bound initializer. The bound
 ///   local is read by the trailing merge in the canonical shape, so
-///   discarding the binding alongside the merge is safe.
+///   discarding the binding alongside the merge is safe only if the caller
+///   verifies that the continuation does not write either merge slot.
 fn identify_continuation(
     package: &Package,
     stmt_id: StmtId,
     has_returned: LocalVarId,
     return_ty: &Ty,
-) -> Option<BlockId> {
+) -> Option<ExprId> {
     let if_expr_id = match package.get_stmt(stmt_id).kind {
         StmtKind::Expr(e) | StmtKind::Semi(e) => e,
         StmtKind::Local(_, _, init) => init,
@@ -284,5 +286,5 @@ fn identify_continuation(
     if package.get_block(*bid).ty != *return_ty {
         return None;
     }
-    Some(*bid)
+    Some(*then_id)
 }

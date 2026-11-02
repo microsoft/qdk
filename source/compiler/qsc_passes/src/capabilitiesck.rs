@@ -101,6 +101,67 @@ pub fn check_supported_capabilities(
     checker.check_all()
 }
 
+/// Checks target capabilities, grouping failures by declaration or entry point.
+///
+/// Uses the same traversal and capability rules as [`check_supported_capabilities`],
+/// but returns a separate group for each failing scope:
+/// - `Some(id)` identifies a callable declaration in `package`.
+/// - `None` identifies the package's entry expression.
+///
+/// Only nonempty error groups are returned. An entry-less package has no entry
+/// group, and an empty result means the checker found no capability violations.
+/// A declaration's return type is not treated as a program-output requirement;
+/// the actual entry, when present, retains the ordinary entry/output checks.
+/// This distinction lets callers validate library bodies without inventing an
+/// entry-point contract for every declaration.
+///
+/// `compute_properties` must correspond to the supplied package. This function
+/// consumes existing RCA results; it neither reruns analysis nor transforms FIR.
+///
+/// # Panics
+/// Panics if the FIR or compute properties violate checker invariants, such as
+/// missing analysis for an expression being checked.
+pub fn check_supported_capabilities_by_scope(
+    package: &Package,
+    compute_properties: &PackageComputeProperties,
+    capabilities: TargetCapabilityFlags,
+    store: &qsc_fir::fir::PackageStore,
+) -> Vec<(Option<LocalItemId>, Vec<Error>)> {
+    // Reuse the normal checker; only the boundaries at which errors are
+    // collected differ from a whole-package check.
+    let mut checker = Checker {
+        package,
+        compute_properties,
+        target_capabilities: capabilities,
+        current_callable: None,
+        missing_features_map: FxHashMap::default(),
+        store,
+    };
+    let mut scopes = Vec::new();
+    for (id, item) in &package.items {
+        // visit_item checks callable implementations and clears current_callable
+        // afterward. Other item kinds are ignored. Unlike check_callable, this
+        // does not require the declaration's return type to be recordable output.
+        checker.visit_item(item);
+        // generate_errors drains and sorts the accumulated failures. Flush each
+        // scope now so later declarations cannot inherit its diagnostics.
+        let errors = checker.generate_errors();
+        if !errors.is_empty() {
+            scopes.push((Some(id), errors));
+        }
+    }
+    if let Some(entry) = package.entry {
+        // Declaration errors have already been drained. Check the real entry
+        // separately, preserving its expression and output-recording rules.
+        checker.check_entry_expr(entry);
+        let errors = checker.generate_errors();
+        if !errors.is_empty() {
+            scopes.push((None, errors));
+        }
+    }
+    scopes
+}
+
 /// Checks whether a single callable's runtime features are supported by the target capabilities.
 ///
 /// Returns capability-check errors for any expressions within the callable that require

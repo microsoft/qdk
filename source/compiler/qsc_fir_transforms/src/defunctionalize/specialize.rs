@@ -44,7 +44,7 @@ use crate::fir_builder::{
 };
 use crate::package_assigners::PackageAssigners;
 use crate::walk_utils::{
-    expr_is_side_effect_free, expressions_in_postorder, for_each_expr_in_callable_impl,
+    expr_is_side_effect_free, expressions_in_postorder_from_roots, for_each_expr_in_callable_impl,
 };
 use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::assigner::Assigner;
@@ -109,6 +109,16 @@ struct ClosureSpecializationInfo {
     callable_capture: Option<CapturedCallableSpecialization>,
 }
 
+impl ClosureSpecializationInfo {
+    fn has_callable_captures(&self, udts: &UdtMetadata) -> bool {
+        self.callable_capture.is_some()
+            || self
+                .capture_bindings
+                .iter()
+                .any(|capture| udts.contains_arrow(&capture.ty))
+    }
+}
+
 #[derive(Clone)]
 struct CaptureBinding {
     local: ScopedLocal,
@@ -132,13 +142,14 @@ type SpecializedCaptureKey = (LocalItemId, LocalVarId);
 
 /// Tracks captured-parameter specialization across closure occurrences sharing
 /// lifted targets, including occurrences in different functor specializations.
-/// Target bindings identify mutations that must happen once; per-occurrence
-/// layouts keep later capture indices aligned as each capture list is rewritten.
+/// Target bindings share a mutation only when their embedded callable selections
+/// agree; per-occurrence layouts keep later capture indices aligned as each
+/// capture list is rewritten.
 struct CaptureSpecializations<'a> {
     udts: &'a UdtMetadata,
     failed: bool,
-    /// Target input bindings already selected for specialization.
-    specialized: FxHashSet<SpecializedCaptureKey>,
+    /// Ordered embedded-callable keys selected for each target input binding.
+    specialized: FxHashMap<SpecializedCaptureKey, Vec<ConcreteCallableKey>>,
     /// Each target's input bindings when first encountered by this tracker.
     /// Patterns without a direct binding are represented by `None`.
     original_inputs: FxHashMap<LocalItemId, Vec<Option<LocalVarId>>>,
@@ -152,13 +163,14 @@ impl<'a> CaptureSpecializations<'a> {
         Self {
             udts,
             failed: false,
-            specialized: FxHashSet::default(),
+            specialized: FxHashMap::default(),
             original_inputs: FxHashMap::default(),
             occurrence_inputs: FxHashMap::default(),
         }
     }
-    /// Records the target binding represented by this occurrence's capture slot,
-    /// returning `true` only on its first visit, or `false` if no binding resolves.
+    /// Records the binding and callable selection represented by a capture slot,
+    /// returning `true` only on its first visit. Reuse requires equal ordered
+    /// callable keys; a conflicting selection or missing binding sets `failed`.
     ///
     /// New occurrences start from the saved target layout even if another
     /// occurrence has already changed the target's input. Existing occurrences
@@ -171,6 +183,8 @@ impl<'a> CaptureSpecializations<'a> {
         target: LocalItemId,
         occurrence: ExprId,
         capture_index: usize,
+        concrete: &ConcreteCallable,
+        concrete_group: &[ConcreteCallable],
     ) -> bool {
         let ItemKind::Callable(decl) = &package.get_item(target).kind else {
             return false;
@@ -200,7 +214,35 @@ impl<'a> CaptureSpecializations<'a> {
             .copied()
             .flatten()
             .or_else(|| current_inputs.get(capture_index).copied().flatten());
-        binding.is_some_and(|binding| self.specialized.insert((target, binding)))
+        let Some(binding) = binding else {
+            self.failed = true;
+            return false;
+        };
+        let callables = if concrete_group.is_empty() {
+            std::slice::from_ref(concrete)
+        } else {
+            concrete_group
+        };
+        let selection: Vec<_> = callables
+            .iter()
+            .map(|callable| {
+                super::concrete_callable_key(
+                    package.id,
+                    callable,
+                    ItemId {
+                        package: package.id,
+                        item: target,
+                    },
+                )
+            })
+            .collect();
+        if let Some(previous) = self.specialized.get(&(target, binding)) {
+            self.failed |= previous != &selection;
+            false
+        } else {
+            self.specialized.insert((target, binding), selection);
+            true
+        }
     }
 
     /// Mirrors replacement of one occurrence's capture slot with `count` operands.
@@ -1213,6 +1255,7 @@ fn prepare_closure_captures(
 /// transform), keeping same-target producer closures from double-prepending each
 /// other's captures. Callable-array members skip the scoped prepend because
 /// their captures are threaded through the array element rewrite instead.
+/// Only that array parameter uses the group; other slots keep their own callable.
 #[allow(clippy::too_many_arguments)]
 fn transform_combined_callable_body(
     udts: &UdtMetadata,
@@ -1229,22 +1272,19 @@ fn transform_combined_callable_body(
     let impl_clone = callable_impl.clone();
     let mut closure_infos = closure_infos.to_vec();
     for info in closure_infos.iter_mut().flatten() {
-        if info.callable_capture.is_some() {
+        if info.has_callable_captures(udts) {
             info.target = clone_closure_target(target, info.target, assigner);
         }
     }
     let mut specialized_capture_targets = CaptureSpecializations::new(udts);
     let concrete_group = callable_array_position
-        .map(|position| {
+        .map(|(index, path)| {
             group
                 .iter()
                 .zip(remapped_params.iter())
                 .zip(closure_infos.iter())
                 .filter(|&(((_, _), remapped_param), _)| {
-                    (
-                        remapped_param.top_level_param,
-                        remapped_param.field_path.clone(),
-                    ) == *position
+                    remapped_param.top_level_param == *index && remapped_param.field_path == *path
                 })
                 .map(|(((call_site, _), _), closure_info)| {
                     if let Some(info) = closure_info {
@@ -1261,6 +1301,14 @@ fn transform_combined_callable_body(
         .zip(remapped_params.iter())
         .zip(closure_infos.iter())
     {
+        let is_callable_array_member = callable_array_position.is_some_and(|(index, path)| {
+            remapped_param.top_level_param == *index && remapped_param.field_path == *path
+        });
+        let parameter_group = if is_callable_array_member {
+            concrete_group.as_slice()
+        } else {
+            &[]
+        };
         if let Some(info) = closure_info {
             if !specialize_closure_target_callable_capture(
                 udts,
@@ -1272,12 +1320,6 @@ fn transform_combined_callable_body(
             ) {
                 return false;
             }
-            let is_callable_array_member = callable_array_position.is_some_and(|position| {
-                (
-                    remapped_param.top_level_param,
-                    remapped_param.field_path.clone(),
-                ) == *position
-            });
             let before = if is_callable_array_member {
                 FxHashSet::default()
             } else {
@@ -1291,7 +1333,7 @@ fn transform_combined_callable_body(
                 &impl_clone,
                 remapped_param,
                 &concrete,
-                &concrete_group,
+                parameter_group,
                 &mut specialized_capture_targets,
                 assigner,
             );
@@ -1319,7 +1361,7 @@ fn transform_combined_callable_body(
                 &impl_clone,
                 remapped_param,
                 &call_site.callable_arg,
-                &concrete_group,
+                parameter_group,
                 &mut specialized_capture_targets,
                 assigner,
             );
@@ -1616,7 +1658,7 @@ fn apply_single_param_specialization(
     assigner: &mut Assigner,
 ) -> bool {
     if let Some(info) = &mut closure_info {
-        if info.callable_capture.is_some() {
+        if info.has_callable_captures(udts) {
             info.target = clone_closure_target(target, info.target, assigner);
         }
         if !specialize_closure_target_callable_capture(
@@ -2063,14 +2105,20 @@ fn captured_callable_specialization(
         })
 }
 
-/// Clones a lifted target before embedding its sole static callable capture.
-/// Other occurrences keep the original target and capture signature.
+/// Isolates a lifted target whose callable captures can be specialized in place.
+/// Nested callable arrays and mixed captures can acquire different layouts in
+/// later passes, so other occurrences must retain their own target signature.
+/// Snapshot only this target and its nested items, not the unrelated package contents.
 fn clone_closure_target(
     package: &mut Package,
     target: LocalItemId,
     assigner: &mut Assigner,
 ) -> LocalItemId {
-    let source = package.clone();
+    let mut source = Package {
+        id: package.id,
+        ..Package::default()
+    };
+    extract_item(package, target, &mut source);
     let mut cloner = FirCloner::from_assigner(std::mem::take(assigner));
     let target = cloner.clone_nested_item(&source, target, package);
     *assigner = cloner.into_assigner();
@@ -3919,7 +3967,8 @@ fn build_direct_target_callee_ty(
 /// - Replaces the target's capture parameter with the concrete's capture
 ///   parameters, or removes it when no rebinding is needed.
 /// - Splices corresponding operands into this occurrence's capture list.
-///   Shared target bindings are transformed only on their first tracked use.
+///   Shared target bindings are transformed only on their first tracked use;
+///   conflicting embedded callable selections decline the specialization.
 #[allow(clippy::too_many_arguments)]
 fn transform_closure_param_capture(
     package: &mut Package,
@@ -3942,15 +3991,25 @@ fn transform_closure_param_capture(
 
     // The lambda item is shared across the enclosing callable's functored specs.
     // Specialize each target input binding once, regardless of the caller local
-    // supplying it. The occurrence map identifies that binding even after slot
-    // shifts. Sibling closures skip the target mutation but still replace their
-    // own capture operands below.
-    let threaded_operands = if specialized_capture_targets.first_use(
+    // supplying it, provided the embedded callable selection agrees. The
+    // occurrence map identifies that binding even after slot shifts. Compatible
+    // siblings skip the target mutation but still replace their own operands.
+    let first_use = specialized_capture_targets.first_use(
         package,
         closure_target,
         closure_expr_id,
         capture_idx,
-    ) {
+        concrete,
+        concrete_group,
+    );
+    // first_use can set failed: a false result alone does not distinguish valid
+    // reuse from a conflicting selection or an unresolved target binding.
+    if specialized_capture_targets.failed {
+        return;
+    }
+    let threaded_operands = if first_use {
+        // Rewrite the shared target once, rebinding any nested captures to its
+        // parameters and returning this occurrence's corresponding operands.
         let Some(operands) = specialize_closure_target_for_captured_param(
             specialized_capture_targets.udts,
             package,
@@ -3962,13 +4021,19 @@ fn transform_closure_param_capture(
             concrete_group,
             assigner,
         ) else {
+            // Reject the whole candidate rather than rewriting this occurrence
+            // against a target whose capture layout could not be specialized.
             specialized_capture_targets.failed = true;
             return;
         };
         operands
     } else if concrete_group.is_empty() {
+        // The target is already specialized, but this occurrence must supply
+        // its own runtime capture values, not those of the first occurrence.
         concrete_capture_operands(concrete)
     } else {
+        // Match the target's flattened parameter layout: array member order
+        // first, then capture order within each member.
         concrete_group
             .iter()
             .flat_map(concrete_capture_operands)
@@ -4725,7 +4790,7 @@ fn prepend_captures_to_calls(
     // Packing an outer call may replace its argument root, which can itself be
     // another retargeted call. Finish nested invocations before copying them.
     let pending: FxHashSet<_> = call_ids.iter().copied().collect();
-    let call_ids: Vec<_> = expressions_in_postorder(package)
+    let call_ids: Vec<_> = expressions_in_postorder_from_roots(package, call_ids.iter().copied())
         .into_iter()
         .filter(|id| pending.contains(id))
         .collect();
@@ -4750,12 +4815,15 @@ fn prepend_captures_to_calls(
                 convention,
                 assigner,
             ) {
-                refresh_closure_target_callee_expr_ty(
-                    package,
-                    callee_id,
-                    closure_target,
-                    usize::from(outer_functor.controlled),
-                );
+                // Closure values retain their public input; invocation adds the lifted wrapper.
+                if matches!(convention, CallConvention::DirectItem) {
+                    refresh_closure_target_callee_expr_ty(
+                        package,
+                        callee_id,
+                        closure_target,
+                        usize::from(outer_functor.controlled),
+                    );
+                }
                 super::rewrite::prepend_evaluations(package, call_id, prefix, assigner);
             } else {
                 return false;

@@ -19,7 +19,7 @@ pub fn transform_result_literals(program: &mut Program) {
 
     for block in program.blocks.values_mut() {
         for instr in &mut block.0 {
-            // Result literals are only expected in context of Store, Call, or Return instructions
+            // Rewrite scalar operands and operand lists before QIR serialization.
             match instr {
                 Instruction::Store(operand, _) | Instruction::Return(Some(operand)) => {
                     let Operand::Literal(Literal::ResultLit(val)) = *operand else {
@@ -35,7 +35,7 @@ pub fn transform_result_literals(program: &mut Program) {
                     *operand = Operand::Literal(Literal::Result(id));
                 }
 
-                Instruction::Call(_, operands, _, _) => {
+                Instruction::Call(_, operands, _, _) | Instruction::StoreArray(operands, _) => {
                     for operand in operands.iter_mut() {
                         if let Operand::Literal(Literal::ResultLit(val)) = *operand {
                             let id = if val {

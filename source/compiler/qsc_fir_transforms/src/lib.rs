@@ -5,14 +5,17 @@
 //!
 //! This crate runs the production FIR rewrite pipeline after FIR lowering and
 //! before partial evaluation and codegen. The output is semantically
-//! equivalent to the input but lowered into forms that partial evaluation and
-//! codegen can consume.
+//! equivalent under codegen semantics and lowered into forms those consumers can
+//! handle. This pipeline is not run before ordinary interpreter simulation:
+//! simulation-only intrinsic bodies are discarded in favor of their external-call
+//! contracts. Built-in intrinsic handling and codegen no-op diagnostics retain
+//! their existing special cases.
 //!
 //! # What to know before diving in
 //!
 //! - **It is one ordered pipeline, not a toolbox of independent passes.**
-//!   Everything runs through [`run_pipeline_with_diagnostics`] in a fixed
-//!   order: ``monomorphize`` → ``return_unify`` → ``cond_normalize`` →
+//!   The pipeline entry points share a fixed order:
+//!   ``monomorphize`` → ``return_unify`` → ``cond_normalize`` →
 //!   ``defunctionalize`` → ``udt_erase`` → ``tuple_compare_lower`` →
 //!   ``tuple_decompose`` → ``arg_promote`` → (``tuple_decompose`` ⇄
 //!   ``arg_promote`` fixed point) → ``normalize_reachable_call_arg_types`` →
@@ -23,6 +26,13 @@
 //!   later pass relies on (e.g. defunctionalization is cleaned up by
 //!   ``udt_erase`` and ``tuple_compare_lower``). Do not reorder, remove, or run
 //!   passes in isolation without understanding the chain.
+//!   Intrinsic validation, simulation-body collapse, and orphan-node cleanup precede
+//!   monomorphization; codegen no-op intrinsic lowering follows it.
+//!
+//! - **Runtime preparation and the pipeline share specialization limits.**
+//!   [`run_pipeline_to_with_specialization_budget`] accepts the budget already used
+//!   for concrete runtime instances. Reusing a prepared source/argument pair does
+//!   not consume a second specialization slot.
 //!
 //! - **``tuple_decompose`` ↔ ``arg_promote`` run to a fixed point.** These two passes
 //!   iterate until convergence (capped), so
@@ -35,10 +45,10 @@
 //!   package owns an independent id arena, so passes that synthesize FIR nodes
 //!   mint fresh IDs from the assigner of the package they are mutating, never
 //!   from one global counter. Each package's
-//!   [`Assigner`](qsc_fir::assigner::Assigner) is seeded lazily from that
-//!   package's own id watermark via
-//!   [`Assigner::from_package`](qsc_fir::assigner::Assigner::from_package) the
-//!   first time it is touched, and the advanced watermark persists across passes. A
+//!   [`Assigner`](qsc_fir::assigner::Assigner) is seeded from that package's own
+//!   watermark via [`Assigner::from_package`](qsc_fir::assigner::Assigner::from_package).
+//!   The driver seeds all current packages before rewriting; missing entries can
+//!   still be initialized lazily. Advanced watermarks persist across passes. A
 //!   pass always selects the owning package's assigner at a cross-package
 //!   boundary, so entry-package ids are never minted into a foreign package's
 //!   arena. See the `package_assigners` module. The trailing metadata passes
@@ -102,6 +112,10 @@ use qsc_fir::{
 use thiserror::Error;
 
 use crate::package_assigners::PackageAssigners;
+pub use monomorphize::{
+    Error as MonomorphizationError, SpecializationBudget, instantiate_runtime_closure,
+    runtime_callable_parameters,
+};
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 
 /// Kinds of callable specializations that carry execution graphs.
@@ -270,7 +284,7 @@ pub enum PipelineStage {
 ///    before any structural rewrites and short-circuits with
 ///    [`PipelineError::IntrinsicPrecheck`] when an intrinsic callable has an
 ///    unsupported parameter or return type.
-/// 2. [`monomorphize::monomorphize`] reports fatal specialization-count or
+/// 2. [`monomorphize::monomorphize_with_budget`] reports fatal specialization-count or
 ///    type-expansion diagnostics before post-monomorphization invariants or
 ///    any later pass may consume the intermediate store.
 /// 3. [`return_unify::unify_returns`] reports fatal diagnostics that abort
@@ -290,6 +304,7 @@ fn run_pipeline_to_impl(
     package_id: PackageId,
     stage: PipelineStage,
     pinned_items: &[StoreItemId],
+    specialization_budget: &mut SpecializationBudget,
 ) -> PipelineResult {
     assert!(
         store.get(package_id).entry.is_some(),
@@ -312,7 +327,12 @@ fn run_pipeline_to_impl(
 
     let mut result = PipelineResult::default();
 
-    if let Err(error) = monomorphize::monomorphize(store, package_id, &mut assigners) {
+    if let Err(error) = monomorphize::monomorphize_with_budget(
+        store,
+        package_id,
+        &mut assigners,
+        specialization_budget,
+    ) {
         result.errors.push(error.into());
         return result;
     }
@@ -857,9 +877,9 @@ fn validate_pinned_item(store: &PackageStore, item_id: StoreItemId) -> Result<()
 ///
 /// Pinned items are validated before UDT erasure and before this helper is
 /// called. They are not invariant-checked; `PostAll` uses entry-only
-/// reachability. Pinning is needed when the original target ID is used
-/// by `fir_to_qir_from_callable` after defunc rewrites the entry `Call`
-/// to reference the specialized callable.
+/// reachability. Pinning is needed when `fir_to_qir_from_callable` will invoke a
+/// specific prepared target after the entry has been rewritten. That target may
+/// already be a private runtime specialization rather than an interpreter item.
 fn run_item_dce_and_gc(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -934,7 +954,28 @@ pub fn run_pipeline_to_with_diagnostics(
     stage: PipelineStage,
     pinned_items: &[StoreItemId],
 ) -> PipelineResult {
-    run_pipeline_to_impl(store, package_id, stage, pinned_items)
+    run_pipeline_to_impl(
+        store,
+        package_id,
+        stage,
+        pinned_items,
+        &mut SpecializationBudget::default(),
+    )
+}
+
+/// Runs a pipeline stage sharing the budget already used to instantiate runtime callables.
+/// Fatal diagnostics prohibit consuming the partially transformed store.
+///
+/// # Panics
+/// Panics if the package has no entry expression.
+pub fn run_pipeline_to_with_specialization_budget(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    stage: PipelineStage,
+    pinned_items: &[StoreItemId],
+    budget: &mut SpecializationBudget,
+) -> PipelineResult {
+    run_pipeline_to_impl(store, package_id, stage, pinned_items, budget)
 }
 
 /// Runs the full FIR optimization pipeline on the given package, returning
@@ -1009,6 +1050,9 @@ pub fn run_pipeline_with_diagnostics(
 /// watermark, so seed bodies in foreign packages are rewritten with their own
 /// package's assigner without colliding with existing ids.
 ///
+/// Orphaned arena nodes are collected across all packages before rebuilding
+/// execution graphs, so subsequent RCA cannot treat them as top-level statements.
+///
 /// Returns warnings/fatal errors with the same partitioning contract as
 /// [`run_pipeline_with_diagnostics`]: consume the FIR only when
 /// [`PipelineResult::errors`] is empty. A fatal `return_unify` diagnostic (an
@@ -1060,6 +1104,13 @@ pub fn run_signature_preserving_subpipeline(
         seeds,
     );
     tuple_decompose::tuple_decompose_with_seeds(store, package_id, &mut assigners, seeds);
+
+    // RCA scans every package's statement arena for top-level code, so discard
+    // orphaned rewrite nodes before it can analyze them outside their callable.
+    let gc_packages: Vec<_> = store.iter().map(|(id, _)| id).collect();
+    for gc_pkg in gc_packages {
+        let _ = gc_unreachable::gc_unreachable(store.get_mut(gc_pkg));
+    }
 
     // The transforms above added statements and expressions to the pinned
     // bodies, invalidating the exec graphs the main pipeline rebuilt for them.

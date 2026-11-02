@@ -11,8 +11,9 @@
 //! foreign package's arena without colliding with that package's existing
 //! keys.
 //!
-//! [`PackageAssigners`] is a lazily-populated map from [`PackageId`] to that
-//! package's [`Assigner`]. The pipeline driver owns one for the whole run and
+//! [`PackageAssigners`] maps each [`PackageId`] to its package's [`Assigner`].
+//! The pipeline driver seeds all current packages before rewriting and owns the
+//! pool for the whole run. Lookups can also seed missing entries lazily. The driver
 //! threads `&mut PackageAssigners` into each structural pass entry point. A
 //! pass selects the assigner for the package it is about to mutate at its
 //! boundary (where the owning `pkg_id` is known) via [`PackageAssigners::get_mut`]
@@ -21,14 +22,14 @@
 //!
 //! The structural pass entry points that take `&mut PackageAssigners` are:
 //!
-//! * [`monomorphize::monomorphize`](crate::monomorphize::monomorphize)
+//! * [`monomorphize::monomorphize_with_budget`](crate::monomorphize::monomorphize_with_budget)
 //! * [`return_unify::unify_returns`](crate::return_unify::unify_returns)
 //! * [`cond_normalize::normalize_conditions`](crate::cond_normalize::normalize_conditions)
 //! * [`defunctionalize::defunctionalize`](crate::defunctionalize::defunctionalize)
 //! * [`udt_erase::erase_udts_with_seeds`](crate::udt_erase::erase_udts_with_seeds)
 //! * [`tuple_compare_lower::lower_tuple_comparisons`](crate::tuple_compare_lower::lower_tuple_comparisons)
 //! * [`tuple_decompose::tuple_decompose`](crate::tuple_decompose::tuple_decompose)
-//! * [`arg_promote::arg_promote`](crate::arg_promote::arg_promote) (and its
+//! * [`arg_promote::arg_promote_with_pins`](crate::arg_promote::arg_promote_with_pins) (and its
 //!   sub-entries `promote_to_fixed_point` and `normalize_reachable_call_arg_types`)
 //!
 //! Boundary convention: each of these entries selects the entry assigner at its
@@ -44,12 +45,11 @@ use rustc_hash::FxHashMap;
 #[cfg(test)]
 mod tests;
 
-/// A lazily-populated map of per-package [`Assigner`]s.
+/// A pool of per-package [`Assigner`]s with eager seeding and lazy lookup.
 ///
-/// Assigners are seeded on first access from the owning package's current id
-/// watermark via [`Assigner::from_package`]. Packages that are only read from
-/// (never mutated) are never seeded, matching the pre-existing single-assigner
-/// behavior for read-only foreign packages.
+/// `new` seeds the entry package; the full pipeline then calls `seed_all` before
+/// rewriting. A missing entry is initialized on first access from its owning
+/// package's current watermark via [`Assigner::from_package`].
 pub(crate) struct PackageAssigners {
     map: FxHashMap<PackageId, Assigner>,
 }
