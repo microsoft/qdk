@@ -37,6 +37,290 @@ fn assert_ir_function_names(program: &Program, expected: &expect_test::Expect) {
 }
 
 #[test]
+fn local_qubit_array_in_ir_function_is_materialized_before_indexing() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(q : Qubit) : Unit {
+            for target in [q] {
+                X(target);
+            }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use q = Qubit();
+            Apply(q);
+            MResetZ(q)
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Apply",
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(6), args( Result(0), Tag(0, 3), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(1, Qubit) = Store Variable(0, Qubit)
+            Variable(2, Integer) = Store Integer(0)
+            Jump(2)
+        Block 2:Block:
+            Variable(3, Integer) = Store Variable(2, Integer)
+            Variable(4, Boolean) = Icmp Slt, Variable(3, Integer), Integer(1)
+            Branch Variable(4, Boolean), 4, 3
+        Block 3:Block:
+            Return
+        Block 4:Block:
+            Variable(5, Array(1, Qubit)) = StoreArray [Variable(1, Qubit)]
+            Variable(6, Qubit) = Index Variable(5, Array(1, Qubit)), Variable(2, Integer)
+            Variable(7, Qubit) = Store Variable(6, Qubit)
+            Call id(3), args( Variable(7, Qubit), )
+            Variable(9, Integer) = Store Variable(2, Integer)
+            Variable(10, Integer) = Add Variable(9, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(10, Integer)
+            Jump(2)
+        Block 5:Block:
+            Call id(4), args( Variable(8, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn local_qubit_array_preserves_parameter_order_in_rir() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(first : Qubit, second : Qubit) : Unit {
+            for target in [second, first] {
+                X(target);
+            }
+        }
+        @EntryPoint()
+        operation Main() : (Result, Result) {
+            use first = Qubit();
+            use second = Qubit();
+            Apply(first, second);
+            (MResetZ(first), MResetZ(second))
+        }
+        "#,
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Qubit(1), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(5), args( Qubit(1), Result(1), )
+            Call id(6), args( Integer(2), Tag(0, 3), )
+            Call id(7), args( Result(0), Tag(1, 5), )
+            Call id(7), args( Result(1), Tag(2, 5), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(2, Qubit) = Store Variable(1, Qubit)
+            Variable(3, Qubit) = Store Variable(0, Qubit)
+            Variable(4, Integer) = Store Integer(0)
+            Jump(2)
+        Block 2:Block:
+            Variable(5, Integer) = Store Variable(4, Integer)
+            Variable(6, Boolean) = Icmp Slt, Variable(5, Integer), Integer(2)
+            Branch Variable(6, Boolean), 4, 3
+        Block 3:Block:
+            Return
+        Block 4:Block:
+            Variable(7, Array(2, Qubit)) = StoreArray [Variable(2, Qubit), Variable(3, Qubit)]
+            Variable(8, Qubit) = Index Variable(7, Array(2, Qubit)), Variable(4, Integer)
+            Variable(9, Qubit) = Store Variable(8, Qubit)
+            Call id(3), args( Variable(9, Qubit), )
+            Variable(11, Integer) = Store Variable(4, Integer)
+            Variable(12, Integer) = Add Variable(11, Integer), Integer(1)
+            Variable(4, Integer) = Store Variable(12, Integer)
+            Jump(2)
+        Block 5:Block:
+            Call id(4), args( Variable(10, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn empty_local_qubit_array_loop_emits_no_store_array() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(q : Qubit) : Unit {
+            for target in [] {
+                X(target);
+            }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use q = Qubit();
+            Apply(q);
+            MResetZ(q)
+        }
+        "#,
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(6), args( Result(0), Tag(0, 3), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(1, Integer) = Store Integer(0)
+            Jump(2)
+        Block 2:Block:
+            Variable(2, Integer) = Store Variable(1, Integer)
+            Variable(3, Boolean) = Icmp Slt, Variable(2, Integer), Integer(0)
+            Branch Variable(3, Boolean), 4, 3
+        Block 3:Block:
+            Return
+        Block 4:Block:
+            Variable(4, Qubit) = Index Array(0), Variable(1, Integer)
+            Variable(5, Qubit) = Store Variable(4, Qubit)
+            Call id(3), args( Variable(5, Qubit), )
+            Variable(7, Integer) = Store Variable(1, Integer)
+            Variable(8, Integer) = Add Variable(7, Integer), Integer(1)
+            Variable(1, Integer) = Store Variable(8, Integer)
+            Jump(2)
+        Block 5:Block:
+            Call id(4), args( Variable(6, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn local_array_materialization_is_not_reused_after_a_conditional_branch() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(first : Qubit, second : Qubit, index : Int, firstPass : Bool) : Unit {
+            let targets = [first, second];
+            if firstPass { X(targets[index]); }
+            X(targets[index]);
+        }
+        @EntryPoint()
+        operation Main() : (Result, Result) {
+            use first = Qubit();
+            use second = Qubit();
+            Apply(first, second, 1, false);
+            (MResetZ(first), MResetZ(second))
+        }
+        "#,
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Qubit(1), Integer(1), Bool(false), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(5), args( Qubit(1), Result(1), )
+            Call id(6), args( Integer(2), Tag(0, 3), )
+            Call id(7), args( Result(0), Tag(1, 5), )
+            Call id(7), args( Result(1), Tag(2, 5), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(4, Qubit) = Store Variable(0, Qubit)
+            Variable(5, Qubit) = Store Variable(1, Qubit)
+            Branch Variable(3, Boolean), 3, 2
+        Block 2:Block:
+            Variable(9, Array(2, Qubit)) = StoreArray [Variable(4, Qubit), Variable(5, Qubit)]
+            Variable(10, Qubit) = Index Variable(9, Array(2, Qubit)), Variable(2, Integer)
+            Call id(3), args( Variable(10, Qubit), )
+            Return
+        Block 3:Block:
+            Variable(6, Array(2, Qubit)) = StoreArray [Variable(4, Qubit), Variable(5, Qubit)]
+            Variable(7, Qubit) = Index Variable(6, Array(2, Qubit)), Variable(2, Integer)
+            Call id(3), args( Variable(7, Qubit), )
+            Jump(2)
+        Block 4:Block:
+            Call id(4), args( Variable(8, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn shared_ir_body_builds_local_array_from_each_call_argument() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(q : Qubit) : Unit {
+            for target in [q] {
+                X(target);
+            }
+        }
+        @EntryPoint()
+        operation Main() : (Result, Result) {
+            use first = Qubit();
+            use second = Qubit();
+            Apply(first);
+            Apply(second);
+            (MResetZ(first), MResetZ(second))
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Apply",
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(2), args( Qubit(1), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(5), args( Qubit(1), Result(1), )
+            Call id(6), args( Integer(2), Tag(0, 3), )
+            Call id(7), args( Result(0), Tag(1, 5), )
+            Call id(7), args( Result(1), Tag(2, 5), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(1, Qubit) = Store Variable(0, Qubit)
+            Variable(2, Integer) = Store Integer(0)
+            Jump(2)
+        Block 2:Block:
+            Variable(3, Integer) = Store Variable(2, Integer)
+            Variable(4, Boolean) = Icmp Slt, Variable(3, Integer), Integer(1)
+            Branch Variable(4, Boolean), 4, 3
+        Block 3:Block:
+            Return
+        Block 4:Block:
+            Variable(5, Array(1, Qubit)) = StoreArray [Variable(1, Qubit)]
+            Variable(6, Qubit) = Index Variable(5, Array(1, Qubit)), Variable(2, Integer)
+            Variable(7, Qubit) = Store Variable(6, Qubit)
+            Call id(3), args( Variable(7, Qubit), )
+            Variable(9, Integer) = Store Variable(2, Integer)
+            Variable(10, Integer) = Add Variable(9, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(10, Integer)
+            Jump(2)
+        Block 5:Block:
+            Call id(4), args( Variable(8, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
 fn unresolved_callable_body_inlines_with_static_arguments() {
     let program = get_rir_program_with_adaptive_profile(
         r#"

@@ -10,6 +10,210 @@ use qsc_eval::output::CursorReceiver;
 use std::fmt::Write;
 use std::io::Cursor;
 
+#[test]
+fn local_result_array_with_zero_literal_initializes_constant_storage() {
+    let source = r#"
+        operation Apply(r : Result, q : Qubit) : Unit {
+            for value in [r, Zero] {
+                if value == One { X(q); }
+            }
+        }
+        operation Main() : Result {
+            use (flag, q) = (Qubit(), Qubit());
+            X(flag);
+            Apply(MResetZ(flag), q);
+            MResetZ(q)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+    let qir = interpreter.qirgen("Main()").expect("mixed Zero array QIR");
+    assert!(
+        qir.contains(
+            "call void @__quantum__rt__write_result(i1 zeroext false, ptr inttoptr (i64 2 to ptr))"
+        ),
+        "{qir}"
+    );
+    assert!(
+        qir.contains("store ptr inttoptr (i64 2 to ptr), ptr"),
+        "{qir}"
+    );
+}
+
+#[test]
+fn local_result_array_with_one_literal_initializes_constant_storage() {
+    let source = r#"
+        operation Apply(r : Result, q : Qubit) : Unit {
+            for value in [One, r] {
+                if value == One { X(q); }
+            }
+        }
+        operation Main() : Result {
+            use (flag, q) = (Qubit(), Qubit());
+            Apply(MResetZ(flag), q);
+            MResetZ(q)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+    let qir = interpreter.qirgen("Main()").expect("mixed One array QIR");
+    assert!(
+        qir.contains(
+            "call void @__quantum__rt__write_result(i1 zeroext true, ptr inttoptr (i64 3 to ptr))"
+        ),
+        "{qir}"
+    );
+    assert!(
+        qir.contains("store ptr inttoptr (i64 3 to ptr), ptr"),
+        "{qir}"
+    );
+}
+
+#[test]
+fn helper_local_qubit_array_loop_emits_initialized_index_to_gate_qir() {
+    let source = r#"
+        operation Apply(q : Qubit) : Unit {
+            for target in [q] { X(target); }
+        }
+        operation Main() : Result {
+            use q = Qubit();
+            Apply(q);
+            MResetZ(q)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+    let qir = interpreter.qirgen("Main()").expect("local qubit array QIR");
+    expect![[r#"
+        block_1:
+          %var_1 = alloca ptr
+          %var_2 = alloca i64
+          %var_3 = alloca i64
+          %var_5 = alloca [1 x ptr]
+          %var_9 = alloca i64
+          store ptr %var_0, ptr %var_1
+          store i64 0, ptr %var_2
+          br label %block_2
+        block_2:
+          %var_13 = load i64, ptr %var_2
+          store i64 %var_13, ptr %var_3
+          %var_15 = load i64, ptr %var_3
+          %var_4 = icmp slt i64 %var_15, 1
+          br i1 %var_4, label %block_3, label %block_4
+        block_3:
+          %var_16 = load ptr, ptr %var_1
+          %var_5_0 = getelementptr [1 x ptr], ptr %var_5, i64 0, i64 0
+          store ptr %var_16, ptr %var_5_0
+          %var_18 = load i64, ptr %var_2
+          %var_19_offset_chk = icmp slt i64 %var_18, 0
+          %var_19_offset = select i1 %var_19_offset_chk, i64 1, i64 0
+          %var_19 = getelementptr [1 x ptr], ptr %var_5, i64 %var_19_offset, i64 %var_18
+          %var_6 = load ptr, ptr %var_19
+          call void @X(ptr %var_6)
+          store i64 %var_18, ptr %var_9
+          %var_21 = load i64, ptr %var_9
+          %var_10 = add i64 %var_21, 1
+          store i64 %var_10, ptr %var_2
+          br label %block_2
+        block_4:
+          ret void"#]]
+    .assert_eq(qir_internal_void_body(&qir, "Apply"));
+}
+
+#[test]
+fn local_array_access_after_skipped_branch_initializes_its_index_storage() {
+    let source = r#"
+        operation Apply(first : Qubit, second : Qubit, index : Int, firstPass : Bool) : Unit {
+            let targets = [first, second];
+            if firstPass { X(targets[index]); }
+            X(targets[index]);
+        }
+        operation Main() : (Result, Result) {
+            use first = Qubit();
+            use second = Qubit();
+            Apply(first, second, 1, false);
+            (MResetZ(first), MResetZ(second))
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Tuple(
+            vec![
+                Value::Result(qsc_eval::val::Result::Val(false)),
+                Value::Result(qsc_eval::val::Result::Val(true)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+    let qir = interpreter
+        .qirgen("Main()")
+        .expect("branch-local array QIR");
+    expect![[r#"
+        block_1:
+          %var_4 = alloca ptr
+          %var_5 = alloca ptr
+          %var_6 = alloca [2 x ptr]
+          %var_9 = alloca [2 x ptr]
+          store ptr %var_0, ptr %var_4
+          store ptr %var_1, ptr %var_5
+          br i1 %var_3, label %block_2, label %block_3
+        block_2:
+          %var_17 = load ptr, ptr %var_4
+          %var_18 = load ptr, ptr %var_5
+          %var_6_0 = getelementptr [2 x ptr], ptr %var_6, i64 0, i64 0
+          store ptr %var_17, ptr %var_6_0
+          %var_6_1 = getelementptr [2 x ptr], ptr %var_6, i64 0, i64 1
+          store ptr %var_18, ptr %var_6_1
+          %var_20_offset_chk = icmp slt i64 %var_2, 0
+          %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
+          %var_20 = getelementptr [2 x ptr], ptr %var_6, i64 %var_20_offset, i64 %var_2
+          %var_7 = load ptr, ptr %var_20
+          call void @X(ptr %var_7)
+          br label %block_3
+        block_3:
+          %var_13 = load ptr, ptr %var_4
+          %var_14 = load ptr, ptr %var_5
+          %var_9_0 = getelementptr [2 x ptr], ptr %var_9, i64 0, i64 0
+          store ptr %var_13, ptr %var_9_0
+          %var_9_1 = getelementptr [2 x ptr], ptr %var_9, i64 0, i64 1
+          store ptr %var_14, ptr %var_9_1
+          %var_16_offset_chk = icmp slt i64 %var_2, 0
+          %var_16_offset = select i1 %var_16_offset_chk, i64 1, i64 0
+          %var_16 = getelementptr [2 x ptr], ptr %var_9, i64 %var_16_offset, i64 %var_2
+          %var_10 = load ptr, ptr %var_16
+          call void @X(ptr %var_10)
+          ret void"#]]
+    .assert_eq(qir_internal_void_body(&qir, "Apply"));
+}
+
+fn qir_internal_void_body<'a>(qir: &'a str, name: &str) -> &'a str {
+    let signature = format!("define internal void @{name}(");
+    qir.split_once(signature.as_str())
+        .expect("internal void callable should exist")
+        .1
+        .split_once("{\n")
+        .expect("callable body should exist")
+        .1
+        .split_once("\n}")
+        .expect("callable body should terminate")
+        .0
+}
+
 fn check_controlled_phase_capture(body: &str) {
     let source = format!(
         r#"

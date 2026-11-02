@@ -2196,28 +2196,7 @@ impl<'a> PartialEvaluator<'a> {
         // by definition.
         let mut local_constant_arrays = take(&mut self.eval_context.get_current_scope_mut().arrays);
         for (array, var_id) in &mut local_constant_arrays {
-            let new_var_id = self.resource_manager.next_var();
-            *var_id = Some(new_var_id);
-            let operands = array
-                .iter()
-                .map(|value| self.map_eval_value_to_rir_operand(value))
-                .collect::<Vec<_>>();
-            let rir::Ty::Prim(elem_ty) = operands
-                .first()
-                .expect("array should have at least one element")
-                .get_type()
-            else {
-                panic!("array element type should be a primitive type");
-            };
-            self.get_current_rir_block_mut()
-                .0
-                .push(Instruction::StoreArray(
-                    operands,
-                    rir::Variable {
-                        variable_id: new_var_id,
-                        ty: rir::Ty::Array(array.len(), elem_ty),
-                    },
-                ));
+            *var_id = Some(self.materialize_array(array).variable_id);
         }
         self.eval_context.get_current_scope_mut().arrays = local_constant_arrays;
 
@@ -4928,7 +4907,13 @@ impl<'a> PartialEvaluator<'a> {
         array_package_span: PackageSpan,
         array_elem_ty: &Ty,
     ) -> Result<Value, Error> {
-        let (array_operand, array_elem_ty) = if let Some((_, var_id)) = self
+        let Ok(rir::Ty::Prim(elem_ty)) = map_fir_type_to_rir_type(array_elem_ty) else {
+            return Err(Error::Unexpected(
+                "array with non-primitive RIR type".to_string(),
+                array_package_span,
+            ));
+        };
+        let array_operand = if let Some((_, var_id)) = self
             .eval_context
             .get_current_scope()
             .arrays
@@ -4941,20 +4926,14 @@ impl<'a> PartialEvaluator<'a> {
             let Some(var_id) = var_id else {
                 panic!("array variable ID not found in current scope");
             };
-            let Ok(rir::Ty::Prim(elem_rir_prim_ty)) = map_fir_type_to_rir_type(array_elem_ty)
-            else {
-                return Err(Error::Unexpected(
-                    "array with non-primitive RIR type".to_string(),
-                    array_package_span,
-                ));
-            };
-            (
-                Operand::Variable(rir::Variable {
-                    variable_id: *var_id,
-                    ty: rir::Ty::Array(array.len(), elem_rir_prim_ty),
-                }),
-                elem_rir_prim_ty,
-            )
+            Operand::Variable(rir::Variable {
+                variable_id: *var_id,
+                ty: rir::Ty::Array(array.len(), elem_ty),
+            })
+        } else if array.iter().any(|value| matches!(value, Value::Var(_))) {
+            // Runtime elements need local storage. Do not cache it here: this use
+            // may be in a branch that does not dominate later uses of the array.
+            Operand::Variable(self.materialize_array(array))
         } else {
             // The array being indexed is not one tracked by the scope, so try to convert it into a static array literal
             // that will be stored in the global section of the program. If it matches an existing array literal, we can
@@ -4962,8 +4941,6 @@ impl<'a> PartialEvaluator<'a> {
             // The index instruction will then be emitted to index into that array literal.
             let array_literal =
                 self.convert_to_array_literal(array, array_package_span, array_elem_ty)?;
-            let array_elem_ty = array_literal.ty;
-
             let const_array_id = if let Some(idx) = self
                 .program
                 .array_literals
@@ -4977,15 +4954,12 @@ impl<'a> PartialEvaluator<'a> {
                 idx
             };
 
-            (
-                Operand::Literal(Literal::Array(const_array_id)),
-                array_elem_ty,
-            )
+            Operand::Literal(Literal::Array(const_array_id))
         };
         let variable_id = self.resource_manager.next_var();
         let rir_variable = rir::Variable {
             variable_id,
-            ty: rir::Ty::Prim(array_elem_ty),
+            ty: rir::Ty::Prim(elem_ty),
         };
 
         self.get_current_rir_block_mut().0.push(Instruction::Index(
@@ -4995,10 +4969,34 @@ impl<'a> PartialEvaluator<'a> {
         ));
 
         let eval_variable = map_rir_var_to_eval_var(rir_variable).map_err(|()| {
-            Error::Unimplemented(format!("array of type {array_elem_ty}"), array_package_span)
+            Error::Unimplemented(format!("array of type {elem_ty}"), array_package_span)
         })?;
 
         Ok(Value::Var(eval_variable))
+    }
+
+    /// Materializes a nonempty primitive array containing runtime operands.
+    fn materialize_array(&mut self, array: &[Value]) -> rir::Variable {
+        let variable_id = self.resource_manager.next_var();
+        let operands = array
+            .iter()
+            .map(|value| self.map_eval_value_to_rir_operand(value))
+            .collect::<Vec<_>>();
+        let rir::Ty::Prim(elem_ty) = operands
+            .first()
+            .expect("array should have at least one element")
+            .get_type()
+        else {
+            panic!("array element type should be a primitive type");
+        };
+        let variable = rir::Variable {
+            variable_id,
+            ty: rir::Ty::Array(array.len(), elem_ty),
+        };
+        self.get_current_rir_block_mut()
+            .0
+            .push(Instruction::StoreArray(operands, variable));
+        variable
     }
 
     fn eval_expr_range(
