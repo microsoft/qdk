@@ -33,9 +33,106 @@
 
 use expect_test::expect;
 use indoc::indoc;
+use qsc_fir::fir::PackageLookup;
 
 use crate::return_unify::simplify::guard_clause;
 use crate::return_unify::tests::check_simplify_rule_q;
+
+#[test]
+fn continuation_return_preserves_guard_and_final_merge() {
+    check_simplify_rule_q(
+        indoc! {r#"
+        function Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#},
+        "Main",
+        "guard_clause",
+        |p, a, _pkg_id, b, s| {
+            let before = p.get_block(b).stmts.clone();
+            let fired = guard_clause::apply(p, a, b, s);
+            assert!(!fired, "continuation return requires the final merge");
+            assert_eq!(p.get_block(b).stmts, before);
+            fired
+        },
+        &expect![[r#"
+            // before guard_clause (fired=false)
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if false {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        if true {
+                            {
+                                __ret_val = 9;
+                                __has_returned = true;
+                            };
+                        }
+
+                        5
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+
+            // after guard_clause
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if false {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        if true {
+                            {
+                                __ret_val = 9;
+                                __has_returned = true;
+                            };
+                        }
+
+                        5
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
 
 #[test]
 fn simple_guard_clause_collapses_to_if_else() {
@@ -88,6 +185,176 @@ fn simple_guard_clause_collapses_to_if_else() {
                     1
                 } else {
                     0
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn inverted_guard_continuation_return_preserves_final_merge() {
+    check_simplify_rule_q(
+        indoc! {r#"
+        function Main() : Int {
+            if true {} else { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#},
+        "Main",
+        "guard_clause",
+        |p, a, _pkg_id, b, s| {
+            let before = p.get_block(b).stmts.clone();
+            let fired = guard_clause::apply(p, a, b, s);
+            assert!(!fired, "continuation return requires the final merge");
+            assert_eq!(p.get_block(b).stmts, before);
+            fired
+        },
+        &expect![[r#"
+            // before guard_clause (fired=false)
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {} else {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        if true {
+                            {
+                                __ret_val = 9;
+                                __has_returned = true;
+                            };
+                        }
+
+                        5
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+
+            // after guard_clause
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {} else {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        if true {
+                            {
+                                __ret_val = 9;
+                                __has_returned = true;
+                            };
+                        }
+
+                        5
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn continuation_ordinary_local_mutation_still_collapses() {
+    check_simplify_rule_q(
+        indoc! {r#"
+        function Main() : Int {
+            mutable value = 0;
+            if false { return 1; }
+            if true { set value += 2; value } else { 6 }
+        }
+        "#},
+        "Main",
+        "guard_clause",
+        |p, a, _pkg_id, b, s| {
+            let fired = guard_clause::apply(p, a, b, s);
+            assert!(fired, "ordinary local writes do not require the merge");
+            fired
+        },
+        &expect![[r#"
+            // before guard_clause (fired=true)
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable value : Int = 0;
+                if false {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        value += 2;
+                        value
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+
+            // after guard_clause
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable value : Int = 0;
+                if false {
+                    1
+                } else {
+                    if true {
+                        value += 2;
+                        value
+                    } else {
+                        6
+                    }
+
                 }
 
             }

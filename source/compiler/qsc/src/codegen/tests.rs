@@ -2145,6 +2145,221 @@ fn assert_measurement_selected_discarded_if_matches_semicolon_qir(prepare_flag: 
 }
 
 #[test]
+fn nested_tail_return_after_guard_records_nine() {
+    let source = r#"
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn nested_tail_while_return_after_guard_records_nine() {
+    let source = r#"
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn nested_tail_return_with_skipped_effectful_scalar_tail_records_nine() {
+    let source = r#"
+        function Tail() : Int { Message("tail"); 5 }
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } Tail() } else { 6 }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn nested_tail_array_return_with_skipped_effectful_tail_records_element_nine() {
+    let source = r#"
+        function Tail() : Int[] { Message("tail"); [5] }
+        function F(c : Bool, d : Bool) : Int[] {
+            if c { return [1]; }
+            if true { if d { return [9]; } Tail() } else { [6] }
+        }
+        operation Main() : Int { F(false, true)[0] }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn nested_tail_callable_return_with_skipped_effectful_tail_records_invocation_nine() {
+    let source = r#"
+        function First() : Int { 1 }
+        function Nested() : Int { 9 }
+        function Fallback() : Int { 5 }
+        function Tail() : (Unit -> Int) { Message("tail"); Fallback }
+        function F(c : Bool, d : Bool) : (Unit -> Int) {
+            if c { return First; }
+            if true { if d { return Nested; } Tail() } else { Fallback }
+        }
+        operation Main() : Int { let f = F(false, true); f() }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn measured_nested_tail_return_qir_selects_post_continuation_value() {
+    let source = r#"
+        operation F(c : Bool, d : Bool) : Int {
+            if c { return 1; }
+            if true { if d { return 9; } 5 } else { 6 }
+        }
+        operation Main() : Int {
+            use flags = Qubit[2];
+            X(flags[1]);
+            let c = MResetZ(flags[0]) == One;
+            let d = MResetZ(flags[1]) == One;
+            F(c, d)
+        }
+    "#;
+    let ri = compile_source_to_qir(source, Profile::AdaptiveRI.into());
+    let rif = compile_source_to_qir(source, Profile::AdaptiveRIF.into());
+    assert_eq!(qir_entry_body(&ri), qir_entry_body(&rif));
+    expect![[r#"
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+          %var_4 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          br label %block_2
+        block_2:
+          %var_17 = phi i1 [false, %block_0], [true, %block_1]
+          %var_16 = phi i64 [0, %block_0], [1, %block_1]
+          %var_11 = xor i1 %var_17, true
+          br i1 %var_11, label %block_3, label %block_4
+        block_3:
+          br i1 %var_4, label %block_5, label %block_6
+        block_4:
+          br label %block_7
+        block_5:
+          br label %block_6
+        block_6:
+          %var_19 = phi i1 [%var_17, %block_3], [true, %block_5]
+          %var_18 = phi i64 [%var_16, %block_3], [9, %block_5]
+          br label %block_7
+        block_7:
+          %var_22 = phi i1 [%var_17, %block_4], [%var_19, %block_6]
+          %var_21 = phi i64 [%var_16, %block_4], [5, %block_6]
+          %var_20 = phi i64 [%var_16, %block_4], [%var_18, %block_6]
+          br i1 %var_22, label %block_8, label %block_9
+        block_8:
+          br label %block_10
+        block_9:
+          br label %block_10
+        block_10:
+          %var_23 = phi i64 [%var_20, %block_8], [%var_21, %block_9]
+          call void @__quantum__rt__int_record_output(i64 %var_23, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0"#]].assert_eq(qir_entry_body(&ri));
+
+    let adaptive = compile_source_to_qir(source, Profile::Adaptive.into());
+    let helper = adaptive
+        .split("define ")
+        .find(|definition| {
+            definition
+                .lines()
+                .next()
+                .is_some_and(|line| line.contains("@F("))
+        })
+        .expect("Adaptive retains the dynamic helper");
+    let (helper, _) = helper.split_once("\n}").expect("helper body terminator");
+    expect![[r#"
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @X(ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+          %var_5 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          %var_18 = call i64 @F(i1 zeroext %var_2, i1 zeroext %var_5)
+          call void @__quantum__rt__int_record_output(i64 %var_18, ptr @0)
+          ret i64 0
+
+        internal i64 @F(i1 zeroext %var_10, i1 zeroext %var_11) {
+        block_2:
+          %var_12 = alloca i1
+          %var_13 = alloca i64
+          %var_15 = alloca i64
+          %var_16 = alloca i64
+          %var_17 = alloca i64
+          store i1 false, ptr %var_12
+          store i64 0, ptr %var_13
+          br i1 %var_10, label %block_3, label %block_4
+        block_3:
+          store i64 1, ptr %var_13
+          store i1 true, ptr %var_12
+          br label %block_4
+        block_4:
+          %var_21 = load i1, ptr %var_12
+          %var_14 = xor i1 %var_21, true
+          br i1 %var_14, label %block_5, label %block_6
+        block_5:
+          br i1 %var_11, label %block_7, label %block_8
+        block_6:
+          %var_22 = load i64, ptr %var_13
+          store i64 %var_22, ptr %var_15
+          br label %block_9
+        block_7:
+          store i64 9, ptr %var_13
+          store i1 true, ptr %var_12
+          br label %block_8
+        block_8:
+          store i64 5, ptr %var_15
+          br label %block_9
+        block_9:
+          %var_24 = load i64, ptr %var_15
+          store i64 %var_24, ptr %var_16
+          %var_26 = load i1, ptr %var_12
+          br i1 %var_26, label %block_10, label %block_11
+        block_10:
+          %var_30 = load i64, ptr %var_13
+          store i64 %var_30, ptr %var_17
+          br label %block_12
+        block_11:
+          %var_27 = load i64, ptr %var_16
+          store i64 %var_27, ptr %var_17
+          br label %block_12
+        block_12:
+          %var_29 = load i64, ptr %var_17
+          ret i64 %var_29"#]].assert_eq(&format!("{}\n\n{helper}", qir_entry_body(&adaptive)));
+}
+
+#[test]
 fn loop_condition_assignment_qir_reads_value_after_one_iteration() {
     let source = r#"
         operation Main() : (Int, Int) {

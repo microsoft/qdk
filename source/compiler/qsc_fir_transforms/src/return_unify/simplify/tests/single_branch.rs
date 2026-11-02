@@ -21,9 +21,168 @@
 
 use expect_test::expect;
 use indoc::indoc;
+use qsc_fir::fir::PackageLookup;
 
 use crate::return_unify::simplify::single_branch;
 use crate::return_unify::tests::check_simplify_rule_q;
+
+#[test]
+fn nested_return_in_then_value_arm_preserves_final_merge() {
+    check_simplify_rule_q(
+        indoc! {r#"
+        function Main() : Int {
+            if true { if true { return 9; } 5 } else { return 1; }
+        }
+        "#},
+        "Main",
+        "single_branch",
+        |p, a, _pkg_id, b, s| {
+            let before = p.get_block(b).stmts.clone();
+            let fired = single_branch::apply(p, a, b, s);
+            assert!(!fired, "nested return in the value arm requires the merge");
+            assert_eq!(p.get_block(b).stmts, before);
+            fired
+        },
+        &expect![[r#"
+            // before single_branch (fired=false)
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = if true {
+                    if true {
+                        {
+                            __ret_val = 9;
+                            __has_returned = true;
+                        };
+                    }
+
+                    5
+                } else {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+
+            // after single_branch
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = if true {
+                    if true {
+                        {
+                            __ret_val = 9;
+                            __has_returned = true;
+                        };
+                    }
+
+                    5
+                } else {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn nested_return_in_else_value_arm_preserves_final_merge() {
+    check_simplify_rule_q(
+        indoc! {r#"
+        function Main() : Int {
+            if false { return 1; } else { if true { return 9; } 5 }
+        }
+        "#},
+        "Main",
+        "single_branch",
+        |p, a, _pkg_id, b, s| {
+            let before = p.get_block(b).stmts.clone();
+            let fired = single_branch::apply(p, a, b, s);
+            assert!(!fired, "nested return in the value arm requires the merge");
+            assert_eq!(p.get_block(b).stmts, before);
+            fired
+        },
+        &expect![[r#"
+            // before single_branch (fired=false)
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = if false {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                    __ret_val
+                } else {
+                    if true {
+                        {
+                            __ret_val = 9;
+                            __has_returned = true;
+                        };
+                    }
+
+                    5
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+
+            // after single_branch
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = if false {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                    __ret_val
+                } else {
+                    if true {
+                        {
+                            __ret_val = 9;
+                            __has_returned = true;
+                        };
+                    }
+
+                    5
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
 
 #[test]
 fn slot_set_arm_accepts_only_its_own_typed_trailing_slot_read() {

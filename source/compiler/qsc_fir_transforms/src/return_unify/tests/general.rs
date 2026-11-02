@@ -1242,12 +1242,9 @@ fn arrow_typed_return_simplifies_to_if() {
 }
 
 #[test]
-fn simple_if_expr_init_with_return_recovers_structured_branch() {
-    // Simple return directly in an if-branch initializer is recovered by
-    // simplification while the nested initializer return still lowers through
-    // the flag/slot model.
-    check_no_returns_q(
-        indoc! {r#"
+fn return_in_if_initializer_preserves_guard_and_final_merge() {
+    // The continuation's initializer can return, so its merge must be retained.
+    let source = indoc! {r#"
         namespace Test {
             function Main() : Int {
                 if true {
@@ -1257,14 +1254,25 @@ fn simple_if_expr_init_with_return_recovers_structured_branch() {
                 x
             }
         }
-    "#},
+    "#};
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(10),
+    );
+    check_no_returns_q(
+        source,
         &expect![[r#"
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 if true {
-                    10
-                } else {
+                    {
+                        __ret_val = 10;
+                        __has_returned = true;
+                    };
+                }
+
+                let x : Int = if (not __has_returned) {
                     if false {
                         {
                             __ret_val = 20;
@@ -1275,6 +1283,17 @@ fn simple_if_expr_init_with_return_recovers_structured_branch() {
                         30
                     }
 
+                } else {
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if (not __has_returned) {
+                        x
+                    } else {
+                        __ret_val
+                    }
                 }
 
             }

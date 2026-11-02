@@ -20,6 +20,379 @@ use qsc_fir::{
 };
 
 #[test]
+fn nested_tail_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_while_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_return_after_inverted_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true {} else { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn taken_guard_before_nested_tail_returns_one() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn untaken_returns_in_nested_tail_fall_through_to_five() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if false { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(5),
+    );
+}
+
+#[test]
+fn zero_iteration_nested_tail_loop_falls_through_to_five() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { while false { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(5),
+    );
+}
+
+#[test]
+fn nested_tail_return_skips_effectful_scalar_tail_without_leaking_zero() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int { Message("tail"); 5 }
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } Tail() } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+        "",
+    );
+}
+
+#[test]
+fn nested_tail_array_return_remains_indexable_when_effectful_tail_is_skipped() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int[] { Message("tail"); [5] }
+        function F(c : Bool, d : Bool) : Int[] {
+            if c { return [1]; }
+            if true { if d { return [9]; } Tail() } else { [6] }
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false, true)[0] }
+        "#,
+        Value::Int(9),
+        "",
+    );
+}
+
+#[test]
+fn nested_tail_callable_return_remains_invocable_when_effectful_tail_is_skipped() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function First() : Int { 1 }
+        function Nested() : Int { 9 }
+        function Fallback() : Int { 5 }
+        function Tail() : (Unit -> Int) { Message("tail"); Fallback }
+        function F(c : Bool, d : Bool) : (Unit -> Int) {
+            if c { return First; }
+            if true { if d { return Nested; } Tail() } else { Fallback }
+        }
+        @EntryPoint()
+        operation Main() : Int { let f = F(false, true); f() }
+        "#,
+        Value::Int(9),
+        "",
+    );
+}
+
+const MEASURED_NESTED_TAIL: &str = r#"
+    operation F(c : Bool, d : Bool, target : Qubit) : Int {
+        if c { return 1; }
+        if true { if d { return 9; } X(target); 5 } else { 6 }
+    }
+"#;
+
+#[test]
+fn measured_nested_tail_return_yields_nine_and_skips_target_gate() {
+    check_value(
+        &format!(
+            r#"{MEASURED_NESTED_TAIL}
+            @EntryPoint()
+            operation Main() : (Int, Result) {{
+                use flags = Qubit[2];
+                use target = Qubit();
+                X(flags[1]);
+                let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        ),
+        Value::Tuple(
+            vec![
+                Value::Int(9),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measurement_dependent_return_in_trailing_if_loop_preserves_return_value_and_skips_fallthrough_gate()
+ {
+    check_value(
+        r#"
+        operation F(c : Bool, d : Bool, target : Qubit) : Int {
+            if c { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if d and i == 1 { return 9; }
+                    set i += 1;
+                }
+                X(target);
+                5
+            } else { 6 }
+        }
+        @EntryPoint()
+        operation Main() : (Int, Result) {
+            use flags = Qubit[2];
+            use target = Qubit();
+            X(flags[1]);
+            let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+            (value, MResetZ(target))
+        }
+        "#,
+        Value::Tuple(
+            vec![
+                Value::Int(9),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measured_nested_tail_fallthrough_yields_five_and_applies_target_gate_once() {
+    check_value(
+        &format!(
+            r#"{MEASURED_NESTED_TAIL}
+            @EntryPoint()
+            operation Main() : (Int, Result) {{
+                use flags = Qubit[2];
+                use target = Qubit();
+                let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        ),
+        Value::Tuple(
+            vec![
+                Value::Int(5),
+                Value::Result(qsc_eval::val::Result::Val(true)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measured_guard_before_nested_tail_yields_one_and_skips_target_gate() {
+    check_value(
+        &format!(
+            r#"{MEASURED_NESTED_TAIL}
+            @EntryPoint()
+            operation Main() : (Int, Result) {{
+                use flags = Qubit[2];
+                use target = Qubit();
+                X(flags[0]);
+                X(flags[1]);
+                let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        ),
+        Value::Tuple(
+            vec![
+                Value::Int(1),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn unit_nested_tail_return_skips_target_gate() {
+    check_value(
+        r#"
+        operation F(c : Bool, d : Bool, target : Qubit) : Unit {
+            if c { return (); }
+            if true { if d { return (); } X(target); } else {}
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            F(false, true, target);
+            MResetZ(target)
+        }
+        "#,
+        Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn unit_nested_tail_fallthrough_applies_target_gate_once() {
+    check_value(
+        r#"
+        operation F(c : Bool, d : Bool, target : Qubit) : Unit {
+            if c { return (); }
+            if true { if d { return (); } X(target); } else {}
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            F(false, false, target);
+            MResetZ(target)
+        }
+        "#,
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn nested_tail_qubit_return_forwards_the_selected_caller_qubit() {
+    check_value(
+        r#"
+        function F(c : Bool, d : Bool, first : Qubit, nested : Qubit) : Qubit {
+            if c { return first; }
+            if true { if d { return nested; } first } else { first }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use first = Qubit();
+            use nested = Qubit();
+            X(nested);
+            MResetZ(F(false, true, first, nested))
+        }
+        "#,
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn nested_tail_for_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { for i in 0..2 { if i == 1 { return 9; } } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_repeat_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                repeat {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                } until i == 3;
+                5
+            } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_bool_return_after_guard_returns_true() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Bool {
+            if false { return false; }
+            if true { if true { return true; } false } else { false }
+        }
+        "#,
+        Value::Bool(true),
+    );
+}
+
+#[test]
 fn discarded_if_after_taken_return_skips_its_condition() {
     check_value(
         r#"

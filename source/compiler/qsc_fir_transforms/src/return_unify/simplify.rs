@@ -660,12 +660,41 @@ pub(super) fn extract_root_local(package: &Package, expr_id: ExprId) -> Option<L
     }
 }
 
+/// Returns whether an expression writes either merge slot, including through
+/// indexed or field projections. Calls cannot alias the caller's slot locals.
+pub(super) fn expr_writes_to_merge_slots(
+    package: &Package,
+    root: ExprId,
+    has_returned: LocalVarId,
+    return_slot: LocalVarId,
+) -> bool {
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let expr = package.get_expr(id);
+        let lhs = match &expr.kind {
+            ExprKind::Assign(lhs, _)
+            | ExprKind::AssignOp(_, lhs, _)
+            | ExprKind::AssignField(lhs, _, _)
+            | ExprKind::AssignIndex(lhs, _, _) => Some(*lhs),
+            _ => None,
+        };
+        if let Some(lhs_id) = lhs
+            && let Some(root_local) = extract_root_local(package, lhs_id)
+            && (root_local == has_returned || root_local == return_slot)
+        {
+            return true;
+        }
+        push_children(package, id, &mut stack);
+    }
+    false
+}
+
 /// Push every immediate child expression of `expr_id` onto `stack`,
 /// including statement initializers reachable through inner blocks.
 ///
 /// Companion to [`push_block_exprs`]: shared by the simplifier rules
 /// whose bailout scanners walk an expression tree exhaustively (e.g.
-/// [`let_folding`]'s slot-write detector and [`dead_flag`]'s flag-read
+/// [`expr_writes_to_merge_slots`] and [`dead_flag`]'s flag-read
 /// detector). Closures contribute no children here; rules that need to
 /// treat closure presence as a bailout must check `ExprKind::Closure`
 /// at the visit step, not at the child-push step.
