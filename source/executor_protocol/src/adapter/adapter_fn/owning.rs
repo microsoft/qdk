@@ -15,8 +15,8 @@ use super::one_per_shot::{Merged, ShotRoute};
 use super::{AdapterFn, CallRoute, CallsBelow};
 use crate::adapter::below::{BelowHandle, Route, StateId, StateIds, lend_while};
 use crate::{
-    AdapterError, AdapterLogic, Below, Executor, InstructionBatch, MakeState, Outcomes,
-    ProgramInput, Rejected, Reply, ShotContext, ShotId, ShotOutcome, ShotSet,
+    AdapterError, AdapterLogic, Below, CallInput, Executor, InstructionBatch, MakeState, Outcomes,
+    Rejected, Reply, ShotContext, ShotId, ShotOutcome, ShotSet,
 };
 #[cfg(doc)]
 use crate::{OnePerShot, OnePerShotAdapter};
@@ -106,12 +106,12 @@ where
 /// a word, as [`AdapterLogic`] is: `Owning<impl OwningAdapterLogic<I, S>>`
 /// (see [`Owning`]).
 pub trait OwningAdapterLogic<I, S>:
-    FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), AdapterError>
+    FnMut(&mut S, &CallInput<'_, I>, &mut Outcomes<'_>) -> Result<(), AdapterError>
 {
 }
 
 impl<I, S, F> OwningAdapterLogic<I, S> for F where
-    F: FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), AdapterError>
+    F: FnMut(&mut S, &CallInput<'_, I>, &mut Outcomes<'_>) -> Result<(), AdapterError>
 {
 }
 
@@ -239,7 +239,7 @@ pub trait ServeAdapterCalls<S, I, O, D: Executor<InstructionBatch<O>>> {
     fn serve_call(
         &mut self,
         kept: &mut KeptState<S>,
-        input: &ProgramInput<'_, I>,
+        input: &CallInput<'_, I>,
         shots: &ShotSet,
         down: CallDown<'_, O, D>,
         outcomes: &mut Outcomes<'_>,
@@ -255,7 +255,7 @@ pub trait ServeAdapterCalls<S, I, O, D: Executor<InstructionBatch<O>>> {
     fn serve_shot(
         &mut self,
         kept: &mut KeptState<S>,
-        input: &ProgramInput<'_, I>,
+        input: &CallInput<'_, I>,
         shot: ShotId,
         down: CallDown<'_, O, D>,
         merged: &mut Merged<O>,
@@ -273,7 +273,7 @@ where
     fn serve_call(
         &mut self,
         kept: &mut KeptState<S>,
-        input: &ProgramInput<'_, I>,
+        input: &CallInput<'_, I>,
         shots: &ShotSet,
         down: CallDown<'_, O, D>,
         outcomes: &mut Outcomes<'_>,
@@ -295,7 +295,7 @@ where
     fn serve_shot(
         &mut self,
         kept: &mut KeptState<S>,
-        input: &ProgramInput<'_, I>,
+        input: &CallInput<'_, I>,
         shot: ShotId,
         down: CallDown<'_, O, D>,
         merged: &mut Merged<O>,
@@ -335,7 +335,7 @@ where
     fn serve_call(
         &mut self,
         kept: &mut KeptState<S>,
-        input: &ProgramInput<'_, I>,
+        input: &CallInput<'_, I>,
         shots: &ShotSet,
         down: CallDown<'_, O, D>,
         outcomes: &mut Outcomes<'_>,
@@ -367,7 +367,7 @@ where
     fn serve_shot(
         &mut self,
         kept: &mut KeptState<S>,
-        input: &ProgramInput<'_, I>,
+        input: &CallInput<'_, I>,
         shot: ShotId,
         down: CallDown<'_, O, D>,
         merged: &mut Merged<O>,

@@ -93,7 +93,7 @@ each block's majority. Its logic, in full apart from the majorities
 ```rust
 pub fn lower_then_decode(
     (): &mut (),
-    input: &ProgramInput<'_, Logical>,
+    input: &CallInput<'_, Logical>,
     below: &mut Below<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {

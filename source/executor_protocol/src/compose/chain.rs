@@ -59,7 +59,7 @@ use crate::{BuildFaults, ChainHead, ShotSet, UnmetNeed};
 /// use executor_protocol::{
 ///     BuildFaults, Capabilities, Chain, Close, DefaultDriver, Executor,
 ///     ExecutorReport, InstructionBatch, Needs, OnePerShot, Outcome,
-///     Outcomes, ProgramInput, StaticProgram, TypedInstruction, driver,
+///     Outcomes, CallInput, StaticProgram, TypedInstruction, driver,
 ///     executor_fn,
 /// };
 ///
@@ -77,7 +77,7 @@ use crate::{BuildFaults, ChainHead, ShotSet, UnmetNeed};
 /// /// The program of the device: flips and reads a shot's bit.
 /// fn run_bit(
 ///     bit: &mut bool,
-///     input: &ProgramInput<'_, Op>,
+///     input: &CallInput<'_, Op>,
 ///     outcomes: &mut Outcomes<'_>,
 /// ) -> Result<(), String> {
 ///     for op in input.instructions() {

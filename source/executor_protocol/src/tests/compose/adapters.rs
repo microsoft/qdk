@@ -25,15 +25,13 @@ use crate::tests::{
 };
 use crate::tests::{PanicsOnClose, map_executor};
 use crate::{
-    Adapter, AdapterBoundary, AdapterSeeds, Apply, BuildError, Capabilities, Close, ComponentId,
-    ComposedJob, Describe, Executor, ExecutorReport, ImmediateReply, InstructionBatch,
-    InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, OnePerShot, Opcode,
-    Operand, OperandKind, Rejected, Reply, ReplyStatus, RngIds, ShotContext, ShotId, ShotOutcome,
-    ShotSet, TypedInstruction, Value, compose, conformance, executor_fn, shot_seed, wait,
-};
-use crate::{
-    AdapterError, Below, Chain, DefaultDriver, JobFaults, Needs, Outcomes, ProgramInput,
-    StaticProgram, adapter_fn, driver,
+    Adapter, AdapterBoundary, AdapterError, AdapterSeeds, Apply, Below, BuildError, CallInput,
+    Capabilities, Chain, Close, ComponentId, ComposedJob, DefaultDriver, Describe, Executor,
+    ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
+    InstructionMismatch, InstructionSet, JobFaults, Needs, OnePerShot, Opcode, Operand,
+    OperandKind, Outcomes, Rejected, Reply, ReplyStatus, RngIds, ShotContext, ShotId, ShotOutcome,
+    ShotSet, StaticProgram, TypedInstruction, Value, adapter_fn, compose, conformance, driver,
+    executor_fn, shot_seed, wait,
 };
 
 use OperandKind::Block;
@@ -1974,7 +1972,7 @@ fn no_state(_: ShotContext) -> Result<(), Rejected> {
 /// The logic of an adapter that sends each call down as it is.
 fn pass(
     (): &mut (),
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -2015,7 +2013,7 @@ fn a_chain_of_two_adapters_offers_what_the_upstream_one_offers_over_the_downstre
         executor_fn(
             promise,
             |_| Ok(()),
-            |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+            |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
         )
         .log_probability(|(): &()| -0.5)
         .seed(7)

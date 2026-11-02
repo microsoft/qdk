@@ -27,11 +27,10 @@ use crate::conditions::{ConditionsSoFar, Marks, Raised};
 use crate::lifecycle::failing_on_panic;
 use crate::reply::CANCELLATION;
 use crate::{
-    Adapter, AdapterBoundary, AdapterError, Below, Capabilities, Close, ComponentId, Describe,
-    Executor, ExecutorLifecycle, Fold, ImmediateReply, Instruction, InstructionBatch,
+    Adapter, AdapterBoundary, AdapterError, Below, CallInput, Capabilities, Close, ComponentId,
+    Describe, Executor, ExecutorLifecycle, Fold, ImmediateReply, Instruction, InstructionBatch,
     InstructionBatchRef, InstructionSet, LifecycleBoundReply, MakeState, NoCheck, OnePerShot,
-    Outcomes, ProgramInput, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome,
-    ShotSet, wait,
+    Outcomes, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, wait,
 };
 use owning::{CallDown, KeptState, WayDown};
 
@@ -265,19 +264,14 @@ impl<I, O, S, M, L> AdapterFn<I, O, S, M, L> {
 /// does not (see [`compose`](fn@crate::compose)); `+ use<>` included, as for
 /// [`MakeState`].
 pub trait AdapterLogic<I, O, S>:
-    FnMut(
-    &mut S,
-    &ProgramInput<'_, I>,
-    &mut Below<'_, O>,
-    &mut Outcomes<'_>,
-) -> Result<(), AdapterError>
+    FnMut(&mut S, &CallInput<'_, I>, &mut Below<'_, O>, &mut Outcomes<'_>) -> Result<(), AdapterError>
 {
 }
 
 impl<I, O, S, F> AdapterLogic<I, O, S> for F where
     F: FnMut(
         &mut S,
-        &ProgramInput<'_, I>,
+        &CallInput<'_, I>,
         &mut Below<'_, O>,
         &mut Outcomes<'_>,
     ) -> Result<(), AdapterError>
@@ -314,7 +308,7 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     #[must_use]
     pub fn check<V>(self, check: V) -> AdapterFn<I, O, S, M, L, V, R>
     where
-        V: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+        V: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     {
         AdapterFn {
             make_state: self.make_state,
@@ -557,7 +551,7 @@ impl<I, O, S, M, L, C, R, D> Executor<InstructionBatch<I>>
 where
     M: MakeAdapterState<S, O>,
     L: ServeAdapterCalls<S, I, O, D>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     D: Executor<InstructionBatch<O>>,
 {
     type Reply = LifecycleBoundReply<AdapterFnReply<D::Reply>>;
@@ -587,7 +581,7 @@ impl<I, O, S, M, L, C, R, D> AdapterFnExecutor<I, O, S, M, L, C, R, D>
 where
     M: MakeAdapterState<S, O>,
     L: ServeAdapterCalls<S, I, O, D>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     D: Executor<InstructionBatch<O>>,
 {
     /// Serves `batch`: the steps of `call`, which runs them failing the
@@ -597,7 +591,7 @@ where
         batch: InstructionBatchRef<'_, I>,
     ) -> Result<LifecycleBoundReply<AdapterFnReply<D::Reply>>, Rejected> {
         self.lifecycle.admit()?;
-        let input = ProgramInput {
+        let input = CallInput {
             instructions: batch.instructions,
         };
         (self.adapter.check)(&input)?;

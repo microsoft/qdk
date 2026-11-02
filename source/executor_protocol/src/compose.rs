@@ -89,16 +89,19 @@ use crate::{AdaptiveProgram, ComposedJob, DefaultDriver, DrivenProgram, JobFault
 ///
 /// A pair that no rule composes fails to compile, which no test pins, with
 /// a note that lists the rules, one that points a pair `>>` does not take
-/// to [`compose`](fn@crate::compose), and one that points a job written as
-/// a component to [`Chain::run`].
+/// to [`compose`](fn@crate::compose), one that says a generic adapter does
+/// not compose over an executor, and one that points a job written as a
+/// component to [`Chain::run`].
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not compose upstream of `{Rhs}`",
     label = "no rule of `compose` puts `{Self}` upstream of this",
     note = "`compose` puts an adapter or a chain's head (`driver()`, `ChainHead::new(driver)`, with \
             adapters below it or not) upstream of an adapter or an executor, where what the \
             upstream one sends is what the downstream one accepts (docs/composition.md, \"Composing a run\")",
-    note = "where `>>` does not apply (an executor of another crate, or an adapter already composed \
-            with its executor), write `compose(upstream, downstream)`",
+    note = "where `>>` does not apply (an executor of another crate), write \
+            `compose(upstream, downstream)`",
+    note = "a generic `A: Adapter` does not compose over an executor: name the facility's type, its \
+            closures named by role (see `executor_protocol::compose`)",
     note = "if the right side is a program and its shots: they are a job, not a component; give them \
             to the chain a driver heads, `(driver() >> executor)?.run(program, shots)`"
 )]
@@ -127,7 +130,7 @@ pub enum WithExecutor {}
 /// | `compose`            | gives      | as                                   |
 /// | -------------------- | ---------- | ------------------------------------ |
 /// | adapter, executor    | executor   | the executor, through the adapters   |
-/// | adapter, adapter     | adapter    | [`ComposedAdapters`]                 |
+/// | adapter, adapter     | adapters   | [`ComposedAdapters`], as one adapter |
 /// | chain head, adapter  | chain head | the head with one more adapter       |
 /// | chain head, executor | chain      | [`Chain`], a driver's, runs a job    |
 ///
@@ -204,8 +207,10 @@ pub fn compose<Lhs: Compose<Rhs, Rule>, Rhs, Rule>(left: Lhs, right: Rhs) -> Lhs
     left.compose(right)
 }
 
-/// Adapter, adapter: an adapter, `x` upstream of `y`. Checked when it reaches
-/// an executor.
+/// Adapter, adapter: `x` upstream of `y`, which composes as one adapter
+/// wherever `>>` or [`compose`](fn@crate::compose) takes one, but does not
+/// implement [`Adapter`](crate::Adapter) (planned, `docs/planned.md`).
+/// Checked when it reaches an executor.
 impl<X: Adapters, Y: Adapters<Accepts = X::Sends>> Compose<Y, WithAdapter> for X {
     type Output = ComposedAdapters<X, Y>;
 
@@ -307,8 +312,10 @@ impl<T, L: UpstreamOf<E>, E> Compose<E, WithExecutor> for ChainHead<T, L> {
 ///
 /// Not for any executor: `>>` takes no rule to infer, and an impl for any
 /// adapter and one for any executor would overlap. An executor is composed with
-/// `compose`, or its crate implements `>>` on [`ChainHead`] and
-/// [`ComposedAdapters`] for it, as this crate does
+/// `compose`, or its crate implements `>>` for it on each of the four
+/// public types that may be on its left, [`ChainHead`],
+/// [`ComposedAdapters`], [`AdapterFn`] and [`OnePerShotAdapter`], so that
+/// a chain groups either way, as this crate does
 /// for the executors its facility makes and for an adapter, written by hand
 /// or not, composed with an executor; likewise an adapter of another
 /// crate, which this crate cannot give `>>`. Planned: a macro that writes

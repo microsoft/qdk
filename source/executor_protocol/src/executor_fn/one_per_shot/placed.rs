@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use super::{OnePerShot, check_room};
 use crate::absorb::HeldPart;
 use crate::executor_fn::{
-    ExecutorFn, ExecutorLogic, MakeState, NoCheck, ProgramInput, ShotStrategy, described,
+    CallInput, ExecutorFn, ExecutorLogic, MakeState, NoCheck, ShotStrategy, described,
 };
 use crate::lifecycle::PartsFailure;
 use crate::{
@@ -268,7 +268,7 @@ where
     S: Send + 'static,
     M: MakeState<S>,
     P: ExecutorLogic<I, S> + Clone + Send + 'static,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     L: Clone + Send + 'static,
     R: Clone + Send + 'static,
     T: Placement + Clone,
@@ -332,7 +332,7 @@ where
         let mut room = Some(check_room(promise, shots.len(), new));
         shots.call(
             batch,
-            |instructions| check(&ProgramInput { instructions }),
+            |instructions| check(&CallInput { instructions }),
             |j| {
                 room.take().unwrap_or(Ok(()))?;
                 let shot =

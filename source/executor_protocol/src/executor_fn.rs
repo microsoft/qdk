@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! The facility that makes an executor from its logic alone
-//! ([`executor_fn`]): what a call brings to the logic ([`ProgramInput`]),
+//! ([`executor_fn`]): what a call brings to the logic ([`CallInput`]),
 //! where the logic puts its outcomes ([`Outcomes`]), the executor made
 //! ([`ExecutorFn`]), which keeps the protocol's rules, and how it holds
 //! its shots' states ([`ShotStrategy`]).
@@ -134,7 +134,7 @@ pub struct ExecutorFn<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)>
 ///   runs nothing and leaves no state made, and a later call tries again,
 ///   for its own shots (any shot, while the one-state form holds none):
 ///   for example [`Rejected::Unavailable`] when its device is busy.
-/// - `logic` runs a call's instructions on the state ([`ProgramInput`]),
+/// - `logic` runs a call's instructions on the state ([`CallInput`]),
 ///   and pushes each readout to [`Outcomes`]. Its `Err` fails the call: the
 ///   outcomes pushed before it are handed over, then the reply ends with its
 ///   reason, and the executor refuses every later call, since the state is
@@ -154,7 +154,7 @@ pub struct ExecutorFn<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)>
 /// ```
 /// use executor_protocol::{
 ///     Capabilities, Executor, InstructionBatchRef, Outcome, Outcomes,
-///     ProgramInput, Rejected, ShotContext, ShotOutcome, ShotSet,
+///     CallInput, Rejected, ShotContext, ShotOutcome, ShotSet,
 ///     TypedInstruction, Value, executor_fn, wait,
 /// };
 ///
@@ -190,7 +190,7 @@ pub struct ExecutorFn<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)>
 /// /// readouts before it.
 /// fn run_bit(
 ///     bit: &mut Bit,
-///     input: &ProgramInput<'_, Op>,
+///     input: &CallInput<'_, Op>,
 ///     outcomes: &mut Outcomes<'_>,
 /// ) -> Result<(), String> {
 ///     for op in input.instructions() {
@@ -259,7 +259,7 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     #[must_use]
     pub fn check<V>(self, check: V) -> ExecutorFn<I, S, M, P, V, L, R>
     where
-        V: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+        V: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     {
         ExecutorFn {
             promise: self.promise,
@@ -476,7 +476,7 @@ impl<I, S, M, P, C, L, R> Executor<InstructionBatch<I>> for ExecutorFn<I, S, M, 
 where
     M: MakeState<S>,
     P: ExecutorLogic<I, S>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
 {
     /// The logic runs inside `call`.
     type Reply = ImmediateReply<ShotOutcome>;
@@ -509,7 +509,7 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R>
 where
     M: MakeState<S>,
     P: ExecutorLogic<I, S>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
 {
     /// Serves `batch`: the steps of `call`, which runs them failing the
     /// executor should they panic ([`failing_on_panic`]).
@@ -518,7 +518,7 @@ where
         batch: InstructionBatchRef<'_, I>,
     ) -> Result<ImmediateReply<ShotOutcome>, Rejected> {
         self.lifecycle.admit()?;
-        let input = ProgramInput {
+        let input = CallInput {
             instructions: batch.instructions,
         };
         (self.check)(&input)?;
@@ -711,7 +711,7 @@ fn report_state<S, L, R, Q>(
 /// closure follows it: `-> OnePerShotExecutor<I, S, impl MakeState<S>, impl
 /// ExecutorLogic<I, S>, NoCheck<I>, impl FnMut(&S) -> f64>` for one given
 /// `.log_probability(..)`.
-pub type NoCheck<I> = fn(&ProgramInput<'_, I>) -> Result<(), Rejected>;
+pub type NoCheck<I> = fn(&CallInput<'_, I>) -> Result<(), Rejected>;
 
 /// What makes the state of an [`executor_fn`], or of an
 /// [`adapter_fn`](fn@crate::adapter_fn): their `make_state` closure. It makes
@@ -746,12 +746,12 @@ impl<S, F: FnMut(ShotContext) -> Result<S, Rejected>> MakeState<S> for F {}
 /// ExecutorLogic<I, S> + Clone`: `-> OnePerShotPlacedExecutor<I, S, impl
 /// MakeState<S>, impl ExecutorLogic<I, S> + Clone, OwnThread>`.
 pub trait ExecutorLogic<I, S>:
-    FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>
+    FnMut(&mut S, &CallInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>
 {
 }
 
 impl<I, S, F> ExecutorLogic<I, S> for F where
-    F: FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>
+    F: FnMut(&mut S, &CallInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>
 {
 }
 
@@ -760,11 +760,11 @@ impl<I, S, F> ExecutorLogic<I, S> for F where
 /// borrowed for `'a`. More may come by methods (the shots of a call that runs
 /// several on one state), so that no logic breaks.
 #[derive(Debug)]
-pub struct ProgramInput<'a, I> {
+pub struct CallInput<'a, I> {
     pub(crate) instructions: &'a [I],
 }
 
-impl<'a, I> ProgramInput<'a, I> {
+impl<'a, I> CallInput<'a, I> {
     /// The call's instructions, in order.
     #[must_use]
     pub fn instructions(&self) -> &'a [I] {

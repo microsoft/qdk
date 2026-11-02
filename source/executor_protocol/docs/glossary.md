@@ -24,7 +24,10 @@ what they belong to; the names in code are the crate's.
   `ChainHead::new(runtime) >> adapters >> executor`, then calls
   `chain.run(program, shots)`. The crate's driver (`DefaultDriver`, at the
   head `driver()` gives) runs a static program, and lets an adaptive
-  program drive ([Composing a run](composition.md#composing-a-run)).
+  program drive ([Composing a run](composition.md#composing-a-run)). A
+  device's driver, the vendor's software below an executor, is not a
+  `Driver`; and a caller that takes a reply is called a caller, not a
+  driver.
 - **Chain head** (`ChainHead`): the top of a chain being built: a driver,
   lifted so that it composes with `>>`, with the adapters composed below it
   so far. `driver()` is the crate's driver at the head with no adapter;
@@ -71,16 +74,21 @@ what they belong to; the names in code are the crate's.
     a shot's state of an `owning_adapter_fn`
     (`tests/static_isa/code_runtime.rs`;
     [A state that owns its way below](adapters.md#a-state-that-owns-its-way-below-owning_adapter_fn));
-  - a **program's runtime** (planned as an adapter): what walks an
-    adaptive program and feeds measurements back. In a chain it would be
-    an adapter that runs the program's classical part itself and sends its
-    quantum regions downstream
-    ([How applications use it](instruction-sets.md#how-applications-use-it));
+  - a **program's runtime**: what walks a program and feeds measurements
+    back, such as a QIR runtime. In a chain it is a driver (`Driver<P>`,
+    for its form of program `P`; a QIR runtime's, `Driver<QirProgram>`, is
+    planned), which runs the program's classical part itself and sends its
+    quantum regions downstream. The gates it sends are its needs
+    (`Needs::instruction_set`), checked when the job is given
+    (`Chain::run`)
+    ([Writing a driver](../README.md#writing-a-driver);
+    [How applications use it](instruction-sets.md#how-applications-use-it));
   - an **async runtime**, such as Tokio: what polls tasks
     ([An async task leaves its thread to other tasks](internals/replies.md#an-async-task-leaves-its-thread-to-other-tasks)).
-- **Adaptive program** (`AdaptiveProgram`): a program that decides as it
-  runs, its next batch depending on what the last one read: it calls the
-  executor it is given itself, and is consumed by its run. The crate's
+- **Adaptive program** (`AdaptiveProgram`): a program that drives the
+  executor itself: it sends each batch and can choose the next from the
+  outcomes so far. A static program, given to a driver, is one that decides
+  nothing. An adaptive program is consumed by its run. The crate's
   driver lets it drive; a chain runs any job's program as one, the program
   as its driver drives it (`DrivenProgram`)
   ([A chain and its job](composition.md#a-chain-and-its-job)).
@@ -106,9 +114,9 @@ what they belong to; the names in code are the crate's.
   fault reported at once (`BuildFaults`), except a part composed with the
   executor first, built on its own
   ([Composing a run](composition.md#composing-a-run)).
-- **Boundary** (`AdapterBoundary`): where the calls of an adapter, or of a
-  job's program, meet the executor downstream. `compose` decides an
-  adapter's when it builds the chain, and the chain a program's when its job
+- **Boundary**: where the calls of an adapter (`AdapterBoundary`), or of
+  the chain's driver, meet the executor downstream. `compose` decides an
+  adapter's when it builds the chain, and the chain its driver's when a job
   is given to it (`Chain::run`): it checks the set sent against the set
   downstream, and has calls by opcode renumbered on their way down where
   the two sets number them otherwise
@@ -262,10 +270,12 @@ what they belong to; the names in code are the crate's.
   ([What this crate does](internals/composition.md#what-this-crate-does)).
 - **Reply** (`Reply`): a call's answer in progress, polled for its events
   until it ends, `Done`, `Failed` or `Cancelled` (`ReplyStatus`; a placed
-  executor dropped cancels its calls not yet started). It is an
-  `ImmediateReply` when the work ran inside `call`, and an
-  `IncrementalReply`, filled through its `ReplySender`, when it runs
-  elsewhere ([Replies](replies.md#replies-one-reply-four-ways-to-take-it)).
+  executor dropped cancels its calls not yet started). The crate's two
+  basic replies are `ImmediateReply`, for work that ran inside `call`, and
+  `IncrementalReply`, filled through its `ReplySender`, for work that runs
+  elsewhere; composition wraps replies in its own, so a caller stays
+  generic over `Reply`
+  ([Replies](replies.md#replies-one-reply-four-ways-to-take-it)).
 - **Outcome** (`ShotOutcome`): an event of a reply, a value under its shot
   and the tag the batch gave its readout, marked with the shot's conditions
   so far. An executor that reports by tag
@@ -348,9 +358,11 @@ what they belong to; the names in code are the crate's.
   waiting for the calls queued, and returns its report, once; later calls
   are refused (`Closed`). It stops no work: cancelling at close is planned
   ([Replies](replies.md#one-call)).
-- **Report** (`ExecutorReport`): what an executor ran, given at close: the
-  calls it accepted (`calls`), each shot's log probability where it is
-  known (`log_p`, a `LogP`), and its states' reports, folded (`states`)
+- **Report** (`Close::Report`): what an executor gives at close, of any
+  type that folds (`Fold`); an ensemble written by hand may report a
+  count. The facilities' executors report an `ExecutorReport`: the calls
+  they accepted (`calls`), each shot's log probability where it is known
+  (`log_p`, a `LogP`), and their states' reports, folded (`states`)
   ([What this crate does](internals/composition.md#what-this-crate-does)). A
   `PlacedExecutor` counts only the calls that reached the executor it
   places, and none once its placement stopped; through an adapter given no
@@ -358,7 +370,9 @@ what they belong to; the names in code are the crate's.
   and one given a `state_report` adds its own beside it, its own first
   ([Reports](adapters.md#reports-state_reportf)).
 - **Fold** (`Fold`): adds one report into another. The empty report adds
-  nothing, and the order and grouping do not change the total, so the
+  nothing, and the order and grouping do not change the total, up to
+  rounding for sums in floating point (`LogP`'s may differ in their last
+  bits when regrouped), so the
   reports of shots run apart fold, shot by shot, into what one executor
   that ran them all reports: its log probabilities, and its states'
   reports where they count per shot. `calls` adds up across the executors

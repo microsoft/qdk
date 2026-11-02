@@ -49,7 +49,8 @@ impl<I> Message for InstructionBatch<I> {
 /// none, is not a batch's shots.
 #[derive(Debug)]
 pub struct InstructionBatchRef<'a, I> {
-    /// The shots to run the instructions on, each once, in this order.
+    /// The shots to run the instructions on, each once, given in this
+    /// order; no order of running across shots is promised.
     pub shots: &'a ShotSet,
     /// The instructions, run in this order on each shot of `shots`.
     pub instructions: &'a [I],

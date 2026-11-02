@@ -21,8 +21,10 @@ pub type ShotId = u32;
 /// where the shots are chosen, and never again by the executors downstream.
 /// That matters most where J is split into parts, each run on its own
 /// executor: a check in each executor sees only its part, while the parts of a
-/// `ShotSet` cannot share a shot. An executor runs a batch's shots in the
-/// set's order.
+/// `ShotSet` cannot share a shot. The set keeps the caller's order, in which
+/// it iterates; an executor runs each shot's instructions in their order,
+/// but promises no order across shots: one that places its shots on
+/// threads of their own runs them at once.
 ///
 /// A set of one shot is held inline: made by [`ShotSet::one`], it
 /// allocates nothing, so an executor that splits a call per shot, or a

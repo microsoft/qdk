@@ -3,18 +3,18 @@
 [Protocol overview](../README.md).
 
 A call returns a reply: the events of its batch, as they come, then
-its end. This page shows how a driver takes a reply, how an executor
+its end. This page shows how a caller takes a reply, how an executor
 makes one, how a waiting caller is woken, and how readouts are named.
 
 ## Execution models
 
-One executor serves every way of driving it: the executor chooses how its
-reply's events are made, and the driver chooses how it takes them. Each model
-below is a call a driver makes, and a test runs it, in the [tests of
+One executor serves every way of calling it: the executor chooses how its
+reply's events are made, and the caller chooses how it takes them. Each model
+below is a call a caller makes, and a test runs it, in the [tests of
 replies](../src/tests/reply.rs) and of [async
 replies](../src/tests/reply/asynchronous.rs).
 
-| Model                                                   | The driver calls                                                                                       |
+| Model                                                   | The caller calls                                                                                       |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | synchronous: the whole reply, the thread parked         | `wait(reply, &mut out)`                                                                                |
 | polling: the events so far, other work between polls    | `reply.poll_events(&mut out, waker)`, with its own waker or `Waker::noop()`                            |
@@ -130,7 +130,7 @@ chooses it (`relay` parks too, but on the worker's thread, not the
 caller's). `wait_async` and `async_events`
 (`src/reply/asynchronous.rs`) are thin wrappers that poll the
 reply with the task's waker; `async_events` is why the crate depends on
-`futures-core`, for the `Stream` trait. A driver written against
+`futures-core`, for the `Stream` trait. A caller written against
 `Reply` runs with every executor, and an executor that passes a reply
 up (with `relay` or `MappedReply`) does not need to know how its caller will
 take it.
@@ -145,7 +145,7 @@ upstream of it then holds its thread for the whole call.
 batch inside `call` hands over every outcome at the first poll; one whose work
 runs on a worker pushes each outcome as it is made; an executor whose shots run
 on placements of their own (`.run_on(OwnThread).shots(OnePerShot)`) hands over
-each shot's outcomes as soon as that shot has them (`ShotReplies`). A driver
+each shot's outcomes as soon as that shot has them (`ShotReplies`). A caller
 gets the events as finely as the executor it calls hands them over, whichever
 way it takes them, and several calls in flight are several replies, each woken
 on its own ([several calls in
@@ -155,20 +155,22 @@ even what its sends below already read.
 
 ### One call
 
-An executor that runs the batch inside `call` returns an `ImmediateReply`: its
-first poll hands over every event and the final status (`Done` or `Failed`), so
-it never keeps the waker and `wait` never parks. The toy executor of the guide
-tests (`toy_simulator`, in `tests/toy/simulator.rs`) is one. An executor whose
-work runs elsewhere makes the two ends of a reply with `reply_channel()` and
-returns the `IncrementalReply` at once; the `ReplySender` pushes each event as
-it is made and wakes the caller. If the work ends before the first poll, that
-poll hands over every event with `Done`, as `ImmediateReply`'s does.
+An executor that runs the batch inside `call` can return the crate's
+`ImmediateReply`: its first poll hands over every event and the final status
+(`Done` or `Failed`), so it never keeps the waker and `wait` never parks. The
+toy executor of the guide tests (`toy_simulator`, in `tests/toy/simulator.rs`)
+is one. An executor whose work runs elsewhere makes the two ends of a reply with
+`reply_channel()` and returns the `IncrementalReply` at once; the `ReplySender`
+pushes each event as it is made and wakes the caller. If the work ends before
+the first poll, that poll hands over every event with `Done`, as
+`ImmediateReply`'s does.
 
-Both replies implement `Reply`, so the caller reads them the same way:
+Both replies implement `Reply`, as do the replies composition wraps them in,
+so the caller reads them the same way:
 
 ```mermaid
 sequenceDiagram
-  participant D as driver (caller)
+  participant D as caller
   participant X as executor
   participant R as reply (ImmediateReply or IncrementalReply)
   participant C as ReplySender (producer handle)
@@ -206,7 +208,7 @@ The rules of a reply's end:
   pushes and ends it, and nobody takes the events.
 - Dropping a placed executor cancels its calls not yet started: their replies
   end `ReplyStatus::Cancelled`. `wait`, `wait_async` and `async_events` give a
-  cancelled reply as an error, and a driver that tells it from a failure polls
+  cancelled reply as an error, and a caller that tells it from a failure polls
   the reply.
 
 Cancellation at an executor's `close` is planned, with no milestone yet,
@@ -265,7 +267,7 @@ shot's events come and when the shot ends, so the caller may be woken once
 per shot in one sleep, a known issue
 ([Performance](performance.md#shots-on-placements-of-their-own)).
 
-How each way of taking a reply sleeps, why `wait` loses no wake, a driver
+How each way of taking a reply sleeps, why `wait` loses no wake, a caller
 with several calls in flight, an async task that leaves its thread to
 others, and the tests of the cycle are in
 [The waking cycle, step by step](internals/replies.md#the-waking-cycle-step-by-step)
@@ -376,7 +378,7 @@ whose caller finds the rejection on the readout (an excerpt of the
 let mut runtime = executor_fn(
     Capabilities::default(),
     |context: ShotContext| Ok::<_, Rejected>(context.shot()),
-    |shot: &mut ShotId, _: &ProgramInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
+    |shot: &mut ShotId, _: &CallInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
         outcomes.raise_conditions(ShotConditions::REJECTED);
         outcomes.extend([ShotOutcome::new(*shot, 0, Value::One)]);
         Ok(())

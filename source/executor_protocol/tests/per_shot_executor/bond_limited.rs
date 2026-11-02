@@ -11,7 +11,7 @@
 //! The toy's bits stand for the MPS.
 
 use executor_protocol::{
-    Capabilities, ExecutorFn, Outcomes, ProgramInput, Rejected, ShotContext, ShotId, executor_fn,
+    CallInput, Capabilities, ExecutorFn, Outcomes, Rejected, ShotContext, ShotId, executor_fn,
 };
 
 use crate::toy::{Op, QUBITS, ToyState, check};
@@ -51,7 +51,7 @@ impl BondLimitedState {
 /// The bond and the capacity, when the bond outgrew it.
 pub fn run_bond_limited(
     state: &mut BondLimitedState,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     state.bits.run(input, outcomes)?;
@@ -93,9 +93,9 @@ pub fn bond_limited_executor(
     Op,
     BondLimitedState,
     impl FnMut(ShotContext) -> Result<BondLimitedState, Rejected>,
-    impl FnMut(&mut BondLimitedState, &ProgramInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>
+    impl FnMut(&mut BondLimitedState, &CallInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>
     + Clone,
-    impl FnMut(&ProgramInput<'_, Op>) -> Result<(), Rejected>,
+    impl FnMut(&CallInput<'_, Op>) -> Result<(), Rejected>,
     impl FnMut(&BondLimitedState) -> f64 + Clone,
 > {
     let mut busy = busy_at;

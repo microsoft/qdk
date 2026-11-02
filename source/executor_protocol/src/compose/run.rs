@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! The run a chain gives with its job ([`Run`]): given, it runs nothing;
-//! waited for, or awaited, it drives the executor and closes it. The run
-//! owns the chain: the driver only calls it.
+//! waited for, or awaited, it runs its program and closes the executor.
+//! The run owns the chain: its driver only calls the executor.
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
@@ -33,7 +33,7 @@ type Called<P, E> = <<P as AdaptiveProgram>::Instruction as Instruction>::Downst
 ///
 /// # Type parameters
 ///
-/// - `P`: the program that drives the run ([`AdaptiveProgram`]): the job's
+/// - `P`: the program the run runs ([`AdaptiveProgram`]): the job's
 ///   program as the chain's driver drives it
 ///   ([`DrivenProgram`](crate::DrivenProgram)).
 /// - `E`: the chain's executor, adapters included, which the run closes
@@ -57,7 +57,7 @@ impl<P: AdaptiveProgram, E: Executor<InstructionBatch<P::Instruction>> + Close> 
         }
     }
 
-    /// Runs on this thread: drives the executor, then closes it, once,
+    /// Runs on this thread: runs the program, then closes the executor, once,
     /// when the program's future has ended. Gives the program's output and
     /// the executor's report. The thread parks while the program waits for
     /// a reply.

@@ -72,8 +72,8 @@ pub trait Adapter {
 
     /// The instruction set it accepts. `None` when it accepts the downstream
     /// set as it is, unless it [`sends`](Adapter::sends) a set of its own: it
-    /// then describes none, and a program that needs instructions is refused. An
-    /// adapter that states this set and not what it sends sends what it
+    /// then describes none, and a program that needs instructions is refused.
+    /// An adapter that states this set and not what it sends sends what it
     /// accepts: its calls are checked against the set downstream, in any order,
     /// and renumbered into it; except one that makes calls by opcode from
     /// instructions of another type, which must state what it sends, and one

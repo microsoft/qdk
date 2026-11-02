@@ -15,10 +15,11 @@ use std::thread::{self, ThreadId};
 use std::time::Duration;
 
 use crate::{
-    Capabilities, Close, Describe, Executor, ExecutorFn, ExecutorReport, Fold, InstructionBatch,
-    InstructionBatchRef, OnePerShot, Outcome, Outcomes, OwnThread, PlacementJob, ProgramInput,
-    Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction,
-    Value, check_unique_tags, conformance, executor_fn, shot_seed, wait,
+    Below, BuildError, CallInput, Capabilities, Close, ComponentId, Describe, Executor, ExecutorFn,
+    ExecutorReport, Fold, InstructionBatch, InstructionBatchRef, OnePerShot, Outcome, Outcomes,
+    OwnThread, PlacementJob, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome,
+    ShotSet, TypedInstruction, Value, adapter_fn, check_unique_tags, compose, conformance,
+    executor_fn, shot_seed, wait,
 };
 
 /// The run's seed in these tests.
@@ -60,7 +61,7 @@ impl Bit {
 /// readouts before it.
 pub(in crate::tests) fn run_bit(
     bit: &mut Bit,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     for op in input.instructions() {
@@ -115,7 +116,7 @@ pub(in crate::tests) fn draw_value(context: ShotContext) -> Result<u64, Rejected
 )]
 pub(in crate::tests) fn read_drawn_bits(
     drawn: &mut u64,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     for op in input.instructions() {
@@ -152,7 +153,7 @@ impl Flipped {
 /// the flips before it. It reads nothing.
 pub(in crate::tests) fn count_flips(
     state: &mut Flipped,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     for op in input.instructions() {
@@ -274,7 +275,7 @@ impl Readout {
     fn run(
         &self,
         bit: &mut Bit,
-        input: &ProgramInput<'_, Op>,
+        input: &CallInput<'_, Op>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), String> {
         bit.one ^= self.inverted;
@@ -549,7 +550,7 @@ fn a_call_in_flight_ends_at_an_earlier_failure() {
 /// failing the call.
 fn panic_at_stop(
     bit: &mut Bit,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     run_bit(bit, input, outcomes).map_err(|reason| panic!("{reason}"))
@@ -687,7 +688,7 @@ fn closing_drops_the_state() {
     let mut executor = executor_fn(
         promise(),
         move |_| Ok(Held(Rc::clone(&flag))),
-        |_: &mut Held, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| Ok(()),
+        |_: &mut Held, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| Ok(()),
     );
     run(&mut executor, 0, &[Op::Flip]);
     assert!(!dropped.get(), "the state is kept until close");
@@ -908,11 +909,11 @@ fn the_seed_is_kept_by_the_methods_that_shape_the_logic() {
     let ops: Vec<_> = (0..16).map(Op::Read).collect();
     let seed_first = executor_fn(promise(), draw_value, read_drawn_bits)
         .seed(SEED)
-        .check(|_: &ProgramInput<'_, Op>| Ok(()))
+        .check(|_: &CallInput<'_, Op>| Ok(()))
         .log_probability(|_: &u64| 0.0)
         .state_report(|_: &u64| ());
     let seed_last = executor_fn(promise(), draw_value, read_drawn_bits)
-        .check(|_: &ProgramInput<'_, Op>| Ok(()))
+        .check(|_: &CallInput<'_, Op>| Ok(()))
         .log_probability(|_: &u64| 0.0)
         .state_report(|_: &u64| ())
         .seed(SEED);
@@ -960,6 +961,33 @@ fn without_the_runs_seed_a_state_has_none_to_draw_from() {
     assert_eq!(one_state, Ok(failed.clone()), "one state, placed");
     let one_per_shot = send(&mut drawing().shots(OnePerShot).run_on(OwnThread), 0, &ops);
     assert_eq!(one_per_shot, Ok(failed), "one state per shot, placed");
+}
+
+/// A device's promise copied from the capabilities of one given the run's
+/// seed, then given to an executor made without `.seed`: that executor
+/// gives no run's seed, so a noise model that draws, composed over it, is
+/// refused when the chain is built, rather than draw from the seed the
+/// copy carried.
+#[test]
+fn an_executor_given_no_seed_gives_none_whatever_its_promise_carries() {
+    const NOISE: ComponentId = ComponentId::named("noise");
+    let seeded = executor_fn(promise(), Bit::new, run_bit)
+        .seed(7)
+        .capabilities();
+    let unseeded = executor_fn(seeded, Bit::new, run_bit);
+    let noise = adapter_fn(
+        |context: ShotContext| Ok(context.seed()),
+        |_: &mut u64,
+         input: &CallInput<'_, Op>,
+         below: &mut Below<'_, Op>,
+         _: &mut Outcomes<'_>| { below.send(input.instructions()) },
+    )
+    .drawing(NOISE);
+    let Err(faults) = compose(noise, unseeded) else {
+        panic!("no run's seed reaches the noise model")
+    };
+    let errors: Vec<_> = faults.0.into_iter().map(|fault| fault.error).collect();
+    assert_eq!(errors, [BuildError::NoRunSeed(NOISE)]);
 }
 
 /// A device busy at its first call refuses it, runs a call, refuses one
@@ -1180,11 +1208,11 @@ pub(in crate::tests) fn connected_device<I>(
     I,
     Session,
     impl FnMut(ShotContext) -> Result<Session, Rejected> + Send + 'static,
-    impl FnMut(&mut Session, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>
+    impl FnMut(&mut Session, &CallInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>
     + Clone
     + Send
     + 'static,
-    impl FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected> + Send + 'static,
+    impl FnMut(&CallInput<'_, I>) -> Result<(), Rejected> + Send + 'static,
     impl FnMut(&Session) -> f64 + Clone + Send + 'static,
     impl FnMut(&Session) + Clone + Send + 'static,
 > {
@@ -1194,12 +1222,12 @@ pub(in crate::tests) fn connected_device<I>(
     executor_fn(
         Capabilities::default(),
         move |context: ShotContext| Ok(making.session(context.shot())),
-        move |_: &mut Session, _: &ProgramInput<'_, I>, _: &mut Outcomes<'_>| {
+        move |_: &mut Session, _: &CallInput<'_, I>, _: &mut Outcomes<'_>| {
             let _held = &running;
             Ok(())
         },
     )
-    .check(move |_: &ProgramInput<'_, I>| {
+    .check(move |_: &CallInput<'_, I>| {
         let _held = &checking;
         Ok(())
     })
@@ -1247,7 +1275,7 @@ impl Drop for ReleasesBadly {
 /// is held.
 pub(in crate::tests) fn holding_a_handle<S, I>(
     handle: Arc<ReleasesBadly>,
-) -> impl FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>
+) -> impl FnMut(&mut S, &CallInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>
 + Clone
 + Send
 + 'static {
@@ -1264,7 +1292,7 @@ pub(in crate::tests) fn holding_a_handle<S, I>(
 )]
 pub(in crate::tests) fn runs<S, I>(
     _: &mut S,
-    _: &ProgramInput<'_, I>,
+    _: &CallInput<'_, I>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     Ok(())
@@ -1273,7 +1301,7 @@ pub(in crate::tests) fn runs<S, I>(
 /// A logic, of any device, that stops: the call fails.
 pub(in crate::tests) fn stops<S, I>(
     _: &mut S,
-    _: &ProgramInput<'_, I>,
+    _: &CallInput<'_, I>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     Err("the device stopped".to_owned())
@@ -1282,7 +1310,7 @@ pub(in crate::tests) fn stops<S, I>(
 /// A logic, of any device, whose driver has a bug: it panics.
 pub(in crate::tests) fn panics<S, I>(
     _: &mut S,
-    _: &ProgramInput<'_, I>,
+    _: &CallInput<'_, I>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     panic!("the driver panics")
@@ -1731,7 +1759,7 @@ fn dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops() 
         },
         holding_a_handle(Arc::new(handle)),
     )
-    .check(move |_: &ProgramInput<'_, Op>| {
+    .check(move |_: &CallInput<'_, Op>| {
         let _held = &checking;
         Ok(())
     })
@@ -1772,7 +1800,7 @@ fn a_replaced_closure_is_freed_raising_no_panic_of_its_drop() {
     let (handle, released) = ReleasesBadly::new();
     let (reading, reporting) = (handle.another(), handle.another());
     let executor = executor_fn(promise(), Bit::new, runs)
-        .check(move |_: &ProgramInput<'_, Op>| {
+        .check(move |_: &CallInput<'_, Op>| {
             let _held = &handle;
             Ok(())
         })
@@ -1785,7 +1813,7 @@ fn a_replaced_closure_is_freed_raising_no_panic_of_its_drop() {
         });
     let replaced = panic::catch_unwind(AssertUnwindSafe(move || {
         executor
-            .check(|_: &ProgramInput<'_, Op>| Ok(()))
+            .check(|_: &CallInput<'_, Op>| Ok(()))
             .log_probability(|_: &Bit| 0.0)
             .state_report(|_: &Bit| ())
     }))
@@ -1804,7 +1832,7 @@ fn dropped_as_a_panic_unwinds_it_frees_what_its_closures_capture_raising_none() 
     let (handle, released) = ReleasesBadly::new();
     let checked = handle.another();
     let executor = executor_fn(promise(), Bit::new, holding_a_handle(Arc::new(handle))).check(
-        move |_: &ProgramInput<'_, Op>| {
+        move |_: &CallInput<'_, Op>| {
             let _held = &checked;
             Ok(())
         },

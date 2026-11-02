@@ -16,8 +16,8 @@ use super::{
     run_bit, runs, stops, values,
 };
 use crate::{
-    Close, Describe, Executor, Fold, InstructionBatch, InstructionBatchRef, OnePerShot, Outcome,
-    Outcomes, OwnThread, ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
+    CallInput, Close, Describe, Executor, Fold, InstructionBatch, InstructionBatchRef, OnePerShot,
+    Outcome, Outcomes, OwnThread, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
     check_unique_tags, conformance, executor_fn, wait,
 };
 
@@ -77,7 +77,7 @@ fn shot_state(context: ShotContext) -> Result<ShotId, Rejected> {
 /// stops on shot 1.
 fn run_shot_state(
     shot: &mut ShotId,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     for (_, tag) in readouts(input.instructions()) {
@@ -430,7 +430,7 @@ fn a_call_in_flight_on_another_shot_ends_at_an_earlier_failure() {
 /// stops, it panics instead of failing the call.
 fn panic_on_shot_1(
     shot: &mut ShotId,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     run_shot_state(shot, input, outcomes).map_err(|reason| panic!("{reason}"))
@@ -661,7 +661,7 @@ fn a_state_reports_what_it_tracked_across_its_calls() {
             self.0 = self.0.max(other.0);
         }
     }
-    let logic = |mps: &mut Mps, input: &ProgramInput<'_, Op>, outcomes: &mut Outcomes<'_>| {
+    let logic = |mps: &mut Mps, input: &CallInput<'_, Op>, outcomes: &mut Outcomes<'_>| {
         for op in input.instructions() {
             match *op {
                 Op::Flip => mps.bond *= 2,
@@ -714,7 +714,7 @@ fn closing_drops_the_states() {
     let mut executor = executor_fn(
         promise(),
         move |_| Ok(Held(Rc::clone(&counted))),
-        |_: &mut Held, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| Ok(()),
+        |_: &mut Held, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| Ok(()),
     )
     .shots(OnePerShot);
     run(&mut executor, &[0, 1], &[Op::Flip]);

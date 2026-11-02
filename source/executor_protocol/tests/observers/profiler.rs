@@ -11,8 +11,8 @@
 use std::collections::BTreeMap;
 
 use executor_protocol::{
-    AdapterError, AdapterLogic, Below, InstructionCall, MakeState, NoCheck, OnePerShot,
-    OnePerShotAdapter, Opcode, Outcomes, ProgramInput, adapter_fn,
+    AdapterError, AdapterLogic, Below, CallInput, InstructionCall, MakeState, NoCheck, OnePerShot,
+    OnePerShotAdapter, Opcode, Outcomes, adapter_fn,
 };
 
 /// A profile: how many calls of each instruction the shots sent below, by
@@ -25,7 +25,7 @@ pub type Counts = BTreeMap<Opcode, u64>;
 /// it comes.
 fn profile(
     counts: &mut Counts,
-    input: &ProgramInput<'_, InstructionCall>,
+    input: &CallInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {

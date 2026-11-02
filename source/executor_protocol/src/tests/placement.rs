@@ -14,10 +14,10 @@ use crate::tests::executor_fn::{
     freed_so_far, powering_down_badly, read_drawn_bits,
 };
 use crate::{
-    Capabilities, Close, Describe, Executor, ExecutorFn, ExecutorLifecycle, ExecutorReport, Fold,
-    ImmediateReply, IncrementalReply, InstructionBatch, InstructionBatchRef, LogP, MakeState,
-    NoCheck, OnePerShot, Outcome, Outcomes, OwnThread, PlacedExecutor, Placement, PlacementJob,
-    ProgramInput, Rejected, Reply, ReplySender, ReplyStatus, ShotContext, ShotId, ShotOutcome,
+    CallInput, Capabilities, Close, Describe, Executor, ExecutorFn, ExecutorLifecycle,
+    ExecutorReport, Fold, ImmediateReply, IncrementalReply, InstructionBatch, InstructionBatchRef,
+    LogP, MakeState, NoCheck, OnePerShot, Outcome, Outcomes, OwnThread, PlacedExecutor, Placement,
+    PlacementJob, Rejected, Reply, ReplySender, ReplyStatus, ShotContext, ShotId, ShotOutcome,
     ShotSet, TypedInstruction, Value, conformance, executor_fn, reply_channel, wait, wait_async,
 };
 
@@ -55,7 +55,7 @@ pub(in crate::tests) struct Bit {
 /// `Stop`, after the readouts before it; panics at `Panic`.
 pub(in crate::tests) fn run_bit(
     bit: &mut Bit,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     bit.threads
@@ -76,7 +76,7 @@ pub(in crate::tests) fn run_bit(
 
 /// The tests' device's logic.
 pub(in crate::tests) type RunBit =
-    fn(&mut Bit, &ProgramInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>;
+    fn(&mut Bit, &CallInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>;
 
 /// The tests' device's log probability: the bit's value.
 pub(in crate::tests) type BitLogP = fn(&Bit) -> f64;
@@ -221,12 +221,12 @@ pub(in crate::tests) type MakeHeld =
 
 /// The logic of a [`gated_device`]: [`run_bit`]'s, once the gate opens.
 pub(in crate::tests) type RunHeld =
-    fn(&mut HeldDevice, &ProgramInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>;
+    fn(&mut HeldDevice, &CallInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>;
 
 /// Says it started, waits at the gate, then runs [`run_bit`].
 fn run_held(
     device: &mut HeldDevice,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     out: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     device
@@ -428,7 +428,7 @@ fn an_async_task_awaits_the_reply_of_an_executor_on_its_own_thread() {
                 threads: Threads::default(),
             })
         },
-        move |bit: &mut Bit, input: &ProgramInput<'_, Op>, outcomes: &mut Outcomes<'_>| {
+        move |bit: &mut Bit, input: &CallInput<'_, Op>, outcomes: &mut Outcomes<'_>| {
             gate.recv_timeout(PATIENT).expect("the test opens the gate");
             run_bit(bit, input, outcomes)
         },
@@ -1021,17 +1021,13 @@ type FragileDevice = ExecutorFn<
     Fragile,
     (),
     fn(ShotContext) -> Result<(), Rejected>,
-    fn(&mut (), &ProgramInput<'_, Fragile>, &mut Outcomes<'_>) -> Result<(), String>,
+    fn(&mut (), &CallInput<'_, Fragile>, &mut Outcomes<'_>) -> Result<(), String>,
 >;
 
 /// A device of no state whose logic panics at a [`Fragile`] that says
 /// so, and runs any other.
 fn fragile_device() -> FragileDevice {
-    fn run(
-        _: &mut (),
-        input: &ProgramInput<'_, Fragile>,
-        _: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    fn run(_: &mut (), input: &CallInput<'_, Fragile>, _: &mut Outcomes<'_>) -> Result<(), String> {
         let panics = input.instructions().iter().any(|op| op.panics);
         assert!(!panics, "the logic has a bug");
         Ok(())
@@ -1564,7 +1560,7 @@ fn after_a_panic_inside_call_it_refuses_every_later_call() {
     let mut placed = executor_fn(
         Capabilities::default(),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, CopyPanics>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, CopyPanics>, _: &mut Outcomes<'_>| Ok(()),
     )
     .run_on(OwnThread);
     let shot = ShotSet::one(0);
@@ -2217,7 +2213,7 @@ fn bound_to_its_thread(
 
 /// The logic of a [`bound_to_its_thread`] device: [`run_bit`]'s.
 type RunBound =
-    fn(&mut BoundToItsThread, &ProgramInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>;
+    fn(&mut BoundToItsThread, &CallInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>;
 
 /// A device that must run where its calls ran (a device's driver), on a
 /// pool's threads, dropped without closing: its state is dropped by a last job
@@ -2377,7 +2373,7 @@ fn once_stopped_its_close_frees_the_states_of_the_executor_it_places() {
 /// whatever the state.
 fn panics_at_panic<S>(
     _: &mut S,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     assert!(
@@ -2509,7 +2505,7 @@ fn holding_a_state_that_powers_down_badly<P>(
     mpsc::Receiver<PlacementJob>,
 )
 where
-    P: FnMut(&mut PowersDownBadly, &ProgramInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>
+    P: FnMut(&mut PowersDownBadly, &CallInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>
         + Send
         + 'static,
 {
@@ -2605,7 +2601,7 @@ fn a_states_drop_that_panics_as_a_job_ending_after_drop_frees_it_stays_off_the_p
     let released = Mutex::new(released);
     let (mut placed, jobs) = holding_a_state_that_powers_down_badly(
         &freed,
-        move |_: &mut PowersDownBadly, input: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut PowersDownBadly, input: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             if input.instructions().contains(&Op::Panic) {
                 let _ = started.send(());
                 let released = released.lock().expect("nothing panics holding the lock");
@@ -2710,7 +2706,7 @@ fn once_stopped_its_close_frees_what_the_closures_capture_raising_no_panic_of_th
     let mut placed = executor_fn(
         Capabilities::default(),
         own_bit,
-        move |_: &mut Bit, input: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut Bit, input: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let _held = &handle;
             assert!(
                 !input.instructions().contains(&Op::Panic),

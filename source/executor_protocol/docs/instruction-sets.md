@@ -333,20 +333,21 @@ still missing; the decoder of item 5 would run with the code, not in it.
 
 **Region execution of adaptive programs (planned),** for programs whose
 measurements decide what runs next, such as the phase estimation of H₂. None of
-it is built yet. A runtime (planned) would be an adapter that runs the program's
-classical part itself and sends its quantum regions downstream. The last
-executors of its chains would be `Executor<InstructionBatch<RegionInstruction>>`
-(a planned type): the regions' instructions would be a type, which the compiler
-would check the runtime against, and an executor would refuse only qubits and
-results beyond its own, so nothing would need describing. A description is for
-when the gates a program uses (QIR's) and those an executor accepts can differ:
-an executor of native gates, or one that simulates only Clifford gates, would
-describe them, and the runtime would state the gates it sends
-(`Adapter::sends`), which `compose` matches in the set described downstream when
-the chain is built, so a missing gate would be refused then instead of in the
-middle of the program. The executor downstream of the runtime would keep its
-type: what it describes would be the gates inside its regions, not the variants
-of `RegionInstruction`. What exists is `Rejected::at_origin`: it renumbers a
+it is built yet. A runtime (planned) would be a driver (`Driver<QirProgram>`)
+that runs the program's classical part itself and sends its quantum regions
+downstream. The last executors of its chains would be
+`Executor<InstructionBatch<RegionInstruction>>` (a planned type): the regions'
+instructions would be a type, which the compiler would check the runtime
+against, and an executor would refuse only qubits and results beyond its own, so
+nothing would need describing. A description is for when the gates a program
+uses (QIR's) and those an executor accepts can differ: an executor of native
+gates, or one that simulates only Clifford gates, would describe them, and the
+runtime would state the gates it sends as its needs (`Needs::instruction_set`),
+which `Chain::run` matches in the set described downstream when the job is
+given, so a missing gate would be refused then instead of in the middle of the
+program. The executor downstream of the runtime would keep its type: what it
+describes would be the gates inside its regions, not the variants of
+`RegionInstruction`. What exists is `Rejected::at_origin`: it renumbers a
 refusal from downstream so that it names the instruction the adapter received,
 as the repetition code of the [static instruction set
 guide](../tests/static_isa.rs) does.

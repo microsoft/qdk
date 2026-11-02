@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Capabilities, Describe, JobFaults, Need, Needs, OnePerShot, Outcome, Outcomes, ProgramInput,
+    CallInput, Capabilities, Describe, JobFaults, Need, Needs, OnePerShot, Outcome, Outcomes,
     Rejected, StaticProgram, driver, executor_fn,
 };
 
@@ -34,7 +34,7 @@ fn an_executor_that_states_no_resumable_shots_is_refused_a_job_that_continues_a_
     let simulator = executor_fn(
         Capabilities::default(),
         |_| Ok(()),
-        |(): &mut (), input: &ProgramInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
+        |(): &mut (), input: &CallInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
             for _ in input.instructions() {
                 outcomes.push(Outcome::new(0, false.into()));
             }
@@ -64,7 +64,7 @@ fn the_runs_seed_is_not_a_capability() {
         executor_fn(
             Capabilities::default().with_qubits(4),
             |_| Ok(()),
-            |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+            |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
         )
         .seed(seed)
         .capabilities()

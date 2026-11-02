@@ -54,7 +54,7 @@ impl Driver<()> for ReadsOnce {
 
 /// A driver that states no needs of its own runs a job on an
 /// executor that offers no resumable shots: the default needs ask for nothing
-/// but a state per shot.
+/// but the run's shots, held at once.
 #[test]
 fn a_drivers_default_needs_ask_no_resumable_shots() {
     let model = TestDoubleModel {

@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use executor_protocol::{
-    Capabilities, Close, Describe, Executor, ExecutorReport, InstructionBatch, OnePerShot, Outcome,
-    Outcomes, ProgramInput, Rejected, ShotContext, check_unique_tags, executor_fn,
+    CallInput, Capabilities, Close, Describe, Executor, ExecutorReport, InstructionBatch,
+    OnePerShot, Outcome, Outcomes, Rejected, ShotContext, check_unique_tags, executor_fn,
 };
 
 use crate::toy::{Op, readouts, toy_set};
@@ -40,7 +40,7 @@ pub fn toy_profiler(
         .with_resumable_shots(true)
         .with_replayable(true);
     executor_fn(promise, ShotProfile::start, ShotProfile::run)
-        .check(|input: &ProgramInput<'_, Op>| check_unique_tags(readouts(input.instructions())))
+        .check(|input: &CallInput<'_, Op>| check_unique_tags(readouts(input.instructions())))
         .state_report(|shot: &ShotProfile| shot.counts.clone())
         .seed(seed)
         .shots(OnePerShot)
@@ -76,7 +76,7 @@ impl ShotProfile {
     )]
     fn run(
         &mut self,
-        input: &ProgramInput<'_, Op>,
+        input: &CallInput<'_, Op>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), String> {
         for &op in input.instructions() {

@@ -3,7 +3,7 @@
 [Protocol overview](../README.md).
 
 A driver, adapters and an executor are put together into a chain, and a
-run drives it; the parts and the run are introduced in the README
+run runs a program on it; the parts and the run are introduced in the README
 ([The model](../README.md#the-model-a-chain-and-its-run)). This page is
 about putting them together: composing a run with `compose` or `>>`, a
 chain and its job, what is checked and when, the conformance checks an
@@ -19,7 +19,7 @@ A driver, the adapters downstream of it and an executor are put together by
 | `compose`            | gives      | as                                                                      |
 | -------------------- | ---------- | ----------------------------------------------------------------------- |
 | adapter, executor    | executor   | the executor, its calls through the adapters                            |
-| adapter, adapter     | adapter    | `ComposedAdapters`, the left one upstream                               |
+| adapter, adapter     | adapters   | `ComposedAdapters`, the left one upstream, composed as one adapter      |
 | chain head, adapter  | chain head | the driver with its adapters so far (`ChainHead`), the adapter the last |
 | chain head, executor | chain      | `Chain`, which runs the job given to it ([below](#a-chain-and-its-job)) |
 
@@ -42,8 +42,8 @@ A driver, the adapters downstream of it and an executor are put together by
   (`AdaptiveProgram`) included. The run's seed is the one the last executor is
   built with ([Seeds](executors.md#seeds-not-generators)).
 - A **run** owns the chain, and runs nothing until it is waited for or awaited.
-  Then `run.wait()`, or `run.await` for an asynchronous caller, drives the
-  executor, closes it once its program ends, and gives the program's output and
+  Then `run.wait()`, or `run.await` for an asynchronous caller, runs its
+  program, closes the executor once the program ends, and gives the program's output and
   the executor's report. An awaited run, and a run stopped before its program
   ends, have limits ([Known limits](internals/composition.md#known-limits)).
 - A call on a shot the job did not name is refused before the executor sees
@@ -175,7 +175,7 @@ own tests:
 - those of `close`: a closed executor refuses calls with `Closed`, and a
   report is given once;
 - those of `fold`: the empty report adds nothing, and any order gives the
-  same total;
+  same total, up to rounding for sums in floating point;
 - that a call outside the described instruction set, or a readout tag
   repeated within a batch, is refused, the latter at the index of the
   instruction that repeats it

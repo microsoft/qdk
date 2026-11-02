@@ -45,7 +45,7 @@
 //! would be transparent over any executor, and a call refused below would
 //! refuse the run, as alone. What it loses is the log by shot: its log
 //! would be by call, since its logic is not given the call's shots
-//! (planned: the shots of a call, on `ProgramInput`), so a call that fails,
+//! (planned: the shots of a call, on `CallInput`), so a call that fails,
 //! is refused or reads nothing could not be put in a shot's log. The last
 //! three would remain, since it would still wait on `Below::run`.
 
@@ -53,8 +53,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use executor_protocol::{
-    AdapterError, AdapterLogic, Below, InstructionCall, MakeState, OnePerShot, OnePerShotAdapter,
-    Outcomes, ProgramInput, ShotContext, ShotId, ShotOutcome, adapter_fn,
+    AdapterError, AdapterLogic, Below, CallInput, InstructionCall, MakeState, OnePerShot,
+    OnePerShotAdapter, Outcomes, ShotContext, ShotId, ShotOutcome, adapter_fn,
 };
 
 /// One call the debugger passed down, with its result below.
@@ -139,7 +139,7 @@ impl ShotLog {
 /// before the call above ends.
 fn log_and_pass(
     log: &mut ShotLog,
-    input: &ProgramInput<'_, InstructionCall>,
+    input: &CallInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {

@@ -126,7 +126,8 @@ pub enum Need {
     ResumableShots,
     /// Qubits prepared again during the run.
     Resets,
-    /// The run's shots, held at once, a state each. Beyond the limit an
+    /// The run's shots, held at once, however the executor holds them (a
+    /// state each, or shared). Beyond the limit an
     /// executor declares, the shots must be split over several runs.
     Shots,
     /// Each shot replays: run again on the run's seed, alone or among other

@@ -9,11 +9,11 @@ use crate::conformance;
 use crate::tests::declared;
 use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::{
-    AdaptiveProgram, BuildError, BuildFaults, Capabilities, Close, ComposedJob, Describe, Executor,
-    ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall, InstructionMismatch,
-    InstructionSet, Need, Needs, Opcode, Operand, OperandKind, Outcomes, ProgramInput, Rejected,
-    ShotContext, ShotId, ShotOutcome, ShotSet, UnmetNeed, Value, check_unique_tags, compose,
-    executor_fn, wait,
+    AdaptiveProgram, BuildError, BuildFaults, CallInput, Capabilities, Close, ComposedJob,
+    Describe, Executor, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
+    InstructionMismatch, InstructionSet, Need, Needs, Opcode, Operand, OperandKind, Outcomes,
+    Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, UnmetNeed, Value, check_unique_tags,
+    compose, executor_fn, wait,
 };
 
 use OperandKind::{Block, Tag};
@@ -612,7 +612,7 @@ fn a_renumbered_batch_outside_the_set_only_by_its_operands_reaches_the_executor(
 fn a_renumbered_batch_is_refused_at_its_call_before_the_executors_shot_not_held() {
     fn run_nothing(
         (): &mut (),
-        _: &ProgramInput<'_, InstructionCall>,
+        _: &CallInput<'_, InstructionCall>,
         _: &mut Outcomes<'_>,
     ) -> Result<(), String> {
         Ok(())

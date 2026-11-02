@@ -13,8 +13,8 @@ use std::task::Waker;
 use crate::reply::wait_status;
 use crate::tests::shots;
 use crate::{
-    AdapterError, Below, BelowHandle, Capabilities, Close, Describe, Executor, ImmediateReply,
-    InstructionBatch, InstructionBatchRef, OnePerShot, Outcome, Outcomes, ProgramInput, Rejected,
+    AdapterError, Below, BelowHandle, CallInput, Capabilities, Close, Describe, Executor,
+    ImmediateReply, InstructionBatch, InstructionBatchRef, OnePerShot, Outcome, Outcomes, Rejected,
     Reply, ReplyStatus, ShotConditions, ShotContext, ShotId, ShotOutcome, TypedInstruction, Value,
     adapter_fn, compose, conformance, executor_fn, owning_adapter_fn, wait,
 };
@@ -47,7 +47,7 @@ fn device() -> impl Executor<InstructionBatch<Step>> + Close + Describe {
     executor_fn(
         Capabilities::default(),
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
-        |shot: &mut ShotId, input: &ProgramInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
+        |shot: &mut ShotId, input: &CallInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
             for &step in input.instructions() {
                 match step {
                     Step::Raise(on, conditions) if on == *shot => {
@@ -60,7 +60,7 @@ fn device() -> impl Executor<InstructionBatch<Step>> + Close + Describe {
             Ok(())
         },
     )
-    .check(|input: &ProgramInput<'_, Step>| {
+    .check(|input: &CallInput<'_, Step>| {
         match input
             .instructions()
             .iter()
@@ -88,7 +88,7 @@ fn no_state(_: ShotContext) -> Result<(), Rejected> {
 /// The logic of an observer that sends each call down as it is.
 fn pass(
     (): &mut (),
-    input: &ProgramInput<'_, Step>,
+    input: &CallInput<'_, Step>,
     below: &mut Below<'_, Step>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -106,7 +106,7 @@ fn decoded(read: Vec<ShotOutcome>) -> impl Iterator<Item = ShotOutcome> {
 /// has no code for conditions.
 fn decode(
     (): &mut (),
-    input: &ProgramInput<'_, Step>,
+    input: &CallInput<'_, Step>,
     below: &mut Below<'_, Step>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -199,7 +199,7 @@ fn a_condition_a_logic_raises_marks_the_outcomes_it_writes_for_their_shots() {
     let mut runtime = executor_fn(
         Capabilities::default(),
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
-        |shot: &mut ShotId, _: &ProgramInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
+        |shot: &mut ShotId, _: &CallInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
             outcomes.raise_conditions(ShotConditions::REJECTED);
             outcomes.extend([ShotOutcome::new(*shot, 0, Value::One)]);
             Ok(())
@@ -217,7 +217,7 @@ fn every_outcome_a_logic_writes_for_its_shot_at_once_carries_the_conditions_it_r
     let mut runtime = executor_fn(
         Capabilities::default(),
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
-        |shot: &mut ShotId, _: &ProgramInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
+        |shot: &mut ShotId, _: &CallInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
             outcomes.raise_conditions(ShotConditions::REJECTED);
             outcomes.extend((0..3).map(|tag| ShotOutcome::new(*shot, tag, Value::One)));
             Ok(())
@@ -239,7 +239,7 @@ fn the_conditions_a_logic_writes_on_an_outcome_for_its_shot_reach_its_caller() {
     let mut runtime = executor_fn(
         Capabilities::default(),
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
-        |shot: &mut ShotId, _: &ProgramInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
+        |shot: &mut ShotId, _: &CallInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
             let readout = ShotOutcome::new(*shot, 0, Value::One);
             outcomes.extend([readout.with_conditions(ShotConditions::REJECTED)]);
             Ok(())
@@ -259,7 +259,7 @@ fn an_outcome_written_with_a_condition_keeps_it_when_the_logic_raises_another() 
     let mut runtime = executor_fn(
         Capabilities::default(),
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
-        |_: &mut ShotId, _: &ProgramInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
+        |_: &mut ShotId, _: &CallInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
             outcomes
                 .push(Outcome::new(0, Value::One).with_conditions(ShotConditions::INCONSISTENT));
             outcomes.raise_conditions(ShotConditions::REJECTED);
@@ -281,7 +281,7 @@ fn an_outcome_written_with_a_condition_keeps_it_when_the_logic_raises_another() 
 fn a_call_its_logic_fails_hands_over_what_it_wrote_with_the_conditions_written_and_raised() {
     fn writes_rejects_then_fails(
         (): &mut (),
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), String> {
         outcomes.push(Outcome::new(0, Value::One).with_conditions(ShotConditions::INCONSISTENT));
@@ -319,7 +319,7 @@ fn with_a_state_per_shot_a_call_a_shots_logic_fails_hands_over_what_each_shot_wr
  {
     fn writes_rejects_then_fails_on_shot_1(
         shot: &mut ShotId,
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), String> {
         let found = if *shot == 9 {
@@ -441,7 +441,7 @@ fn an_owning_decoders_outcomes_carry_the_conditions_of_its_runs() {
     let owning = owning_adapter_fn(
         |_: ShotContext, below| Ok::<_, Rejected>(below),
         |below: &mut BelowHandle<Step>,
-         input: &ProgramInput<'_, Step>,
+         input: &CallInput<'_, Step>,
          outcomes: &mut Outcomes<'_>| {
             let read = below.run(input.instructions())?;
             outcomes.extend(decoded(read));
@@ -465,7 +465,7 @@ fn an_owning_decoders_outcomes_carry_the_conditions_of_its_runs() {
 /// otherwise decodes as [`decode`] does.
 fn unresolves_extraction(
     (): &mut (),
-    input: &ProgramInput<'_, Step>,
+    input: &CallInput<'_, Step>,
     below: &mut Below<'_, Step>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -518,7 +518,7 @@ fn a_condition_a_logic_with_one_state_raises_marks_every_shot_of_the_call() {
 fn the_conditions_a_logic_with_one_state_writes_on_an_outcome_mark_every_shot_of_the_call() {
     fn rejects_the_batch(
         (): &mut (),
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         _: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -545,7 +545,7 @@ fn the_conditions_a_logic_with_one_state_writes_on_an_outcome_mark_every_shot_of
 fn the_conditions_a_logic_writes_on_a_shots_outcome_mark_that_shot_alone() {
     fn finds_shot_1_inconsistent(
         (): &mut (),
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         _: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -577,7 +577,7 @@ fn the_conditions_a_logic_writes_on_a_shots_outcome_mark_that_shot_alone() {
 fn the_conditions_a_logic_raises_twice_in_a_call_with_no_readouts_both_mark_later_outcomes() {
     fn rejects_then_unresolves_extraction(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -620,7 +620,7 @@ fn a_condition_raised_below_in_a_call_with_no_readouts_reaches_no_caller() {
 fn the_conditions_a_logic_writes_on_an_outcome_mark_the_shots_outcomes_in_later_calls() {
     fn rejects_first(
         calls: &mut u32,
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         _: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -664,7 +664,7 @@ fn the_conditions_a_logic_writes_on_an_outcome_mark_the_shots_other_outcomes_in_
     #[expect(clippy::ptr_arg, reason = "the signature a logic has for its state")]
     fn writes_as_listed(
         listed: &mut Vec<ShotOutcome>,
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         _: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -748,7 +748,7 @@ fn the_conditions_a_logic_writes_on_an_outcome_mark_the_shots_other_outcomes_in_
 fn a_condition_a_send_reads_marks_the_outcomes_the_logic_writes_for_the_shot_in_the_call() {
     fn sends_then_writes(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -795,7 +795,7 @@ fn a_condition_a_logic_raises_and_one_from_below_on_the_same_shot_both_mark_the_
  {
     fn rejects_and_sends_or_writes(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -892,7 +892,7 @@ fn each_outcome_a_logic_writes_carries_its_shots_conditions_from_earlier_calls_w
  {
     fn sends_or_writes_two(
         by_shot: &mut bool,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1033,7 +1033,7 @@ fn the_conditions_a_send_reads_in_the_call_on_an_outcome_mark_the_shots_other_ou
 fn the_conditions_of_several_runs_merge_by_union_shot_by_shot() {
     fn twice(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1069,7 +1069,7 @@ fn the_conditions_of_several_runs_merge_by_union_shot_by_shot() {
 /// every shot rejected.
 fn pass_rejecting(
     (): &mut (),
-    input: &ProgramInput<'_, Step>,
+    input: &CallInput<'_, Step>,
     below: &mut Below<'_, Step>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -1094,7 +1094,7 @@ fn a_condition_a_logic_raises_marks_the_outcomes_of_its_sends() {
 fn a_refused_call_raises_nothing() {
     fn rejects_the_refused(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1128,7 +1128,7 @@ fn a_refused_call_raises_nothing() {
 fn with_a_state_per_shot_a_call_refused_below_raises_none_of_the_conditions_its_logic_raised() {
     fn counts_and_rejects_at_two(
         count: &mut u32,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1175,7 +1175,7 @@ fn with_a_state_per_shot_a_call_refused_at_a_later_shots_run_raises_none_of_the_
  {
     fn counts_shot_1_and_runs_shot_2(
         (shot, count): &mut (ShotId, u32),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1230,7 +1230,7 @@ fn with_a_state_per_shot_a_call_refused_at_its_shots_own_run_raises_none_of_the_
  {
     fn counts_rejects_at_two_then_runs(
         count: &mut u32,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1388,7 +1388,7 @@ impl Close for ReadsLater {
 fn a_condition_a_logic_raises_marks_its_shots_outcomes_of_its_sends_ending_later() {
     fn pass_rejecting_shot_2(
         shot: &mut ShotId,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1435,7 +1435,7 @@ fn a_condition_a_logic_raises_and_one_from_below_merge_by_union_on_its_sends_end
 fn a_sends_outcomes_handed_over_while_its_reply_is_pending_carry_the_shots_conditions() {
     fn reads_a_one(
         (): &mut (),
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), String> {
         outcomes.push(Outcome::new(0, Value::One));
@@ -1588,7 +1588,7 @@ fn a_condition_a_send_reads_while_its_reply_is_pending_in_the_call_marks_the_sho
  {
     fn sends_or_writes(
         runs: &mut bool,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1641,7 +1641,7 @@ fn with_a_state_per_shot_the_conditions_each_pending_send_reads_as_the_call_ends
  {
     fn sends_its_own_or_writes(
         shot: &mut ShotId,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1699,7 +1699,7 @@ fn with_a_state_per_shot_the_conditions_each_pending_send_reads_as_the_call_ends
 fn a_condition_raised_in_a_call_whose_send_ends_after_it_marks_the_shots_outcomes_in_later_calls() {
     fn rejects_and_sends_or_writes(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1813,7 +1813,7 @@ fn a_logic_that_writes_a_shots_outcome_with_no_call_below_loses_a_condition_a_se
  {
     fn sends_first_then_writes(
         sent: &mut bool,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1850,7 +1850,7 @@ fn a_logic_that_writes_a_shots_outcome_in_a_call_whose_send_ends_after_it_loses_
  {
     fn sends_then_writes_and_sends(
         sent: &mut bool,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1894,7 +1894,7 @@ fn a_logic_that_writes_a_shots_outcome_after_a_run_below_that_reads_none_of_it_l
  {
     fn sends_then_runs_and_writes(
         sent: &mut bool,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1931,7 +1931,7 @@ fn a_logic_that_writes_a_shots_outcome_after_a_run_below_reads_it_keeps_a_condit
  {
     fn sends_first_then_decodes(
         sent: &mut bool,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -1967,7 +1967,7 @@ fn a_logic_that_writes_a_shots_outcome_before_a_run_below_reads_it_in_the_call_k
  {
     fn sends_first_then_writes_and_runs(
         sent: &mut bool,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -2006,7 +2006,7 @@ fn a_condition_an_earlier_calls_run_read_marks_what_the_logic_writes_in_a_later_
  {
     fn sends_runs_then_writes(
         calls: &mut u32,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -2077,7 +2077,7 @@ fn an_adapters_reply_leaves_the_outcomes_its_caller_held_unmarked() {
 fn a_failed_calls_outcomes_carry_the_conditions_of_its_runs() {
     fn decode_then_fail(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -2103,7 +2103,7 @@ fn a_failed_calls_outcomes_carry_the_conditions_of_its_runs() {
 fn with_one_state_a_failed_calls_outcomes_carry_the_conditions_its_logic_raised() {
     fn sends_rejects_then_fails(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -2131,7 +2131,7 @@ fn with_one_state_a_failed_calls_outcomes_carry_the_conditions_its_logic_raised(
 fn with_a_state_per_shot_a_failed_calls_outcomes_carry_the_conditions_its_logic_raised() {
     fn sends_extracts_rejects_then_fails(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -2302,7 +2302,7 @@ fn with_a_state_per_shot_every_outcome_a_send_hands_over_after_its_call_carries_
  {
     fn flags_its_shot_then_sends(
         shot: &mut ShotId,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -2356,7 +2356,7 @@ fn with_a_state_per_shot_every_outcome_a_send_hands_over_after_its_call_carries_
  {
     fn flags_then_sends(
         (shot, unresolved_too): &mut (ShotId, bool),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -2414,7 +2414,7 @@ fn a_condition_a_send_reads_at_the_poll_where_its_reply_ends_marks_the_outcomes_
  {
     fn writes_sends_then_runs(
         runs: &mut bool,
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -2489,7 +2489,7 @@ fn a_condition_a_run_reads_after_a_send_pending_or_cancelled_marks_the_outcomes_
  {
     fn writes_sends_then_runs(
         &mut (send_cancelled, run_ends): &mut (bool, Option<Ending>),
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -2530,7 +2530,7 @@ fn a_condition_a_run_reads_after_a_send_pending_or_cancelled_marks_the_outcomes_
 /// decoded from an earlier round, then runs the call below for the next.
 fn writes_then_runs(
     (): &mut (),
-    input: &ProgramInput<'_, Step>,
+    input: &CallInput<'_, Step>,
     below: &mut Below<'_, Step>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -2968,7 +2968,7 @@ fn however_a_call_ends_unless_refused_it_marks_what_it_hands_over_with_the_condi
  {
     fn rejects_sends_then_ends(
         ending: &mut CallEnding,
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -3003,7 +3003,7 @@ fn however_a_call_ends_unless_refused_it_marks_what_it_hands_over_with_the_condi
  {
     fn decodes_sends_then_ends(
         ending: &mut CallEnding,
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -3039,7 +3039,7 @@ fn with_a_state_per_shot_however_a_call_fails_or_is_cancelled_below_it_marks_wha
  {
     fn sends_rejects_then_runs(
         ending: &mut CallEnding,
-        _: &ProgramInput<'_, Step>,
+        _: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -3151,7 +3151,7 @@ fn a_failed_run_takes_in_no_condition_it_read_on_a_shot_it_was_not_given() {
 fn a_condition_a_send_reads_on_a_shot_it_was_not_given_marks_that_shots_outcomes_in_later_calls() {
     fn sends_or_writes(
         (): &mut (),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -3212,7 +3212,7 @@ fn a_sends_readout_of_a_shot_the_call_was_not_given_passes_up_with_its_own_condi
 fn with_a_state_per_shot_a_condition_a_logic_raises_marks_its_own_shots_outcomes_alone() {
     fn rejects_shot_2_first(
         (shot, calls): &mut (ShotId, u32),
-        input: &ProgramInput<'_, Step>,
+        input: &CallInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
@@ -3301,7 +3301,7 @@ fn an_executor_fn_whose_logic_keeps_its_shots_conditions_in_its_state_keeps_them
         Capabilities::default().with_resumable_shots(true),
         |context: ShotContext| Ok::<_, Rejected>((context.shot(), ShotConditions::NONE)),
         |(shot, kept): &mut (ShotId, ShotConditions),
-         input: &ProgramInput<'_, Step>,
+         input: &CallInput<'_, Step>,
          outcomes: &mut Outcomes<'_>| {
             for &step in input.instructions() {
                 match step {

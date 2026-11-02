@@ -96,8 +96,8 @@ use crate::{Message, Rejected, Reply, ShotId};
 /// with a batch on a set of shots ([`InstructionBatch`]), describes what it
 /// offers ([`Describe`]) and is closed once, with a report ([`Close`]):
 /// [`compose`](fn@crate::compose) requires the three of any executor on its
-/// right, this one or adapters composed with it. A driver calls the chain,
-/// and its run closes it.
+/// right, this one or adapters composed with it. The chain's driver calls
+/// it, and the chain's run closes it.
 ///
 /// It holds its shots' states its own way, and states what that allows in
 /// its capabilities, which a chain checks against a job's needs before
@@ -162,8 +162,10 @@ pub trait Executor<M: Message> {
 /// default report is empty (folding it in changes nothing), and the order
 /// and grouping of the reports folded do not change the total, since the
 /// parts of a run may end in any order. Sums, maxima and unions of disjoint
-/// parts keep them. The `conformance` module checks both
-/// (`default_is_empty`, `folds_in_any_order`).
+/// parts keep them; a sum in floating point keeps the second up to
+/// rounding only ([`LogP`]'s may differ in their last bits when regrouped).
+/// The `conformance` module checks both (`default_is_empty`,
+/// `folds_in_any_order`).
 ///
 /// Integers fold by adding, and ordered maps value by value, so a report
 /// that counts (per operation, per shot) is a map of integers and needs no
@@ -218,7 +220,7 @@ impl<A: Fold, B: Fold> Fold for (A, B) {
 }
 
 /// Ends an executor's work and returns its report. A driver never closes the
-/// chain it calls: its run does, once, when the program's future has ended
+/// executor it calls: the run does, once, when the program's future has ended
 /// ([`Run`](crate::Run)).
 ///
 /// The rules of `close` (later calls rejected, a second report empty) are

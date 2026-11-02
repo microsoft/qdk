@@ -18,10 +18,10 @@ use crate::tests::{
     shots, values,
 };
 use crate::{
-    AdapterError, AdapterLogic, AdaptiveProgram, Below, Capabilities, Close, ComposedJob, Describe,
-    Executor, ExecutorLogic, ExecutorReport, InstructionBatch, InstructionBatchRef,
-    InstructionCall, MakeState, Needs, NoAdapter, NoCheck, OnePerShot, OnePerShotAdapter,
-    OnePerShotExecutor, Opcode, Outcome, Outcomes, ProgramInput, Rejected, Reply, ReplyStatus,
+    AdapterError, AdapterLogic, AdaptiveProgram, Below, CallInput, Capabilities, Close,
+    ComposedJob, Describe, Executor, ExecutorLogic, ExecutorReport, InstructionBatch,
+    InstructionBatchRef, InstructionCall, MakeState, Needs, NoAdapter, NoCheck, OnePerShot,
+    OnePerShotAdapter, OnePerShotExecutor, Opcode, Outcome, Outcomes, Rejected, Reply, ReplyStatus,
     ShotContext, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose, driver, executor_fn,
     reply_channel, wait, wait_async,
 };
@@ -261,7 +261,7 @@ fn a_run_draws_what_its_executor_alone_draws() {
 /// the batch on the shot's bits.
 fn run_bits(
     bits: &mut BitsState,
-    input: &ProgramInput<'_, InstructionCall>,
+    input: &CallInput<'_, InstructionCall>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     let readouts = bits
@@ -320,7 +320,7 @@ fn a_shot_run_alone_gives_what_it_gives_among_others() {
 /// as it is.
 fn send_as_is(
     (): &mut (),
-    input: &ProgramInput<'_, InstructionCall>,
+    input: &CallInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -414,7 +414,7 @@ type Counts = BTreeMap<Opcode, u64>;
 /// then sends the call down as it is.
 fn profile(
     counts: &mut Counts,
-    input: &ProgramInput<'_, InstructionCall>,
+    input: &CallInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -1051,7 +1051,7 @@ fn a_run_of_one_shot_on_a_one_state_executor_refuses_a_call_on_another() {
             counted.set(counted.get() + 1);
             Ok(())
         },
-        |(): &mut (), input: &ProgramInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
+        |(): &mut (), input: &CallInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
             for (tag, &one) in (0..).zip(input.instructions()) {
                 outcomes.push(Outcome::new(tag, one.into()));
             }

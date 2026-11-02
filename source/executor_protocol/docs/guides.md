@@ -24,6 +24,8 @@ shot's seed). Read them in this order:
 [Executors](executors.md) what an executor's writer relies on, its
 placement on a thread of its own included
 ([Where an executor runs](executors.md#where-an-executor-runs-run_on)).
+Beside the guides, [`tests/executor_by_hand.rs`](../tests/executor_by_hand.rs)
+shows what the crate of an executor written by hand writes to give it `>>`.
 
 ## Running a program
 
@@ -460,7 +462,7 @@ The debugger of the guide tests (`tests/debugger/debugger.rs`) holds a batch
 while paused: `call` makes a `reply_channel()`, keeps the batch with its
 `ReplySender`, and returns the `IncrementalReply` at once. A step, on another
 thread, sends the batch on and `relay`s the executor's reply into that
-`ReplySender`, which wakes the driver. The step holds the debugger's state lock
+`ReplySender`, which wakes the caller. The step holds the debugger's state lock
 until the reply ends, so a `call` made during a step waits for it.
 
 In a chain, the debugger is composed as an adapter, `Debuggers`, which puts one
@@ -469,7 +471,7 @@ from any thread while a run waits on its own.
 
 ```mermaid
 sequenceDiagram
-  participant D as driver thread: wait
+  participant D as caller thread: wait
   participant G as Debugger (paused)
   participant H as DebuggerHandle (stepping thread)
   participant T as inner executor, then its reply

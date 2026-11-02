@@ -16,8 +16,9 @@ component in between is an **adapter**: given the executor downstream of it,
 it gives an executor upstream of it, with the same contract. So every link of a
 running chain is the same call and reply. Composition works the same at every
 link: a driver with adapters below it is still the chain's head, which composes
-the same way (planned: that it is itself a driver), adapters composed are an
-adapter, and an adapter with the executor below it is an executor, so a chain
+the same way (planned: that it is itself a driver), adapters composed act as
+one adapter wherever `>>` or `compose` takes one (planned: that they implement
+the trait `Adapter`), and an adapter with the executor below it is an executor, so a chain
 can be built in parts and grouped any way, with the same run (composition is
 associative). Chains are composed from parts, checked before they run, and
 driven the same way by any caller: one that blocks, one that polls between its
@@ -115,7 +116,8 @@ these terms and the others of these pages):
   as the device alone does.
 - A **run**:
   [nothing runs until it is waited for or awaited](docs/composition.md#composing-a-run);
-  then it drives the chain, and closes it once its program ends.
+  then it runs its program on the chain, and closes the chain once the
+  program ends.
 
 [Getting started](#getting-started) shows how to write each part, and the
 options that set its [axes](docs/glossary.md#a-parts-axes).
@@ -171,7 +173,7 @@ sequenceDiagram
   T->>R: chain.run(program(), SHOTS)
   Note over R: the job checked against the chain, a Run given
   T->>R: wait()
-  R->>I: drive the chain
+  R->>I: run the program
   loop each batch in turn: toss, then copy
     I->>P: the batch, on shots 2, 5, 6, 11
     Note over P: each shot's state counts its instructions
@@ -208,7 +210,7 @@ What to write, by task, and where it is explained:
 | To                                                                                      | Write                                                                          | Section                                                                                                                                                                                |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | run a program                                                                           | `driver() >> … >> executor`, `chain.run(program, shots)`                       | [Running a chain](#running-a-chain)                                                                                                                                                    |
-| run a program that decides as it runs                                                   | an adaptive program: `AdaptiveProgram`, given to `chain.run(program, shots)`   | [Writing an adaptive program](#writing-an-adaptive-program)                                                                                                                            |
+| run a program that drives the executor itself, choosing its next batch                  | an adaptive program: `AdaptiveProgram`, given to `chain.run(program, shots)`   | [Writing an adaptive program](#writing-an-adaptive-program)                                                                                                                            |
 | run your own runtime or interpreter (QIR, a circuit form)                               | a driver: `Driver<P>`, `ChainHead::new`                                        | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
 | plug in a device, or a simulator with a state per shot                                  | an executor: `executor_fn`                                                     | [Writing an executor](#writing-an-executor)                                                                                                                                            |
 | plug in a simulator whose shots share one state (an ensemble, such as an MPS simulator) | an executor written by hand, on `ExecutorLifecycle`                            | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)                                                                                         |
@@ -221,10 +223,11 @@ What to write, by task, and where it is explained:
 
 The excerpts below are from the
 [guide tests](docs/guides.md#building-on-the-protocol-the-guide-tests), on
-a toy of classical bits and seeded fair coins. The names an excerpt uses
-but does not define (`toy_set()`, `the_toys_promise()`, `check_calls`,
-`Counts`, `COIN`, `bond_limited_executor`, `on_shot_0`, …) are the guides'
-helpers, in the test file the excerpt links.
+a toy of classical bits and seeded fair coins, but for the driver's, from
+the crate's own tests. The names an excerpt uses but does not define
+(`toy_set()`, `the_toys_promise()`, `check_calls`, `Counts`, `COIN`,
+`bond_limited_executor`, `on_shot_0`, `logger`, …) are helpers of the
+test file the excerpt links.
 
 ### Running a chain
 
@@ -248,9 +251,10 @@ fn program_of(batches: Vec<Vec<InstructionCall>>) -> StaticProgram<InstructionCa
 
 ### Writing an adaptive program
 
-A program that decides as it runs, its next batch depending on what the
-last one read, implements `AdaptiveProgram`: what it needs, and `drive`,
-which calls the executor it is given, each call on a part of the shots
+A program that drives the executor itself, sending each batch and choosing
+the next from the outcomes so far, implements `AdaptiveProgram`: what it
+needs, and `drive`, which calls the executor it is given, each call on a
+part of the shots
 ([the interfaces](#the-interfaces-for-a-part-written-by-hand)). This one
 tosses a coin on every shot, then again on the shots whose coin showed 1
 ([`tests/per_shot_executor.rs`](tests/per_shot_executor.rs)):
@@ -322,7 +326,52 @@ call (`check`), and in `drive` it runs the program, making its calls on
 the one executor it is given: the adapters and the executor below look
 to it like that single executor. The driver is written once and runs any
 program of its form; a chain runs one job (running many jobs on one chain
-is [planned](docs/planned.md)).
+is [planned](docs/planned.md)). This one sends a program's batches in turn,
+each to every shot of the job, and gives their outcomes
+([`src/tests/compose.rs`](src/tests/compose.rs)):
+
+```rust
+struct InTurn;
+
+impl Driver<Program> for InTurn {
+    type Instruction = InstructionCall;
+    type Output = Vec<ShotOutcome>;
+
+    fn needs(&self, program: &Program) -> Needs {
+        program.needs.clone()
+    }
+
+    async fn drive<E>(&self, program: Program, executor: &mut E, shots: &ShotSet) -> Self::Output
+    where
+        E: Executor<InstructionBatch<InstructionCall>>,
+    {
+        let mut outcomes = Vec::new();
+        for batch in &program.batches {
+            let reply = executor
+                .call(InstructionBatchRef {
+                    shots,
+                    instructions: batch,
+                })
+                .expect("the program's batches are valid");
+            let (events, end) = wait_async(reply).await;
+            end.expect("the shots do not fail");
+            outcomes.extend(events);
+        }
+        outcomes
+    }
+}
+```
+
+It heads a chain as the crate's driver does, its calls passing through
+the adapters below it:
+
+```rust
+let (outcomes, _) = (ChainHead::new(InTurn) >> logger("a", &by_hand) >> bits())
+    .expect("the logger fits")
+    .run(Program::flip_and_toss(bits_set()), [0, 1])
+    .expect("shots, needs met")
+    .wait();
+```
 
 The caller's entry point is the chain:
 `ChainHead::new(runtime) >> adapters >> executor`, then
@@ -354,7 +403,7 @@ fn simulator_recording(
     let ops = toy_ops();
     let start = |context: ShotContext| Ok((context.shot(), ToyState::start(context)?));
     let logic = move |(shot, toy): &mut Shot,
-                      input: &ProgramInput<'_, InstructionCall>,
+                      input: &CallInput<'_, InstructionCall>,
                       outcomes: &mut Outcomes<'_>| {
         received.record(*shot, input.instructions());
         for call in input.instructions() {
@@ -362,7 +411,7 @@ fn simulator_recording(
         }
         Ok(())
     };
-    let check: fn(&ProgramInput<'_, InstructionCall>) -> Result<(), Rejected> = check_calls;
+    let check: fn(&CallInput<'_, InstructionCall>) -> Result<(), Rejected> = check_calls;
     executor_fn(the_toys_promise(), start, logic)
         .check(check)
         .seed(SEED)
@@ -385,17 +434,17 @@ a function pointer, has the type `NoCheck<I>`, the default of that type
 parameter, so the return type leaves it out. Its arguments and options,
 for instructions `I` and a state `S`:
 
-| Argument or option    | Type                                                                           | When it acts                                                                                                                                                                                                                                                                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `promise`             | [`Capabilities`](docs/executors.md#capabilities-and-needs)                     | when the chain is built and the job given; at each call, a new shot past the shots it promises to hold at once (`max_shots`) is refused ([`ShotNotHeld`](docs/rejections.md#the-reasons-and-what-produces-them)). `Capabilities::default()` offers nothing it does not state: state each capability the executor offers (`.with_resumable_shots(true)`, …) |
-| `make_state`          | `FnMut(ShotContext) -> Result<S, Rejected>`                                    | at the first call (with `.shots(OnePerShot)`, each shot's); `Err` refuses the call                                                                                                                                                                                                                                                                         |
-| `logic`               | `FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>` | at each call; `Err` fails it, and every later call is refused                                                                                                                                                                                                                                                                                              |
-| `.check(f)`           | `FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>`                          | at each call, before the state is made and the logic runs; `Err` refuses the call                                                                                                                                                                                                                                                                          |
-| `.seed(s)`            | `u64`                                                                          | when each shot's state is made, which draws from `ShotContext::seed()`; without it, a state that draws panics                                                                                                                                                                                                                                              |
-| `.state_report(f)`    | `FnMut(&S) -> Q`, `Q:` [`Fold`](#the-interfaces-for-a-part-written-by-hand)    | at close, once per state, into the report's `states`                                                                                                                                                                                                                                                                                                       |
-| `.log_probability(f)` | `FnMut(&S) -> f64`                                                             | at close, once per state, into `log_p`; the only way to promise `log_probability`                                                                                                                                                                                                                                                                          |
-| `.shots(OnePerShot)`  | -                                                                              | a state per shot, kept for its later calls; without it, one state, for one shot                                                                                                                                                                                                                                                                            |
-| `.run_on(placement)`  | `T: Placement` (`OwnThread`, or a closure)                                     | where the logic runs: `.run_on(OwnThread).shots(OnePerShot)`, a thread per shot; the other order, one thread for every shot ([Where an executor runs](docs/executors.md#where-an-executor-runs-run_on))                                                                                                                                                    |
+| Argument or option    | Type                                                                        | When it acts                                                                                                                                                                                                                                                                                                                                               |
+| --------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `promise`             | [`Capabilities`](docs/executors.md#capabilities-and-needs)                  | when the chain is built and the job given; at each call, a new shot past the shots it promises to hold at once (`max_shots`) is refused ([`ShotNotHeld`](docs/rejections.md#the-reasons-and-what-produces-them)). `Capabilities::default()` offers nothing it does not state: state each capability the executor offers (`.with_resumable_shots(true)`, …) |
+| `make_state`          | `FnMut(ShotContext) -> Result<S, Rejected>`                                 | at the first call (with `.shots(OnePerShot)`, each shot's); `Err` refuses the call                                                                                                                                                                                                                                                                         |
+| `logic`               | `FnMut(&mut S, &CallInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>` | at each call; `Err` fails it, and every later call is refused                                                                                                                                                                                                                                                                                              |
+| `.check(f)`           | `FnMut(&CallInput<'_, I>) -> Result<(), Rejected>`                          | at each call, before the state is made and the logic runs; `Err` refuses the call                                                                                                                                                                                                                                                                          |
+| `.seed(s)`            | `u64`                                                                       | when each shot's state is made, which draws from `ShotContext::seed()`; without it, a state that draws panics                                                                                                                                                                                                                                              |
+| `.state_report(f)`    | `FnMut(&S) -> Q`, `Q:` [`Fold`](#the-interfaces-for-a-part-written-by-hand) | at close, once per state, into the report's `states`                                                                                                                                                                                                                                                                                                       |
+| `.log_probability(f)` | `FnMut(&S) -> f64`                                                          | at close, once per state, into `log_p`; the only way to promise `log_probability`                                                                                                                                                                                                                                                                          |
+| `.shots(OnePerShot)`  | -                                                                           | a state per shot, kept for its later calls; without it, one state, for one shot                                                                                                                                                                                                                                                                            |
+| `.run_on(placement)`  | `T: Placement` (`OwnThread`, or a closure)                                  | where the logic runs: `.run_on(OwnThread).shots(OnePerShot)`, a thread per shot; the other order, one thread for every shot ([Where an executor runs](docs/executors.md#where-an-executor-runs-run_on))                                                                                                                                                    |
 
 Under `.run_on(..)` alone or `.shots(..).run_on(..)`, the refusals of the
 `promise`, `make_state` and `.check` rows come on the executor's thread,
@@ -418,7 +467,7 @@ shot's instructions and sends the call below as it is:
 ```rust
 fn profile(
     counts: &mut Counts,
-    input: &ProgramInput<'_, InstructionCall>,
+    input: &CallInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -450,16 +499,16 @@ check is `NoCheck<I>`, named because the report's parameter comes after
 it. Its arguments and options, for instructions `I` accepted, `O` sent and
 a state `S`:
 
-| Argument or option   | Type                                                                                                    | When it acts                                                                                                                                                                                                                                                                                                                  |
-| -------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make_state`         | `FnMut(ShotContext) -> Result<S, Rejected>`                                                             | at the first call, from its first shot, one state for every shot (with `.shots(OnePerShot)`, each shot's, at its first call); `Err` refuses the call                                                                                                                                                                          |
-| `logic`              | `FnMut(&mut S, &ProgramInput<'_, I>, &mut Below<'_, O>, &mut Outcomes<'_>) -> Result<(), AdapterError>` | at each call; `Err` fails it, and every later call is refused; but a first call below that is refused, a send or a run, refuses the call with its refusal instead, whatever the logic returns, and fails nothing, unless it is for an earlier failure below ([Refusals and failures](docs/adapters.md#refusals-and-failures)) |
-| `.accepts(set)`      | `impl Into<Arc<InstructionSet>>`                                                                        | when the chain is built: the set offered upstream; the calls are not checked against it ([planned](docs/planned.md); meanwhile, a `.check` that runs `InstructionSet::check_batch`)                                                                                                                                           |
-| `.sends(set)`        | `impl Into<Arc<InstructionSet>>`                                                                        | when the chain is built: checked against the set below, calls renumbered into it                                                                                                                                                                                                                                              |
-| `.check(f)`          | `FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>`                                                   | as an executor's                                                                                                                                                                                                                                                                                                              |
-| `.drawing(id)`       | `ComponentId`                                                                                           | when the chain is built: the id its states draw with ([Seeds](docs/adapters.md#seeds-drawingid)); with one state, the shots of a call share its draws (to draw per shot, `.shots(OnePerShot)`)                                                                                                                                |
-| `.state_report(f)`   | `FnMut(&S) -> Q`, `Q:` [`Fold`](#the-interfaces-for-a-part-written-by-hand)                             | at close: its report, beside the report below                                                                                                                                                                                                                                                                                 |
-| `.shots(OnePerShot)` | -                                                                                                       | a state per shot; the shots' equal k-th sends go below as one call, but for a shot's kept sends, which go alone at its `run`                                                                                                                                                                                                  |
+| Argument or option   | Type                                                                                                 | When it acts                                                                                                                                                                                                                                                                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make_state`         | `FnMut(ShotContext) -> Result<S, Rejected>`                                                          | at the first call, from its first shot, one state for every shot (with `.shots(OnePerShot)`, each shot's, at its first call); `Err` refuses the call                                                                                                                                                                          |
+| `logic`              | `FnMut(&mut S, &CallInput<'_, I>, &mut Below<'_, O>, &mut Outcomes<'_>) -> Result<(), AdapterError>` | at each call; `Err` fails it, and every later call is refused; but a first call below that is refused, a send or a run, refuses the call with its refusal instead, whatever the logic returns, and fails nothing, unless it is for an earlier failure below ([Refusals and failures](docs/adapters.md#refusals-and-failures)) |
+| `.accepts(set)`      | `impl Into<Arc<InstructionSet>>`                                                                     | when the chain is built: the set offered upstream; the calls are not checked against it ([planned](docs/planned.md); meanwhile, a `.check` that runs `InstructionSet::check_batch`)                                                                                                                                           |
+| `.sends(set)`        | `impl Into<Arc<InstructionSet>>`                                                                     | when the chain is built: checked against the set below, calls renumbered into it                                                                                                                                                                                                                                              |
+| `.check(f)`          | `FnMut(&CallInput<'_, I>) -> Result<(), Rejected>`                                                   | as an executor's                                                                                                                                                                                                                                                                                                              |
+| `.drawing(id)`       | `ComponentId`                                                                                        | when the chain is built: the id its states draw with ([Seeds](docs/adapters.md#seeds-drawingid)); with one state, the shots of a call share its draws (to draw per shot, `.shots(OnePerShot)`)                                                                                                                                |
+| `.state_report(f)`   | `FnMut(&S) -> Q`, `Q:` [`Fold`](#the-interfaces-for-a-part-written-by-hand)                          | at close: its report, beside the report below                                                                                                                                                                                                                                                                                 |
+| `.shots(OnePerShot)` | -                                                                                                    | a state per shot; the shots' equal k-th sends go below as one call, but for a shot's kept sends, which go alone at its `run`                                                                                                                                                                                                  |
 
 The logic reaches below in one of two ways:
 
@@ -518,7 +567,7 @@ conformance::accepts_calls_after_a_refusal::<InstructionBatch<Op>, _>(
 
 These traits, and the data they exchange: a facility implements the traits for
 the parts it makes, a part written by hand implements them itself, a program
-that decides as it runs implements `AdaptiveProgram`, and a driver of programs
+that drives the executor itself implements `AdaptiveProgram`, and a driver of programs
 of form `P`, `Driver<P>`. Condensed from `src/`: doc comments and attributes
 trimmed but for `#[non_exhaustive]`, a default's body shown as `{ ... }`, short
 items on one line:
@@ -600,7 +649,9 @@ pub trait Apply<E>: Adapter {
   sealed.
 - `()`, integers, ordered maps (`BTreeMap`) and pairs of reports `Fold`
   already. A fold's default is empty, and any order or grouping of the
-  reports gives the same total: `conformance::default_is_empty` and
+  reports gives the same total, up to rounding for sums in floating point
+  (`LogP`'s may differ in their last bits when regrouped):
+  `conformance::default_is_empty` and
   `conformance::folds_in_any_order` check a report of your own.
 - An adapter's defaults are for one that passes its calls down as they are
   ([Choosing a way](docs/adapters.md#choosing-a-way)).
@@ -612,9 +663,11 @@ and learns whether the work succeeded or failed. Every refusal has a **retry
 class**: `Never` and `Later` say that nothing ran, and `Resend` says that no
 verdict came over a link, so the work may have run
 ([Rejections and retries](docs/rejections.md)). The executor chooses where
-the work runs: inside `call` (it returns an `ImmediateReply`) or elsewhere
-(it returns an `IncrementalReply`, which its `ReplySender` fills). The caller
-chooses how to take the reply, whatever the executor chose:
+the work runs: inside `call` (it can return an `ImmediateReply`) or
+elsewhere (it can return an `IncrementalReply`, which its `ReplySender`
+fills). These are the crate's two basic replies; composition wraps replies
+in its own, so a caller stays generic over `Reply`. The caller chooses how
+to take the reply, whatever the executor chose:
 
 | Caller style              | API                             | Behavior                                                     |
 | ------------------------- | ------------------------------- | ------------------------------------------------------------ |

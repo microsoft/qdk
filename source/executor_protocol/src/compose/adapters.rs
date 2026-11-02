@@ -27,9 +27,9 @@ use crate::adapter::adapter_fn::{MakeAdapterState, ServeAdapterCalls, close_belo
 use crate::lifecycle::failing_on_panic;
 use crate::{
     Adapter, AdapterBoundary, AdapterFn, AdapterFnExecutor, Apply, BuildError, BuildFault,
-    BuildFaults, Capabilities, Close, Describe, Executor, ExecutorLifecycle, Instruction,
-    InstructionBatch, InstructionBatchRef, InstructionSet, LifecycleBoundReply, OnePerShotAdapter,
-    OnePerShotAdapterExecutor, ProgramInput, Rejected, Renumbering,
+    BuildFaults, CallInput, Capabilities, Close, Describe, Executor, ExecutorLifecycle,
+    Instruction, InstructionBatch, InstructionBatchRef, InstructionSet, LifecycleBoundReply,
+    OnePerShotAdapter, OnePerShotAdapterExecutor, Rejected, Renumbering,
 };
 
 /// One adapter, or adapters composed: what composes upstream of an executor. It
@@ -317,7 +317,7 @@ where
     O: Instruction,
     M: MakeAdapterState<S, O>,
     L: ServeAdapterCalls<S, I, O, O::Downstream<E>>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     E: Executor<InstructionBatch<O>> + Close,
     AdapterFnExecutor<I, O, S, M, L, C, R, O::Downstream<E>>: Close,
 {
@@ -341,7 +341,7 @@ where
     O: Instruction + Clone + PartialEq,
     M: MakeAdapterState<S, O>,
     L: ServeAdapterCalls<S, I, O, O::Downstream<E>>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     E: Executor<InstructionBatch<O>> + Close,
     OnePerShotAdapterExecutor<I, O, S, M, L, C, R, O::Downstream<E>>: Close,
 {
@@ -354,8 +354,10 @@ where
     }
 }
 
-/// Two adapters, `X` upstream of `Y`: an adapter, made by `x >> y` or
-/// [`compose`](fn@crate::compose).
+/// Two adapters, `X` upstream of `Y`, made by `x >> y` or
+/// [`compose`](fn@crate::compose): they compose as one adapter wherever
+/// `>>` or `compose` takes one, but do not implement [`Adapter`]
+/// (planned, `docs/planned.md`).
 #[derive(Clone, Copy, Debug)]
 pub struct ComposedAdapters<X, Y> {
     upstream: X,

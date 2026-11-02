@@ -12,12 +12,15 @@ use std::sync::Arc;
 use crate::{AdapterBoundary, Rejected};
 use crate::{BuildError, ComponentId, InstructionSet, OpcodeMap, RngIds};
 
-/// What a component offers (an executor of several shots, an adapter), so
-/// that a chain can check that a caller's needs fit it before anything runs,
-/// instead of failing, or not, during the run.
+/// What an executor offers, so that a chain can check that a caller's needs
+/// fit it before anything runs, instead of failing, or not, during the run.
+/// An adapter's executor, once composed, describes itself too; the adapter
+/// maps what the executor downstream of it offers when it is built
+/// ([`AdapterBoundary`]), not through this trait.
 pub trait Describe {
-    /// Its capabilities. An adapter maps those of what it wraps; a component
-    /// that only passes the work on reports them unchanged.
+    /// Its capabilities. An adapter's executor gives those its adapter
+    /// mapped when built; one that only passes the work on gives those below
+    /// unchanged.
     fn capabilities(&self) -> Capabilities;
 }
 
@@ -55,10 +58,10 @@ pub struct Capabilities {
     /// `keeps_each_shots_conditions_from_one_call_to_the_next`, for the
     /// conditions an earlier outcome of the shot carried.
     pub resumable_shots: bool,
-    /// The most shots it holds at once, a state each; `None` when it knows
-    /// no limit. A limit it always has (its memory holds that many); a
-    /// shortage now (another run holds the memory) is
-    /// [`Rejected::Unavailable`] instead.
+    /// The most shots it holds at once, however it holds them (a state
+    /// each, or shared); `None` when it knows no limit. A limit it always
+    /// has (its memory holds that many); a shortage now (another run holds
+    /// the memory) is [`Rejected::Unavailable`] instead.
     pub max_shots: Option<u64>,
     /// Whether each shot replays: run again on the run's seed, alone or
     /// among other shots, in one call or split over several, it gives what it

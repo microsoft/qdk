@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use executor_protocol::{
-    Capabilities, Close, Describe, ErrorKind, Executor, ExecutorReport, InstructionBatch,
-    InstructionCall, InstructionSet, Operand, Outcome, ProgramInput, Value, check_unique_tags,
+    CallInput, Capabilities, Close, Describe, ErrorKind, Executor, ExecutorReport,
+    InstructionBatch, InstructionCall, InstructionSet, Operand, Outcome, Value, check_unique_tags,
     executor_fn,
 };
 
@@ -66,7 +66,7 @@ pub fn backend_bridge<B: ExistingInterface>(
         },
         // The calls' type is named here, since the program reads their
         // fields before anything else says what they are.
-        move |backend, input: &ProgramInput<'_, InstructionCall>, outcomes| {
+        move |backend, input: &CallInput<'_, InstructionCall>, outcomes| {
             let calls = input.instructions();
             let instructions: Vec<_> = calls
                 .iter()

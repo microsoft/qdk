@@ -33,7 +33,7 @@
 use std::rc::Rc;
 
 use executor_protocol::{
-    AdapterError, BelowHandle, Outcome, Outcomes, ProgramInput, Rejected, ShotContext, Value,
+    AdapterError, BelowHandle, CallInput, Outcome, Outcomes, Rejected, ShotContext, Value,
 };
 
 use crate::logical::Logical;
@@ -193,7 +193,7 @@ pub fn instantiated(
 /// logical readout, so that no shot is left short of its outcomes.
 pub fn through_the_runtime<R: Backend<Logical, Error = String>>(
     runtime: &mut R,
-    input: &ProgramInput<'_, Logical>,
+    input: &CallInput<'_, Logical>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
     let results = runtime.execute_batch(input.instructions())?.results;

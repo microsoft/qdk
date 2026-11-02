@@ -13,8 +13,8 @@ use std::slice;
 pub use placed::OnePerShotPlacedExecutor;
 
 use super::{
-    ExecutorFn, ExecutorLogic, MakeState, Outcomes, ProgramInput, ShotStrategy, check_room,
-    described, fail, report_state, start_close,
+    CallInput, ExecutorFn, ExecutorLogic, MakeState, Outcomes, ShotStrategy, check_room, described,
+    fail, report_state, start_close,
 };
 use crate::absorb::{DroppedOneByOne, HeldPart, HeldStates};
 use crate::lifecycle::failing_on_panic;
@@ -243,7 +243,7 @@ impl<I, S, M, P, C, L, R> Executor<InstructionBatch<I>> for OnePerShotExecutor<I
 where
     M: MakeState<S>,
     P: ExecutorLogic<I, S>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
 {
     /// The logic runs inside `call`.
     type Reply = ImmediateReply<ShotOutcome>;
@@ -274,7 +274,7 @@ impl<I, S, M, P, C, L, R> OnePerShotExecutor<I, S, M, P, C, L, R>
 where
     M: MakeState<S>,
     P: ExecutorLogic<I, S>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
 {
     /// Serves `batch`: the steps of `call`, which runs them failing the
     /// executor should they panic ([`failing_on_panic`]).
@@ -283,7 +283,7 @@ where
         batch: InstructionBatchRef<'_, I>,
     ) -> Result<ImmediateReply<ShotOutcome>, Rejected> {
         self.lifecycle.admit()?;
-        let input = ProgramInput {
+        let input = CallInput {
             instructions: batch.instructions,
         };
         (self.check)(&input)?;

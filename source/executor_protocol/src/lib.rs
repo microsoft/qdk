@@ -3,13 +3,14 @@
 
 //! The execution protocol: how a caller hands quantum work to an executor
 //! and reads its reply, the same way whatever runs the work (a simulator, an
-//! adapter's executor that runs a program's classical part, a remote
-//! device).
+//! adapter's executor, such as a code's runtime, a remote device).
 //!
 //! An executor accepts one kind of [`Message`] and replies with a
 //! [`Reply`] that delivers the message kind's events: [`Executor::call`]
 //! returns the reply, or a typed [`Rejected`] when it refuses the call.
-//! A chain is three kinds of components, composed:
+//! A chain is three kinds of components, composed; the roles, in order
+//! (in code, the driver is first put in a head,
+//! `ChainHead::new(driver) >> …`):
 //!
 //! ```text
 //! Driver >> Adapter >> ... >> Executor
@@ -22,7 +23,7 @@
 //!   not, it gives a [`Chain`], built and checked, and a program and its
 //!   shots are a job, the chain's input, not one of its components:
 //!   `chain.run(program, shots)` checks the job ([`JobFaults`]) and gives
-//!   its [`Run`], which drives the executor through the program
+//!   its [`Run`], which runs the program as the driver drives it
 //!   ([`DrivenProgram`]). While a chain is built, its driver and the
 //!   adapters composed below it so far are the chain's head
 //!   ([`ChainHead`]).
@@ -51,9 +52,9 @@
 //! job's needs are checked against what the chain offers when it is given
 //! to the chain, every fault reported together before anything runs
 //! ([`JobFaults`]). A [`Run`] runs nothing until
-//! waited for ([`Run::wait`]) or awaited: it then drives the executor and
-//! closes it once its program ends, giving the program's output and the
-//! executor's report.
+//! waited for ([`Run::wait`]) or awaited: it then runs its program and
+//! closes the executor once the program ends, giving the program's output
+//! and the executor's report.
 //!
 //! An executor may run work synchronously before returning. An executor's
 //! refusal means that no work started; a rejection of class
@@ -135,8 +136,8 @@ pub(crate) use driver::ComposedJob;
 pub use driver::{ChainHead, DefaultDriver, DrivenProgram, Driver, driver};
 pub use executor::{Close, Executor, ExecutorReport, Fold, LogP};
 pub use executor_fn::{
-    ExecutorFn, ExecutorLogic, MakeState, NoCheck, OnePerShot, OnePerShotExecutor,
-    OnePerShotPlacedExecutor, Outcomes, ProgramInput, ShotStrategy, executor_fn,
+    CallInput, ExecutorFn, ExecutorLogic, MakeState, NoCheck, OnePerShot, OnePerShotExecutor,
+    OnePerShotPlacedExecutor, Outcomes, ShotStrategy, executor_fn,
 };
 pub use instruction_batch::{InstructionBatch, InstructionBatchRef};
 pub use instruction_set::action::{Action, Angle, Pauli};

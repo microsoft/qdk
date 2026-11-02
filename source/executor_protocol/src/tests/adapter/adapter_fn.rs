@@ -33,12 +33,12 @@ use crate::tests::{
     values,
 };
 use crate::{
-    AdapterError, AdapterFn, Below, BuildError, Capabilities, Close, ComponentId, Compose,
-    Describe, Executor, ExecutorFn, ExecutorLogic, Fold, ImmediateReply, IncrementalReply,
+    AdapterError, AdapterFn, Below, BuildError, CallInput, Capabilities, Close, ComponentId,
+    Compose, Describe, Executor, ExecutorFn, ExecutorLogic, Fold, ImmediateReply, IncrementalReply,
     InstructionBatch, InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet,
     JobFaults, MakeState, Need, Needs, OnePerShot, OnePerShotAdapter, OnePerShotExecutor, Operand,
-    OperandKind, Outcome, Outcomes, OwnThread, ProgramInput, Rejected, Reply, ReplySender,
-    ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, Value,
+    OperandKind, Outcome, Outcomes, OwnThread, Rejected, Reply, ReplySender, ReplyStatus,
+    ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, Value,
     WithExecutor, adapter_fn, check_unique_tags, compose, conformance, driver, executor_fn,
     reply_channel, wait,
 };
@@ -128,7 +128,7 @@ pub(super) fn pulse_device()
     executor_fn(
         Capabilities::default(),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, Pulse>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, Pulse>, _: &mut Outcomes<'_>| Ok(()),
     )
 }
 
@@ -144,7 +144,7 @@ fn no_state(_: ShotContext) -> Result<(), Rejected> {
 /// The logic of an observer that sends each call down as it is.
 fn pass(
     (): &mut (),
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -278,7 +278,7 @@ fn flip_and_toss_flip_first() -> Vec<Vec<InstructionCall>> {
 /// and tags kept.
 fn lower(
     (): &mut (),
-    input: &ProgramInput<'_, InstructionCall>,
+    input: &CallInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -351,7 +351,7 @@ fn one_state_serves_every_call_of_every_shot() {
                 Ok(0)
             },
             move |calls: &mut u32,
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 *calls += 1;
@@ -444,7 +444,7 @@ fn a_refused_first_send_refuses_the_call_whatever_the_logic_returns() {
         ..TestDoubleModel::default()
     };
     let ignoring = |(): &mut (),
-                    input: &ProgramInput<'_, bool>,
+                    input: &CallInput<'_, bool>,
                     below: &mut Below<'_, bool>,
                     _: &mut Outcomes<'_>| {
         let _ = below.send(input.instructions());
@@ -467,7 +467,7 @@ fn a_refused_first_send_refuses_the_call_whatever_the_logic_returns() {
 #[test]
 fn a_refusal_below_names_the_instruction_as_sent() {
     let reading_first = |(): &mut (),
-                         input: &ProgramInput<'_, bool>,
+                         input: &CallInput<'_, bool>,
                          below: &mut Below<'_, bool>,
                          _: &mut Outcomes<'_>| {
         let lowered: Vec<bool> = [true].iter().chain(input.instructions()).copied().collect();
@@ -505,7 +505,7 @@ fn a_send_after_a_refused_one_does_not_go_down() {
         adapter_fn(
             no_state,
             move |(): &mut (),
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 let first = below.send(input.instructions());
@@ -533,7 +533,7 @@ fn a_send_refused_after_another_fails_the_call_and_the_adapter() {
         ..TestDoubleModel::default()
     };
     let twice = |(): &mut (),
-                 _: &ProgramInput<'_, bool>,
+                 _: &CallInput<'_, bool>,
                  below: &mut Below<'_, bool>,
                  _: &mut Outcomes<'_>| {
         below.send(&[true])?;
@@ -552,7 +552,7 @@ fn a_send_refused_after_another_fails_the_call_and_the_adapter() {
 #[test]
 fn a_logic_that_fails_fails_the_adapter() {
     let failing = |(): &mut (),
-                   _: &ProgramInput<'_, bool>,
+                   _: &CallInput<'_, bool>,
                    _: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| { Err("no syndrome".into()) };
     let mut executor = compose(
@@ -572,7 +572,7 @@ fn a_logic_that_fails_fails_the_adapter() {
 #[test]
 fn a_logic_that_fails_fails_the_adapter_though_its_reply_is_dropped() {
     let failing = |(): &mut (),
-                   _: &ProgramInput<'_, bool>,
+                   _: &CallInput<'_, bool>,
                    _: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| { Err("no syndrome".into()) };
     let mut executor = compose(
@@ -599,7 +599,7 @@ fn a_call_failed_below_fails_the_adapter_though_its_reply_is_dropped() {
         ..TestDoubleModel::default()
     };
     let twice = |(): &mut (),
-                 _: &ProgramInput<'_, bool>,
+                 _: &CallInput<'_, bool>,
                  below: &mut Below<'_, bool>,
                  _: &mut Outcomes<'_>| {
         below.send(&[true])?;
@@ -633,7 +633,7 @@ fn a_failure_below_fails_the_adapter() {
 /// instructions: an empty call is answered without going down.
 fn pass_unless_empty(
     (): &mut (),
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -688,7 +688,7 @@ fn a_reply_below_cancelled_ends_the_call_cancelled() {
 #[test]
 fn a_logic_that_fails_outranks_a_send_cancelled() {
     let failing = |(): &mut (),
-                   input: &ProgramInput<'_, bool>,
+                   input: &CallInput<'_, bool>,
                    below: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| {
         below.send(input.instructions())?;
@@ -710,7 +710,7 @@ fn a_logic_that_fails_outranks_a_send_cancelled() {
 #[test]
 fn a_call_that_failed_ends_with_its_own_failure_though_a_send_fails_after_it_returned() {
     let failing = |(): &mut (),
-                   input: &ProgramInput<'_, bool>,
+                   input: &CallInput<'_, bool>,
                    below: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| {
         below.send(input.instructions())?;
@@ -799,7 +799,7 @@ fn nothing_goes_down_after_a_send_whose_reply_failed() {
         adapter_fn(
             no_state,
             move |(): &mut (),
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 let sent = below.send(input.instructions());
@@ -885,7 +885,7 @@ fn a_send_whose_reply_fails_while_pending_stops_a_later_run() {
     let decoding = {
         let (held, ran) = (Rc::clone(&held), Rc::clone(&ran));
         move |(): &mut (),
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             below.send(&[false])?;
@@ -912,7 +912,7 @@ fn a_send_failed_before_the_logic_returns_fails_the_adapter_though_its_reply_is_
     let decoding = {
         let held = Rc::clone(&held);
         move |(): &mut (),
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             below.send(&[false])?;
@@ -942,7 +942,7 @@ fn a_send_made_after_a_pending_sends_reply_failed_still_goes_down() {
     let decoding = {
         let held = Rc::clone(&held);
         move |(): &mut (),
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             below.send(&[false])?;
@@ -1002,7 +1002,7 @@ impl Close for HoldingUntilBusy {
 #[test]
 fn a_call_ended_by_a_refusal_below_ends_with_it_though_an_earlier_sends_reply_fails_later() {
     let decoding = |(): &mut (),
-                    _: &ProgramInput<'_, bool>,
+                    _: &CallInput<'_, bool>,
                     below: &mut Below<'_, bool>,
                     _: &mut Outcomes<'_>| {
         below.send(&[false])?;
@@ -1034,7 +1034,7 @@ fn a_send_whose_reply_fails_after_the_call_returned_leaves_the_call_its_state() 
         adapter_fn(
             move |_: ShotContext| Ok(Rc::clone(&file)),
             |_: &mut Rc<()>,
-             _: &ProgramInput<'_, bool>,
+             _: &CallInput<'_, bool>,
              below: &mut Below<'_, bool>,
              _: &mut Outcomes<'_>| below.send(&[false]),
         )
@@ -1063,7 +1063,7 @@ fn a_failed_call_keeps_no_state_made_for_it() {
         adapter_fn(
             move |_: ShotContext| Ok(Rc::clone(&file)),
             |_: &mut Rc<()>,
-             input: &ProgramInput<'_, bool>,
+             input: &CallInput<'_, bool>,
              below: &mut Below<'_, bool>,
              _: &mut Outcomes<'_>| {
                 below.send(input.instructions())?;
@@ -1088,7 +1088,7 @@ fn a_cancelled_call_keeps_no_state_made_for_it() {
         adapter_fn(
             move |_: ShotContext| Ok(Rc::clone(&file)),
             |_: &mut Rc<()>,
-             input: &ProgramInput<'_, bool>,
+             input: &CallInput<'_, bool>,
              below: &mut Below<'_, bool>,
              _: &mut Outcomes<'_>| below.send(input.instructions()),
         )
@@ -1116,7 +1116,7 @@ fn a_call_failed_by_a_sends_reply_keeps_no_state_made_for_it() {
         adapter_fn(
             move |_: ShotContext| Ok(Rc::clone(&file)),
             |_: &mut Rc<()>,
-             input: &ProgramInput<'_, bool>,
+             input: &CallInput<'_, bool>,
              below: &mut Below<'_, bool>,
              _: &mut Outcomes<'_>| {
                 let _ = below.send(input.instructions());
@@ -1142,7 +1142,7 @@ fn a_closed_adapter_refuses_calls() {
     let counting = {
         let ran = Rc::clone(&ran);
         move |(): &mut (),
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             ran.set(ran.get() + 1);
@@ -1197,7 +1197,7 @@ fn closing_drops_the_state() {
         adapter_fn(
             move |_| Ok(Rc::clone(&file)),
             |_: &mut Rc<()>,
-             input: &ProgramInput<'_, bool>,
+             input: &CallInput<'_, bool>,
              below: &mut Below<'_, bool>,
              _: &mut Outcomes<'_>| { below.send(input.instructions()) },
         )
@@ -1213,7 +1213,7 @@ fn closing_drops_the_state() {
 /// each call down; it fails on a call of no instruction.
 fn count_calls(
     calls: &mut u64,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -1286,7 +1286,7 @@ fn a_one_state_adapters_state_spans_the_shots_of_its_calls() {
                 Ok(0)
             },
             move |calls: &mut u32,
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 *calls += 1;
@@ -1330,7 +1330,7 @@ fn a_failed_call_reports_no_state_made_for_it() {
 #[test]
 fn a_call_refused_below_reports_no_state_made_for_it_whatever_the_logic_returns() {
     let ignoring_the_refusal = |calls: &mut u64,
-                                input: &ProgramInput<'_, bool>,
+                                input: &CallInput<'_, bool>,
                                 below: &mut Below<'_, bool>,
                                 _: &mut Outcomes<'_>| {
         *calls += 1;
@@ -1405,7 +1405,7 @@ fn a_state_whose_calls_reply_below_failed_later_is_reported() {
 #[test]
 fn a_call_that_panicked_reports_no_state_made_for_it() {
     let counting_then_panicking = |calls: &mut u64,
-                                   _: &ProgramInput<'_, bool>,
+                                   _: &CallInput<'_, bool>,
                                    _: &mut Below<'_, bool>,
                                    _: &mut Outcomes<'_>|
      -> Result<(), AdapterError> {
@@ -1609,7 +1609,7 @@ fn a_second_close_reports_no_state() {
 #[test]
 fn a_logic_that_panics_fails_the_adapter() {
     let buggy = |(): &mut (),
-                 _: &ProgramInput<'_, bool>,
+                 _: &CallInput<'_, bool>,
                  _: &mut Below<'_, bool>,
                  _: &mut Outcomes<'_>|
      -> Result<(), AdapterError> { panic!("the logic has a bug") };
@@ -1632,7 +1632,7 @@ fn a_logic_that_panics_fails_the_adapter() {
 #[test]
 fn a_check_or_a_state_closure_that_panics_fails_the_adapter() {
     let buggy_check =
-        |_: &ProgramInput<'_, bool>| -> Result<(), Rejected> { panic!("the check has a bug") };
+        |_: &CallInput<'_, bool>| -> Result<(), Rejected> { panic!("the check has a bug") };
     let mut lowered = compose(
         adapter_fn(no_state, pass).check(buggy_check),
         below(TestDoubleModel::default()),
@@ -1673,7 +1673,7 @@ fn refusal_after_a_panic(
 #[test]
 fn an_outcome_written_answers_every_shot_of_the_call() {
     let decoding = |(): &mut (),
-                    _: &ProgramInput<'_, bool>,
+                    _: &CallInput<'_, bool>,
                     _: &mut Below<'_, bool>,
                     outcomes: &mut Outcomes<'_>| {
         outcomes.push(Outcome::new(9, Value::One));
@@ -1694,7 +1694,7 @@ fn an_outcome_written_answers_every_shot_of_the_call() {
 #[test]
 fn what_the_logic_writes_comes_before_what_its_sends_read() {
     let decoding = |(): &mut (),
-                    input: &ProgramInput<'_, bool>,
+                    input: &CallInput<'_, bool>,
                     below: &mut Below<'_, bool>,
                     outcomes: &mut Outcomes<'_>| {
         below.send(input.instructions())?;
@@ -1719,7 +1719,7 @@ fn each_send_is_one_call_below() {
     let model = TestDoubleModel::default();
     let seen = Rc::clone(&model.seen);
     let twice = |(): &mut (),
-                 input: &ProgramInput<'_, bool>,
+                 input: &CallInput<'_, bool>,
                  below: &mut Below<'_, bool>,
                  _: &mut Outcomes<'_>| {
         below.send(input.instructions())?;
@@ -1743,7 +1743,7 @@ fn a_state_that_cannot_be_made_refuses_the_call_before_the_logic_runs() {
         adapter_fn(
             |_| -> Result<(), Rejected> { Err(Rejected::Unavailable("loading".into())) },
             move |(): &mut (),
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 ran.set(ran.get() + 1);
@@ -1787,7 +1787,7 @@ fn a_state_that_cannot_be_made_is_made_again_at_the_next_call() {
 
 /// The check of a lowering that has no rule for a skip (`false`): it
 /// refuses a call holding one as malformed.
-fn no_skip(input: &ProgramInput<'_, bool>) -> Result<(), Rejected> {
+fn no_skip(input: &CallInput<'_, bool>) -> Result<(), Rejected> {
     if input.instructions().contains(&false) {
         Err(Rejected::Malformed("no rule for a skip".into()))
     } else {
@@ -1809,7 +1809,7 @@ fn the_check_refuses_a_call_before_the_state_is_made_and_the_logic_runs() {
                 Ok(())
             },
             move |(): &mut (),
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 ran.set(ran.get() + 1);
@@ -1854,7 +1854,7 @@ fn a_closed_adapter_refuses_a_call_before_its_check_runs() {
     let checks = Rc::new(Cell::new(0));
     let counted_check = {
         let checks = Rc::clone(&checks);
-        move |input: &ProgramInput<'_, bool>| {
+        move |input: &CallInput<'_, bool>| {
             checks.set(checks.get() + 1);
             no_skip(input)
         }
@@ -1889,7 +1889,7 @@ fn a_drawing_adapters_state_seeds_from_the_first_shot_it_serves() {
     let simulator = executor_fn(
         Capabilities::default().with_qubits(4),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
     )
     .seed(SEED)
     .shots(OnePerShot);
@@ -1915,7 +1915,7 @@ fn a_drawing_adapter_is_not_replayable() {
     let simulator = executor_fn(
         Capabilities::default().with_qubits(4).with_replayable(true),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
     )
     .seed(0x5EED)
     .shots(OnePerShot);
@@ -1940,7 +1940,7 @@ fn a_drawing_adapter_passes_resumable_shots_up() {
             .with_qubits(4)
             .with_resumable_shots(true),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
     )
     .seed(0x5EED)
     .shots(OnePerShot);
@@ -1963,7 +1963,7 @@ fn a_one_state_adapters_draw_is_shared_by_the_shots_of_a_call() {
     let noise = adapter_fn(
         |context: ShotContext| Ok(context.seed()),
         |seed: &mut u64,
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          below: &mut Below<'_, bool>,
          _: &mut Outcomes<'_>| {
             let lost = *seed & 1 == 1;
@@ -1975,7 +1975,7 @@ fn a_one_state_adapters_draw_is_shared_by_the_shots_of_a_call() {
     let simulator = executor_fn(
         Capabilities::default().with_qubits(4),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
     )
     .seed(0x5EED)
     .shots(OnePerShot);
@@ -2010,7 +2010,7 @@ fn ample_simulator()
     executor_fn(
         promise,
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
     )
     .log_probability((|(): &()| -0.5) as fn(&()) -> f64)
     .seed(0x5EED)
@@ -2033,7 +2033,7 @@ fn scant_simulator(
     executor_fn(
         promise,
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
     )
     .seed(0x5EED)
     .shots(OnePerShot)
@@ -2234,7 +2234,7 @@ fn its_options_given_in_any_order_make_the_same_adapter() {
         .sends(reversed_set())
         .accepts(flip_first_set())
         .drawing(noise)
-        .check(|_: &ProgramInput<'_, InstructionCall>| Ok(()))
+        .check(|_: &CallInput<'_, InstructionCall>| Ok(()))
         .state_report(|(): &()| ());
     let mut reordered = compose(
         reordered,
@@ -2349,7 +2349,7 @@ fn a_send_whose_reply_fails_after_the_call_returned_fails_the_call_and_the_adapt
 /// readout it reads with its value flipped.
 fn flip_what_runs(
     (): &mut (),
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -2408,7 +2408,7 @@ fn a_run_gives_its_readouts_by_shot_each_in_the_order_read() {
     let backwards = executor_fn(
         Capabilities::default().with_qubits(2),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
+        |(): &mut (), _: &CallInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
             for tag in (0..30).rev() {
                 outcomes.push(Outcome::new(tag, Value::One));
             }
@@ -2423,7 +2423,7 @@ fn a_run_gives_its_readouts_by_shot_each_in_the_order_read() {
         adapter_fn(
             no_state,
             move |(): &mut (),
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 read.borrow_mut().extend(below.run(input.instructions())?);
@@ -2577,7 +2577,7 @@ fn a_call_returns_only_once_its_logic_returns_though_a_send_below_already_read()
 #[test]
 fn an_observer_that_runs_passes_up_each_shots_readouts_in_the_replys_order() {
     let send_then_run = |(): &mut (),
-                         input: &ProgramInput<'_, bool>,
+                         input: &CallInput<'_, bool>,
                          below: &mut Below<'_, bool>,
                          outcomes: &mut Outcomes<'_>| {
         below.send(input.instructions())?;
@@ -2588,7 +2588,7 @@ fn an_observer_that_runs_passes_up_each_shots_readouts_in_the_replys_order() {
         executor_fn(
             Capabilities::default(),
             |_| Ok(0),
-            |reads: &mut u32, input: &ProgramInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
+            |reads: &mut u32, input: &CallInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
                 for &bit in input.instructions() {
                     let tag = *reads;
                     outcomes.push(Outcome::new(tag, bit.into()));
@@ -2608,7 +2608,7 @@ fn an_observer_that_runs_passes_up_each_shots_readouts_in_the_replys_order() {
         "the reply below gives the run's first"
     );
     let observing = |(): &mut (),
-                     input: &ProgramInput<'_, bool>,
+                     input: &CallInput<'_, bool>,
                      below: &mut Below<'_, bool>,
                      outcomes: &mut Outcomes<'_>| {
         outcomes.extend(below.run(input.instructions())?);
@@ -2631,7 +2631,7 @@ fn a_first_run_refused_refuses_the_call_whatever_the_logic_returns() {
         ..TestDoubleModel::default()
     };
     let ignoring = |(): &mut (),
-                    input: &ProgramInput<'_, bool>,
+                    input: &CallInput<'_, bool>,
                     below: &mut Below<'_, bool>,
                     _: &mut Outcomes<'_>| {
         let _ = below.run(input.instructions());
@@ -2656,7 +2656,7 @@ fn a_send_refused_after_a_run_fails_the_call_and_the_adapter() {
         ..TestDoubleModel::default()
     };
     let run_then_send = |(): &mut (),
-                         _: &ProgramInput<'_, bool>,
+                         _: &CallInput<'_, bool>,
                          below: &mut Below<'_, bool>,
                          _: &mut Outcomes<'_>| {
         below.run(&[true])?;
@@ -2688,7 +2688,7 @@ fn a_logic_sends_below_a_call_it_chose_from_what_its_run_read() {
         "some syndrome bits are one, some zero: {ones:?}"
     );
     let correct_on_one = |(): &mut (),
-                          _: &ProgramInput<'_, bool>,
+                          _: &CallInput<'_, bool>,
                           below: &mut Below<'_, bool>,
                           _: &mut Outcomes<'_>| {
         let syndrome = below.run(&[true])?;
@@ -2718,7 +2718,7 @@ fn a_logic_sends_below_a_call_it_chose_from_what_its_run_read() {
 #[test]
 fn a_run_whose_reply_fails_fails_the_call_and_the_adapter_whatever_the_logic_returns() {
     let ignoring = |(): &mut (),
-                    input: &ProgramInput<'_, bool>,
+                    input: &CallInput<'_, bool>,
                     below: &mut Below<'_, bool>,
                     _: &mut Outcomes<'_>| {
         let _ = below.run(input.instructions());
@@ -2741,7 +2741,7 @@ fn a_run_whose_reply_fails_fails_the_call_and_the_adapter_whatever_the_logic_ret
 #[test]
 fn a_call_failed_below_ends_with_the_failure_below_whatever_the_logics_err() {
     let mapping = |(): &mut (),
-                   input: &ProgramInput<'_, bool>,
+                   input: &CallInput<'_, bool>,
                    below: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| {
         below
@@ -2766,7 +2766,7 @@ fn a_call_failed_below_ends_with_the_failure_below_whatever_the_logics_err() {
 #[test]
 fn a_run_whose_reply_is_cancelled_fails_the_call_and_the_adapter_whatever_the_logic_returns() {
     let ignoring = |(): &mut (),
-                    input: &ProgramInput<'_, bool>,
+                    input: &CallInput<'_, bool>,
                     below: &mut Below<'_, bool>,
                     _: &mut Outcomes<'_>| {
         let _ = below.run(input.instructions());
@@ -2884,7 +2884,7 @@ fn nothing_goes_down_after_a_run_failed() {
         adapter_fn(
             no_state,
             move |(): &mut (),
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 let _ = below.run(input.instructions());
@@ -2907,7 +2907,7 @@ fn nothing_goes_down_after_a_run_failed() {
 #[test]
 fn a_readout_written_for_a_shot_answers_that_shot_alone() {
     let decoding = |(): &mut (),
-                    _: &ProgramInput<'_, bool>,
+                    _: &CallInput<'_, bool>,
                     _: &mut Below<'_, bool>,
                     outcomes: &mut Outcomes<'_>| {
         outcomes.extend([one(1, 9)]);
@@ -2926,7 +2926,7 @@ fn a_readout_written_for_a_shot_answers_that_shot_alone() {
 #[test]
 fn a_readout_written_for_a_shot_the_logic_does_not_serve_panics() {
     let buggy = |(): &mut (),
-                 _: &ProgramInput<'_, bool>,
+                 _: &CallInput<'_, bool>,
                  _: &mut Below<'_, bool>,
                  outcomes: &mut Outcomes<'_>| {
         outcomes.extend([one(9, 0)]);
@@ -2955,7 +2955,7 @@ fn no_calls(_: ShotContext) -> Result<u64, Rejected> {
 /// in its state, so that a call refused below is not counted.
 fn count_and_pass<I>(
     calls: &mut u64,
-    input: &ProgramInput<'_, I>,
+    input: &CallInput<'_, I>,
     below: &mut Below<'_, I>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -2969,7 +2969,7 @@ fn count_and_pass<I>(
 /// readouts below, whatever its state.
 fn decode<S>(
     _: &mut S,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     below: &mut Below<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -2981,7 +2981,7 @@ fn decode<S>(
 /// The check of a decoder with no rule for a stop, that decodes each tag
 /// once a call: it refuses a stop, then a tag read twice, before anything
 /// runs.
-fn decodable(input: &ProgramInput<'_, Op>) -> Result<(), Rejected> {
+fn decodable(input: &CallInput<'_, Op>) -> Result<(), Rejected> {
     let ops = input.instructions();
     if let Some(at) = ops.iter().position(|&op| op == Op::Stop) {
         return Err(Rejected::Instruction {
@@ -3291,7 +3291,7 @@ fn a_close_below_that_panicked_is_not_run_again() {
 /// down.
 pub(super) fn send_down<S>(
     _: &mut S,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -3302,7 +3302,7 @@ pub(super) fn send_down<S>(
 /// the call fails.
 pub(super) fn finds_no_syndrome<S>(
     _: &mut S,
-    _: &ProgramInput<'_, bool>,
+    _: &CallInput<'_, bool>,
     _: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -3312,7 +3312,7 @@ pub(super) fn finds_no_syndrome<S>(
 /// The logic of a decoder over states of any type, with a bug: it panics.
 pub(super) fn panics_decoding<S>(
     _: &mut S,
-    _: &ProgramInput<'_, bool>,
+    _: &CallInput<'_, bool>,
     _: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -3438,7 +3438,7 @@ fn dropped_it_frees_its_state_before_its_closures_and_the_executor_below() {
     let observing = adapter_fn(
         move |_: ShotContext| Ok(Dropped("state", Rc::clone(&making))),
         move |_: &mut Dropped,
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             let _held = &connection;
@@ -3472,7 +3472,7 @@ fn dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops() 
             Ok(0_u64)
         },
         move |calls: &mut u64,
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             let _held = &logic;
@@ -3480,7 +3480,7 @@ fn dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops() 
             below.send(input.instructions())
         },
     )
-    .check(move |_: &ProgramInput<'_, bool>| {
+    .check(move |_: &CallInput<'_, bool>| {
         let _held = &checking;
         Ok(())
     })
@@ -3504,7 +3504,7 @@ fn a_replaced_closure_is_freed_raising_no_panic_of_its_drop() {
     let (handle, released) = ReleasesBadly::new();
     let reporting = handle.another();
     let profiling = adapter_fn(|_: ShotContext| Ok(0_u64), count_calls)
-        .check(move |_: &ProgramInput<'_, bool>| {
+        .check(move |_: &CallInput<'_, bool>| {
             let _held = &handle;
             Ok(())
         })
@@ -3514,7 +3514,7 @@ fn a_replaced_closure_is_freed_raising_no_panic_of_its_drop() {
         });
     let replaced = catch_unwind(AssertUnwindSafe(move || {
         profiling
-            .check(|_: &ProgramInput<'_, bool>| Ok(()))
+            .check(|_: &CallInput<'_, bool>| Ok(()))
             .state_report(|calls: &u64| *calls)
     }))
     .expect("a builder raises no panic of the replaced closure's drop");
@@ -3586,7 +3586,7 @@ fn a_logics_panic_reaches_the_caller_though_its_new_states_drop_panics_too() {
 #[test]
 fn a_failed_adapter_closes_what_is_below() {
     let failing = |(): &mut (),
-                   _: &ProgramInput<'_, bool>,
+                   _: &CallInput<'_, bool>,
                    _: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| { Err("no syndrome".into()) };
     let (counted, closes) = close_counted(below(TestDoubleModel::default()));
@@ -3602,7 +3602,7 @@ fn a_failed_adapter_closes_what_is_below() {
 #[test]
 fn an_adapter_whose_logic_panicked_closes_what_is_below() {
     let buggy = |(): &mut (),
-                 _: &ProgramInput<'_, bool>,
+                 _: &CallInput<'_, bool>,
                  _: &mut Below<'_, bool>,
                  _: &mut Outcomes<'_>|
      -> Result<(), AdapterError> { panic!("the logic has a bug") };
@@ -3708,7 +3708,7 @@ impl Close for HandsOver {
 /// and writes what the run read.
 fn send_then_run(
     (): &mut (),
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     out: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -3787,7 +3787,7 @@ impl Close for ReleasingBadly {
 /// The logic of an observer that sends each call down twice.
 fn send_twice(
     (): &mut (),
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -3823,7 +3823,7 @@ fn a_failed_calls_pending_sends_are_freed_raising_no_panic_of_their_drops() {
     let released = Rc::new(Cell::new(0));
     let below = ReleasingBadly::pending(&released);
     let buggy = |(): &mut (),
-                 input: &ProgramInput<'_, bool>,
+                 input: &CallInput<'_, bool>,
                  below: &mut Below<'_, bool>,
                  outcomes: &mut Outcomes<'_>|
      -> Result<(), AdapterError> {
@@ -3854,7 +3854,7 @@ fn a_reply_from_below_whose_drop_panics_once_ended_leaves_the_call_done() {
         pending_for: 0,
     };
     let send_then_run = |(): &mut (),
-                         input: &ProgramInput<'_, bool>,
+                         input: &CallInput<'_, bool>,
                          below: &mut Below<'_, bool>,
                          _: &mut Outcomes<'_>|
      -> Result<(), AdapterError> {
@@ -3922,7 +3922,7 @@ fn dropped_over_a_placed_executor_its_second_pending_reply_fails_for_the_firsts_
         adapter_fn(
             no_state,
             |(): &mut (),
-             input: &ProgramInput<'_, placed::Op>,
+             input: &CallInput<'_, placed::Op>,
              below: &mut Below<'_, placed::Op>,
              _: &mut Outcomes<'_>| below.send(input.instructions()),
         ),
@@ -3967,7 +3967,7 @@ fn dropped_over_a_placed_executor_its_pending_replies_polled_last_first_both_end
         adapter_fn(
             no_state,
             |(): &mut (),
-             input: &ProgramInput<'_, placed::Op>,
+             input: &CallInput<'_, placed::Op>,
              below: &mut Below<'_, placed::Op>,
              _: &mut Outcomes<'_>| below.send(input.instructions()),
         ),

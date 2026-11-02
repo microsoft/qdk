@@ -11,10 +11,10 @@
 use std::sync::Arc;
 
 use executor_protocol::{
-    Action, Capabilities, Executor, InstructionBatch, InstructionBatchRef, InstructionSet,
-    OnePerShot, OnePerShotExecutor, OperandKind, Outcome, Outcomes, Pauli, ProgramInput, Rejected,
-    ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, check_unique_tags,
-    executor_fn, wait,
+    Action, CallInput, Capabilities, Executor, InstructionBatch, InstructionBatchRef,
+    InstructionSet, OnePerShot, OnePerShotExecutor, OperandKind, Outcome, Outcomes, Pauli,
+    Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
+    check_unique_tags, executor_fn, wait,
 };
 
 /// The toy's instructions, as a type: an executor of
@@ -124,10 +124,10 @@ pub type ToySimulator = OnePerShotExecutor<
 type StartToy = fn(ShotContext) -> Result<ToyState, Rejected>;
 
 /// The toy's logic, [`ToyState::run`].
-type RunToy = fn(&mut ToyState, &ProgramInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>;
+type RunToy = fn(&mut ToyState, &CallInput<'_, Op>, &mut Outcomes<'_>) -> Result<(), String>;
 
 /// The toy's check of a batch, [`check`].
-type CheckToy = fn(&ProgramInput<'_, Op>) -> Result<(), Rejected>;
+type CheckToy = fn(&CallInput<'_, Op>) -> Result<(), Rejected>;
 
 /// The toy simulator whose shots draw from `seed`: `QUBITS` qubits, and
 /// the toy's instruction set.
@@ -189,7 +189,7 @@ impl ToyState {
     /// None: the toy fails no batch.
     pub fn run(
         &mut self,
-        input: &ProgramInput<'_, Op>,
+        input: &CallInput<'_, Op>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), String> {
         for &op in input.instructions() {
@@ -238,7 +238,7 @@ impl ToyState {
 /// [`Rejected::Instruction`] for the first instruction on a qubit the toy
 /// does not have, or the first readout that repeats a tag
 /// ([`check_unique_tags`]).
-pub fn check(input: &ProgramInput<'_, Op>) -> Result<(), Rejected> {
+pub fn check(input: &CallInput<'_, Op>) -> Result<(), Rejected> {
     let batch = input.instructions();
     if let Some(at) = batch.iter().position(|op| op.qubits().any(|q| q >= QUBITS)) {
         return Err(Rejected::Instruction {

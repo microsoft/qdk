@@ -47,9 +47,9 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::time::Instant;
 
 use executor_protocol::{
-    AdapterError, Below, Capabilities, Close, Describe, Executor, InstructionBatch,
-    InstructionBatchRef, OnePerShot, Outcome, Outcomes, ProgramInput, ShotConditions, ShotContext,
-    ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, adapter_fn, executor_fn, wait,
+    AdapterError, Below, CallInput, Capabilities, Close, Describe, Executor, InstructionBatch,
+    InstructionBatchRef, OnePerShot, Outcome, Outcomes, ShotConditions, ShotContext, ShotId,
+    ShotOutcome, ShotSet, TypedInstruction, Value, adapter_fn, executor_fn, wait,
 };
 
 /// The instructions each column runs, over all its shots.
@@ -153,7 +153,7 @@ impl Raising {
 fn bits(raising: Raising) -> impl Executor<InstructionBatch<Gate>> + Describe + Close {
     let state = |context: ShotContext| Ok((context.shot(), 0_u8));
     let logic = move |(shot, bits): &mut (ShotId, u8),
-                      input: &ProgramInput<'_, Gate>,
+                      input: &CallInput<'_, Gate>,
                       outcomes: &mut Outcomes<'_>| {
         if raising.on(*shot) {
             outcomes.raise_conditions(ShotConditions::REJECTED);
@@ -174,7 +174,7 @@ fn bits(raising: Raising) -> impl Executor<InstructionBatch<Gate>> + Describe + 
 /// The logic of an [`adapter_fn`] that sends each call down as it is.
 fn pass(
     (): &mut (),
-    input: &ProgramInput<'_, Gate>,
+    input: &CallInput<'_, Gate>,
     below: &mut Below<'_, Gate>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {

@@ -55,6 +55,24 @@ fn more_shots_than_held_at_once_are_unmet_even_with_the_default_needs() {
     );
 }
 
+/// A device with no shot free promises to hold none: a job of one shot is
+/// refused before any call, as a larger one is.
+#[test]
+fn one_shot_is_unmet_where_none_is_held() {
+    let none_free = Capabilities::default().with_max_shots(0);
+    let shot = ShotSet::new(vec![0]).expect("one shot, named once");
+    assert_eq!(
+        none_free.admit("none free", &shot, &Needs::default()),
+        Err(Rejected::Unmet(UnmetNeed {
+            component: "none free".into(),
+            need: Need::Shots,
+            needed: 1,
+            offered: 0,
+            mismatches: Vec::new(),
+        }))
+    );
+}
+
 /// Each need beyond what a component offers is refused, with what was
 /// needed and offered; a yes/no capability counts as 1 or 0.
 #[test]

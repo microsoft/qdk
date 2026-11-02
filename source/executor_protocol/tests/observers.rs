@@ -41,9 +41,9 @@ use std::sync::{Arc, Mutex};
 use std::task::Waker;
 
 use executor_protocol::{
-    Below, Capabilities, Close, Describe, Executor, ExecutorLogic, ExecutorReport, ImmediateReply,
-    InstructionBatch, InstructionBatchRef, InstructionCall, MakeState, Needs, OnePerShot,
-    OnePerShotExecutor, OpcodeTable, Operand, Outcomes, ProgramInput, Rejected, Reply, ReplyStatus,
+    Below, CallInput, Capabilities, Close, Describe, Executor, ExecutorLogic, ExecutorReport,
+    ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall, MakeState, Needs,
+    OnePerShot, OnePerShotExecutor, OpcodeTable, Operand, Outcomes, Rejected, Reply, ReplyStatus,
     ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, StaticProgramError, Value,
     adapter_fn, check_unique_tags, compose, driver, executor_fn,
 };
@@ -119,7 +119,7 @@ fn toy_ops() -> OpcodeTable<ToOp> {
 /// as the toy's own check does for its instructions: a call on a qubit the
 /// toy does not have, or a readout that repeats a tag. Each of the toy's
 /// blocks is a qubit, and each tag a readout.
-fn check_calls(input: &ProgramInput<'_, InstructionCall>) -> Result<(), Rejected> {
+fn check_calls(input: &CallInput<'_, InstructionCall>) -> Result<(), Rejected> {
     let calls = input.instructions();
     let beyond = |operand: &Operand| matches!(operand, Operand::Block(q) if *q >= QUBITS);
     let on_a_missing_qubit = |call: &InstructionCall| call.operands.iter().any(beyond);
@@ -165,7 +165,7 @@ fn simulator_recording(
     let ops = toy_ops();
     let start = |context: ShotContext| Ok((context.shot(), ToyState::start(context)?));
     let logic = move |(shot, toy): &mut Shot,
-                      input: &ProgramInput<'_, InstructionCall>,
+                      input: &CallInput<'_, InstructionCall>,
                       outcomes: &mut Outcomes<'_>| {
         received.record(*shot, input.instructions());
         for call in input.instructions() {
@@ -173,7 +173,7 @@ fn simulator_recording(
         }
         Ok(())
     };
-    let check: fn(&ProgramInput<'_, InstructionCall>) -> Result<(), Rejected> = check_calls;
+    let check: fn(&CallInput<'_, InstructionCall>) -> Result<(), Rejected> = check_calls;
     executor_fn(the_toys_promise(), start, logic)
         .check(check)
         .seed(SEED)
@@ -204,7 +204,7 @@ fn simulator_stopping_at_reset(
     let ops = toy_ops();
     let reset = toy_set().opcode("reset").expect("the toy's set has reset");
     let logic = move |toy: &mut ToyState,
-                      input: &ProgramInput<'_, InstructionCall>,
+                      input: &CallInput<'_, InstructionCall>,
                       outcomes: &mut Outcomes<'_>| {
         for call in input.instructions() {
             if call.opcode == reset {
@@ -239,7 +239,7 @@ fn simulator_refusing_shot(
         ToyState::start(context)
     };
     let logic = move |toy: &mut ToyState,
-                      input: &ProgramInput<'_, InstructionCall>,
+                      input: &CallInput<'_, InstructionCall>,
                       outcomes: &mut Outcomes<'_>| {
         for call in input.instructions() {
             toy.apply(ops[call.opcode](call), outcomes);
@@ -508,7 +508,7 @@ fn each_logged_call_holds_its_own_result_when_debuggers_share_a_log() {
     let splitting = adapter_fn(
         |_| Ok(()),
         |(): &mut (),
-         input: &ProgramInput<'_, InstructionCall>,
+         input: &CallInput<'_, InstructionCall>,
          below: &mut Below<'_, InstructionCall>,
          _: &mut Outcomes<'_>| {
             let (first, rest) = input.instructions().split_at(1);

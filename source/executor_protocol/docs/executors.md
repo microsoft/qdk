@@ -212,7 +212,7 @@ instructions and the reply's outcomes:
 ```rust
 pub fn run_bond_limited(
     state: &mut BondLimitedState,
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
 ```
@@ -341,15 +341,15 @@ drop, a logic's own state, the report), and what splitting a run costs, is in
 
 ## An executor's whole life
 
-A run owns its executor: it passes the driver's calls on, and closes the
-executor once, after the driver's last call. The arrows read as in
+A run owns its executor: it passes the program's calls on, as its driver
+runs it, and closes the executor once, after the program's last call. The arrows read as in
 [Replies](replies.md#reading-the-sequence-diagrams):
 
 ```mermaid
 sequenceDiagram
   participant C as caller
   participant R as run
-  participant D as driver's program
+  participant D as program, as its driver runs it
   participant E as executor
   C->>R: chain.run(program, shots), checked (nothing runs)
   C->>R: wait()
@@ -371,7 +371,7 @@ sequenceDiagram
   R-->>C: (output, report)
 ```
 
-The run closes the executor once, after the driver's last call, also when a call
+The run closes the executor once, after the program's last call, also when a call
 failed. A call after close is refused with `Rejected::Closed` (the conformance
 check `rejects_calls_once_closed`). A run dropped before its program ends does
 not close its executor (`Run`'s doc, which no test pins), an open question that
@@ -413,6 +413,13 @@ conditions in its state and raises them again in each call. An ensemble's
 reply, and the double's conformance checks, are in
 [An executor written by hand: the rules](internals/executors.md#an-executor-written-by-hand-the-rules)
 and [An ensemble executor](internals/executors.md#an-ensemble-executor).
+
+Such an executor is composed with `compose`. So that a chain ending at it
+is written with `>>` all along, grouped either way, its crate implements
+`>>` for it on each of the four public types that may be on its left,
+`ChainHead`, `ComposedAdapters`, `AdapterFn` and `OnePerShotAdapter`
+([example](../tests/executor_by_hand.rs);
+[Which parts the operator joins](internals/composition.md#which-parts-the-operator-joins)).
 
 ## Seeds, not generators
 

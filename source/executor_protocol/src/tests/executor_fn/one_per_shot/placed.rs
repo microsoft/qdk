@@ -24,8 +24,8 @@ use crate::tests::placement::{
 };
 use crate::tests::{PATIENT, block_on, ends_soon};
 use crate::{
-    Capabilities, Close, Describe, Executor, ExecutorReport, InstructionBatch, InstructionBatchRef,
-    LogP, OnePerShot, Outcome, Outcomes, OwnThread, Placement, PlacementJob, ProgramInput,
+    CallInput, Capabilities, Close, Describe, Executor, ExecutorReport, InstructionBatch,
+    InstructionBatchRef, LogP, OnePerShot, Outcome, Outcomes, OwnThread, Placement, PlacementJob,
     Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
     check_unique_tags, conformance, executor_fn, wait, wait_async,
 };
@@ -86,7 +86,7 @@ fn placed_before_one_per_shot_each_shot_runs_on_a_thread_of_its_own() {
 #[test]
 fn placed_before_one_per_shot_takes_a_logic_that_cannot_be_shared_between_threads() {
     let calls = Cell::new(0_u32);
-    let logic = move |_: &mut Bit, _: &ProgramInput<'_, Op>, outcomes: &mut Outcomes<'_>| {
+    let logic = move |_: &mut Bit, _: &CallInput<'_, Op>, outcomes: &mut Outcomes<'_>| {
         calls.set(calls.get() + 1);
         outcomes.push(Outcome::new(calls.get(), Value::One));
         Ok(())
@@ -231,7 +231,7 @@ fn a_state_whose_logic_panicked_is_left_out_of_the_report() {
     let mut per_shot = executor_fn(
         Capabilities::default(),
         Flipped::new,
-        |state: &mut Flipped, input: &ProgramInput<'_, DrawingOp>, out: &mut Outcomes<'_>| {
+        |state: &mut Flipped, input: &CallInput<'_, DrawingOp>, out: &mut Outcomes<'_>| {
             let second = state.flips > 0;
             assert!(
                 !(state.shot == 1 && second),
@@ -267,7 +267,7 @@ fn a_state_whose_logic_panicked_is_left_out_of_the_report() {
 /// after their flips, and only there.
 fn stop_on_shots_0_and_3(
     state: &mut Flipped,
-    input: &ProgramInput<'_, DrawingOp>,
+    input: &CallInput<'_, DrawingOp>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     count_flips(state, input, outcomes)?;
@@ -422,7 +422,7 @@ fn a_state_report_that_panics_on_a_state_of_a_failed_call_leaves_close_unchanged
 /// runs, which it captures, and logs in `runs` each run's shot and count.
 fn counting_runs(
     runs: &Arc<Mutex<Vec<(ShotId, u32)>>>,
-) -> impl FnMut(&mut Flipped, &ProgramInput<'_, DrawingOp>, &mut Outcomes<'_>) -> Result<(), String>
+) -> impl FnMut(&mut Flipped, &CallInput<'_, DrawingOp>, &mut Outcomes<'_>) -> Result<(), String>
 + Clone
 + Send
 + use<> {
@@ -817,7 +817,7 @@ fn the_check_refuses_a_call_before_any_state_is_made() {
         },
         run_bit as RunBit,
     )
-    .check(move |input: &ProgramInput<'_, Op>| {
+    .check(move |input: &CallInput<'_, Op>| {
         let reads = input
             .instructions()
             .iter()
@@ -847,7 +847,7 @@ fn the_check_refuses_a_call_before_its_room_is_checked() {
         bits(&Threads::default()),
         run_bit as RunBit,
     )
-    .check(|input: &ProgramInput<'_, Op>| {
+    .check(|input: &CallInput<'_, Op>| {
         check_unique_tags(input.instructions().iter().enumerate().filter_map(
             |(at, op)| match *op {
                 Op::Read(tag) | Op::ReadInverted(tag) => Some((at, tag)),
@@ -982,7 +982,7 @@ fn counting(
         },
         run_bit as RunBit,
     )
-    .check(move |_: &ProgramInput<'_, Op>| {
+    .check(move |_: &CallInput<'_, Op>| {
         checked.fetch_add(1, Ordering::Relaxed);
         Ok(())
     })
@@ -1429,7 +1429,7 @@ fn a_tag_repeated_within_a_batch_is_refused() {
         bits(&Threads::default()),
         run_bit as RunBit,
     )
-    .check(|input: &ProgramInput<'_, Op>| {
+    .check(|input: &CallInput<'_, Op>| {
         check_unique_tags(input.instructions().iter().enumerate().filter_map(
             |(at, op)| match *op {
                 Op::Read(tag) | Op::ReadInverted(tag) => Some((at, tag)),
@@ -1541,7 +1541,7 @@ fn an_async_task_awaits_a_reply_whose_shots_run_on_threads_of_their_own() {
     let mut per_shot = executor_fn(
         Capabilities::default(),
         bits(&threads),
-        move |bit: &mut Bit, input: &ProgramInput<'_, Op>, outcomes: &mut Outcomes<'_>| {
+        move |bit: &mut Bit, input: &CallInput<'_, Op>, outcomes: &mut Outcomes<'_>| {
             let gate = gate.lock().expect("no test thread panics holding it");
             gate.recv_timeout(PATIENT).expect("the test opens the gate");
             drop(gate);
@@ -1681,7 +1681,7 @@ fn slow_to_free(
                 freed: Arc::clone(&freed),
             })
         },
-        |state: &mut SlowToFree, input: &ProgramInput<'_, Op>, out: &mut Outcomes<'_>| {
+        |state: &mut SlowToFree, input: &CallInput<'_, Op>, out: &mut Outcomes<'_>| {
             run_bit(&mut state.bit, input, out)
         },
     )
@@ -1761,7 +1761,7 @@ fn a_panic_as_close_frees_a_state_left_out_stays_on_its_placement() {
                 freed: Arc::clone(&counted),
             })
         },
-        |state: &mut FailsToPowerDown, input: &ProgramInput<'_, Op>, out: &mut Outcomes<'_>| {
+        |state: &mut FailsToPowerDown, input: &CallInput<'_, Op>, out: &mut Outcomes<'_>| {
             state.stopped = (input.instructions().iter()).any(|op| matches!(op, Op::Stop));
             run_bit(&mut state.bit, input, out)
         },
@@ -1924,7 +1924,7 @@ fn given_a_state_per_shot_a_placed_executor_keeps_its_own_refusal() {
     let mut placed = executor_fn(
         Capabilities::default(),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, CopyPanics>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, CopyPanics>, _: &mut Outcomes<'_>| Ok(()),
     )
     .run_on(OwnThread);
     let shot = ShotSet::one(0);
@@ -2245,7 +2245,7 @@ fn a_shots_copy_of_the_logic_that_panics_reaches_the_caller_before_its_state_is_
     let mut per_shot = executor_fn(
         Capabilities::default(),
         powering_down_badly(&freed, None),
-        move |_: &mut PowersDownBadly, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let CopyHasABug = &bug;
             Ok(())
         },
@@ -2277,7 +2277,7 @@ fn close_frees_the_states_of_stopped_placements_then_raises_the_first_drops_pani
     let mut per_shot = executor_fn(
         Capabilities::default(),
         powering_down_badly(&freed, None),
-        move |_: &mut PowersDownBadly, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             barrier.wait();
             panic!("the driver panics")
         },
@@ -2316,7 +2316,7 @@ fn once_its_placements_stopped_its_drop_frees_the_states_raising_no_panic_of_the
     let mut per_shot = executor_fn(
         Capabilities::default(),
         powering_down_badly(&freed, None),
-        move |_: &mut PowersDownBadly, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             barrier.wait();
             panic!("the driver panics")
         },
@@ -2354,7 +2354,7 @@ fn close_frees_a_stopped_placements_state_before_it_returns_though_its_job_is_st
     let mut per_shot = executor_fn(
         Capabilities::default(),
         powering_down_badly(&freed, None),
-        |_: &mut PowersDownBadly, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             panic!("the driver panics")
         },
     )
@@ -2409,7 +2409,7 @@ fn once_stopped_close_frees_a_state_held_from_before_it_was_placed_then_raises_i
     let mut device = executor_fn(
         Capabilities::default(),
         powering_down_badly(&freed, None),
-        |_: &mut PowersDownBadly, input: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        |_: &mut PowersDownBadly, input: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             assert!(
                 !input.instructions().contains(&Op::Panic),
                 "the driver panics"
@@ -2605,7 +2605,7 @@ fn once_stopped_close_frees_the_shots_copies_of_the_closures_raising_no_panic_of
     let mut per_shot = executor_fn(
         Capabilities::default(),
         own_bit,
-        move |_: &mut Bit, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut Bit, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let _held = &logics_handle;
             panic!("the driver panics")
         },
@@ -2650,7 +2650,7 @@ fn a_shots_copy_that_panics_frees_the_copies_made_before_it_raising_its_own_pani
     let mut per_shot = executor_fn(
         Capabilities::default(),
         own_bit,
-        move |_: &mut Bit, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut Bit, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let _held = &logics_handle;
             Ok(())
         },
@@ -2691,7 +2691,7 @@ fn a_state_closure_that_panics_frees_the_shots_copies_raising_its_own_panic() {
     let mut per_shot = executor_fn(
         Capabilities::default(),
         |_: ShotContext| -> Result<Bit, Rejected> { panic!("the device fails to power up") },
-        move |_: &mut Bit, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut Bit, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let _held = &logics_handle;
             Ok(())
         },
@@ -2733,7 +2733,7 @@ fn a_state_closures_refusal_frees_the_shots_copies_raising_no_panic_of_their_dro
     let mut per_shot = executor_fn(
         Capabilities::default(),
         move |_: ShotContext| -> Result<Bit, Rejected> { Err(busy()) },
-        move |_: &mut Bit, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut Bit, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let _held = &logics_handle;
             Ok(())
         },
@@ -2772,7 +2772,7 @@ fn a_shots_copy_of_the_placement_that_panics_frees_its_state_raising_its_own_pan
     let mut per_shot = executor_fn(
         Capabilities::default(),
         powering_down_badly(&freed, None),
-        |_: &mut PowersDownBadly, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| Ok(()),
+        |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| Ok(()),
     )
     .run_on(move |job: PlacementJob| {
         let CopyHasABug = &bug;
@@ -2802,7 +2802,7 @@ fn a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_from_be
     let mut device = executor_fn(
         Capabilities::default(),
         powering_down_badly(&freed, None),
-        move |_: &mut PowersDownBadly, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let CopyHasABug = &bug;
             Ok(())
         },
@@ -2833,7 +2833,7 @@ fn a_placement_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_fro
     let mut device = executor_fn(
         Capabilities::default(),
         powering_down_badly(&freed, None),
-        |_: &mut PowersDownBadly, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| Ok(()),
+        |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| Ok(()),
     );
     let (_, end) = send(&mut device, &[0], &[Op::Flip]).expect("an open executor runs a call");
     end.expect("the logic runs");
@@ -2868,7 +2868,7 @@ fn a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_placement_raising_
     let mut device = executor_fn(
         Capabilities::default(),
         powering_down_badly(&freed, None),
-        move |_: &mut PowersDownBadly, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let CopyHasABug = &bug;
             Ok(())
         },
@@ -2902,7 +2902,7 @@ fn a_reported_shots_copies_and_placement_are_freed_raising_no_panic_of_their_dro
     let mut per_shot = executor_fn(
         Capabilities::default(),
         own_bit,
-        move |_: &mut Bit, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut Bit, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let _held = &logics_handle;
             Ok(())
         },
@@ -2950,7 +2950,7 @@ fn close_frees_the_copies_and_placement_of_a_shot_left_out_raising_no_panic_of_t
     let mut per_shot = executor_fn(
         Capabilities::default(),
         own_bit,
-        move |_: &mut Bit, _: &ProgramInput<'_, Op>, _: &mut Outcomes<'_>| {
+        move |_: &mut Bit, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let _held = &logics_handle;
             Err("the device stopped".to_owned())
         },

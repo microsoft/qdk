@@ -4,9 +4,10 @@
 //! The driver ([`Driver`]): the component at the top of a chain, which runs
 //! any program of its form given to the chain, so that programs are data (a
 //! list of batches, a circuit, a QIR program) and one driver runs every
-//! program of its form. In a chain being built it is the chain's head
-//! ([`ChainHead`]), which composes with adapters and an executor into a
-//! [`Chain`], built and checked, which runs the job given to it:
+//! program of its form. In a chain being built it sits in the chain's head
+//! ([`ChainHead`]), with the adapters composed below it so far, which
+//! composes with adapters and an executor into a [`Chain`], built and
+//! checked, which runs the job given to it:
 //! `chain.run(program, shots)`, a [`Run`] of the program as the driver
 //! drives it ([`DrivenProgram`]). A job is the chain's input, not one of its
 //! components.
@@ -101,6 +102,11 @@ pub trait Driver<P> {
 /// with no adapter below its driver; that it is one, so that a driver with
 /// adapters below it can be used wherever a driver is expected, is planned
 /// (`docs/planned.md`).
+///
+/// Another crate cannot name a head's type, whose adapters start from a
+/// type private to this crate (planned: exporting it, `docs/planned.md`):
+/// a runtime's crate has a function return its driver, and the caller
+/// writes `ChainHead::new(runtime) >> …`.
 ///
 /// # Type parameters
 ///

@@ -1473,9 +1473,10 @@ pub fn starts_its_shots_as_made_whatever_an_earlier_executor_left<I, E>(
 /// by hand may give them, marking only the readouts after it found one; a
 /// caller takes their union. `batches` must give some shot an outcome that
 /// carries a condition in a call before a later call that reads that shot,
-/// so that there is a condition to keep. It applies to an executor that
-/// offers `resumable_shots`, on which a shot continues from one call to the
-/// next, and which the protocol requires to keep each shot's conditions
+/// so that there is a condition to keep. The protocol requires it of an
+/// executor that offers `resumable_shots`, on which a shot continues from
+/// one call to the next; it checks any executor that promises to keep each
+/// shot's conditions, such as an `adapter_fn` over any executor
 /// (`docs/replies.md`, §Shot conditions). It sees outcomes alone, so it
 /// checks only the conditions that an earlier outcome of the shot carried:
 /// a condition raised in a call that gave the shot no outcome, which the

@@ -21,10 +21,9 @@ use crate::conditions::ConditionsSoFar;
 use crate::lifecycle::failing_on_panic;
 use crate::shot::ShotIndex;
 use crate::{
-    Adapter, Capabilities, Close, ComponentId, Describe, Executor, ExecutorLifecycle, Fold,
-    ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionSet,
-    LifecycleBoundReply, NoCheck, Outcomes, ProgramInput, Rejected, Reply, ShotId, ShotOutcome,
-    ShotSet,
+    Adapter, CallInput, Capabilities, Close, ComponentId, Describe, Executor, ExecutorLifecycle,
+    Fold, ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionSet,
+    LifecycleBoundReply, NoCheck, Outcomes, Rejected, Reply, ShotId, ShotOutcome, ShotSet,
 };
 #[cfg(doc)]
 use crate::{Below, OnePerShot, ReplyStatus};
@@ -244,7 +243,7 @@ where
     O: Clone + PartialEq,
     M: MakeAdapterState<S, O>,
     L: ServeAdapterCalls<S, I, O, D>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     D: Executor<InstructionBatch<O>>,
 {
     type Reply = LifecycleBoundReply<AdapterFnReply<D::Reply>>;
@@ -276,7 +275,7 @@ where
     O: Clone + PartialEq,
     M: MakeAdapterState<S, O>,
     L: ServeAdapterCalls<S, I, O, D>,
-    C: FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     D: Executor<InstructionBatch<O>>,
 {
     /// Serves `batch`: the steps of `call`, which runs them failing the
@@ -286,7 +285,7 @@ where
         batch: InstructionBatchRef<'_, I>,
     ) -> Result<LifecycleBoundReply<AdapterFnReply<D::Reply>>, Rejected> {
         self.lifecycle.admit()?;
-        let input = ProgramInput {
+        let input = CallInput {
             instructions: batch.instructions,
         };
         (self.adapter.check)(&input)?;

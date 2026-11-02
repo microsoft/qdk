@@ -4,9 +4,9 @@
 //! The programs the crate's driver runs ([`DefaultDriver`]), each given to
 //! a chain with its shots as a job, `chain.run(program, shots)`:
 //!
-//! - [`AdaptiveProgram`]: a program that decides as it runs, its next batch
-//!   depending on the outcomes so far, and that calls the chain's executor
-//!   itself. It is used up by its run.
+//! - [`AdaptiveProgram`]: a program that drives the chain's executor
+//!   itself: it sends each batch and can choose the next from the outcomes
+//!   so far. It is used up by its run.
 //! - [`static_program`]: a program of fixed batches, which decides nothing
 //!   on its outcomes, and how the crate's driver runs it.
 
@@ -18,10 +18,12 @@ use std::future::Future;
 use crate::{Chain, DefaultDriver, Run};
 use crate::{Executor, Instruction, InstructionBatch, Needs, ShotSet};
 
-/// A program that decides as it runs, and drives an executor itself: what
-/// it needs of the chain, and how it drives any executor of its
-/// instructions, through one generic method. The crate's driver lets it
-/// drive ([`DefaultDriver`]).
+/// A program that drives the executor itself: it sends each batch and can
+/// choose the next from the outcomes so far. A static program, given to a
+/// driver, is one that decides nothing. An adaptive program states what it
+/// needs of the chain, and how it drives any executor of its instructions,
+/// through one generic method. The crate's driver lets it drive
+/// ([`DefaultDriver`]).
 ///
 /// A synchronous program writes `drive` as an `async fn` that takes each
 /// reply with [`wait`](crate::wait); an asynchronous one awaits them

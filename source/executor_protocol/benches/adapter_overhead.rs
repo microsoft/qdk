@@ -36,8 +36,8 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use executor_protocol::{
-    Adapter, AdapterError, Apply, Below, Capabilities, Close, Describe, Executor, InstructionBatch,
-    InstructionBatchRef, OnePerShot, Outcome, Outcomes, ProgramInput, ShotContext, ShotOutcome,
+    Adapter, AdapterError, Apply, Below, CallInput, Capabilities, Close, Describe, Executor,
+    InstructionBatch, InstructionBatchRef, OnePerShot, Outcome, Outcomes, ShotContext, ShotOutcome,
     ShotSet, TypedInstruction, Value, adapter_fn, executor_fn, wait,
 };
 
@@ -76,7 +76,7 @@ fn gate_at(i: usize) -> Gate {
 /// The executor: a state of eight bits per shot.
 fn bits() -> impl Executor<InstructionBatch<Gate>> + Describe + Close {
     let state = |_: ShotContext| Ok(0_u8);
-    let logic = |bits: &mut u8, input: &ProgramInput<'_, Gate>, outcomes: &mut Outcomes<'_>| {
+    let logic = |bits: &mut u8, input: &CallInput<'_, Gate>, outcomes: &mut Outcomes<'_>| {
         for &gate in input.instructions() {
             match gate {
                 Gate::Flip(bit) => *bits ^= 1 << bit,
@@ -109,7 +109,7 @@ impl<E: Executor<InstructionBatch<Gate>> + Close> Apply<E> for Passing {
 /// The logic of an [`adapter_fn`] that sends each call down as it is.
 fn pass<S>(
     _: &mut S,
-    input: &ProgramInput<'_, Gate>,
+    input: &CallInput<'_, Gate>,
     below: &mut Below<'_, Gate>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {

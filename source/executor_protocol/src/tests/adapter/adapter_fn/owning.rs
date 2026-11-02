@@ -29,9 +29,9 @@ use crate::tests::executor_fn::panic_text;
 use crate::tests::test_double::{run, step};
 use crate::tests::{shots, values};
 use crate::{
-    AdapterError, AdapterFn, Below, BelowHandle, Capabilities, Close, Compose, Describe, Executor,
-    ImmediateReply, InstructionBatch, InstructionBatchRef, OnePerShot, OnePerShotAdapter, Outcome,
-    Outcomes, Owning, ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
+    AdapterError, AdapterFn, Below, BelowHandle, CallInput, Capabilities, Close, Compose, Describe,
+    Executor, ImmediateReply, InstructionBatch, InstructionBatchRef, OnePerShot, OnePerShotAdapter,
+    Outcome, Outcomes, Owning, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
     WithExecutor, adapter_fn, compose, executor_fn, owning_adapter_fn,
 };
 
@@ -197,7 +197,7 @@ fn its_way_below(_: ShotContext, below: BelowHandle<bool>) -> Result<BelowHandle
 /// its state's way below.
 fn pass_owned(
     below: &mut BelowHandle<bool>,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
     below.send(input.instructions())
@@ -207,7 +207,7 @@ fn pass_owned(
 /// reads, through its state's way below.
 fn run_each_owned(
     below: &mut BelowHandle<bool>,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
     outcomes.extend(below.run(input.instructions())?);
@@ -293,14 +293,14 @@ fn owned_sends_of_each_shot_merge_as_lent_ones_do() {
     let lowering = adapter_fn(
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
         |shot: &mut ShotId,
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          below: &mut Below<'_, bool>,
          _: &mut Outcomes<'_>| send_each(below, *shot),
     );
     let owning = owning_adapter_fn(
         |context: ShotContext, below| Ok::<_, Rejected>((context.shot(), below)),
         |(shot, below): &mut (ShotId, BelowHandle<bool>),
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          _: &mut Outcomes<'_>| {
             let [first, second] = by_parity(*shot);
             below.send(first)?;
@@ -347,7 +347,7 @@ fn an_owned_run_with_one_state_goes_below_on_the_calls_shots() {
         owning_adapter_fn(
             its_way_below,
             move |below: &mut BelowHandle<bool>,
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 got.borrow_mut().extend(below.run(input.instructions())?);
                 Ok(())
@@ -379,7 +379,7 @@ fn an_owned_run_gives_its_readouts_by_shot_each_in_the_order_read() {
     let backwards = executor_fn(
         Capabilities::default(),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
+        |(): &mut (), _: &CallInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
             for tag in (0..30).rev() {
                 outcomes.push(Outcome::new(tag, Value::One));
             }
@@ -393,7 +393,7 @@ fn an_owned_run_gives_its_readouts_by_shot_each_in_the_order_read() {
         owning_adapter_fn(
             its_way_below,
             move |below: &mut BelowHandle<bool>,
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 read.borrow_mut().extend(below.run(input.instructions())?);
                 Ok(())
@@ -420,7 +420,7 @@ fn a_shots_way_below_reaches_nothing_in_another_shots_logic() {
         let (kept, sent) = (Rc::clone(&kept), Rc::clone(&sent));
         owning_adapter_fn(
             giving_up_2s(&kept),
-            move |shot: &mut ShotId, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+            move |shot: &mut ShotId, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
                 let mut kept = kept.borrow_mut();
                 let shot_2s = kept.first_mut().expect("shot 2's state gave it up");
                 sent.borrow_mut().push((*shot, shot_2s.send(&[true])));
@@ -462,7 +462,7 @@ fn a_way_below_reaches_nothing_in_the_logic_of_an_adapter_below() {
                 Ok(Some(below))
             },
             |below: &mut Option<BelowHandle<bool>>,
-             input: &ProgramInput<'_, bool>,
+             input: &CallInput<'_, bool>,
              outcomes: &mut Outcomes<'_>| match below {
                 Some(below) => run_each_owned(below, input, outcomes),
                 None => Ok(()),
@@ -474,7 +474,7 @@ fn a_way_below_reaches_nothing_in_the_logic_of_an_adapter_below() {
         owning_adapter_fn(
             its_way_below,
             move |below: &mut BelowHandle<bool>,
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   outcomes: &mut Outcomes<'_>| {
                 let mut kept = kept.borrow_mut();
                 let shot_2s = kept.first_mut().expect("shot 2's state gave it up");
@@ -513,7 +513,7 @@ fn a_way_below_reaches_nothing_in_another_chains_logic_its_logic_runs() {
         owning_adapter_fn(
             its_way_below,
             move |below: &mut BelowHandle<bool>,
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   outcomes: &mut Outcomes<'_>| {
                 let mut kept = kept.borrow_mut();
                 let runtime_below = kept.first_mut().expect("the runtime's state gave it up");
@@ -527,7 +527,7 @@ fn a_way_below_reaches_nothing_in_another_chains_logic_its_logic_runs() {
     ));
     let consulting = {
         let tracing = Rc::clone(&tracing);
-        move |_: &mut ShotId, input: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |_: &mut ShotId, input: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             let (_, end) = run(
                 &mut *tracing.borrow_mut(),
                 &ShotSet::one(0),
@@ -560,7 +560,7 @@ fn a_way_below_reaches_below_from_a_merged_send_its_logic_runs() {
     let handed = Arc::clone(&consulted.handed);
     let tracer = owning_adapter_fn(its_way_below, pass_owned).shots(OnePerShot);
     let mut tracing = (tracer >> consulted.clone()).expect("bools fit");
-    let consulting = move |(): &mut (), input: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+    let consulting = move |(): &mut (), input: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
         let (_, end) = run(&mut tracing, &shots(&[0, 1]), input.instructions())
             .map_err(|refused| refused.to_string())?;
         Ok(end?)
@@ -609,7 +609,7 @@ fn an_owned_run_refused_after_a_send_fails_the_call_and_the_adapter() {
         ..Downstream::default()
     };
     let read_then_skip =
-        |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        |below: &mut BelowHandle<bool>, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             below.send(&[true])?;
             below.run(&[false]).map(drop)
         };
@@ -634,7 +634,7 @@ fn an_owned_send_refused_below_gives_its_logic_the_refusal() {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let skipping = {
         let seen = Rc::clone(&seen);
-        move |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |below: &mut BelowHandle<bool>, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             seen.borrow_mut().push(below.send(&[false]));
             Ok(())
         }
@@ -664,7 +664,7 @@ fn a_shots_owned_send_after_its_refused_run_gives_its_logic_the_refusal() {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let going_on = {
         let seen = Rc::clone(&seen);
-        move |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |below: &mut BelowHandle<bool>, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             below.run(&[false]).expect_err("the skip is refused below");
             seen.borrow_mut().push(below.send(&[true]));
             Ok(())
@@ -695,9 +695,7 @@ fn an_owned_run_that_fails_below_fails_the_call_and_the_adapter() {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let ignoring = {
         let seen = Rc::clone(&seen);
-        move |below: &mut BelowHandle<bool>,
-              input: &ProgramInput<'_, bool>,
-              _: &mut Outcomes<'_>| {
+        move |below: &mut BelowHandle<bool>, input: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             seen.borrow_mut()
                 .push(below.run(input.instructions()).map(drop));
             Ok(())
@@ -727,7 +725,7 @@ fn a_per_shot_logic_that_returns_a_refusal_fails_the_call_and_the_adapter() {
         let kept = Rc::clone(&kept);
         owning_adapter_fn(
             giving_up_2s(&kept),
-            move |_: &mut ShotId, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+            move |_: &mut ShotId, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
                 let mut kept = kept.borrow_mut();
                 let shot_2s = kept.first_mut().expect("shot 2's state gave it up");
                 shot_2s.send(&[true])
@@ -748,7 +746,7 @@ fn a_per_shot_logic_that_returns_a_refusal_fails_the_call_and_the_adapter() {
 #[test]
 fn a_one_state_logic_that_returns_a_refusal_fails_the_call_and_the_adapter() {
     let handing_off =
-        |below: &mut BelowHandle<bool>, input: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        |below: &mut BelowHandle<bool>, input: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             let instructions = input.instructions();
             thread::scope(|scope| scope.spawn(|| below.send(instructions)).join())
                 .expect("the thread ends well")
@@ -777,7 +775,7 @@ impl Drop for Logged {
 /// A logged state's logic: sends each call down.
 fn pass_logged(
     state: &mut Logged,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
     state.below.send(input.instructions())
@@ -852,11 +850,7 @@ fn a_way_below_reaches_nothing_from_its_state_closure() {
 
 /// The logic of an adapter that does nothing below.
 #[expect(clippy::unnecessary_wraps, reason = "the signature a logic has")]
-fn idle(
-    _: &mut ShotId,
-    _: &ProgramInput<'_, bool>,
-    _: &mut Outcomes<'_>,
-) -> Result<(), AdapterError> {
+fn idle(_: &mut ShotId, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>) -> Result<(), AdapterError> {
     Ok(())
 }
 
@@ -903,7 +897,7 @@ fn a_way_below_of_a_state_dropped_with_a_refused_call_reaches_nothing() {
     let sent = Rc::new(RefCell::new(Vec::new()));
     let decoder = {
         let (kept, sent) = (Rc::clone(&kept), Rc::clone(&sent));
-        move |_: &mut ShotId, input: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |_: &mut ShotId, input: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             let mut kept = kept.borrow_mut();
             if let [dropped, _] = &mut kept[..] {
                 sent.borrow_mut().push(dropped.send(&[true]));
@@ -942,7 +936,7 @@ fn a_way_below_of_a_state_dropped_with_a_failed_call_reaches_nothing() {
     let kept = Kept::default();
     let decoder = {
         let kept = Rc::clone(&kept);
-        move |_: &mut ShotId, input: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |_: &mut ShotId, input: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             let mut kept = kept.borrow_mut();
             let own = kept.first_mut().expect("the serving state gave it up");
             own.run(input.instructions()).map(drop)
@@ -1008,7 +1002,7 @@ fn a_states_drop_reaches_nothing_below() {
         }
     };
     let pass = |runtime: &mut FlushingAtItsEnd,
-                input: &ProgramInput<'_, bool>,
+                input: &CallInput<'_, bool>,
                 _: &mut Outcomes<'_>| runtime.below.send(input.instructions());
     let downstream = Downstream::default();
     let mut executor =
@@ -1036,7 +1030,7 @@ fn a_way_below_reaches_nothing_from_inside_a_call_below() {
             Ok(Some(below))
         },
         |below: &mut Option<BelowHandle<bool>>,
-         input: &ProgramInput<'_, bool>,
+         input: &CallInput<'_, bool>,
          outcomes: &mut Outcomes<'_>| {
             if let Some(below) = below {
                 outcomes.extend(below.run(input.instructions())?);
@@ -1099,7 +1093,7 @@ fn owned_lowering_failing_at_5(
     let lowering = owning_adapter_fn(
         |context: ShotContext, below: BelowHandle<Pulse>| Ok((context.shot(), below)),
         move |(shot, below): &mut (ShotId, BelowHandle<Pulse>),
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               _: &mut Outcomes<'_>| {
             assert!(*shot != 5, "the lowering has a bug");
             below.send(&pulses)
@@ -1121,7 +1115,7 @@ fn an_owned_sends_drop_that_panics_after_its_call_ran_leaves_the_adapter_serving
     let pulses = [Pulse::on(0, &released), Pulse::on(1, &released)];
     let lowering = owning_adapter_fn(
         |_: ShotContext, below: BelowHandle<Pulse>| Ok(below),
-        move |below: &mut BelowHandle<Pulse>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |below: &mut BelowHandle<Pulse>, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             below.send(&pulses)
         },
     )
@@ -1139,7 +1133,7 @@ fn an_owned_sends_drop_that_panics_after_its_call_ran_leaves_the_adapter_serving
 #[test]
 fn closing_after_a_logic_panicked_closes_below() {
     let buggy = |below: &mut BelowHandle<bool>,
-                 input: &ProgramInput<'_, bool>,
+                 input: &CallInput<'_, bool>,
                  _: &mut Outcomes<'_>|
      -> Result<(), AdapterError> {
         below.send(input.instructions())?;
@@ -1187,7 +1181,7 @@ fn a_way_below_reaches_below_after_its_logic_caught_a_panic_there() {
     let lent = adapter_fn(
         no_state,
         |(): &mut (),
-         input: &ProgramInput<'_, bool>,
+         input: &CallInput<'_, bool>,
          below: &mut Below<'_, bool>,
          outcomes: &mut Outcomes<'_>| {
             outcomes.extend(after_a_caught_panic(|| {
@@ -1199,7 +1193,7 @@ fn a_way_below_reaches_below_after_its_logic_caught_a_panic_there() {
     let owned = owning_adapter_fn(
         its_way_below,
         |below: &mut BelowHandle<bool>,
-         input: &ProgramInput<'_, bool>,
+         input: &CallInput<'_, bool>,
          outcomes: &mut Outcomes<'_>| {
             outcomes.extend(after_a_caught_panic(|| {
                 below.run(input.instructions()).map_err(String::from)
@@ -1235,7 +1229,7 @@ fn a_shots_way_below_reaches_below_after_its_logic_caught_a_panic_there() {
     let lent = adapter_fn(
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
         |shot: &mut ShotId,
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          below: &mut Below<'_, bool>,
          _: &mut Outcomes<'_>| {
             if *shot == 5 {
@@ -1250,7 +1244,7 @@ fn a_shots_way_below_reaches_below_after_its_logic_caught_a_panic_there() {
     let owned = owning_adapter_fn(
         |context: ShotContext, below| Ok::<_, Rejected>((context.shot(), below)),
         |(shot, below): &mut (ShotId, BelowHandle<bool>),
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          _: &mut Outcomes<'_>| {
             if *shot == 5 {
                 return below.send(SENT_BY_5);
@@ -1298,7 +1292,7 @@ fn a_shots_kept_sends_go_below_once_though_one_panics_going_alone() {
     let lent = adapter_fn(
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
         |shot: &mut ShotId,
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          below: &mut Below<'_, bool>,
          _: &mut Outcomes<'_>| {
             if *shot == 5 {
@@ -1314,7 +1308,7 @@ fn a_shots_kept_sends_go_below_once_though_one_panics_going_alone() {
     let owned = owning_adapter_fn(
         |context: ShotContext, below| Ok::<_, Rejected>((context.shot(), below)),
         |(shot, below): &mut (ShotId, BelowHandle<bool>),
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          _: &mut Outcomes<'_>| {
             if *shot == 5 {
                 return below.send(SENT_BY_5);
@@ -1366,7 +1360,7 @@ fn a_kept_sends_panic_below_comes_at_its_shots_run_not_at_the_send() {
     let lent = adapter_fn(
         no_state,
         |(): &mut (),
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          below: &mut Below<'_, bool>,
          _: &mut Outcomes<'_>| {
             let below = RefCell::new(below);
@@ -1378,7 +1372,7 @@ fn a_kept_sends_panic_below_comes_at_its_shots_run_not_at_the_send() {
     );
     let owned = owning_adapter_fn(
         its_way_below,
-        |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        |below: &mut BelowHandle<bool>, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             let below = RefCell::new(below);
             a_catch_around_a_send(
                 |sent| below.borrow_mut().send(sent),
@@ -1426,7 +1420,7 @@ fn a_shots_send_that_panicked_going_alone_is_not_sent_as_the_call_ends() {
     let lent = adapter_fn(
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
         |shot: &mut ShotId,
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          below: &mut Below<'_, bool>,
          _: &mut Outcomes<'_>| {
             below.send(SENT)?;
@@ -1439,7 +1433,7 @@ fn a_shots_send_that_panicked_going_alone_is_not_sent_as_the_call_ends() {
     let owned = owning_adapter_fn(
         |context: ShotContext, below| Ok::<_, Rejected>((context.shot(), below)),
         |(shot, below): &mut (ShotId, BelowHandle<bool>),
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          _: &mut Outcomes<'_>| {
             below.send(SENT)?;
             if *shot == 2 {
@@ -1492,20 +1486,20 @@ fn a_shots_calls_below_around_a_caught_panic_are_a_one_state_adapters() {
     let one_state = adapter_fn(
         no_state,
         move |(): &mut (),
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| lent_logic(below),
     );
     let lent = adapter_fn(
         no_state,
         move |(): &mut (),
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| lent_logic(below),
     );
     let owned = owning_adapter_fn(
         its_way_below,
-        |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        |below: &mut BelowHandle<bool>, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             let below = RefCell::new(below);
             sends_around_a_caught_panic(
                 |sent| below.borrow_mut().send(sent),
@@ -1550,7 +1544,7 @@ fn a_way_below_reaches_nothing_from_another_thread_in_its_logic() {
     let sent = Rc::new(RefCell::new(Vec::new()));
     let handing_off = {
         let sent = Rc::clone(&sent);
-        move |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |below: &mut BelowHandle<bool>, _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| {
             let elsewhere = thread::scope(|scope| scope.spawn(|| below.send(&[true])).join());
             sent.borrow_mut()
                 .push(elsewhere.expect("the thread ends well"));
@@ -1601,7 +1595,7 @@ fn a_way_below_reaches_nothing_from_a_thread_locals_destructor() {
             LEFT.with_borrow_mut(|left| *left = Some(Left { below, sent }));
             Ok::<_, Rejected>(())
         };
-        let idle = |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(());
+        let idle = |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(());
         let mut executor = (owning_adapter_fn(leaving, idle) >> below).expect("bools fit");
         step(&mut executor, &ShotSet::one(0), &[true], "the call runs");
     })
@@ -1670,7 +1664,7 @@ struct Runtime {
 /// they read.
 fn run_planned(
     runtime: &mut Runtime,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
     let lowered: Vec<bool> = (runtime.plan.iter().chain(input.instructions()))

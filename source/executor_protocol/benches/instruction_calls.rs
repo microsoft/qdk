@@ -52,10 +52,10 @@ use std::time::Instant;
 
 use executor_protocol::{
     Action, Adapter, AdapterBoundary, AdapterError, AdaptiveProgram, Apply, Below, BelowHandle,
-    Capabilities, Close, Describe, Executor, ImmediateReply, InstructionBatch, InstructionBatchRef,
-    InstructionCall, InstructionSet, Needs, OnePerShot, Opcode, OpcodeMap, OpcodeTable, Operand,
-    OperandKind, Outcomes, Pauli, ProgramInput, Rejected, Reply, ShotContext, ShotId, ShotOutcome,
-    ShotSet, adapter_fn, compose, driver, owning_adapter_fn, wait,
+    CallInput, Capabilities, Close, Describe, Executor, ImmediateReply, InstructionBatch,
+    InstructionBatchRef, InstructionCall, InstructionSet, Needs, OnePerShot, Opcode, OpcodeMap,
+    OpcodeTable, Operand, OperandKind, Outcomes, Pauli, Rejected, Reply, ShotContext, ShotId,
+    ShotOutcome, ShotSet, adapter_fn, compose, driver, owning_adapter_fn, wait,
 };
 
 /// The calls of each batch.
@@ -1027,7 +1027,7 @@ impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for Passin
 /// The logic of an [`adapter_fn`] that passes each call down as it is.
 fn pass(
     (): &mut (),
-    input: &ProgramInput<'_, InstructionCall>,
+    input: &CallInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -1051,7 +1051,7 @@ fn own(
 /// is, through its state's way below.
 fn pass_owned(
     below: &mut BelowHandle<InstructionCall>,
-    input: &ProgramInput<'_, InstructionCall>,
+    input: &CallInput<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
     below.send(input.instructions())

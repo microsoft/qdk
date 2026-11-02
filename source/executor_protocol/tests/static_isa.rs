@@ -45,10 +45,10 @@ use std::f64::consts::FRAC_PI_4;
 use std::sync::Arc;
 
 use executor_protocol::{
-    Action, AdapterError, AdaptiveProgram, Angle, Below, BuildError, Describe, Executor,
+    Action, AdapterError, AdaptiveProgram, Angle, Below, BuildError, CallInput, Describe, Executor,
     InstructionBatch, InstructionBatchRef, InstructionMismatch, InstructionSet, JobFaults, Need,
-    Needs, OnePerShot, Operand, OperandKind, Outcomes, Pauli, ProgramInput, Rejected, ShotOutcome,
-    ShotSet, Value, adapter_fn, compose, conformance, driver, owning_adapter_fn, wait,
+    Needs, OnePerShot, Operand, OperandKind, Outcomes, Pauli, Rejected, ShotOutcome, ShotSet,
+    Value, adapter_fn, compose, conformance, driver, owning_adapter_fn, wait,
 };
 
 use code_runtime::{
@@ -501,7 +501,7 @@ fn the_code_as_a_logic_reads_what_its_adapter_reads() {
 /// rest as it is.
 fn measure_in_rounds(
     (): &mut (),
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     below: &mut Below<'_, Op>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -545,7 +545,7 @@ fn the_code_as_a_logic_decodes_readouts_in_any_order() {
 /// block's three votes disagree, two against one.
 fn flip_first_votes(
     (): &mut (),
-    input: &ProgramInput<'_, Op>,
+    input: &CallInput<'_, Op>,
     below: &mut Below<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {

@@ -66,10 +66,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use executor_protocol::{
-    Action, AdaptiveProgram, Angle, Capabilities, Close, Executor, ExecutorReport, Fold,
+    Action, AdaptiveProgram, Angle, CallInput, Capabilities, Close, Executor, ExecutorReport, Fold,
     ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
     InstructionSet, Needs, OnePerShot, OpcodeTable, Operand, OperandKind, Outcome, Outcomes, Pauli,
-    ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
+    Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
     check_unique_tags, compose, driver, executor_fn, wait,
 };
 
@@ -681,15 +681,14 @@ impl Close for TypedCounting {
 fn per_shot_run<I: Instruction, P: Profile<I>>(
     program: Chunked<'_, I>,
     capabilities: Capabilities,
-    check: impl FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>,
+    check: impl FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     make: impl Fn(ShotId, u64) -> P,
 ) -> (Vec<ShotOutcome>, ExecutorReport<Tally>) {
     let state = move |context: ShotContext| Ok(make(context.shot(), context.seed()));
-    let program_fn =
-        |profiler: &mut P, input: &ProgramInput<'_, I>, outcomes: &mut Outcomes<'_>| {
-            profiler.run(input.instructions(), |outcome| outcomes.push(outcome));
-            Ok(())
-        };
+    let program_fn = |profiler: &mut P, input: &CallInput<'_, I>, outcomes: &mut Outcomes<'_>| {
+        profiler.run(input.instructions(), |outcome| outcomes.push(outcome));
+        Ok(())
+    };
     let executor = executor_fn(capabilities, state, program_fn)
         .check(check)
         .log_probability(|profiler: &P| profiler.counter().log_p)

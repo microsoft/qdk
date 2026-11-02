@@ -11,11 +11,10 @@ use crate::tests::{
     Bits, BitsState, Count, YieldNow, bits_set, call, ends_soon, flip_and_toss, run_tasks, values,
 };
 use crate::{
-    Action, Capabilities, Close, Describe, Executor, ExecutorLifecycle, ImmediateReply,
+    Action, CallInput, Capabilities, Close, Describe, Executor, ExecutorLifecycle, ImmediateReply,
     InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, JobFaults, Need, Needs,
-    OnePerShot, Opcode, Operand, OperandKind, Outcome, Outcomes, Pauli, ProgramInput, Rejected,
-    ShotContext, ShotOutcome, StaticProgram, StaticProgramError, Value, compose, driver,
-    executor_fn,
+    OnePerShot, Opcode, Operand, OperandKind, Outcome, Outcomes, Pauli, Rejected, ShotContext,
+    ShotOutcome, StaticProgram, StaticProgramError, Value, compose, driver, executor_fn,
 };
 
 /// [`flip_and_toss`] as a static program in [`bits_set`]'s numbering,
@@ -486,7 +485,7 @@ fn a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_bat
         two_bits,
         |_: ShotContext| Ok([false; 2]),
         move |bits: &mut [bool; 2],
-              input: &ProgramInput<'_, InstructionCall>,
+              input: &CallInput<'_, InstructionCall>,
               outcomes: &mut Outcomes<'_>| {
             for call in input.instructions() {
                 let operand = |i: usize| match call.operands[i] {
@@ -503,7 +502,7 @@ fn a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_bat
             Ok(())
         },
     )
-    .check(|input: &ProgramInput<'_, InstructionCall>| {
+    .check(|input: &CallInput<'_, InstructionCall>| {
         let lacked = input
             .instructions()
             .iter()

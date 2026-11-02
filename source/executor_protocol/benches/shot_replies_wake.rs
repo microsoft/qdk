@@ -40,8 +40,8 @@ use std::task::Waker;
 use std::time::{Duration, Instant};
 
 use executor_protocol::{
-    Capabilities, Executor, InstructionBatchRef, OnePerShot, Outcome, Outcomes, PlacementJob,
-    ProgramInput, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotReplies,
+    CallInput, Capabilities, Executor, InstructionBatchRef, OnePerShot, Outcome, Outcomes,
+    PlacementJob, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotReplies,
     ShotSet, TypedInstruction, executor_fn,
 };
 
@@ -78,7 +78,7 @@ fn bit(context: ShotContext) -> Result<Bit, Rejected> {
 )]
 fn read(
     bit: &mut Bit,
-    input: &ProgramInput<'_, Read>,
+    input: &CallInput<'_, Read>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     for &Read(tag) in input.instructions() {

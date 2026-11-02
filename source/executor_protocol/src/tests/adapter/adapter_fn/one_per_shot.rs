@@ -25,12 +25,12 @@ use crate::tests::{
     Bits, PanicsOnClose, bits_set, ends_soon, flip_and_toss, reversed_set, shots, values,
 };
 use crate::{
-    AdapterError, AdapterLogic, Below, BuildError, Capabilities, Close, ComponentId, Describe,
-    Executor, ExecutorFn, ExecutorLogic, IncrementalReply, InstructionBatch, InstructionBatchRef,
-    InstructionCall, MakeState, Need, OnePerShot, OnePerShotAdapter, OnePerShotExecutor, Outcome,
-    Outcomes, OwnThread, ProgramInput, Rejected, Reply, ReplyStatus, ShotContext, ShotId,
-    ShotOutcome, ShotSet, Value, adapter_fn, compose, conformance, executor_fn, reply_channel,
-    wait,
+    AdapterError, AdapterLogic, Below, BuildError, CallInput, Capabilities, Close, ComponentId,
+    Describe, Executor, ExecutorFn, ExecutorLogic, IncrementalReply, InstructionBatch,
+    InstructionBatchRef, InstructionCall, MakeState, Need, OnePerShot, OnePerShotAdapter,
+    OnePerShotExecutor, Outcome, Outcomes, OwnThread, Rejected, Reply, ReplyStatus, ShotContext,
+    ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose, conformance, executor_fn,
+    reply_channel, wait,
 };
 
 /// The shots of the target chain's run: not a range.
@@ -69,7 +69,7 @@ fn no_state(_: ShotContext) -> Result<(), Rejected> {
 /// its state.
 fn pass<S>(
     _: &mut S,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -80,7 +80,7 @@ fn pass<S>(
 /// even shots read once, the odd ones skip a bit, then read.
 fn by_parity(
     shot: &mut ShotId,
-    _: &ProgramInput<'_, bool>,
+    _: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -115,7 +115,7 @@ fn each_shot_has_a_state_of_its_own_kept_for_its_later_calls() {
                 Ok((context.shot(), 0))
             },
             move |(shot, calls): &mut (ShotId, u32),
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 *calls += 1;
@@ -144,7 +144,7 @@ type Counts = Rc<RefCell<BTreeMap<bool, u64>>>;
 /// kind, then sends the call down.
 fn profile(
     counts: &mut Counts,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -265,7 +265,7 @@ fn unequal_sends_go_below_apart_each_over_the_shots_that_sent_it() {
 fn sends_merge_by_what_they_hold_wherever_it_lies() {
     let (executor, calls) = recorded(below(TestDoubleModel::default()));
     let parts = |shot: &mut ShotId,
-                 input: &ProgramInput<'_, bool>,
+                 input: &CallInput<'_, bool>,
                  below: &mut Below<'_, bool>,
                  _: &mut Outcomes<'_>| {
         let instructions = input.instructions();
@@ -298,7 +298,7 @@ fn sends_merge_by_what_they_hold_wherever_it_lies() {
 fn a_shots_sends_reach_below_in_the_order_it_made_them() {
     let (executor, calls) = recorded(below(TestDoubleModel::default()));
     let both_ways = |shot: &mut ShotId,
-                     _: &ProgramInput<'_, bool>,
+                     _: &CallInput<'_, bool>,
                      below: &mut Below<'_, bool>,
                      _: &mut Outcomes<'_>| {
         let (read, skip_read): (&[bool], &[bool]) = (&[true], &[false, true]);
@@ -345,7 +345,7 @@ fn a_buffer_sent_again_is_sent_as_it_is_at_each_send() {
         };
         let buffer = RefCell::new(buffer);
         let sharing = |shot: &mut ShotId,
-                       _: &ProgramInput<'_, bool>,
+                       _: &CallInput<'_, bool>,
                        below: &mut Below<'_, bool>,
                        _: &mut Outcomes<'_>| {
             buffer.borrow_mut()[0] = shot.is_multiple_of(2);
@@ -367,7 +367,7 @@ fn a_buffer_sent_again_is_sent_as_it_is_at_each_send() {
 /// and writes depends on its shot's state.
 fn growing(
     calls: &mut u32,
-    _: &ProgramInput<'_, bool>,
+    _: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -411,7 +411,7 @@ fn sorted(mut outcomes: Vec<(u32, u32, Value)>) -> Vec<(u32, u32, Value)> {
 #[test]
 fn an_outcome_written_answers_its_own_shot_only() {
     let decoding = |shot: &mut ShotId,
-                    _: &ProgramInput<'_, bool>,
+                    _: &CallInput<'_, bool>,
                     _: &mut Below<'_, bool>,
                     outcomes: &mut Outcomes<'_>| {
         outcomes.push(Outcome::new(9, (*shot % 2 == 1).into()));
@@ -441,7 +441,7 @@ fn unseeded_simulator() -> ExecutorFn<bool, (), impl MakeState<()>, impl Executo
     executor_fn(
         Capabilities::default().with_qubits(4),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
     )
 }
 
@@ -495,7 +495,7 @@ fn seeded_reading_simulator() -> ExecutorFn<
     executor_fn(
         Capabilities::default().with_qubits(4).with_replayable(true),
         |context: ShotContext| Ok(context.seed()),
-        |seed: &mut u64, input: &ProgramInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
+        |seed: &mut u64, input: &CallInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
             for (i, &read) in input.instructions().iter().enumerate() {
                 if read {
                     outcomes.push(Outcome::new(
@@ -521,7 +521,7 @@ fn reading_simulator()
 /// as a skip.
 fn losing_reads(
     generator: &mut u64,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -575,7 +575,7 @@ fn a_drawing_adapter_passes_resumable_shots_up() {
             .with_qubits(4)
             .with_resumable_shots(true),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
     )
     .seed(SEED)
     .shots(OnePerShot);
@@ -984,7 +984,7 @@ fn a_state_that_cannot_be_made_refuses_the_call_before_any_logic_runs() {
     let counting = {
         let ran = Rc::clone(&ran);
         move |shot: &mut ShotId,
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               outcomes: &mut Outcomes<'_>| {
             ran.set(ran.get() + 1);
@@ -1002,7 +1002,7 @@ fn a_state_that_cannot_be_made_refuses_the_call_before_any_logic_runs() {
 
 /// The check of a lowering that has no rule for a skip (`false`): it
 /// refuses a call holding one as malformed.
-fn no_skip(input: &ProgramInput<'_, bool>) -> Result<(), Rejected> {
+fn no_skip(input: &CallInput<'_, bool>) -> Result<(), Rejected> {
     if input.instructions().contains(&false) {
         Err(Rejected::Malformed("no rule for a skip".into()))
     } else {
@@ -1025,7 +1025,7 @@ fn the_check_refuses_a_call_before_any_state_is_made_and_any_logic_runs() {
                 its_shot(context)
             },
             move |shot: &mut ShotId,
-                  input: &ProgramInput<'_, bool>,
+                  input: &CallInput<'_, bool>,
                   below: &mut Below<'_, bool>,
                   outcomes: &mut Outcomes<'_>| {
                 ran.set(ran.get() + 1);
@@ -1066,7 +1066,7 @@ fn a_call_the_check_refuses_leaves_the_adapter_serving() {
 /// down.
 fn count_calls(
     calls: &mut u32,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -1114,7 +1114,7 @@ fn a_refused_call_leaves_the_kept_states_as_its_logic_left_them() {
     let logging = {
         let counts = Rc::clone(&counts);
         move |(shot, calls): &mut (ShotId, u32),
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               outcomes: &mut Outcomes<'_>| {
             let sent = count_calls(calls, input, below, outcomes);
@@ -1154,7 +1154,7 @@ fn a_send_returns_ok_though_the_merged_call_it_goes_down_in_is_refused() {
     let keeping = {
         let returned = Rc::clone(&returned);
         move |(): &mut (),
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             returned.borrow_mut().push(below.send(input.instructions()));
@@ -1192,7 +1192,7 @@ fn failing_on_five() -> FailedOnFive {
     let decoding = {
         let ran = Rc::clone(&ran);
         move |shot: &mut ShotId,
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               outcomes: &mut Outcomes<'_>| {
             ran.borrow_mut().push(*shot);
@@ -1251,7 +1251,7 @@ fn a_logic_that_fails_on_a_shot_ends_the_call_after_what_it_wrote() {
 #[test]
 fn a_logic_that_fails_on_a_shot_ends_the_call_after_what_its_sends_alone_read() {
     let decoding = |shot: &mut ShotId,
-                    _: &ProgramInput<'_, bool>,
+                    _: &CallInput<'_, bool>,
                     below: &mut Below<'_, bool>,
                     outcomes: &mut Outcomes<'_>| {
         if *shot == 5 {
@@ -1277,7 +1277,7 @@ fn a_logic_that_fails_on_a_shot_ends_the_call_after_what_its_sends_alone_read() 
 #[test]
 fn a_logic_that_fails_fails_the_adapter() {
     let failing = |(): &mut (),
-                   _: &ProgramInput<'_, bool>,
+                   _: &CallInput<'_, bool>,
                    _: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| { Err("no syndrome".into()) };
     let mut decoded = (adapter_fn(no_state, failing).shots(OnePerShot)
@@ -1346,7 +1346,7 @@ fn a_merged_send_refused_first_refuses_the_call_and_the_adapter_lives_on() {
 #[test]
 fn a_send_alone_refused_first_refuses_the_call() {
     let skip_then_read = |(): &mut (),
-                          _: &ProgramInput<'_, bool>,
+                          _: &CallInput<'_, bool>,
                           below: &mut Below<'_, bool>,
                           _: &mut Outcomes<'_>| {
         below.send(&[false])?;
@@ -1379,7 +1379,7 @@ fn a_failed_call_keeps_no_state_made_for_it() {
         adapter_fn(
             move |context: ShotContext| Ok((context.shot(), Rc::clone(&file))),
             |(shot, _): &mut (ShotId, Rc<()>),
-             input: &ProgramInput<'_, bool>,
+             input: &CallInput<'_, bool>,
              below: &mut Below<'_, bool>,
              _: &mut Outcomes<'_>| {
                 if *shot == 5 {
@@ -1413,7 +1413,7 @@ fn no_counts(_: ShotContext) -> Result<Tally, Rejected> {
 /// it is called with, by kind, then sends the call down.
 fn count_and_send(
     tally: &mut Tally,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -1465,7 +1465,7 @@ fn a_second_close_reports_no_state() {
 #[test]
 fn a_failed_call_reports_no_state_made_for_it() {
     let failing_on_five = |(shot, calls): &mut (ShotId, u64),
-                           input: &ProgramInput<'_, bool>,
+                           input: &CallInput<'_, bool>,
                            below: &mut Below<'_, bool>,
                            _: &mut Outcomes<'_>| {
         *calls += 1;
@@ -1541,7 +1541,7 @@ impl Close for HoldsFalse {
 #[test]
 fn a_call_ended_by_a_refusal_below_ends_with_it_though_an_earlier_sends_reply_fails_later() {
     let decoding = |(): &mut (),
-                    _: &ProgramInput<'_, bool>,
+                    _: &CallInput<'_, bool>,
                     below: &mut Below<'_, bool>,
                     _: &mut Outcomes<'_>| {
         below.send(&[false])?;
@@ -1571,7 +1571,7 @@ fn a_call_ended_by_a_refusal_below_ends_with_it_though_an_earlier_sends_reply_fa
 #[test]
 fn a_call_that_failed_ends_with_its_own_failure_though_a_send_fails_after_it_returned() {
     let failing = |(): &mut (),
-                   _: &ProgramInput<'_, bool>,
+                   _: &CallInput<'_, bool>,
                    below: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| {
         below.send(&[false])?;
@@ -1680,7 +1680,7 @@ fn a_send_whose_reply_fails_ends_the_call_though_another_is_pending() {
     let lowering = adapter_fn(
         |context: ShotContext| Ok::<_, Rejected>(context.shot()),
         |shot: &mut ShotId,
-         _: &ProgramInput<'_, bool>,
+         _: &CallInput<'_, bool>,
          below: &mut Below<'_, bool>,
          _: &mut Outcomes<'_>| {
             let reads = usize::try_from(*shot).expect("a small shot") + 1;
@@ -1968,7 +1968,7 @@ fn dropped_it_frees_its_states_before_its_closures_and_the_executor_below() {
     let observing = adapter_fn(
         move |_: ShotContext| Ok(Dropped("state", Rc::clone(&making))),
         move |_: &mut Dropped,
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             let _held = &connection;
@@ -2004,7 +2004,7 @@ fn dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops() 
             Ok(0_u64)
         },
         move |calls: &mut u64,
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             let _held = &logic;
@@ -2012,7 +2012,7 @@ fn dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops() 
             below.send(input.instructions())
         },
     )
-    .check(move |_: &ProgramInput<'_, bool>| {
+    .check(move |_: &CallInput<'_, bool>| {
         let _held = &checking;
         Ok(())
     })
@@ -2074,7 +2074,7 @@ fn lowering_failing_at_5(
     let lowering = adapter_fn(
         |context: ShotContext| Ok(context.shot()),
         move |shot: &mut ShotId,
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               below: &mut Below<'_, Pulse>,
               _: &mut Outcomes<'_>| {
             assert!(*shot != 5, "the lowering has a bug");
@@ -2099,7 +2099,7 @@ fn a_send_whose_copy_panics_frees_the_copies_made_before_it() {
     let lowering = adapter_fn(
         |_: ShotContext| Ok(()),
         move |(): &mut (),
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               below: &mut Below<'_, Pulse>,
               _: &mut Outcomes<'_>| below.send(&pulses),
     )
@@ -2126,7 +2126,7 @@ fn a_kept_sends_drop_that_panics_after_its_call_ran_leaves_the_adapter_serving()
     let lowering = adapter_fn(
         |_: ShotContext| Ok(()),
         move |(): &mut (),
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               below: &mut Below<'_, Pulse>,
               _: &mut Outcomes<'_>| below.send(&pulses),
     )
@@ -2153,7 +2153,7 @@ fn a_shots_sends_that_go_alone_are_freed_at_its_run_leaving_the_adapter_serving(
     let lowering = adapter_fn(
         |_: ShotContext| Ok(()),
         move |(): &mut (),
-              _: &ProgramInput<'_, bool>,
+              _: &CallInput<'_, bool>,
               below: &mut Below<'_, Pulse>,
               _: &mut Outcomes<'_>| {
             below.send(&pulses[..1])?;
@@ -2240,7 +2240,7 @@ fn a_closed_adapter_refuses_a_call_before_its_check_runs() {
     let checks = Rc::new(Cell::new(0));
     let counted_check = {
         let checks = Rc::clone(&checks);
-        move |input: &ProgramInput<'_, bool>| {
+        move |input: &CallInput<'_, bool>| {
             checks.set(checks.get() + 1);
             no_skip(input)
         }
@@ -2326,7 +2326,7 @@ fn closing_gives_the_report_below() {
 #[test]
 fn a_logic_that_panics_fails_the_adapter() {
     let buggy = |shot: &mut ShotId,
-                 input: &ProgramInput<'_, bool>,
+                 input: &CallInput<'_, bool>,
                  below: &mut Below<'_, bool>,
                  outcomes: &mut Outcomes<'_>| {
         assert!(*shot != 5, "the logic has a bug");
@@ -2349,7 +2349,7 @@ fn a_logic_that_panics_fails_the_adapter() {
 #[test]
 fn a_check_or_a_state_closure_that_panics_fails_the_adapter() {
     let buggy_check =
-        |_: &ProgramInput<'_, bool>| -> Result<(), Rejected> { panic!("the check has a bug") };
+        |_: &CallInput<'_, bool>| -> Result<(), Rejected> { panic!("the check has a bug") };
     let checking = adapter_fn(its_shot, pass)
         .check(buggy_check)
         .shots(OnePerShot);
@@ -2377,7 +2377,7 @@ fn a_check_or_a_state_closure_that_panics_fails_the_adapter() {
 /// reads, whatever its state.
 fn run_each<S>(
     _: &mut S,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     below: &mut Below<'_, bool>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -2403,7 +2403,7 @@ fn a_shots_run_goes_below_on_that_shot_alone() {
 #[test]
 fn a_shots_sends_go_below_before_its_run() {
     let send_send_run = |(): &mut (),
-                         _: &ProgramInput<'_, bool>,
+                         _: &CallInput<'_, bool>,
                          below: &mut Below<'_, bool>,
                          _: &mut Outcomes<'_>| {
         below.send(&[true])?;
@@ -2430,7 +2430,7 @@ fn a_shots_sends_go_below_before_its_run() {
 #[test]
 fn a_shots_sends_after_its_run_merge_with_the_others() {
     let run_then_send = |(): &mut (),
-                         _: &ProgramInput<'_, bool>,
+                         _: &CallInput<'_, bool>,
                          below: &mut Below<'_, bool>,
                          _: &mut Outcomes<'_>| {
         below.run(&[true])?;
@@ -2457,7 +2457,7 @@ fn a_shots_sends_after_its_run_merge_with_the_others() {
 #[test]
 fn a_shots_sends_after_its_run_rank_anew() {
     let probing_odd = |shot: &mut ShotId,
-                       _: &ProgramInput<'_, bool>,
+                       _: &CallInput<'_, bool>,
                        below: &mut Below<'_, bool>,
                        _: &mut Outcomes<'_>| {
         if !shot.is_multiple_of(2) {
@@ -2488,7 +2488,7 @@ fn a_shots_sends_after_its_run_rank_anew() {
 fn a_shots_run_leaves_the_other_shots_sends_merged() {
     let (executor, calls) = recorded(below(TestDoubleModel::default()));
     let checking_odd = |shot: &mut ShotId,
-                        _: &ProgramInput<'_, bool>,
+                        _: &CallInput<'_, bool>,
                         below: &mut Below<'_, bool>,
                         _: &mut Outcomes<'_>| {
         below.send(&[true])?;
@@ -2523,7 +2523,7 @@ fn a_run_that_ends_the_call_stops_the_later_shots() {
     let ignoring = {
         let ran = Rc::clone(&ran);
         move |shot: &mut ShotId,
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             ran.borrow_mut().push(*shot);
@@ -2551,7 +2551,7 @@ fn a_shots_send_after_its_run_failed_gives_the_failure() {
     let run_then_send = {
         let sent = Rc::clone(&sent);
         move |shot: &mut ShotId,
-              input: &ProgramInput<'_, bool>,
+              input: &CallInput<'_, bool>,
               below: &mut Below<'_, bool>,
               _: &mut Outcomes<'_>| {
             let _ = below.run(input.instructions());
@@ -2788,7 +2788,7 @@ fn a_close_below_that_panicked_is_not_run_again() {
 #[test]
 fn a_failed_adapter_closes_what_is_below() {
     let failing = |(): &mut (),
-                   _: &ProgramInput<'_, bool>,
+                   _: &CallInput<'_, bool>,
                    _: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| { Err("no syndrome".into()) };
     let (counted, closes) = close_counted(below(TestDoubleModel::default()));
@@ -2805,7 +2805,7 @@ fn a_failed_adapter_closes_what_is_below() {
 #[test]
 fn an_adapter_whose_logic_panicked_closes_what_is_below() {
     let buggy = |shot: &mut ShotId,
-                 input: &ProgramInput<'_, bool>,
+                 input: &CallInput<'_, bool>,
                  below: &mut Below<'_, bool>,
                  outcomes: &mut Outcomes<'_>| {
         assert!(*shot != 5, "the logic has a bug");
@@ -2828,7 +2828,7 @@ fn an_adapter_whose_logic_panicked_closes_what_is_below() {
 #[test]
 fn a_call_that_panicked_reports_no_state_made_for_it() {
     let panicking_on_five = |(shot, calls): &mut (ShotId, u64),
-                             input: &ProgramInput<'_, bool>,
+                             input: &CallInput<'_, bool>,
                              below: &mut Below<'_, bool>,
                              _: &mut Outcomes<'_>| {
         *calls += 1;
@@ -2934,7 +2934,7 @@ fn nothing_goes_down_after_a_shots_send_whose_reply_failed() {
         ..TestDoubleModel::default()
     };
     let ignoring = |_: &mut ShotId,
-                    input: &ProgramInput<'_, bool>,
+                    input: &CallInput<'_, bool>,
                     below: &mut Below<'_, bool>,
                     _: &mut Outcomes<'_>| {
         let _ = below.send(input.instructions());
@@ -2963,7 +2963,7 @@ fn nothing_goes_down_after_a_merged_send_whose_reply_failed() {
         ..TestDoubleModel::default()
     };
     let marking = |_: &mut ShotId,
-                   input: &ProgramInput<'_, bool>,
+                   input: &CallInput<'_, bool>,
                    below: &mut Below<'_, bool>,
                    _: &mut Outcomes<'_>| {
         below.send(input.instructions())?;

@@ -26,7 +26,7 @@
 use std::collections::BTreeMap;
 
 use executor_protocol::{
-    AdapterError, Below, Outcomes, ProgramInput, Rejected, ShotId, ShotOutcome, Value,
+    AdapterError, Below, CallInput, Outcomes, Rejected, ShotId, ShotOutcome, Value,
 };
 
 use crate::logical::Logical;
@@ -43,7 +43,7 @@ use crate::toy::Op;
 /// some, not all, of its three readouts below.
 pub fn lower_then_decode(
     (): &mut (),
-    input: &ProgramInput<'_, Logical>,
+    input: &CallInput<'_, Logical>,
     below: &mut Below<'_, Op>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), AdapterError> {
@@ -94,7 +94,7 @@ fn majorities(read: &[ShotOutcome]) -> Result<Vec<ShotOutcome>, String> {
 /// The check of a code of `blocks` blocks: it refuses a call at its first
 /// instruction on a block beyond them, before anything goes below, as
 /// `Repetition3` does.
-pub fn within(blocks: u32) -> impl FnMut(&ProgramInput<'_, Logical>) -> Result<(), Rejected> {
+pub fn within(blocks: u32) -> impl FnMut(&CallInput<'_, Logical>) -> Result<(), Rejected> {
     move |input| match (input.instructions().iter()).position(|i| i.block() >= blocks) {
         Some(at) => Err(Rejected::Instruction {
             at,

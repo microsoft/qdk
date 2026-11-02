@@ -37,7 +37,7 @@ matches each readout by its tag
 reply. The order across shots carries no meaning,
 since the outcomes of shots run in parallel interleave
 (`an_executor_hands_over_each_shots_events_as_they_come`,
-`src/tests/shot_states.rs`). So a driver that compares the outcomes of two
+`src/tests/shot_states.rs`). So a caller that compares the outcomes of two
 builds compares them shot by shot, as the test of law 2 does
 ([Levels, roles and laws](composition.md#levels-roles-and-laws)).
 
@@ -70,7 +70,7 @@ a reason of `Failed`, because any executor could fail with the same text
 and the compiler cannot check a match on a string; tokio
 (`JoinError::is_cancelled`), Java (`CancellationException`) and Python
 (`CancelledError`) type it too. `wait`, `wait_async` and `async_events`
-give it as an error whose reason says the call was cancelled; a driver
+give it as an error whose reason says the call was cancelled; a caller
 that tells it from a failure polls the reply (test
 `wait_gives_a_cancelled_reply_as_an_error`, `src/tests/reply.rs`).
 Cancellation at an executor's `close` is planned, with no milestone yet,
@@ -94,7 +94,7 @@ runs the whole shape.
 
 ```mermaid
 sequenceDiagram
-  participant D as driver
+  participant D as caller
   participant X as executor
   participant W as worker thread
   participant T as inner executor
@@ -166,7 +166,7 @@ at step 3:
 | -------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------- |
 | `wait`                                             | parks its thread                                                  | sets a flag and unparks the thread             | the caller's thread, which chose to wait           |
 | `poll_events` with `Waker::noop()`                 | does its own work, and polls again when it chooses                | nothing                                        | nothing                                            |
-| `poll_events` on several replies, a waker for each | parks, if no reply was woken                                      | marks its reply ready, and unparks the driver  | the driver's thread, only while none is ready      |
+| `poll_events` on several replies, a waker for each | parks, if no reply was woken                                      | marks its reply ready, and unparks the caller  | the caller's thread, only while none is ready      |
 | `wait_async`, `async_events`                       | its task returns `Pending` to the runtime, which runs other tasks | the runtime queues the task to be polled again | nothing: the thread runs the runtime's other tasks |
 
 The executor's side is the same in every row: the `ReplySender` pushes and,
@@ -243,16 +243,16 @@ sequenceDiagram
 
 ## Several calls in flight
 
-A driver keeps several replies, gives each its own waker, and sleeps until
+A caller keeps several replies, gives each its own waker, and sleeps until
 one of them wakes it. Each waker records its call as ready and unparks the
-driver, which polls only the calls that were woken. This is what an async
+caller, which polls only the calls that were woken. This is what an async
 runtime does with many futures (test
 `a_driver_keeps_several_calls_in_flight_and_sleeps_until_one_wakes_it`,
 `src/tests/reply.rs`).
 
 ```mermaid
 sequenceDiagram
-  participant A as driver (one thread)
+  participant A as caller (one thread)
   participant X as call 1 (IncrementalReply)
   participant Y as call 2 (IncrementalReply)
   participant C1 as worker 1's ReplySender
@@ -459,7 +459,7 @@ the page's order, with the tests that pin it.
 
 | Promise                                                                                                                     | Tests                                                                                                             |
 | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Polling: a driver with `Waker::noop()` does its own work between polls                                                      | `a_driver_with_a_noop_waker_does_its_own_work_between_polls` (`src/tests/reply.rs`)                               |
+| Polling: a caller with `Waker::noop()` does its own work between polls                                                      | `a_driver_with_a_noop_waker_does_its_own_work_between_polls` (`src/tests/reply.rs`)                               |
 | Async: `wait_async` is a `Future` of the whole reply                                                                        | `wait_async_is_a_future_of_the_whole_reply` (`src/tests/reply/asynchronous.rs`)                                   |
 | Stream: `async_events` gives each batch of events as it comes                                                               | `async_events_gives_each_batch_of_events_as_it_comes` (`src/tests/reply/asynchronous.rs`)                         |
 | An adapter whose logic waits below hands over nothing before that logic returns, not even what its sends below already read | `a_call_returns_only_once_its_logic_returns_though_a_send_below_already_read` (`src/tests/adapter/adapter_fn.rs`) |

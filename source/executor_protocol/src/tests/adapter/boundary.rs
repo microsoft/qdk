@@ -14,10 +14,10 @@ use crate::tests::{
     values,
 };
 use crate::{
-    Adapter, AdapterBoundary, AdapterSeeds, Apply, Below, BuildError, Capabilities, Close,
-    ComponentId, Describe, Executor, ExecutorFn, ExecutorLogic, InstructionBatch, InstructionCall,
-    InstructionSet, MakeState, OnePerShot, Outcomes, ProgramInput, ShotContext, Value, adapter_fn,
-    compose, executor_fn,
+    Adapter, AdapterBoundary, AdapterSeeds, Apply, Below, BuildError, CallInput, Capabilities,
+    Close, ComponentId, Describe, Executor, ExecutorFn, ExecutorLogic, InstructionBatch,
+    InstructionCall, InstructionSet, MakeState, OnePerShot, Outcomes, ShotContext, Value,
+    adapter_fn, compose, executor_fn,
 };
 
 /// A code whose blocks are three qubits, a fault of its own against the two
@@ -232,7 +232,7 @@ fn bits_fn()
     executor_fn(
         Capabilities::default().with_instruction_set(Some(Arc::new(bits_set()))),
         |_| Ok(()),
-        |(): &mut (), _: &ProgramInput<'_, InstructionCall>, _: &mut Outcomes<'_>| Ok(()),
+        |(): &mut (), _: &CallInput<'_, InstructionCall>, _: &mut Outcomes<'_>| Ok(()),
     )
 }
 
@@ -249,7 +249,7 @@ fn an_adapter_reads_when_built_the_runs_seed_the_last_executor_is_given() {
     let noise = || KeepsItsSeeds::new(Some(NOISE), &read);
     let recorder = || map_executor::<InstructionCall, _>(|below| below);
     let pass = |(): &mut (),
-                input: &ProgramInput<'_, InstructionCall>,
+                input: &CallInput<'_, InstructionCall>,
                 below: &mut Below<'_, InstructionCall>,
                 _: &mut Outcomes<'_>| below.send(input.instructions());
     let observer = || adapter_fn(|_: ShotContext| Ok(()), pass);
@@ -311,7 +311,7 @@ fn an_adapter_written_by_hand_draws_from_the_seeds_an_adapter_fn_with_its_id_dra
                 Ok(())
             },
             |(): &mut (),
-             input: &ProgramInput<'_, InstructionCall>,
+             input: &CallInput<'_, InstructionCall>,
              below: &mut Below<'_, InstructionCall>,
              _: &mut Outcomes<'_>| { below.send(input.instructions()) },
         )

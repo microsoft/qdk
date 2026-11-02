@@ -19,13 +19,13 @@ use crate::tests::test_double::TestDoubleModel;
 use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::{
     Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, AdaptiveProgram, Apply,
-    Below, BuildError, BuildFaults, Capabilities, Chain, ChainHead, Close, ComponentId,
+    Below, BuildError, BuildFaults, CallInput, Capabilities, Chain, ChainHead, Close, ComponentId,
     ComposedJob, DefaultDriver, Describe, Driver, Executor, ExecutorLogic, InstructionBatch,
     InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP,
     MakeState, Need, Needs, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
-    OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, ProgramInput, Rejected,
-    ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value,
-    adapter_fn, compose, driver, executor_fn, wait, wait_async,
+    OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, Rejected, ShotContext,
+    ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value, adapter_fn,
+    compose, driver, executor_fn, wait, wait_async,
 };
 
 use OperandKind::{Block, Tag};
@@ -364,7 +364,7 @@ fn profiler(
 > {
     let log = Arc::clone(log);
     let profile = move |profile: &mut Profile,
-                        input: &ProgramInput<'_, bool>,
+                        input: &CallInput<'_, bool>,
                         below: &mut Below<'_, bool>,
                         _: &mut Outcomes<'_>| {
         profile.calls += 1;
@@ -389,7 +389,7 @@ fn negation(
 {
     let log = Arc::clone(log);
     let negate = move |(): &mut (),
-                       input: &ProgramInput<'_, bool>,
+                       input: &CallInput<'_, bool>,
                        below: &mut Below<'_, bool>,
                        _: &mut Outcomes<'_>| {
         log.lock()
@@ -405,7 +405,7 @@ fn negation(
 /// tagged in the order its shot reads them.
 fn read_in_order(
     next: &mut u32,
-    input: &ProgramInput<'_, bool>,
+    input: &CallInput<'_, bool>,
     outcomes: &mut Outcomes<'_>,
 ) -> Result<(), String> {
     for &bit in input.instructions() {
@@ -749,7 +749,7 @@ impl TypedInstruction for Pulse {}
 fn pulses()
 -> OnePerShotAdapter<Level, Pulse, (), impl MakeState<()>, impl AdapterLogic<Level, Pulse, ()>> {
     let lower = |(): &mut (),
-                 input: &ProgramInput<'_, Level>,
+                 input: &CallInput<'_, Level>,
                  below: &mut Below<'_, Pulse>,
                  _: &mut Outcomes<'_>| {
         let pulses: Vec<Pulse> = input
@@ -768,7 +768,7 @@ fn pulses()
 /// in a function of its own, spelled with its defaults as [`pulses`].
 fn bits() -> AdapterFn<Pulse, bool, (), impl MakeState<()>, impl AdapterLogic<Pulse, bool, ()>> {
     let lower = |(): &mut (),
-                 input: &ProgramInput<'_, Pulse>,
+                 input: &CallInput<'_, Pulse>,
                  below: &mut Below<'_, bool>,
                  _: &mut Outcomes<'_>| {
         let bits: Vec<bool> = input.instructions().iter().map(|p| p.driven).collect();
@@ -863,7 +863,7 @@ fn tallied(
     impl AdapterLogic<bool, bool, &Mutex<u32>>,
 > {
     let count = |tally: &mut &Mutex<u32>,
-                 input: &ProgramInput<'_, bool>,
+                 input: &CallInput<'_, bool>,
                  below: &mut Below<'_, bool>,
                  _: &mut Outcomes<'_>| {
         *tally.lock().expect("no test panics") += 1;
