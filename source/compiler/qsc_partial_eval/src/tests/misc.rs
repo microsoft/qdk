@@ -1180,3 +1180,67 @@ fn tuple_swap_update_of_dynamic_mutable_variables_in_static_subexpr() {
                 Jump(1)"#]],
     );
 }
+
+#[test]
+fn short_circuit_instr_generating_constant_propagates_constant() {
+    let program = get_rir_program(indoc! {
+        r#"
+        operation Main() : Bool {
+            use q = Qubit();
+            let r = MResetZ(q);
+            (r == Zero and false) and true
+        }
+        "#,
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(false)
+                Branch Variable(2, Boolean), 2, 1
+            Block 1:Block:
+                Call id(4), args( Bool(false), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(3, Boolean) = Store Bool(false)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn temp_dynamic_result_from_ternop_same_every_path_propagates_constant() {
+    let program = get_rir_program(indoc! {
+        r#"
+        operation Main() : Int {
+            use q = Qubit();
+            (MResetZ(q) == One ? 4 | 4) + 1
+        }
+        "#,
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Call id(4), args( Integer(5), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(2, Integer) = Store Integer(4)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Integer) = Store Integer(4)
+                Jump(1)"#]],
+    );
+}
