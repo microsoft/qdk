@@ -99,7 +99,13 @@ The rules of composition:
   ([A chain and its job](#a-chain-and-its-job)).
 - **Where an adapter's calls meet the executor downstream, the boundary is
   decided once, when the chain is built.** The compiler checks typed
-  instructions. Calls by opcode are checked against the set downstream, and
+  instructions: an adapter must send the type that the part downstream of it
+  accepts. Where it does not, with one of the crate's executors on the right,
+  `a >> executor` and `driver() >> a >> executor` fail with the compiler's
+  bare `no implementation for … >> …`, which does not say why; written with
+  `compose` for that step, `compose(a, executor)` or
+  `compose(driver() >> a, executor)`, the same pair fails with notes that
+  state the rule. Calls by opcode are checked against the set downstream, and
   copied into its numbering where they are numbered otherwise. What is not
   compatible is refused when composed.
 

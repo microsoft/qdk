@@ -605,7 +605,11 @@ named by role, not a bare `impl Adapter`: `profiler()`
 (`tests/observers/profiler.rs`) returns a `OnePerShotAdapter<..>` and
 composes (`the_profilers_report_counts_each_instruction_over_the_shots`,
 `tests/observers.rs`); a bare `impl Adapter` is a compile error, which no
-test pins (`compose`'s rustdoc says why).
+test pins (`compose`'s rustdoc says why). And since two impls fit an
+executor's type on the right, a pair whose instruction types do not meet
+is reported as no `>>` for the pair, with no note of the crate, while
+`compose` reports it with `Compose`'s notes; no test pins either
+(`Compose`'s rustdoc).
 
 Another crate composes with `compose`, or gives its own types `>>`, which
 takes more for an executor than for an adapter. An adapter written by

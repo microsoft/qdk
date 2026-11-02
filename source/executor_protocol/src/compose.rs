@@ -101,7 +101,13 @@ use crate::{AdaptiveProgram, ComposedJob, DefaultDriver, DrivenProgram, JobFault
 /// `A: Adapter`, or returned as a bare `impl Adapter`, is reported
 /// otherwise, the executor after it as no [`Adapter`] (in `compose`) or
 /// as not of the crate's `Adapters` (after `>>`), with notes that name
-/// that case.
+/// that case. Parts whose instruction types do not meet (an adapter or a
+/// chain's head that sends `Op`, upstream of a part that accepts `Gate`)
+/// show these notes in `compose` only. After `>>`, with one of the crate's
+/// executors on the right, they are reported as no `>>` for the pair, with
+/// no note of the crate, since two `Shr` impls match the executor's type;
+/// with an adapter on the right, as a type mismatch on what it accepts.
+/// Written as `compose(upstream, downstream)`, the pair shows the rule.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not compose upstream of `{Rhs}`",
     label = "no rule of `compose` puts `{Self}` upstream of this",
