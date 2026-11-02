@@ -794,7 +794,7 @@ fn programs_need_not_know_their_size() {
     let err = runtime.execute_batch(&program).expect_err("too small");
     assert_eq!(
         err,
-        QodecRuntimeError::Backend("qubit 3 is out of range".to_string())
+        QodecRuntimeError::Bottom("qubit 3 is out of range".to_string())
     );
 }
 #[test]

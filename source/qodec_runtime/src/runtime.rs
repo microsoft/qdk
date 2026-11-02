@@ -81,7 +81,7 @@ impl<Id, P, R, B: Backend<Id, P, R>> Backend<Id, P, R> for BottomNode<B> {
     ) -> Result<BatchResult<R>, Self::Error> {
         self.0
             .execute_batch(instructions)
-            .map_err(QodecRuntimeError::Backend)
+            .map_err(QodecRuntimeError::Bottom)
     }
 }
 
@@ -119,7 +119,7 @@ where
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QodecRuntimeError<E> {
     /// The bottom backend returned `Err`.
-    Backend(E),
+    Bottom(E),
     /// Layer `layer` (0 = top) raised `error`.
     Layer {
         /// The layer's index, 0 being the top.
@@ -132,7 +132,7 @@ pub enum QodecRuntimeError<E> {
 impl<E: fmt::Display> fmt::Display for QodecRuntimeError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            QodecRuntimeError::Backend(e) => write!(f, "bottom backend error: {e}"),
+            QodecRuntimeError::Bottom(e) => write!(f, "bottom backend error: {e}"),
             QodecRuntimeError::Layer { layer, error } => write!(f, "layer {layer}: {error}"),
         }
     }
