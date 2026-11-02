@@ -1,4 +1,4 @@
-"""Verify the generated QDK-EC course and its exercise wiring.
+"""Verify QDK-EC course structure, exercise wiring, and embedded SVG source.
 
 Usage:  python verify_course.py [course-directory] [--allow-outputs]
 """
@@ -165,12 +165,22 @@ for unit in manifest["units"]:
                 current_exercise = None
             counts["sections"] += any(tag.startswith("section:") for tag in tags)
             counts["quizzes"] += source.count("<details>")
-            for name in re.findall(r'<svg[^>]+data-asset="([^"]+)"', source):
+            for svg, name in re.findall(
+                r'(<svg\b[^>]+data-asset="([^"]+)"[^>]*>.*?</svg>)',
+                source,
+                re.DOTALL,
+            ):
                 counts["inline_svgs"] += 1
                 if name not in EXPECTED_INLINE_SVGS:
                     problems.append(f"{cell.id}: unexpected inline SVG {name}")
                 elif name in seen_inline_svgs:
                     problems.append(f"{cell.id}: duplicate inline SVG {name}")
+                else:
+                    asset = Path(__file__).with_name(name)
+                    if not asset.is_file():
+                        problems.append(f"{cell.id}: missing SVG authoring source {name}")
+                    elif svg != asset.read_text(encoding="utf-8").rstrip("\r\n"):
+                        problems.append(f"{cell.id}: inline SVG differs from {name}")
                 seen_inline_svgs.add(name)
 
             for tag, expected_kind in AUTHORING_KINDS.items():
