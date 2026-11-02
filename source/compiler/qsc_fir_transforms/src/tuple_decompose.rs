@@ -719,7 +719,7 @@ fn rewrite_assign_tuples(
     for &stmt_id in stmt_block_map.keys() {
         let stmt = package.stmts.get(stmt_id).expect("stmt should exist");
         let semi_expr_id = match &stmt.kind {
-            StmtKind::Semi(e) => *e,
+            StmtKind::Semi(e) | StmtKind::Expr(e) => *e,
             _ => continue,
         };
         let expr = package.exprs.get(semi_expr_id).expect("expr should exist");
@@ -784,6 +784,8 @@ fn rewrite_assign_tuples(
             assign.kind = ExprKind::Assign(new_lhs_id, values[0]);
             assign.ty = Ty::UNIT;
         }
+        // Unconditionally update the statement to be a `Semi` statement with the original assignment.
+        package.stmts.get_mut(stmt_id).expect("stmt exists").kind = StmtKind::Semi(assign_expr_id);
         new_stmt_ids.push(stmt_id);
 
         // For elements 1..n, create new Assign exprs and Semi stmts.

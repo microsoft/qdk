@@ -1324,6 +1324,117 @@ fn tuple_literal_assignment_snapshots_rhs_before_scalar_stores() {
 }
 
 #[test]
+fn mutable_tuple_literal_reassignment_as_trailing_block_expr_is_decomposed() {
+    let source = "struct P { X : Int, Y : Int }
+            operation Main() : (Int, Int) {
+                mutable p = new P { X = 0, Y = 0 };
+                let u = { set p = new P { X = 1, Y = 2 } };
+                (p.X, p.Y)
+            }";
+
+    check(
+        source,
+        &expect![[r#"
+            Callable Main: input=Tuple()
+              local: mutable Tuple(Bind(p.0: Int), Bind(p.1: Int))
+              local: Bind(u: Unit)"#]],
+    );
+    check_before_after_tuple_decompose(
+        source,
+        &expect![[r#"
+            BEFORE:
+            newtype P = (Int, Int);
+            operation Main() : (Int, Int) {
+                mutable p : (Int, Int) = (0, 0);
+                let u : Unit = {
+                    p = (1, 2)
+                };
+                (p::Item < 0 >, p::Item < 1 >)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype P = (Int, Int);
+            operation Main() : (Int, Int) {
+                mutable (p_0 : Int, p_1 : Int) = (0, 0);
+                let u : Unit = {
+                    let __tuple_rhs_0 : Int = 1;
+                    let __tuple_rhs_1 : Int = 2;
+                    p_0 = __tuple_rhs_0;
+                    p_1 = __tuple_rhs_1;
+                };
+                (p_0, p_1)
+            }
+            // entry
+            Main()
+        "#]],
+    );
+    let qir = generate_qir(source);
+    assert!(
+        qir.contains("__quantum__rt__int_record_output(i64 1,")
+            && qir.contains("__quantum__rt__int_record_output(i64 2,"),
+        "QIR should record the outputs 1 and 2:\n{qir}"
+    );
+}
+
+#[test]
+fn mutable_tuple_literal_reassignment_as_trailing_if_block_expr_is_decomposed() {
+    let source = "struct P { X : Int, Y : Int }
+            operation Main() : (Int, Int) {
+                mutable p = new P { X = 0, Y = 0 };
+                if true { set p = new P { X = 1, Y = 2 } }
+                (p.X, p.Y)
+            }";
+
+    check(
+        source,
+        &expect![[r#"
+            Callable Main: input=Tuple()
+              local: mutable Tuple(Bind(p.0: Int), Bind(p.1: Int))"#]],
+    );
+    check_before_after_tuple_decompose(
+        source,
+        &expect![[r#"
+            BEFORE:
+            newtype P = (Int, Int);
+            operation Main() : (Int, Int) {
+                mutable p : (Int, Int) = (0, 0);
+                if true {
+                    p = (1, 2)
+                }
+
+                (p::Item < 0 >, p::Item < 1 >)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype P = (Int, Int);
+            operation Main() : (Int, Int) {
+                mutable (p_0 : Int, p_1 : Int) = (0, 0);
+                if true {
+                    let __tuple_rhs_0 : Int = 1;
+                    let __tuple_rhs_1 : Int = 2;
+                    p_0 = __tuple_rhs_0;
+                    p_1 = __tuple_rhs_1;
+                }
+
+                (p_0, p_1)
+            }
+            // entry
+            Main()
+        "#]],
+    );
+    let qir = generate_qir(source);
+    assert!(
+        qir.contains("__quantum__rt__int_record_output(i64 1,")
+            && qir.contains("__quantum__rt__int_record_output(i64 2,"),
+        "QIR should record the outputs 1 and 2:\n{qir}"
+    );
+}
+
+#[test]
 fn tuple_copy_assignment_saves_source_fields_before_scalar_stores() {
     // `set x = other` copies a whole tuple local. Copy-assignment normalization
     // rewrites the bare `Var` RHS into a projection tuple `set x = (other::0,

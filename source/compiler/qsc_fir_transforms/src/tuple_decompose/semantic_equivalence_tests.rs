@@ -114,6 +114,50 @@ fn mutable_tuple_update_split_preserves_semantics() {
     "#});
 }
 
+#[test]
+fn struct_reassignment_as_trailing_block_expr_preserves_semantics() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc! {r#"
+        namespace Test {
+            struct P { X : Int, Y : Int }
+
+            @EntryPoint()
+            operation Main() : (Int, Int) {
+                mutable p = new P { X = 0, Y = 0 };
+                let u = { set p = new P { X = 1, Y = 2 } };
+                (p.X, p.Y)
+            }
+        }
+    "#},
+        qsc_eval::val::Value::Tuple(
+            vec![qsc_eval::val::Value::Int(1), qsc_eval::val::Value::Int(2)].into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn struct_reassignment_as_trailing_if_block_expr_preserves_semantics() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc! {r#"
+        namespace Test {
+            struct P { X : Int, Y : Int }
+
+            @EntryPoint()
+            operation Main() : (Int, Int) {
+                mutable p = new P { X = 0, Y = 0 };
+                if true { set p = new P { X = 1, Y = 2 } }
+                (p.X, p.Y)
+            }
+        }
+    "#},
+        qsc_eval::val::Value::Tuple(
+            vec![qsc_eval::val::Value::Int(1), qsc_eval::val::Value::Int(2)].into(),
+            None,
+        ),
+    );
+}
+
 #[cfg(feature = "slow-proptest-tests")]
 fn tuple_decompose_tuple_local_pattern() -> impl Strategy<Value = String> {
     (2..=5usize, 1..=3usize).prop_map(|(width, depth)| {
