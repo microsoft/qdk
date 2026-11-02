@@ -2232,6 +2232,103 @@ fn qubit_allocating_callable_inlines_when_dynamic_alloc_disabled() {
     );
 }
 
+#[test]
+fn curried_allocation_preserves_live_caller_qubit() {
+    let source = r#"
+        operation Inc(x : Int) : Int {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        @EntryPoint()
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            set a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            set b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    assert_curried_allocation_preserves_caller(&compile_source_to_qir(source, *CAPABILITIES));
+}
+
+#[test]
+fn curried_transitive_allocation_preserves_live_caller_qubit() {
+    let source = r#"
+        operation Inner() : Unit {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+        }
+        operation Inc(x : Int) : Int {
+            Inner();
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        @EntryPoint()
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            set a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            set b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    assert_curried_allocation_preserves_caller(&compile_source_to_qir(source, *CAPABILITIES));
+}
+
+fn assert_curried_allocation_preserves_caller(qir: &str) {
+    assert!(qir.contains("\"required_num_qubits\"=\"2\""), "{qir}");
+    assert_eq!(
+        qir.matches("call void @__quantum__rt__int_record_output(i64 5,")
+            .count(),
+        2,
+        "{qir}"
+    );
+    assert!(!qir.contains("define internal i64"), "{qir}");
+}
+
+#[test]
+fn curried_caller_owned_qubit_remains_an_emitted_call() {
+    let source = r#"
+        operation Inc(q : Qubit, x : Int) : Int {
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        @EntryPoint()
+        operation Main() : (Int, Int, Result) {
+            use work = Qubit();
+            mutable a = 0;
+            mutable b = 0;
+            set a = Curried2(Inc(work, _))(a)(2);
+            use r = Qubit();
+            X(r);
+            set b = Curried2(Inc(work, _))(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.lines()
+            .any(|line| line.starts_with("define internal i64") && line.contains("lambda")),
+        "{qir}"
+    );
+}
+
 /// A `Controlled` call inlines: the controlled specialization takes a
 /// synthesized dynamic-length `Qubit[]` control register that has no
 /// base-phase RIR representation, so it is never emitted as an IR function.

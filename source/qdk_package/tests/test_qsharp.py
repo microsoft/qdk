@@ -407,6 +407,111 @@ def test_compiled_array_update_assignment_preserves_index_effects() -> None:
     assert compiled == [[False, True]]
 
 
+@pytest.mark.parametrize(
+    "target_profile",
+    [qsharp.TargetProfile.Adaptive, qsharp.TargetProfile.Adaptive_RIF],
+)
+def test_curried_allocation_preserves_live_caller_qubit(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Inc(x : Int) : Int {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            set a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            set b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    """)
+
+    assert qsharp.eval("Main()") == (5, 5, qsharp.Result.One)
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [(5, 5, qsharp.Result.One)]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [qsharp.TargetProfile.Adaptive, qsharp.TargetProfile.Adaptive_RIF],
+)
+def test_curried_transitive_allocation_preserves_live_caller_qubit(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Inner() : Unit {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+        }
+        operation Inc(x : Int) : Int {
+            Inner();
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            set a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            set b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    """)
+
+    assert qsharp.eval("Main()") == (5, 5, qsharp.Result.One)
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [(5, 5, qsharp.Result.One)]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [qsharp.TargetProfile.Adaptive, qsharp.TargetProfile.Adaptive_RIF],
+)
+def test_curried_caller_owned_qubit_remains_an_emitted_call(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Inc(q : Qubit, x : Int) : Int {
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        operation Main() : (Int, Int, Result) {
+            use work = Qubit();
+            mutable a = 0;
+            mutable b = 0;
+            set a = Curried2(Inc(work, _))(a)(2);
+            use r = Qubit();
+            X(r);
+            set b = Curried2(Inc(work, _))(b)(2);
+            (a, b, MResetZ(r))
+        }
+    """)
+
+    assert qsharp.eval("Main()") == (5, 5, qsharp.Result.One)
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [(5, 5, qsharp.Result.One)]
+
+
 def test_compile_qir_str_from_python_callable() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
