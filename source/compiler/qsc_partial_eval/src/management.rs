@@ -19,7 +19,6 @@ use rustc_hash::FxHashSet;
 pub struct ResourceManager {
     num_qubits: usize,
     free_qubits: BinaryHeap<Reverse<usize>>,
-    next_qubit_id: usize,
     free_qubit_ids: BinaryHeap<Reverse<usize>>,
     qubit_id_map: IndexMap<usize, usize>,
     qubit_tracker: FxHashSet<Rc<Qubit>>,
@@ -59,21 +58,15 @@ impl ResourceManager {
                 .into();
         }
 
-        let qubit = if let Some(Reverse(qubit)) = self.free_qubits.pop() {
-            qubit
-        } else {
-            let qubit = self.num_qubits;
-            self.num_qubits += 1;
-            qubit
+        let (qubit, next_id) = match (self.free_qubits.pop(), self.free_qubit_ids.pop()) {
+            (Some(Reverse(qubit)), Some(Reverse(id))) => (qubit, id),
+            (None, None) => {
+                let id = self.num_qubits;
+                self.num_qubits += 1;
+                (id, id)
+            }
+            _ => unreachable!("free qubit indices and IDs should be available together"),
         };
-        let next_id = if let Some(Reverse(id)) = self.free_qubit_ids.pop() {
-            id
-        } else {
-            let id = self.next_qubit_id;
-            self.next_qubit_id += 1;
-            id
-        };
-        debug_assert!(self.num_qubits == self.next_qubit_id);
         self.qubit_id_map.insert(next_id, qubit);
         let q = Rc::new(Qubit(next_id));
         self.qubit_tracker.insert(Rc::clone(&q));
