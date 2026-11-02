@@ -20,6 +20,40 @@ static CAPABILITIES_DYNAMIC_QUBIT_ALLOC: std::sync::LazyLock<TargetCapabilityFla
     });
 
 #[test]
+fn array_update_scalar_evaluates_index_then_replacement_then_container() {
+    assert_array_update_operand_order("0", "true");
+}
+
+#[test]
+fn array_update_range_evaluates_index_then_replacement_then_container() {
+    assert_array_update_operand_order("0..0", "[true]");
+}
+
+fn assert_array_update_operand_order(index: &str, replacement: &str) {
+    let expected = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            H(q); X(q); Z(q);
+            MResetZ(q)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    let source = format!(
+        r#"
+        operation Main() : Result {{
+            use q = Qubit();
+            let ignored = {{ Z(q); [false] }}
+                w/ {{ H(q); {index} }} <- {{ X(q); {replacement} }};
+            MResetZ(q)
+        }}
+        "#
+    );
+    assert_eq!(compile_source_to_qir(&source, *CAPABILITIES), expected);
+}
+
+#[test]
 fn nested_for_over_qubit_slice_succeeds() {
     let source = "namespace Test {
             import Std.Intrinsic.*;

@@ -4,6 +4,7 @@
 from textwrap import dedent
 import pytest
 from qdk import qsharp
+from qdk.simulation import run_qir
 import qdk.code
 from contextlib import redirect_stdout
 import io
@@ -356,6 +357,54 @@ def test_compile_qir_str() -> None:
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
+
+
+def test_compiled_array_update_scalar_captures_replacement_before_container() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Bool[] {
+            use q = Qubit();
+            mutable value = MResetZ(q) == One;
+            let updated = { set value = not value; [false] } w/ 0 <- value;
+            updated
+        }
+    """)
+
+    assert qsharp.eval("Main()") == [False]
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [[False]]
+
+
+def test_compiled_array_update_range_captures_replacement_before_container() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Bool[] {
+            use q = Qubit();
+            mutable value = MResetZ(q) == One;
+            let updated = { set value = not value; [false] } w/ 0..0 <- [value];
+            updated
+        }
+    """)
+
+    assert qsharp.eval("Main()") == [False]
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [[False]]
+
+
+def test_compiled_array_update_assignment_preserves_index_effects() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Bool[] {
+            use q = Qubit();
+            mutable values = [false, false];
+            set values w/= { set values w/= 1 <- MResetZ(q) == Zero; 0 } <- false;
+            values
+        }
+    """)
+
+    assert qsharp.eval("Main()") == [False, True]
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [[False, True]]
 
 
 def test_compile_qir_str_from_python_callable() -> None:
