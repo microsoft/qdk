@@ -254,8 +254,8 @@ impl<E: Executor<InstructionBatch<Op>>> Executor<InstructionBatch<Op>> for Debug
 
 The step, from any thread, sends the held batch on and passes the reply
 into the held `ReplySender` with `relay`, which wakes the caller
-(`a_driver_thread_waits_while_another_thread_steps`). The debugger draws
-nothing and changes no instruction, so between a driver and an executor it
+(`a_caller_thread_waits_while_another_thread_steps`). The debugger draws
+nothing and changes no instruction, so between a caller and an executor it
 changes no outcome and no seed
 (`the_debugger_changes_no_outcome_and_no_seed`):
 

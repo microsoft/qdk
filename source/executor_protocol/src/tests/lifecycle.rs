@@ -118,7 +118,7 @@ fn a_closed_executor_says_closed_even_after_it_failed() {
     assert_eq!(lifecycle.admit(), Err(Rejected::Closed));
 }
 
-/// A driver closes its executor while a call's work still runs on a
+/// A caller closes its executor while a call's work still runs on a
 /// worker: the call's reply is left alone, and ends as the worker ends it,
 /// with its events.
 #[test]
@@ -274,8 +274,8 @@ fn an_earlier_failure_wakes_a_pending_bound_reply() {
     assert_ne!(wakes(&count), 0);
 }
 
-/// A driver keeps four calls in flight; the third sends its shots to two
-/// devices and binds each part's reply. A task of the driver waits on each
+/// A caller keeps four calls in flight; the third sends its shots to two
+/// devices and binds each part's reply. A task of the caller waits on each
 /// later reply, each with its own waker, and device B's part then ends. The
 /// first call fails: the failure wakes every reply still pending, whatever
 /// its call and whichever parts ended, so that none waits for news that
@@ -309,7 +309,7 @@ fn an_earlier_failure_wakes_every_pending_bound_reply_of_the_later_calls() {
     }
 }
 
-/// A driver keeps three calls in flight and waits on the later two, the
+/// A caller keeps three calls in flight and waits on the later two, the
 /// second with a waker that panics when woken (the caller's bug); the
 /// first call fails, and its reply is polled: the failure wakes the third
 /// call's reply too, so that its task does not wait for news that will
@@ -374,7 +374,7 @@ fn a_bound_reply_woken_by_an_earlier_failure_ends_at_its_next_poll() {
 }
 
 /// A later call's work that, as it is polled, polls the failing earlier
-/// call's reply (on another thread in a real driver), so that the earlier
+/// call's reply (on another thread in a real caller), so that the earlier
 /// failure is recorded during its poll; it gives one event at each poll.
 struct PollsTheFailingCall {
     failing: LifecycleBoundReply<IncrementalReply<u32>>,
@@ -392,7 +392,7 @@ impl Reply for PollsTheFailingCall {
     }
 }
 
-/// A driver polls the second of two calls just as the first call's failure
+/// A caller polls the second of two calls just as the first call's failure
 /// is recorded, and the second call's work is left pending: its next poll
 /// ends it with that failure, and hands over no more events, though the
 /// work below gives one at each poll.
@@ -436,7 +436,7 @@ impl<R: Reply> Reply for TellsPolls<R> {
     }
 }
 
-/// A driver waits on the second of two calls with `wait`, its thread
+/// A caller waits on the second of two calls with `wait`, its thread
 /// parked once the reply is pending, and the first call fails on another
 /// thread: `wait` returns the earlier failure at its next poll, rather
 /// than polling in a loop.
@@ -451,7 +451,7 @@ fn wait_on_a_bound_reply_returns_at_the_poll_after_an_earlier_failure() {
         let failing = thread::spawn(move || {
             was_polled
                 .recv()
-                .expect("the driver polls the second reply");
+                .expect("the caller polls the second reply");
             first.fail("lost".into());
             poll(&mut first_reply, &mut Vec::new())
         });
@@ -465,7 +465,7 @@ fn wait_on_a_bound_reply_returns_at_the_poll_after_an_earlier_failure() {
     assert_eq!(polls, 2, "one poll pending, one that ends the reply");
 }
 
-/// A driver keeps three calls in flight, the second sent to two devices,
+/// A caller keeps three calls in flight, the second sent to two devices,
 /// and waits on each later reply from a thread of its own, two with `wait`
 /// and one with `wait_async`, while the first call fails on another thread:
 /// a few hundred times, the failure coming before, during or after the
@@ -530,7 +530,7 @@ fn an_earlier_failure_racing_the_polls_wakes_and_ends_every_waiting_bound_reply(
     });
 }
 
-/// A driver keeps four calls in flight and polls each of the three later
+/// A caller keeps four calls in flight and polls each of the three later
 /// replies in a loop from a thread of its own, without parking, giving each
 /// poll a new waker, while the first call fails on another thread: two
 /// thousand times, the failure coming before, during or after a poll. Each
@@ -753,8 +753,8 @@ fn a_bound_reply_is_not_woken_when_another_reply_bound_for_its_call_fails() {
     assert_eq!(wakes(&count_b), 0);
 }
 
-/// A driver keeps three calls in flight and polls each of them in turn. The
-/// third fails first, which leaves the second pending, and the driver polls
+/// A caller keeps three calls in flight and polls each of them in turn. The
+/// third fails first, which leaves the second pending, and the caller polls
 /// the second again; then the first fails: that failure wakes the second's
 /// caller, though a later call's failure came in between.
 #[test]
@@ -942,7 +942,7 @@ fn a_bound_reply_left_pending_as_an_earlier_call_fails_wakes_its_caller() {
     assert_ne!(wakes(&count), 0);
 }
 
-/// A driver keeps three calls in flight. The third call's work learns of
+/// A caller keeps three calls in flight. The third call's work learns of
 /// the second call's failure during a poll and is left pending; its next
 /// poll ends it with that failure. The first call's failure, which comes
 /// after, does not wake the third call's caller, who has nothing more to

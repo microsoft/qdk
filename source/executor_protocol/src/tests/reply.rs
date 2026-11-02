@@ -172,10 +172,10 @@ fn wait_returns_the_failure_after_the_events_before_it() {
 }
 
 /// `wait` gives a cancelled reply as an error, after the events delivered
-/// before it: a synchronous driver that takes the whole reply learns that
+/// before it: a synchronous caller that takes the whole reply learns that
 /// its call did not complete, as for a failure, by a reason that says it
 /// was cancelled. Chosen so that `wait` keeps one error type for every
-/// way a call does not complete; a driver that tells a cancellation from a
+/// way a call does not complete; a caller that tells a cancellation from a
 /// failure polls the reply, whose end is typed.
 #[test]
 fn wait_gives_a_cancelled_reply_as_an_error() {
@@ -463,7 +463,7 @@ fn wait_parks_until_woken_instead_of_spinning() {
     assert_eq!(spin_wait(reply, &mut out), Ok(()));
     let spun = polls.load(Ordering::SeqCst);
     // The control only shows that the count tells spinning from parking. A
-    // spinning driver yields between polls, so how often it polls depends on
+    // spinning caller yields between polls, so how often it polls depends on
     // the machine's load: hundreds of times in 30 ms when idle, 10 to 12 on
     // two cores shared with the rest of the suite; more than parking's three
     // in every run measured.
@@ -659,14 +659,14 @@ impl Close for Gated {
     fn close(&mut self) {}
 }
 
-// --------------------------------------------------------- a driver that polls
+// --------------------------------------------------------- a caller that polls
 
 /// The waker of one call among several: marks that call ready, then unparks
-/// the driver.
+/// the caller.
 struct Flag {
     index: usize,
     ready: Arc<Mutex<Vec<usize>>>,
-    driver: Thread,
+    caller: Thread,
 }
 
 impl Wake for Flag {
@@ -679,14 +679,14 @@ impl Wake for Flag {
             .lock()
             .expect("no thread panicked holding it")
             .push(self.index);
-        self.driver.unpark();
+        self.caller.unpark();
     }
 }
 
-/// A driver keeps several calls in flight, sleeps until one of them wakes
+/// A caller keeps several calls in flight, sleeps until one of them wakes
 /// it, and polls only the calls that woke it.
 #[test]
-fn a_driver_keeps_several_calls_in_flight_and_sleeps_until_one_wakes_it() {
+fn a_caller_keeps_several_calls_in_flight_and_sleeps_until_one_wakes_it() {
     let (tx, rx) = mpsc::channel();
     let mut executors: Vec<Gated> = (0..4)
         .map(|shot| Gated {
@@ -727,7 +727,7 @@ fn a_driver_keeps_several_calls_in_flight_and_sleeps_until_one_wakes_it() {
             Waker::from(Arc::new(Flag {
                 index,
                 ready: Arc::clone(&ready),
-                driver: thread::current(),
+                caller: thread::current(),
             }))
         })
         .collect();
@@ -761,11 +761,11 @@ fn a_driver_keeps_several_calls_in_flight_and_sleeps_until_one_wakes_it() {
     assert!(polls.iter().all(|&p| p <= 3), "polls per call: {polls:?}");
 }
 
-/// A driver that polls with the no-op waker does its own work between polls
+/// A caller that polls with the no-op waker does its own work between polls
 /// and takes the events when it wants: nothing is lost, and it never calls
 /// `wait`.
 #[test]
-fn a_driver_with_a_noop_waker_does_its_own_work_between_polls() {
+fn a_caller_with_a_noop_waker_does_its_own_work_between_polls() {
     let mut worker = Worker(Duration::from_millis(20));
     let mut reply = worker
         .call(on_shot_0(&[]))
@@ -780,14 +780,14 @@ fn a_driver_with_a_noop_waker_does_its_own_work_between_polls() {
             ReplyStatus::Cancelled => panic!("cancelled"),
         }
         assert!(Instant::now() < deadline, "never done");
-        thread::sleep(Duration::from_millis(1)); // a unit of the driver's own work
+        thread::sleep(Duration::from_millis(1)); // a unit of the caller's own work
         work += 1;
     }
     assert_eq!(out, [outcome(0, 0)]);
-    assert!(work >= 1, "the driver worked while the call was pending");
+    assert!(work >= 1, "the caller worked while the call was pending");
 }
 
-// ----------------------------------------------------- one reply, four drivers
+// ----------------------------------------------------- one reply, four callers
 
 /// An executor whose work runs on a thread of its own: `call` returns at
 /// once, and the thread pushes, for each shot of the batch, one outcome per

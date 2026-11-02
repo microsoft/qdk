@@ -28,7 +28,7 @@ pub type ShotId = u32;
 ///
 /// A set of one shot is held inline: made by [`ShotSet::one`], it
 /// allocates nothing, so an executor that splits a call per shot, or a
-/// driver of one shot, makes one per call for free. The other constructors
+/// caller of one shot, makes one per call for free. The other constructors
 /// may allocate before they see that the set holds one shot.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ShotSet(Shots);
@@ -92,7 +92,7 @@ impl ShotSet {
 
     /// The shots that `keep` keeps, in order, or `None` when it keeps none. A
     /// part of a set is a set, so nothing is checked again: this is how a
-    /// driver splits Jₖ by outcome.
+    /// caller splits Jₖ by outcome.
     pub fn subset(&self, mut keep: impl FnMut(ShotId) -> bool) -> Option<Self> {
         let part: Box<[ShotId]> = self.iter().copied().filter(|&j| keep(j)).collect();
         (!part.is_empty()).then(|| Self(part.into()))

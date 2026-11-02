@@ -3496,7 +3496,7 @@ fn dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops() 
 }
 
 /// A profiler's check and report maker each hold a handle on its
-/// connection that fails to release (a bug), and the driver replaces each
+/// connection that fails to release (a bug), and the caller replaces each
 /// with another: each builder frees the closure it replaces, and raises no
 /// panic of its drop, as `drop` does.
 #[test]

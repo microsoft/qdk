@@ -12,15 +12,15 @@ reported and how a caller waits. This crate is that contract. A chain has a
 the calls for the shots of the job, and an **executor** at the end, which
 runs the instructions: a simulator, or (planned) a quantum device behind its
 service. Called with a message, an executor answers with a reply. Each
-component in between is an **adapter**: given the executor downstream of it,
-it gives an executor upstream of it, with the same contract. So every link of a
+component in between is an **adapter**: given the executor downstream of it, it
+gives an executor upstream of it, with the same contract. So every link of a
 running chain is the same call and reply. Composition works the same at every
 link: a driver with adapters below it is still the chain's head, which composes
-the same way (planned: that it is itself a driver), adapters composed act as
-one adapter wherever `>>` or `compose` takes one (planned: that they implement
-the trait `Adapter`), and an adapter with the executor below it is an executor, so a chain
-can be built in parts and grouped any way, with the same run (composition is
-associative). Chains are composed from parts, checked before they run, and
+the same way (planned: that it is itself a driver), adapters composed act as one
+adapter wherever `>>` or `compose` takes one (planned: that they implement the
+trait `Adapter`), and an adapter with the executor below it is an executor, so a
+chain can be built in parts and grouped any way, with the same run (composition
+is associative). Chains are composed from parts, checked before they run, and
 driven the same way by any caller: one that blocks, one that polls between its
 own work, or async tasks, in the same process or, through the planned lower
 layers, across a network.
@@ -207,19 +207,20 @@ profiler is a counting function and a three-line body
 
 What to write, by task, and where it is explained:
 
-| To                                                                                      | Write                                                                          | Section                                                                                                                                                                                |
-| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| run a program                                                                           | `driver() >> … >> executor`, `chain.run(program, shots)`                       | [Running a chain](#running-a-chain)                                                                                                                                                    |
-| run a program that drives the executor itself, choosing its next batch                  | an adaptive program: `AdaptiveProgram`, given to `chain.run(program, shots)`   | [Writing an adaptive program](#writing-an-adaptive-program)                                                                                                                            |
-| run your own runtime or interpreter (QIR, a circuit form)                               | a driver: `Driver<P>`, `ChainHead::new`                                        | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
-| plug in a device, or a simulator with a state per shot                                  | an executor: `executor_fn`                                                     | [Writing an executor](#writing-an-executor)                                                                                                                                            |
-| plug in a simulator whose shots share one state (an ensemble, such as an MPS simulator) | an executor written by hand, on `ExecutorLifecycle`                            | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)                                                                                         |
-| plug in a backend written before the protocol                                           | an executor around it, a bridge, with `executor_fn`                            | [Running an existing backend](docs/guides.md#running-an-existing-backend)                                                                                                              |
-| run an executor's logic on a thread of its own                                          | `.run_on(placement)`                                                           | [Where an executor runs](docs/executors.md#where-an-executor-runs-run_on)                                                                                                              |
-| add a noise model, a code (static or run-time ISA) or an observer                       | an adapter: `adapter_fn`, `owning_adapter_fn`, or by hand                      | [Writing an adapter](#writing-an-adapter); guides: [a static ISA](docs/guides.md#a-static-isa-a-repetition-code), [a run-time ISA](docs/guides.md#a-run-time-isa-a-code-given-as-data) |
-| hold work and complete it from another thread                                           | an executor returning an `IncrementalReply`, filled later by its `ReplySender` | [A debugger](docs/guides.md#a-debugger-holding-and-completing-work)                                                                                                                    |
-| check that a part keeps the rules                                                       | the `conformance` checks, in your tests                                        | [Checking a part](#checking-a-part)                                                                                                                                                    |
-| write a part by hand                                                                    | the traits                                                                     | [The interfaces](#the-interfaces-for-a-part-written-by-hand)                                                                                                                           |
+| To                                                                                      | Write                                                                              | Section                                                                                                                                                                                |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| run a program                                                                           | `driver() >> … >> executor`, `chain.run(program, shots)`                           | [Running a chain](#running-a-chain)                                                                                                                                                    |
+| run a program that drives the executor itself, choosing its next batch                  | an adaptive program: `AdaptiveProgram`, given to `chain.run(program, shots)`       | [Writing an adaptive program](#writing-an-adaptive-program)                                                                                                                            |
+| run your own runtime or interpreter (QIR, a circuit form)                               | a driver: `Driver<P>`, `ChainHead::new`                                            | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
+| plug in a device, or a simulator with a state per shot                                  | an executor: `executor_fn`                                                         | [Writing an executor](#writing-an-executor)                                                                                                                                            |
+| plug in a simulator whose shots share one state (an ensemble, such as an MPS simulator) | an executor written by hand, on `ExecutorLifecycle`                                | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)                                                                                         |
+| compose your own executor type with `>>`, in either grouping                            | its `>>` for each type that may be on its left, through `Compose<_, WithExecutor>` | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle); guide: [`tests/executor_by_hand.rs`](tests/executor_by_hand.rs)                        |
+| plug in a backend written before the protocol                                           | an executor around it, a bridge, with `executor_fn`                                | [Running an existing backend](docs/guides.md#running-an-existing-backend)                                                                                                              |
+| run an executor's logic on a thread of its own                                          | `.run_on(placement)`                                                               | [Where an executor runs](docs/executors.md#where-an-executor-runs-run_on)                                                                                                              |
+| add a noise model, a code (static or run-time ISA) or an observer                       | an adapter: `adapter_fn`, `owning_adapter_fn`, or by hand                          | [Writing an adapter](#writing-an-adapter); guides: [a static ISA](docs/guides.md#a-static-isa-a-repetition-code), [a run-time ISA](docs/guides.md#a-run-time-isa-a-code-given-as-data) |
+| hold work and complete it from another thread                                           | an executor returning an `IncrementalReply`, filled later by its `ReplySender`     | [A debugger](docs/guides.md#a-debugger-holding-and-completing-work)                                                                                                                    |
+| check that a part keeps the rules                                                       | the `conformance` checks, in your tests                                            | [Checking a part](#checking-a-part)                                                                                                                                                    |
+| write a part by hand                                                                    | the traits                                                                         | [The interfaces](#the-interfaces-for-a-part-written-by-hand)                                                                                                                           |
 
 The excerpts below are from the
 [guide tests](docs/guides.md#building-on-the-protocol-the-guide-tests), on
@@ -227,7 +228,10 @@ a toy of classical bits and seeded fair coins, but for the driver's, from
 the crate's own tests. The names an excerpt uses but does not define
 (`toy_set()`, `the_toys_promise()`, `check_calls`, `Counts`, `COIN`,
 `bond_limited_executor`, `on_shot_0`, `logger`, …) are helpers of the
-test file the excerpt links.
+test file the excerpt links; for the driver's, `bits_set()`, `Bits` and
+`TestDoubleExecutor` are helpers of the crate's tests
+([`src/tests.rs`](src/tests.rs),
+[`src/tests/test_double.rs`](src/tests/test_double.rs)).
 
 ### Running a chain
 
@@ -366,6 +370,8 @@ It heads a chain as the crate's driver does, its calls passing through
 the adapters below it:
 
 ```rust
+let by_hand = Log::default();
+let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
 let (outcomes, _) = (ChainHead::new(InTurn) >> logger("a", &by_hand) >> bits())
     .expect("the logger fits")
     .run(Program::flip_and_toss(bits_set()), [0, 1])
@@ -567,10 +573,10 @@ conformance::accepts_calls_after_a_refusal::<InstructionBatch<Op>, _>(
 
 These traits, and the data they exchange: a facility implements the traits for
 the parts it makes, a part written by hand implements them itself, a program
-that drives the executor itself implements `AdaptiveProgram`, and a driver of programs
-of form `P`, `Driver<P>`. Condensed from `src/`: doc comments and attributes
-trimmed but for `#[non_exhaustive]`, a default's body shown as `{ ... }`, short
-items on one line:
+that drives the executor itself implements `AdaptiveProgram`, and a driver of
+programs of form `P`, `Driver<P>`. Condensed from `src/`: doc comments and
+attributes trimmed but for `#[non_exhaustive]`, a default's body shown as
+`{ ... }`, short items on one line:
 
 ```rust
 pub trait AdaptiveProgram {

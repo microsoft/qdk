@@ -306,7 +306,7 @@ impl InstructionSet {
 
     /// Matches each instruction of this set, the one an adapter or a caller
     /// sends, in `accepted`, the one the downstream executor accepts, and gives
-    /// its opcode there: what an adapter or a driver needs to send this
+    /// its opcode there: what the sender needs to send this
     /// set's calls in `accepted`'s numbering. Each is matched to an
     /// instruction of `accepted` that takes operands of the same kinds, in
     /// the same order:

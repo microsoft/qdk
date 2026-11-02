@@ -30,7 +30,7 @@ pub type CallId = u64;
 /// the class rather than the reason is what lets a caller act on a reason it
 /// does not know. A reason of another class is given before any work started
 /// (by the executor, or by [`ShotSet::new`](crate::ShotSet::new) when the
-/// message is built), so a driver can match it and decide what to do. A run
+/// message is built), so a caller can match it and decide what to do. A run
 /// that started and could not finish is not a rejection: its reply ends with
 /// [`ReplyStatus::Failed`](crate::ReplyStatus::Failed).
 ///
@@ -98,7 +98,7 @@ pub enum Rejected {
     ///   the first earlier call that the executor's set refuses, without
     ///   asking the executor, so before any refusal of the executor's own,
     ///   such as its [`ShotNotHeld`](Rejected::ShotNotHeld), its
-    ///   [`Closed`](Rejected::Closed) (which a driver meets when the
+    ///   [`Closed`](Rejected::Closed) (which the sender meets when the
     ///   executor was closed before it was put in the chain) or its
     ///   [`EarlierFailure`](Rejected::EarlierFailure);
     /// - the executor: every other batch the renumbering is given reaches

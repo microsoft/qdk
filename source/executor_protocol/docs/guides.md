@@ -4,28 +4,28 @@
 
 ## Building on the protocol: the guide tests
 
-Seven small programs in `tests/`, written against the public API only, show
+Eight small programs in `tests/`, written against the public API only, show
 how to run a program on the protocol and how to build on it, one task each.
 Each opens with what it teaches; they run on a toy
 (`tests/toy/simulator.rs`: classical bits and fair coins drawn from the
-shot's seed). Read them in this order:
+shot's seed), but for `tests/executor_by_hand.rs`, whose executor is the
+one it writes. Read them in this order:
 
-| Task                                              | Test file                    | What it builds                                                                                                           | Section                                                                            |
-| ------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| run a program on a simulator                      | `tests/simulator.rs`         | a program run on the toy simulator: a job given to a chain, checked, then waited for                                     | [Running a program](#running-a-program)                                            |
-| bridge a backend written before the protocol      | `tests/existing_tool.rs`     | a bridge for a backend written before the protocol, and a profiler                                                       | [An existing backend and a profiler](#an-existing-backend-and-a-profiler)          |
-| write an executor, and place it on a thread       | `tests/per_shot_executor.rs` | an executor with a state per shot: its logic alone, made an executor by `executor_fn`, driven by a program with feedback | [Making an executor](executors.md#making-an-executor-executor_fn)                  |
-| write an adapter that observes a chain            | `tests/observers.rs`         | a profiler that counts each shot's calls, and a debugger that logs them, between the driver and the toy                  | [Observers: a profiler and a debugger](#observers-a-profiler-and-a-debugger)       |
-| write an adapter that changes the instruction set | `tests/static_isa.rs`        | a repetition code: logical instructions down as gadgets, majorities back up; as a logic, by hand, and as a runtime       | [A static ISA: a repetition code](#a-static-isa-a-repetition-code)                 |
-| write an adapter between sets known at run time   | `tests/runtime_isa.rs`       | an example adapter running a repetition code given as data, as Qodec gives it                                            | [A run-time ISA: a code given as data](#a-run-time-isa-a-code-given-as-data)       |
-| hold work and complete it from another thread     | `tests/debugger.rs`          | a debugger that records each batch and outcome, and pauses and steps                                                     | [A debugger: holding and completing work](#a-debugger-holding-and-completing-work) |
+| Task                                                         | Test file                    | What it builds                                                                                                             | Section                                                                                   |
+| ------------------------------------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| run a program on a simulator                                 | `tests/simulator.rs`         | a program run on the toy simulator: a job given to a chain, checked, then waited for                                       | [Running a program](#running-a-program)                                                   |
+| bridge a backend written before the protocol                 | `tests/existing_tool.rs`     | a bridge for a backend written before the protocol, and a profiler                                                         | [An existing backend and a profiler](#an-existing-backend-and-a-profiler)                 |
+| write an executor, and place it on a thread                  | `tests/per_shot_executor.rs` | an executor with a state per shot: its logic alone, made an executor by `executor_fn`, driven by a program with feedback   | [Making an executor](executors.md#making-an-executor-executor_fn)                         |
+| compose your own executor type with `>>`, in either grouping | `tests/executor_by_hand.rs`  | an executor written by hand in a crate of its own, and the `>>` its crate implements for each type that may be on its left | [An executor written by hand](executors.md#an-executor-written-by-hand-executorlifecycle) |
+| write an adapter that observes a chain                       | `tests/observers.rs`         | a profiler that counts each shot's calls, and a debugger that logs them, between the driver and the toy                    | [Observers: a profiler and a debugger](#observers-a-profiler-and-a-debugger)              |
+| write an adapter that changes the instruction set            | `tests/static_isa.rs`        | a repetition code: logical instructions down as gadgets, majorities back up; as a logic, by hand, and as a runtime         | [A static ISA: a repetition code](#a-static-isa-a-repetition-code)                        |
+| write an adapter between sets known at run time              | `tests/runtime_isa.rs`       | an example adapter running a repetition code given as data, as Qodec gives it                                              | [A run-time ISA: a code given as data](#a-run-time-isa-a-code-given-as-data)              |
+| hold work and complete it from another thread                | `tests/debugger.rs`          | a debugger that records each batch and outcome, and pauses and steps                                                       | [A debugger: holding and completing work](#a-debugger-holding-and-completing-work)        |
 
 [Adapters](adapters.md) details what an adapter's writer relies on, and
 [Executors](executors.md) what an executor's writer relies on, its
 placement on a thread of its own included
 ([Where an executor runs](executors.md#where-an-executor-runs-run_on)).
-Beside the guides, [`tests/executor_by_hand.rs`](../tests/executor_by_hand.rs)
-shows what the crate of an executor written by hand writes to give it `>>`.
 
 ## Running a program
 
@@ -266,7 +266,7 @@ an `E: Executor<InstructionBatch<Op>>`, on the same shots:
 
 ```mermaid
 sequenceDiagram
-  participant D as driver
+  participant D as caller
   participant Q as Repetition3
   participant E as physical executor, then its reply
   participant De as Decode

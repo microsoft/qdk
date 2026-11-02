@@ -57,10 +57,9 @@ use crate::{BuildFaults, ChainHead, ShotSet, UnmetNeed};
 ///
 /// ```
 /// use executor_protocol::{
-///     BuildFaults, Capabilities, Chain, Close, DefaultDriver, Executor,
-///     ExecutorReport, InstructionBatch, Needs, OnePerShot, Outcome,
-///     Outcomes, CallInput, StaticProgram, TypedInstruction, driver,
-///     executor_fn,
+///     BuildFaults, CallInput, Capabilities, Chain, Close, DefaultDriver,
+///     Executor, ExecutorReport, InstructionBatch, Needs, OnePerShot, Outcome,
+///     Outcomes, StaticProgram, TypedInstruction, driver, executor_fn,
 /// };
 ///
 /// /// An instruction of a device of one bit per shot.

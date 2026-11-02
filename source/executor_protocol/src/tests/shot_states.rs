@@ -365,7 +365,7 @@ fn a_part_cancelled_after_its_call_ends_the_reply_cancelled() {
 // A failed batch leaves its shots' states part-way through it, so a later
 // batch on them would run on a state that the program never made: those
 // shots must refuse it. The whole executor refuses, not only those shots,
-// for simplicity: no driver yet needs to go on with the other shots.
+// for simplicity: no caller yet needs to go on with the other shots.
 // A new case, such as a long sampling run that keeps its other shots after
 // one shot's device fails, could narrow it to the failed shots;
 // `lifecycle.rs` describes how.
@@ -691,7 +691,7 @@ fn a_batch_is_pending_until_its_last_shot_ends() {
     );
 }
 
-/// A driver gathers a run's outcomes in one buffer, which holds shot 7's
+/// A caller gathers a run's outcomes in one buffer, which holds shot 7's
 /// read already; shots 1 and 2 end inside `call`: the reply appends their
 /// reads after shot 7's, which it keeps.
 #[test]
@@ -711,7 +711,7 @@ fn a_reply_appends_its_outcomes_to_those_the_caller_holds() {
     assert_eq!(out.iter().map(|o| o.shot).collect::<Vec<_>>(), [7, 1, 2]);
 }
 
-/// A driver gathers a run's outcomes in one buffer, which holds shot 7's
+/// A caller gathers a run's outcomes in one buffer, which holds shot 7's
 /// read already; shot 2's reply is still pending after `call`, so the
 /// reply polls it: it appends the reads of shots 1 and 2 after shot 7's,
 /// which it keeps.
@@ -1458,7 +1458,7 @@ impl Executor<InstructionBatch<bool>> for Hooked {
 }
 
 /// A batch on shot 2 is being polled when an earlier one, on shot 1,
-/// fails, recorded as its reply is polled: a driver's other task acts while
+/// fails, recorded as its reply is polled: a caller's other task acts while
 /// shot 2's part is polled, after the reply looked for an earlier failure. The
 /// executor wakes the caller, whose next poll ends the reply.
 #[test]

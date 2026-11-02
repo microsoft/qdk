@@ -19,10 +19,10 @@ use crate::absorb::absorb;
 /// How a reply stands after a poll.
 ///
 /// A failure is the executor's account of a run that started and could not
-/// finish, so its reason stays text: drivers report it, they do not match
+/// finish, so its reason stays text: callers report it, they do not match
 /// it. A call that starts no work is refused with a typed
 /// [`Rejected`](crate::Rejected) instead, and a call abandoned before it
-/// ran ends [`Cancelled`](Self::Cancelled), typed too, so that a driver
+/// ran ends [`Cancelled`](Self::Cancelled), typed too, so that a caller
 /// can tell it from a failure.
 ///
 /// Non-exhaustive, so that a status can be added without breaking callers:
@@ -99,15 +99,15 @@ impl ReplyStatus {
 ///   the [`IncrementalReply`] as they are ready; [`relay`] passes an
 ///   inner reply's events up from a worker; [`MappedReply`] converts them on
 ///   the way.
-/// - The caller (a driver, or an adapter) chooses how to take them, and
+/// - The caller, which may be an adapter, chooses how to take them, and
 ///   whether a thread waits meanwhile:
 ///
 /// | The caller                                  | Takes the reply with                                                             | A thread blocked?  |
 /// | ------------------------------------------- | -------------------------------------------------------------------------------- | ------------------ |
-/// | a synchronous driver                        | [`wait`]: the whole reply, the thread parked between polls                       | yes, by its choice |
+/// | a synchronous caller                        | [`wait`]: the whole reply, the thread parked between polls                       | yes, by its choice |
 /// | a loop that does other work                 | [`poll_events`](Reply::poll_events) with its own waker, or [`Waker::noop`]       | no                 |
-/// | an async driver, the whole reply            | [`wait_async`](crate::wait_async): a `Future`                                    | no                 |
-/// | an async driver, the events as they come    | [`async_events`](crate::async_events): a `Stream` of event batches (streaming)   | no                 |
+/// | an async caller, the whole reply            | [`wait_async`](crate::wait_async): a `Future`                                    | no                 |
+/// | an async caller, the events as they come    | [`async_events`](crate::async_events): a `Stream` of event batches (streaming)   | no                 |
 ///
 /// The choice stays the caller's only while every executor downstream returns
 /// from `call` without waiting for an inner reply: an adapter that calls
@@ -275,8 +275,8 @@ impl<T> Reply for ImmediateReply<T> {
 }
 
 /// Blocks until `reply` ends, appending its events to `out`: the way a
-/// synchronous driver, or an adapter that needs a result before it can go
-/// on, takes a whole reply.
+/// synchronous caller, such as an adapter that needs a result before it
+/// can go on, takes a whole reply.
 ///
 /// It is the one way for a caller to take a reply that blocks the caller's
 /// thread, and the caller chooses it ([`relay`] blocks too, but a worker's
@@ -410,7 +410,7 @@ thread_local! {
 /// as [`wait`] does: how [`Run::wait`](crate::Run::wait) runs a driver.
 ///
 /// It has a parker of its own, so a future that calls [`wait`] (a
-/// synchronous driver) loses none of its wakes to it; but a future must not
+/// synchronous caller) loses none of its wakes to it; but a future must not
 /// call `block_on` itself.
 pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
     let mut future = std::pin::pin!(future);

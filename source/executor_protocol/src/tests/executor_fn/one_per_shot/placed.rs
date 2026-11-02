@@ -483,7 +483,7 @@ fn placed_after_one_per_shot_every_shot_runs_the_one_logic() {
 
 /// The executor learns of a failure on a shot's placement as it closes, at
 /// the latest, and leaves out the states made for the failed call then
-/// too: a driver flips shot 2, then sends a flip on shots 0 and 1, polls
+/// too: a caller flips shot 2, then sends a flip on shots 0 and 1, polls
 /// no reply, and closes; shot 0 stops only once the executor is closing
 /// (as it waits for shot 2's calls). It reports shot 2's state alone, as
 /// when the failure is recorded before close, since it waits for every shot's
@@ -499,7 +499,7 @@ fn a_failure_that_happens_as_it_closes_leaves_out_the_states_of_its_call() {
 }
 
 /// Of several failed calls, the earliest decides which states are left
-/// out, though a later call failed after it: a driver flips shot 2, then
+/// out, though a later call failed after it: a caller flips shot 2, then
 /// sends a flip on shots 0 and 1, then on shot 3, all accepted before
 /// either ran; shot 0 stops, then shot 3. It reports shot 2's state alone,
 /// as unplaced, where the call on shot 3 would have been refused.
@@ -514,7 +514,7 @@ fn the_earliest_failed_call_decides_though_a_later_one_failed_after_it() {
 }
 
 /// Of several failed calls, the earliest decides which states are left
-/// out, though the executor saw it only at a later call: a driver on a
+/// out, though the executor saw it only at a later call: a caller on a
 /// pool calls shot 0, whose device stops, and does not poll the reply;
 /// the pool runs that call while a call on shots 2 then 0 is starting,
 /// and shot 0 refuses it, so the executor records the failure at that
@@ -567,7 +567,7 @@ fn a_shots_failure_found_by_a_later_call_leaves_out_the_states_of_its_own_call()
 
 /// When several calls failed, a later call is refused with the earliest
 /// one's reason, whatever order they failed in and whichever replies were
-/// polled: a driver on a pool flips shot 0, then shot 3, whose devices
+/// polled: a caller on a pool flips shot 0, then shot 3, whose devices
 /// both stop; the pool runs shot 3's call first, then shot 0's. Before any
 /// reply is polled, and after each is, in either order, a call is refused
 /// with shot 0's failure, the earliest call's, as the executor's own
@@ -886,7 +886,7 @@ fn closed_it_refuses_a_call_before_its_room_is_checked() {
 /// as closed, not with the failure. Chosen because every executor checks
 /// close first (`ExecutorLifecycle::admit`): the refusal then does not
 /// depend on whether a reply was polled. A device stops on shot 0 in a
-/// call whose reply the driver drops unpolled; the driver closes, then
+/// call whose reply the caller drops unpolled; the caller closes, then
 /// calls again.
 #[test]
 fn closed_after_a_shots_unseen_failure_it_refuses_as_closed() {
@@ -934,7 +934,7 @@ fn after_a_failed_call_it_refuses_every_later_call() {
     });
 }
 
-/// A driver sends a call on shots 0 and 1, whose devices stop, then a read
+/// A caller sends a call on shots 0 and 1, whose devices stop, then a read
 /// on shot 2 before it waits for the first reply: the read is refused,
 /// naming the stop, when the failure is recorded already (shared by the
 /// shots, or as the executor's), or else queued on
@@ -1003,7 +1003,7 @@ fn call<E: Executor<InstructionBatch<Op>>>(
     })
 }
 
-/// A driver on a pool, which does not poll the reply of a call whose
+/// A caller on a pool, which does not poll the reply of a call whose
 /// logic stops shot 0's device: once the pool ran it, a call on shots 0
 /// and 2 is refused with that failure before the executor's check, and
 /// before shot 2's state is made.
@@ -1027,7 +1027,7 @@ fn after_a_shots_failure_a_call_is_refused_before_its_check_and_states() {
     );
 }
 
-/// A driver on a pool, which does not poll the reply of a call whose
+/// A caller on a pool, which does not poll the reply of a call whose
 /// logic stops shot 0's device: once the pool ran it, a call on shots 2
 /// then 0 is refused with that failure, and shot 2 does not run: its
 /// placement is handed no job.
@@ -1047,7 +1047,7 @@ fn after_a_shots_failure_a_call_is_refused_before_any_shot_runs() {
     assert!(jobs.try_recv().is_err(), "shot 2 ran");
 }
 
-/// A driver on a pool, which does not poll the reply of a call whose
+/// A caller on a pool, which does not poll the reply of a call whose
 /// logic stops shot 0's device: once the pool ran it, a call on shot 1
 /// alone, which shot 0's failure did not hit, is refused with it too.
 #[test]
@@ -1064,7 +1064,7 @@ fn after_a_shots_failure_a_call_on_other_shots_is_refused() {
     );
 }
 
-/// A driver on a pool, which does not poll the reply of a call whose
+/// A caller on a pool, which does not poll the reply of a call whose
 /// logic stops shot 0's device, calls shots 0 and 2; the pool runs shot
 /// 0's job while shot 2's state is made, after the call was admitted and
 /// before shot 0 is given it: shot 0, called first, refuses for its
@@ -1097,7 +1097,7 @@ fn a_failure_before_its_shot_gets_the_call_refuses_it_if_first() {
     assert!(jobs.try_recv().is_err(), "shot 2 ran");
 }
 
-/// A driver on a pool, which does not poll the reply of a call whose
+/// A caller on a pool, which does not poll the reply of a call whose
 /// logic stops shot 0's device, calls shots 2 then 0; the pool runs shot
 /// 0's job while shot 2's state is made, before shot 0 is given the call:
 /// shot 2, called first, accepts the call before shot 0 refuses it, too
@@ -1138,7 +1138,7 @@ fn a_failure_before_its_shot_gets_the_call_fails_its_reply_if_later() {
     );
 }
 
-/// A driver on a pool calls shot 0 to stop its device, then, before the
+/// A caller on a pool calls shot 0 to stop its device, then, before the
 /// pool runs it, calls shots 0 and 2 (in both orders) to read: the second
 /// call, accepted before the failure, is queued on shot 0 behind the
 /// failing call, so it does not run there and its reply fails with `an
@@ -1168,7 +1168,7 @@ fn a_call_queued_behind_a_shots_failure_fails_while_its_other_shots_run() {
     }
 }
 
-/// A driver on a pool calls shot 0 to stop its device, then shots 1 and 2
+/// A caller on a pool calls shot 0 to stop its device, then shots 1 and 2
 /// to read, and never polls the first reply: the pool runs every job, so
 /// shot 0's device stops, and the executor refuses its next call, yet the
 /// read, accepted before the failure and on other shots, ends done with
@@ -1231,7 +1231,7 @@ fn after_a_panic_inside_call_it_refuses_every_later_call() {
     );
 }
 
-/// A driver with calls in flight on shots 0 and 1, on a pool's threads:
+/// A caller with calls in flight on shots 0 and 1, on a pool's threads:
 /// shot 0's logic stops its device, and once its reply is seen failed,
 /// shot 1's call, which has not run, ends at its next poll with that
 /// failure, rather than waiting for its job.
@@ -1261,7 +1261,7 @@ fn a_call_in_flight_on_another_shot_ends_at_its_next_poll_without_waiting_for_it
     assert!(outcomes.is_empty(), "shot 1's call never ran");
 }
 
-/// A driver that waits for a call whose logic stops shot 0's device,
+/// A caller that waits for a call whose logic stops shot 0's device,
 /// then calls on shot 1 alone: the failure, recorded as the reply was polled,
 /// fails the executor, so the call is refused with its reason, though it
 /// never reaches shot 0.
@@ -1530,7 +1530,7 @@ fn a_new_executor_starts_its_shots_as_made() {
     });
 }
 
-/// A driver that awaits (`run.await`) a batch whose shots run on threads
+/// A caller that awaits (`run.await`) a batch whose shots run on threads
 /// of their own: the reply wakes the task as the shots run, and ends
 /// once all have.
 #[test]
@@ -1787,7 +1787,7 @@ fn a_panic_as_close_frees_a_state_left_out_stays_on_its_placement() {
     assert_eq!([0, 1].map(|j| report.log_p.get(j)), [None, Some(0.0)]);
 }
 
-/// A driver that keeps two calls on shot 0 in flight on a pool's threads,
+/// A caller that keeps two calls on shot 0 in flight on a pool's threads,
 /// the first of which fails: the second fails behind it without running,
 /// but the executor accepted both, so its report counts both, where the
 /// other order's counts only the call that reached its executor.
@@ -1860,7 +1860,7 @@ fn a_state_per_shot_continues_the_executor_placed() {
 }
 
 /// An executor called on shot 4, then placed on a pool and given a state
-/// per shot; a driver does not poll the reply of a call whose logic
+/// per shot; a caller does not poll the reply of a call whose logic
 /// stops shot 4's device, the state the strategy continues: once the pool
 /// ran it, a call on shot 5 alone is refused with that failure, as after
 /// a failure of a shot made since.
@@ -2000,7 +2000,7 @@ fn dropped_it_cancels_the_calls_not_yet_started() {
     );
 }
 
-/// A driver on a pool that never runs a job calls shot 0, then shot 1,
+/// A caller on a pool that never runs a job calls shot 0, then shot 1,
 /// and drops the executor with both replies pending: each reply ends
 /// `Cancelled`, whichever is polled first, since neither call started and
 /// a cancellation fails nothing.
@@ -2065,7 +2065,7 @@ fn a_failed_shot_outranks_a_cancelled_one() {
 /// a shot, neither started, a simulator whose shots run in parallel ends
 /// each one's reply `ReplyStatus::Cancelled`, the second's too, though the
 /// first's was seen first, not failed by "an earlier call failed". Chosen
-/// so that a driver tells every call it abandoned from one that failed,
+/// so that a caller tells every call it abandoned from one that failed,
 /// since dropping cancels the work not yet started (tokio's `JoinSet`,
 /// Java's `shutdownNow`, Python's `cancel_futures`), which did not fail.
 /// Typed, not a reason of `Failed`: any executor could fail with the same

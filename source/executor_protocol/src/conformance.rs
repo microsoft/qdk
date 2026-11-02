@@ -1476,12 +1476,14 @@ pub fn starts_its_shots_as_made_whatever_an_earlier_executor_left<I, E>(
 /// so that there is a condition to keep. The protocol requires it of an
 /// executor that offers `resumable_shots`, on which a shot continues from
 /// one call to the next; it checks any executor that promises to keep each
-/// shot's conditions, such as an `adapter_fn` over any executor
-/// (`docs/replies.md`, §Shot conditions). It sees outcomes alone, so it
-/// checks only the conditions that an earlier outcome of the shot carried:
-/// a condition raised in a call that gave the shot no outcome, which the
-/// requirement covers too, is beyond it. That a shot's conditions are its
-/// own, whichever shots share its calls, is checked with its readouts by
+/// shot's conditions, such as an `adapter_fn` over an executor whose
+/// replies end within their call, or over one that keeps its shots'
+/// conditions as the protocol requires (`docs/replies.md`, §Shot
+/// conditions). It sees outcomes alone, so it checks only the conditions
+/// that an earlier outcome of the shot carried: a condition raised in a
+/// call that gave the shot no outcome, which the requirement covers too, is
+/// beyond it. That a shot's conditions are its own, whichever shots share
+/// its calls, is checked with its readouts by
 /// [`gives_each_shot_alone_what_it_gives_among_others`] and
 /// [`changes_no_shot_a_call_does_not_name`]; that a new executor starts
 /// its shots with none, by

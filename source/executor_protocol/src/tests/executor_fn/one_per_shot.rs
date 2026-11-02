@@ -403,7 +403,7 @@ fn after_a_failed_call_it_refuses_every_later_call() {
     );
 }
 
-/// A driver sends a call on shots 0 and 1, whose device stops on shot 1,
+/// A caller sends a call on shots 0 and 1, whose device stops on shot 1,
 /// then a call on shot 2 before it waits for the first reply: the failure
 /// ends the whole executor, so the call on another shot is refused, naming
 /// it. The conformance kit's check.
@@ -584,7 +584,7 @@ fn a_second_call_continues_each_shot() {
 }
 
 /// A flip on shots 3 and 9 leaves shots 1, 7 and 21, flipped before, as
-/// they were, though the driver gives the shots out of order and with
+/// they were, though the caller gives the shots out of order and with
 /// gaps: the conformance kit's check that a call changes no shot it does
 /// not name.
 #[test]

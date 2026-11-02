@@ -317,7 +317,7 @@ impl<R: Fold> Fold for ExecutorReport<R> {
 /// Two extensions are planned, neither built: a probability per event,
 /// opted into as a need of its own, for a caller that weighs outcomes one
 /// by one; and the running log probability of a shot in the middle of a
-/// run, for a driver that stops a shot whose weight is too small.
+/// run, for a caller that stops a shot whose weight is too small.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LogP(BTreeMap<ShotId, f64>);
 

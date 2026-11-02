@@ -206,7 +206,7 @@ impl<F: FnMut(PlacementJob) + Send + 'static> Placement for F {
 ///   executor's second report (empty, by [`Close`]'s contract).
 ///
 /// It is [`Send`] when the executor it places and the placement are, so
-/// that a run can move it to the driver's thread; its replies always are.
+/// that a run can move it to the caller's thread; its replies always are.
 ///
 /// Dropped, it cancels the calls queued and not yet started: none of them runs,
 /// and each one's reply ends [`ReplyStatus::Cancelled`], so that a dropped

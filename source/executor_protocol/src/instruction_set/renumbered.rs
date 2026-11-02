@@ -47,15 +47,15 @@ impl Instruction for InstructionCall {
 /// executor ([`Chain::run`](crate::Chain::run)), or between an adapter and
 /// the executor downstream of it ([`compose`](fn@crate::compose)). It
 /// renumbers each batch into the numbering of the executor it wraps; where
-/// the numberings agree, the driver is given this type too, which
-/// then passes calls as they are, so that the driver's type is the same
-/// either way. In what follows, "the driver" stands for whichever sends the
+/// the numberings agree, the sender is given this type too, which
+/// then passes calls as they are, so that the sender's type is the same
+/// either way. In what follows, "the sender" stands for whichever sends the
 /// calls, a driver or an adapter. Planned: it becomes an adapter of its
 /// own, once adapters map any executor.
 ///
 /// An opcode means something only in its set, and a program's set may
 /// declare the chain's instructions in another order, or only some of them:
-/// the driver's `x` may be at the opcode of the chain's `reset`. The
+/// the sender's `x` may be at the opcode of the chain's `reset`. The
 /// instructions are matched once, when the job is given to the chain, or
 /// the adapter composed
 /// ([`InstructionSet::opcodes_in`](crate::InstructionSet::opcodes_in)).
@@ -127,7 +127,7 @@ impl Instruction for InstructionCall {
 //   to be measured again (`docs/performance.md`).
 pub struct Renumbered<E> {
     inner: E,
-    /// Where the driver's instructions are in the set of the executor it
+    /// Where the sender's instructions are in the set of the executor it
     /// wraps; `None` when calls reach it as they are.
     numbering: Option<Arc<Renumbering>>,
     /// The last batch, renumbered. Its calls are kept from one call to the
@@ -202,7 +202,7 @@ impl<E: Executor<InstructionBatch<InstructionCall>>> Executor<InstructionBatch<I
 ///
 /// # Errors
 ///
-/// [`Rejected::Instruction`] at the first call at an opcode the driver's
+/// [`Rejected::Instruction`] at the first call at an opcode the sender's
 /// set lacks.
 // Out of line: inlined, it slows both paths of `call`, the one that passes
 // calls as they are and this copy (`benches/instruction_calls.rs`).

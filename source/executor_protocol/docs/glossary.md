@@ -360,7 +360,7 @@ what they belong to; the names in code are the crate's.
   ([Replies](replies.md#one-call)).
 - **Report** (`Close::Report`): what an executor gives at close, of any
   type that folds (`Fold`); an ensemble written by hand may report a
-  count. The facilities' executors report an `ExecutorReport`: the calls
+  count. `executor_fn`'s executors report an `ExecutorReport`: the calls
   they accepted (`calls`), each shot's log probability where it is known
   (`log_p`, a `LogP`), and their states' reports, folded (`states`)
   ([What this crate does](internals/composition.md#what-this-crate-does)). A

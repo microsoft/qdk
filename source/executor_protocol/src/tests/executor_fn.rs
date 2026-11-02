@@ -526,7 +526,7 @@ fn after_a_failed_call_it_refuses_every_later_call() {
     );
 }
 
-/// A driver sends a call that stops the device, then a flip before it
+/// A caller sends a call that stops the device, then a flip before it
 /// waits for the first reply: the logic ran inside the first call, so
 /// the flip is refused, naming the stop. The conformance kit's check.
 #[test]
@@ -1350,10 +1350,10 @@ fn after_a_failed_calls_state_drop_panics_later_calls_get_the_logics_reason() {
     );
 }
 
-/// A driver panics while it holds the executor of a device whose state
+/// A caller panics while it holds the executor of a device whose state
 /// fails to power down, after a call on shot 0: the executor, dropped as
-/// the driver's panic unwinds, frees the state, and leaves that drop's
-/// panic to the panic hook, so that the driver's panic reaches its caller
+/// the caller's panic unwinds, frees the state, and leaves that drop's
+/// panic to the panic hook, so that the caller's panic reaches its caller
 /// rather than abort the process.
 #[test]
 fn dropped_as_a_panic_unwinds_it_frees_its_state_raising_none() {
@@ -1363,16 +1363,16 @@ fn dropped_as_a_panic_unwinds_it_frees_its_state_raising_none() {
     end.expect("the logic runs");
     let panicked = panic::catch_unwind(AssertUnwindSafe(move || {
         let _held = executor;
-        panic!("the driver panics");
+        panic!("the caller panics");
     }))
-    .expect_err("the driver panics");
-    assert_eq!(panic_text(&*panicked), Some("the driver panics"));
+    .expect_err("the caller panics");
+    assert_eq!(panic_text(&*panicked), Some("the caller panics"));
     assert_eq!(freed_so_far(&freed), [0]);
 }
 
 /// The same, with the executor placed on a thread of its own after its
 /// call (`.run_on(..)`), and dropped before its first call there: it is
-/// dropped where it is, as the driver's panic unwinds, and frees its state
+/// dropped where it is, as the caller's panic unwinds, and frees its state
 /// the same way.
 #[test]
 fn placed_and_dropped_as_a_panic_unwinds_it_frees_its_state_raising_none() {
@@ -1383,10 +1383,10 @@ fn placed_and_dropped_as_a_panic_unwinds_it_frees_its_state_raising_none() {
     let placed = executor.run_on(OwnThread);
     let panicked = panic::catch_unwind(AssertUnwindSafe(move || {
         let _held = placed;
-        panic!("the driver panics");
+        panic!("the caller panics");
     }))
-    .expect_err("the driver panics");
-    assert_eq!(panic_text(&*panicked), Some("the driver panics"));
+    .expect_err("the caller panics");
+    assert_eq!(panic_text(&*panicked), Some("the caller panics"));
     assert_eq!(freed_so_far(&freed), [0]);
 }
 
@@ -1793,7 +1793,7 @@ fn dropped_it_frees_its_state_before_its_closures() {
 
 /// A device's check, log probability and report maker each hold a handle
 /// on its connection that fails to release (a driver's bug), and the
-/// driver replaces each with another: each builder frees the closure it
+/// caller replaces each with another: each builder frees the closure it
 /// replaces, and raises no panic of its drop, as `drop` does.
 #[test]
 fn a_replaced_closure_is_freed_raising_no_panic_of_its_drop() {
@@ -1822,10 +1822,10 @@ fn a_replaced_closure_is_freed_raising_no_panic_of_its_drop() {
     drop(replaced);
 }
 
-/// A driver panics while it holds the executor of a device whose logic
+/// A caller panics while it holds the executor of a device whose logic
 /// and check each hold a handle that fails to release: the executor,
-/// dropped as the driver's panic unwinds, releases both handles, each in a
-/// catch of its own, and the driver's panic reaches its caller rather than
+/// dropped as the caller's panic unwinds, releases both handles, each in a
+/// catch of its own, and the caller's panic reaches its caller rather than
 /// abort the process.
 #[test]
 fn dropped_as_a_panic_unwinds_it_frees_what_its_closures_capture_raising_none() {
@@ -1839,9 +1839,9 @@ fn dropped_as_a_panic_unwinds_it_frees_what_its_closures_capture_raising_none() 
     );
     let panicked = panic::catch_unwind(AssertUnwindSafe(move || {
         let _held = executor;
-        panic!("the driver panics");
+        panic!("the caller panics");
     }))
-    .expect_err("the driver panics");
-    assert_eq!(panic_text(&*panicked), Some("the driver panics"));
+    .expect_err("the caller panics");
+    assert_eq!(panic_text(&*panicked), Some("the caller panics"));
     assert_eq!(released.load(Ordering::SeqCst), 2);
 }

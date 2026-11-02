@@ -4,7 +4,7 @@
 //! [Guide: A debugger: holding and completing
 //! work](../docs/guides.md#a-debugger-holding-and-completing-work):
 //! a debugger, an adapter whose executors keep the instruction set (a
-//! probe), between a driver and the executor it drives.
+//! probe), between a caller and the executor it calls.
 //!
 //! The debugger records every batch that goes through it and every outcome
 //! and end that come back (`debugger/log.rs`), and it can pause: while
@@ -41,7 +41,7 @@ use debuggers::Debuggers;
 use log::Entry;
 use toy::{Op, coin_then_feedback, toy_simulator};
 
-/// Between a driver and an executor, the debugger leaves every outcome
+/// Between a caller and an executor, the debugger leaves every outcome
 /// as it was, for every seed and shot, so each shot drew from its own
 /// seeds as without it.
 #[test]
@@ -129,25 +129,25 @@ fn a_paused_debugger_holds_each_batch_until_it_is_stepped() {
     assert!(!handle.step());
 }
 
-/// A driver on its own thread runs the program through a paused debugger,
+/// A caller on its own thread runs the program through a paused debugger,
 /// and waits, parked, on each reply; this thread steps each batch when it
-/// arrives, and each step's sender wakes the driver. The outcomes are
+/// arrives, and each step's sender wakes the caller. The outcomes are
 /// those of the run without the debugger.
 #[test]
-fn a_driver_thread_waits_while_another_thread_steps() {
+fn a_caller_thread_waits_while_another_thread_steps() {
     let (mut with, handle) = debugger(toy_simulator(9));
     handle.pause();
-    let driver = thread::spawn(move || coin_then_feedback(&mut with, 2));
+    let caller = thread::spawn(move || coin_then_feedback(&mut with, 2));
 
     let deadline = Instant::now() + Duration::from_secs(10);
     for _ in 0..2 {
         while handle.held() == 0 {
-            assert!(Instant::now() < deadline, "the driver sent no batch");
+            assert!(Instant::now() < deadline, "the caller sent no batch");
             thread::sleep(Duration::from_millis(1));
         }
         assert!(handle.step());
     }
-    let outcomes = driver.join().expect("the driver thread did not panic");
+    let outcomes = caller.join().expect("the caller thread did not panic");
     assert_eq!(outcomes, coin_then_feedback(&mut toy_simulator(9), 2));
     assert_eq!(handle.held(), 0);
 }

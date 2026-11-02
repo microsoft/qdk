@@ -153,9 +153,9 @@ pub struct ExecutorFn<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)>
 ///
 /// ```
 /// use executor_protocol::{
-///     Capabilities, Executor, InstructionBatchRef, Outcome, Outcomes,
-///     CallInput, Rejected, ShotContext, ShotOutcome, ShotSet,
-///     TypedInstruction, Value, executor_fn, wait,
+///     CallInput, Capabilities, Executor, InstructionBatchRef, Outcome,
+///     Outcomes, Rejected, ShotContext, ShotOutcome, ShotSet, TypedInstruction,
+///     Value, executor_fn, wait,
 /// };
 ///
 /// /// An instruction of the tests' one-bit device.

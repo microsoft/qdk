@@ -61,7 +61,7 @@ fn a_set_other_than_the_held_shot_is_refused_naming_its_first_other_shot() {
 }
 
 /// Two sets with the same shots in the same order are equal, however each
-/// was built: a driver of one shot and a subset of one name the same set.
+/// was built: a caller of one shot and a subset of one name the same set.
 #[test]
 fn sets_with_the_same_shots_are_equal_however_built() {
     let one = ShotSet::one(3);

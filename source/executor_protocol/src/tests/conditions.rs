@@ -460,6 +460,35 @@ fn an_owning_decoders_outcomes_carry_the_conditions_of_its_runs() {
     );
 }
 
+/// A decoder with a state per shot, each owning its way below
+/// (`owning_adapter_fn` with `OnePerShot`), over a code's runtime that
+/// finds shot 1's syndromes inconsistent: its caller sees shot 1's outcome
+/// inconsistent, and shot 2's clear, as with one state.
+#[test]
+fn with_a_state_per_shot_an_owning_decoders_outcomes_carry_the_conditions_of_its_runs() {
+    let owning = owning_adapter_fn(
+        |_: ShotContext, below| Ok::<_, Rejected>(below),
+        |below: &mut BelowHandle<Step>,
+         input: &CallInput<'_, Step>,
+         outcomes: &mut Outcomes<'_>| {
+            let read = below.run(input.instructions())?;
+            outcomes.extend(decoded(read));
+            Ok(())
+        },
+    )
+    .shots(OnePerShot);
+    let mut decoder = compose(owning, device()).expect("steps fit steps");
+    let batch = [Step::Read(0), Step::Raise(1, ShotConditions::INCONSISTENT)];
+    let outcomes = outcomes_of(&mut decoder, &[1, 2], &batch);
+    assert_eq!(
+        marked(&outcomes),
+        [
+            (1, 100, ShotConditions::INCONSISTENT),
+            (2, 100, ShotConditions::NONE)
+        ]
+    );
+}
+
 /// The logic of a decoder, one state for all its shots, that finds a call
 /// of syndrome extraction alone (no instructions) unresolved, and
 /// otherwise decodes as [`decode`] does.
@@ -2043,10 +2072,10 @@ fn a_condition_an_earlier_calls_run_read_marks_what_the_logic_writes_in_a_later_
     assert_eq!(marked(&outcomes), [(1, 0, ShotConditions::REJECTED)]);
 }
 
-/// A driver gathers a shot's readouts of several calls in one buffer: it
+/// A caller gathers a shot's readouts of several calls in one buffer: it
 /// holds shot 1's readout of an earlier call, then waits into the buffer
 /// for a layer's reply that rejects shot 1 and whose send ends after the
-/// call. The reply marks its own readout, and leaves the one the driver
+/// call. The reply marks its own readout, and leaves the one the caller
 /// held as it was, as a reply appends its events.
 #[test]
 fn an_adapters_reply_leaves_the_outcomes_its_caller_held_unmarked() {

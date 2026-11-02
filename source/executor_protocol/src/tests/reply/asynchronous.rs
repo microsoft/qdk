@@ -14,7 +14,7 @@ use crate::reply::CANCELLATION;
 use crate::tests::{PATIENT, YieldNow, block_on, counting, ends_soon, outcome, run_tasks, wakes};
 use crate::{ImmediateReply, ShotOutcome, async_events, reply_channel, wait_async};
 
-/// An async driver awaits a whole reply, fed from another thread.
+/// An async caller awaits a whole reply, fed from another thread.
 #[test]
 fn wait_async_is_a_future_of_the_whole_reply() {
     let (sender, reply) = reply_channel();
@@ -38,10 +38,10 @@ fn wait_async_gives_the_events_before_a_failure_then_the_failure() {
 }
 
 /// A cancelled reply gives the events before the cancellation, then an
-/// error that says the call was cancelled, as `wait` does: an async driver
+/// error that says the call was cancelled, as `wait` does: an async caller
 /// learns that its call did not complete, as for a failure. Chosen so that
 /// the whole reply keeps one error type for every way a call does not
-/// complete; a driver that tells a cancellation from a failure polls the
+/// complete; a caller that tells a cancellation from a failure polls the
 /// reply, whose end is typed.
 #[test]
 fn wait_async_gives_a_cancelled_reply_as_an_error() {
@@ -121,7 +121,7 @@ fn async_events_gives_a_failure_last_then_ends() {
 /// A cancellation is the stream's last item, an error that says the call
 /// was cancelled, after the events before it; then the stream ends, as
 /// after a failure. Chosen so that the stream keeps one error type for
-/// every way a call does not complete; a driver that tells a cancellation
+/// every way a call does not complete; a caller that tells a cancellation
 /// from a failure polls the reply, whose end is typed.
 #[test]
 fn async_events_gives_a_cancellation_last_then_ends() {
@@ -151,7 +151,7 @@ fn async_events_gives_no_empty_batch() {
     assert_eq!(next(&mut done, &mut context), Poll::Ready(None));
 }
 
-// ------------------------------------------------------------- an async driver
+// ------------------------------------------------------------- an async caller
 
 /// An async task that awaits a call leaves its thread to the other tasks
 /// until the call ends: task A awaits a reply that ends only after task B's

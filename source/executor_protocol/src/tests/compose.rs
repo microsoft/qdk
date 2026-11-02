@@ -323,13 +323,14 @@ impl Driver<Program> for InTurn {
 /// given, and the job gives what it gives under the crate's driver.
 #[test]
 fn a_driver_written_by_hand_calls_through_the_adapters_below_it() {
-    let (by_hand, crates) = (Log::default(), Log::default());
+    let by_hand = Log::default();
     let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
     let (outcomes, _) = (ChainHead::new(InTurn) >> logger("a", &by_hand) >> bits())
         .expect("the logger fits")
         .run(Program::flip_and_toss(bits_set()), [0, 1])
         .expect("shots, needs met")
         .wait();
+    let crates = Log::default();
     let (expected, _) = (driver() >> logger("a", &crates) >> bits())
         .expect("the logger fits")
         .run(Program::flip_and_toss(bits_set()), [0, 1])

@@ -280,7 +280,7 @@ pub(in crate::tests) fn gated_device() -> (Gate, GatedDevice) {
 }
 
 /// A device's executor on a thread of its own (a device driver that
-/// blocks, under a driver that awaits): every call runs on that thread,
+/// blocks, under a caller that awaits): every call runs on that thread,
 /// one thread for all calls.
 #[test]
 fn on_its_own_thread_an_executor_runs_every_call_on_one_thread_not_the_callers() {
@@ -391,7 +391,7 @@ fn on_a_placement_that_runs_its_job_inline_a_call_returns_with_its_work_done() {
     );
 }
 
-/// A run's executor moved to the driver's thread, and a reply waited on
+/// A run's executor moved to the caller's thread, and a reply waited on
 /// a thread of its own: a placed executor and its replies are `Send`.
 #[test]
 fn a_placed_executor_and_its_replies_move_to_other_threads() {
@@ -415,7 +415,7 @@ fn a_placed_executor_and_its_replies_move_to_other_threads() {
     assert_eq!(values(&outcomes), [(0, 3, Value::One)]);
 }
 
-/// A driver that awaits (`run.await`) over an executor on its own thread:
+/// A caller that awaits (`run.await`) over an executor on its own thread:
 /// the reply wakes the task when the logic has run.
 #[test]
 fn an_async_task_awaits_the_reply_of_an_executor_on_its_own_thread() {
@@ -689,7 +689,7 @@ fn pausing() -> (Waker, mpsc::Receiver<()>, mpsc::Sender<()>) {
     (pauses, told, resume)
 }
 
-/// A driver woken on its executor's thread by a reply that fails (a
+/// A caller woken on its executor's thread by a reply that fails (a
 /// refusal there), which calls again at once from the waker: the executor
 /// is failed already when the reply is, so that call is refused. The
 /// waker holds the executor's thread until that call returned.
@@ -755,7 +755,7 @@ fn after_a_failed_call_it_refuses_every_later_call() {
     });
 }
 
-/// A driver sends a call that stops the device, then a read before it
+/// A caller sends a call that stops the device, then a read before it
 /// waits for the first reply: the read is refused, naming the stop, when
 /// the failure is recorded already, or else queued behind the stop on the
 /// executor's thread, and then ends with the failure, handing over
@@ -779,7 +779,7 @@ fn calls_in_flight_end_at_an_earlier_failure() {
     });
 }
 
-/// A driver that keeps several calls in flight: a call queued behind one
+/// A caller that keeps several calls in flight: a call queued behind one
 /// that fails does not run, since the state is part-way through the
 /// failed one; its reply ends with that failure.
 #[test]
@@ -817,7 +817,7 @@ fn a_call_queued_behind_a_failed_one_fails_without_running() {
     assert_eq!(seen(&threads).len(), 1, "only the failing call ran");
 }
 
-/// A driver that keeps three calls in flight, the first of which fails:
+/// A caller that keeps three calls in flight, the first of which fails:
 /// the two queued behind it never reach the executor it places, whose
 /// report it gives, so the report counts the one call that did.
 #[test]
@@ -846,7 +846,7 @@ fn its_report_counts_only_the_calls_that_reached_the_executor_it_places() {
     assert_eq!(report.calls, 1);
 }
 
-/// A driver that keeps several calls in flight, one of which names a shot
+/// A caller that keeps several calls in flight, one of which names a shot
 /// the executor does not hold: the calls queued behind it fail without
 /// running, as behind any failure.
 #[test]
@@ -907,7 +907,7 @@ fn a_panic_on_the_executors_thread_does_not_reach_its_placement() {
     end.expect_err("the logic panicked");
 }
 
-/// A driver that keeps several calls in flight on a pool's thread, one of
+/// A caller that keeps several calls in flight on a pool's thread, one of
 /// which panics: the placement stops, so the call queued behind it fails
 /// as never run, and `close` does not wait for it.
 #[test]
@@ -1048,7 +1048,7 @@ fn queued(
         .expect("an open executor queues a call")
 }
 
-/// A driver keeps calls in flight on a pool's thread: the first panics,
+/// A caller keeps calls in flight on a pool's thread: the first panics,
 /// which stops the placement, and the one queued behind it holds an
 /// instruction whose drop has a bug, which panics as the placement stops
 /// and drops that call. The panic is absorbed in the job, after the panic
@@ -1068,10 +1068,10 @@ fn an_instructions_drop_that_panics_as_the_placement_stops_does_not_reach_its_th
     ended(panics).1.expect_err("the logic panicked");
 }
 
-/// A driver's call runs on a pool's thread, and ends; then the copy of its
+/// A caller's call runs on a pool's thread, and ends; then the copy of its
 /// batch, which its job held, is dropped there, and an instruction's drop
 /// has a bug, which panics. The panic is absorbed: the placement goes on
-/// serving, and the driver's next call runs.
+/// serving, and the caller's next call runs.
 #[test]
 fn an_instructions_drop_that_panics_after_its_call_ran_leaves_the_placement_serving() {
     let (placement, jobs) = holding();
@@ -1088,7 +1088,7 @@ fn an_instructions_drop_that_panics_after_its_call_ran_leaves_the_placement_serv
     assert_eq!(ended(next).1, Ok(()));
 }
 
-/// A driver of importance sampling calls three shots, each on a thread of
+/// A caller doing importance sampling calls three shots, each on a thread of
 /// its own, whose logic weighs each shot; an instruction's drop has a
 /// bug, which panics as each shot's job drops its copy of the batch, after
 /// the first call ran. The panics are absorbed, and the report keeps that
@@ -1154,12 +1154,12 @@ fn an_instructions_drop_that_panics_as_its_calls_panic_unwinds_fails_it_as_that_
     );
 }
 
-/// A driver's batch holds two instructions of a type whose drop has a bug,
+/// A caller's batch holds two instructions of a type whose drop has a bug,
 /// as one usually does for every value of its type. The call runs on a
 /// pool's thread, and ends; then its job drops the copy of the batch, and
 /// both drops panic. Both panics are absorbed, where a second panic during
 /// the first one's unwind would abort the process: the placement goes on
-/// serving, and the driver's next call runs.
+/// serving, and the caller's next call runs.
 #[test]
 fn two_instructions_whose_drops_panic_in_one_batch_are_both_absorbed() {
     let (placement, jobs) = holding();
@@ -1207,7 +1207,7 @@ fn two_instructions_whose_drops_panic_as_their_calls_panic_unwinds_are_both_abso
     );
 }
 
-/// A driver's batch holds an instruction whose drop has a bug, then one
+/// A caller's batch holds an instruction whose drop has a bug, then one
 /// whose copy has a bug: the placed executor's copy of the batch panics
 /// part-way, inside `call`, and the copy made before it is dropped as
 /// that panic unwinds. Its drop's panic is absorbed, where a second panic
@@ -1765,7 +1765,7 @@ fn after_its_placement_drops_a_job_it_refuses_every_later_call() {
     );
 }
 
-/// `executor`, a device's, dropped (a driver that gave up) while its first
+/// `executor`, a device's, dropped (a caller that gave up) while its first
 /// call on shot 0 runs, held at the gate, and a second call is queued
 /// behind it: the replies of the call running and of the call queued.
 pub(in crate::tests) fn dropped_while_a_call_runs<E: Executor<InstructionBatch<Op>>>(
@@ -1792,7 +1792,7 @@ pub(in crate::tests) fn dropped_while_a_call_runs<E: Executor<InstructionBatch<O
     (running, queued)
 }
 
-/// A driver gives up on a device on a thread of its own while a call runs,
+/// A caller gives up on a device on a thread of its own while a call runs,
 /// another queued behind it. Dropping a placed executor cancels the calls
 /// not yet started: the call queued never runs, and its reply ends
 /// `ReplyStatus::Cancelled` as the executor is dropped.
@@ -1824,7 +1824,7 @@ fn dropped_it_cancels_the_calls_not_yet_started() {
 /// mid-way; only the calls not yet started are cancelled, as with tokio's
 /// `JoinSet`, Java's `shutdownNow` and Python's `cancel_futures`, so that a
 /// dropped executor frees its states after the call in progress at most.
-/// A driver gives up on a device on a thread of its own while a call runs.
+/// A caller gives up on a device on a thread of its own while a call runs.
 #[test]
 fn dropped_it_lets_the_call_running_finish() {
     let (gate, device) = gated_device();
@@ -1915,7 +1915,7 @@ fn with_a_panicking_waker_queued(
 /// replies end `ReplyStatus::Cancelled`, not failed as never run (`its
 /// placement stopped`, a wrong reason: the placement runs on), and the
 /// executor it places is still dropped on its placement. Chosen so that
-/// one caller's bug does not mislead the others. A driver gives up on a
+/// one caller's bug does not mislead the others. A caller gives up on a
 /// device while a call runs and two are queued, one awaited by a task
 /// whose waker has a bug.
 #[test]
@@ -1942,7 +1942,7 @@ fn a_waker_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled() {
 /// `drop` raises no panic of a caller's waker woken as it cancels the
 /// caller's call: the panic is the caller's bug, and a destructor must not
 /// fail (Rust API Guidelines, C-DTOR-FAIL), since a panic out of a `drop`
-/// run during an unwind aborts the process. A driver gives up on a device
+/// run during an unwind aborts the process. A caller gives up on a device
 /// while a call runs and another is queued, awaited by a task whose waker
 /// has a bug.
 #[test]
@@ -1957,7 +1957,7 @@ fn dropped_it_raises_no_panic_of_a_callers_waker() {
     ended(running).1.expect("the call running finishes");
 }
 
-/// Dropped as a panic unwinds (a driver's bug, the executor one of its
+/// Dropped as a panic unwinds (a caller's bug, the executor one of its
 /// locals), with a call queued whose caller's waker panics, a placed
 /// executor still cancels that call, and the process goes on: the
 /// waker's panic, absorbed, does not abort it, as a second panic out of a
@@ -1968,13 +1968,13 @@ fn dropped_as_a_panic_unwinds_it_cancels_a_call_whose_callers_waker_panics() {
     let (executor, running, awaited) = with_a_panicking_waker_queued(device, &gate);
     let unwound = panic::catch_unwind(AssertUnwindSafe(move || {
         let _executor = executor;
-        panic!("the driver has a bug");
+        panic!("the caller has a bug");
     }));
-    let payload = unwound.expect_err("the driver's panic unwinds");
+    let payload = unwound.expect_err("the caller's panic unwinds");
     assert_eq!(
         payload.downcast_ref::<&str>(),
-        Some(&"the driver has a bug"),
-        "the driver's own panic, not the waker's"
+        Some(&"the caller has a bug"),
+        "the caller's own panic, not the waker's"
     );
     assert_eq!(polled_now(awaited), (Vec::new(), ReplyStatus::Cancelled));
     gate.open
@@ -1987,7 +1987,7 @@ fn dropped_as_a_panic_unwinds_it_cancels_a_call_whose_callers_waker_panics() {
 /// keep the calls queued after it from being cancelled: their replies end
 /// `ReplyStatus::Cancelled`, not failed as never run (`its placement
 /// stopped`, a wrong reason: the placement runs on), as with a caller's
-/// waker that panics. A driver gives up on a device on a pool's thread
+/// waker that panics. A caller gives up on a device on a pool's thread
 /// with two calls queued, the first holding that instruction.
 #[test]
 fn an_instructions_drop_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled() {
@@ -2003,7 +2003,7 @@ fn an_instructions_drop_that_panics_as_drop_cancels_its_call_leaves_the_others_c
 
 /// `drop` raises no panic of an instruction's drop as it cancels the call
 /// that holds it: the instruction is the caller's code, and a destructor
-/// must not fail (C-DTOR-FAIL). A driver gives up on a device with a call
+/// must not fail (C-DTOR-FAIL). A caller gives up on a device with a call
 /// queued that holds an instruction whose drop has a bug.
 #[test]
 fn dropped_it_raises_no_panic_of_an_instructions_drop() {
@@ -2014,7 +2014,7 @@ fn dropped_it_raises_no_panic_of_an_instructions_drop() {
         .expect("`drop` raises no instruction's panic");
 }
 
-/// Dropped as a panic unwinds (a driver's bug, the executor one of its
+/// Dropped as a panic unwinds (a caller's bug, the executor one of its
 /// locals), with a call queued that holds an instruction whose drop has a
 /// bug, a placed executor still cancels that call, and the process goes
 /// on: the instruction's panic, absorbed, does not abort it, as a second
@@ -2026,13 +2026,13 @@ fn dropped_as_a_panic_unwinds_it_cancels_a_call_whose_instruction_panics_when_dr
     let fragile = queued(&mut placed, &[Fragile::panicking_when_dropped()]);
     let unwound = panic::catch_unwind(AssertUnwindSafe(move || {
         let _placed = placed;
-        panic!("the driver has a bug");
+        panic!("the caller has a bug");
     }));
-    let payload = unwound.expect_err("the driver's panic unwinds");
+    let payload = unwound.expect_err("the caller's panic unwinds");
     assert_eq!(
         payload.downcast_ref::<&str>(),
-        Some(&"the driver has a bug"),
-        "the driver's own panic, not the instruction's"
+        Some(&"the caller has a bug"),
+        "the caller's own panic, not the instruction's"
     );
     assert_eq!(polled_now(fragile), (Vec::new(), ReplyStatus::Cancelled));
 }
@@ -2095,7 +2095,7 @@ fn a_logic_that_panics_fails_its_call_though_its_callers_waker_panics() {
     );
 }
 
-/// Runs its closure when dropped: a driver's cleanup guard.
+/// Runs its closure when dropped: a caller's cleanup guard.
 struct OnDrop<F: FnMut()>(F);
 
 impl<F: FnMut()> Drop for OnDrop<F> {
@@ -2106,7 +2106,7 @@ impl<F: FnMut()> Drop for OnDrop<F> {
 
 /// A call that returns normally does not fail the executor though its
 /// thread is unwinding: a placement that runs each job inline, called by
-/// a driver's cleanup guard as the driver's panic unwinds, runs a call
+/// a caller's cleanup guard as the caller's panic unwinds, runs a call
 /// that succeeds, and a later call is accepted, as when not placed. Its
 /// thread's unwind is not the call's panic.
 #[test]
@@ -2116,9 +2116,9 @@ fn a_call_that_returns_as_its_thread_unwinds_does_not_fail_the_executor() {
     let mut cleanup = None;
     let unwound = panic::catch_unwind(AssertUnwindSafe(|| {
         let _guard = OnDrop(|| cleanup = Some(send(&mut placed, &[0], &[Op::Flip])));
-        panic!("the driver has a bug");
+        panic!("the caller has a bug");
     }));
-    unwound.expect_err("the driver's panic unwinds");
+    unwound.expect_err("the caller's panic unwinds");
     let (_, end) = (cleanup.expect("the guard ran")).expect("the cleanup call is accepted");
     end.expect("the cleanup call succeeds");
     let (_, later) = send(&mut placed, &[0], &[Op::Flip]).expect("a later call is accepted");
@@ -2129,8 +2129,8 @@ fn a_call_that_returns_as_its_thread_unwinds_does_not_fail_the_executor() {
 /// without `close`, since it cancels the calls queued behind it, as
 /// dropping tokio's `JoinSet`, Java's `shutdownNow` and Python's
 /// `cancel_futures` cancel the work not yet started: a device that a state
-/// holds is free soon after a driver gives up, not after every call it
-/// queued. Not before, though: the call running uses the state. A driver
+/// holds is free soon after a caller gives up, not after every call it
+/// queued. Not before, though: the call running uses the state. A caller
 /// gives up on a device on a thread of its own while a call runs, another
 /// queued behind it.
 #[test]

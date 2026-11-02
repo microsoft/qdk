@@ -341,9 +341,9 @@ drop, a logic's own state, the report), and what splitting a run costs, is in
 
 ## An executor's whole life
 
-A run owns its executor: it passes the program's calls on, as its driver
-runs it, and closes the executor once, after the program's last call. The arrows read as in
-[Replies](replies.md#reading-the-sequence-diagrams):
+A run owns its executor: it passes the program's calls on, as its driver runs
+it, and closes the executor once, after the program's last call. The arrows read
+as in [Replies](replies.md#reading-the-sequence-diagrams):
 
 ```mermaid
 sequenceDiagram
@@ -371,11 +371,11 @@ sequenceDiagram
   R-->>C: (output, report)
 ```
 
-The run closes the executor once, after the program's last call, also when a call
-failed. A call after close is refused with `Rejected::Closed` (the conformance
-check `rejects_calls_once_closed`). A run dropped before its program ends does
-not close its executor (`Run`'s doc, which no test pins), an open question that
-goes with the planned cancellation ([An executor's
+The run closes the executor once, after the program's last call, also when a
+call failed. A call after close is refused with `Rejected::Closed` (the
+conformance check `rejects_calls_once_closed`). A run dropped before its program
+ends does not close its executor (`Run`'s doc, which no test pins), an open
+question that goes with the planned cancellation ([An executor's
 close](internals/executors.md#an-executors-close)).
 
 An executor whose state carries over from one call to the next refuses

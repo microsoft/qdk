@@ -43,9 +43,10 @@ A driver, the adapters downstream of it and an executor are put together by
   built with ([Seeds](executors.md#seeds-not-generators)).
 - A **run** owns the chain, and runs nothing until it is waited for or awaited.
   Then `run.wait()`, or `run.await` for an asynchronous caller, runs its
-  program, closes the executor once the program ends, and gives the program's output and
-  the executor's report. An awaited run, and a run stopped before its program
-  ends, have limits ([Known limits](internals/composition.md#known-limits)).
+  program, closes the executor once the program ends, and gives the program's
+  output and the executor's report. An awaited run, and a run stopped before its
+  program ends, have limits
+  ([Known limits](internals/composition.md#known-limits)).
 - A call on a shot the job did not name is refused before the executor sees
   it.
 

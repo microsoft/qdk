@@ -2231,6 +2231,10 @@ enum BitStep {
     /// on it, which its readouts carry from then on; does nothing on an
     /// even one.
     RejectIfOdd,
+    /// Finds an odd-numbered shot unresolved: raises
+    /// [`ShotConditions::UNRESOLVED`] on it, which its readouts carry from
+    /// then on; does nothing on an even one.
+    UnresolveIfOdd,
 }
 
 impl BitStep {
@@ -2322,6 +2326,10 @@ enum BitsBehaviour {
     /// readout of a call alone (a layer that marks what its sends read,
     /// but not what its logic wrote before them in its reply).
     MarksTheLastReadoutOfAShotAlone,
+    /// It keeps both, but keeps a shot's conditions as the first call that
+    /// raised one left them, and forgets those raised in later calls once
+    /// the call ends (a layer that records a shot's conditions once).
+    KeepsTheFirstConditionsRaised,
 }
 
 /// A shot of a [`TestDoubleOfBits`]: its bit, the draws its tosses made,
@@ -2469,6 +2477,41 @@ impl TestDoubleOfBits {
         }
     }
 
+    /// Restarts, remakes or copies from its template, as a call on the
+    /// shots `named` starts, the shots its behaviour does so to.
+    fn make_shots_at_call(&mut self, named: &[ShotId], instructions: &[BitStep]) {
+        let joins = named.iter().any(|shot| !self.shots.contains_key(shot));
+        if self.behaviour == BitsBehaviour::RestartsItsShotsWhenOneJoins && joins {
+            self.shots.clear();
+        }
+        if self.behaviour == BitsBehaviour::RemakesNamedShotsWhenOneJoins && joins {
+            self.shots.retain(|shot, _| !named.contains(shot));
+        }
+        if self.behaviour == BitsBehaviour::RestartsItsShotsWhenTheShotsChange
+            && named != self.last_named
+        {
+            self.shots.clear();
+            self.last_named = named.to_vec();
+        }
+        if self.behaviour == BitsBehaviour::CopiesNewShotsFromATemplateItChanges {
+            for &shot in named {
+                (self.shots.entry(shot)).or_insert((self.template, shot, ShotConditions::NONE));
+            }
+            for step in instructions {
+                match *step {
+                    BitStep::Flip => self.template = !self.template,
+                    BitStep::Set => self.template = true,
+                    BitStep::Toss
+                    | BitStep::Read(_)
+                    | BitStep::ReadIfOdd(_)
+                    | BitStep::ReadInverted(_)
+                    | BitStep::RejectIfOdd
+                    | BitStep::UnresolveIfOdd => {}
+                }
+            }
+        }
+    }
+
     /// Raises `raised`, the conditions raised in a call on the shots
     /// `named`, on the shots its behaviour spreads them to, and on the
     /// call's `outcomes` when it marks them all.
@@ -2525,39 +2568,12 @@ impl Executor<InstructionBatch<BitStep>> for TestDoubleOfBits {
         let mut raised = ShotConditions::NONE;
         let mut outcomes = Vec::new();
         let named = batch.shots.as_slice();
-        let joins = named.iter().any(|shot| !self.shots.contains_key(shot));
-        if self.behaviour == BitsBehaviour::RestartsItsShotsWhenOneJoins && joins {
-            self.shots.clear();
-        }
-        if self.behaviour == BitsBehaviour::RemakesNamedShotsWhenOneJoins && joins {
-            self.shots.retain(|shot, _| !named.contains(shot));
-        }
-        if self.behaviour == BitsBehaviour::RestartsItsShotsWhenTheShotsChange
-            && named != self.last_named
-        {
-            self.shots.clear();
-            self.last_named = named.to_vec();
-        }
-        if self.behaviour == BitsBehaviour::CopiesNewShotsFromATemplateItChanges {
-            for &shot in named {
-                (self.shots.entry(shot)).or_insert((self.template, shot, ShotConditions::NONE));
-            }
-            for step in batch.instructions {
-                match *step {
-                    BitStep::Flip => self.template = !self.template,
-                    BitStep::Set => self.template = true,
-                    BitStep::Toss
-                    | BitStep::Read(_)
-                    | BitStep::ReadIfOdd(_)
-                    | BitStep::ReadInverted(_)
-                    | BitStep::RejectIfOdd => {}
-                }
-            }
-        }
+        self.make_shots_at_call(named, batch.instructions);
         for shot in self.runs_on(named) {
             let first = outcomes.len();
             let (bit, draws, conditions) =
                 (self.shots.entry(shot)).or_insert((false, shot, ShotConditions::NONE));
+            let before = *conditions;
             for step in batch.instructions {
                 match *step {
                     BitStep::Flip => *bit = !*bit,
@@ -2584,8 +2600,16 @@ impl Executor<InstructionBatch<BitStep>> for TestDoubleOfBits {
                         *conditions |= ShotConditions::REJECTED;
                         raised |= ShotConditions::REJECTED;
                     }
-                    BitStep::ReadIfOdd(_) | BitStep::RejectIfOdd => {}
+                    BitStep::UnresolveIfOdd if shot % 2 == 1 => {
+                        *conditions |= ShotConditions::UNRESOLVED;
+                        raised |= ShotConditions::UNRESOLVED;
+                    }
+                    BitStep::ReadIfOdd(_) | BitStep::RejectIfOdd | BitStep::UnresolveIfOdd => {}
                 }
+            }
+            if self.behaviour == BitsBehaviour::KeepsTheFirstConditionsRaised && !before.is_empty()
+            {
+                *conditions = before;
             }
             if self.behaviour == BitsBehaviour::ReadsBackwardsAmongOthers && batch.shots.len() > 1 {
                 outcomes[first..].reverse();
@@ -2813,7 +2837,7 @@ impl Executor<InstructionBatch<BitStep>> for TestDoubleReplacesWhatTheCallerHeld
     }
 }
 
-/// A driver that gathers the readouts of its batches in one buffer, waiting
+/// A caller that gathers the readouts of its batches in one buffer, waiting
 /// for each reply into it, loses the earlier batches' readouts to a reply
 /// that replaces what the buffer held: it breaks the rule that a reply
 /// appends its events, which the checks that read readouts check, though
@@ -2867,7 +2891,7 @@ impl Executor<InstructionBatch<BitStep>> for TestDoubleMarksWhatTheCallerHeld {
     }
 }
 
-/// A driver that gathers a shot's readouts of several calls in one buffer
+/// A caller that gathers a shot's readouts of several calls in one buffer
 /// finds its earlier readouts of shot 1, the one the executor rejects and
 /// not the first of the call, marked by a later reply: the checks that
 /// read readouts hold an outcome of each shot the call names, so that they
@@ -3498,6 +3522,31 @@ fn keeps_each_shots_conditions_from_one_call_to_the_next_catches_a_condition_one
         &[
             &[BitStep::RejectIfOdd, BitStep::Read(0)],
             &[BitStep::Read(2), BitStep::Read(1)],
+        ],
+    );
+}
+
+/// A code's runtime rejects shot 1 in a first call, finds it unresolved in
+/// a second, and reads it in a third: an executor that keeps only the
+/// conditions of the first call that raised one gives the third readout
+/// rejected but not unresolved. The check keeps every condition that the
+/// shot's earlier calls carried, those gained in a later call too, and
+/// names the shot.
+#[test]
+#[should_panic(
+    expected = "each outcome of a shot must carry the conditions its outcomes in earlier calls \
+                carried, since a condition stays raised for its shot, but one drops a condition \
+                on shot 1"
+)]
+fn keeps_each_shots_conditions_from_one_call_to_the_next_catches_a_condition_gained_in_a_later_call_then_dropped()
+ {
+    keeps_each_shots_conditions_from_one_call_to_the_next(
+        &mut TestDoubleOfBits::new(BitsBehaviour::KeepsTheFirstConditionsRaised),
+        &shots(&[0, 1, 2]),
+        &[
+            &[BitStep::RejectIfOdd, BitStep::Read(0)],
+            &[BitStep::UnresolveIfOdd, BitStep::Read(1)],
+            &[BitStep::Read(2)],
         ],
     );
 }

@@ -492,7 +492,7 @@ earliest failure of its calls on a lifecycle (`ExecutorLifecycle`; the
 `Executor` contract lists the other ways). A failure it learns of inside
 `call`, it records with `fail`. A reply that may fail after `call` returned,
 it binds to the lifecycle (`ExecutorLifecycle::bind`), and the bound reply
-(`LifecycleBoundReply`) records its own failure when it is polled. A driver
+(`LifecycleBoundReply`) records its own failure when it is polled. A caller
 with several calls in flight may have had later calls admitted before that
 poll: their replies end at their next poll, without more events, and the
 next `call` is refused (tests `a_bound_reply_that_fails_fails_the_executor`
@@ -538,7 +538,7 @@ dropped unrun), which leaves that state out (test
 
 ```mermaid
 sequenceDiagram
-  participant D as driver
+  participant D as caller
   participant E as executor
   participant L as ExecutorLifecycle (earliest failure)
   participant R1 as reply 1: LifecycleBoundReply
@@ -593,7 +593,7 @@ change to its callers.
 
 ```mermaid
 sequenceDiagram
-  participant D as driver
+  participant D as caller
   participant E as ensemble executor
   participant R as ImmediateReply
   D->>E: call(InstructionBatchRef { shots, instructions })

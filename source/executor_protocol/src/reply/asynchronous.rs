@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Replies for async drivers: a whole reply as a [`Future`], or its events
+//! Replies for async callers: a whole reply as a [`Future`], or its events
 //! as a [`Stream`].
 //!
 //! The four ways to take a reply: all of it, with [`wait`](crate::wait)
@@ -16,7 +16,7 @@ use futures_core::Stream;
 
 use crate::Reply;
 
-/// `reply` as a [`Future`] of all its events: what an async driver
+/// `reply` as a [`Future`] of all its events: what an async caller
 /// awaits where a synchronous one calls [`wait`](crate::wait). Its output is
 /// the events and how the run ended, as [`wait`](crate::wait) gives it (a
 /// cancelled call ends in an error that says so); a failure keeps the

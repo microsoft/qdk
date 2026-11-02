@@ -525,7 +525,7 @@ pub(crate) struct ExecutorLifecycleHandle {
 impl ExecutorLifecycleHandle {
     /// Records that this call failed. Of one call's failures, the first
     /// recorded is kept, and of several calls', the earliest call's: a
-    /// driver that polls several replies may see their failures out of
+    /// caller that polls several replies may see their failures out of
     /// order.
     pub(crate) fn fail(&self, reason: &str) {
         self.failure.record(self.call, reason);
@@ -533,7 +533,7 @@ impl ExecutorLifecycleHandle {
 
     /// Why this call must end without more events, as
     /// [`Rejected::EarlierFailure`] displays it: an earlier call failed. A
-    /// driver that keeps several calls in flight learns of a failure when it
+    /// caller that keeps several calls in flight learns of a failure when it
     /// polls, so this call may have been admitted before the failure was
     /// known.
     #[must_use]
