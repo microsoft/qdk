@@ -24,10 +24,14 @@ use crate::{Capabilities, InstructionMismatch, InstructionSet, OpcodeMap, Reject
 /// its job is given to the chain ([`Chain::run`](crate::Chain::run)).
 ///
 /// The default states nothing but the run's shots, held at once, which
-/// every run implies, so any executor that can hold them accepts it: a
-/// program states a need only when it wants it checked. New needs are
-/// added as fields whose default states nothing, hence `#[non_exhaustive]`:
-/// build one from the default and its `with_` methods.
+/// every run implies, so any executor that can hold them accepts the job
+/// of a typed program stating it. A program of calls by opcode
+/// ([`InstructionCall`](crate::InstructionCall)) also states their set
+/// ([`with_instruction_set`](Self::with_instruction_set)), which numbers
+/// them, or a chain refuses its job. Beyond that, a program states a need
+/// only when it wants it checked. New needs are added as fields whose
+/// default states nothing, hence `#[non_exhaustive]`: build one from the
+/// default and its `with_` methods.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 #[expect(

@@ -30,9 +30,10 @@ use crate::tests::test_double::{run, step};
 use crate::tests::{shots, values};
 use crate::{
     AdapterError, AdapterFn, Below, BelowHandle, CallInput, Capabilities, Close, Compose, Describe,
-    Executor, ImmediateReply, InstructionBatch, InstructionBatchRef, OnePerShot, OnePerShotAdapter,
-    Outcome, Outcomes, Owning, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
-    WithExecutor, adapter_fn, compose, executor_fn, owning_adapter_fn,
+    Executor, ImmediateReply, IncrementalReply, InstructionBatch, InstructionBatchRef, OnePerShot,
+    OnePerShotAdapter, Outcome, Outcomes, Owning, Rejected, ReplySender, ShotContext, ShotId,
+    ShotOutcome, ShotSet, Value, WithExecutor, adapter_fn, compose, executor_fn, owning_adapter_fn,
+    reply_channel, wait,
 };
 
 /// The shots of the target chain's run: not a range.
@@ -184,6 +185,96 @@ macro_rules! downstream_by_shr {
 downstream_by_shr!(AdapterFn);
 downstream_by_shr!(OnePerShotAdapter);
 
+/// A device below whose calls are jobs in its queue, as a remote device's
+/// are: each `true` of a call reads one, for each of its shots, tagged
+/// with its index. A call that starts with a skip and a read is answered
+/// after it returns, when the test has the device
+/// [`answer_queued`](Self::answer_queued) calls; one that starts with two
+/// skips gives its readouts, then is cancelled; any other is answered at
+/// once. It refuses every call on shot `busy`.
+#[derive(Clone, Default)]
+struct RemoteDevice {
+    queued: Rc<RefCell<Vec<QueuedJob>>>,
+    busy: Option<ShotId>,
+}
+
+/// A call queued in a [`RemoteDevice`]: where its reply goes, and what it
+/// read, given when the device answers it.
+type QueuedJob = (ReplySender<ShotOutcome>, Vec<ShotOutcome>);
+
+impl RemoteDevice {
+    /// Answers each call queued so far with its readouts, in the order
+    /// the calls came.
+    fn answer_queued(&self) {
+        for (sender, read) in self.queued.borrow_mut().drain(..) {
+            sender.extend(read);
+            sender.done();
+        }
+    }
+}
+
+impl Executor<InstructionBatch<bool>> for RemoteDevice {
+    type Reply = IncrementalReply<ShotOutcome>;
+
+    fn call(&mut self, batch: InstructionBatchRef<'_, bool>) -> Result<Self::Reply, Rejected> {
+        if self.busy.is_some_and(|j| batch.shots.contains(&j)) {
+            return Err(Rejected::Unavailable("busy".to_owned()));
+        }
+        let mut read = Vec::new();
+        for &shot in batch.shots {
+            for (tag, _) in batch.instructions.iter().enumerate().filter(|(_, r)| **r) {
+                let tag = u32::try_from(tag).expect("a batch of the tests is short");
+                read.push(ShotOutcome::new(shot, tag, Value::One));
+            }
+        }
+        let (sender, reply) = reply_channel();
+        match batch.instructions {
+            [false, true, ..] => self.queued.borrow_mut().push((sender, read)),
+            [false, false, ..] => {
+                sender.extend(read);
+                sender.cancel();
+            }
+            _ => {
+                sender.extend(read);
+                sender.done();
+            }
+        }
+        Ok(reply)
+    }
+}
+
+impl Describe for RemoteDevice {
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::default()
+    }
+}
+
+impl Close for RemoteDevice {
+    type Report = ();
+
+    fn close(&mut self) {}
+}
+
+/// Calls `executor` with `batch` on the target chain's shots, has `device`
+/// answer the calls queued, then waits for the reply: what it read, and
+/// its end.
+fn call_then_answer<E: Executor<InstructionBatch<bool>>>(
+    executor: &mut E,
+    device: &RemoteDevice,
+    batch: &[bool],
+) -> (Vec<ShotOutcome>, Result<(), String>) {
+    let reply = executor
+        .call(InstructionBatchRef {
+            shots: &shots(&SHOTS),
+            instructions: batch,
+        })
+        .expect("the call is accepted");
+    device.answer_queued();
+    let mut read = Vec::new();
+    let end = wait(reply, &mut read);
+    (read, end)
+}
+
 /// The state of an adapter that keeps its way below, and nothing else.
 #[expect(
     clippy::unnecessary_wraps,
@@ -212,6 +303,38 @@ fn run_each_owned(
 ) -> Result<(), AdapterError> {
     outcomes.extend(below.run(input.instructions())?);
     Ok(())
+}
+
+/// The logic of a lowering that sends each call down, then runs `then`
+/// and writes what it reads, through a lent way below.
+fn send_then_run(
+    then: &'static [bool],
+) -> impl FnMut(
+    &mut (),
+    &CallInput<'_, bool>,
+    &mut Below<'_, bool>,
+    &mut Outcomes<'_>,
+) -> Result<(), AdapterError> {
+    move |(): &mut (), input, below, outcomes| {
+        below.send(input.instructions())?;
+        outcomes.extend(below.run(then)?);
+        Ok(())
+    }
+}
+
+/// [`send_then_run`]'s logic, through its state's way below.
+fn send_then_run_owned(
+    then: &'static [bool],
+) -> impl FnMut(
+    &mut BelowHandle<bool>,
+    &CallInput<'_, bool>,
+    &mut Outcomes<'_>,
+) -> Result<(), AdapterError> {
+    move |below, input, outcomes| {
+        below.send(input.instructions())?;
+        outcomes.extend(below.run(then)?);
+        Ok(())
+    }
 }
 
 /// A shared place where a test keeps the ways below its states give up.
@@ -407,6 +530,70 @@ fn an_owned_run_gives_its_readouts_by_shot_each_in_the_order_read() {
         .flat_map(|shot| (0..30).rev().map(move |tag| (shot, tag, Value::One)))
         .collect();
     assert_eq!(values(&read.borrow()), by_shot);
+}
+
+/// A lowering with a state per shot that sends each call's read, then runs
+/// two skips and a read and writes what it reads, on the target chain's
+/// four shots: each shot's send goes below alone before its run, and its
+/// readouts reach the caller through the way below the state owns, as
+/// through a lent one.
+#[test]
+fn a_shots_owned_sends_that_go_alone_before_its_run_pass_their_readouts_up() {
+    const THEN: &[bool] = &[false, false, true];
+    let lowering = adapter_fn(no_state, send_then_run(THEN)).shots(OnePerShot);
+    let owning = owning_adapter_fn(its_way_below, send_then_run_owned(THEN)).shots(OnePerShot);
+    let mut lending = (lowering >> Downstream::default()).expect("bools fit");
+    let mut owning = (owning >> Downstream::default()).expect("bools fit");
+    let (through_lent, end) =
+        run(&mut lending, &shots(&SHOTS), &[true]).expect("the call is accepted");
+    end.expect("the lent call ends well");
+    let (through_owned, end) =
+        run(&mut owning, &shots(&SHOTS), &[true]).expect("the call is accepted");
+    end.expect("the owned call ends well");
+    assert_eq!(through_lent.len(), 8, "each shot's send and run read");
+    assert_eq!(values(&through_owned), values(&through_lent));
+}
+
+/// A runtime with one state over a remote device, on the target chain's
+/// four shots, that sends each call as a job the device answers after the
+/// call returns: the readouts that come then reach the caller through the
+/// way below the state owns, as through a lent one.
+#[test]
+fn an_owned_send_answered_after_its_call_passes_its_later_readouts_up() {
+    const QUEUED: &[bool] = &[false, true];
+    let lent = RemoteDevice::default();
+    let owned = RemoteDevice::default();
+    let mut lending = compose(adapter_fn(no_state, pass), lent.clone()).expect("bools fit");
+    let mut owning =
+        compose(owning_adapter_fn(its_way_below, pass_owned), owned.clone()).expect("bools fit");
+    let (through_lent, end) = call_then_answer(&mut lending, &lent, QUEUED);
+    end.expect("the lent call ends well");
+    let (through_owned, end) = call_then_answer(&mut owning, &owned, QUEUED);
+    end.expect("the owned call ends well");
+    assert_eq!(through_lent.len(), 4, "each shot read after the call");
+    assert_eq!(values(&through_owned), values(&through_lent));
+}
+
+/// A lowering with a state per shot over a remote device, on the target
+/// chain's four shots, that sends each call as a job the device answers
+/// after the call returns, then runs a read: the send's readouts that come
+/// then reach the caller through the way below the state owns, as through
+/// a lent one.
+#[test]
+fn a_shots_owned_send_answered_after_its_call_passes_its_later_readouts_up() {
+    const QUEUED: &[bool] = &[false, true];
+    let lent = RemoteDevice::default();
+    let owned = RemoteDevice::default();
+    let lowering = adapter_fn(no_state, send_then_run(&[true])).shots(OnePerShot);
+    let owning = owning_adapter_fn(its_way_below, send_then_run_owned(&[true])).shots(OnePerShot);
+    let mut lending = compose(lowering, lent.clone()).expect("bools fit");
+    let mut owning = compose(owning, owned.clone()).expect("bools fit");
+    let (through_lent, end) = call_then_answer(&mut lending, &lent, QUEUED);
+    end.expect("the lent call ends well");
+    let (through_owned, end) = call_then_answer(&mut owning, &owned, QUEUED);
+    end.expect("the owned call ends well");
+    assert_eq!(through_lent.len(), 8, "each shot's send and run read");
+    assert_eq!(values(&through_owned), values(&through_lent));
 }
 
 /// A debugger with a state per shot whose shot 2 gives its way below up,
@@ -711,6 +898,81 @@ fn an_owned_run_that_fails_below_fails_the_call_and_the_adapter() {
     );
     assert_eq!(end, Err("lost".to_owned()));
     let later = run(&mut decoded, &ShotSet::one(1), &[true]).expect_err("the adapter failed");
+    assert!(matches!(later, Rejected::EarlierFailure(_)), "{later:?}");
+}
+
+/// A runtime with one state over a remote device, on the target chain's
+/// four shots, that sends each call as a job the device cancels, as its
+/// operator may: through the way below the state owns, as through a lent
+/// one, the call fails, and so does the adapter.
+#[test]
+fn an_owned_send_cancelled_below_fails_the_call_and_the_adapter() {
+    const CANCELLED: &[bool] = &[false, false, true];
+    let lent = RemoteDevice::default();
+    let owned = RemoteDevice::default();
+    let mut lending = compose(adapter_fn(no_state, pass), lent.clone()).expect("bools fit");
+    let mut owning =
+        compose(owning_adapter_fn(its_way_below, pass_owned), owned.clone()).expect("bools fit");
+    let (_, lent_end) = call_then_answer(&mut lending, &lent, CANCELLED);
+    lent_end.as_ref().expect_err("the lent call fails");
+    let (_, owned_end) = call_then_answer(&mut owning, &owned, CANCELLED);
+    assert_eq!(owned_end, lent_end);
+    let later = run(&mut owning, &shots(&SHOTS), &[true]).expect_err("the adapter failed");
+    assert!(matches!(later, Rejected::EarlierFailure(_)), "{later:?}");
+}
+
+/// A lowering with a state per shot over a remote device, on the target
+/// chain's four shots, that sends each call as a job the device cancels,
+/// as its operator may, then runs a read: through the ways below the
+/// states own, as through lent ones, the call fails, and so does the
+/// adapter.
+#[test]
+fn a_shots_owned_send_cancelled_below_fails_the_call_and_the_adapter() {
+    const CANCELLED: &[bool] = &[false, false, true];
+    let lent = RemoteDevice::default();
+    let owned = RemoteDevice::default();
+    let lowering = adapter_fn(no_state, send_then_run(&[true])).shots(OnePerShot);
+    let owning = owning_adapter_fn(its_way_below, send_then_run_owned(&[true])).shots(OnePerShot);
+    let mut lending = compose(lowering, lent.clone()).expect("bools fit");
+    let mut owning = compose(owning, owned.clone()).expect("bools fit");
+    let (_, lent_end) = call_then_answer(&mut lending, &lent, CANCELLED);
+    lent_end.as_ref().expect_err("the lent call fails");
+    let (_, owned_end) = call_then_answer(&mut owning, &owned, CANCELLED);
+    assert_eq!(owned_end, lent_end);
+    let later = run(&mut owning, &shots(&SHOTS), &[true]).expect_err("the adapter failed");
+    assert!(matches!(later, Rejected::EarlierFailure(_)), "{later:?}");
+}
+
+/// A decoder with a state per shot over a remote device busy for shot 5,
+/// which refuses its calls, on shots 2 and 5: shot 2's run went down, so
+/// shot 5's refused run does not refuse the call, through the ways below
+/// the states own as through lent ones, but fails it, and the adapter.
+#[test]
+fn a_shots_owned_run_refused_after_another_shots_run_went_down_fails_the_call_and_the_adapter() {
+    let busy_5 = RemoteDevice {
+        busy: Some(5),
+        ..RemoteDevice::default()
+    };
+    let decoding = adapter_fn(
+        no_state,
+        |(): &mut (),
+         input: &CallInput<'_, bool>,
+         below: &mut Below<'_, bool>,
+         outcomes: &mut Outcomes<'_>| {
+            outcomes.extend(below.run(input.instructions())?);
+            Ok(())
+        },
+    );
+    let owning = owning_adapter_fn(its_way_below, run_each_owned);
+    let mut lending = compose(decoding.shots(OnePerShot), busy_5.clone()).expect("bools fit");
+    let mut owning = compose(owning.shots(OnePerShot), busy_5).expect("bools fit");
+    let (_, lent_end) =
+        run(&mut lending, &shots(&[2, 5]), &[true]).expect("the lent call is accepted");
+    lent_end.as_ref().expect_err("the lent call fails");
+    let (_, owned_end) = run(&mut owning, &shots(&[2, 5]), &[true])
+        .expect("shot 2's run went down, so the call is not refused");
+    assert_eq!(owned_end, lent_end);
+    let later = run(&mut owning, &ShotSet::one(2), &[true]).expect_err("the adapter failed");
     assert!(matches!(later, Rejected::EarlierFailure(_)), "{later:?}");
 }
 

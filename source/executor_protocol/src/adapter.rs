@@ -40,23 +40,30 @@ use crate::{
 /// it: an adapter that passes the calls it is called with down (a recorder,
 /// a debugger) implements none of them.
 //
-// The notes name the three cases that reach this bound, since a diagnostic
-// attribute cannot pick its note by the type on stable Rust:
-// `compose(adapter, executor)` with an adapter that applies to one
-// executor's type only (`impl Apply<Toy>`) reports the executor as not an
-// `Adapter`, the rule for two adapters being the one left to try; adapters
-// composed are passed where an `Adapter` is expected (planned,
-// `docs/planned.md`); and an executor is put where an adapter is expected
-// (after a part whose `>>` its crate did not implement, such as
-// `driver() >> hand`, `hand` an executor of another crate).
+// The notes name the four cases that reach this bound, since a diagnostic
+// attribute cannot pick its note by the type on stable Rust. Two are a
+// `compose` whose left side ends in an adapter that does not compose over
+// the executor, which reports the executor as not an `Adapter`, the rule
+// for two adapters being the one left to try: an adapter returned as a
+// bare `impl Adapter` or given as a generic `A: Adapter`
+// (`compose(a, toy)`, `compose(driver() >> a, toy)`), and one
+// written by hand that applies to one executor's type only
+// (`impl Apply<Toy>`). The other two: adapters composed are passed where
+// an `Adapter` is expected (planned, `docs/planned.md`); and an executor
+// is put where an adapter is expected, after a part whose `>>` the
+// executor's crate did not implement (`driver() >> hand`,
+// `flip() >> hand`, `hand` an executor of another crate or a generic one).
 #[diagnostic::on_unimplemented(
+    note = "an adapter returned as a bare `impl Adapter` or given as a generic `A: Adapter` does \
+            not compose over an executor: name the facility's type, its closures named by role \
+            (`MakeState`, `AdapterLogic`; see `executor_protocol::compose`)",
     note = "an adapter written by hand implements `Apply<E>` for every \
             `E: Executor<InstructionBatch<Sends>> + Close`, not for one executor's type \
             (see `executor_protocol::Apply`)",
     note = "adapters composed are not yet an `Adapter`: compose them with the executor first, \
             `(adapters >> executor)?`, and pass the executor made",
-    note = "an executor goes last in a chain; one written by hand takes `>>` only where its crate \
-            implements `Shr` for the part on its left: else write `compose(left, executor)`"
+    note = "an executor goes last in a chain; one written by hand takes `>>` only where the executor's \
+            crate implements `Shr` for the part on its left: else write `compose(left, executor)`"
 )]
 pub trait Adapter {
     /// The instructions it is called with.

@@ -87,11 +87,21 @@ use crate::{AdaptiveProgram, ComposedJob, DefaultDriver, DrivenProgram, JobFault
 /// one whose right side is any executor do not overlap: a type of another
 /// crate could be both. [`compose`](fn@crate::compose) infers it.
 ///
-/// A pair that no rule composes fails to compile, which no test pins, with
-/// a note that lists the rules, one that points a pair `>>` does not take
-/// to [`compose`](fn@crate::compose), one that says a generic adapter does
-/// not compose over an executor, and one that points a job written as a
-/// component to [`Chain::run`].
+/// A pair that no rule composes fails to compile, which no test pins.
+/// Where the compiler reports this trait unmet, with the pair's types, it
+/// shows four notes: one that lists the rules, one that points a pair `>>`
+/// does not take to [`compose`](fn@crate::compose), one that says a generic
+/// part does not compose over an executor, and one that points a job
+/// written as a component to [`Chain::run`]. That is where no rule has the
+/// left side's type, or none the right side's for it: an executor or a
+/// chain on the left, a generic part with no bound (`compose(a, toy)`,
+/// `a: A`), an executor of another crate after a chain's head, where
+/// the executor's crate implements no `>>` (`driver() >> hand`), or a
+/// program and its shots on the right. An adapter given as a generic
+/// `A: Adapter`, or returned as a bare `impl Adapter`, is reported
+/// otherwise, the executor after it as no [`Adapter`] (in `compose`) or
+/// as not of the crate's `Adapters` (after `>>`), with notes that name
+/// that case.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not compose upstream of `{Rhs}`",
     label = "no rule of `compose` puts `{Self}` upstream of this",
@@ -100,8 +110,8 @@ use crate::{AdaptiveProgram, ComposedJob, DefaultDriver, DrivenProgram, JobFault
             upstream one sends is what the downstream one accepts (docs/composition.md, \"Composing a run\")",
     note = "where `>>` does not apply (an executor of another crate), write \
             `compose(upstream, downstream)`",
-    note = "a generic `A: Adapter` does not compose over an executor: name the facility's type, its \
-            closures named by role (see `executor_protocol::compose`)",
+    note = "a generic part (`A`, or `A: Adapter`) does not compose over an executor: name the \
+            facility's type, its closures named by role (see `executor_protocol::compose`)",
     note = "if the right side is a program and its shots: they are a job, not a component; give them \
             to the chain a driver heads, `(driver() >> executor)?.run(program, shots)`"
 )]

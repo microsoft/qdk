@@ -37,7 +37,9 @@ pub trait AdaptiveProgram {
 
     /// What it needs of the chain, checked when it is given to a chain
     /// ([`Chain::run`]). The default needs nothing but the run's shots, held
-    /// at once ([`Needs`]).
+    /// at once ([`Needs`]), which is enough for typed instructions: a
+    /// program of calls by opcode ([`InstructionCall`](crate::InstructionCall))
+    /// also states their set, or a chain refuses its job.
     #[must_use]
     fn needs(&self) -> Needs {
         Needs::default()

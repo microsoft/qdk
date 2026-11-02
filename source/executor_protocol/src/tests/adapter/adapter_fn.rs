@@ -2920,8 +2920,9 @@ fn a_readout_written_for_a_shot_answers_that_shot_alone() {
     assert_eq!(values(&written), [(1, 9, Value::One)]);
 }
 
-/// A decoder with a bug, that writes a readout of shot 9 in a call on
-/// shots 0 and 2, given in either order: it panics, the panic reaches the
+/// A decoder with a bug, that writes a readout of shot 1 in a call on
+/// shots 0 and 2, given in either order: shot 1 lies between the call's
+/// shots, yet is not one of them, so it panics, the panic reaches the
 /// caller, and the adapter fails.
 #[test]
 fn a_readout_written_for_a_shot_the_logic_does_not_serve_panics() {
@@ -2929,7 +2930,7 @@ fn a_readout_written_for_a_shot_the_logic_does_not_serve_panics() {
                  _: &CallInput<'_, bool>,
                  _: &mut Below<'_, bool>,
                  outcomes: &mut Outcomes<'_>| {
-        outcomes.extend([one(9, 0)]);
+        outcomes.extend([one(1, 0)]);
         Ok(())
     };
     for order in [[0, 2], [2, 0]] {

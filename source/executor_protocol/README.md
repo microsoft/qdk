@@ -60,8 +60,10 @@ Some concrete problems it addresses, as examples:
   (`Capabilities`), and a program declares what it needs (`Needs`). A
   chain whose parts do not fit is refused
   when it is built, and a job whose program needs what the chain lacks is
-  refused before any call; each refusal names the component, and every fault
-  of the parts built together, or of the job, is
+  refused before any call. A chain's refusal names each component at fault,
+  and a job's names the fault of its shots, each unmet need and each fault
+  the driver finds in its program; every fault of the parts built together,
+  or of the job, is
   [reported at once](docs/composition.md#what-is-checked-and-when), but for
   a job's shots named twice: only the least is reported. Found during a
   run, a mismatch would cost the work done so far, or give outcomes that

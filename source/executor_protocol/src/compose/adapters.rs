@@ -35,6 +35,25 @@ use crate::{
 /// One adapter, or adapters composed: what composes upstream of an executor. It
 /// is implemented by the crate, for every [`Adapter`], for
 /// [`ComposedAdapters`], and for [`NoAdapter`].
+//
+// The notes show where a `>>` after a chain's head or after adapters
+// cannot take its right side as an executor, takes it as one more adapter,
+// and reports the executor as not of this trait, with none of `Adapter`'s
+// notes. Two cases reach it, even over one of this crate's executors: the
+// adapter before the executor is returned as a bare `impl Adapter` or
+// given as a generic `A: Adapter` (`driver() >> flip() >> toy` with
+// `fn flip() -> impl Adapter<..>`, or `driver() >> a >> toy` with
+// `a: A`), or it is written by hand for one executor's type only
+// (`impl Apply<Toy>`). A diagnostic attribute cannot pick its note by the
+// type on stable Rust, so both show in each case.
+#[diagnostic::on_unimplemented(
+    note = "an adapter returned as a bare `impl Adapter` or given as a generic `A: Adapter` does \
+            not compose over an executor: name the facility's type, its closures named by role \
+            (`MakeState`, `AdapterLogic`; see `executor_protocol::compose`)",
+    note = "an adapter written by hand composes with an executor when it implements `Apply<E>` \
+            for every `E: Executor<InstructionBatch<Sends>> + Close`, not for one executor's type \
+            (see `executor_protocol::Apply`)"
+)]
 pub trait Adapters: sealed::AdapterList {
     /// The instructions the most upstream adapter is called with.
     type Accepts;

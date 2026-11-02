@@ -158,11 +158,21 @@ What an owning state sends or runs through its way below goes below as
 through a lent one
 (`owned_sends_go_below_as_lent_ones_do`,
 `owned_sends_of_each_shot_merge_as_lent_ones_do`,
-`an_owned_run_goes_below_on_its_shot_alone`), by the same refusal and
-failure rules (`an_owned_run_refused_first_refuses_the_call`,
+`an_owned_run_goes_below_on_its_shot_alone`), and what comes back
+reaches the caller as through a lent one: the readouts of a shot's sends
+that went alone before its run
+(`a_shots_owned_sends_that_go_alone_before_its_run_pass_their_readouts_up`),
+and those of a send answered after its call, one state and per shot
+(`an_owned_send_answered_after_its_call_passes_its_later_readouts_up`,
+`a_shots_owned_send_answered_after_its_call_passes_its_later_readouts_up`).
+It goes by the same refusal and failure rules
+(`an_owned_run_refused_first_refuses_the_call`,
 `an_owned_run_refused_after_a_send_fails_the_call_and_the_adapter`,
-`an_owned_run_that_fails_below_fails_the_call_and_the_adapter`), and a
-send gives its logic the refusal, as a lent one does
+`a_shots_owned_run_refused_after_another_shots_run_went_down_fails_the_call_and_the_adapter`,
+`an_owned_run_that_fails_below_fails_the_call_and_the_adapter`,
+`an_owned_send_cancelled_below_fails_the_call_and_the_adapter`,
+`a_shots_owned_send_cancelled_below_fails_the_call_and_the_adapter`),
+and a send gives its logic the refusal, as a lent one does
 (`an_owned_send_refused_below_gives_its_logic_the_refusal`,
 `a_shots_owned_send_after_its_refused_run_gives_its_logic_the_refusal`).
 Closing drops the states, with their ways below, before closing what
@@ -287,7 +297,7 @@ the rule for a state per shot.
 | What a run reads passes up only as the logic writes it                                                                                                                                                                                                      | `what_a_run_reads_passes_up_only_as_the_logic_writes_it`                                                                                                                                                                                                                                                                                        |
 | `push` writes an outcome, with its conditions, for every shot the state serves                                                                                                                                                                              | `the_conditions_a_logic_with_one_state_writes_on_an_outcome_mark_every_shot_of_the_call` (`src/tests/conditions.rs`)                                                                                                                                                                                                                            |
 | `extend` with `ShotOutcome`s writes each, with its conditions, for its own shot alone                                                                                                                                                                       | `the_conditions_a_logic_writes_on_a_shots_outcome_mark_that_shot_alone` (`src/tests/conditions.rs`)                                                                                                                                                                                                                                             |
-| An outcome `extend` writes must be of a shot the state serves, whatever the order of the call's shots, and with a state per shot                                                                                                                            | `a_readout_written_for_a_shot_the_logic_does_not_serve_panics`, `a_readout_written_for_a_shot_the_state_does_not_serve_panics` (`src/tests/adapter/adapter_fn/one_per_shot.rs`)                                                                                                                                                                 |
+| An outcome `extend` writes must be of a shot the state serves, not one between them, whatever the order of the call's shots, and with a state per shot                                                                                                      | `a_readout_written_for_a_shot_the_logic_does_not_serve_panics`, `a_readout_written_for_a_shot_the_state_does_not_serve_panics` (`src/tests/adapter/adapter_fn/one_per_shot.rs`)                                                                                                                                                                 |
 | A send is one call below on the call's shots                                                                                                                                                                                                                | `each_send_is_one_call_below`                                                                                                                                                                                                                                                                                                                   |
 | A send does not wait for its reply: the reply below passes up as it comes                                                                                                                                                                                   | `a_reply_below_passes_up_as_it_comes`                                                                                                                                                                                                                                                                                                           |
 | The repetition code as a logic reads what the code as an adapter written by hand reads                                                                                                                                                                      | `the_code_as_a_logic_reads_what_its_adapter_reads` (`tests/static_isa.rs`)                                                                                                                                                                                                                                                                      |
