@@ -351,7 +351,7 @@ fn taken(read_by: &ReadBy) -> Vec<(&'static str, ShotId)> {
 }
 
 /// A device that counts its flips gives its log probability and each
-/// state's report through closures that log, as a driver's might, each
+/// state's report through closures that log, as a device driver's might, each
 /// state they read; a call on fresh shots 0 and 1 stops on shot 0, after
 /// shot 2 ran alone. In every order of the wrappers, the closures read shot
 /// 2's state alone, never one the report leaves out, though placed per
@@ -1724,7 +1724,7 @@ fn a_panic_at_close_reaches_the_closer_once_every_state_is_freed() {
 }
 
 /// A device's state that fails to power down after its logic stopped
-/// (a driver's bug): its drop counts it in `freed`, then panics.
+/// (a device driver's bug): its drop counts it in `freed`, then panics.
 struct FailsToPowerDown {
     bit: Bit,
     stopped: bool,
@@ -2279,7 +2279,7 @@ fn close_frees_the_states_of_stopped_placements_then_raises_the_first_drops_pani
         powering_down_badly(&freed, None),
         move |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             barrier.wait();
-            panic!("the driver panics")
+            panic!("the device's driver panics")
         },
     )
     .run_on(move |job: PlacementJob| {
@@ -2318,7 +2318,7 @@ fn once_its_placements_stopped_its_drop_frees_the_states_raising_no_panic_of_the
         powering_down_badly(&freed, None),
         move |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             barrier.wait();
-            panic!("the driver panics")
+            panic!("the device's driver panics")
         },
     )
     .run_on(move |job: PlacementJob| {
@@ -2355,7 +2355,7 @@ fn close_frees_a_stopped_placements_state_before_it_returns_though_its_job_is_st
         Capabilities::default(),
         powering_down_badly(&freed, None),
         |_: &mut PowersDownBadly, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
-            panic!("the driver panics")
+            panic!("the device's driver panics")
         },
     )
     .run_on(OwnThread)
@@ -2412,7 +2412,7 @@ fn once_stopped_close_frees_a_state_held_from_before_it_was_placed_then_raises_i
         |_: &mut PowersDownBadly, input: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             assert!(
                 !input.instructions().contains(&Op::Panic),
-                "the driver panics"
+                "the device's driver panics"
             );
             Ok(())
         },
@@ -2481,7 +2481,7 @@ fn after_a_shots_failure_and_an_unstarted_states_drop_panic_later_calls_get_the_
 
 /// A device whose shots each run through a copy of a placement that runs
 /// each job as it is handed (inline), whose logic and placement each
-/// hold a handle that fails to release (a driver's bug), shared by their
+/// hold a handle that fails to release (a device driver's bug), shared by their
 /// copies, ran a call on shots 0 and 1, and is dropped unclosed: its drop
 /// releases both handles, each in a catch of its own, and raises neither
 /// panic.
@@ -2581,7 +2581,7 @@ fn dropped_it_frees_its_own_closures_without_waiting_for_its_shots_states() {
 }
 
 /// What a closure of a device, or its placement, captures: a handle on
-/// the device's connection that fails to release (a driver's bug), each
+/// the device's connection that fails to release (a device driver's bug), each
 /// copy a handle of its own, so that each copy's drop panics.
 struct HandlePerCopy(ReleasesBadly);
 
@@ -2607,7 +2607,7 @@ fn once_stopped_close_frees_the_shots_copies_of_the_closures_raising_no_panic_of
         own_bit,
         move |_: &mut Bit, _: &CallInput<'_, Op>, _: &mut Outcomes<'_>| {
             let _held = &logics_handle;
-            panic!("the driver panics")
+            panic!("the device's driver panics")
         },
     )
     .log_probability(move |_: &Bit| {
@@ -2891,7 +2891,7 @@ fn a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_placement_raising_
 /// A device whose logic holds a handle that fails to release, a handle
 /// per copy, and whose shots each run through a copy of a placement that
 /// runs each job as it is handed (inline) and holds such a handle too
-/// (a driver's bug), runs shot 0, then closes: `close` reports the shot,
+/// (a device driver's bug), runs shot 0, then closes: `close` reports the shot,
 /// whose placement frees its copy of the logic (here inline, before
 /// `close` returns), and `close` frees that placement, each in a catch of
 /// its own, raising none of their panics.

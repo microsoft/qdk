@@ -546,7 +546,7 @@ fn a_call_in_flight_ends_at_an_earlier_failure() {
 }
 
 /// The logic of a device whose driver has a bug: where the device stops,
-/// after the instructions before it ran, the driver panics instead of
+/// after the instructions before it ran, the device's driver panics instead of
 /// failing the call.
 fn panic_at_stop(
     bit: &mut Bit,
@@ -556,7 +556,7 @@ fn panic_at_stop(
     run_bit(bit, input, outcomes).map_err(|reason| panic!("{reason}"))
 }
 
-/// A driver with a bug panics half-way through a call, after it flipped
+/// A device driver with a bug panics half-way through a call, after it flipped
 /// the bit: the panic reaches the caller, and, as a `Mutex` is poisoned,
 /// the executor refuses every later call, naming the panic, rather than
 /// run one on a state the caller's program never made.
@@ -566,7 +566,7 @@ fn after_a_panic_inside_call_it_refuses_every_later_call() {
     panic::catch_unwind(AssertUnwindSafe(|| {
         send(&mut executor, 0, &[Op::Flip, Op::Stop])
     }))
-    .expect_err("the driver's panic reaches the caller");
+    .expect_err("the device driver's panic reaches the caller");
     assert_eq!(
         send(&mut executor, 0, &[Op::Read(0)]).err(),
         Some(Rejected::EarlierFailure(
@@ -1244,9 +1244,9 @@ pub(in crate::tests) fn connected_device<I>(
 #[derive(Debug, PartialEq)]
 pub(in crate::tests) struct ReleaseFailed;
 
-/// What a driver's closure captures that fails to release as it is
+/// What a device driver's closure captures that fails to release as it is
 /// dropped, such as a handle on a device's connection, a bug of the
-/// driver's: its drop counts itself in the count it was made with, then
+/// device driver's: its drop counts itself in the count it was made with, then
 /// panics with [`ReleaseFailed`].
 pub(in crate::tests) struct ReleasesBadly(Arc<AtomicUsize>);
 
@@ -1313,7 +1313,7 @@ pub(in crate::tests) fn panics<S, I>(
     _: &CallInput<'_, I>,
     _: &mut Outcomes<'_>,
 ) -> Result<(), String> {
-    panic!("the driver panics")
+    panic!("the device's driver panics")
 }
 
 /// The text of a panic raised with a literal message.
@@ -1321,7 +1321,7 @@ pub(in crate::tests) fn panic_text(payload: &(dyn std::any::Any + Send)) -> Opti
     payload.downcast_ref::<&str>().copied()
 }
 
-/// A device whose state fails to power down (a driver's bug) stops in
+/// A device whose state fails to power down (a device driver's bug) stops in
 /// its first call, on shot 0: the call frees the state made for it, whose
 /// drop's panic reaches the caller.
 #[test]
@@ -1390,7 +1390,7 @@ fn placed_and_dropped_as_a_panic_unwinds_it_frees_its_state_raising_none() {
     assert_eq!(freed_so_far(&freed), [0]);
 }
 
-/// A driver with two bugs: its logic panics in the first call on shot
+/// A device driver with two bugs: its logic panics in the first call on shot
 /// 0, and its state, made for that call, fails to power down as the
 /// logic's panic unwinds. The logic's panic reaches the caller, and
 /// the state's is left to the panic hook, rather than abort the process.
@@ -1400,11 +1400,11 @@ fn a_logics_panic_reaches_the_caller_though_its_new_states_drop_panics_too() {
     let mut executor = executor_fn(promise(), powering_down_badly(&freed, None), panics);
     let panicked = panic::catch_unwind(AssertUnwindSafe(|| send(&mut executor, 0, &[Op::Flip])))
         .expect_err("the logic panics");
-    assert_eq!(panic_text(&*panicked), Some("the driver panics"));
+    assert_eq!(panic_text(&*panicked), Some("the device's driver panics"));
     assert_eq!(freed_so_far(&freed), [0]);
 }
 
-/// A driver with two bugs: its log probability panics as `close` reads
+/// A device driver with two bugs: its log probability panics as `close` reads
 /// shot 0's state, which fails to power down as that panic unwinds. The
 /// log probability's panic reaches the closer, and the state's is left to
 /// the panic hook, rather than abort the process.
@@ -1463,7 +1463,7 @@ static DEFAULT_ARMED: [AtomicUsize; 4] = [
 /// its test.
 static DEFAULT_PANICKED_ON: [Mutex<Option<ThreadId>>; 4] = [const { Mutex::new(None) }; 4];
 
-/// A state's report whose `Default` has a bug, a bug of the driver's: it
+/// A state's report whose `Default` has a bug, a bug of the device driver's: it
 /// panics once, at the call [`DEFAULT_ARMED`] is armed with for test
 /// `TEST`, on a thread it records in [`DEFAULT_PANICKED_ON`].
 #[derive(Debug, PartialEq)]
@@ -1617,7 +1617,7 @@ fn closed_by_a_defaults_panic<const TEST: usize>() -> Vec<ClosedByADefaultsPanic
 }
 
 /// A device whose states each hold the device, and whose report's
-/// `Default` has a bug, a driver's: closed, each form has released every
+/// `Default` has a bug, a device driver's: closed, each form has released every
 /// state when that panic reaches the closer, so that the device is free
 /// at once.
 #[test]
@@ -1636,8 +1636,9 @@ fn a_close_after_its_reports_default_panicked_reports_nothing() {
     }
 }
 
-/// A driver with two bugs: its report's `Default` panics as `close` makes
-/// the report, and its states fail to power down as that panic unwinds.
+/// A device driver with two bugs: its report's `Default` panics as
+/// `close` makes the report, and its states fail to power down as that
+/// panic unwinds.
 /// In each form whose states are freed as that panic unwinds (all but
 /// shots placed each, whose drops panic on their placements), the
 /// `Default`'s panic reaches the closer, every state freed, and the
@@ -1690,7 +1691,7 @@ fn a_reports_default_panic_wins_over_its_states_drops() {
 }
 
 /// A device placed on a thread per job, each job run after a while, whose
-/// report's `Default` has a bug, a driver's: closed while its calls are
+/// report's `Default` has a bug, a device driver's: closed while its calls are
 /// still queued, each placed form
 /// ends every call it accepted before that panic reaches the closer, so
 /// that no reply is cancelled, as `close` waits for the calls accepted.
@@ -1743,9 +1744,9 @@ fn a_close_whose_reports_default_panics_ends_every_call_queued_first() {
 
 /// A device whose state closure, logic, check, log probability and
 /// report maker each hold a handle on its connection that fails to
-/// release (a driver's bug), and the executor is dropped after a call: its
-/// drop releases the five handles, each closure in a catch of its own, and
-/// raises no panic of their drops, as for a state's.
+/// release (a device driver's bug), and the executor is dropped after a
+/// call: its drop releases the five handles, each closure in a catch of
+/// its own, and raises no panic of their drops, as for a state's.
 #[test]
 fn dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops() {
     let (handle, released) = ReleasesBadly::new();
@@ -1792,7 +1793,7 @@ fn dropped_it_frees_its_state_before_its_closures() {
 }
 
 /// A device's check, log probability and report maker each hold a handle
-/// on its connection that fails to release (a driver's bug), and the
+/// on its connection that fails to release (a device driver's bug), and the
 /// caller replaces each with another: each builder frees the closure it
 /// replaces, and raises no panic of its drop, as `drop` does.
 #[test]

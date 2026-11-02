@@ -426,7 +426,7 @@ fn a_call_in_flight_on_another_shot_ends_at_an_earlier_failure() {
     );
 }
 
-/// The logic of [`shot_state`] under a driver with a bug: where shot 1
+/// The logic of [`shot_state`] under a device driver with a bug: where shot 1
 /// stops, it panics instead of failing the call.
 fn panic_on_shot_1(
     shot: &mut ShotId,
@@ -436,7 +436,7 @@ fn panic_on_shot_1(
     run_shot_state(shot, input, outcomes).map_err(|reason| panic!("{reason}"))
 }
 
-/// A driver with a bug panics on shot 1 of a batch on shots 0 and 1,
+/// A device driver with a bug panics on shot 1 of a batch on shots 0 and 1,
 /// after shot 0 ran it: the panic reaches the caller, who never gets shot
 /// 0's outcomes; as a `Mutex` is poisoned, the executor refuses every
 /// later call, naming the panic, rather than run shot 0 on a state the
@@ -445,7 +445,7 @@ fn panic_on_shot_1(
 fn after_a_panic_inside_call_it_refuses_every_later_call() {
     let mut executor = executor_fn(promise(), shot_state, panic_on_shot_1).shots(OnePerShot);
     panic::catch_unwind(AssertUnwindSafe(|| send(&mut executor, &[0, 1], &[])))
-        .expect_err("the driver's panic reaches the caller");
+        .expect_err("the device driver's panic reaches the caller");
     assert_eq!(
         send(&mut executor, &[0], &[]).err(),
         Some(Rejected::EarlierFailure(
@@ -479,7 +479,7 @@ fn the_states_made_for_a_call_a_state_closure_panicked_in_are_not_kept() {
 /// A call that panicked reports no state made for it, as a failed call
 /// does, whether its shot ran or not; a state made by an earlier call is
 /// reported. Chosen so that every form of the executor reports the same
-/// states, as after a failure. Shot 0 runs a call, then a driver with a
+/// states, as after a failure. Shot 0 runs a call, then a device driver with a
 /// bug panics on shot 1 of a batch on shots 0, 2, 1 and 3: at close, only
 /// shot 0's state is reported, not shot 2's, new and run in full before
 /// the panic.
@@ -491,7 +491,7 @@ fn a_call_that_panicked_reports_no_state_made_for_it() {
     let (_, end) = send(&mut executor, &[0], &[]).expect("the first call runs");
     end.expect("shot 0 does not panic");
     panic::catch_unwind(AssertUnwindSafe(|| send(&mut executor, &[0, 2, 1, 3], &[])))
-        .expect_err("the driver's panic reaches the caller");
+        .expect_err("the device driver's panic reaches the caller");
     let report = executor.close();
     assert_eq!(
         [0, 1, 2, 3].map(|j| report.log_p.get(j)),
@@ -868,7 +868,7 @@ fn given_a_state_per_shot_then_placed_after_a_failure_it_refuses_at_call() {
     );
 }
 
-/// A device whose states fail to power down (a driver's bug) stops in a
+/// A device whose states fail to power down (a device driver's bug) stops in a
 /// call on three new shots: the call frees each state made for it, and
 /// the first one's panic reaches the caller once every state is freed,
 /// rather than abort the process.
@@ -916,7 +916,7 @@ fn a_logics_panic_reaches_the_caller_though_its_new_states_drops_panic_too() {
         send(&mut executor, &[0, 1], &[Op::Flip])
     }))
     .expect_err("the logic panics");
-    assert_eq!(panic_text(&*panicked), Some("the driver panics"));
+    assert_eq!(panic_text(&*panicked), Some("the device's driver panics"));
     assert_eq!(freed_so_far(&freed), [0, 1]);
 }
 
@@ -956,7 +956,7 @@ fn close_frees_every_state_then_raises_the_first_drops_panic() {
     assert_eq!(freed_so_far(&freed), [1, 0]);
 }
 
-/// A driver with two bugs: its log probability panics as `close` reads
+/// A device driver with two bugs: its log probability panics as `close` reads
 /// the first of two states that fail to power down. The log probability's
 /// panic reaches the closer, and the states, freed as it unwinds, leave
 /// theirs to the panic hook, rather than abort the process.
@@ -1005,7 +1005,7 @@ fn dropped_it_frees_its_states_before_its_closures() {
 }
 
 /// A device whose state closure and logic each hold a handle on its
-/// connection that fails to release (a driver's bug) ran a call on shots
+/// connection that fails to release (a device driver's bug) ran a call on shots
 /// 0 and 1, and is dropped unclosed: its drop releases both handles, each
 /// in a catch of its own, and raises neither panic, as for its states'.
 #[test]

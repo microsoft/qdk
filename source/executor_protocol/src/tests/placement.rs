@@ -554,7 +554,7 @@ fn closing_before_any_call_gives_the_placed_executors_report() {
     assert!(jobs.try_recv().is_err(), "no job was handed");
 }
 
-/// A device bound to a thread (a GPU's context, a driver's handle): the
+/// A device bound to a thread (a GPU's context, a device driver's handle): the
 /// device's `executor`, whose close records in `closed_on` the thread it
 /// runs on.
 struct ThreadBound<E> {
@@ -1443,7 +1443,7 @@ fn a_call_cancelled_below_it_ends_cancelled() {
 }
 
 /// A device whose work is done elsewhere (a link to the device, a
-/// driver's own thread): each call hands its reply's sender to the test,
+/// device driver's own thread): each call hands its reply's sender to the test,
 /// which pushes the outcomes and ends the reply when it likes.
 struct DeviceOfRepliesFromElsewhere(mpsc::Sender<ReplySender<ShotOutcome>>);
 
@@ -2378,15 +2378,15 @@ fn panics_at_panic<S>(
 ) -> Result<(), String> {
     assert!(
         !input.instructions().contains(&Op::Panic),
-        "the driver panics"
+        "the device's driver panics"
     );
     Ok(())
 }
 
-/// A device whose states fail to power down (a driver's bug), placed whole
-/// on a pool's threads, `.shots(OnePerShot).run_on(..)`, once it ran
-/// shots 0 and 1, then panicked in a call on shot 0, which stopped the
-/// placement: no job runs any more, and none is left running.
+/// A device whose states fail to power down (a device driver's bug),
+/// placed whole on a pool's threads, `.shots(OnePerShot).run_on(..)`,
+/// once it ran shots 0 and 1, then panicked in a call on shot 0, which
+/// stopped the placement: no job runs any more, and none is left running.
 fn stopped_holding_states_that_power_down_badly(
     freed: &Freed,
 ) -> impl Executor<InstructionBatch<Op>> + Close {
@@ -2493,7 +2493,7 @@ fn before_its_first_call_its_drop_and_wait_raises_the_panic_of_a_states_drop() {
     assert_eq!(freed_so_far(&freed), [0]);
 }
 
-/// A device whose state fails to power down (a driver's bug), running
+/// A device whose state fails to power down (a device driver's bug), running
 /// `logic`, on a pool that keeps the jobs it is handed for the test to
 /// run, once its first call, a `Flip` on shot 0, ran: the state is held on
 /// the pool's side.
@@ -2606,7 +2606,7 @@ fn a_states_drop_that_panics_as_a_job_ending_after_drop_frees_it_stays_off_the_p
                 let _ = started.send(());
                 let released = released.lock().expect("nothing panics holding the lock");
                 let _ = released.recv_timeout(PATIENT);
-                panic!("the driver panics");
+                panic!("the device's driver panics");
             }
             Ok(())
         },
@@ -2710,7 +2710,7 @@ fn once_stopped_its_close_frees_what_the_closures_capture_raising_no_panic_of_th
             let _held = &handle;
             assert!(
                 !input.instructions().contains(&Op::Panic),
-                "the driver panics"
+                "the device's driver panics"
             );
             Ok(())
         },
@@ -2821,7 +2821,7 @@ fn after_a_panic_at_close_a_second_close_reports_nothing() {
 }
 
 /// What a device's closure holds that must be dropped where its calls ran
-/// (a handle on its driver): it sends the thread it is dropped on.
+/// (a handle on the device's driver): it sends the thread it is dropped on.
 struct DroppedOn(mpsc::Sender<ThreadId>);
 
 impl Drop for DroppedOn {
@@ -2831,10 +2831,10 @@ impl Drop for DroppedOn {
 }
 
 /// A device on a pool's threads, whose report closure holds a handle on
-/// its driver, which must be dropped where its calls ran, and panics at
-/// close: the panic reaches the closer, but does not stop the placement,
-/// so, dropped, the executor it places is dropped on the pool, the
-/// closure's handle with it, not on the thread that drops it.
+/// the device's driver, which must be dropped where its calls ran, and
+/// panics at close: the panic reaches the closer, but does not stop the
+/// placement, so, dropped, the executor it places is dropped on the pool,
+/// the closure's handle with it, not on the thread that drops it.
 #[test]
 fn after_a_panic_at_close_it_still_drops_the_executor_it_places_on_its_placement() {
     let (dropped_on, dropped) = mpsc::channel();

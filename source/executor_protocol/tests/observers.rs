@@ -892,7 +892,7 @@ fn under_the_debugger_a_call_cancelled_below_fails_the_call_and_the_debugger() {
 }
 
 /// A device below whose reply is not whole: it reads what it was not
-/// asked to read, as a faulty driver may.
+/// asked to read, as a faulty device driver may.
 #[derive(Clone, Copy)]
 enum NotWhole {
     /// Reads tag 0 of each shot it is given twice, 1 then 0.
