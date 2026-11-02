@@ -81,7 +81,7 @@ pub struct OnePerShot;
 impl<I, S, M, P, C, L, R> ShotStrategy<ExecutorFn<I, S, M, P, C, L, R>> for OnePerShot {
     type Executor = OnePerShotExecutor<I, S, M, P, C, L, R>;
 
-    fn apply(self, executor: ExecutorFn<I, S, M, P, C, L, R>) -> Self::Executor {
+    fn hold_shots_of(self, executor: ExecutorFn<I, S, M, P, C, L, R>) -> Self::Executor {
         let mut index = ShotIndex::default();
         let states = executor.held;
         for (shot, _) in states.iter() {

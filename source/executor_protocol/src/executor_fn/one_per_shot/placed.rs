@@ -43,7 +43,10 @@ where
     /// made, the state and the placement are then freed as the panic unwinds,
     /// each drop's panic absorbed. A report closure's copy is made as in
     /// `call`.
-    fn apply(self, executor: PlacedExecutor<ExecutorFn<I, S, M, P, C, L, R>, T>) -> Self::Executor {
+    fn hold_shots_of(
+        self,
+        executor: PlacedExecutor<ExecutorFn<I, S, M, P, C, L, R>, T>,
+    ) -> Self::Executor {
         let (executor, placement, lifecycle) = executor.into_unstarted();
         let placement = HeldPart::new(placement);
         let parts_failure = PartsFailure::default();

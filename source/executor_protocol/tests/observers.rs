@@ -959,7 +959,7 @@ fn alone_and_debugged(device: NotWhole) -> (RunResult, RunResult, DebugLog) {
 #[test]
 fn under_the_debugger_a_reply_that_reads_a_tag_twice_fails_the_run() {
     let (alone, debugged, log) = alone_and_debugged(NotWhole::ReadingTagZeroTwice);
-    let alone = alone.expect("alone, the driver passes the readouts up");
+    let alone = alone.expect("alone, the chain passes the readouts up");
     assert_eq!(alone.len(), 2 * SHOTS.len(), "alone, two readouts a shot");
     let debugged = debugged.expect_err("the reply below reads a tag twice");
     let StaticProgramError::Failed { batch: 0, reason } = debugged else {
@@ -986,7 +986,7 @@ fn under_the_debugger_a_reply_that_reads_a_tag_twice_fails_the_run() {
 #[test]
 fn under_the_debugger_a_reply_that_reads_a_shot_not_given_fails_the_run() {
     let (alone, debugged, log) = alone_and_debugged(NotWhole::ReadingShot99);
-    let alone = alone.expect("alone, the driver passes the readouts up");
+    let alone = alone.expect("alone, the chain passes the readouts up");
     assert_eq!(
         alone,
         [ShotOutcome::new(99, 0, Value::One)],
@@ -1025,6 +1025,7 @@ fn stacked_observers_each_see_what_they_see_alone() {
     let log = DebugLog::default();
     let chain = driver() >> profiler() >> debugger(log.clone()) >> simulator();
     let chain = chain.expect("the observers fit");
+    // SHOTS is [2, 5, 6, 11]: the job's shots, not a plain range.
     let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     outcomes.expect("the stacked run succeeds");
     assert_eq!(counts, the_runs_counts());

@@ -2921,8 +2921,8 @@ fn a_readout_written_for_a_shot_answers_that_shot_alone() {
 }
 
 /// A decoder with a bug, that writes a readout of shot 9 in a call on
-/// shots 2 and 0: it panics, the panic reaches the caller, and the adapter
-/// fails.
+/// shots 0 and 2, given in either order: it panics, the panic reaches the
+/// caller, and the adapter fails.
 #[test]
 fn a_readout_written_for_a_shot_the_logic_does_not_serve_panics() {
     let buggy = |(): &mut (),
@@ -2932,14 +2932,19 @@ fn a_readout_written_for_a_shot_the_logic_does_not_serve_panics() {
         outcomes.extend([one(9, 0)]);
         Ok(())
     };
-    let mut executor =
-        (adapter_fn(no_state, buggy) >> below(TestDoubleModel::default())).expect("bools fit");
-    catch_unwind(AssertUnwindSafe(|| {
-        run(&mut executor, &shots(&[2, 0]), &[true])
-    }))
-    .expect_err("the panic reaches the caller");
-    let later = run(&mut executor, &ShotSet::one(0), &[true]).expect_err("the adapter failed");
-    assert!(matches!(later, Rejected::EarlierFailure(_)), "{later:?}");
+    for order in [[0, 2], [2, 0]] {
+        let mut executor =
+            (adapter_fn(no_state, buggy) >> below(TestDoubleModel::default())).expect("bools fit");
+        catch_unwind(AssertUnwindSafe(|| {
+            run(&mut executor, &shots(&order), &[true])
+        }))
+        .expect_err("the panic reaches the caller");
+        let later = run(&mut executor, &ShotSet::one(0), &[true]).expect_err("the adapter failed");
+        assert!(
+            matches!(later, Rejected::EarlierFailure(_)),
+            "shots {order:?}: {later:?}"
+        );
+    }
 }
 
 /// The state of a profiler before its first call: no call counted.

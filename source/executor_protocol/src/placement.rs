@@ -481,7 +481,7 @@ impl<E: Send + 'static, P: Placement> PlacedExecutor<E, P> {
     /// the placement panics as that state's shot's copies are made (for
     /// [`OnePerShot`]; the state is freed as the panic unwinds).
     pub fn shots<H: ShotStrategy<Self>>(self, strategy: H) -> H::Executor {
-        strategy.apply(self)
+        strategy.hold_shots_of(self)
     }
 
     /// Queues `request`, and hands the placement a job to run it if none

@@ -1,41 +1,34 @@
 # `executor_protocol`
 
-qdk runs quantum programs on several simulators, and places components between
-a program and the simulator that runs it: a
+The QDK runs quantum programs on several simulators, and places components
+between a program and the simulator that runs it: a
 [runtime](docs/glossary.md#a-chain-and-its-parts) that walks an adaptive
 program and feeds measurements back, a noise model that inserts faults, an
 error-correcting code that lowers logical instructions to physical ones, a probe
-that counts resources. Without a shared contract, each such chain needs its own
-glue, and each decides anew how shots draw their randomness, how a failure is
-reported and how a caller waits. This crate is that contract. A chain has a
-**driver** at the top, which runs any program given to the chain and makes
-the calls for the shots of the job, and an **executor** at the end, which
-runs the instructions: a simulator, or (planned) a quantum device behind its
-service. Called with a message, an executor answers with a reply. Each
-component in between is an **adapter**: given the executor downstream of it, it
-gives an executor upstream of it, with the same contract. So every link of a
-running chain is the same call and reply. Composition works the same at every
-link: a driver with adapters below it is still the chain's head, which composes
-the same way (planned: that it is itself a driver), adapters composed act as one
-adapter wherever `>>` or `compose` takes one (planned: that they implement the
-trait `Adapter`), and an adapter with the executor below it is an executor, so a
-chain can be built in parts and grouped any way, with the same run (composition
-is associative). Chains are composed from parts, checked before they run, and
-driven the same way by any caller: one that blocks, one that polls between its
-own work, or async tasks, in the same process or, through the planned lower
-layers, across a network.
+that counts resources. Without a shared contract, each such component needs its
+own glue, and each decides anew how shots draw their randomness, how a failure is
+reported and how a caller waits.
 
-The executors themselves live in other crates. This one holds the contract,
-and currently offers facilities for: making an executor or an adapter from an
-implementer's own logic, keeping for it the rules every part follows
-(admitting and refusing calls, failing and closing, seeding, the replies),
-with one state for all its shots or one per shot; composition; and the
-reply machinery that every chain reuses. More will be added, each listed
-with the case that needs it in [Planned features](docs/planned.md):
-facilities for an adapter whose logic refuses a call, states what it
-offers and needs beyond its instruction sets and seeds, or reads the
-replies below without holding its thread. To run a chain, or write a part
-of one, start at [Getting started](#getting-started).
+This crate is that contract:
+
+- A **driver**, at the top of a chain, runs any program given to the chain and
+  makes the calls for the shots of the job.
+- An **executor**, at the end, runs the instructions: for instance, a simulator,
+  or (planned) a quantum device behind its service. Called with a message, it
+  answers with a reply.
+- Each component in between is an **adapter**: given the executor downstream of
+  it, it gives an executor upstream of it, with the same contract. So every link
+  of a running chain is the same call and reply.
+- **Composition** (`>>`) works the same at every link: a driver with adapters
+  below it is still the chain's head, which composes the same way (planned: that
+  it is itself a driver); adapters composed act as one adapter wherever `>>` or
+  `compose` takes one (planned: that they implement the trait `Adapter`); and an
+  adapter with the executor below it is an executor. So a chain can be built in
+  parts and grouped any way, with the same run (composition is associative).
+
+Chains are checked before they run, and driven the same way by any caller: one
+that blocks, one that polls between its own work, or async tasks, in the same
+process or, through the planned lower layers, across a network.
 
 Some concrete problems it addresses, as examples:
 
@@ -87,37 +80,29 @@ Some concrete problems it addresses, as examples:
   Every refusal already says whether the work may have run, so that a resend
   can be made safe.
 
+To run a chain, or write a part of one, start at
+[Getting started](#getting-started). The [Glossary](docs/glossary.md) defines
+the terms these pages use.
+
 ## The model: a chain and its run
 
-A user writes three steps: the chain,
-[checked when it is built](docs/composition.md#composing-a-run);
-`chain.run(program, shots)`, which
-[checks the job](docs/composition.md#a-chain-and-its-job) against the chain
-before any call and gives a **run**; and `run.wait()`, or `.await`, which
-gives the program's outcomes and the chain's report. In the
-[example](#an-example) below, the second and third lines build the chain,
-and the fourth gives it the job and waits for the run.
+A **chain** is a driver, any adapters and an executor, composed with `>>` and
+[checked when it is built](docs/composition.md#composing-a-run). A **run** is a
+chain given a job, a program and its shots: nothing runs until it is waited for
+or awaited ([Composing a run](docs/composition.md#composing-a-run)); then it
+runs the program on the chain, and closes the chain once the program ends.
 
-A chain's parts, and its run (the [Glossary](docs/glossary.md) defines
-these terms and the others of these pages):
+A user writes three steps:
 
-- A **driver** heads the chain: `driver()`
-  [runs the programs given to the chain](docs/composition.md#a-chain-and-its-job),
-  a static program's batches each sent to every shot of the job, in order.
-- An **executor**: `call`, with an `InstructionBatch`, instructions to run
-  in order on each shot of a set ([one message](#one-message-and-levels)),
-  gives a reply, or refuses the call, and then
-  [nothing ran](docs/rejections.md#what-a-rejection-says), unless the
-  refusal says its verdict was lost: one of class `Resend`, such as
-  `Rejected::NoReply`, means the work may have run
-  ([Rejections](docs/rejections.md#a-lost-verdict-planned-layers-l1-and-l0)).
-- An **adapter** keeps the executor's contract: a profiler over a device,
-  once closed, [refuses every call](docs/adapters.md#refusals-and-failures)
-  as the device alone does.
-- A **run**:
-  [nothing runs until it is waited for or awaited](docs/composition.md#composing-a-run);
-  then it runs its program on the chain, and closes the chain once the
-  program ends.
+1. the chain;
+2. `chain.run(program, shots)`, which
+   [checks the job](docs/composition.md#a-chain-and-its-job) against the chain
+   before any call and gives a **run**;
+3. `run.wait()`, or `.await`, which gives the program's outcomes and the
+   chain's report.
+
+In the [example](#an-example) below, the second and third lines build the
+chain (step 1), and the fifth does steps 2 and 3 in one expression.
 
 [Getting started](#getting-started) shows how to write each part, and the
 options that set its [axes](docs/glossary.md#a-parts-axes).
@@ -125,15 +110,14 @@ options that set its [axes](docs/glossary.md#a-parts-axes).
 ## An example
 
 In this example, from the [observer guide tests](tests/observers.rs), a
-profiler and a debugger, each written with
-`adapter_fn`, sit between the driver and a toy simulator of classical
-bits and seeded coins; the job runs a two-batch program on shots 2, 5, 6
-and 11:
+profiler and a debugger sit between the driver and a toy simulator of classical
+bits and seeded coins:
 
 ```rust
 let log = DebugLog::default();
 let chain = driver() >> profiler() >> debugger(log.clone()) >> simulator();
 let chain = chain.expect("the observers fit");
+// SHOTS is [2, 5, 6, 11]: the job's shots, not a plain range.
 let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
 outcomes.expect("the stacked run succeeds");
 assert_eq!(counts, the_runs_counts());
@@ -151,7 +135,7 @@ flowchart LR
 
 The driver
 [sends each batch in turn](docs/composition.md#a-chain-and-its-job), as one
-call on the four shots. The
+call on the job's shots. The
 [profiler](docs/guides.md#observers-a-profiler-and-a-debugger) counts each
 shot's instructions and sends the batch on, the shots' equal calls as one;
 the debugger sends each shot's call alone, and logs it with what it read.
@@ -204,6 +188,11 @@ profiler is a counting function and a three-line body
 ([Writing an adapter](#writing-an-adapter)).
 
 ## Getting started
+
+The executors themselves live in other crates. This crate gives the contract,
+and the facilities that make each part from your own logic (`executor_fn`,
+`adapter_fn`), keeping for it the rules every part follows: admitting and
+refusing calls, failing and closing, seeding, the replies.
 
 What to write, by task, and where it is explained:
 

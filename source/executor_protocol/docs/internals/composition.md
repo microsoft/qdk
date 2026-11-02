@@ -631,7 +631,8 @@ the four, grouped either way
 `tests/executor_by_hand.rs`). A macro
 that writes these impls is planned, with no milestone yet, for when a
 second crate gives its adapters `>>`, such as a crate of codes or of
-noise models.
+noise models, or its driver, such as a QIR runtime's crate, whose driver
+gets `>>` today only once lifted, `ChainHead::new(driver) >> …`.
 
 ### A run closes its executor only when its program ends
 

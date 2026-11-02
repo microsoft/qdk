@@ -38,7 +38,7 @@ crate. Adding a capability takes five steps:
 1. A field in `Capabilities`, whose default is what an executor that says
    nothing of it offers (as `log_probability` defaults to `false`).
 2. A field in `Needs`, whose default states nothing (`false`, `None`), so
-   no existing driver changes.
+   no existing driver or program changes.
 3. A `Need` variant, its check in `Capabilities::admit`, and its code in
    `need_code` and `need_of`: a new code, never one used before
    (Codes, in [What this crate does](composition.md#what-this-crate-does)).
@@ -71,7 +71,7 @@ steps:
 | Capability (planned)  | What it offers                                                                                                  | Who could offer it                                                                                                        | A case that would need it                                                                                                                                      |
 | --------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `recovers`            | a call that fails does not fail the executor: its shots' states are restored, and the same call sent again runs | an executor that keeps a copy of each shot's state before each call, or a replayable one that runs its shots' calls again | a long run on a device whose calls fail now and then (a GPU out of memory), which would rather send a failed call again than lose the shots that ran before it |
-| `event_probabilities` | each outcome carries its probability, as it comes                                                               | a simulator that computes probabilities                                                                                   | a driver that reads each outcome's probability as the outcomes stream, before the run ends; today each shot's log probability comes in the report, at `close`  |
+| `event_probabilities` | each outcome carries its probability, as it comes                                                               | a simulator that computes probabilities                                                                                   | a caller that reads each outcome's probability as the outcomes stream, before the run ends; today each shot's log probability comes in the report, at `close`  |
 
 ## Making an executor: the rules
 
@@ -136,6 +136,9 @@ executor further:
   closure runs on a state made for a failed call
   (`the_report_closures_never_read_a_state_made_for_a_failed_call`;
   [An executor fails](#an-executor-fails)).
+
+The three are given in any order: each keeps the others given before it
+(`its_options_given_in_any_order_make_the_same_executor`).
 
 A panic inside `call` (the check's, `make_state`'s or the logic's)
 reaches the caller and fails the executor, as a `Mutex` is poisoned:

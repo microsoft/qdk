@@ -40,12 +40,23 @@ use crate::{
 /// it: an adapter that passes the calls it is called with down (a recorder,
 /// a debugger) implements none of them.
 //
-// The note names `Apply`: `compose(adapter, executor)` with an adapter
-// that applies to no executor of the crate's (`impl Apply<Toy>` for one
-// executor's type) reports the executor as not an `Adapter`, the rule for
-// two adapters being the one left to try.
+// The notes name the three cases that reach this bound, since a diagnostic
+// attribute cannot pick its note by the type on stable Rust:
+// `compose(adapter, executor)` with an adapter that applies to one
+// executor's type only (`impl Apply<Toy>`) reports the executor as not an
+// `Adapter`, the rule for two adapters being the one left to try; adapters
+// composed are passed where an `Adapter` is expected (planned,
+// `docs/planned.md`); and an executor is put where an adapter is expected
+// (followed by another part, or after a part whose `>>` its crate did not
+// implement).
 #[diagnostic::on_unimplemented(
-    note = "an adapter written by hand composes with an executor when it implements `Apply<E>` for every `E: Executor<InstructionBatch<Sends>> + Close`, not for one executor's type (see `executor_protocol::Apply`)"
+    note = "an adapter written by hand implements `Apply<E>` for every \
+            `E: Executor<InstructionBatch<Sends>> + Close`, not for one executor's type \
+            (see `executor_protocol::Apply`)",
+    note = "adapters composed are not yet an `Adapter`: compose them with the executor first, \
+            `(adapters >> executor)?`, and pass the executor made",
+    note = "an executor goes last in a chain; one written by hand takes `>>` only where its crate \
+            implements `Shr` for the part on its left: else write `compose(left, executor)`"
 )]
 pub trait Adapter {
     /// The instructions it is called with.

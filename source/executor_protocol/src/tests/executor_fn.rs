@@ -923,6 +923,43 @@ fn the_seed_is_kept_by_the_methods_that_shape_the_logic() {
     );
 }
 
+/// A simulator whose states count their flips, given a check that refuses
+/// a readout's tag repeated, how to read its log probability (minus its
+/// flips) and its states' report, in the order they are declared and in the
+/// reverse one: each refuses the same batch, offers a log probability, and
+/// reports the same flips and log probability for the same calls. Each
+/// option keeps the others given before it.
+#[test]
+fn its_options_given_in_any_order_make_the_same_executor() {
+    fn checked_then_closed<E>(mut executor: E) -> (Flips, Option<f64>)
+    where
+        E: Executor<InstructionBatch<Op>> + Describe + Close<Report = ExecutorReport<Flips>>,
+    {
+        assert!(
+            executor.capabilities().log_probability,
+            "it is given how to read a state's log probability"
+        );
+        send(&mut executor, 0, &[Op::Read(1), Op::Read(1)])
+            .expect_err("the check refuses a readout's tag repeated");
+        run(&mut executor, 0, &[Op::Flip, Op::Flip, Op::Flip]);
+        let report = executor.close();
+        (report.states, report.log_p.get(0))
+    }
+    let check = |input: &CallInput<'_, Op>| check_unique_tags(readouts(input.instructions()));
+    let log_p = |state: &Flipped| -f64::from(state.flips);
+    let declared = executor_fn(promise(), Flipped::new, count_flips)
+        .check(check)
+        .log_probability(log_p)
+        .state_report(flips);
+    let reversed = executor_fn(promise(), Flipped::new, count_flips)
+        .state_report(flips)
+        .log_probability(log_p)
+        .check(check);
+    let expected = (Flips::of([(0, 3)]), Some(-3.0));
+    assert_eq!(checked_then_closed(declared), expected, "declared order");
+    assert_eq!(checked_then_closed(reversed), expected, "reverse order");
+}
+
 /// A device's state that draws, in an executor not given the run's seed,
 /// has none to draw from, whatever its shot form: drawing panics, naming
 /// the method that gives it, rather than draw from a seed it was not

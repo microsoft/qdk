@@ -425,6 +425,31 @@ fn an_outcome_written_answers_its_own_shot_only() {
     assert_eq!(values(&written), [(2, 9, Value::Zero), (5, 9, Value::One)]);
 }
 
+/// A decoder with a bug, whose shot 0 writes a readout of shot 2 in a call
+/// on shots 0 and 2: shot 2 is the call's, but not shot 0's state's, so
+/// it panics, the panic reaches the caller, and the adapter fails.
+#[test]
+fn a_readout_written_for_a_shot_the_state_does_not_serve_panics() {
+    let buggy = |shot: &mut ShotId,
+                 _: &CallInput<'_, bool>,
+                 _: &mut Below<'_, bool>,
+                 outcomes: &mut Outcomes<'_>| {
+        if *shot == 0 {
+            outcomes.extend([one(2, 0)]);
+        }
+        Ok(())
+    };
+    let mut executor = (adapter_fn(its_shot, buggy).shots(OnePerShot)
+        >> below(TestDoubleModel::default()))
+    .expect("bools fit");
+    catch_unwind(AssertUnwindSafe(|| {
+        run(&mut executor, &shots(&[0, 2]), &[true])
+    }))
+    .expect_err("the panic reaches the caller");
+    let later = run(&mut executor, &ShotSet::one(0), &[true]).expect_err("the adapter failed");
+    assert!(matches!(later, Rejected::EarlierFailure(_)), "{later:?}");
+}
+
 /// The run's seed.
 const SEED: u64 = 0x5EED;
 

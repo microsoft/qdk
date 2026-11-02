@@ -416,7 +416,7 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     where
         H: ShotStrategy<Self>,
     {
-        strategy.apply(self)
+        strategy.hold_shots_of(self)
     }
 
     /// This executor, run where `placement` says ([`PlacedExecutor`]): on
@@ -468,8 +468,8 @@ pub trait ShotStrategy<E> {
     /// The executor made.
     type Executor;
 
-    /// `executor`, holding its shots' states as this strategy says.
-    fn apply(self, executor: E) -> Self::Executor;
+    /// `executor`, made to hold its shots' states as this strategy says.
+    fn hold_shots_of(self, executor: E) -> Self::Executor;
 }
 
 impl<I, S, M, P, C, L, R> Executor<InstructionBatch<I>> for ExecutorFn<I, S, M, P, C, L, R>
