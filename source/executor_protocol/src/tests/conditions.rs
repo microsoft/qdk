@@ -122,6 +122,16 @@ fn marked(outcomes: &[ShotOutcome]) -> Vec<(ShotId, u32, ShotConditions)> {
         .collect()
 }
 
+/// A One under each shot and tag of `listed`, carrying its conditions, in
+/// that order: what [`marked`] gives back.
+fn readouts(listed: &[(ShotId, u32, ShotConditions)]) -> Vec<ShotOutcome> {
+    (listed.iter())
+        .map(|&(shot, tag, conditions)| {
+            ShotOutcome::new(shot, tag, Value::One).with_conditions(conditions)
+        })
+        .collect()
+}
+
 /// The outcomes of `batch` on `ids` through `executor`, which ends well.
 fn outcomes_of(
     executor: &mut impl Executor<InstructionBatch<Step>>,
@@ -641,34 +651,93 @@ fn the_conditions_a_logic_writes_on_an_outcome_mark_the_shots_outcomes_in_later_
     );
 }
 
-/// A code's layer writes three results of shot 1 in one call, and marks
-/// only the middle one with its runtime's status: all three carry it in
-/// that call, the one before and the one after, as a condition is the
-/// shot's, not the readout's.
+/// A code's layer, one state for all its shots, writes results of shots 1
+/// and 2 in one call, and marks some with its runtime's status, rejected
+/// or unresolved: three of shot 1, only the middle one marked; or each
+/// shot's two in a row, shot 1's second marked and shot 2's first; or the
+/// shots' interleaved, shot 1's first marked, or its second, with shot 2's
+/// first or not. Each result carries its own shot's conditions in that
+/// call, those on the results before it and after it, in a row or not,
+/// as a condition is the shot's, not the readout's.
 #[test]
 fn the_conditions_a_logic_writes_on_an_outcome_mark_the_shots_other_outcomes_in_the_call() {
-    fn rejects_middle(
-        (): &mut (),
+    #[expect(clippy::ptr_arg, reason = "the signature a logic has for its state")]
+    fn writes_as_listed(
+        listed: &mut Vec<ShotOutcome>,
         _: &ProgramInput<'_, Step>,
         _: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
     ) -> Result<(), AdapterError> {
-        outcomes.push(Outcome::new(0, Value::One));
-        outcomes.push(Outcome::new(1, Value::One).with_conditions(ShotConditions::REJECTED));
-        outcomes.push(Outcome::new(2, Value::One));
+        outcomes.extend(listed.iter().copied());
         Ok(())
     }
-    let mut layer =
-        compose(adapter_fn(no_state, rejects_middle), device()).expect("steps fit steps");
-    let outcomes = outcomes_of(&mut layer, &[1], &[]);
-    assert_eq!(
-        marked(&outcomes),
-        [
-            (1, 0, ShotConditions::REJECTED),
-            (1, 1, ShotConditions::REJECTED),
-            (1, 2, ShotConditions::REJECTED)
-        ]
+    let (rejected, unresolved, none) = (
+        ShotConditions::REJECTED,
+        ShotConditions::UNRESOLVED,
+        ShotConditions::NONE,
     );
+    let cases = [
+        (
+            vec![(1, 0, none), (1, 1, rejected), (1, 2, none)],
+            vec![(1, 0, rejected), (1, 1, rejected), (1, 2, rejected)],
+        ),
+        (
+            vec![
+                (1, 5, none),
+                (1, 6, rejected),
+                (2, 5, unresolved),
+                (2, 6, none),
+            ],
+            vec![
+                (1, 5, rejected),
+                (1, 6, rejected),
+                (2, 5, unresolved),
+                (2, 6, unresolved),
+            ],
+        ),
+        (
+            vec![(1, 5, rejected), (2, 5, none), (1, 6, none), (2, 6, none)],
+            vec![
+                (1, 5, rejected),
+                (2, 5, none),
+                (1, 6, rejected),
+                (2, 6, none),
+            ],
+        ),
+        (
+            vec![(1, 5, none), (2, 5, none), (1, 6, rejected), (2, 6, none)],
+            vec![
+                (1, 5, rejected),
+                (2, 5, none),
+                (1, 6, rejected),
+                (2, 6, none),
+            ],
+        ),
+        (
+            vec![
+                (1, 5, none),
+                (2, 5, unresolved),
+                (1, 6, rejected),
+                (2, 6, none),
+            ],
+            vec![
+                (1, 5, rejected),
+                (2, 5, unresolved),
+                (1, 6, rejected),
+                (2, 6, unresolved),
+            ],
+        ),
+    ];
+    for (written, expected) in cases {
+        let listed = readouts(&written);
+        let mut layer = compose(
+            adapter_fn(move |_| Ok(listed.clone()), writes_as_listed),
+            device(),
+        )
+        .expect("steps fit steps");
+        let outcomes = outcomes_of(&mut layer, &[1, 2], &[]);
+        assert_eq!(marked(&outcomes), expected, "written {written:?}");
+    }
 }
 
 /// A layer sends a call on shots 1 and 2 below, where the code's runtime
@@ -809,6 +878,150 @@ fn with_several_shots_flagged_each_outcome_of_a_shot_carries_its_conditions() {
             (3, 2, ShotConditions::UNRESOLVED)
         ]
     );
+}
+
+/// A layer, one state for all its shots, sends a call on shots 1 to 3
+/// below, where the code's runtime rejects shot 1, and in a second case
+/// also leaves shot 3 unresolved; its next call writes two results of
+/// each shot, under tags 5 and 6, by tag, as `Outcomes::push` writes them
+/// (shots 1, 2, 3, then 1, 2, 3 again), or by shot: each result of a
+/// flagged shot carries its shot's conditions, its first and its second,
+/// whatever their order, and shot 2's none.
+#[test]
+fn each_outcome_a_logic_writes_carries_its_shots_conditions_from_earlier_calls_whatever_their_order()
+ {
+    fn sends_or_writes_two(
+        by_shot: &mut bool,
+        input: &ProgramInput<'_, Step>,
+        below: &mut Below<'_, Step>,
+        outcomes: &mut Outcomes<'_>,
+    ) -> Result<(), AdapterError> {
+        if !input.instructions().is_empty() {
+            return below.send(input.instructions());
+        }
+        if *by_shot {
+            let by_shot = [1, 2, 3].map(|shot| [5, 6].map(|tag| (shot, tag, ShotConditions::NONE)));
+            outcomes.extend(readouts(by_shot.as_flattened()));
+        } else {
+            outcomes.push(Outcome::new(5, Value::One));
+            outcomes.push(Outcome::new(6, Value::One));
+        }
+        Ok(())
+    }
+    let (rejected, unresolved, none) = (
+        ShotConditions::REJECTED,
+        ShotConditions::UNRESOLVED,
+        ShotConditions::NONE,
+    );
+    for flagged in [vec![(1, rejected)], vec![(1, rejected), (3, unresolved)]] {
+        for by_shot in [false, true] {
+            let mut layer = compose(
+                adapter_fn(move |_| Ok(by_shot), sends_or_writes_two),
+                device(),
+            )
+            .expect("steps fit steps");
+            let mut batch: Vec<_> = (flagged.iter())
+                .map(|&(shot, conditions)| Step::Raise(shot, conditions))
+                .collect();
+            batch.push(Step::Read(0));
+            outcomes_of(&mut layer, &[1, 2, 3], &batch);
+            let mut outcomes = marked(&outcomes_of(&mut layer, &[1, 2, 3], &[]));
+            outcomes.sort_by_key(|&(shot, tag, _)| (shot, tag));
+            let of = |shot| {
+                (flagged.iter())
+                    .find(|&&(on, _)| on == shot)
+                    .map_or(none, |&(_, conditions)| conditions)
+            };
+            assert_eq!(
+                outcomes,
+                [1, 2, 3]
+                    .map(|shot| [5, 6].map(|tag| (shot, tag, of(shot))))
+                    .as_flattened(),
+                "{flagged:?}, by shot: {by_shot}"
+            );
+        }
+    }
+}
+
+/// An observer sends a call on shots 1 and 2 below, to a code's runtime
+/// whose reply gives, in the call, readouts of the shots in an order of
+/// its own and marks some rejected or unresolved, then ends well, failed
+/// or cancelled: a shot's two readouts, one marked, the first or the
+/// second; or the shots' interleaved, shot 1's first marked, or its
+/// second, with shot 2's first or not; or each shot's two in a row, shot
+/// 1's second marked and shot 2's first. However it ends, each readout
+/// passed up carries its own shot's conditions, those on the readouts
+/// before it and after it, in a row or not, as well as its own.
+#[test]
+fn the_conditions_a_send_reads_in_the_call_on_an_outcome_mark_the_shots_other_outcomes_whatever_their_order()
+ {
+    let (rejected, unresolved, none) = (
+        ShotConditions::REJECTED,
+        ShotConditions::UNRESOLVED,
+        ShotConditions::NONE,
+    );
+    let cases = [
+        (
+            vec![(1, 0, none), (1, 1, rejected)],
+            vec![(1, 0, rejected), (1, 1, rejected)],
+        ),
+        (
+            vec![(1, 0, rejected), (1, 1, none)],
+            vec![(1, 0, rejected), (1, 1, rejected)],
+        ),
+        (
+            vec![(1, 0, rejected), (2, 0, none), (1, 1, none)],
+            vec![(1, 0, rejected), (2, 0, none), (1, 1, rejected)],
+        ),
+        (
+            vec![(1, 0, none), (2, 0, none), (1, 1, rejected)],
+            vec![(1, 0, rejected), (2, 0, none), (1, 1, rejected)],
+        ),
+        (
+            vec![
+                (1, 0, rejected),
+                (2, 0, unresolved),
+                (1, 1, none),
+                (2, 1, none),
+            ],
+            vec![
+                (1, 0, rejected),
+                (2, 0, unresolved),
+                (1, 1, rejected),
+                (2, 1, unresolved),
+            ],
+        ),
+        (
+            vec![
+                (1, 0, none),
+                (1, 1, rejected),
+                (2, 0, unresolved),
+                (2, 1, none),
+            ],
+            vec![
+                (1, 0, rejected),
+                (1, 1, rejected),
+                (2, 0, unresolved),
+                (2, 1, unresolved),
+            ],
+        ),
+    ];
+    for (read, expected) in cases {
+        for ending in [None, Some(Ending::Failed), Some(Ending::Cancelled)] {
+            let below = ReadsAsListed {
+                read: readouts(&read),
+                after_the_call: false,
+                ending,
+            };
+            let mut observed = compose(adapter_fn(no_state, pass), below).expect("steps fit steps");
+            let batch = [Step::Read(0), Step::Read(1)];
+            assert_eq!(
+                handed_over_as_the_send_ends(&mut observed, &[1, 2], &batch, ending),
+                expected,
+                "read {read:?}, {ending:?}"
+            );
+        }
+    }
 }
 
 /// A decoder runs below twice in one call, on shots 1 to 4, and writes
@@ -1939,8 +2152,8 @@ fn with_a_state_per_shot_a_failed_calls_outcomes_carry_the_conditions_its_logic_
     assert_eq!(marked(&outcomes), [(1, 0, ShotConditions::REJECTED)]);
 }
 
-/// How a [`ReadsLaterThenEnds`]'s or an [`AnswersAsTold`]'s reply ends
-/// once it has read.
+/// How a [`ReadsLaterThenEnds`]'s, an [`AnswersAsTold`]'s or a
+/// [`ReadsAsListed`]'s reply ends once it has read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Ending {
     /// Failed, as a runtime that loses its shots after reading them.
@@ -2128,6 +2341,62 @@ fn with_a_state_per_shot_every_outcome_a_send_hands_over_after_its_call_carries_
             ],
             "{ending:?}"
         );
+    }
+}
+
+/// A layer with a state per shot, which knows its shot, given shots 1 and
+/// 2, rejects shot 1, and in a second case finds shot 2 unresolved, and
+/// sends each shot's call below, to a runtime whose reply gives, at one
+/// poll after the call, two readouts of each shot, by shot or
+/// interleaved, then ends well, failed or cancelled: whichever, each
+/// readout carries its own shot's conditions, the first of a shot and the
+/// second, whatever their order, and an unflagged shot's none.
+#[test]
+fn with_a_state_per_shot_every_outcome_a_send_hands_over_after_its_call_carries_its_own_shots_conditions_whatever_their_order()
+ {
+    fn flags_then_sends(
+        (shot, unresolved_too): &mut (ShotId, bool),
+        input: &ProgramInput<'_, Step>,
+        below: &mut Below<'_, Step>,
+        outcomes: &mut Outcomes<'_>,
+    ) -> Result<(), AdapterError> {
+        match (*shot, *unresolved_too) {
+            (1, _) => outcomes.raise_conditions(ShotConditions::REJECTED),
+            (2, true) => outcomes.raise_conditions(ShotConditions::UNRESOLVED),
+            _ => {}
+        }
+        below.send(input.instructions())
+    }
+    let none = ShotConditions::NONE;
+    let by_shot = [(1, 0, none), (1, 1, none), (2, 0, none), (2, 1, none)];
+    let interleaved = [(1, 0, none), (2, 0, none), (1, 1, none), (2, 1, none)];
+    for unresolved_too in [false, true] {
+        let of = |shot| match (shot, unresolved_too) {
+            (1, _) => ShotConditions::REJECTED,
+            (2, true) => ShotConditions::UNRESOLVED,
+            _ => none,
+        };
+        for read in [by_shot, interleaved] {
+            for ending in [None, Some(Ending::Failed), Some(Ending::Cancelled)] {
+                let per_shot = adapter_fn(
+                    move |context: ShotContext| Ok((context.shot(), unresolved_too)),
+                    flags_then_sends,
+                )
+                .shots(OnePerShot);
+                let below = ReadsAsListed {
+                    read: readouts(&read),
+                    after_the_call: true,
+                    ending,
+                };
+                let mut layer = compose(per_shot, below).expect("steps fit steps");
+                let batch = [Step::Read(0), Step::Read(1)];
+                assert_eq!(
+                    handed_over_as_the_send_ends(&mut layer, &[1, 2], &batch, ending),
+                    read.map(|(shot, tag, _)| (shot, tag, of(shot))),
+                    "shot 2 unresolved: {unresolved_too}, read {read:?}, {ending:?}"
+                );
+            }
+        }
     }
 }
 
@@ -2389,6 +2658,101 @@ fn a_run_that_reads_a_tag_of_a_shot_twice_takes_in_the_conditions_it_read_on_eac
     }
 }
 
+/// A decoder, one state for all its shots, writes each shot's readout of
+/// an earlier round, then runs the next round below, on a runtime that
+/// reads each shot twice, in an order of its own, marking one of a shot's
+/// two readouts rejected or unresolved, then ends well, failed or
+/// cancelled: shot 1's first readout clear and its second rejected, as a
+/// runtime that rejects a shot on its last readout then loses its shots,
+/// or the other way round; shots 1 and 2, each shot's two in a row, shot
+/// 1's second marked and shot 2's first, or the same interleaved; or a
+/// tag of shot 1 read twice, so that the run is not whole and the call
+/// fails. However the run ends, each readout the decoder wrote carries
+/// its own shot's conditions, whichever of its readouts the run read them
+/// on.
+#[test]
+fn a_runs_conditions_mark_the_outcomes_the_logic_wrote_whatever_the_order_of_its_readouts_however_it_ends()
+ {
+    let (rejected, unresolved, none) = (
+        ShotConditions::REJECTED,
+        ShotConditions::UNRESOLVED,
+        ShotConditions::NONE,
+    );
+    let one: &[ShotId] = &[1];
+    let both: &[ShotId] = &[1, 2];
+    let flagged = [(1, 100, rejected), (2, 100, unresolved)];
+    let cases = [
+        (
+            one,
+            vec![(1, 0, none), (1, 1, rejected)],
+            &flagged[..1],
+            true,
+        ),
+        (
+            one,
+            vec![(1, 0, rejected), (1, 1, none)],
+            &flagged[..1],
+            true,
+        ),
+        (
+            both,
+            vec![
+                (1, 0, none),
+                (1, 1, rejected),
+                (2, 0, unresolved),
+                (2, 1, none),
+            ],
+            &flagged[..],
+            true,
+        ),
+        (
+            both,
+            vec![
+                (1, 0, none),
+                (2, 0, unresolved),
+                (1, 1, rejected),
+                (2, 1, none),
+            ],
+            &flagged[..],
+            true,
+        ),
+        (
+            both,
+            vec![
+                (1, 0, none),
+                (2, 0, unresolved),
+                (1, 0, rejected),
+                (2, 1, none),
+            ],
+            &flagged[..],
+            false,
+        ),
+    ];
+    for (ids, read, expected, whole) in cases {
+        for ending in [Some(Ending::Failed), None, Some(Ending::Cancelled)] {
+            let below = ReadsAsListed {
+                read: readouts(&read),
+                after_the_call: false,
+                ending,
+            };
+            let mut decoder =
+                compose(adapter_fn(no_state, writes_then_runs), below).expect("steps fit steps");
+            let reply = decoder.call(InstructionBatchRef {
+                shots: &shots(ids),
+                instructions: &[Step::Read(0), Step::Read(1)],
+            });
+            let mut outcomes = Vec::new();
+            let ended = wait(reply.expect("the decoder accepts the batch"), &mut outcomes);
+            assert_eq!(
+                ended.is_ok(),
+                whole && ending.is_none(),
+                "the call ends as its run does: read {read:?}, {ending:?}"
+            );
+            assert_eq!(marked(&outcomes), expected, "read {read:?}, {ending:?}");
+        }
+    }
+}
+
 /// A runtime that answers each call as its batch says, keeping nothing
 /// across calls: its reply reads a One on each shot of the call under each
 /// [`Step::Read`]'s tag, carrying the conditions that the batch's
@@ -2397,8 +2761,8 @@ fn a_run_that_reads_a_tag_of_a_shot_twice_takes_in_the_conditions_it_read_on_eac
 /// refuses a batch with a [`Step::Refused`].
 struct AnswersAsTold;
 
-/// [`AnswersAsTold`]'s reply: how many more polls it waits through, what
-/// it reads, and how it ends, if not well.
+/// [`AnswersAsTold`]'s and [`ReadsAsListed`]'s reply: how many more polls
+/// it waits through, what it reads, and how it ends, if not well.
 struct AnswersAsToldReply(u8, Vec<ShotOutcome>, Option<Ending>);
 
 impl Reply for AnswersAsToldReply {
@@ -2465,6 +2829,38 @@ impl Describe for AnswersAsTold {
 }
 
 impl Close for AnswersAsTold {
+    type Report = ();
+
+    fn close(&mut self) {}
+}
+
+/// A runtime that reads, whatever the batch it is given, the readouts it
+/// lists, in that order, as one that gives a shot's readouts in an order
+/// of its own: its reply gives them at one poll, in the call, or after it
+/// as [`Step::AfterTheCall`] makes [`AnswersAsTold`]'s, then ends well, or
+/// as its [`Ending`] says.
+struct ReadsAsListed {
+    read: Vec<ShotOutcome>,
+    after_the_call: bool,
+    ending: Option<Ending>,
+}
+
+impl Executor<InstructionBatch<Step>> for ReadsAsListed {
+    type Reply = AnswersAsToldReply;
+
+    fn call(&mut self, _: InstructionBatchRef<'_, Step>) -> Result<Self::Reply, Rejected> {
+        let waits = if self.after_the_call { 3 } else { 0 };
+        Ok(AnswersAsToldReply(waits, self.read.clone(), self.ending))
+    }
+}
+
+impl Describe for ReadsAsListed {
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::default()
+    }
+}
+
+impl Close for ReadsAsListed {
     type Report = ();
 
     fn close(&mut self) {}
