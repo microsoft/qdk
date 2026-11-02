@@ -329,6 +329,13 @@ fn a_batch_appended_to_a_caller_that_took_everything_is_moved_not_copied() {
     let (sender, mut reply) = reply_channel();
     let mut batch: Vec<u32> = (0..1024).collect();
     let mut out = Vec::new();
+    // The caller's first poll, before counting: on some platforms (macOS) the
+    // first lock of a `Mutex` allocates the lock itself.
+    assert_eq!(
+        reply.poll_events(&mut out, Waker::noop()),
+        ReplyStatus::Pending,
+        "precondition: nothing was sent yet"
+    );
     let made = super::allocations(|| {
         sender.append(&mut batch);
         assert_eq!(
