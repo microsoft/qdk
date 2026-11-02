@@ -17,11 +17,12 @@ use std::time::{Duration, Instant};
 
 use crate::compose::WithAdapter;
 use crate::{
-    Action, Adapter, AdapterBoundary, Adapters, Angle, Apply, Capabilities, Close, ComponentId,
-    Compose, Describe, Drive, Executor, ExecutorLifecycle, Fold, ImmediateReply, IncrementalReply,
-    Instruction, InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, Message,
-    Needs, Operand, OperandKind, Pauli, Rejected, Reply, ReplyStatus, ShotContext, ShotId,
-    ShotOutcome, ShotSet, TypedInstruction, Value, reply_channel, shot_seed, wait, wait_async,
+    Action, Adapter, AdapterBoundary, Adapters, AdaptiveProgram, Angle, Apply, Capabilities, Close,
+    ComponentId, Compose, Describe, Executor, ExecutorLifecycle, Fold, ImmediateReply,
+    IncrementalReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
+    InstructionSet, Message, Needs, Operand, OperandKind, Pauli, Rejected, Reply, ReplyStatus,
+    ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, reply_channel, shot_seed,
+    wait, wait_async,
 };
 
 use test_double::Model;
@@ -86,7 +87,7 @@ fn block_on<Fut: Future>(future: Fut) -> Fut::Output {
 }
 
 /// The tests' doubles take `bool`s, an instruction that names itself (a
-/// read, or not), so that a driver of them is composed with no adapter.
+/// read, or not), so that a program of them is composed with no adapter.
 impl TypedInstruction for bool {}
 
 /// `set`, each of its instructions declaring what it does, by its
@@ -431,14 +432,14 @@ fn flip_and_toss(set: &InstructionSet) -> Vec<Vec<InstructionCall>> {
     ]
 }
 
-/// A static program written as a driver by hand: each batch to every
+/// A static program written as an adaptive program by hand: each batch to every
 /// shot, in order, waiting for each.
 struct ByHand {
     needs: Needs,
     batches: Vec<Vec<InstructionCall>>,
 }
 
-impl Drive for ByHand {
+impl AdaptiveProgram for ByHand {
     type Instruction = InstructionCall;
     type Output = Vec<ShotOutcome>;
 
@@ -982,6 +983,7 @@ mod lifecycle;
 mod needs;
 mod outcome;
 mod placement;
+mod program;
 mod rejected;
 mod reply;
 mod seeds;

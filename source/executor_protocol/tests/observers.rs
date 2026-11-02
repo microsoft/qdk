@@ -4,7 +4,7 @@
 //! [Guide: Observers: a profiler and a debugger](../docs/guides.md#observers-a-profiler-and-a-debugger):
 //! two adapters that watch the calls of a chain, each written with
 //! `adapter_fn` in a function of its own, and composed with `>>` between
-//! the crate's interpreter and a simulator.
+//! the crate's driver and a simulator.
 //!
 //! - A profiler counts the instructions each shot sends below, and sends
 //!   each call down as it is (`observers/profiler.rs`;
@@ -45,7 +45,7 @@ use executor_protocol::{
     InstructionBatch, InstructionBatchRef, InstructionCall, MakeState, Needs, OnePerShot,
     OnePerShotExecutor, OpcodeTable, Operand, Outcomes, ProgramInput, Rejected, Reply, ReplyStatus,
     ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, StaticProgramError, Value,
-    adapter_fn, check_unique_tags, compose, executor_fn, interpreter,
+    adapter_fn, check_unique_tags, compose, driver, executor_fn,
 };
 
 use debugger::{CallResult, DebugLog, LoggedCall, debugger};
@@ -312,7 +312,7 @@ fn by_shot(outcomes: Result<Vec<ShotOutcome>, impl std::fmt::Debug>) -> Vec<Shot
 /// tag 0, and again at tags 1 and 2, since the copy copies it, so that the
 /// observed runs are compared with the program run as the toy means it.
 fn run_alone() -> (Vec<ShotOutcome>, ExecutorReport<()>) {
-    let chain = (interpreter() >> simulator()).expect("the program's calls fit the toy");
+    let chain = (driver() >> simulator()).expect("the program's calls fit the toy");
     let (outcomes, report) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let outcomes = by_shot(outcomes);
     for shot in SHOTS {
@@ -354,7 +354,7 @@ fn the_runs_counts() -> Counts {
 /// shots sent below, folded over the shots.
 #[test]
 fn the_profilers_report_counts_each_instruction_over_the_shots() {
-    let chain = (interpreter() >> profiler() >> simulator()).expect("the profiler fits");
+    let chain = (driver() >> profiler() >> simulator()).expect("the profiler fits");
     let (_, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     assert_eq!(counts, the_runs_counts());
 }
@@ -363,7 +363,7 @@ fn the_profilers_report_counts_each_instruction_over_the_shots() {
 /// profiler passes each readout up as it came.
 #[test]
 fn the_profiler_changes_no_outcome() {
-    let chain = (interpreter() >> profiler() >> simulator()).expect("the profiler fits");
+    let chain = (driver() >> profiler() >> simulator()).expect("the profiler fits");
     let (outcomes, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     assert_eq!(by_shot(outcomes), run_alone().0);
 }
@@ -373,7 +373,7 @@ fn the_profiler_changes_no_outcome() {
 /// reports what it reports alone, a call per batch.
 #[test]
 fn below_the_profiler_the_shots_equal_calls_go_as_one() {
-    let chain = (interpreter() >> profiler() >> simulator()).expect("the profiler fits");
+    let chain = (driver() >> profiler() >> simulator()).expect("the profiler fits");
     let (_, (_, report)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let alone = run_alone().1;
     assert_eq!(
@@ -390,7 +390,7 @@ fn below_the_profiler_the_shots_equal_calls_go_as_one() {
 #[test]
 fn the_profiler_sends_each_call_down_as_the_program_sent_it() {
     let received = Received::default();
-    let chain = interpreter() >> profiler() >> simulator_recording(received.clone());
+    let chain = driver() >> profiler() >> simulator_recording(received.clone());
     let chain = chain.expect("the profiler fits");
     let (outcomes, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     outcomes.expect("the run succeeds");
@@ -428,7 +428,7 @@ fn the_debugger_logs_each_shots_calls_with_what_they_read() {
         "the shots toss different coins"
     );
     let log = DebugLog::default();
-    let chain = (interpreter() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
+    let chain = (driver() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
     let _ = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     for shot in SHOTS {
         assert_eq!(
@@ -453,7 +453,7 @@ fn the_debugger_logs_a_call_that_fails_below_with_its_reason() {
     calls.push(vec![read_again]);
     let failing = simulator_stopping_at_reset(|| "the device failed at its reset".to_string());
     let log = DebugLog::default();
-    let chain = (interpreter() >> debugger(log.clone()) >> failing).expect("the debugger fits");
+    let chain = (driver() >> debugger(log.clone()) >> failing).expect("the debugger fits");
     let program = program_of(calls);
     let (outcomes, _) = chain.run(program, [6]).expect(THE_JOB_FITS).wait();
     outcomes.expect_err("the device fails the run");
@@ -486,7 +486,7 @@ fn the_debugger_logs_a_call_that_panics_below_without_an_outcome() {
     let (alone, _) = run_alone();
     let crashing = simulator_stopping_at_reset(|| panic!("the device crashed at its reset"));
     let log = DebugLog::default();
-    let chain = (interpreter() >> debugger(log.clone()) >> crashing).expect("the debugger fits");
+    let chain = (driver() >> debugger(log.clone()) >> crashing).expect("the debugger fits");
     let run = || chain.run(program(), [6]).expect(THE_JOB_FITS).wait();
     let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).is_err();
     assert!(panicked, "the device's panic reaches the user");
@@ -518,7 +518,7 @@ fn each_logged_call_holds_its_own_result_when_debuggers_share_a_log() {
     );
     let log = DebugLog::default();
     let chain =
-        interpreter() >> debugger(log.clone()) >> splitting >> debugger(log.clone()) >> simulator();
+        driver() >> debugger(log.clone()) >> splitting >> debugger(log.clone()) >> simulator();
     let chain = chain.expect("the debuggers and the splitting adapter fit");
     let (outcomes, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     outcomes.expect("the run succeeds");
@@ -564,7 +564,7 @@ fn the_debugger_changes_no_outcome() {
     let replayable = simulator().capabilities().replayable;
     assert!(replayable, "the simulator offers replayable shots");
     let log = DebugLog::default();
-    let chain = (interpreter() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
+    let chain = (driver() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
     let (outcomes, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     assert_eq!(by_shot(outcomes), run_alone().0);
 }
@@ -576,7 +576,7 @@ fn the_debugger_changes_no_outcome() {
 fn the_debugger_runs_each_call_below_as_the_program_sent_it() {
     let received = Received::default();
     let log = DebugLog::default();
-    let chain = interpreter() >> debugger(log.clone()) >> simulator_recording(received.clone());
+    let chain = driver() >> debugger(log.clone()) >> simulator_recording(received.clone());
     let chain = chain.expect("the debugger fits");
     let (outcomes, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     outcomes.expect("the run succeeds");
@@ -592,7 +592,7 @@ fn the_debugger_runs_each_call_below_as_the_program_sent_it() {
 #[test]
 fn below_the_debugger_each_shots_batch_is_a_call_of_its_own() {
     let log = DebugLog::default();
-    let chain = (interpreter() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
+    let chain = (driver() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
     let (_, report): (_, ExecutorReport<()>) =
         chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let batches = batches().len() as u64;
@@ -624,7 +624,7 @@ fn read_out_of_order() -> Vec<InstructionCall> {
 #[test]
 fn the_observers_pass_each_shots_readouts_up_in_the_order_read() {
     let program = || program_of(vec![read_out_of_order()]);
-    let chain = (interpreter() >> simulator()).expect("the program fits");
+    let chain = (driver() >> simulator()).expect("the program fits");
     let (alone, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let alone = by_shot(alone);
     let tags: Vec<_> = alone.iter().map(|o| (o.shot, o.tag)).collect();
@@ -632,11 +632,11 @@ fn the_observers_pass_each_shots_readouts_up_in_the_order_read() {
         .iter()
         .flat_map(|&shot| [(shot, 5), (shot, 3), (shot, 4)]);
     assert!(tags.into_iter().eq(in_read_order), "alone, in read order");
-    let chain = (interpreter() >> profiler() >> simulator()).expect("the profiler fits");
+    let chain = (driver() >> profiler() >> simulator()).expect("the profiler fits");
     let (profiled, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     assert_eq!(by_shot(profiled), alone, "under the profiler");
     let log = DebugLog::default();
-    let chain = (interpreter() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
+    let chain = (driver() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
     let (debugged, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     assert_eq!(by_shot(debugged), alone, "under the debugger");
 }
@@ -647,13 +647,13 @@ fn the_observers_pass_each_shots_readouts_up_in_the_order_read() {
 #[test]
 fn the_debugger_logs_each_calls_readouts_in_the_order_read() {
     let program = || program_of(vec![read_out_of_order()]);
-    let chain = (interpreter() >> simulator()).expect("the program fits");
+    let chain = (driver() >> simulator()).expect("the program fits");
     let (alone, _) = chain.run(program(), [6]).expect(THE_JOB_FITS).wait();
     let alone = alone.expect("the run succeeds");
     let tags: Vec<_> = alone.iter().map(|o| o.tag).collect();
     assert_eq!(tags, [5, 3, 4], "alone, in read order");
     let log = DebugLog::default();
-    let chain = (interpreter() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
+    let chain = (driver() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
     let (debugged, _) = chain.run(program(), [6]).expect(THE_JOB_FITS).wait();
     debugged.expect("the run succeeds");
     let read_in_order = LoggedCall {
@@ -671,10 +671,10 @@ fn a_batch_the_simulators_check_refuses_is_refused_alike_under_each_observer() {
     let beyond = toy_set().call("measure", vec![Operand::Block(QUBITS), Operand::Tag(1)]);
     let beyond = beyond.expect("the toy's set reads a qubit under a tag");
     let program = || program_of(vec![toss(), vec![beyond.clone()]]);
-    let chain = (interpreter() >> simulator()).expect("the program fits");
+    let chain = (driver() >> simulator()).expect("the program fits");
     let (alone, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let alone = alone.expect_err("the simulator refuses the batch");
-    let chain = (interpreter() >> profiler() >> simulator()).expect("the profiler fits");
+    let chain = (driver() >> profiler() >> simulator()).expect("the profiler fits");
     let (profiled, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     assert_eq!(
         profiled.expect_err("the simulator refuses the batch under the profiler"),
@@ -682,7 +682,7 @@ fn a_batch_the_simulators_check_refuses_is_refused_alike_under_each_observer() {
         "under the profiler"
     );
     let log = DebugLog::default();
-    let chain = (interpreter() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
+    let chain = (driver() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
     let (debugged, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     assert_eq!(
         debugged.expect_err("the simulator refuses the batch under the debugger"),
@@ -701,17 +701,17 @@ fn a_program_that_reads_a_tag_twice_is_refused_alike_under_each_observer() {
     let read = |qubit| set.call("measure", vec![Operand::Block(qubit), Operand::Tag(1)]);
     let read = |qubit| read(qubit).expect("the toy's set reads a qubit under a tag");
     let program = || program_of(vec![toss(), vec![read(0), read(1)]]);
-    let chain = (interpreter() >> simulator()).expect("the program fits");
+    let chain = (driver() >> simulator()).expect("the program fits");
     let Err(alone) = chain.run(program(), SHOTS) else {
         panic!("a static program refuses a tag read twice");
     };
-    let chain = (interpreter() >> profiler() >> simulator()).expect("the profiler fits");
+    let chain = (driver() >> profiler() >> simulator()).expect("the profiler fits");
     let Err(profiled) = chain.run(program(), SHOTS) else {
         panic!("a static program refuses a tag read twice under the profiler");
     };
     assert_eq!(profiled, alone, "under the profiler");
     let log = DebugLog::default();
-    let chain = (interpreter() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
+    let chain = (driver() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
     let Err(debugged) = chain.run(program(), SHOTS) else {
         panic!("a static program refuses a tag read twice under the debugger");
     };
@@ -731,7 +731,7 @@ fn a_program_that_reads_a_tag_twice_is_refused_alike_under_each_observer() {
 fn under_the_debugger_a_shot_refused_after_another_ran_fails_the_run() {
     let program = || program_of(vec![toss()]);
     for down in [SHOTS[0], SHOTS[1]] {
-        let chain = (interpreter() >> simulator_refusing_shot(down)).expect("the program fits");
+        let chain = (driver() >> simulator_refusing_shot(down)).expect("the program fits");
         let (alone, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
         let alone = alone.expect_err("the simulator refuses the shot");
         assert!(
@@ -739,7 +739,7 @@ fn under_the_debugger_a_shot_refused_after_another_ran_fails_the_run() {
             "alone, shot {down} refuses the run: {alone:?}"
         );
         let log = DebugLog::default();
-        let chain = interpreter() >> debugger(log.clone()) >> simulator_refusing_shot(down);
+        let chain = driver() >> debugger(log.clone()) >> simulator_refusing_shot(down);
         let chain = chain.expect("the debugger fits");
         let (debugged, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
         let debugged = debugged.expect_err("the simulator refuses the shot");
@@ -770,8 +770,7 @@ fn the_debugger_logs_a_refused_call_in_the_calls_first_shot_alone() {
     let tossed = |shot| the_shots_log(shot, &alone)[0].clone();
     for shots in [SHOTS, [11, 2, 6, 5]] {
         let log = DebugLog::default();
-        let chain =
-            (interpreter() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
+        let chain = (driver() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
         let program = program_of(vec![toss(), refused.clone()]);
         let (outcomes, _) = chain.run(program, shots).expect(THE_JOB_FITS).wait();
         let outcomes = outcomes.expect_err("the simulator refuses the batch");
@@ -943,10 +942,10 @@ type RunResult = Result<Vec<ShotOutcome>, StaticProgramError>;
 /// debugger: what each run gave, and the debugger's log.
 fn alone_and_debugged(device: NotWhole) -> (RunResult, RunResult, DebugLog) {
     let program = || program_of(vec![toss()]);
-    let chain = compose(interpreter(), device).expect("the program fits");
+    let chain = compose(driver(), device).expect("the program fits");
     let (alone, ()) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let log = DebugLog::default();
-    let chain = compose(interpreter() >> debugger(log.clone()), device);
+    let chain = compose(driver() >> debugger(log.clone()), device);
     let chain = chain.expect("the debugger fits");
     let (debugged, ()) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     (alone, debugged, log)
@@ -960,7 +959,7 @@ fn alone_and_debugged(device: NotWhole) -> (RunResult, RunResult, DebugLog) {
 #[test]
 fn under_the_debugger_a_reply_that_reads_a_tag_twice_fails_the_run() {
     let (alone, debugged, log) = alone_and_debugged(NotWhole::ReadingTagZeroTwice);
-    let alone = alone.expect("alone, the interpreter passes the readouts up");
+    let alone = alone.expect("alone, the driver passes the readouts up");
     assert_eq!(alone.len(), 2 * SHOTS.len(), "alone, two readouts a shot");
     let debugged = debugged.expect_err("the reply below reads a tag twice");
     let StaticProgramError::Failed { batch: 0, reason } = debugged else {
@@ -987,7 +986,7 @@ fn under_the_debugger_a_reply_that_reads_a_tag_twice_fails_the_run() {
 #[test]
 fn under_the_debugger_a_reply_that_reads_a_shot_not_given_fails_the_run() {
     let (alone, debugged, log) = alone_and_debugged(NotWhole::ReadingShot99);
-    let alone = alone.expect("alone, the interpreter passes the readouts up");
+    let alone = alone.expect("alone, the driver passes the readouts up");
     assert_eq!(
         alone,
         [ShotOutcome::new(99, 0, Value::One)],
@@ -1024,7 +1023,7 @@ fn under_the_debugger_a_reply_that_reads_a_shot_not_given_fails_the_run() {
 fn stacked_observers_each_see_what_they_see_alone() {
     let (alone, _) = run_alone();
     let log = DebugLog::default();
-    let chain = interpreter() >> profiler() >> debugger(log.clone()) >> simulator();
+    let chain = driver() >> profiler() >> debugger(log.clone()) >> simulator();
     let chain = chain.expect("the observers fit");
     let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     outcomes.expect("the stacked run succeeds");
@@ -1038,38 +1037,38 @@ fn stacked_observers_each_see_what_they_see_alone() {
     }
 }
 
-/// The profiler and the debugger between the interpreter and the
+/// The profiler and the debugger between the driver and the
 /// simulator, grouped each of the five ways `>>` allows four components:
 /// the same outcomes, the same report, and the same log.
 #[test]
 fn the_observers_grouped_any_way_give_the_same_run_and_log() {
     let logs = [(); 5].map(|()| DebugLog::default());
     let fit = "the observers fit";
-    let chain = ((interpreter() >> profiler()) >> debugger(logs[0].clone())) >> simulator();
+    let chain = ((driver() >> profiler()) >> debugger(logs[0].clone())) >> simulator();
     let first = chain
         .expect(fit)
         .run(program(), SHOTS)
         .expect(THE_JOB_FITS)
         .wait();
-    let chain = (interpreter() >> (profiler() >> debugger(logs[1].clone()))) >> simulator();
+    let chain = (driver() >> (profiler() >> debugger(logs[1].clone()))) >> simulator();
     let second = chain
         .expect(fit)
         .run(program(), SHOTS)
         .expect(THE_JOB_FITS)
         .wait();
     let below = (debugger(logs[2].clone()) >> simulator()).expect("the debugger fits");
-    let chain = (interpreter() >> profiler()) >> below;
+    let chain = (driver() >> profiler()) >> below;
     let third = chain
         .expect(fit)
         .run(program(), SHOTS)
         .expect(THE_JOB_FITS)
         .wait();
     let below = ((profiler() >> debugger(logs[3].clone())) >> simulator()).expect(fit);
-    let fourth = (interpreter() >> below).expect("the program fits");
+    let fourth = (driver() >> below).expect("the program fits");
     let fourth = fourth.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let below = (debugger(logs[4].clone()) >> simulator()).expect("the debugger fits");
     let below = (profiler() >> below).expect("the profiler fits");
-    let fifth = (interpreter() >> below).expect("the program fits");
+    let fifth = (driver() >> below).expect("the program fits");
     let fifth = fifth.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let runs = [first, second, third, fourth, fifth];
     let [first, rest @ ..] = runs.map(|(outcomes, report)| (by_shot(outcomes), report));
@@ -1098,7 +1097,7 @@ fn the_observers_grouped_any_way_give_the_same_run_and_log() {
 fn a_chain_of_observers_runs_on_another_thread() {
     let (alone, _) = run_alone();
     let log = DebugLog::default();
-    let chain = interpreter() >> profiler() >> debugger(log.clone()) >> simulator();
+    let chain = driver() >> profiler() >> debugger(log.clone()) >> simulator();
     let chain = chain.expect("the observers fit");
     let run = std::thread::spawn(move || chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait());
     let (outcomes, _) = run.join().expect("the run's thread ends");

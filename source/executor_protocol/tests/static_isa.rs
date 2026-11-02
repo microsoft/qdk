@@ -11,12 +11,12 @@
 //! of the toy, goes from one to the other, a three-qubit repetition code: each
 //! logical instruction goes down as its gadget, and each logical measurement
 //! comes back up as the majority of its block's three readouts. The types say
-//! what each executor accepts: a driver of `Logical` instructions compiles
+//! what each executor accepts: a program of `Logical` instructions compiles
 //! upstream of the code composed with the toy, and upstream of the toy
 //! itself is a compile error, which no test pins. The code also describes
 //! both sets, so that a chain checks, when it is built, that the toy runs
 //! every instruction the gadgets send, and that the code has every
-//! instruction its driver needs.
+//! instruction its program needs.
 //!
 //! Read `static_isa/logical.rs` (the logical set),
 //! `static_isa/repetition3.rs` (what goes down and comes up),
@@ -45,10 +45,10 @@ use std::f64::consts::FRAC_PI_4;
 use std::sync::Arc;
 
 use executor_protocol::{
-    Action, AdapterError, Angle, Below, BuildError, Describe, Drive, Executor, InstructionBatch,
-    InstructionBatchRef, InstructionMismatch, InstructionSet, JobFaults, Need, Needs, OnePerShot,
-    Operand, OperandKind, Outcomes, Pauli, ProgramInput, Rejected, ShotOutcome, ShotSet, Value,
-    adapter_fn, compose, conformance, interpreter, owning_adapter_fn, wait,
+    Action, AdapterError, AdaptiveProgram, Angle, Below, BuildError, Describe, Executor,
+    InstructionBatch, InstructionBatchRef, InstructionMismatch, InstructionSet, JobFaults, Need,
+    Needs, OnePerShot, Operand, OperandKind, Outcomes, Pauli, ProgramInput, Rejected, ShotOutcome,
+    ShotSet, Value, adapter_fn, compose, conformance, driver, owning_adapter_fn, wait,
 };
 
 use code_runtime::{
@@ -146,7 +146,7 @@ struct FlipALogicalCoin {
     needs: Needs,
 }
 
-impl Drive for FlipALogicalCoin {
+impl AdaptiveProgram for FlipALogicalCoin {
     type Instruction = Logical;
     type Output = Vec<ShotOutcome>;
 
@@ -180,7 +180,7 @@ fn a_logical_run_draws_each_shots_coins_from_its_physical_seed() {
     let program = FlipALogicalCoin {
         needs: Needs::default(),
     };
-    let run = (interpreter() >> RepetitionCode::default() >> toy_simulator(seed))
+    let run = (driver() >> RepetitionCode::default() >> toy_simulator(seed))
         .expect("the toy runs the code's gadgets")
         .run(program, shots.clone())
         .expect("the program needs nothing");
@@ -229,7 +229,7 @@ fn a_program_is_taken_only_by_a_code_that_has_the_instructions_it_needs() {
     let composes = |program: InstructionSet| {
         let needs = Needs::default().with_instruction_set(Some(Arc::new(program)));
         let program = FlipALogicalCoin { needs };
-        (interpreter() >> RepetitionCode::default() >> toy_simulator(0))
+        (driver() >> RepetitionCode::default() >> toy_simulator(0))
             .expect("the toy runs the code's gadgets")
             .run(program, ShotSet::one(0))
     };
@@ -388,7 +388,7 @@ fn the_toy_and_the_code_refuse_a_tag_repeated_within_a_batch() {
 /// A static program of logical batches, run in order on every shot.
 struct LogicalBatches(Vec<Vec<Logical>>);
 
-impl Drive for LogicalBatches {
+impl AdaptiveProgram for LogicalBatches {
     type Instruction = Logical;
     type Output = Vec<ShotOutcome>;
 
@@ -469,17 +469,17 @@ fn the_code_as_a_logic_reads_what_its_adapter_reads() {
             .sends(gadget_instructions())
             .check(within(toy::QUBITS / 3))
     };
-    let (by_adapter, _) = (interpreter() >> RepetitionCode::default() >> toy_simulator(seed))
+    let (by_adapter, _) = (driver() >> RepetitionCode::default() >> toy_simulator(seed))
         .expect("the toy runs the code's gadgets")
         .run(toss_flip_read(), shots.clone())
         .expect("the program needs nothing")
         .wait();
-    let (one_state, _) = (interpreter() >> code() >> toy_simulator(seed))
+    let (one_state, _) = (driver() >> code() >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read(), shots.clone())
         .expect("the program needs nothing")
         .wait();
-    let (per_shot, _) = (interpreter() >> code().shots(OnePerShot) >> toy_simulator(seed))
+    let (per_shot, _) = (driver() >> code().shots(OnePerShot) >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read(), shots.clone())
         .expect("the program needs nothing")
@@ -523,7 +523,7 @@ fn measure_in_rounds(
 fn the_code_as_a_logic_decodes_readouts_in_any_order() {
     let seed = 11;
     let shots = ShotSet::new(vec![6, 2, 9]).expect("distinct shots");
-    let (by_adapter, _) = (interpreter() >> RepetitionCode::default() >> toy_simulator(seed))
+    let (by_adapter, _) = (driver() >> RepetitionCode::default() >> toy_simulator(seed))
         .expect("the toy runs the code's gadgets")
         .run(toss_flip_read_thrice(), shots.clone())
         .expect("the program needs nothing")
@@ -532,7 +532,7 @@ fn the_code_as_a_logic_decodes_readouts_in_any_order() {
         .accepts(logical_set())
         .sends(gadget_instructions());
     let (in_rounds, _) =
-        (interpreter() >> code >> adapter_fn(|_| Ok(()), measure_in_rounds) >> toy_simulator(seed))
+        (driver() >> code >> adapter_fn(|_| Ok(()), measure_in_rounds) >> toy_simulator(seed))
             .expect("the toy runs the logic's gadgets")
             .run(toss_flip_read_thrice(), shots)
             .expect("the program needs nothing")
@@ -575,7 +575,7 @@ fn the_code_as_a_logic_reads_the_majority_of_votes_that_disagree() {
             .accepts(logical_set())
             .sends(gadget_instructions())
     };
-    let (noiseless, _) = (interpreter() >> code() >> toy_simulator(seed))
+    let (noiseless, _) = (driver() >> code() >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read(), shots.clone())
         .expect("the program needs nothing")
@@ -585,14 +585,12 @@ fn the_code_as_a_logic_reads_the_majority_of_votes_that_disagree() {
         reads(Value::Zero) && reads(Value::One),
         "the blocks read both 0 and 1: {noiseless:?}"
     );
-    let (noisy, _) = (interpreter()
-        >> code()
-        >> adapter_fn(|_| Ok(()), flip_first_votes)
-        >> toy_simulator(seed))
-    .expect("the toy runs the logic's gadgets")
-    .run(toss_flip_read(), shots)
-    .expect("the program needs nothing")
-    .wait();
+    let (noisy, _) =
+        (driver() >> code() >> adapter_fn(|_| Ok(()), flip_first_votes) >> toy_simulator(seed))
+            .expect("the toy runs the logic's gadgets")
+            .run(toss_flip_read(), shots)
+            .expect("the program needs nothing")
+            .wait();
     assert_eq!(by_shot(noisy), by_shot(noiseless));
 }
 
@@ -633,12 +631,12 @@ fn a_runtime_that_owns_its_backend_reads_what_the_code_as_a_logic_reads() {
         .sends(gadget_instructions())
         .check(within(toy::QUBITS / 3))
         .shots(OnePerShot);
-    let (lent, _) = (interpreter() >> as_a_logic >> toy_simulator(seed))
+    let (lent, _) = (driver() >> as_a_logic >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read_unflip_read(), shots.clone())
         .expect("the program needs nothing")
         .wait();
-    let (owned, _) = (interpreter() >> as_a_runtime >> toy_simulator(seed))
+    let (owned, _) = (driver() >> as_a_runtime >> toy_simulator(seed))
         .expect("the toy runs the runtime's gadgets")
         .run(toss_flip_read_unflip_read(), shots)
         .expect("the program needs nothing")

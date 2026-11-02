@@ -49,11 +49,11 @@ impl Instruction for InstructionCall {
 /// renumbers each batch into the numbering of the executor it wraps; where
 /// the numberings agree, the driver is given this type too, which
 /// then passes calls as they are, so that the driver's type is the same
-/// either way. In what follows, the driver is whichever sends the calls, a
-/// driver or an adapter. Planned: it becomes an adapter of its own, once
-/// adapters map any executor.
+/// either way. In what follows, "the driver" stands for whichever sends the
+/// calls, a driver or an adapter. Planned: it becomes an adapter of its
+/// own, once adapters map any executor.
 ///
-/// An opcode means something only in its set, and a driver's set may
+/// An opcode means something only in its set, and a program's set may
 /// declare the chain's instructions in another order, or only some of them:
 /// the driver's `x` may be at the opcode of the chain's `reset`. The
 /// instructions are matched once, when the job is given to the chain, or
@@ -61,7 +61,7 @@ impl Instruction for InstructionCall {
 /// ([`InstructionSet::opcodes_in`](crate::InstructionSet::opcodes_in)).
 /// When the numbering differs, each batch is copied with each opcode
 /// replaced by its match, into a buffer kept from one call to the next, and
-/// a call at an opcode the driver's set lacks is refused, though the
+/// a call at an opcode the program's set lacks is refused, though the
 /// chain's set may have one there; unless an earlier call is outside the
 /// executor's set, which is then refused. So the numbering does not change
 /// which call outside the executor's set is reported, for an executor that
@@ -86,17 +86,17 @@ impl Instruction for InstructionCall {
 /// 4.6 ns per batch. On the toy of `benches/instruction_calls.rs`, whose
 /// executor takes about 55 ns per batch of one call, the first is within
 /// the noise, and the copy adds about a tenth in batches of one call and a
-/// quarter in batches of many. A driver that cannot afford the copy builds
+/// quarter in batches of many. A program that cannot afford the copy builds
 /// its calls with the executor's set (its
-/// [`Capabilities::instruction_set`], read before the driver is made, since
-/// the driver sees the executor only through its calls), by mnemonic
+/// [`Capabilities::instruction_set`], read before the program is made, since
+/// the program sees the executor only through its calls), by mnemonic
 /// ([`InstructionSet::call`](crate::InstructionSet::call), or
 /// [`InstructionSet::opcode`](crate::InstructionSet::opcode) resolved
 /// once), and states that set in its needs: its calls then pass as they
 /// are.
 //
 // Known issue, open: it is unexported, so its name is not part of the API:
-// a driver of calls by opcode sees it only as an executor of its calls.
+// a program of calls by opcode sees it only as an executor of its calls.
 // Planned to become the renumbering adapter, once adapters map any
 // executor.
 //
@@ -149,7 +149,7 @@ impl<E> Renumbered<E> {
     }
 }
 
-/// The refusal of the call at `at`, whose `opcode` the driver's set lacks.
+/// The refusal of the call at `at`, whose `opcode` the program's set lacks.
 fn outside(at: usize, opcode: Opcode) -> Rejected {
     Rejected::Instruction {
         at,
@@ -162,13 +162,13 @@ impl<E: Executor<InstructionBatch<InstructionCall>>> Executor<InstructionBatch<I
 {
     type Reply = E::Reply;
 
-    /// Runs `batch`, its calls numbered by the driver's set, on the
+    /// Runs `batch`, its calls numbered by the program's set, on the
     /// executor.
     ///
     /// # Errors
     ///
     /// When the numbering differs, [`Rejected::Instruction`] at the first
-    /// call at an opcode the driver's set lacks, before any of the batch
+    /// call at an opcode the program's set lacks, before any of the batch
     /// runs, or at an earlier call whose operands the executor's set
     /// refuses ([`InstructionSet::check_batch`]), so that the numbering
     /// does not change which call outside the executor's set is reported,

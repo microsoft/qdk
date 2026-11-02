@@ -16,10 +16,10 @@ use std::sync::Arc;
 use crate::instruction_set::write_mismatches;
 use crate::{Capabilities, InstructionMismatch, InstructionSet, OpcodeMap, Rejected, ShotSet};
 
-/// What a job's program needs for its whole run, stated by a program that
-/// drives itself ([`Drive::needs`](crate::Drive::needs)), or by its
-/// interpreter for an interpreted one
-/// ([`Interpret::needs`](crate::Interpret::needs)), so that the chain can
+/// What a job's program needs for its whole run, stated by an adaptive
+/// program ([`AdaptiveProgram::needs`](crate::AdaptiveProgram::needs)), or
+/// by its driver for a program of another form
+/// ([`Driver::needs`](crate::Driver::needs)), so that the chain can
 /// refuse it before anything runs, rather than fail during the run: when
 /// its job is given to the chain ([`Chain::run`](crate::Chain::run)).
 ///

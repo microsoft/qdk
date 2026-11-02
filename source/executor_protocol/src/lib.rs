@@ -9,20 +9,23 @@
 //! An executor accepts one kind of [`Message`] and replies with a
 //! [`Reply`] that delivers the message kind's events: [`Executor::call`]
 //! returns the reply, or a typed [`Rejected`] when it refuses the call.
-//! A run is three kinds of components, composed:
+//! A chain is three kinds of components, composed:
 //!
 //! ```text
 //! Driver >> Adapter >> ... >> Executor
 //! ```
 //!
-//! - A driver heads the chain and calls the executor it is composed with.
-//!   The crate's interpreter, [`interpreter()`](fn@interpreter), an
-//!   interpreter of programs that are data ([`Interpret`]), runs a
-//!   [`StaticProgram`] or any [`Drive`] program: composed with an executor,
-//!   it gives a [`Chain`], built and checked, and a program and its shots
-//!   are a job, the chain's input, not one of its components:
+//! - A driver heads the chain ([`Driver`]) and runs any program of its form
+//!   given to the chain, so that programs are data. The crate's driver,
+//!   [`driver()`](fn@driver), runs a [`StaticProgram`] or any
+//!   [`AdaptiveProgram`]: composed with an executor, through adapters or
+//!   not, it gives a [`Chain`], built and checked, and a program and its
+//!   shots are a job, the chain's input, not one of its components:
 //!   `chain.run(program, shots)` checks the job ([`JobFaults`]) and gives
-//!   its [`Run`].
+//!   its [`Run`], which drives the executor through the program
+//!   ([`DrivenProgram`]). While a chain is built, its driver and the
+//!   adapters composed below it so far are the chain's head
+//!   ([`ChainHead`]).
 //! - The executor at the end of the chain ([`Executor`]) is an executor of
 //!   [`InstructionBatch`]es, each a list of instructions run on some of the
 //!   run's shots, whose states carry over from one batch to the next. It is
@@ -102,6 +105,7 @@ mod message;
 mod needs;
 mod outcome;
 mod placement;
+mod program;
 mod rejected;
 mod reply;
 mod seeds;
@@ -126,13 +130,9 @@ pub use compose::chain::{Chain, JobFaults};
 pub use compose::run::Run;
 pub use compose::{BuildError, BuildFault, BuildFaults, Compose, WithExecutor, compose};
 pub use conditions::ShotConditions;
-pub use driver::Drive;
 #[cfg(test)]
-pub(crate) use driver::Driver;
-pub use driver::interpreter::{
-    DefaultInterpreter, Interpret, Interpreted, InterpreterDriver, interpreter,
-};
-pub use driver::static_program::{StaticProgram, StaticProgramError};
+pub(crate) use driver::ComposedJob;
+pub use driver::{ChainHead, DefaultDriver, DrivenProgram, Driver, driver};
 pub use executor::{Close, Executor, ExecutorReport, Fold, LogP};
 pub use executor_fn::{
     ExecutorFn, ExecutorLogic, MakeState, NoCheck, OnePerShot, OnePerShotExecutor,
@@ -150,6 +150,8 @@ pub use message::Message;
 pub use needs::{Need, Needs, UnmetNeed};
 pub use outcome::{ErrorKind, Outcome, ShotOutcome, Value, check_unique_tags};
 pub use placement::{OwnThread, PlacedExecutor, Placement, PlacementJob};
+pub use program::AdaptiveProgram;
+pub use program::static_program::{StaticProgram, StaticProgramError};
 pub use rejected::{CallId, Rejected, RetryClass};
 pub use reply::asynchronous::{AsyncEvents, WaitAsync, async_events, wait_async};
 pub use reply::{

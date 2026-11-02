@@ -40,8 +40,10 @@ section states the protocol's rules that the other pages build on.
   against what is downstream of it, every fault of the parts built
   together reported together before anything runs (`BuildFaults`); a part composed
   with the executor first is built on its own, before what is upstream of
-  it ([The rules of composition](#the-rules-of-composition)). Headed by
-  the crate's interpreter, `interpreter()`, the chain is a `Chain`, which
+  it ([The rules of composition](#the-rules-of-composition)). Its head
+  (`ChainHead`: a driver, `driver()` for the crate's, with the adapters
+  composed below it so far) composed with the executor, the chain is a
+  `Chain`, which
   checks each job given to it, `chain.run(program, shots)`, before any
   call (`JobFaults`), and gives its `Run`. A run owns the chain: when it is
   waited for or awaited, it
@@ -165,7 +167,7 @@ at the end of the chain:
 
 | Role              | Is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Here                                                                                                                                                         |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **driver**        | not an executor: the caller at the upstream end, which names the shots, sends instructions and reads the outcomes                                                                                                                                                                                                                                                                                                                                                                                   | `FlipALogicalCoin`, a `Drive`, in `tests/static_isa.rs`; `coin_then_feedback` in `tests/toy/simulator.rs`; `Program` in `tests/existing_tool.rs`             |
+| **driver**        | not an executor: the caller at the upstream end, which names the shots, sends instructions and reads the outcomes                                                                                                                                                                                                                                                                                                                                                                                   | `FlipALogicalCoin`, an `AdaptiveProgram`, in `tests/static_isa.rs`; `coin_then_feedback` in `tests/toy/simulator.rs`; `Program` in `tests/existing_tool.rs`  |
 | **adapter**       | not an executor: a map from an executor to an executor. It maps the executor downstream of it, once, to the executor upstream, which calls it on the shots it is called on, possibly with another instruction type                                                                                                                                                                                                                                                                                  | `RepetitionCode` puts a `Repetition3` upstream, which sends `Op` for `Logical` (a lowering); `Debuggers` a `Debugger`, which sends what it accepts (a probe) |
 | **executor**      | an `Executor<M>`: it runs each shot named; offering `resumable_shots`, it promises that a later call continues a shot from the state its earlier calls left                                                                                                                                                                                                                                                                                                                                         | the guide's `toy_simulator`, made with `executor_fn` and `OnePerShot`; adapters composed with an executor                                                    |
 | **last executor** | not a type: the executor at the end of a chain, which calls nothing. Its capabilities (`Describe`) and its report (`Close`) originate there, and every adapter passes them on: the capabilities changed where it changes them, the report as it is, unless the adapter is given a `state_report`, which adds its own report beside the one below, its own first (`an_adapter_given_no_state_report_adds_no_pair_to_the_report`, `a_one_state_adapters_report_is_its_state_beside_the_report_below`) | the guide's `toy_simulator`                                                                                                                                  |
@@ -175,11 +177,11 @@ executor only. The first two are equalities between two builds, so their
 tests compare the two; the third's tests check the shots each call below
 is on, and what each shot draws there:
 
-| #   | Law                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Checked by                                                                                                                                                                                                         |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | **The grouping does not matter**: `>>` is associative, so adapters composed are an adapter, and adapters composed with an executor are an executor. A probe that changes nothing, such as the pausing debugger (`tests/debugger.rs`), is not told apart from the executor alone by its outcomes, seeds or capabilities. An adapter is told apart, for example, when it changes the instructions (a lowering: `each_logical_instruction_goes_down_as_its_gadget`, `tests/static_isa.rs`), refuses a call the executor would run (`.check`: `the_check_refuses_a_call_before_the_state_is_made_and_the_logic_runs`), adds a `state_report` (`a_one_state_adapters_report_is_its_state_beside_the_report_below`), splits a call by shot, as the logging debugger (`tests/observers/debugger.rs`) does, which a refusal below of a later shot then tells apart (`under_the_debugger_a_shot_refused_after_another_ran_fails_the_run`, `tests/observers.rs`), or waits for the readouts below (`Below::run`), with one state too, which a cancel below or a reply below that is not whole then tells apart: the call and the adapter fail, where alone the call ends cancelled or its readouts pass up (`a_run_whose_reply_is_cancelled_fails_the_call_and_the_adapter_whatever_the_logic_returns`, `a_run_that_reads_a_tag_of_a_shot_twice_fails_the_call_and_the_adapter`, `a_run_answered_for_a_shot_it_did_not_run_fails_the_call_and_the_adapter`, `src/tests/adapter/adapter_fn.rs`; under the debugger: `under_the_debugger_a_call_cancelled_below_fails_the_call_and_the_debugger`, `under_the_debugger_a_reply_that_reads_a_tag_twice_fails_the_run`, `under_the_debugger_a_reply_that_reads_a_shot_not_given_fails_the_run`, `tests/observers.rs`). A known issue besides: the report's log probabilities miss the draws of an adapter that draws ([Reports](../adapters.md#reports-state_reportf)) | `composition_is_associative`, `the_grouping_of_a_drivers_chain_does_not_matter` (`src/tests/compose.rs`); `the_debugger_changes_no_outcome_and_no_seed`, `the_debugger_offers_what_it_wraps` (`tests/debugger.rs`) |
-| 2   | **A shot alone**: on a replayable executor, a shot run alone gives what it gives among others, so a set of one shot is that shot's executor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | `a_shot_run_alone_gives_what_it_gives_among_others` (`src/tests/compose/run.rs`); for any replayable executor, the conformance check `gives_each_shot_alone_what_it_gives_among_others`                            |
-| 3   | **Shots keep their ids**: an adapter upstream of an executor calls it on the shots it is called on, so shot `j` of the chain is shot `j` of the last executor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | `an_adapter_written_by_hand_is_applied_once_to_the_whole_executor` (`src/tests/compose/adapters.rs`); `a_logical_run_draws_each_shots_coins_from_its_physical_seed` (`tests/static_isa.rs`)                        |
+| #   | Law                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Checked by                                                                                                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **The grouping does not matter**: `>>` is associative, so a driver with adapters below it is still a chain's head (`ChainHead`; planned: that it is itself a `Driver<P>`), adapters composed are an adapter, and adapters composed with an executor are an executor. A probe that changes nothing, such as the pausing debugger (`tests/debugger.rs`), is not told apart from the executor alone by its outcomes, seeds or capabilities. An adapter is told apart, for example, when it changes the instructions (a lowering: `each_logical_instruction_goes_down_as_its_gadget`, `tests/static_isa.rs`), refuses a call the executor would run (`.check`: `the_check_refuses_a_call_before_the_state_is_made_and_the_logic_runs`), adds a `state_report` (`a_one_state_adapters_report_is_its_state_beside_the_report_below`), splits a call by shot, as the logging debugger (`tests/observers/debugger.rs`) does, which a refusal below of a later shot then tells apart (`under_the_debugger_a_shot_refused_after_another_ran_fails_the_run`, `tests/observers.rs`), or waits for the readouts below (`Below::run`), with one state too, which a cancel below or a reply below that is not whole then tells apart: the call and the adapter fail, where alone the call ends cancelled or its readouts pass up (`a_run_whose_reply_is_cancelled_fails_the_call_and_the_adapter_whatever_the_logic_returns`, `a_run_that_reads_a_tag_of_a_shot_twice_fails_the_call_and_the_adapter`, `a_run_answered_for_a_shot_it_did_not_run_fails_the_call_and_the_adapter`, `src/tests/adapter/adapter_fn.rs`; under the debugger: `under_the_debugger_a_call_cancelled_below_fails_the_call_and_the_debugger`, `under_the_debugger_a_reply_that_reads_a_tag_twice_fails_the_run`, `under_the_debugger_a_reply_that_reads_a_shot_not_given_fails_the_run`, `tests/observers.rs`). A known issue besides: the report's log probabilities miss the draws of an adapter that draws ([Reports](../adapters.md#reports-state_reportf)) | `composition_is_associative`, `the_grouping_of_a_jobs_chain_does_not_matter` (`src/tests/compose.rs`); `the_debugger_changes_no_outcome_and_no_seed`, `the_debugger_offers_what_it_wraps` (`tests/debugger.rs`) |
+| 2   | **A shot alone**: on a replayable executor, a shot run alone gives what it gives among others, so a set of one shot is that shot's executor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `a_shot_run_alone_gives_what_it_gives_among_others` (`src/tests/compose/run.rs`); for any replayable executor, the conformance check `gives_each_shot_alone_what_it_gives_among_others`                         |
+| 3   | **Shots keep their ids**: an adapter upstream of an executor calls it on the shots it is called on, so shot `j` of the chain is shot `j` of the last executor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `an_adapter_written_by_hand_is_applied_once_to_the_whole_executor` (`src/tests/compose/adapters.rs`); `a_logical_run_draws_each_shots_coins_from_its_physical_seed` (`tests/static_isa.rs`)                     |
 
 Law 2, from `a_shot_run_alone_gives_what_it_gives_among_others`
 (`src/tests/compose/run.rs`): a run of four shots on a simulator with a
@@ -196,7 +198,7 @@ let run = |ids: &[ShotId]| {
     .seed(11)
     .shots(OnePerShot);
     let program = Program::flip_and_toss(bits_set());
-    let (outcomes, _) = (interpreter() >> simulator)
+    let (outcomes, _) = (driver() >> simulator)
         .expect("no adapter, no fault")
         .run(program, shots(ids))
         .expect("the simulator runs the bits' set")
@@ -299,9 +301,9 @@ The parts of a run, as
   of the run's batches that describes what it offers and closes with a
   report: the last executor, built with its seed (the guide's
   `toy_simulator(seed)`, made with `executor_fn`, `.seed(seed)` and
-  `.shots(OnePerShot)`), or adapters composed with it. A driver with
-  no adapter runs on any executor, an ensemble (one state shared by its
-  shots) included (`a_driver_composes_with_any_executor`), its job's needs
+  `.shots(OnePerShot)`), or adapters composed with it. A chain's head
+  with no adapter runs on any executor, an ensemble (one state shared by its
+  shots) included (`a_job_composes_with_any_executor`), its job's needs
   checked when the job is given to the chain, as for any; adapters map an
   ensemble whole,
   as they map any executor, so one that passes every call through changes
@@ -316,11 +318,21 @@ The parts of a run, as
   code as a runtime that owns its backend
   (`tests/static_isa/code_runtime.rs`,
   [A state that owns its way below](../adapters.md#a-state-that-owns-its-way-below-owning_adapter_fn)).
-- A **driver** heads the chain. The crate's interpreter, `interpreter()`
-  (an `InterpreterDriver`), makes a `Chain`, which runs the job given to
-  it ([A chain and its job](../composition.md#a-chain-and-its-job)), a
-  program that drives itself (`Drive`) included. The run's seed is the one
-  the last executor is built with
+- A **driver** (`Driver<P>`) heads the chain, and runs any program of
+  form `P` given to it. While the chain is built it sits in its head
+  (`ChainHead`), with the adapters composed below it so far: `driver()` is
+  the crate's driver (`DefaultDriver`) at a head with no adapter, and
+  `ChainHead::new(driver)` puts any driver there: a driver written by hand,
+  as a runtime is, makes its calls on the one executor it is given, the
+  adapters below it with the executor
+  (`a_driver_written_by_hand_calls_through_the_adapters_below_it`,
+  `a_drivers_default_needs_ask_no_resumable_shots`). A head with adapters
+  is a `ChainHead` still, not a `Driver<P>` (planned). Composed with the
+  executor, a head makes a `Chain`, which runs the job given to it
+  ([A chain and its job](../composition.md#a-chain-and-its-job)), an
+  adaptive program (`AdaptiveProgram`) included
+  (`an_adaptive_program_given_to_a_chain_runs_as_it_runs_driving_the_executor_itself`).
+  The run's seed is the one the last executor is built with
   ([Seeds](../executors.md#seeds-not-generators)).
 - A **run** is what a chain given a job gives, and it owns the chain: the
   driver only calls it. Composing, or giving a job,
@@ -328,7 +340,7 @@ The parts of a run, as
   (`a_run_runs_nothing_until_it_is_waited_for`); `run.wait()`, or
   `run.await` for an asynchronous caller, drives the executor, closes it
   once its program ends, and only once
-  (`a_run_closes_its_executor_once_after_the_drivers_last_call`;
+  (`a_run_closes_its_executor_once_after_the_programs_last_call`;
   [An executor's whole life](../executors.md#an-executors-whole-life); a run
   dropped or unwound before then does not,
   [Known limits](#a-run-closes-its-executor-only-when-its-program-ends)),
@@ -336,7 +348,7 @@ The parts of a run, as
   the executor's report
   (`a_run_gives_the_programs_output_and_the_executors_report`). A call on a
   shot the job did not name is refused before the executor sees it
-  (`a_call_on_a_shot_outside_the_drivers_is_refused_before_the_executor_sees_it`).
+  (`a_call_on_a_shot_outside_the_jobs_is_refused_before_the_executor_sees_it`).
   A program may take replies with `wait` inside its run: the run's own
   parking loses none of its wakes
   (`a_run_waited_for_keeps_the_wakes_that_come_while_its_program_waits`).
@@ -344,15 +356,22 @@ The parts of a run, as
 ## The rules of composition
 
 - **Left is upstream, and the grouping does not matter.**
-  `driver >> (a >> b) >> executor` is `driver >> a >> b >> executor`
+  `(driver() >> a) >> executor` and `driver() >> (a >> executor)?` build
+  chains with the same run, and so does every other grouping of
+  `driver() >> a >> b >> executor`; `driver() >> a` is a `ChainHead` again,
+  by its type (a binding of that type in
+  `the_grouping_of_a_drivers_chain_does_not_matter`), and not yet a
+  `Driver<P>` (planned; a compile error, which no test pins)
   (`adapters_composed_put_the_left_upstream_of_the_right`,
   `composition_is_associative`,
-  `the_grouping_of_a_drivers_chain_does_not_matter`,
-  `the_grouping_of_an_interpreters_chain_does_not_matter`). Adapters grouped
+  `the_grouping_of_a_jobs_chain_does_not_matter`,
+  `the_grouping_of_a_drivers_chain_does_not_matter`, `src/tests/compose.rs`;
+  `a_noise_model_written_by_hand_draws_from_its_own_seeds_in_either_grouping`,
+  `tests/simulator.rs`). Adapters grouped
   either way among themselves, before they reach the executor, report the
   same build faults, in the same order
   (`a_chain_reports_the_same_faults_whatever_the_grouping`,
-  `an_interpreters_chain_reports_the_same_faults_whatever_the_grouping`). A part
+  `a_drivers_chain_reports_the_same_faults_whatever_the_grouping`). A part
   composed with the executor first is built on its own: `compose` gives it
   as a `Result`, unwrapped before it is composed further, so
   `compose(a, compose(b, executor)?)` returns the faults of `b` before `a`
@@ -431,13 +450,13 @@ The parts of a run, as
   `Encoding` does: `an_adapter_that_can_send_in_the_downstream_numbering_does`).
   The driver's boundary is renumbered the same way, decided when a job is given
   to the chain (`a_job_whose_calls_a_decoder_does_not_accept_is_refused`): a
-  driver whose set numbers the instructions otherwise has each batch copied
+  program whose set numbers the instructions otherwise has each batch copied
   into the chain's numbering
-  (`a_driver_in_another_order_runs_its_own_instructions_through_the_chain`), and
-  a driver that cannot afford the copy builds its calls by name with the set the
-  chain describes (`InstructionSet::call`), so they pass as they are
+  (`a_program_in_another_order_runs_its_own_instructions_through_the_chain`),
+  and a program that cannot afford the copy builds its calls by name with the
+  set the chain describes (`InstructionSet::call`), so they pass as they are
   (`a_batch_in_the_executors_numbering_reaches_it_as_it_is`; on the run-time
-  guide's code, `a_driver_builds_its_calls_by_name_with_the_codes_set`).
+  guide's code, `a_program_builds_its_calls_by_name_with_the_codes_set`).
 - **Entities that are compatible compose into a valid one, whatever the order of
   their instruction sets.** Composition is part of the protocol, and makes this
   guarantee: the calls of each adapter are checked against the set downstream,
@@ -455,9 +474,9 @@ The parts of a run, as
 
 | Case                                                                                                                                                                          | Verdict                                                                                                                                    | Shown by                                                                                                                                                    |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| sets of one name, at the driver's boundary                                                                                                                                    | accepted when the job is given to the chain: matched by mnemonic, no action needed                                                         | `a_driver_and_an_executor_sharing_a_set_without_actions_are_composed`                                                                                       |
+| sets of one name, at the driver's boundary                                                                                                                                    | accepted when the job is given to the chain: matched by mnemonic, no action needed                                                         | `a_job_and_an_executor_sharing_a_set_without_actions_are_composed`                                                                                          |
 | sets of one name, at an adapter's boundary                                                                                                                                    | composed: matched by mnemonic, no action needed                                                                                            | `an_adapter_sending_the_set_downstream_without_actions_is_composed`                                                                                         |
-| at the driver's boundary, between sets of other names, an instruction both sets have under its mnemonic, with the same operands, that either leaves without a declared action | refused (`InstructionMismatch::UndeclaredAction`), when the job is given to the chain                                                      | `an_instruction_whose_action_the_drivers_set_leaves_undeclared_is_refused`                                                                                  |
+| at the driver's boundary, between sets of other names, an instruction both sets have under its mnemonic, with the same operands, that either leaves without a declared action | refused (`InstructionMismatch::UndeclaredAction`), when the job is given to the chain                                                      | `an_instruction_whose_action_the_programs_set_leaves_undeclared_is_refused`                                                                                 |
 | at an adapter's boundary, the same                                                                                                                                            | refused (`InstructionMismatch::UndeclaredAction`), every boundary's at once                                                                | `an_instruction_whose_action_the_downstream_set_leaves_undeclared_is_refused`, `every_undeclared_action_of_a_chain_is_reported_at_once`                     |
 | a program of `InstructionCall`s that states no set, so its opcodes are just numbers                                                                                           | refused, its need of an instruction set unmet (`Rejected::Unmet`), when the job is given to the chain                                      | `a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal`                                                                                  |
 | an adapter that passes such calls through, stating no set, over an executor that describes none                                                                               | refused (`BuildError::NoInstructionSetDownstream`)                                                                                         | `a_passing_adapter_of_calls_by_opcode_over_no_set_is_refused`                                                                                               |
@@ -507,11 +526,11 @@ Two other ways serve callers that need them:
 
 ## A chain and its job: the rules
 
-A program that drives itself (`Drive`), given to a chain, runs as it runs
+An adaptive program (`AdaptiveProgram`), given to a chain, runs as it runs
 driving the chain's executor itself
-(`a_drive_program_given_to_a_chain_runs_as_it_runs_driving_the_executor_itself`),
-and a static program as the same program written as a `Drive`
-(`a_chain_runs_a_job_as_its_program_written_as_a_driver_runs`). The
+(`an_adaptive_program_given_to_a_chain_runs_as_it_runs_driving_the_executor_itself`),
+and a static program as the same program written as an `AdaptiveProgram`
+(`a_chain_runs_a_job_as_its_program_written_as_an_adaptive_program_runs`). The
 rules of a job given to a chain
 ([A chain and its job](../composition.md#a-chain-and-its-job)):
 
@@ -526,7 +545,7 @@ rules of a job given to a chain
   chain's executor
   (`a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor`,
   `a_static_programs_needs_are_checked_when_given_to_a_chain`); and the
-  interpreter must find no fault in the program, such as a call outside its
+  driver must find no fault in the program, such as a call outside its
   set (`a_call_outside_the_programs_set_is_refused`). The shots' fault
   comes first, then each unmet need, then the program's
   (`a_jobs_shot_faults_are_reported_with_its_programs_needs_and_calls`).
@@ -565,15 +584,15 @@ where one does. Where a planned feature lifts one, it is named here, and
 
 ### Which parts the operator joins
 
-`>>` is implemented for the crate's types (`InterpreterDriver`,
+`>>` is implemented for the crate's types (`ChainHead`,
 `ComposedAdapters`, `NoAdapter`, `AdapterFn`, `OnePerShotAdapter`, and the
-test-only `Driver`), with
+test-only `ComposedJob`), with
 an adapter or an executor the facility makes (`ExecutorFn`,
 `OnePerShotExecutor`, `OnePerShotPlacedExecutor`, `PlacedExecutor`,
 `AdapterFnExecutor`, `OnePerShotAdapterExecutor`, `AdapterExecutor`) on
 its right, so that a chain groups either way
-(`a_driver_and_an_adapter_fn_compose_in_either_grouping`,
-`a_driver_and_a_per_shot_adapter_fn_compose_in_either_grouping`,
+(`a_job_and_an_adapter_fn_compose_in_either_grouping`,
+`a_job_and_a_per_shot_adapter_fn_compose_in_either_grouping`,
 `two_adapter_fns_compose_in_either_grouping`): one impl for any adapter
 and one for any executor would overlap, since a type could be both, and
 `>>` cannot infer which rule applies as `compose` does. So a function
@@ -586,19 +605,19 @@ test pins (`compose`'s rustdoc says why).
 
 Another crate composes with `compose`, or gives its own types `>>`, which
 takes more for an executor than for an adapter. An adapter written by
-hand already follows a driver with `>>`
+hand already follows a chain's head with `>>`
 (`a_logical_run_draws_each_shots_coins_from_its_physical_seed`,
 `tests/static_isa.rs`, writes
-`interpreter() >> RepetitionCode::default()`), and
+`driver() >> RepetitionCode::default()`), and
 gets `>>` with an executor on its right in a few lines, one impl per
 executor type, as `tests/static_isa/repetition_code.rs` does for
 `RepetitionCode` with the toy simulator. An executor written by hand gets
 `>>` from a left-hand type only where its crate implements it: one impl
-for each of the four public ones (`InterpreterDriver`,
+for each of the four public ones (`ChainHead`,
 `ComposedAdapters`, `AdapterFn`, `OnePerShotAdapter`), as
 `src/compose.rs` does for the executors the facilities make; the impl
 there for `NoAdapter` is the crate's own, since that type is private to
-it, and so is the one for the crate's test-only `Driver`. No test builds
+it, and so is the one for the crate's test-only `ComposedJob`. No test builds
 such an executor in another crate. A macro
 that writes these impls is planned, with no milestone yet, for when a
 second crate gives its adapters `>>`, such as a crate of codes or of
@@ -733,18 +752,18 @@ pin, in each page's order, with the tests that pin it.
 
 From [Composition](../composition.md):
 
-| Promise                                                                                               | Tests                                                                                                                                                                                                                           |
-| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A run turned into a future runs nothing until it is polled                                            | `a_run_turned_into_a_future_runs_nothing_until_polled` (`src/tests/compose/run.rs`)                                                                                                                                             |
-| The interpreter sends a `StaticProgram`'s batches each to every shot of the job in one call, in order | `a_static_program_gives_every_shots_outcomes_batch_after_batch` (`src/tests/driver/static_program.rs`), `below_the_debugger_each_shots_batch_is_a_call_of_its_own` (`tests/observers.rs`; its run alone makes a call per batch) |
-| A set of shots names at least one shot, and each shot once                                            | `a_shot_set_names_at_least_one_shot`, `a_shot_set_names_each_shot_once` (`src/tests/shot.rs`)                                                                                                                                   |
-| Observers stacked in one chain each see what they see alone                                           | `stacked_observers_each_see_what_they_see_alone` (`tests/observers.rs`)                                                                                                                                                         |
+| Promise                                                                                                  | Tests                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A run turned into a future runs nothing until it is polled                                               | `a_run_turned_into_a_future_runs_nothing_until_polled` (`src/tests/compose/run.rs`)                                                                                                                                              |
+| The crate's driver sends a `StaticProgram`'s batches each to every shot of the job in one call, in order | `a_static_program_gives_every_shots_outcomes_batch_after_batch` (`src/tests/program/static_program.rs`), `below_the_debugger_each_shots_batch_is_a_call_of_its_own` (`tests/observers.rs`; its run alone makes a call per batch) |
+| A set of shots names at least one shot, and each shot once                                               | `a_shot_set_names_at_least_one_shot`, `a_shot_set_names_each_shot_once` (`src/tests/shot.rs`)                                                                                                                                    |
+| Observers stacked in one chain each see what they see alone                                              | `stacked_observers_each_see_what_they_see_alone` (`tests/observers.rs`)                                                                                                                                                          |
 
 From [Planned features](../planned.md):
 
-| Promise                                                                                                                                                    | Tests                                                                                                                    |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| A call on a qubit that a static program does not state is found at its batch only by the executor's check, and the outcomes of earlier batches are dropped | `a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_batch` (`src/tests/driver/static_program.rs`) |
+| Promise                                                                                                                                                    | Tests                                                                                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| A call on a qubit that a static program does not state is found at its batch only by the executor's check, and the outcomes of earlier batches are dropped | `a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_batch` (`src/tests/program/static_program.rs`) |
 
 From [Rejections and retries](../rejections.md):
 

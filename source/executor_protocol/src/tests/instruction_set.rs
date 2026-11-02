@@ -297,7 +297,7 @@ fn toy() -> InstructionSet {
         .with_action("reset", [Block], reset())
 }
 
-/// A driver's set in Stim's mnemonics, declaring what each does.
+/// A program's set in Stim's mnemonics, declaring what each does.
 fn stim() -> InstructionSet {
     InstructionSet::new("stim")
         .with_action("R", [Block], reset())

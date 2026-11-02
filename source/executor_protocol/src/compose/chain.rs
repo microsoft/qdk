@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A complete chain ([`Chain`]): an interpreter's driver, adapters and an
-//! executor, built and checked, which runs the job given to it,
+//! A complete chain ([`Chain`]): a driver, adapters and an executor, built
+//! and checked, which runs the job given to it,
 //! `chain.run(program, shots)`, checked before any call ([`JobFaults`]),
 //! as a [`Run`].
 
@@ -11,15 +11,15 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-#[cfg(doc)]
-use crate::{BuildFaults, InterpreterDriver, ShotSet, UnmetNeed};
 use crate::{
-    Capabilities, Close, Drive, Executor, Instruction, InstructionBatch, Interpret, Interpreted,
-    IntoShotSet, Rejected, Run,
+    AdaptiveProgram, Capabilities, Close, DrivenProgram, Driver, Executor, Instruction,
+    InstructionBatch, IntoShotSet, Rejected, Run,
 };
+#[cfg(doc)]
+use crate::{BuildFaults, ChainHead, ShotSet, UnmetNeed};
 
-/// An interpreter's driver composed with an executor, through adapters or
-/// not: the chain, built and checked ([`InterpreterDriver`] `>>`
+/// A driver composed with an executor, through adapters or not: the
+/// chain, built and checked ([`ChainHead`] `>>`
 /// executor), which runs the job given to it ([`run`](Chain::run)).
 ///
 /// A chain runs one job: the run takes the executor, and closes it with
@@ -38,11 +38,11 @@ use crate::{
 ///
 /// # Type parameters
 ///
-/// Each is set by `InterpreterDriver<T, L> >> executor`:
+/// Each is set by `ChainHead<T, L> >> executor`:
 ///
-/// - `T`: the interpreter ([`Interpret`]), the [`InterpreterDriver`]'s.
-/// - `I`: the type of the instructions the interpreter sends, which the
-///   first of the driver's adapters `L` accepts, or the executor where there
+/// - `T`: the driver ([`Driver`]), the [`ChainHead`]'s.
+/// - `I`: the type of the instructions the driver sends, which the
+///   first of the head's adapters `L` accepts, or the executor where there
 ///   is none.
 /// - `E`: the executor its calls reach: the adapters `L` composed with the
 ///   executor, which together are an executor, or the executor itself.
@@ -50,17 +50,17 @@ use crate::{
 /// # Example
 ///
 /// A function that builds a chain for each job names the chain's type by
-/// its interpreter, its instruction and what its executor is: an executor
+/// its driver, its instruction and what its executor is: an executor
 /// of batches of that instruction, which closes with a report of a type
 /// stated (`Close<Report = …>`), so that the report of each run can be
 /// read.
 ///
 /// ```
 /// use executor_protocol::{
-///     BuildFaults, Capabilities, Chain, Close, DefaultInterpreter, Executor,
+///     BuildFaults, Capabilities, Chain, Close, DefaultDriver, Executor,
 ///     ExecutorReport, InstructionBatch, Needs, OnePerShot, Outcome,
-///     Outcomes, ProgramInput, StaticProgram, TypedInstruction, executor_fn,
-///     interpreter,
+///     Outcomes, ProgramInput, StaticProgram, TypedInstruction, driver,
+///     executor_fn,
 /// };
 ///
 /// /// An instruction of a device of one bit per shot.
@@ -91,12 +91,12 @@ use crate::{
 ///     Ok(())
 /// }
 ///
-/// /// A chain of the crate's interpreter on the device, a bit per shot.
+/// /// A chain of the crate's driver on the device, a bit per shot.
 /// fn one_bit_chain(
 ///     seed: u64,
 /// ) -> Result<
 ///     Chain<
-///         DefaultInterpreter,
+///         DefaultDriver,
 ///         Op,
 ///         impl Executor<InstructionBatch<Op>>
 ///             + Close<Report = ExecutorReport<()>>,
@@ -107,7 +107,7 @@ use crate::{
 ///         executor_fn(Capabilities::default(), |_| Ok(false), run_bit)
 ///             .seed(seed)
 ///             .shots(OnePerShot);
-///     interpreter() >> executor
+///     driver() >> executor
 /// }
 ///
 /// let program = StaticProgram::new(
@@ -120,7 +120,7 @@ use crate::{
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub struct Chain<T, I, E> {
-    interpreter: T,
+    driver: T,
     executor: E,
     /// What the chain offers its driver, checked against the job's needs.
     offered: Capabilities,
@@ -128,10 +128,10 @@ pub struct Chain<T, I, E> {
 }
 
 impl<T, I, E> Chain<T, I, E> {
-    /// `interpreter`, calling `executor`, which offers it `offered`.
-    pub(crate) fn new(interpreter: T, executor: E, offered: Capabilities) -> Self {
+    /// `driver`, calling `executor`, which offers it `offered`.
+    pub(crate) fn new(driver: T, executor: E, offered: Capabilities) -> Self {
         Self {
-            interpreter,
+            driver,
             executor,
             offered,
             _instruction: PhantomData,
@@ -150,11 +150,11 @@ where
     ///
     /// The job is checked here, before any call, and every fault is
     /// reported together: its shots must be a set ([`ShotSet`]), the
-    /// program's needs ([`Interpret::needs`]) must be met by what the chain
+    /// program's needs ([`Driver::needs`]) must be met by what the chain
     /// offers, its shots counted against the shots the executor holds at
     /// once when they are a set (shots that are not are reported as such,
-    /// not counted), and the interpreter must find no fault in the program
-    /// ([`Interpret::check`]). Calls by opcode reach the executor
+    /// not counted), and the driver must find no fault in the program
+    /// ([`Driver::check`]). Calls by opcode reach the executor
     /// renumbered where the program's set numbers its instructions
     /// otherwise.
     ///
@@ -174,16 +174,16 @@ where
         self,
         program: P,
         shots: impl IntoShotSet,
-    ) -> Result<Run<Interpreted<T, P>, E>, JobFaults>
+    ) -> Result<Run<DrivenProgram<T, P>, E>, JobFaults>
     where
-        T: Interpret<P, Instruction = I>,
+        T: Driver<P, Instruction = I>,
     {
         let mut faults = Vec::new();
         let shots = shots
             .into_shot_set()
             .map_err(|rejected| faults.push(rejected))
             .ok();
-        let program = Interpreted::new(self.interpreter, program);
+        let program = DrivenProgram::new(self.driver, program);
         let checked = self.offered.check_needs(
             type_name::<E>(),
             shots.as_ref().map(|shots| shots.as_slice().len()),
@@ -210,7 +210,7 @@ where
 
 /// Every fault of a job given to a [`Chain`] ([`Chain::run`]), its shots'
 /// first (one at most: no shots, or the least shot named twice), then each
-/// unmet need, then the program's ([`Interpret::check`]), so that whoever
+/// unmet need, then the program's ([`Driver::check`]), so that whoever
 /// gives the job can fix them all at once. Nothing was sent. It reads as
 /// one message: each fault's text, in their order, joined by `"; "`, as
 /// [`BuildFaults`] reads.

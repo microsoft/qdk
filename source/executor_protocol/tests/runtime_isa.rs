@@ -15,7 +15,7 @@
 //! (`Adapter`, `Apply`), checked against the device when the chain is
 //! composed ([`compose`]), every fault at once, and built there once
 //! (`Adapter::build`); the device runs calls by opcode (`OpcodeTable`);
-//! and a driver numbering the logical instructions its own way is composed
+//! and a program numbering the logical instructions its own way is composed
 //! with the code, each of its batches copied into the code's numbering.
 //!
 //! Read `runtime_isa/repetition3.rs` (the code, as data),
@@ -35,11 +35,11 @@ mod toy;
 use std::sync::{Arc, Mutex};
 
 use executor_protocol::{
-    Action, BuildError, BuildFaults, Capabilities, Close, Describe, Drive, ErrorKind, Executor,
-    ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionMismatch, InstructionSet, JobFaults, Need, Needs, Operand, OperandKind, Outcome,
-    Pauli, Rejected, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose, conformance,
-    interpreter, wait,
+    Action, AdaptiveProgram, BuildError, BuildFaults, Capabilities, Close, Describe, ErrorKind,
+    Executor, ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef,
+    InstructionCall, InstructionMismatch, InstructionSet, JobFaults, Need, Needs, Operand,
+    OperandKind, Outcome, Pauli, Rejected, ShotId, ShotOutcome, ShotSet, Value, adapter_fn,
+    compose, conformance, driver, wait,
 };
 
 use code::{Code, CodeFault, Encoding, GadgetCall, Slot};
@@ -464,7 +464,7 @@ fn the_code_describes_the_logical_set() {
 /// by name in the set it states as its needs.
 struct PrepareFlipAndRead(Arc<InstructionSet>);
 
-impl Drive for PrepareFlipAndRead {
+impl AdaptiveProgram for PrepareFlipAndRead {
     type Instruction = InstructionCall;
     type Output = Vec<Value>;
 
@@ -497,7 +497,7 @@ impl Drive for PrepareFlipAndRead {
 fn a_program_is_taken_only_by_a_code_that_has_the_instructions_it_needs() {
     let composes = |program: InstructionSet| {
         let program = PrepareFlipAndRead(Arc::new(program));
-        let chain = compose(interpreter(), composed(8)).expect("nothing between to refuse");
+        let chain = compose(driver(), composed(8)).expect("nothing between to refuse");
         chain.run(program, ShotSet::one(0))
     };
     let program = InstructionSet::new("program")
@@ -533,7 +533,7 @@ impl PrepareAndRead {
     }
 }
 
-impl Drive for PrepareAndRead {
+impl AdaptiveProgram for PrepareAndRead {
     type Instruction = InstructionCall;
     type Output = Vec<ShotOutcome>;
 
@@ -594,7 +594,7 @@ fn without_a_reset() -> Code {
 #[test]
 fn a_program_resetting_upstream_of_a_code_without_a_reset_is_refused_when_given_to_the_chain() {
     let run = |code| {
-        let chain = compose(interpreter(), Encoding::new(code));
+        let chain = compose(driver(), Encoding::new(code));
         let chain = compose(chain, device(8)).expect("the code runs on the device");
         chain.run(PrepareAndRead::new(), ShotSet::one(0))
     };
@@ -619,36 +619,36 @@ fn a_program_resetting_upstream_of_a_code_without_a_reset_is_refused_when_given_
     );
 }
 
-/// A driver whose set declares the logical instructions in another order
+/// A program whose set declares the logical instructions in another order
 /// runs on a chain of the code, and each of its batches is copied into the
 /// code's numbering: its `prepare_z`, `x` and `m` run as such, though at
 /// the opcodes of the code's `m`, `prepare_z` and `x`.
 #[test]
-fn a_driver_in_another_order_runs_its_own_instructions_on_the_code() {
-    let driver = InstructionSet::new("driver")
+fn a_program_in_another_order_runs_its_own_instructions_on_the_code() {
+    let program_set = InstructionSet::new("program")
         .with_action("__quantum__qis__x__body", [Block], pauli(Pauli::x(0)))
         .with_action("__quantum__qis__m__body", [Block, Tag], measure())
         .with_action("prepare_z", [Block], reset());
-    let program = PrepareFlipAndRead(Arc::new(driver));
-    let run = compose(interpreter(), composed(8))
+    let program = PrepareFlipAndRead(Arc::new(program_set));
+    let run = compose(driver(), composed(8))
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
-        .expect("the code has the driver's set");
+        .expect("the code has the program's set");
     let (output, _) = run.wait();
     assert_eq!(output, [Value::One]);
 }
 
-/// A driver that cannot afford a copy of each batch builds its calls by
+/// A program that cannot afford a copy of each batch builds its calls by
 /// name with the set the code describes, which it states as its needs:
-/// they are in the code's numbering, and run as the driver means them.
+/// they are in the code's numbering, and run as the program means them.
 #[test]
-fn a_driver_builds_its_calls_by_name_with_the_codes_set() {
+fn a_program_builds_its_calls_by_name_with_the_codes_set() {
     let code = composed(8);
     let set = code
         .capabilities()
         .instruction_set
         .expect("the code describes the logical set");
-    let run = compose(interpreter(), code)
+    let run = compose(driver(), code)
         .expect("nothing between to refuse")
         .run(PrepareFlipAndRead(set), ShotSet::one(0))
         .expect("the code accepts its own set");
@@ -660,7 +660,7 @@ fn a_driver_builds_its_calls_by_name_with_the_codes_set() {
 /// of a described set on the executor it drives.
 struct CallsOutside(Arc<InstructionSet>);
 
-impl Drive for CallsOutside {
+impl AdaptiveProgram for CallsOutside {
     type Instruction = InstructionCall;
     type Output = ();
 
@@ -684,20 +684,21 @@ impl Drive for CallsOutside {
     }
 }
 
-/// The code, driven in a driver's numbering, refuses a call at an opcode
-/// the driver's set lacks, though the logical set has an instruction there
-/// that takes the same operands (its `x`, at the opcode after the driver's
-/// only one): a batch is checked against the driver's set before it is
+/// The code, driven in a program's numbering, refuses a call at an opcode
+/// the program's set lacks, though the logical set has an instruction there
+/// that takes the same operands (its `x`, at the opcode after the program's
+/// only one): a batch is checked against the program's set before it is
 /// copied into the code's numbering.
 #[test]
-fn the_code_in_a_drivers_numbering_refuses_calls_outside_the_drivers_set() {
-    let driver = InstructionSet::new("driver");
-    let driver = driver.with_action("__quantum__qis__x__body", [Block], pauli(Pauli::x(0)));
-    let program = CallsOutside(Arc::new(driver));
-    compose(interpreter(), composed(8))
+fn the_code_in_a_programs_numbering_refuses_calls_outside_the_programs_set() {
+    let program_set = InstructionSet::new("program");
+    let program_set =
+        program_set.with_action("__quantum__qis__x__body", [Block], pauli(Pauli::x(0)));
+    let program = CallsOutside(Arc::new(program_set));
+    compose(driver(), composed(8))
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
-        .expect("the code has the driver's instructions")
+        .expect("the code has the program's instructions")
         .wait();
 }
 

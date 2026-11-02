@@ -40,9 +40,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use executor_protocol::{
-    Close, Describe, Drive, ErrorKind, Executor, ExecutorReport, Instruction, InstructionBatch,
-    InstructionBatchRef, InstructionCall, InstructionSet, Needs, Operand, OperandKind, Rejected,
-    ShotOutcome, ShotSet, Value, compose, conformance, interpreter, wait,
+    AdaptiveProgram, Close, Describe, ErrorKind, Executor, ExecutorReport, Instruction,
+    InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, Needs, Operand,
+    OperandKind, Rejected, ShotOutcome, ShotSet, Value, compose, conformance, driver, wait,
 };
 
 use backend::{Bits, ExistingInterface, FixedReply, NAMES, Reading};
@@ -129,7 +129,7 @@ struct Program<I> {
     needs: Needs,
 }
 
-impl<I: Instruction> Drive for Program<I> {
+impl<I: Instruction> AdaptiveProgram for Program<I> {
     type Instruction = I;
     type Output = Vec<ShotOutcome>;
 
@@ -168,7 +168,7 @@ fn profile(
         batches: program,
         needs,
     };
-    let run = compose(interpreter(), toy_profiler(seed))
+    let run = compose(driver(), toy_profiler(seed))
         .expect("nothing between to refuse")
         .run(program, shots)
         .expect("the profiler meets the needs the tests' programs state");
@@ -301,7 +301,7 @@ fn a_program_runs_its_calls_on_the_bridge() {
         ]],
         needs: Needs::default().with_instruction_set(Some(set)),
     };
-    let run = compose(interpreter(), bridge)
+    let run = compose(driver(), bridge)
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
         .expect("the bridge describes the set the program's calls are of");
@@ -325,7 +325,7 @@ fn a_program_that_continues_its_shot_from_one_batch_to_the_next_runs_on_the_brid
             .with_instruction_set(Some(set))
             .with_resumable_shots(true),
     };
-    let run = compose(interpreter(), bridge)
+    let run = compose(driver(), bridge)
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
         .expect("the bridge keeps its shot from one call to the next");

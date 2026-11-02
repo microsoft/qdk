@@ -51,11 +51,11 @@ use std::task::Waker;
 use std::time::Instant;
 
 use executor_protocol::{
-    Action, Adapter, AdapterBoundary, AdapterError, Apply, Below, BelowHandle, Capabilities, Close,
-    Describe, Drive, Executor, ImmediateReply, InstructionBatch, InstructionBatchRef,
+    Action, Adapter, AdapterBoundary, AdapterError, AdaptiveProgram, Apply, Below, BelowHandle,
+    Capabilities, Close, Describe, Executor, ImmediateReply, InstructionBatch, InstructionBatchRef,
     InstructionCall, InstructionSet, Needs, OnePerShot, Opcode, OpcodeMap, OpcodeTable, Operand,
     OperandKind, Outcomes, Pauli, ProgramInput, Rejected, Reply, ShotContext, ShotId, ShotOutcome,
-    ShotSet, adapter_fn, compose, interpreter, owning_adapter_fn, wait,
+    ShotSet, adapter_fn, compose, driver, owning_adapter_fn, wait,
 };
 
 /// The calls of each batch.
@@ -469,13 +469,17 @@ fn per_call(mut batch: impl FnMut()) -> f64 {
 /// dispatching it on the toy.
 fn representations() {
     let toy = toy_set();
-    let driver = reversed(&toy);
+    let program_set = reversed(&toy);
     let ops: Vec<Op> = (0..CALLS).map(op_at).collect();
     let opcodes: Vec<Opcode> = ops
         .iter()
-        .map(|op| driver.opcode(op.parts().0).expect("the driver has each"))
+        .map(|op| {
+            program_set
+                .opcode(op.parts().0)
+                .expect("the program's set has each")
+        })
         .collect();
-    let map = driver.opcodes_in(&toy).expect("the same instructions");
+    let map = program_set.opcodes_in(&toy).expect("the same instructions");
     let kinds: Vec<Vec<OperandKind>> = toy
         .mnemonics()
         .map(|m| toy.operands(m).expect("its own mnemonic").to_vec())
@@ -620,11 +624,13 @@ fn check<C: Call>(kinds: &[Vec<OperandKind>], batch: &[C]) -> bool {
 }
 
 /// `batch` with each opcode replaced by its match in `map`, into `kept`,
-/// whose calls' memory is reused, as the executor a driver of another
+/// whose calls' memory is reused, as the executor a program of another
 /// numbering is given ([`compose`]) does.
 fn renumber<C: Call + Clone>(batch: &[C], map: &OpcodeMap, kept: &mut Vec<C>) {
     for (at, call) in batch.iter().enumerate() {
-        let opcode = map.get(call.opcode()).expect("each opcode is the driver's");
+        let opcode = map
+            .get(call.opcode())
+            .expect("each opcode is the program's");
         match kept.get_mut(at) {
             Some(slot) => slot.renumber_from(call, opcode),
             None => kept.push(C::new(opcode, call.operands())),
@@ -645,7 +651,7 @@ fn dispatch<C: Call>(
     }
 }
 
-/// The toy's instructions declared in the reverse order: a driver's set
+/// The toy's instructions declared in the reverse order: a program's set
 /// that numbers them otherwise.
 fn reversed(set: &InstructionSet) -> InstructionSet {
     let mnemonics: Vec<&str> = set.mnemonics().collect();
@@ -750,7 +756,7 @@ fn replies() {
 /// call.
 fn renumbering() {
     let toy = toy_set();
-    let driver = reversed(&toy);
+    let program_set = reversed(&toy);
     let shots = ShotSet::one(1);
     let ops: Vec<Op> = (0..CALLS).map(op_at).collect();
     let calls_of = |set: &InstructionSet| -> Vec<InstructionCall> {
@@ -762,24 +768,24 @@ fn renumbering() {
             })
             .collect()
     };
-    let (in_toy, in_driver) = (calls_of(&toy), calls_of(&driver));
+    let (in_toy, in_program) = (calls_of(&toy), calls_of(&program_set));
     let bare = |size| Timed::new(&in_toy, size, None).on(&mut toy_executor(), &shots);
     let ran = |calls, set: &InstructionSet, size| {
         let program = Timed::new(calls, size, Some(set));
-        let chain = compose(interpreter(), toy_executor()).expect("nothing between to refuse");
+        let chain = compose(driver(), toy_executor()).expect("nothing between to refuse");
         let run = chain.run(program, shots.clone());
-        run.expect("the toy accepts the driver's set").wait().0
+        run.expect("the toy accepts the program's set").wait().0
     };
     let expected = bare(CALLS as usize).0;
 
     println!(
         "{:>16} {:>8} {:>8} {:>8} {:>12} {:>12}",
-        "driver", "bare", "same", "copied", "same / bare", "copy / bare"
+        "program", "bare", "same", "copied", "same / bare", "copy / bare"
     );
     for size in [CALLS as usize, 1] {
         let variants: [&dyn Fn() -> (Vec<ShotOutcome>, f64); 3] =
             [&|| bare(size), &|| ran(&in_toy, &toy, size), &|| {
-                ran(&in_driver, &driver, size)
+                ran(&in_program, &program_set, size)
             }];
         // The three in turn, three times, so that a disturbance of the
         // machine slows a round of each rather than one of them.
@@ -801,7 +807,7 @@ fn renumbering() {
     }
 }
 
-/// A driver's program that times its calls: it sends `calls` once, whole,
+/// An adaptive program that times its calls: it sends `calls` once, whole,
 /// which makes the executor's shot, then times them in batches of `size`
 /// ([`per_call`]); it gives the first batch's outcomes and the time. It
 /// states the set its calls are of, if any, in its needs.
@@ -832,7 +838,7 @@ impl<'a> Timed<'a> {
     }
 }
 
-impl Drive for Timed<'_> {
+impl AdaptiveProgram for Timed<'_> {
     type Instruction = InstructionCall;
     type Output = (Vec<ShotOutcome>, f64);
 
@@ -860,7 +866,7 @@ impl Drive for Timed<'_> {
 /// it is. In ns per call.
 fn composition() {
     let toy = toy_set();
-    let driver = Arc::new(reversed(&toy));
+    let program_set = Arc::new(reversed(&toy));
     let shots = ShotSet::one(1);
     let ops: Vec<Op> = (0..CALLS).map(op_at).collect();
     let calls_of = |set: &InstructionSet| -> Vec<InstructionCall> {
@@ -872,18 +878,18 @@ fn composition() {
             })
             .collect()
     };
-    let (in_toy, in_driver) = (calls_of(&toy), calls_of(&driver));
+    let (in_toy, in_program) = (calls_of(&toy), calls_of(&program_set));
     let mut by_hand = compose(Passing, toy_executor()).expect("it sends what it gets");
     let mut by_fn =
         compose(adapter_fn(|_| Ok(()), pass), toy_executor()).expect("it sends what it gets");
     let mut copied =
-        compose(Sending(driver), toy_executor()).expect("the toy accepts the reversed set");
+        compose(Sending(program_set), toy_executor()).expect("the toy accepts the reversed set");
     let mut bare = toy_executor();
 
     let expected = shot_outcomes(&mut bare, &shots, &in_toy);
     assert_eq!(shot_outcomes(&mut by_hand, &shots, &in_toy), expected);
     assert_eq!(shot_outcomes(&mut by_fn, &shots, &in_toy), expected);
-    assert_eq!(shot_outcomes(&mut copied, &shots, &in_driver), expected);
+    assert_eq!(shot_outcomes(&mut copied, &shots, &in_program), expected);
 
     println!(
         "{:>16} {:>8} {:>9} {:>10} {:>8} {:>16} {:>12}",
@@ -894,7 +900,7 @@ fn composition() {
             (&mut |b| run_batch(&mut bare, &shots, b), &in_toy),
             (&mut |b| run_batch(&mut by_hand, &shots, b), &in_toy),
             (&mut |b| run_batch(&mut by_fn, &shots, b), &in_toy),
-            (&mut |b| run_batch(&mut copied, &shots, b), &in_driver),
+            (&mut |b| run_batch(&mut copied, &shots, b), &in_program),
         ];
         let mut fastest = [f64::INFINITY; 4];
         for _ in 0..3 {

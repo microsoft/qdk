@@ -28,7 +28,7 @@ use crate::backend::{ExistingInterface, NamedInstruction, Reading};
 /// it has none to keep. It promises that, its set and its one state
 /// (`Capabilities::default()` with resumable shots), and no other limit:
 /// an existing backend does not say how many qubits it has, so no qubit
-/// count is checked over it, and a driver that needs more than the backend
+/// count is checked over it, and a program that needs more than the backend
 /// has fails at run time, by the backend's `Err`. Each instruction of `set`
 /// is named once, here, so that a call is translated by its opcode. A
 /// call's tags are not sent: the backend returns its results in the order

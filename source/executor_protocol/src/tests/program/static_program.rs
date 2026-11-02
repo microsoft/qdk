@@ -14,8 +14,8 @@ use crate::{
     Action, Capabilities, Close, Describe, Executor, ExecutorLifecycle, ImmediateReply,
     InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, JobFaults, Need, Needs,
     OnePerShot, Opcode, Operand, OperandKind, Outcome, Outcomes, Pauli, ProgramInput, Rejected,
-    ShotContext, ShotOutcome, StaticProgram, StaticProgramError, Value, compose, executor_fn,
-    interpreter,
+    ShotContext, ShotOutcome, StaticProgram, StaticProgramError, Value, compose, driver,
+    executor_fn,
 };
 
 /// [`flip_and_toss`] as a static program in [`bits_set`]'s numbering,
@@ -35,7 +35,7 @@ fn flip_and_toss_program(qubits: Option<u32>) -> StaticProgram<InstructionCall> 
 /// second, and each shot's bit 0 reads one, as flipped.
 #[test]
 fn a_static_program_gives_every_shots_outcomes_batch_after_batch() {
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let outcomes = chain
         .run(flip_and_toss_program(None), [2, 5, 6, 11])
@@ -72,7 +72,7 @@ fn a_static_program_gives_every_shots_outcomes_batch_after_batch() {
 /// shot.
 #[test]
 fn a_static_program_gives_each_batchs_outcomes_in_the_order_its_reply_delivers_them() {
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let outcomes = chain
         .run(flip_and_toss_program(None), [11, 2, 6])
@@ -96,7 +96,7 @@ fn a_static_program_stops_at_the_first_batch_the_chain_refuses() {
     };
     let seen = Rc::clone(&model.seen);
     let program = StaticProgram::new(Needs::default(), vec![vec![true], vec![false], vec![true]]);
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(model, 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
     let (outcomes, _) = chain.run(program, [4]).expect("a new shot").wait();
     assert_eq!(
@@ -123,7 +123,7 @@ fn a_refusal_at_an_instruction_reads_as_the_programs_check_reads_it() {
         ..TestDoubleModel::default()
     };
     let program = StaticProgram::new(Needs::default(), vec![vec![true], vec![false]]);
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(model, 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
     let (outcomes, _) = chain.run(program, [4]).expect("a new shot").wait();
     assert_eq!(
@@ -142,7 +142,7 @@ fn a_static_program_stops_at_the_first_batch_that_fails() {
         ..TestDoubleModel::default()
     };
     let seen = Rc::clone(&model.seen);
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(model, 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
     let (outcomes, _) = chain
         .run(
@@ -172,7 +172,7 @@ fn a_static_program_stops_at_the_first_batch_that_fails() {
 fn every_batch_of_a_static_program_is_sent_to_every_shot_empty_ones_too() {
     let model = TestDoubleModel::default();
     let seen = Rc::clone(&model.seen);
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(model, 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
     let (outcomes, _) = chain
         .run(
@@ -195,7 +195,7 @@ fn a_static_program_stops_at_a_cancelled_batch_as_failed() {
         cancelling: Some(4),
         ..TestDoubleModel::default()
     };
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(model, 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
     let (outcomes, _) = chain
         .run(
@@ -222,7 +222,7 @@ fn a_static_program_run_awaited_leaves_its_thread_to_other_tasks_while_a_reply_i
             ..TestDoubleModel::default()
         };
         let deferred = Rc::clone(&model.seen);
-        let run = (interpreter() >> TestDoubleExecutor::with_model(model, 7))
+        let run = (driver() >> TestDoubleExecutor::with_model(model, 7))
             .expect("the double takes any batch of `bool`s")
             .run(StaticProgram::new(Needs::default(), vec![vec![true]]), [0])
             .expect("a new shot");
@@ -269,7 +269,7 @@ fn a_call_before_a_static_programs_last_batch_needs_resumable_shots() {
     );
     let executor = StatelessBits::new(7);
     let received = Rc::clone(&executor.received);
-    let chain = compose(interpreter(), executor).expect("the bits run calls by opcode");
+    let chain = compose(driver(), executor).expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
         panic!("a call before the last batch must need resumable shots");
     };
@@ -296,7 +296,7 @@ fn a_call_in_any_batch_before_a_static_programs_last_needs_resumable_shots() {
     );
     let executor = StatelessBits::new(7);
     let received = Rc::clone(&executor.received);
-    let chain = compose(interpreter(), executor).expect("the bits run calls by opcode");
+    let chain = compose(driver(), executor).expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
         panic!("a call in a middle batch must need resumable shots");
     };
@@ -314,7 +314,7 @@ fn a_typed_call_before_a_static_programs_last_batch_needs_resumable_shots() {
         ..TestDoubleModel::default()
     };
     let program = StaticProgram::new(Needs::default(), vec![vec![true], vec![true]]);
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(model, 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
         panic!("a typed call before the last batch must need resumable shots");
@@ -335,8 +335,7 @@ fn a_static_programs_stated_resumable_shots_are_kept() {
             .with_resumable_shots(true),
         vec![vec![call(&set, "x", &[Operand::Block(0)]), read(0, 0)]],
     );
-    let chain =
-        compose(interpreter(), StatelessBits::new(7)).expect("the bits run calls by opcode");
+    let chain = compose(driver(), StatelessBits::new(7)).expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
         panic!("a program that states resumable shots must need them");
     };
@@ -354,7 +353,7 @@ fn a_static_program_of_no_batches_adds_no_need_and_gives_no_outcomes() {
     );
     let executor = StatelessBits::new(7);
     let received = Rc::clone(&executor.received);
-    let chain = compose(interpreter(), executor).expect("the bits run calls by opcode");
+    let chain = compose(driver(), executor).expect("the bits run calls by opcode");
     let (outcomes, _) = chain
         .run(program, [4, 9])
         .expect("a program of no batches needs no resumable shots")
@@ -373,8 +372,7 @@ fn a_static_program_of_one_batch_runs_on_an_executor_without_resumable_shots() {
         Needs::default().with_instruction_set(Some(Arc::new(set.clone()))),
         vec![vec![call(&set, "x", &[Operand::Block(0)]), read(0, 0)]],
     );
-    let chain =
-        compose(interpreter(), StatelessBits::new(7)).expect("the bits run calls by opcode");
+    let chain = compose(driver(), StatelessBits::new(7)).expect("the bits run calls by opcode");
     let outcomes = chain
         .run(program, [4, 9])
         .expect("a program of one batch needs no resumable shots")
@@ -400,8 +398,7 @@ fn empty_batches_before_a_static_programs_last_add_no_need() {
             vec![call(&set, "x", &[Operand::Block(0)]), read(0, 0)],
         ],
     );
-    let chain =
-        compose(interpreter(), StatelessBits::new(7)).expect("the bits run calls by opcode");
+    let chain = compose(driver(), StatelessBits::new(7)).expect("the bits run calls by opcode");
     let outcomes = chain
         .run(program, [4, 9])
         .expect("empty earlier batches continue no shot")
@@ -430,7 +427,7 @@ fn an_empty_last_batch_after_calls_needs_resumable_shots() {
     );
     let executor = StatelessBits::new(7);
     let received = Rc::clone(&executor.received);
-    let chain = compose(interpreter(), executor).expect("the bits run calls by opcode");
+    let chain = compose(driver(), executor).expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
         panic!("an empty batch after calls must need resumable shots");
     };
@@ -448,7 +445,7 @@ fn is_unmet_resumable_shots(faults: &[Rejected]) -> bool {
 /// [`Run`](crate::Run), so nothing of it runs.
 #[test]
 fn a_static_programs_needs_are_checked_when_given_to_a_chain() {
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(flip_and_toss_program(Some(3)), 0..2) else {
         panic!("three qubits on two bits must be refused");
@@ -520,7 +517,7 @@ fn a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_bat
         }
     })
     .shots(OnePerShot);
-    let chain = (interpreter() >> device).expect("the device runs calls by opcode");
+    let chain = (driver() >> device).expect("the device runs calls by opcode");
     let (outcomes, _) = chain
         .run(program, [3])
         .expect("the job states no qubits, so the chain accepts it")
@@ -544,7 +541,7 @@ fn a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_bat
 /// runs.
 #[test]
 fn a_static_program_by_opcode_that_states_no_set_is_refused() {
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let program = StaticProgram::new(Needs::default(), flip_and_toss(&bits_set()));
     let Err(JobFaults(faults)) = chain.run(program, 0..2) else {
@@ -567,7 +564,7 @@ fn a_static_program_by_opcode_that_states_no_set_is_refused() {
 fn a_static_program_by_opcode_of_no_batches_that_states_no_set_is_refused() {
     let executor = StatelessBits::new(7);
     let received = Rc::clone(&executor.received);
-    let chain = compose(interpreter(), executor).expect("the bits run calls by opcode");
+    let chain = compose(driver(), executor).expect("the bits run calls by opcode");
     let program = StaticProgram::new(Needs::default(), Vec::<Vec<InstructionCall>>::new());
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
         panic!("calls by opcode in no stated set must be refused");
@@ -619,7 +616,7 @@ fn is_a_call_fault_at(fault: &Rejected, batch: usize, at: usize) -> bool {
 /// refused job gives no [`Run`](crate::Run), so nothing of it runs.
 #[test]
 fn a_call_outside_the_programs_set_is_refused() {
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(with_calls_outside_its_set(None, &[(1, 2)]), 0..2)
     else {
@@ -642,7 +639,7 @@ fn a_call_outside_the_programs_set_is_refused() {
 /// fixed in one go.
 #[test]
 fn every_call_outside_a_static_programs_set_is_reported() {
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let program = with_calls_outside_its_set(None, &[(0, 1), (0, 3), (1, 0)]);
     let Err(JobFaults(faults)) = chain.run(program, 0..2) else {
@@ -661,7 +658,7 @@ fn every_call_outside_a_static_programs_set_is_reported() {
 /// both are fixed in one go.
 #[test]
 fn a_programs_call_faults_are_reported_with_its_unmet_needs() {
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let program = with_calls_outside_its_set(Some(3), &[(1, 2)]);
     let Err(JobFaults(faults)) = chain.run(program, 0..2) else {
@@ -703,7 +700,7 @@ fn flip_and_toss_edited(
 /// The faults of `program` given to a chain on the bits, which offer
 /// `set`.
 fn faults_on(set: InstructionSet, program: StaticProgram<InstructionCall>) -> Vec<Rejected> {
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(BitsOffering(set), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(BitsOffering(set), 7))
         .expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(program, [2, 5]) else {
         panic!("the program must be refused");
@@ -958,7 +955,7 @@ fn a_call_that_reads_one_tag_twice_is_refused_as_its_own_repeat() {
 /// read one, as flipped.
 #[test]
 fn a_static_program_whose_tags_are_unique_runs() {
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let outcomes = chain
         .run(flip_and_toss_program(None), [2, 5])

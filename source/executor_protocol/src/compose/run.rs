@@ -11,15 +11,16 @@ use std::pin::Pin;
 use crate::reply::block_on;
 use crate::shot::ShotIndex;
 use crate::{
-    Close, Drive, Executor, Instruction, InstructionBatch, InstructionBatchRef, Rejected, ShotSet,
+    AdaptiveProgram, Close, Executor, Instruction, InstructionBatch, InstructionBatchRef, Rejected,
+    ShotSet,
 };
 
-/// The executor a driver of `P` calls once its job is given to a chain of
-/// `E`: `E`, as the driver's calls reach it ([`Instruction::Downstream`]).
-type Called<P, E> = <<P as Drive>::Instruction as Instruction>::Downstream<E>;
+/// The executor a program `P` calls once its job is given to a chain of
+/// `E`: `E`, as the program's calls reach it ([`Instruction::Downstream`]).
+type Called<P, E> = <<P as AdaptiveProgram>::Instruction as Instruction>::Downstream<E>;
 
-/// A chain's job ([`Chain::run`](crate::Chain::run), whose driver is the
-/// program as the interpreter drives it): what runs when it is waited for
+/// A chain's job ([`Chain::run`](crate::Chain::run)), its program as the
+/// chain's driver drives it: what runs when it is waited for
 /// ([`Run::wait`]) or awaited. Until then, nothing runs.
 ///
 /// Known limit, an open question: a run whose future is dropped before its
@@ -32,12 +33,13 @@ type Called<P, E> = <<P as Drive>::Instruction as Instruction>::Downstream<E>;
 ///
 /// # Type parameters
 ///
-/// - `P`: the program that drives the run ([`Drive`]): the job's program
-///   as the interpreter drives it ([`Interpreted`](crate::Interpreted)).
+/// - `P`: the program that drives the run ([`AdaptiveProgram`]): the job's
+///   program as the chain's driver drives it
+///   ([`DrivenProgram`](crate::DrivenProgram)).
 /// - `E`: the chain's executor, adapters included, which the run closes
 ///   once the program's future has ended.
 #[must_use = "a run runs nothing until it is waited for or awaited"]
-pub struct Run<P: Drive, E: Executor<InstructionBatch<P::Instruction>> + Close> {
+pub struct Run<P: AdaptiveProgram, E: Executor<InstructionBatch<P::Instruction>> + Close> {
     program: P,
     shots: ShotSet,
     /// The executor, as the driver's calls reach it, decided when the job
@@ -45,7 +47,7 @@ pub struct Run<P: Drive, E: Executor<InstructionBatch<P::Instruction>> + Close> 
     executor: Called<P, E>,
 }
 
-impl<P: Drive, E: Executor<InstructionBatch<P::Instruction>> + Close> Run<P, E> {
+impl<P: AdaptiveProgram, E: Executor<InstructionBatch<P::Instruction>> + Close> Run<P, E> {
     /// `program`, to run `shots` on `executor`, which meets its needs.
     pub(crate) fn new(program: P, shots: ShotSet, executor: Called<P, E>) -> Self {
         Self {
@@ -138,7 +140,7 @@ impl<I, E: Executor<InstructionBatch<I>>> Executor<InstructionBatch<I>> for Held
 // on `Run`, or a close on drop, which would run on unwinding too).
 impl<P, E> IntoFuture for Run<P, E>
 where
-    P: Drive + 'static,
+    P: AdaptiveProgram + 'static,
     E: Executor<InstructionBatch<P::Instruction>> + Close + 'static,
 {
     type Output = (P::Output, E::Report);

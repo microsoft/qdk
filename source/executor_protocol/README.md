@@ -8,20 +8,21 @@ error-correcting code that lowers logical instructions to physical ones, a probe
 that counts resources. Without a shared contract, each such chain needs its own
 glue, and each decides anew how shots draw their randomness, how a failure is
 reported and how a caller waits. This crate is that contract. A chain has a
-**driver** at the top, which runs the program and makes the calls for the
-shots of the job, and an **executor** at the end, which runs the
-instructions: a simulator, or (planned) a quantum device behind its service.
-Called with a message, an executor answers with a reply. Each component in
-between is an **adapter**: given the executor downstream of it, it gives an
-executor upstream of it, with the same contract. So every link of a running
-chain is the same call and reply. Composition works the same at every link:
-a driver with adapters below it is a driver, adapters composed are an
-adapter, and an adapter with the executor below it is an executor, so a
-chain can be built in parts and grouped any way, with the same run
-(composition is associative). Chains are composed from parts, checked
-before they run, and driven the same way by any caller: one that blocks, one
-that polls between its own work, or async tasks, in the same process or,
-through the planned lower layers, across a network.
+**driver** at the top, which runs any program given to the chain and makes
+the calls for the shots of the job, and an **executor** at the end, which
+runs the instructions: a simulator, or (planned) a quantum device behind its
+service. Called with a message, an executor answers with a reply. Each
+component in between is an **adapter**: given the executor downstream of it,
+it gives an executor upstream of it, with the same contract. So every link of a
+running chain is the same call and reply. Composition works the same at every
+link: a driver with adapters below it is still the chain's head, which composes
+the same way (planned: that it is itself a driver), adapters composed are an
+adapter, and an adapter with the executor below it is an executor, so a chain
+can be built in parts and grouped any way, with the same run (composition is
+associative). Chains are composed from parts, checked before they run, and
+driven the same way by any caller: one that blocks, one that polls between its
+own work, or async tasks, in the same process or, through the planned lower
+layers, across a network.
 
 The executors themselves live in other crates. This one holds the contract,
 and currently offers facilities for: making an executor or an adapter from an
@@ -99,7 +100,7 @@ and the fourth gives it the job and waits for the run.
 A chain's parts, and its run (the [Glossary](docs/glossary.md) defines
 these terms and the others of these pages):
 
-- A **driver** heads the chain: `interpreter()`
+- A **driver** heads the chain: `driver()`
   [runs the programs given to the chain](docs/composition.md#a-chain-and-its-job),
   a static program's batches each sent to every shot of the job, in order.
 - An **executor**: `call`, with an `InstructionBatch`, instructions to run
@@ -123,13 +124,13 @@ options that set its [axes](docs/glossary.md#a-parts-axes).
 
 In this example, from the [observer guide tests](tests/observers.rs), a
 profiler and a debugger, each written with
-`adapter_fn`, sit between the interpreter and a toy simulator of classical
+`adapter_fn`, sit between the driver and a toy simulator of classical
 bits and seeded coins; the job runs a two-batch program on shots 2, 5, 6
 and 11:
 
 ```rust
 let log = DebugLog::default();
-let chain = interpreter() >> profiler() >> debugger(log.clone()) >> simulator();
+let chain = driver() >> profiler() >> debugger(log.clone()) >> simulator();
 let chain = chain.expect("the observers fit");
 let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
 outcomes.expect("the stacked run succeeds");
@@ -140,13 +141,13 @@ The chain, from the program down to the simulator:
 
 ```mermaid
 flowchart LR
-  P["program()<br/>two batches"] --> I["interpreter()<br/>runs the program"]
+  P["program()<br/>two batches"] --> I["driver()<br/>runs the program"]
   I --> F["profiler()<br/>counts instructions"]
   F --> D["debugger(log)<br/>logs each shot's calls"]
   D --> S["simulator()<br/>a state per shot"]
 ```
 
-The interpreter
+The driver
 [sends each batch in turn](docs/composition.md#a-chain-and-its-job), as one
 call on the four shots. The
 [profiler](docs/guides.md#observers-a-profiler-and-a-debugger) counts each
@@ -163,7 +164,7 @@ and when, within a call, the readouts pass up:
 sequenceDiagram
   participant T as the test
   participant R as Run
-  participant I as interpreter()
+  participant I as driver()
   participant P as profiler()
   participant D as debugger(log)
   participant S as simulator()
@@ -206,9 +207,9 @@ What to write, by task, and where it is explained:
 
 | To                                                                                      | Write                                                                          | Section                                                                                                                                                                                |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| run a program                                                                           | `interpreter() >> … >> executor`, `chain.run(program, shots)`                  | [Running a chain](#running-a-chain)                                                                                                                                                    |
-| run a program that decides as it runs                                                   | a driver: `Drive`, given to `chain.run(program, shots)`                        | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
-| run another form of program (a circuit, QIR)                                            | an interpreter: `Interpret<P>`, `InterpreterDriver::new`                       | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
+| run a program                                                                           | `driver() >> … >> executor`, `chain.run(program, shots)`                       | [Running a chain](#running-a-chain)                                                                                                                                                    |
+| run a program that decides as it runs                                                   | an adaptive program: `AdaptiveProgram`, given to `chain.run(program, shots)`   | [Writing an adaptive program](#writing-an-adaptive-program)                                                                                                                            |
+| run your own runtime or interpreter (QIR, a circuit form)                               | a driver: `Driver<P>`, `ChainHead::new`                                        | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
 | plug in a device, or a simulator with a state per shot                                  | an executor: `executor_fn`                                                     | [Writing an executor](#writing-an-executor)                                                                                                                                            |
 | plug in a simulator whose shots share one state (an ensemble, such as an MPS simulator) | an executor written by hand, on `ExecutorLifecycle`                            | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)                                                                                         |
 | plug in a backend written before the protocol                                           | an executor around it, a bridge, with `executor_fn`                            | [Running an existing backend](docs/guides.md#running-an-existing-backend)                                                                                                              |
@@ -232,7 +233,7 @@ together (`BuildFaults`), and `chain.run` a `Run`, or every fault of the
 job (`JobFaults`), both
 [before any call](docs/composition.md#what-is-checked-and-when); a chain
 runs one job ([A chain and its job](docs/composition.md#a-chain-and-its-job)).
-`interpreter()` runs a `StaticProgram`: what the program needs of the chain
+`driver()` runs a `StaticProgram`: what the program needs of the chain
 (`Needs`), and its batches
 ([`tests/observers.rs`](tests/observers.rs)):
 
@@ -245,11 +246,11 @@ fn program_of(batches: Vec<Vec<InstructionCall>>) -> StaticProgram<InstructionCa
 }
 ```
 
-### Writing a driver
+### Writing an adaptive program
 
-A program that drives itself, its next batch depending on what the last one
-read, implements `Drive`: what it needs, and `drive`, which calls the executor
-it is given, each call on a part of the shots
+A program that decides as it runs, its next batch depending on what the
+last one read, implements `AdaptiveProgram`: what it needs, and `drive`,
+which calls the executor it is given, each call on a part of the shots
 ([the interfaces](#the-interfaces-for-a-part-written-by-hand)). This one
 tosses a coin on every shot, then again on the shots whose coin showed 1
 ([`tests/per_shot_executor.rs`](tests/per_shot_executor.rs)):
@@ -257,7 +258,7 @@ tosses a coin on every shot, then again on the shots whose coin showed 1
 ```rust
 struct TossAgainOnOne;
 
-impl Drive for TossAgainOnOne {
+impl AdaptiveProgram for TossAgainOnOne {
     type Instruction = Op;
     type Output = Vec<ShotOutcome>;
 
@@ -297,23 +298,39 @@ impl Drive for TossAgainOnOne {
 }
 ```
 
-Given to `chain.run`, it runs as any job: the chain's `interpreter()` lets
+Given to `chain.run`, it runs as any job: the chain's `driver()` lets
 it drive:
 
 ```rust
 let shots = ShotSet::range(0..=7).expect("not empty");
 let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-let (outcomes, _) = (interpreter() >> executor)
+let (outcomes, _) = (driver() >> executor)
     .expect("nothing between to refuse")
     .run(TossAgainOnOne, shots)
     .expect("the executor has resumable shots, log probability, 8 shots")
     .wait();
 ```
 
-An interpreter of another form of program (a circuit, a QIR program)
-implements `Interpret<P>`: `Drive`'s items, each given the program, and a
-`check` of what it can find before any call. It heads a chain as
-`InterpreterDriver::new(interpreter)`.
+### Writing a driver
+
+A runtime that executes a program's control logic, such as a QIR runtime
+or an interpreter of a circuit form, is a driver: it implements
+`Driver<P>` for its form of program `P`
+([the interfaces](#the-interfaces-for-a-part-written-by-hand)). It states
+what a program needs (`needs`) and the faults it finds in it before any
+call (`check`), and in `drive` it runs the program, making its calls on
+the one executor it is given: the adapters and the executor below look
+to it like that single executor. The driver is written once and runs any
+program of its form; a chain runs one job (running many jobs on one chain
+is [planned](docs/planned.md)).
+
+The caller's entry point is the chain:
+`ChainHead::new(runtime) >> adapters >> executor`, then
+`chain.run(program, shots)`. The crate's driver, `DefaultDriver`, runs
+static and adaptive programs, and `driver()` is
+`ChainHead::new(DefaultDriver)`. A driver with adapters below it is still
+a `ChainHead`, which composes the same way, but not yet a `Driver<P>`
+itself ([planned](docs/planned.md)).
 
 ### Writing an executor
 
@@ -499,15 +516,15 @@ conformance::accepts_calls_after_a_refusal::<InstructionBatch<Op>, _>(
 
 ### The interfaces, for a part written by hand
 
-These traits, and the data they exchange: a facility implements the traits
-for the parts it makes, a part written by hand implements them itself, a
-program that drives itself implements `Drive`, and an interpreter
-`Interpret<P>`. Condensed from `src/`: doc comments and attributes trimmed
-but for `#[non_exhaustive]`, a default's body shown as `{ ... }`, short
+These traits, and the data they exchange: a facility implements the traits for
+the parts it makes, a part written by hand implements them itself, a program
+that decides as it runs implements `AdaptiveProgram`, and a driver of programs
+of form `P`, `Driver<P>`. Condensed from `src/`: doc comments and attributes
+trimmed but for `#[non_exhaustive]`, a default's body shown as `{ ... }`, short
 items on one line:
 
 ```rust
-pub trait Drive {
+pub trait AdaptiveProgram {
     type Instruction: Instruction;
     type Output;
     fn needs(&self) -> Needs { ... }
@@ -515,12 +532,12 @@ pub trait Drive {
     where
         E: Executor<InstructionBatch<Self::Instruction>>;
 }
-pub trait Interpret<P> {
+pub trait Driver<P> {
     type Instruction: Instruction;
     type Output;
     fn needs(&self, program: &P) -> Needs { ... }
     fn check(&self, program: &P) -> Vec<Rejected> { ... }
-    fn interpret<E>(
+    fn drive<E>(
         &self,
         program: P,
         executor: &mut E,

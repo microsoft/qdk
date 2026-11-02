@@ -26,7 +26,7 @@ use crate::tests::{
 use crate::tests::{PanicsOnClose, map_executor};
 use crate::{
     Adapter, AdapterBoundary, AdapterSeeds, Apply, BuildError, Capabilities, Close, ComponentId,
-    Describe, Driver, Executor, ExecutorReport, ImmediateReply, InstructionBatch,
+    ComposedJob, Describe, Executor, ExecutorReport, ImmediateReply, InstructionBatch,
     InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, OnePerShot, Opcode,
     Operand, OperandKind, Rejected, Reply, ReplyStatus, RngIds, ShotContext, ShotId, ShotOutcome,
     ShotSet, TypedInstruction, Value, compose, conformance, executor_fn, shot_seed, wait,
@@ -321,12 +321,12 @@ impl<E: Close> Close for CountedInstructions<E> {
 fn a_run_reports_what_the_executor_of_an_adapter_written_by_hand_reports() {
     let program = || Program::flip_and_toss(bits_set());
     let instructions: usize = flip_and_toss(&bits_set()).iter().map(Vec::len).sum();
-    let driver = || Driver::new(program(), shots(&[0, 3]));
+    let job = || ComposedJob::new(program(), shots(&[0, 3]));
     let doubles = || TestDoubleExecutor::with_model(Bits::default(), 7);
-    let (_, alone) = (driver() >> doubles())
+    let (_, alone) = (job() >> doubles())
         .expect("the bits run the program")
         .wait();
-    let (_, (counted, below)) = (driver() >> CountInstructions >> doubles())
+    let (_, (counted, below)) = (job() >> CountInstructions >> doubles())
         .expect("it passes what the bits run")
         .wait();
     assert_eq!(counted, instructions as u64);
@@ -762,13 +762,13 @@ fn a_refusal_downstream_for_the_calls_fault_leaves_an_adapter_open() {
 /// without the adapter.
 #[test]
 fn the_executor_downstream_of_an_adapter_counts_the_calls_made_without_it() {
-    let driver = || Driver::new(Program::flip_and_toss(bits_set()), shots(&[0, 3]));
+    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 3]));
     let doubles = || TestDoubleExecutor::with_model(Bits::default(), 7);
-    let (_, alone) = (driver() >> doubles())
+    let (_, alone) = (job() >> doubles())
         .expect("the bits run the program")
         .wait();
     let passing = map_executor::<InstructionCall, _>(|below| below);
-    let (_, through) = (driver() >> passing >> doubles())
+    let (_, through) = (job() >> passing >> doubles())
         .expect("it passes what the bits run")
         .wait();
     assert_eq!(alone.calls, 2, "the program has two batches");
@@ -1058,14 +1058,14 @@ fn an_adapter_written_by_hand_replays_its_draws_from_the_runs_seed() {
     let run_from = |seed: u64, readout_error: bool| {
         let mut program = Program::flip_and_toss(bits_set());
         program.batches = vec![flip_and_read.clone(); 3];
-        let driver = Driver::new(program, shots(&[0, 1, 2, 3, 4, 5, 6, 7]));
+        let job = ComposedJob::new(program, shots(&[0, 1, 2, 3, 4, 5, 6, 7]));
         let bits = TestDoubleExecutor::with_model(Bits::default(), seed);
         let (outcomes, _) = if readout_error {
-            (driver >> ReadoutError::default() >> bits)
+            (job >> ReadoutError::default() >> bits)
                 .expect("the readout error draws with its own id")
                 .wait()
         } else {
-            (driver >> bits).expect("the bits run the program").wait()
+            (job >> bits).expect("the bits run the program").wait()
         };
         values(&outcomes)
     };
@@ -1091,17 +1091,17 @@ fn an_adapter_written_by_hand_draws_otherwise_than_the_last_executor() {
     let run = |readout_error: bool| {
         let mut program = Program::flip_and_toss(bits_set());
         program.batches = vec![toss.clone()];
-        let driver = Driver::new(
+        let job = ComposedJob::new(
             program,
             ShotSet::range(0..=63).expect("the range holds shots"),
         );
         let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
         let (outcomes, _) = if readout_error {
-            (driver >> ReadoutError::default() >> bits)
+            (job >> ReadoutError::default() >> bits)
                 .expect("the readout error draws with its own id")
                 .wait()
         } else {
-            (driver >> bits).expect("the bits run the program").wait()
+            (job >> bits).expect("the bits run the program").wait()
         };
         outcomes
     };
@@ -1114,7 +1114,7 @@ fn an_adapter_written_by_hand_draws_otherwise_than_the_last_executor() {
     assert!((16..=48).contains(&flipped), "{flipped} of 64 flipped");
 }
 
-/// A driver that needs each shot's log probability, upstream of a debugger
+/// A program that needs each shot's log probability, upstream of a debugger
 /// upstream of an executor that states its own: it runs, and each shot's is
 /// the last executor's (a coin, ln ½), passed on by the debugger.
 #[test]
@@ -1126,7 +1126,7 @@ fn a_run_reports_the_last_executors_log_probability_through_its_adapters() {
     let mut program = Program::flip_and_toss(bits_set());
     program.needs = program.needs.with_log_probability(true);
     let log = Log::default();
-    let (_, report) = (Driver::new(program, shots(&[0, 3]))
+    let (_, report) = (ComposedJob::new(program, shots(&[0, 3]))
         >> logger("debugger", &log)
         >> TestDoubleExecutor::with_model(downstream, 7))
     .expect("the chain states log probabilities")
@@ -1137,19 +1137,19 @@ fn a_run_reports_the_last_executors_log_probability_through_its_adapters() {
     }
 }
 
-/// A driver that needs each shot's log probability is refused upstream of a
+/// A program that needs each shot's log probability is refused upstream of a
 /// noise model, an adapter that draws, though the executor downstream of it
 /// states its own: the log probability that executor reports does not hold
 /// the noise model's draws.
 #[test]
-fn a_driver_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws() {
+fn a_program_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws() {
     let downstream = Bits {
         log_probability: true,
         ..Bits::default()
     };
     let mut program = Program::flip_and_toss(bits_set());
     program.needs = program.needs.with_log_probability(true);
-    let refused = (Driver::new(program, shots(&[0]))
+    let refused = (ComposedJob::new(program, shots(&[0]))
         >> Noise::default()
         >> TestDoubleExecutor::with_model(downstream, 7))
     .err();
@@ -1189,12 +1189,12 @@ impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E>
     }
 }
 
-/// A driver that needs each shot's log probability is refused upstream of
+/// A program that needs each shot's log probability is refused upstream of
 /// a noise model that states its offer whole, as what downstream offers,
 /// though the executor downstream states its own: an adapter that draws
 /// offers no log probability, whatever it offers.
 #[test]
-fn a_driver_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws_and_states_its_offer_whole()
+fn a_program_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws_and_states_its_offer_whole()
  {
     let downstream = Bits {
         log_probability: true,
@@ -1202,7 +1202,7 @@ fn a_driver_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws
     };
     let mut program = Program::flip_and_toss(bits_set());
     program.needs = program.needs.with_log_probability(true);
-    let refused = (Driver::new(program, shots(&[0]))
+    let refused = (ComposedJob::new(program, shots(&[0]))
         >> NoiseOffersDownstreamsWhole
         >> TestDoubleExecutor::with_model(downstream, 7))
     .err();
@@ -1213,14 +1213,14 @@ fn a_driver_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws
     assert_eq!(unmet.need, Need::LogProbability);
 }
 
-/// A driver that needs each shot's log probability, upstream of a code
+/// A program that needs each shot's log probability, upstream of a code
 /// that draws nothing and claims `log_probability`, upstream of a noise
-/// model over an executor that states its own: the driver is refused,
+/// model over an executor that states its own: the program is refused,
 /// since an adapter may turn the log probability off but never on, and the
 /// executor's log probability leaves out the noise model's draws.
 #[test]
-fn a_driver_needing_log_probability_is_refused_through_an_adapter_offering_it_above_one_that_draws()
-{
+fn a_program_needing_log_probability_is_refused_through_an_adapter_offering_it_above_one_that_draws()
+ {
     struct ClaimsLogProbability;
     impl Adapter for ClaimsLogProbability {
         type Accepts = InstructionCall;
@@ -1244,7 +1244,7 @@ fn a_driver_needing_log_probability_is_refused_through_an_adapter_offering_it_ab
     };
     let mut program = Program::flip_and_toss(bits_set());
     program.needs = program.needs.with_log_probability(true);
-    let refused = (Driver::new(program, shots(&[0]))
+    let refused = (ComposedJob::new(program, shots(&[0]))
         >> ClaimsLogProbability
         >> Noise::default()
         >> TestDoubleExecutor::with_model(downstream, 7))
@@ -1302,29 +1302,28 @@ fn a_run_through_an_adapter_that_draws_reports_no_log_probability() {
         ..Bits::default()
     };
     let program = Program::flip_and_toss(bits_set());
-    let (_, report) = (Driver::new(program, shots(&[0]))
+    let (_, report) = (ComposedJob::new(program, shots(&[0]))
         >> Noise::default()
         >> TestDoubleExecutor::with_model(downstream, 7))
-    .expect("the driver needs no log probability")
+    .expect("the program needs no log probability")
     .wait();
     assert!(report.log_p.is_empty(), "{:?}", report.log_p);
 }
 
-/// A driver whose program sends two batches on four shots, through a
+/// A job whose program sends two batches on four shots, through a
 /// recorder that passes every call down: the run reports the two calls
-/// that the executor alone reports for the same driver.
+/// that the executor alone reports for the same program.
 #[test]
 fn a_run_through_an_adapter_reports_the_calls_its_executor_alone_reports() {
     let log = Log::default();
-    let driver = || Driver::new(Program::flip_and_toss(bits_set()), shots(&[0, 1, 2, 3]));
-    let (_, alone) = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 1, 2, 3]));
+    let (_, alone) = (job() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run the program")
         .wait();
-    let (_, through) = (driver()
-        >> logger("recorder", &log)
-        >> TestDoubleExecutor::with_model(Bits::default(), 7))
-    .expect("a recorder fits any executor")
-    .wait();
+    let (_, through) =
+        (job() >> logger("recorder", &log) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+            .expect("a recorder fits any executor")
+            .wait();
     assert_eq!(through.calls, alone.calls);
 }
 
@@ -1333,12 +1332,12 @@ fn a_run_through_an_adapter_reports_the_calls_its_executor_alone_reports() {
 /// alone, each shot's draws its own.
 #[test]
 fn a_drawing_adapter_leaves_the_last_executors_draws_as_they_are() {
-    let driver = || Driver::new(Program::flip_and_toss(bits_set()), shots(&[0, 3]));
-    let (alone, _) = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 3]));
+    let (alone, _) = (job() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run the program")
         .wait();
     let (noisy, _) =
-        (driver() >> Noise::default() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        (job() >> Noise::default() >> TestDoubleExecutor::with_model(Bits::default(), 7))
             .expect("the noise model draws with its own id")
             .wait();
     assert_eq!(values(&noisy), values(&alone));
@@ -1474,22 +1473,22 @@ fn an_adapter_upstream_of_a_component_with_no_instruction_set_is_refused_when_bu
     assert_eq!(faults.0[0].error, BuildError::NoInstructionSetDownstream);
 }
 
-/// A driver of calls by opcode that states an empty set, over shots that
+/// A program of calls by opcode that states an empty set, over shots that
 /// describe none: nothing downstream numbers its calls, so the run is
-/// refused, as the driver's need of an instruction set unmet.
+/// refused, as the program's need of an instruction set unmet.
 #[test]
-fn a_driver_stating_an_empty_set_over_shots_describing_none_is_refused_when_composed() {
+fn a_job_stating_an_empty_set_over_shots_describing_none_is_refused_when_composed() {
     let mut program = Program::flip_and_toss(bits_set());
     let empty = InstructionSet::new("empty");
     program.needs = program.needs.with_instruction_set(Some(Arc::new(empty)));
     let unstated = Bits::default().capabilities().with_instruction_set(None);
     let executor = TestDoubleExecutor::with_model(Described(Bits::default(), unstated), 7);
-    let Err(faults) = Driver::new(program, shots(&[0])) >> executor else {
-        panic!("nothing downstream of the driver describes a set");
+    let Err(faults) = ComposedJob::new(program, shots(&[0])) >> executor else {
+        panic!("nothing downstream of the program describes a set");
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
-        panic!("the driver's need is unmet: {faults}");
+        panic!("the program's need is unmet: {faults}");
     };
     assert_eq!((unmet.need, unmet.offered), (Need::InstructionSet, 0));
 }
@@ -1573,11 +1572,11 @@ impl<E: Close> Close for Translated<E> {
     }
 }
 
-/// A driver that flips a bit and reads it in eight shots, in the numbering
+/// A program that flips a bit and reads it in eight shots, in the numbering
 /// of a code that accepts the bits with the flip before the coin, and
 /// states its offer whole from downstream's: every shot reads One, since
 /// the chain offers the set the code accepts, whatever its offer says.
-/// Offering downstream's, the driver's flip would be numbered as the coin
+/// Offering downstream's, the program's flip would be numbered as the coin
 /// there, which the code reads as its coin, and its shots would read
 /// tosses.
 #[test]
@@ -1592,7 +1591,7 @@ fn a_code_stating_its_offer_whole_from_downstreams_offers_the_set_it_accepts() {
     let code = TranslatesOffersDownstreamsWhole {
         accepts: Arc::new(flip_first),
     };
-    let (outcomes, _) = (Driver::new(program, shots(&[0, 1, 2, 3, 4, 5, 6, 7]))
+    let (outcomes, _) = (ComposedJob::new(program, shots(&[0, 1, 2, 3, 4, 5, 6, 7]))
         >> code
         >> TestDoubleExecutor::with_model(Bits::default(), 7))
     .expect("the bits run what the code sends")

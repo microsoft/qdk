@@ -12,11 +12,11 @@ where it runs (`.run_on`), an executor's life, an executor written by hand
 ## Capabilities and needs
 
 A component says what it offers (`Describe::capabilities`), and a job's program
-says what it needs (a `Needs`: a `StaticProgram`'s; `Drive::needs` for a program
-that drives itself; or, for a program of another form, its interpreter's,
-`Interpret::needs`). `compose` builds the chain from the executor upstream; when
-a job is given to the chain, each need of its program is checked against what
-the chain offers, before anything runs:
+says what it needs (a `Needs`: a `StaticProgram`'s; `AdaptiveProgram::needs`
+for an adaptive program; or, for a program of another form, its driver's,
+`Driver::needs`). `compose` builds the chain from the
+executor upstream; when a job is given to the chain, each need of its program
+is checked against what the chain offers, before anything runs:
 
 ```mermaid
 sequenceDiagram
@@ -25,7 +25,7 @@ sequenceDiagram
   participant E as executor
   participant A as each adapter, from the executor upstream
   participant H as chain
-  C->>P: interpreter() >> adapters >> executor
+  C->>P: driver() >> adapters >> executor
   P->>E: capabilities()
   E-->>P: Capabilities
   P->>A: build(boundary)
@@ -108,7 +108,7 @@ checked. From the [tests of `compose`](../src/tests/compose.rs):
 ```rust
 let mut program = Program::flip_and_toss(bits_set());
 program.needs = program.needs.with_qubits(3).with_log_probability(true);
-let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
     .expect("nothing between to refuse");
 let Err(JobFaults(faults)) = chain.run(program, [0]) else {
     panic!("three qubits and the log probability on two bits must be refused");
@@ -263,7 +263,7 @@ from the [per-shot executor guide](../tests/per_shot_executor.rs):
 ```rust
 let shots = ShotSet::range(0..=7).expect("not empty");
 let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-let (outcomes, _) = (interpreter() >> executor)
+let (outcomes, _) = (driver() >> executor)
     .expect("nothing between to refuse")
     .run(TossAgainOnOne, shots)
     .expect("the executor has resumable shots, log probability, 8 shots")

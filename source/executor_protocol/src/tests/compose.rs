@@ -18,14 +18,14 @@ use crate::tests::map_executor;
 use crate::tests::test_double::TestDoubleModel;
 use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::{
-    Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, Apply, Below, BuildError,
-    BuildFaults, Capabilities, Chain, Close, ComponentId, DefaultInterpreter, Describe, Drive,
-    Driver, Executor, ExecutorLogic, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionMismatch, InstructionSet, JobFaults, LogP, MakeState, Need, Needs, NoCheck,
-    OnePerShot, OnePerShotAdapter, OnePerShotExecutor, OnePerShotPlacedExecutor, OperandKind,
-    Outcome, Outcomes, OwnThread, ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome,
-    ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value, adapter_fn, compose, executor_fn,
-    interpreter, wait, wait_async,
+    Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, AdaptiveProgram, Apply,
+    Below, BuildError, BuildFaults, Capabilities, Chain, ChainHead, Close, ComponentId,
+    ComposedJob, DefaultDriver, Describe, Driver, Executor, ExecutorLogic, InstructionBatch,
+    InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP,
+    MakeState, Need, Needs, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
+    OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, ProgramInput, Rejected,
+    ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value,
+    adapter_fn, compose, driver, executor_fn, wait, wait_async,
 };
 
 use OperandKind::{Block, Tag};
@@ -108,7 +108,7 @@ impl Program {
     }
 }
 
-impl Drive for Program {
+impl AdaptiveProgram for Program {
     type Instruction = InstructionCall;
     type Output = Vec<ShotOutcome>;
 
@@ -182,30 +182,24 @@ fn composition_is_associative() {
     assert_eq!(entries(&left), entries(&right));
 }
 
-/// A driver composed with two adapters and an executor, grouped three
+/// A job composed with two adapters and an executor, grouped three
 /// ways, adapter by adapter, the adapters composed first, or the executor
 /// composed first, makes the same run: its calls meet the adapters in the
 /// same order and give the same outcomes.
 #[test]
-fn the_grouping_of_a_drivers_chain_does_not_matter() {
+fn the_grouping_of_a_jobs_chain_does_not_matter() {
     let logs = [Log::default(), Log::default(), Log::default()];
-    let driver = || Driver::new(Program::flip_and_toss(bits_set()), shots(&[0, 1]));
+    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 1]));
     let one_by_one = compose(
-        compose(
-            compose(driver(), logger("a", &logs[0])),
-            logger("b", &logs[0]),
-        ),
+        compose(compose(job(), logger("a", &logs[0])), logger("b", &logs[0])),
         TestDoubleExecutor::with_model(Bits::default(), 7),
     );
     let adapters_first = compose(
-        compose(
-            driver(),
-            compose(logger("a", &logs[1]), logger("b", &logs[1])),
-        ),
+        compose(job(), compose(logger("a", &logs[1]), logger("b", &logs[1]))),
         TestDoubleExecutor::with_model(Bits::default(), 7),
     );
     let executor_first = compose(
-        driver(),
+        job(),
         compose(
             logger("a", &logs[2]),
             compose(
@@ -231,7 +225,7 @@ fn the_grouping_of_a_drivers_chain_does_not_matter() {
 /// The values of a static program of [`flip_and_toss`] in the bits'
 /// numbering, run on shots 0 and 1 by `chain`.
 fn run_flip_and_toss<E>(
-    chain: Chain<DefaultInterpreter, InstructionCall, E>,
+    chain: Chain<DefaultDriver, InstructionCall, E>,
 ) -> Vec<(ShotId, u32, Value)>
 where
     E: Executor<InstructionBatch<InstructionCall>> + Close,
@@ -246,38 +240,41 @@ where
     values(&outcomes.expect("the bits neither refuse nor fail"))
 }
 
-/// `interpreter() >> a >> b >> executor` grouped in each of its five
-/// ways makes the same chain: a job's calls meet the adapters in the same
-/// order and give the same outcomes.
+/// `driver() >> a >> b >> executor` grouped in each of its five
+/// ways makes a chain with the same run: a job's calls meet the adapters in
+/// the same order and give the same outcomes. Among them,
+/// `(driver() >> a) >> rest` and `driver() >> (adapters >> executor)?`;
+/// `driver() >> a` is a chain's head again.
 #[test]
-fn the_grouping_of_an_interpreters_chain_does_not_matter() {
+fn the_grouping_of_a_drivers_chain_does_not_matter() {
     let logs: [Log; 5] = Default::default();
     let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
     let ab = |log| (logger("a", log), logger("b", log));
     let outputs = [
         {
             let (a, b) = ab(&logs[0]);
-            run_flip_and_toss(compose(interpreter() >> a >> b, bits()).expect("loggers fit"))
+            run_flip_and_toss(compose(driver() >> a >> b, bits()).expect("loggers fit"))
         },
         {
             let (a, b) = ab(&logs[1]);
-            run_flip_and_toss(compose(interpreter() >> compose(a, b), bits()).expect("loggers fit"))
+            run_flip_and_toss(compose(driver() >> compose(a, b), bits()).expect("loggers fit"))
         },
         {
             let (a, b) = ab(&logs[2]);
             let executor = compose(compose(a, b), bits()).expect("loggers fit");
-            run_flip_and_toss(compose(interpreter(), executor).expect("loggers fit"))
+            run_flip_and_toss(compose(driver(), executor).expect("loggers fit"))
         },
         {
             let (a, b) = ab(&logs[3]);
             let executor =
                 compose(a, compose(b, bits()).expect("loggers fit")).expect("loggers fit");
-            run_flip_and_toss(compose(interpreter(), executor).expect("loggers fit"))
+            run_flip_and_toss(compose(driver(), executor).expect("loggers fit"))
         },
         {
             let (a, b) = ab(&logs[4]);
             let executor = compose(b, bits()).expect("loggers fit");
-            run_flip_and_toss(compose(interpreter() >> a, executor).expect("loggers fit"))
+            let head: ChainHead<DefaultDriver, _> = driver() >> a;
+            run_flip_and_toss(compose(head, executor).expect("loggers fit"))
         },
     ];
     for (output, log) in outputs.iter().zip(&logs).skip(1) {
@@ -285,6 +282,62 @@ fn the_grouping_of_an_interpreters_chain_does_not_matter() {
         assert_eq!(entries(log), entries(&logs[0]));
     }
     assert!(!entries(&logs[0]).is_empty(), "the job called the chain");
+}
+
+/// A driver written by hand, as a runtime is: it sends a [`Program`]'s
+/// batches in turn, each to every shot of the job, and gives their
+/// outcomes.
+struct InTurn;
+
+impl Driver<Program> for InTurn {
+    type Instruction = InstructionCall;
+    type Output = Vec<ShotOutcome>;
+
+    fn needs(&self, program: &Program) -> Needs {
+        program.needs.clone()
+    }
+
+    async fn drive<E>(&self, program: Program, executor: &mut E, shots: &ShotSet) -> Self::Output
+    where
+        E: Executor<InstructionBatch<InstructionCall>>,
+    {
+        let mut outcomes = Vec::new();
+        for batch in &program.batches {
+            let reply = executor
+                .call(InstructionBatchRef {
+                    shots,
+                    instructions: batch,
+                })
+                .expect("the program's batches are valid");
+            let (events, end) = wait_async(reply).await;
+            end.expect("the shots do not fail");
+            outcomes.extend(events);
+        }
+        outcomes
+    }
+}
+
+/// A user's runtime heads a chain as the crate's driver does,
+/// `ChainHead::new(runtime) >> adapter >> executor`: its calls pass through
+/// the adapter below it, which with the executor is the one executor it is
+/// given, and the job gives what it gives under the crate's driver.
+#[test]
+fn a_driver_written_by_hand_calls_through_the_adapters_below_it() {
+    let (by_hand, crates) = (Log::default(), Log::default());
+    let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
+    let (outcomes, _) = (ChainHead::new(InTurn) >> logger("a", &by_hand) >> bits())
+        .expect("the logger fits")
+        .run(Program::flip_and_toss(bits_set()), [0, 1])
+        .expect("shots, needs met")
+        .wait();
+    let (expected, _) = (driver() >> logger("a", &crates) >> bits())
+        .expect("the logger fits")
+        .run(Program::flip_and_toss(bits_set()), [0, 1])
+        .expect("shots, needs met")
+        .wait();
+    assert_eq!(outcomes, expected);
+    assert_eq!(entries(&by_hand), entries(&crates));
+    assert!(!entries(&by_hand).is_empty(), "the job called the chain");
 }
 
 /// A shot's profile: its shot, and the calls it was given so far.
@@ -399,7 +452,7 @@ fn two_calls() -> StaticProgram<bool> {
 }
 
 /// The values of `chain`'s run of [`two_calls`] on shots 2 and 5.
-fn run_two_calls<E>(chain: Chain<DefaultInterpreter, bool, E>) -> Vec<(ShotId, u32, Value)>
+fn run_two_calls<E>(chain: Chain<DefaultDriver, bool, E>) -> Vec<(ShotId, u32, Value)>
 where
     E: Executor<InstructionBatch<bool>> + Close,
 {
@@ -407,7 +460,7 @@ where
     values(&outcomes.expect("no component refuses or fails"))
 }
 
-/// A job given to an interpreter's chain of the facility's components,
+/// A job given to a driver's chain of the facility's components,
 /// written with `>>` all along, as the target chain's user writes it, each
 /// component made by a function: each call passes through the profiler,
 /// then the negation, to the executor, and each shot's readouts come back
@@ -415,8 +468,7 @@ where
 #[test]
 fn a_job_runs_through_a_chain_of_the_facilitys_components_written_with_shr() {
     let log = Log::default();
-    let chain =
-        (interpreter() >> profiler(&log) >> negation(&log) >> readouts()).expect("bools fit");
+    let chain = (driver() >> profiler(&log) >> negation(&log) >> readouts()).expect("bools fit");
     assert_eq!(run_two_calls(chain), TWO_CALLS_NEGATED);
     assert_eq!(
         entries(&log),
@@ -431,7 +483,7 @@ fn a_job_runs_through_a_chain_of_the_facilitys_components_written_with_shr() {
     );
 }
 
-/// `interpreter() >> profiler >> negation >> executor`, of the facility's
+/// `driver() >> profiler >> negation >> executor`, of the facility's
 /// components, each made by a function, grouped in each of its five ways
 /// with `>>` alone: the same chain, whose job's calls meet the adapters
 /// in the same order and give the same outcomes.
@@ -440,26 +492,26 @@ fn the_grouping_of_a_chain_of_the_facilitys_components_written_with_shr_does_not
     let logs: [Log; 5] = Default::default();
     let outputs = [
         run_two_calls(
-            (interpreter() >> profiler(&logs[0]) >> negation(&logs[0]) >> readouts())
+            (driver() >> profiler(&logs[0]) >> negation(&logs[0]) >> readouts())
                 .expect("bools fit"),
         ),
         run_two_calls(
-            (interpreter() >> (profiler(&logs[1]) >> negation(&logs[1])) >> readouts())
+            (driver() >> (profiler(&logs[1]) >> negation(&logs[1])) >> readouts())
                 .expect("bools fit"),
         ),
         run_two_calls(
-            (interpreter()
+            (driver()
                 >> (profiler(&logs[2]) >> negation(&logs[2]) >> readouts()).expect("bools fit"))
             .expect("bools fit"),
         ),
         run_two_calls(
-            (interpreter()
+            (driver()
                 >> (profiler(&logs[3]) >> (negation(&logs[3]) >> readouts()).expect("bools fit"))
                     .expect("bools fit"))
             .expect("bools fit"),
         ),
         run_two_calls(
-            (interpreter()
+            (driver()
                 >> profiler(&logs[4])
                 >> (negation(&logs[4]) >> readouts()).expect("bools fit"))
             .expect("bools fit"),
@@ -490,8 +542,7 @@ const TWO_CALLS_NEGATED: [(ShotId, u32, Value); 6] = [
 #[test]
 fn a_chain_of_components_made_from_a_reference_runs_on_another_thread() {
     let log = Log::default();
-    let chain =
-        (interpreter() >> profiler(&log) >> negation(&log) >> readouts()).expect("bools fit");
+    let chain = (driver() >> profiler(&log) >> negation(&log) >> readouts()).expect("bools fit");
     let outcomes = std::thread::spawn(move || run_two_calls(chain))
         .join()
         .expect("the run does not panic");
@@ -506,9 +557,8 @@ fn a_chain_of_components_made_from_a_reference_runs_on_another_thread() {
 #[test]
 fn a_chain_ending_at_an_executor_with_a_thread_per_shot_made_by_a_function_runs() {
     let log = Log::default();
-    let chain =
-        (interpreter() >> profiler(&log) >> negation(&log) >> readouts_on_a_thread_per_shot())
-            .expect("bools fit");
+    let chain = (driver() >> profiler(&log) >> negation(&log) >> readouts_on_a_thread_per_shot())
+        .expect("bools fit");
     let mut outcomes = run_two_calls(chain);
     outcomes.sort_by_key(|&(shot, tag, _)| (shot, tag));
     let mut expected = TWO_CALLS_NEGATED;
@@ -556,7 +606,7 @@ impl<E: Close> Close for CountsCalls<E> {
 /// The values of `chain`'s run of [`two_calls`] on shots 2 and 5, and its
 /// report.
 fn run_two_calls_with_report<E>(
-    chain: Chain<DefaultInterpreter, bool, E>,
+    chain: Chain<DefaultDriver, bool, E>,
 ) -> (Vec<(ShotId, u32, Value)>, E::Report)
 where
     E: Executor<InstructionBatch<bool>> + Close,
@@ -568,7 +618,7 @@ where
     )
 }
 
-/// `interpreter() >> profiler >> counter >> negation >> executor`, the
+/// `driver() >> profiler >> counter >> negation >> executor`, the
 /// counter a profiler written by hand between two of the facility's
 /// adapters, grouped in each of its fourteen ways: the same chain, whose
 /// job's calls meet the adapters in the same order and give the same
@@ -584,37 +634,29 @@ fn the_grouping_of_a_chain_mixing_adapters_written_by_hand_and_by_the_facility_d
     let c = || map_executor::<bool, _>(counts_calls);
     let n = |k: usize| negation(&logs[k]);
     let runs = [
-        run_two_calls_with_report(fits(interpreter() >> p(0) >> c() >> n(0) >> readouts())),
+        run_two_calls_with_report(fits(driver() >> p(0) >> c() >> n(0) >> readouts())),
+        run_two_calls_with_report(fits(driver() >> p(1) >> c() >> fits(n(1) >> readouts()))),
+        run_two_calls_with_report(fits(driver() >> p(2) >> (c() >> n(2)) >> readouts())),
+        run_two_calls_with_report(fits(driver() >> p(3) >> fits(c() >> n(3) >> readouts()))),
         run_two_calls_with_report(fits(
-            interpreter() >> p(1) >> c() >> fits(n(1) >> readouts()),
+            driver() >> p(4) >> fits(compose(c(), fits(n(4) >> readouts()))),
         )),
-        run_two_calls_with_report(fits(interpreter() >> p(2) >> (c() >> n(2)) >> readouts())),
+        run_two_calls_with_report(fits(driver() >> (p(5) >> c()) >> n(5) >> readouts())),
+        run_two_calls_with_report(fits(driver() >> (p(6) >> c()) >> fits(n(6) >> readouts()))),
+        run_two_calls_with_report(fits(driver() >> (p(7) >> c() >> n(7)) >> readouts())),
+        run_two_calls_with_report(fits(driver() >> (p(8) >> (c() >> n(8))) >> readouts())),
+        run_two_calls_with_report(fits(driver() >> fits(p(9) >> c() >> n(9) >> readouts()))),
         run_two_calls_with_report(fits(
-            interpreter() >> p(3) >> fits(c() >> n(3) >> readouts()),
-        )),
-        run_two_calls_with_report(fits(
-            interpreter() >> p(4) >> fits(compose(c(), fits(n(4) >> readouts()))),
-        )),
-        run_two_calls_with_report(fits(interpreter() >> (p(5) >> c()) >> n(5) >> readouts())),
-        run_two_calls_with_report(fits(
-            interpreter() >> (p(6) >> c()) >> fits(n(6) >> readouts()),
-        )),
-        run_two_calls_with_report(fits(interpreter() >> (p(7) >> c() >> n(7)) >> readouts())),
-        run_two_calls_with_report(fits(interpreter() >> (p(8) >> (c() >> n(8))) >> readouts())),
-        run_two_calls_with_report(fits(
-            interpreter() >> fits(p(9) >> c() >> n(9) >> readouts()),
+            driver() >> fits(p(10) >> c() >> fits(n(10) >> readouts())),
         )),
         run_two_calls_with_report(fits(
-            interpreter() >> fits(p(10) >> c() >> fits(n(10) >> readouts())),
+            driver() >> fits(p(11) >> (c() >> n(11)) >> readouts()),
         )),
         run_two_calls_with_report(fits(
-            interpreter() >> fits(p(11) >> (c() >> n(11)) >> readouts()),
+            driver() >> fits(p(12) >> fits(c() >> n(12) >> readouts())),
         )),
         run_two_calls_with_report(fits(
-            interpreter() >> fits(p(12) >> fits(c() >> n(12) >> readouts())),
-        )),
-        run_two_calls_with_report(fits(
-            interpreter() >> fits(p(13) >> fits(compose(c(), fits(n(13) >> readouts())))),
+            driver() >> fits(p(13) >> fits(compose(c(), fits(n(13) >> readouts())))),
         )),
     ];
     for (k, (run, log)) in runs.iter().zip(&logs).enumerate().skip(1) {
@@ -630,15 +672,15 @@ fn the_grouping_of_a_chain_mixing_adapters_written_by_hand_and_by_the_facility_d
 }
 
 /// An adapter written by hand composed with an executor, then put
-/// downstream of an interpreter with `>>`, as the facility's executors
+/// downstream of a chain's head with `>>`, as the facility's executors
 /// are: the chain runs as the executor alone does, and its report is the
 /// counter's.
 #[test]
 fn shr_takes_an_executor_composed_with_an_adapter_written_by_hand() {
     let counted = compose(map_executor::<bool, _>(counts_calls), readouts()).expect("bools fit");
-    let chain = (interpreter() >> counted).expect("bools fit");
+    let chain = (driver() >> counted).expect("bools fit");
     let (outcomes, (calls, _)) = run_two_calls_with_report(chain);
-    let alone = run_two_calls((interpreter() >> readouts()).expect("bools fit"));
+    let alone = run_two_calls((driver() >> readouts()).expect("bools fit"));
     assert_eq!(outcomes, alone);
     assert_eq!(calls, 2, "the job's two calls");
 }
@@ -671,14 +713,14 @@ fn counted_readouts() -> AdapterExecutor<
 
 /// A function that makes an adapter written by hand over an executor
 /// returns it by name ([`AdapterExecutor`]), as one that makes an
-/// `adapter_fn` over an executor does: `>>` takes it after an
-/// interpreter, and the chain runs as the executor alone does, its report
+/// `adapter_fn` over an executor does: `>>` takes it after a
+/// chain's head, and the chain runs as the executor alone does, its report
 /// the counter's.
 #[test]
 fn a_function_returns_an_adapter_written_by_hand_over_an_executor_for_shr() {
-    let chain = (interpreter() >> counted_readouts()).expect("bools fit");
+    let chain = (driver() >> counted_readouts()).expect("bools fit");
     let (outcomes, (calls, _)) = run_two_calls_with_report(chain);
-    let alone = run_two_calls((interpreter() >> readouts()).expect("bools fit"));
+    let alone = run_two_calls((driver() >> readouts()).expect("bools fit"));
     assert_eq!(outcomes, alone);
     assert_eq!(calls, 2, "the job's two calls");
 }
@@ -740,7 +782,7 @@ fn bits() -> AdapterFn<Pulse, bool, (), impl MakeState<()>, impl AdapterLogic<Pu
 /// one with one state: each shot reads the levels it prepared, in order.
 #[test]
 fn a_job_runs_through_lowerings_between_instruction_types_made_by_functions() {
-    let chain = (interpreter() >> pulses() >> bits() >> readouts()).expect("the lowerings fit");
+    let chain = (driver() >> pulses() >> bits() >> readouts()).expect("the lowerings fit");
     let program = StaticProgram::new(
         Needs::default(),
         vec![vec![Level::High, Level::Low], vec![Level::High]],
@@ -781,7 +823,7 @@ fn readouts_of_fair_coins() -> OnePerShotExecutor<
 /// bools it read.
 #[test]
 fn a_chain_ending_at_an_executor_that_reads_log_probabilities_made_by_a_function_reports_them() {
-    let chain = (interpreter() >> readouts_of_fair_coins()).expect("bools fit");
+    let chain = (driver() >> readouts_of_fair_coins()).expect("bools fit");
     let (outcomes, report) = chain.run(two_calls(), [2, 5]).expect("shots").wait();
     outcomes.expect("no component refuses or fails");
     let mut expected = LogP::default();
@@ -803,7 +845,7 @@ fn hidden_readouts() -> impl Executor<InstructionBatch<bool>> + Describe + Close
 fn an_adapter_made_by_a_function_composes_over_an_executor_of_hidden_type() {
     let log = Log::default();
     let below = compose(negation(&log), hidden_readouts()).expect("bools fit");
-    let chain = (interpreter() >> below).expect("bools fit");
+    let chain = (driver() >> below).expect("bools fit");
     assert_eq!(run_two_calls(chain), TWO_CALLS_NEGATED);
 }
 
@@ -835,7 +877,7 @@ fn tallied(
 #[test]
 fn an_adapter_whose_state_borrows_the_callers_data_runs_in_a_chain() {
     let tally = Mutex::new(0);
-    let chain = (interpreter() >> tallied(&tally) >> readouts()).expect("bools fit");
+    let chain = (driver() >> tallied(&tally) >> readouts()).expect("bools fit");
     run_two_calls(chain);
     assert_eq!(*tally.lock().expect("no test panics"), 2);
 }
@@ -868,18 +910,18 @@ fn a_chain_reports_the_same_faults_whatever_the_grouping() {
 }
 
 /// Two faulty codes, one that sends `h` and one that sends `t`, both of
-/// which the executor lacks, between the crate's interpreter and the
+/// which the executor lacks, between the crate's driver and the
 /// executor: the chain reports the same faults whether the codes are
-/// composed with the interpreter one by one or composed together first.
+/// composed with the driver one by one or composed together first.
 #[test]
-fn an_interpreters_chain_reports_the_same_faults_whatever_the_grouping() {
+fn a_drivers_chain_reports_the_same_faults_whatever_the_grouping() {
     let sending = |mnemonic| move || Relabel::new(bits_set().with(mnemonic, [Block]), false);
     let (code_h, code_t) = (sending("h"), sending("t"));
     let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
-    let Err(one_by_one) = compose(interpreter() >> code_h() >> code_t(), bits()) else {
+    let Err(one_by_one) = compose(driver() >> code_h() >> code_t(), bits()) else {
         panic!("the two codes are faulty");
     };
-    let Err(together) = compose(interpreter() >> compose(code_h(), code_t()), bits()) else {
+    let Err(together) = compose(driver() >> compose(code_h(), code_t()), bits()) else {
         panic!("the two codes are faulty");
     };
     assert_eq!(one_by_one.0.len(), 2, "{one_by_one}");
@@ -962,7 +1004,7 @@ fn a_refusal_for_no_run_seed_names_the_adapter_and_says_how_to_seed() {
 /// synchronous program does.
 struct Waits;
 
-impl Drive for Waits {
+impl AdaptiveProgram for Waits {
     type Instruction = bool;
     type Output = usize;
 
@@ -1003,16 +1045,16 @@ impl Model for Workers {
     }
 }
 
-/// A driver's needs are checked against what the chain offers when its job
-/// is given to the chain, which composing the tests' `Driver` with an
+/// A program's needs are checked against what the chain offers when its job
+/// is given to the chain, which composing the tests' `ComposedJob` with an
 /// executor does: a program that needs more qubits than the chain has is
 /// refused then, before anything runs, the program named.
 #[test]
-fn a_driver_whose_needs_the_chain_lacks_is_refused_when_composed() {
+fn a_job_whose_needs_the_chain_lacks_is_refused_when_composed() {
     let mut program = Program::flip_and_toss(bits_set());
     program.needs = program.needs.with_qubits(3);
-    let Err(faults) =
-        Driver::new(program, shots(&[0])) >> TestDoubleExecutor::with_model(Bits::default(), 7)
+    let Err(faults) = ComposedJob::new(program, shots(&[0]))
+        >> TestDoubleExecutor::with_model(Bits::default(), 7)
     else {
         panic!("three qubits on two bits must be refused");
     };
@@ -1031,7 +1073,7 @@ fn a_driver_whose_needs_the_chain_lacks_is_refused_when_composed() {
 fn every_need_of_a_program_that_the_chain_lacks_is_reported() {
     let mut program = Program::flip_and_toss(bits_set());
     program.needs = program.needs.with_qubits(3).with_log_probability(true);
-    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("nothing between to refuse");
     let Err(JobFaults(faults)) = chain.run(program, [0]) else {
         panic!("three qubits and the log probability on two bits must be refused");
@@ -1046,18 +1088,18 @@ fn every_need_of_a_program_that_the_chain_lacks_is_reported() {
     assert_eq!(needs, [Some(Need::Qubits), Some(Need::LogProbability)]);
 }
 
-/// A driver of more shots than the executor holds at once is refused when
-/// its job is given to the chain, which composing the tests' `Driver` does,
-/// the shots unmet, and no shot is made: the executor is never called.
+/// A job of more shots than the executor holds at once is refused when
+/// its job is given to the chain, which composing the tests' `ComposedJob`
+/// does, the shots unmet, and no shot is made: the executor is never called.
 #[test]
-fn a_driver_of_more_shots_than_the_executor_holds_is_refused_when_composed() {
+fn a_job_of_more_shots_than_the_executor_holds_is_refused_when_composed() {
     let doubles = TestDoubleModel {
         max_shots: Some(2),
         ..TestDoubleModel::default()
     };
     let made = Rc::clone(&doubles.made);
     let Err(faults) =
-        Driver::new(Waits, shots(&[0, 1, 2])) >> TestDoubleExecutor::with_model(doubles, 7)
+        ComposedJob::new(Waits, shots(&[0, 1, 2])) >> TestDoubleExecutor::with_model(doubles, 7)
     else {
         panic!("three shots on two at once must be refused");
     };
@@ -1082,7 +1124,7 @@ fn the_faults_of_a_chain_read_as_one_message_in_their_order() {
     let downstream =
         map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
     let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
-    let Err(faults) = interpreter() >> upstream >> downstream >> bits else {
+    let Err(faults) = driver() >> upstream >> downstream >> bits else {
         panic!("both noise models are faulty");
     };
     let [upstream, downstream] = faults.0.as_slice() else {
@@ -1096,16 +1138,16 @@ fn the_faults_of_a_chain_read_as_one_message_in_their_order() {
     assert_eq!(faults.to_string(), expected);
 }
 
-/// A chain of the crate's interpreter, with a noise model that draws from
+/// A chain of the crate's driver, with a noise model that draws from
 /// the generator the bits draw from: it has no job yet, and is refused
 /// when it is built, with the adapter's fault, as a chain that starts at a
 /// driver is.
 #[test]
-fn a_chain_of_an_interpreter_reports_its_adapters_faults_when_built() {
+fn a_chain_of_a_driver_reports_its_adapters_faults_when_built() {
     let noise =
         map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
     let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
-    let Err(BuildFaults(faults)) = compose(interpreter() >> noise, bits) else {
+    let Err(BuildFaults(faults)) = compose(driver() >> noise, bits) else {
         panic!("a noise model drawing from the bits' generator must be refused");
     };
     let errors: Vec<_> = faults.into_iter().map(|fault| fault.error).collect();
@@ -1180,34 +1222,33 @@ impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for Accept
     }
 }
 
-/// A driver whose set declares the instructions of the adapter next to it
+/// A program whose set declares the instructions of the adapter next to it
 /// in another order (its `x` at the adapter's `coin`), composed into a
 /// run: each of its batches is copied into the adapter's numbering, so its
 /// flip flips the bit.
 #[test]
-fn a_driver_in_another_order_runs_its_own_instructions_through_the_chain() {
-    let driver = Driver::new(Program::flip_and_toss(reversed_set()), shots(&[0]));
-    let (outcomes, _) = (driver
-        >> Accepting::new(bits_set())
-        >> TestDoubleExecutor::with_model(Bits::default(), 7))
-    .expect("the bits run what it accepts")
-    .wait();
+fn a_program_in_another_order_runs_its_own_instructions_through_the_chain() {
+    let job = ComposedJob::new(Program::flip_and_toss(reversed_set()), shots(&[0]));
+    let (outcomes, _) =
+        (job >> Accepting::new(bits_set()) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+            .expect("the bits run what it accepts")
+            .wait();
     assert_eq!(values(&outcomes)[0], (0, 0, Value::One), "x, then measure");
 }
 
-/// A driver and bits that share one set, described once by its vendor and
+/// A program and bits that share one set, described once by its vendor and
 /// declaring no action, as QEP's driver and executor share theirs: a set's
-/// name is its identity, so the driver's calls are matched by mnemonic, and
+/// name is its identity, so the program's calls are matched by mnemonic, and
 /// the run runs them.
 #[test]
-fn a_driver_and_an_executor_sharing_a_set_without_actions_are_composed() {
+fn a_job_and_an_executor_sharing_a_set_without_actions_are_composed() {
     let vendors = undeclaring(bits_set(), EVERY_BIT);
-    let driver = Driver::new(Program::flip_and_toss(vendors), shots(&[0]));
+    let job = ComposedJob::new(Program::flip_and_toss(vendors), shots(&[0]));
     let downstream = Bits {
         undeclared: EVERY_BIT,
         ..Bits::default()
     };
-    let (outcomes, _) = (driver >> TestDoubleExecutor::with_model(downstream, 7))
+    let (outcomes, _) = (job >> TestDoubleExecutor::with_model(downstream, 7))
         .expect("one set at both ends, matched by mnemonic")
         .wait();
     assert_eq!(values(&outcomes)[0], (0, 0, Value::One), "x, then measure");
@@ -1224,7 +1265,7 @@ fn every_undeclared_action_of_a_chain_is_reported_at_once() {
         undeclared: &["x"],
         ..Bits::default()
     };
-    let Err(faults) = interpreter()
+    let Err(faults) = driver()
         >> Accepting::new(bits_set())
         >> between
         >> TestDoubleExecutor::with_model(downstream, 7)
@@ -1252,25 +1293,25 @@ fn every_undeclared_action_of_a_chain_is_reported_at_once() {
 }
 
 /// An adapter that passes calls by opcode through as they are, stating no
-/// set, under a driver that tosses a coin, upstream of bits whose set, a
+/// set, under a program that tosses a coin, upstream of bits whose set, a
 /// vendor's of another name, leaves the coin's action undeclared: the
-/// adapter accepts the bits' set as it is, so the driver's calls are
-/// checked against it, and the run is refused as the driver's need unmet,
+/// adapter accepts the bits' set as it is, so the program's calls are
+/// checked against it, and the run is refused as the program's need unmet,
 /// the coin named.
 #[test]
 fn a_passing_adapter_of_calls_by_opcode_stating_no_set_accepts_the_set_downstream() {
     let passing = map_executor::<InstructionCall, _>(|below| below);
-    let driver = Driver::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
     let downstream = Bits {
         undeclared: &["coin"],
         ..Bits::default()
     };
-    let Err(faults) = driver >> passing >> TestDoubleExecutor::with_model(downstream, 7) else {
+    let Err(faults) = job >> passing >> TestDoubleExecutor::with_model(downstream, 7) else {
         panic!("the bits leave the coin's action undeclared");
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
-        panic!("the driver's need is unmet: {faults}");
+        panic!("the program's need is unmet: {faults}");
     };
     assert_eq!(
         unmet.mismatches,
@@ -1281,55 +1322,55 @@ fn a_passing_adapter_of_calls_by_opcode_stating_no_set_accepts_the_set_downstrea
 }
 
 /// An adapter that passes calls by opcode through as they are, stating no
-/// set, between a driver and bits that share one set declaring no action,
+/// set, between a program and bits that share one set declaring no action,
 /// as QEP's profiler sits between its driver and executor: the adapter
-/// offers the bits' set as it is, under its name, so the driver's calls
+/// offers the bits' set as it is, under its name, so the program's calls
 /// are still matched by mnemonic, and the run runs them.
 #[test]
 fn a_passing_adapter_offers_the_set_downstream_under_its_name() {
     let passing = map_executor::<InstructionCall, _>(|below| below);
     let vendors = undeclaring(bits_set(), EVERY_BIT);
-    let driver = Driver::new(Program::flip_and_toss(vendors), shots(&[0]));
+    let job = ComposedJob::new(Program::flip_and_toss(vendors), shots(&[0]));
     let downstream = Bits {
         undeclared: EVERY_BIT,
         ..Bits::default()
     };
-    let (outcomes, _) = (driver >> passing >> TestDoubleExecutor::with_model(downstream, 7))
-        .expect("the driver's set is the one downstream, by name")
+    let (outcomes, _) = (job >> passing >> TestDoubleExecutor::with_model(downstream, 7))
+        .expect("the program's set is the one downstream, by name")
         .wait();
     assert_eq!(values(&outcomes)[0], (0, 0, Value::One), "x, then measure");
 }
 
-/// A driver of calls by opcode that states no set, on bits that describe
+/// A program of calls by opcode that states no set, on bits that describe
 /// theirs: its opcodes cannot be checked, so the run is refused, as the
-/// driver's need of an instruction set unmet.
+/// program's need of an instruction set unmet.
 #[test]
-fn a_driver_of_calls_by_opcode_that_states_no_set_is_refused_when_composed() {
+fn a_job_of_calls_by_opcode_that_states_no_set_is_refused_when_composed() {
     let program = Program {
         batches: flip_and_toss(&bits_set()),
         needs: Needs::default(),
     };
-    let driver = Driver::new(program, shots(&[0]));
-    let Err(faults) = driver >> TestDoubleExecutor::with_model(Bits::default(), 7) else {
-        panic!("the driver states no set");
+    let job = ComposedJob::new(program, shots(&[0]));
+    let Err(faults) = job >> TestDoubleExecutor::with_model(Bits::default(), 7) else {
+        panic!("the program states no set");
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
-        panic!("the driver's need is unmet: {faults}");
+        panic!("the program's need is unmet: {faults}");
     };
     assert_eq!(unmet.need, Need::InstructionSet);
     assert!(unmet.mismatches.is_empty(), "{unmet}");
 }
 
-/// A typed driver and a typed adapter, neither stating a set, upstream of
+/// A typed program and a typed adapter, neither stating a set, upstream of
 /// workers that describe none: the compiler checks that each boundary runs
 /// the same type, so none needs a set, and the chain composes and runs.
 #[test]
 fn a_typed_chain_that_describes_no_set_is_composed() {
     let passing = map_executor::<bool, _>(|below| below);
     let outcomes = ends_soon(|| {
-        let driver = Driver::new(Waits, shots(&[0, 1]));
-        let (outcomes, _) = (driver >> passing >> TestDoubleExecutor::with_model(Workers, 7))
+        let job = ComposedJob::new(Waits, shots(&[0, 1]));
+        let (outcomes, _) = (job >> passing >> TestDoubleExecutor::with_model(Workers, 7))
             .expect("a typed boundary needs no set")
             .wait();
         outcomes
@@ -1405,13 +1446,13 @@ impl<E: Close> Close for DecodedCalls<E> {
 
 /// A decoder stating only the set it accepts, upstream of workers that
 /// describe none: what it sends is typed, so its downstream boundary needs
-/// no set, and the driver's calls are checked against the set it accepts;
+/// no set, and the program's calls are checked against the set it accepts;
 /// the chain composes and runs.
 #[test]
 fn a_decoder_of_calls_by_opcode_over_no_set_is_composed() {
     let outcomes = ends_soon(|| {
-        let driver = Driver::new(Program::flip_and_toss(bits_set()), shots(&[0]));
-        let (outcomes, _) = (driver
+        let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+        let (outcomes, _) = (job
             >> DecodeCalls::accepting(bits_set())
             >> TestDoubleExecutor::with_model(Workers, 7))
         .expect("the decoder's downstream boundary is typed")
@@ -1421,19 +1462,19 @@ fn a_decoder_of_calls_by_opcode_over_no_set_is_composed() {
     assert_eq!(outcomes.len(), 2, "one outcome per batch");
 }
 
-/// A decoder that accepts bits without their coin, under a driver that
-/// tosses one: the driver's calls are checked against the set the decoder
+/// A decoder that accepts bits without their coin, under a program that
+/// tosses one: the program's calls are checked against the set the decoder
 /// accepts, so the coin is missing and the run is refused.
 #[test]
-fn a_driver_whose_calls_a_decoder_does_not_accept_is_refused_when_composed() {
+fn a_job_whose_calls_a_decoder_does_not_accept_is_refused_when_composed() {
     let decoder = DecodeCalls::accepting(bits_without_coin());
-    let driver = Driver::new(Program::flip_and_toss(bits_set()), shots(&[0]));
-    let Err(faults) = driver >> decoder >> TestDoubleExecutor::with_model(Workers, 7) else {
+    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let Err(faults) = job >> decoder >> TestDoubleExecutor::with_model(Workers, 7) else {
         panic!("the decoder accepts no coin");
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
-        panic!("the driver's need is unmet: {faults}");
+        panic!("the program's need is unmet: {faults}");
     };
     assert_eq!(unmet.mismatches, vec![missing_coin()]);
 }
@@ -1444,7 +1485,7 @@ fn a_driver_whose_calls_a_decoder_does_not_accept_is_refused_when_composed() {
 /// is refused, before anything runs.
 #[test]
 fn a_job_whose_calls_a_decoder_does_not_accept_is_refused() {
-    let chain = (interpreter()
+    let chain = (driver()
         >> DecodeCalls::accepting(bits_without_coin())
         >> TestDoubleExecutor::with_model(Workers, 7))
     .expect("the decoder's downstream boundary is typed");
@@ -1491,9 +1532,9 @@ impl Model for DescribedWorkers {
     }
 }
 
-/// A decoder stating no set, under a driver that tosses a coin, upstream of
+/// A decoder stating no set, under a program that tosses a coin, upstream of
 /// workers whose set has no coin: the decoder accepts the workers' set as
-/// it is, so the driver's calls are checked against it, and the run is
+/// it is, so the program's calls are checked against it, and the run is
 /// refused, the coin named.
 #[test]
 fn a_decoder_stating_no_set_accepts_the_set_downstream() {
@@ -1501,54 +1542,53 @@ fn a_decoder_stating_no_set_accepts_the_set_downstream() {
         sends: None,
         accepts: None,
     };
-    let driver = Driver::new(Program::flip_and_toss(bits_set()), shots(&[0]));
-    let Err(faults) = driver
-        >> decoder
-        >> TestDoubleExecutor::with_model(DescribedWorkers(bits_without_coin()), 7)
+    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let Err(faults) =
+        job >> decoder >> TestDoubleExecutor::with_model(DescribedWorkers(bits_without_coin()), 7)
     else {
         panic!("the workers have no coin");
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
-        panic!("the driver's need is unmet: {faults}");
+        panic!("the program's need is unmet: {faults}");
     };
     assert_eq!(unmet.mismatches, vec![missing_coin()]);
 }
 
-/// A decoder stating no set, under a driver of calls by opcode, upstream of
-/// workers that describe none: no set downstream of the driver numbers its
-/// calls, so the run is refused, as the driver's need of an instruction set
+/// A decoder stating no set, under a program of calls by opcode, upstream of
+/// workers that describe none: no set downstream of the program numbers its
+/// calls, so the run is refused, as the program's need of an instruction set
 /// unmet.
 #[test]
-fn a_driver_over_a_decoder_and_workers_stating_no_set_is_refused_when_composed() {
+fn a_job_over_a_decoder_and_workers_stating_no_set_is_refused_when_composed() {
     let decoder = DecodeCalls {
         sends: None,
         accepts: None,
     };
-    let driver = Driver::new(Program::flip_and_toss(bits_set()), shots(&[0]));
-    let Err(faults) = driver >> decoder >> TestDoubleExecutor::with_model(Workers, 7) else {
-        panic!("nothing downstream of the driver describes a set");
+    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let Err(faults) = job >> decoder >> TestDoubleExecutor::with_model(Workers, 7) else {
+        panic!("nothing downstream of the program describes a set");
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
-        panic!("the driver's need is unmet: {faults}");
+        panic!("the program's need is unmet: {faults}");
     };
     assert_eq!((unmet.need, unmet.offered), (Need::InstructionSet, 0));
 }
 
-/// A driver with no adapter composes with any executor, not only a
+/// A job with no adapter composes with any executor, not only a
 /// per-shot one: with a toy ensemble, its run gives what the program gives
 /// driving the ensemble itself, every shot reading the one state's values,
 /// and the ensemble's report.
 #[test]
-fn a_driver_composes_with_any_executor() {
+fn a_job_composes_with_any_executor() {
     let (seed, ids) = (13, [2, 6]);
     let alone = {
         let program = Program::flip_and_toss(bits_set());
         block_on(program.drive(&mut SharedState::new(seed), &shots(&ids)))
     };
-    let driver = Driver::new(Program::flip_and_toss(bits_set()), shots(&ids));
-    let (outcomes, report) = compose(driver, SharedState::new(seed))
+    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&ids));
+    let (outcomes, report) = compose(job, SharedState::new(seed))
         .expect("no adapter, no fault")
         .wait();
     assert_eq!(values(&outcomes), values(&alone));
@@ -1556,19 +1596,19 @@ fn a_driver_composes_with_any_executor() {
 }
 
 /// An adapter that passes every call through changes nothing, over an
-/// ensemble too: the run gives what the driver gives alone, each batch run
+/// ensemble too: the run gives what the program gives alone, each batch run
 /// once on the one state, and the ensemble sees the program's two calls,
 /// as alone.
 #[test]
 fn a_passing_adapter_over_an_ensemble_changes_nothing() {
     let (seed, ids) = (13, [2, 6]);
-    let driver = || Driver::new(Program::flip_and_toss(bits_set()), shots(&ids));
+    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&ids));
     let ensemble = || counts_calls(SharedState::new(seed));
-    let (alone, alone_report) = compose(driver(), ensemble())
+    let (alone, alone_report) = compose(job(), ensemble())
         .expect("no adapter, no fault")
         .wait();
     let passing = map_executor::<InstructionCall, _>(|below| below);
-    let (outcomes, report) = compose(driver() >> passing, ensemble())
+    let (outcomes, report) = compose(job() >> passing, ensemble())
         .expect("the adapter states no need")
         .wait();
     assert_eq!(values(&outcomes), values(&alone));

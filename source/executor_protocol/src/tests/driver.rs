@@ -1,169 +1,71 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-mod interpreter;
-mod static_program;
-
 use std::sync::Arc;
 
-use crate::tests::declared;
-use crate::tests::test_double::{Model, TestDoubleExecutor};
+use crate::tests::test_double::{TestDoubleExecutor, TestDoubleModel};
+use crate::tests::{Bits, ByHand, bits_set, block_on, flip_and_toss, shots};
 use crate::{
-    Capabilities, Close, Describe, Drive, Driver, Executor, ImmediateReply, InstructionBatch,
-    InstructionBatchRef, InstructionSet, Needs, OperandKind, Rejected, ShotContext, ShotId,
-    ShotOutcome, ShotSet, TypedInstruction, Value, compose, wait,
+    AdaptiveProgram, ChainHead, Close, Driver, Executor, InstructionBatch, InstructionBatchRef,
+    Needs, Rejected, ShotId, ShotSet, driver, wait_async,
 };
 
-/// A typed instruction: each names itself by its variant.
-#[derive(Clone, Copy)]
-enum Op {
-    Reset,
-    X,
-    Measure,
-}
-
-impl TypedInstruction for Op {}
-
-/// Makes shots of one bit that run [`Op`]s, and describe them as a set,
-/// `reset` first.
-struct OneBit;
-
-impl Describe for OneBit {
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::default().with_instruction_set(Some(Arc::new(declared(
-            InstructionSet::new("one bit")
-                .with("reset", [])
-                .with("x", [])
-                .with("measure", [OperandKind::Tag]),
-        ))))
-    }
-}
-
-impl Model for OneBit {
-    type Instruction = Op;
-    type State = OneBitState;
-
-    fn state(&self, context: &ShotContext) -> Result<OneBitState, String> {
-        Ok(OneBitState {
-            shot: context.shot(),
-            bit: false,
-        })
-    }
-}
-
-/// A shot of [`OneBit`].
-struct OneBitState {
-    shot: ShotId,
-    bit: bool,
-}
-
-impl Executor<InstructionBatch<Op>> for OneBitState {
-    type Reply = ImmediateReply<ShotOutcome>;
-
-    fn call(&mut self, batch: InstructionBatchRef<'_, Op>) -> Result<Self::Reply, Rejected> {
-        batch.shots.check_only(self.shot)?;
-        let mut outcomes = Vec::new();
-        for op in batch.instructions {
-            match op {
-                Op::Reset => self.bit = false,
-                Op::X => self.bit = !self.bit,
-                Op::Measure => outcomes.push(ShotOutcome::new(self.shot, 0, self.bit.into())),
-            }
-        }
-        Ok(ImmediateReply::done(outcomes))
-    }
-}
-
-impl Close for OneBitState {
-    type Report = ();
-
-    fn close(&mut self) {}
-}
-
-/// A typed program that resets, flips and reads its bit, needing `needs`.
-struct ResetFlipRead {
-    needs: Needs,
-}
-
-impl Drive for ResetFlipRead {
-    type Instruction = Op;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self) -> Needs {
-        self.needs.clone()
-    }
-
-    async fn drive<E: Executor<InstructionBatch<Op>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let reply = executor
-            .call(InstructionBatchRef {
-                shots,
-                instructions: &[Op::Reset, Op::X, Op::Measure],
-            })
-            .expect("the batch is valid");
-        let mut outcomes = Vec::new();
-        wait(reply, &mut outcomes).expect("the shot ends well");
-        outcomes
-    }
-}
-
-/// A typed driver states its set in another order than the executor's,
-/// which does not concern it, since its instructions name themselves: it
-/// composes with the executor, with no adapter, and its `X` runs as `x`.
+/// An adaptive program, given to a chain of the crate's driver as any job
+/// is, its shots a slice: the driver lets it drive, so it gives the
+/// outcomes and the report that it gives driving the same executor itself.
 #[test]
-fn a_typed_driver_in_another_order_runs_its_instructions_as_they_are() {
-    let driver = declared(
-        InstructionSet::new("driver")
-            .with("x", [])
-            .with("reset", [])
-            .with("measure", [OperandKind::Tag]),
-    );
-    let program = ResetFlipRead {
-        needs: Needs::default().with_instruction_set(Some(Arc::new(driver))),
+fn an_adaptive_program_given_to_a_chain_runs_as_it_runs_driving_the_executor_itself() {
+    let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
+    let by_hand = || ByHand {
+        needs: Needs::default().with_instruction_set(Some(Arc::new(bits_set()))),
+        batches: flip_and_toss(&bits_set()),
     };
-    let (outcomes, _) = compose(
-        Driver::new(program, ShotSet::one(1)),
-        TestDoubleExecutor::with_model(OneBit, 7),
-    )
-    .expect("the executor accepts the driver's set")
-    .wait();
-    assert_eq!(outcomes[0].value, Value::One);
+    let ids: Vec<ShotId> = vec![2, 5, 6, 11];
+    let chain = (driver() >> bits()).expect("the chain runs the bits' set");
+    let given = chain
+        .run(by_hand(), ids.as_slice())
+        .expect("shots, needs met")
+        .wait();
+    let mut executor = bits();
+    let output = block_on(by_hand().drive(&mut executor, &shots(&ids)));
+    assert_eq!(given, (output, executor.close()));
 }
 
-/// Makes the shots of [`OneBit`], but describes no instruction set.
-struct Undescribed;
+/// A driver that reads every shot of its job once, and keeps the
+/// default needs.
+struct ReadsOnce;
 
-impl Describe for Undescribed {
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::default()
+impl Driver<()> for ReadsOnce {
+    type Instruction = bool;
+    type Output = Result<(), Rejected>;
+
+    async fn drive<E>(&self, (): (), executor: &mut E, shots: &ShotSet) -> Self::Output
+    where
+        E: Executor<InstructionBatch<bool>>,
+    {
+        let reply = executor.call(InstructionBatchRef {
+            shots,
+            instructions: &[true],
+        })?;
+        wait_async(reply).await.1.expect("the double does not fail");
+        Ok(())
     }
 }
 
-impl Model for Undescribed {
-    type Instruction = Op;
-    type State = OneBitState;
-
-    fn state(&self, context: &ShotContext) -> Result<OneBitState, String> {
-        OneBit.state(context)
-    }
-}
-
-/// A typed driver that states no set composes with an executor that
-/// describes none: the compiler checks that both run the same type, and
-/// an instruction the executor does not run is refused at run time.
+/// A driver that states no needs of its own runs a job on an
+/// executor that offers no resumable shots: the default needs ask for nothing
+/// but a state per shot.
 #[test]
-fn a_typed_driver_and_an_executor_that_describe_no_set_compose() {
-    let program = ResetFlipRead {
-        needs: Needs::default(),
+fn a_drivers_default_needs_ask_no_resumable_shots() {
+    let model = TestDoubleModel {
+        without_resumable_shots: true,
+        ..TestDoubleModel::default()
     };
-    let (outcomes, _) = compose(
-        Driver::new(program, ShotSet::one(1)),
-        TestDoubleExecutor::with_model(Undescribed, 7),
-    )
-    .expect("a typed boundary needs no description")
-    .wait();
-    assert_eq!(outcomes[0].value, Value::One);
+    let chain = (ChainHead::new(ReadsOnce) >> TestDoubleExecutor::with_model(model, 7))
+        .expect("the double takes any batch of `bool`s");
+    let (output, _) = chain
+        .run((), [4, 9])
+        .expect("the default needs ask no resumable shots")
+        .wait();
+    assert_eq!(output, Ok(()));
 }

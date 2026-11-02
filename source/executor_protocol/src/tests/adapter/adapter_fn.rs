@@ -39,7 +39,7 @@ use crate::{
     JobFaults, MakeState, Need, Needs, OnePerShot, OnePerShotAdapter, OnePerShotExecutor, Operand,
     OperandKind, Outcome, Outcomes, OwnThread, ProgramInput, Rejected, Reply, ReplySender,
     ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, Value,
-    WithExecutor, adapter_fn, check_unique_tags, compose, conformance, executor_fn, interpreter,
+    WithExecutor, adapter_fn, check_unique_tags, compose, conformance, driver, executor_fn,
     reply_channel, wait,
 };
 
@@ -2039,7 +2039,7 @@ fn scant_simulator(
     .shots(OnePerShot)
 }
 
-/// The needs a chain that interprets onto `executor` refuses, in order, for
+/// The needs a chain on `executor` refuses, in order, for
 /// a job beyond [`scant_simulator`]`(Some(3), Some(2))` in every need: its
 /// program needs 4 qubits, resumable and replayable shots, resets, each
 /// shot's log probability and the bits' instruction set, on 3 shots.
@@ -2047,7 +2047,7 @@ fn unmet_needs_of_a_job_beyond_the_scant_simulator<E>(executor: E) -> Vec<Need>
 where
     E: Executor<InstructionBatch<bool>> + Describe + Close,
 {
-    let chain = compose(interpreter(), executor).expect("bools fit");
+    let chain = compose(driver(), executor).expect("bools fit");
     let needs = Needs::default()
         .with_qubits(4)
         .with_resumable_shots(true)

@@ -15,7 +15,7 @@ shot's seed). Read them in this order:
 | run a program on a simulator                      | `tests/simulator.rs`         | a program run on the toy simulator: a job given to a chain, checked, then waited for                                     | [Running a program](#running-a-program)                                            |
 | bridge a backend written before the protocol      | `tests/existing_tool.rs`     | a bridge for a backend written before the protocol, and a profiler                                                       | [An existing backend and a profiler](#an-existing-backend-and-a-profiler)          |
 | write an executor, and place it on a thread       | `tests/per_shot_executor.rs` | an executor with a state per shot: its logic alone, made an executor by `executor_fn`, driven by a program with feedback | [Making an executor](executors.md#making-an-executor-executor_fn)                  |
-| write an adapter that observes a chain            | `tests/observers.rs`         | a profiler that counts each shot's calls, and a debugger that logs them, between the interpreter and the toy             | [Observers: a profiler and a debugger](#observers-a-profiler-and-a-debugger)       |
+| write an adapter that observes a chain            | `tests/observers.rs`         | a profiler that counts each shot's calls, and a debugger that logs them, between the driver and the toy                  | [Observers: a profiler and a debugger](#observers-a-profiler-and-a-debugger)       |
 | write an adapter that changes the instruction set | `tests/static_isa.rs`        | a repetition code: logical instructions down as gadgets, majorities back up; as a logic, by hand, and as a runtime       | [A static ISA: a repetition code](#a-static-isa-a-repetition-code)                 |
 | write an adapter between sets known at run time   | `tests/runtime_isa.rs`       | an example adapter running a repetition code given as data, as Qodec gives it                                            | [A run-time ISA: a code given as data](#a-run-time-isa-a-code-given-as-data)       |
 | hold work and complete it from another thread     | `tests/debugger.rs`          | a debugger that records each batch and outcome, and pauses and steps                                                     | [A debugger: holding and completing work](#a-debugger-holding-and-completing-work) |
@@ -28,15 +28,16 @@ placement on a thread of its own included
 ## Running a program
 
 [`tests/simulator.rs`](../tests/simulator.rs) is what a user of a simulator
-writes. Its program, `FlipACoin` (a `Drive`), flips a coin on qubit 0 of each
-shot and reads it; with the shots it runs, it is a job, given to the chain of
-the crate's interpreter composed with the toy simulator built with its seed.
+writes. Its program, `FlipACoin` (an `AdaptiveProgram`), flips a coin on
+qubit 0 of each shot and reads it; with the shots it runs, it is a job,
+given to the chain of the crate's driver composed with the toy simulator
+built with its seed.
 Waited for, the run gives the program's output, one outcome per shot, and the
 executor's report, here of the one batch sent:
 
 ```rust
 let (program, shots, seed) = (FlipACoin { qubits: 1 }, shots(), 7);
-let run = compose(interpreter(), toy_simulator(seed))?.run(program, shots)?;
+let run = compose(driver(), toy_simulator(seed))?.run(program, shots)?;
 let (output, report) = run.wait();
 ```
 
@@ -59,7 +60,7 @@ the toy, as an implementer's tests can: its tests of the toy check that it takes
 calls after a refusal, refuses them once closed, reports once, gives each shot
 alone what it gives among the others, and continues a shot from one call to the
 next. [The README's example](../README.md#an-example) puts the toy in a longer
-chain, with a profiler and a debugger between the interpreter and the toy, and
+chain, with a profiler and a debugger between the driver and the toy, and
 gives the program as the chain's job.
 
 ## An existing backend and a profiler
@@ -156,13 +157,13 @@ on the one below; over an executor that describes none, the chain is refused
 when it is built (`NoInstructionSetDownstream`), since what it sends could not
 be checked. [`tests/observers.rs`](../tests/observers.rs) writes two, each with
 `adapter_fn` and a state per shot, in a function of its own, and composes them
-with `>>` between the crate's interpreter and a simulator, the toy taking its
+with `>>` between the crate's driver and a simulator, the toy taking its
 instructions as calls. From its test of the two observers stacked, where
 `THE_JOB_FITS` states the run's precondition: its shots are distinct, and the
 toy meets the program's needs:
 
 ```rust
-let chain = interpreter() >> profiler() >> debugger(log.clone()) >> simulator();
+let chain = driver() >> profiler() >> debugger(log.clone()) >> simulator();
 let chain = chain.expect("the observers fit");
 let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
 ```
@@ -423,7 +424,7 @@ What the guide shows, each rule pinned by a test:
       .capabilities()
       .instruction_set
       .expect("the code describes the logical set");
-  let run = compose(interpreter(), code)
+  let run = compose(driver(), code)
       .expect("nothing between to refuse")
       .run(PrepareFlipAndRead(set), ShotSet::one(0))
       .expect("the code accepts its own set");

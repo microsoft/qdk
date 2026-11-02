@@ -22,7 +22,7 @@
 //!   type, called directly: the baseline.
 //! - **typed per-shot**: that profiler as the state of each shot of an
 //!   executor made with [`executor_fn`] under [`OnePerShot`], run on one
-//!   shot by a run ([`compose`] of the crate's [`interpreter`] with the
+//!   shot by a run ([`compose`] of the crate's [`driver()`] with the
 //!   executor, given the program as a job, then
 //!   [`Run::wait`](executor_protocol::Run::wait); [`per_shot_run`]): the
 //!   executor makes the shot's state at its first call, and is closed at
@@ -66,11 +66,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use executor_protocol::{
-    Action, Angle, Capabilities, Close, Drive, Executor, ExecutorReport, Fold, ImmediateReply,
-    Instruction, InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, Needs,
-    OnePerShot, OpcodeTable, Operand, OperandKind, Outcome, Outcomes, Pauli, ProgramInput,
-    Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
-    check_unique_tags, compose, executor_fn, interpreter, wait,
+    Action, AdaptiveProgram, Angle, Capabilities, Close, Executor, ExecutorReport, Fold,
+    ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
+    InstructionSet, Needs, OnePerShot, OpcodeTable, Operand, OperandKind, Outcome, Outcomes, Pauli,
+    ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
+    check_unique_tags, compose, driver, executor_fn, wait,
 };
 
 /// The instructions of the mix.
@@ -696,7 +696,7 @@ fn per_shot_run<I: Instruction, P: Profile<I>>(
         .state_report(|profiler: &P| profiler.counter().tally())
         .seed(SEED)
         .shots(OnePerShot);
-    let chain = compose(interpreter(), executor).expect("nothing between to refuse");
+    let chain = compose(driver(), executor).expect("nothing between to refuse");
     let run = chain.run(program, ShotSet::one(SHOT));
     run.expect("the program's needs fit the profiler").wait()
 }
@@ -717,7 +717,7 @@ fn typed_run(program: &[Gate], batch: usize) -> (Vec<ShotOutcome>, ExecutorRepor
     )
 }
 
-/// A driver's program: `program`, sent to the run's shots in calls of
+/// An adaptive program: `program`, sent to the run's shots in calls of
 /// `batch` instructions, each called and then waited for; it needs
 /// `needs`.
 struct Chunked<'a, I> {
@@ -726,7 +726,7 @@ struct Chunked<'a, I> {
     needs: Needs,
 }
 
-impl<I: Instruction> Drive for Chunked<'_, I> {
+impl<I: Instruction> AdaptiveProgram for Chunked<'_, I> {
     type Instruction = I;
     type Output = Vec<ShotOutcome>;
 
@@ -864,8 +864,8 @@ impl Close for RuntimeCounting {
 }
 
 /// The run of `program`, calls of `set`, on shot [`SHOT`] of an executor of
-/// [`RuntimeCounting`]s, by a driver that states `set` in its needs, in
-/// calls of `batch` instructions ([`per_shot_run`]).
+/// [`RuntimeCounting`]s, by an adaptive program that states `set` in its
+/// needs, in calls of `batch` instructions ([`per_shot_run`]).
 fn runtime_run(
     set: &Arc<RuntimeSet>,
     program: &[InstructionCall],

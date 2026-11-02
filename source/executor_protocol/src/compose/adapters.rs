@@ -104,7 +104,7 @@ pub trait UpstreamOf<E>: Adapters {
     /// These adapters upstream of `executor`, built against it starting at
     /// the executor and going upstream. `upstream` is given what the chain
     /// offers, and returns the faults of what composes upstream of it,
-    /// reported first (the crate's interpreter reports none: a job's needs
+    /// reported first (a chain's head reports none: a job's needs
     /// are checked when the job is given to the chain).
     ///
     /// # Errors
@@ -418,7 +418,7 @@ where
 }
 
 /// No adapter: the calls of type `I` reach the executor as they are. A
-/// driver starts with it.
+/// chain's head starts with it.
 #[derive(Debug)]
 pub struct NoAdapter<I>(PhantomData<fn() -> I>);
 

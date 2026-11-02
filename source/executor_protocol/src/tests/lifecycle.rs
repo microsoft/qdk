@@ -1160,7 +1160,7 @@ fn a_shared_state_executor_refuses_calls_once_closed() {
 /// one state at its first close only, by the conformance kit's check: a
 /// caller that folds every report it receives counts the state once. The
 /// executor is the crate's test double: this guards the compose test that
-/// counts its report (`a_driver_composes_with_any_executor`).
+/// counts its report (`a_job_composes_with_any_executor`).
 #[test]
 fn a_shared_state_executor_reports_once() {
     let (shots, batches) = (shots(&[0]), flip_and_toss(&bits_set()));

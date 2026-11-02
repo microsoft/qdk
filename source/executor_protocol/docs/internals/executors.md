@@ -56,7 +56,7 @@ crate. Adding a capability takes five steps:
    `log_probability` upstream of an adapter that draws
    (`an_adapter_that_draws_reads_no_log_probability_in_its_offer_when_built`,
    `src/tests/adapter/boundary.rs`;
-   `a_driver_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws`,
+   `a_program_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws`,
    `src/tests/compose/adapters.rs`). So adding the field means going through
    each existing adapter, the guides' included.
 5. The tests: a program with the need, given to a chain over an executor
@@ -471,11 +471,11 @@ costs O(n²) polls of shots
 ## An executor's close
 
 The run closes the executor once, whether its program called it
-(`a_run_closes_its_executor_once_after_the_drivers_last_call`), never
+(`a_run_closes_its_executor_once_after_the_programs_last_call`), never
 called it (`a_run_whose_program_never_calls_still_closes_its_executor`)
 or saw a call fail (`a_run_closes_its_executor_once_after_a_call_failed`),
 and through adapters it closes the last executor of its chain once
-(`a_run_through_an_adapter_closes_the_last_executor_once_after_the_drivers_last_call`;
+(`a_run_through_an_adapter_closes_the_last_executor_once_after_the_programs_last_call`;
 all in `src/tests/compose/run.rs`). A run dropped before its program ends,
 or unwound by a panic, does not close its executor (`Run`'s doc, which no
 test pins; an open question that goes with the planned cancellation). A

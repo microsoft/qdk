@@ -13,10 +13,10 @@ use std::rc::Rc;
 
 use crate::tests::{Count, MapExecutor};
 use crate::{
-    AdapterFn, Capabilities, Close, Compose, ComposedAdapters, Describe, Driver, Executor,
-    ExecutorReport, IncrementalReply, InstructionBatch, InstructionBatchRef, InterpreterDriver,
-    NoAdapter, OnePerShotAdapter, Rejected, ReplySender, ShotContext, ShotId, ShotOutcome,
-    ShotReplies, ShotSet, ShotStates, Value, WithExecutor, reply_channel, wait,
+    AdapterFn, Capabilities, ChainHead, Close, Compose, ComposedAdapters, ComposedJob, Describe,
+    Executor, ExecutorReport, IncrementalReply, InstructionBatch, InstructionBatchRef, NoAdapter,
+    OnePerShotAdapter, Rejected, ReplySender, ShotContext, ShotId, ShotOutcome, ShotReplies,
+    ShotSet, ShotStates, Value, WithExecutor, reply_channel, wait,
 };
 
 /// How one shot of a [`TestDoubleExecutor`] runs, on its own state: it states
@@ -173,8 +173,8 @@ macro_rules! compose_by_shr {
     };
 }
 
-compose_by_shr!(P, L; Driver<P, L>);
-compose_by_shr!(T, L; InterpreterDriver<T, L>);
+compose_by_shr!(P, L; ComposedJob<P, L>);
+compose_by_shr!(T, L; ChainHead<T, L>);
 compose_by_shr!(X, Y; ComposedAdapters<X, Y>);
 compose_by_shr!(I; NoAdapter<I>);
 compose_by_shr!(I, O, S, N, L, C, R; AdapterFn<I, O, S, N, L, C, R>);

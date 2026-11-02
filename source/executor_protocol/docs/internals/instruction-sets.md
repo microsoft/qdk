@@ -5,7 +5,7 @@
 This page is for maintainers of the crate, and for those who need a rule at its
 edge: calls and replies that allocate nothing; when two actions are the same;
 compatibility in full, with each way an instruction is matched or refused, how a
-boundary renumbers calls, and what a driver of each instruction type gets; and
+boundary renumbers calls, and what a program of each instruction type gets; and
 the three checks in full, with their errors, the conformance kit's check of
 calls, and what checking costs; and, last, the tests of the promises of
 [Instruction sets](../instruction-sets.md) and of the static and run-time
@@ -64,7 +64,7 @@ same order:
   share theirs, is matched with nothing renumbered
   (`a_set_without_actions_is_matched_by_mnemonic_in_a_set_of_its_name`),
   so such a job runs on such an executor
-  (`a_driver_and_an_executor_sharing_a_set_without_actions_are_composed`),
+  (`a_job_and_an_executor_sharing_a_set_without_actions_are_composed`),
   with an adapter sending that set between them
   (`an_adapter_sending_the_set_downstream_without_actions_is_composed`) or
   one passing it through, which offers the set under its name
@@ -88,7 +88,7 @@ same order:
   when an adapter is composed with the executor downstream of it
   (`an_instruction_whose_action_the_downstream_set_leaves_undeclared_is_refused`),
   and when a job is given to the chain
-  (`an_instruction_whose_action_the_drivers_set_leaves_undeclared_is_refused`;
+  (`an_instruction_whose_action_the_programs_set_leaves_undeclared_is_refused`;
   see
   [The rules of composition](composition.md#the-rules-of-composition)).
   It is not looked for under another mnemonic
@@ -176,13 +176,14 @@ order:
   no cost.
 - **A job's program** states the instructions it sends
   (`Needs::with_instruction_set`) and builds its calls with its own set. Its
-  chain is headed by `interpreter()`, the program given with the job, and the
+  chain is headed by a driver, such as `driver()`, the program given with the
+  job, and the
   chain checks the two sets' compatibility when the job is given to it
   (`Chain::run`). A set the chain lacks is refused with every instruction that
   does not fit
   (`a_set_the_executor_lacks_is_refused_with_every_instruction_that_does_not_fit`),
   as are the program's other needs the chain lacks, whatever its set
-  (`a_driver_needing_what_the_executor_lacks_is_refused_whatever_its_set`).
+  (`a_program_needing_what_the_executor_lacks_is_refused_whatever_its_set`).
   Otherwise, by the program's instruction type:
   - **`InstructionCall`s**, which name their instruction by opcode, are
     matched once, when the job is given to the chain. When each instruction has
@@ -192,15 +193,15 @@ order:
     copies each batch with its opcodes replaced, into a buffer it keeps,
     and the program runs its own `x`, not the chain's instruction at that
     opcode
-    (`a_driver_whose_set_is_in_another_order_runs_its_own_instructions`,
+    (`a_program_whose_set_is_in_another_order_runs_its_own_instructions`,
     `each_call_runs_only_its_own_batch`); a call at an opcode the
     program's set lacks is refused, though the chain has one there, or an
     earlier call of the batch that the executor's set refuses, if there is
     one, as the executor alone would refuse it
-    (`a_call_outside_the_drivers_set_is_refused`,
+    (`a_call_outside_the_programs_set_is_refused`,
     `a_renumbered_batch_is_refused_at_its_first_call_outside`, and on the
     guide's code,
-    `the_code_in_a_drivers_numbering_refuses_calls_outside_the_drivers_set`).
+    `the_code_in_a_programs_numbering_refuses_calls_outside_the_programs_set`).
     A program that states no set is refused, since its opcodes cannot be
     checked
     (`a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal`).
@@ -214,15 +215,15 @@ order:
     and states that set as its needs, so its calls are in the chain's
     numbering and reach it as they are, as above; on the guide's code,
     they run as the program means them
-    (`a_driver_builds_its_calls_by_name_with_the_codes_set`).
+    (`a_program_builds_its_calls_by_name_with_the_codes_set`).
   - **A typed program**, whose instructions name themselves (an enum's
     variants), states its set in any order, and its calls reach the
     executor as they are, at no cost
-    (`a_typed_driver_in_another_order_runs_its_instructions_as_they_are`):
+    (`a_typed_program_in_another_order_runs_its_instructions_as_they_are`):
     its instruction type implements `TypedInstruction`, in one line. With
     no set stated on either side, the compiler checks that both run the
     same type
-    (`a_typed_driver_and_an_executor_that_describe_no_set_compose`).
+    (`a_typed_job_and_an_executor_that_describe_no_set_compose`).
   - **No other instruction type** composes (a compile error, which no
     test pins): the trait both implement, `Instruction`, is sealed, since
     another crate's type whose calls carry an opcode of its own could not
@@ -347,8 +348,8 @@ to drop the check, so every executor keeps it.
 - three executors doing the same work: of a Rust type, of calls by
   opcode, and of calls by mnemonic;
 - the representation of calls and replies;
-- a driver's calls against an executor called directly, in the
-  executor's numbering (as a driver's calls built by name with the
+- a program's calls against an executor called directly, in the
+  executor's numbering (as a program's calls built by name with the
   executor's set are) and in another, copied by the renumbering, in
   batches of many calls and of one;
 - an adapter composed with the toy's shots, its calls passed or copied at
@@ -380,14 +381,14 @@ From the guide [A run-time ISA: a code given as
 data](../guides.md#a-run-time-isa-a-code-given-as-data), in
 `tests/runtime_isa.rs` (the static guide's promises are in the table above):
 
-| Promise                                                                                                     | Tests                                                                                                                                          |
-| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| A logical call goes down as its gadget, each circuit readout with a fresh tag                               | `each_logical_call_goes_down_as_its_gadget`                                                                                                    |
-| The code offers a block per three qubits, and is refused on fewer than three                                | `the_code_offers_a_block_per_three_qubits`                                                                                                     |
-| The code is refused on a device that does not say how many qubits it has                                    | `a_device_that_does_not_say_how_many_qubits_it_has_is_refused_when_built`                                                                      |
-| A reply that ends before every circuit readout came up fails                                                | `a_logical_readout_missing_a_circuit_readout_fails_the_reply`                                                                                  |
-| A code with a fault is never resolved, whatever is downstream                                               | `a_logical_instruction_without_a_gadget_is_refused_when_built`                                                                                 |
-| The code describes the logical set, against which the chain upstream is checked                             | `the_code_describes_the_logical_set`                                                                                                           |
-| A driver whose set declares the logical instructions in another order runs its own instructions on the code | `a_driver_in_another_order_runs_its_own_instructions_on_the_code`                                                                              |
-| A call outside the logical set, or on a block the code does not have, is refused before anything goes down  | `a_call_outside_the_logical_set_is_refused_before_anything_goes_down`, `a_call_on_a_block_the_code_lacks_is_refused_before_anything_goes_down` |
-| The code draws nothing: each shot's log probability is the one the executor downstream states               | `the_code_passes_on_the_log_probability_of_the_executor_downstream`                                                                            |
+| Promise                                                                                                      | Tests                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| A logical call goes down as its gadget, each circuit readout with a fresh tag                                | `each_logical_call_goes_down_as_its_gadget`                                                                                                    |
+| The code offers a block per three qubits, and is refused on fewer than three                                 | `the_code_offers_a_block_per_three_qubits`                                                                                                     |
+| The code is refused on a device that does not say how many qubits it has                                     | `a_device_that_does_not_say_how_many_qubits_it_has_is_refused_when_built`                                                                      |
+| A reply that ends before every circuit readout came up fails                                                 | `a_logical_readout_missing_a_circuit_readout_fails_the_reply`                                                                                  |
+| A code with a fault is never resolved, whatever is downstream                                                | `a_logical_instruction_without_a_gadget_is_refused_when_built`                                                                                 |
+| The code describes the logical set, against which the chain upstream is checked                              | `the_code_describes_the_logical_set`                                                                                                           |
+| A program whose set declares the logical instructions in another order runs its own instructions on the code | `a_program_in_another_order_runs_its_own_instructions_on_the_code`                                                                             |
+| A call outside the logical set, or on a block the code does not have, is refused before anything goes down   | `a_call_outside_the_logical_set_is_refused_before_anything_goes_down`, `a_call_on_a_block_the_code_lacks_is_refused_before_anything_goes_down` |
+| The code draws nothing: each shot's log probability is the one the executor downstream states                | `the_code_passes_on_the_log_probability_of_the_executor_downstream`                                                                            |

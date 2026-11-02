@@ -69,7 +69,7 @@ use crate::{
 /// ```ignore
 /// let shots = ShotSet::range(0..=7).expect("not empty");
 /// let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-/// let (outcomes, _) = (interpreter() >> executor)
+/// let (outcomes, _) = (driver() >> executor)
 ///     .expect("nothing between to refuse")
 ///     .run(TossAgainOnOne, shots)
 ///     .expect("the executor has resumable shots, log probability, 8 shots")

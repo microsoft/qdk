@@ -2,18 +2,18 @@
 // Licensed under the MIT License.
 
 //! A program of fixed batches ([`StaticProgram`]), and how the crate's
-//! interpreter ([`DefaultInterpreter`]) runs it: each batch to every shot
-//! of the job, in order, so that a static program needs no driver code.
+//! driver ([`DefaultDriver`]) runs it: each batch to every shot of the job,
+//! in order, so that a static program is data, with no code of its own.
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt;
 
 #[cfg(doc)]
-use crate::{Capabilities, Chain, interpreter};
+use crate::{Capabilities, Chain, driver};
 use crate::{
-    DefaultInterpreter, Executor, Instruction, InstructionBatch, InstructionBatchRef, Interpret,
-    Needs, Rejected, ShotOutcome, ShotSet, wait_async,
+    DefaultDriver, Driver, Executor, Instruction, InstructionBatch, InstructionBatchRef, Needs,
+    Rejected, ShotOutcome, ShotSet, wait_async,
 };
 
 /// A program of fixed batches of `I`s, run in order on every shot, and
@@ -46,18 +46,19 @@ use crate::{
 /// no outcomes.
 ///
 /// Its outcomes are one list, told apart by shot and tag, so each tag
-/// names one readout in the whole program, not only within its batch (a
-/// driver's later batch may use a tag again, docs/replies.md, "Readout
-/// tags"; a static program's may not). A program of calls by opcode that
-/// repeats a tag is refused when it is given to a chain, at the repeat.
+/// names one readout in the whole program, not only within its batch (an
+/// adaptive program's later batch may use a tag again, docs/replies.md,
+/// "Readout tags"; a static program's may not). A program of calls by
+/// opcode that repeats a tag is refused when it is given to a chain, at
+/// the repeat.
 ///
 /// Known issue: a typed call holds its tags in fields of its own, which
 /// the crate cannot read, so a typed program that repeats a tag is not
 /// refused, and its outcomes under that tag are told apart only by their
 /// order. Its writer keeps its tags unique.
 ///
-/// It runs through the crate's interpreter, [`interpreter()`]:
-/// `(interpreter() >> executor)?.run(program, shots)`.
+/// It runs through the crate's driver, [`driver()`]:
+/// `(driver() >> executor)?.run(program, shots)`.
 #[derive(Clone, Debug)]
 pub struct StaticProgram<I> {
     needs: Needs,
@@ -72,7 +73,7 @@ impl<I> StaticProgram<I> {
     }
 }
 
-/// A [`StaticProgram`], run by the crate's interpreter.
+/// A [`StaticProgram`], run by the crate's driver.
 ///
 /// It sends each batch to every shot in one call, and waits for the call's
 /// reply to end before it sends the next. It awaits each reply, so a run
@@ -82,7 +83,7 @@ impl<I> StaticProgram<I> {
 /// or that fails, it stops and sends no later batch: it gives that batch
 /// and why ([`StaticProgramError`]), the outcomes of earlier batches
 /// dropped. A program of no batches sends no call and gives no outcomes.
-impl<I: Instruction> Interpret<StaticProgram<I>> for DefaultInterpreter {
+impl<I: Instruction> Driver<StaticProgram<I>> for DefaultDriver {
     type Instruction = I;
     type Output = Result<Vec<ShotOutcome>, StaticProgramError>;
 
@@ -149,7 +150,7 @@ impl<I: Instruction> Interpret<StaticProgram<I>> for DefaultInterpreter {
         faults
     }
 
-    async fn interpret<E>(
+    async fn drive<E>(
         &self,
         program: StaticProgram<I>,
         executor: &mut E,

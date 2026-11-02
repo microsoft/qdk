@@ -3,7 +3,7 @@
 
 use crate::{
     Capabilities, Describe, JobFaults, Need, Needs, OnePerShot, Outcome, Outcomes, ProgramInput,
-    Rejected, StaticProgram, executor_fn, interpreter,
+    Rejected, StaticProgram, driver, executor_fn,
 };
 
 /// A component that states nothing states no limit, any number of qubits
@@ -42,7 +42,7 @@ fn an_executor_that_states_no_resumable_shots_is_refused_a_job_that_continues_a_
         },
     )
     .shots(OnePerShot);
-    let chain = (interpreter() >> simulator).expect("the simulator takes bools");
+    let chain = (driver() >> simulator).expect("the simulator takes bools");
     let program = StaticProgram::new(Needs::default(), vec![vec![true], vec![true]]);
     let Err(JobFaults(faults)) = chain.run(program, 0..2) else {
         panic!("a job that continues a shot must be refused");
