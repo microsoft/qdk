@@ -184,7 +184,7 @@ where
         self.sinks.clear();
         let mut wanted: SmallVec<[usize; 1]> = SmallVec::new();
         for ins in instructions {
-            let call = self.decode_instruction(ins)?;
+            let call = self.parse_instruction(ins)?;
             let needs_result = self.plan.upper_needs_result[call.index];
             let sink = self.execute_one(call)?;
             if needs_result {
@@ -202,7 +202,7 @@ where
 
     // ── Decoding an incoming instruction (pure) ─────────────────────────────
 
-    fn decode_instruction(&self, ins: &BackendInstruction<Id, P>) -> LayerResult<Call, B::Error> {
+    fn parse_instruction(&self, ins: &BackendInstruction<Id, P>) -> LayerResult<Call, B::Error> {
         let index = ins.instruction_id.index();
         let instruction = self
             .plan
@@ -930,10 +930,13 @@ struct PreparedInvocation {
     placement: FxHashMap<String, u64>,
 }
 
-/// A decoded `BackendInstruction`.
+/// A parsed `BackendInstruction`.
 struct Call {
+    /// Instruction's index into the ISA it belongs to.
     index: usize,
+    /// The block ids the instruction acts on.
     operands: Vec<u64>,
+    /// Parameters of the instruction.
     args: BTreeMap<String, Argument>,
 }
 
