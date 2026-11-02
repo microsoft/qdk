@@ -257,14 +257,7 @@ fn plain_functions_are_passed_by_name() {
         .expect("the batch runs");
     let mut outcomes = Vec::new();
     wait(reply, &mut outcomes).expect("the logic does not fail");
-    assert_eq!(
-        outcomes,
-        [ShotOutcome {
-            shot: 0,
-            tag: 0,
-            value: Value::One
-        }]
-    );
+    assert_eq!(outcomes, [ShotOutcome::new(0, 0, Value::One)]);
 }
 
 /// Data every call needs, here a device whose readout is inverted: held

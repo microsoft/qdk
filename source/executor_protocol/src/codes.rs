@@ -1,22 +1,24 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The fixed codes of rejections, retry classes, needs and values.
+//! The fixed codes of rejections, retry classes, needs, values and shot
+//! conditions.
 //!
-//! A code is how two ends of a link name a reason, a class, a need or a value,
-//! so once an end is deployed a code keeps its meaning, and a new meaning gets
-//! a new code, never one used before. Every code is written out here, never
-//! derived from an enum's order, so reordering a type cannot change what
-//! crosses a link. No link exists yet (L1 and L0 are planned, for an executor
-//! across a network: a device behind a cloud service, a simulator on another
-//! machine): the codes are fixed now so that the first deployed ends agree.
+//! A code is how two ends of a link name a reason, a class, a need, a value
+//! or a set of conditions, so once an end is deployed a code keeps its
+//! meaning, and a new meaning gets a new code, never one used before. Every
+//! code is written out here, never derived from an enum's order or a type's
+//! representation, so changing a type cannot change what crosses a link. No
+//! link exists yet (L1 and L0 are planned, for an executor across a network:
+//! a device behind a cloud service, a simulator on another machine): the
+//! codes are fixed now so that the first deployed ends agree.
 //! The `_of` functions decode a code and return `None` for one they do not
 //! know; there is no decoder of reason codes yet (planned, for a far end
 //! deployed at a newer version than this end), and one should map an unknown
 //! reason to [`Rejected::Unrecognized`], keeping the far end's retry class and
 //! text.
 
-use crate::{ErrorKind, Need, Rejected, RetryClass, Value};
+use crate::{ErrorKind, Need, Rejected, RetryClass, ShotConditions, Value};
 
 /// The code of `rejected`'s reason. [`Rejected::Unrecognized`] has 255: it is
 /// relayed as it came, with no reason of this end.
@@ -113,4 +115,34 @@ pub fn value_of(code: u8) -> Option<Value> {
         3 => Value::Error(ErrorKind::Other),
         _ => return None,
     })
+}
+
+/// The code of a shot's conditions, a bit for each: `1` rejected, `2`
+/// inconsistent, `4` unresolved; `0` for none.
+#[must_use]
+pub fn conditions_code(conditions: ShotConditions) -> u8 {
+    u8::from(conditions.contains(ShotConditions::REJECTED))
+        | u8::from(conditions.contains(ShotConditions::INCONSISTENT)) << 1
+        | u8::from(conditions.contains(ShotConditions::UNRESOLVED)) << 2
+}
+
+/// The conditions of `code`, the inverse of [`conditions_code`]; `None` for a
+/// code with a bit this end does not know.
+#[must_use]
+pub fn conditions_of(code: u8) -> Option<ShotConditions> {
+    if code & !0b111 != 0 {
+        return None;
+    }
+    let of = |bit: u8, condition| {
+        if code & bit == 0 {
+            ShotConditions::NONE
+        } else {
+            condition
+        }
+    };
+    Some(
+        of(1, ShotConditions::REJECTED)
+            | of(2, ShotConditions::INCONSISTENT)
+            | of(4, ShotConditions::UNRESOLVED),
+    )
 }

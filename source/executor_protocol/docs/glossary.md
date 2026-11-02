@@ -251,7 +251,8 @@ what they belong to; the names in code are the crate's.
   `IncrementalReply`, filled through its `ReplySender`, when it runs
   elsewhere ([Replies](replies.md#replies-one-reply-four-ways-to-take-it)).
 - **Outcome** (`ShotOutcome`): an event of a reply, a value under its shot
-  and the tag the batch gave its readout. An executor that reports by tag
+  and the tag the batch gave its readout, marked with the shot's conditions
+  so far. An executor that reports by tag
   refuses a tag repeated within a batch, by calling `check_unique_tags`
   ([Readout tags](replies.md#readout-tags)). A shot's outcomes come in the
   order its executor gives them, not sorted by tag: the shot's measurement
@@ -259,6 +260,13 @@ what they belong to; the names in code are the crate's.
   a consumer matches each readout by its tag; the order across shots
   carries no meaning, so two builds are compared shot by shot
   ([The order of a reply's events](internals/replies.md#the-order-of-a-replys-events)).
+- **Conditions** (`ShotConditions`): what a component found on a shot
+  without ending it, any of rejected, inconsistent and unresolved. They
+  are the shot's, not a readout's: each outcome carries its shot's
+  conditions so far, an `adapter_fn` merges those raised below with its
+  own and marks its outcomes with them, and a caller takes a shot's as the
+  union of those its outcomes carry
+  ([Shot conditions](replies.md#shot-conditions)).
 - **Wake**: a reply wakes its waiting caller when it can make progress; an
   `IncrementalReply` wakes it at most once per sleep, however many events
   arrive

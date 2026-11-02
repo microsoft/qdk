@@ -27,7 +27,9 @@ section states the protocol's rules that the other pages build on.
   reply carries. There is one: an `InstructionBatch`, a list of instructions
   run in order on each shot of a set of shots (`ShotSet`), each shot's state
   carrying over from the batches before it. Its events are `ShotOutcome`s, a
-  value under the shot and the tag the batch gave the readout. One shot is a
+  value under the shot and the tag the batch gave the readout, marked with
+  the shot's conditions so far
+  ([Shot conditions](../replies.md#shot-conditions)). One shot is a
   set of one: an executor that holds one shot's state is called with that
   shot alone, and refuses another (`Rejected::ShotNotHeld`).
 - An **executor** (`Executor<M>`) accepts one message kind; an **adapter**
@@ -103,16 +105,19 @@ section states the protocol's rules that the other pages build on.
   log probability where it is known (`ExecutorReport`, `LogP`). The rules
   that the compiler cannot check are
   [conformance checks](../composition.md#conformance-checks).
-- **Codes** (`reason_code`, `need_code`, `value_code`, `retry_code`) give the
-  fixed numbers by which a refusal, its retry class, a need and a value cross
-  a link. Once an end is deployed, a code keeps its meaning: a new meaning
-  gets a new code, never one used before, and each code is written out,
-  never derived from an enum's order (`reason_codes_are_fixed`,
+- **Codes** (`reason_code`, `need_code`, `value_code`, `retry_code`,
+  `conditions_code`) give the fixed numbers by which a refusal, its retry
+  class, a need, a value and a shot's conditions cross a link. Once an end
+  is deployed, a code keeps its meaning: a new meaning gets a new code,
+  never one used before, and each code is written out, never derived from
+  an enum's order or a type's representation (`reason_codes_are_fixed`,
   `need_codes_are_fixed_and_decode_back`,
   `retry_codes_are_fixed_and_decode_back`,
-  `value_codes_are_fixed_and_decode_back`, `src/tests/codes.rs`). A
-  decoder (`need_of`, `retry_of`, `value_of`) returns `None` for a code it
-  does not know (`an_unknown_code_decodes_to_nothing`).
+  `value_codes_are_fixed_and_decode_back`,
+  `conditions_codes_are_fixed_and_decode_back`, `src/tests/codes.rs`). A
+  decoder (`need_of`, `retry_of`, `value_of`, `conditions_of`) returns
+  `None` for a code it does not know (`an_unknown_code_decodes_to_nothing`,
+  `a_conditions_code_with_an_unknown_bit_decodes_to_nothing`).
 
 ## Levels, roles and laws
 
@@ -691,19 +696,6 @@ existing tool does, beside its readout tags
 (`tests/existing_tool/bridge.rs`); a chain of a code's adapter over two
 devices, all made with the facilities, would re-check in every `.check`
 the set each part promised.
-
-### No status on an outcome
-
-A status that a component below gives an outcome is planned, with no
-milestone yet, for a code's runtime that marks a readout unresolved
-(Qodec's `unresolved`), and the adapter above that merges it into the
-logical outcome it decodes. `ShotOutcome` has room for it: it is
-non-exhaustive, so another crate makes one with `ShotOutcome::new`
-(`tests/static_isa/repetition_fn.rs`) and matches it with
-`ShotOutcome { shot, tag, value, .. }`, and a field added later breaks
-neither (the examples of `ShotOutcome`'s rustdoc). `Outcome`, the readout
-a logic pushes, has room for it too: it is non-exhaustive, made with
-`Outcome::new` (`tests/toy/simulator.rs`).
 
 ### A failure fails the whole executor
 

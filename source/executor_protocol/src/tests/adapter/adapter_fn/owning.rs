@@ -139,7 +139,7 @@ impl Executor<InstructionBatch<bool>> for Downstream {
             for (tag, _) in batch.instructions.iter().enumerate().filter(|(_, r)| **r) {
                 let tag = u32::try_from(tag).expect("a batch of the tests is short");
                 let value = Value::from(shot % 2 == 1);
-                read.push(ShotOutcome { shot, tag, value });
+                read.push(ShotOutcome::new(shot, tag, value));
             }
         }
         if self.failing.is_some_and(|j| batch.shots.contains(&j)) {

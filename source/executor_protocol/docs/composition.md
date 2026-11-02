@@ -178,6 +178,14 @@ own tests:
   second call continues a shot, `continues_a_shot_from_one_call_to_the_next`,
   and changes no shot it does not name,
   `changes_no_shot_a_call_does_not_name`);
+- that of a shot's conditions: each outcome of a shot carries every
+  condition its outcomes in earlier calls carried
+  (`keeps_each_shots_conditions_from_one_call_to_the_next`); and the checks
+  of a shot alone, of the shots a call does not name and of a new
+  executor compare each outcome's conditions with its value, so that a
+  condition raised on one shot marks no other's outcomes, and a new
+  executor's shots start without the conditions an earlier executor left
+  ([Shot conditions](replies.md#shot-conditions));
 - that a new executor starts its shots as made, whatever an earlier one
   left, closed or dropped
   (`starts_its_shots_as_made_whatever_an_earlier_executor_left`), a rule

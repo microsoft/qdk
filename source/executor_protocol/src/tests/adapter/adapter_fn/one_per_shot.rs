@@ -961,11 +961,12 @@ fn a_refused_call_leaves_the_kept_states_as_its_logic_left_them() {
     assert_eq!(counts.borrow()[&5], 3, "the refused call counted");
 }
 
-/// A profiler on shots 2 and 5 that keeps what each send returns, shot 2
-/// refused below: every send returns `Ok`, since nothing goes down until
-/// every shot's logic ran, and the call is refused all the same.
+/// A profiler on shots 2 and 5 that keeps what each send returns, and
+/// runs nothing, shot 2 refused below: every send returns `Ok`, as the
+/// shots' sends go below merged once both shots' logic ran, and the call
+/// is refused all the same.
 #[test]
-fn a_send_returns_ok_since_nothing_goes_down_until_every_shot_ran() {
+fn a_send_returns_ok_though_the_merged_call_it_goes_down_in_is_refused() {
     let returned = Rc::new(RefCell::new(Vec::new()));
     let keeping = {
         let returned = Rc::clone(&returned);

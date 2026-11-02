@@ -542,7 +542,12 @@ pub trait Reply {
 pub enum ReplyStatus { Pending, Done, Failed(String), Cancelled }
 pub struct InstructionBatchRef<'a, I> { pub shots: &'a ShotSet, pub instructions: &'a [I] }
 #[non_exhaustive]
-pub struct ShotOutcome { pub shot: ShotId, pub tag: u32, pub value: Value }
+pub struct ShotOutcome {
+    pub shot: ShotId,
+    pub tag: u32,
+    pub value: Value,
+    pub conditions: ShotConditions,
+}
 pub trait Adapter {
     type Accepts: Instruction;
     type Sends: Instruction;
@@ -560,8 +565,10 @@ pub trait Apply<E>: Adapter {
 - An executor is an `Executor<InstructionBatch<I>>`, a `Describe` and a
   `Close`: a call is an `InstructionBatchRef`
   ([one message](#one-message-and-levels)), each event a `ShotOutcome`,
-  made with `ShotOutcome::new`. `ExecutorLifecycle` keeps for it the rules
-  of failure and close
+  made with `ShotOutcome::new`, which gives it no condition, and
+  `.with_conditions(..)` for its shot's conditions
+  ([Shot conditions](docs/replies.md#shot-conditions)). `ExecutorLifecycle`
+  keeps for it the rules of failure and close
   ([An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)),
   and its reply can be the crate's `ImmediateReply` or `IncrementalReply`
   ([Replies](#replies)).
@@ -602,6 +609,12 @@ run on a thread of their own, each shot's reply may wake the caller, so a
 batch of n shots costs its caller O(n²) polls of shots
 ([Performance](docs/performance.md#shots-on-placements-of-their-own)).
 
+Each outcome carries its shot's conditions so far (rejected, inconsistent,
+unresolved): what a component found on the shot without ending it. An
+`adapter_fn` merges those raised below it with its own and marks its
+outcomes with them, with no code in its logic
+([Shot conditions](docs/replies.md#shot-conditions)).
+
 ## One message, and levels
 
 There is one message, an `InstructionBatch`: instructions run in order on
@@ -631,16 +644,16 @@ pins it lists.
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Composition](docs/composition.md)                                         | Putting parts together: composing a run with `>>`, a chain and its job, what is checked and when, the conformance checks, chains for several users                                                                              |
 | [Composition: the detailed rules](docs/internals/composition.md)           | For maintainers: what the crate does, levels, roles and laws, how adapters compose, the rules of composition with every boundary of calls by opcode and its cost, the executor form, a job's rules, the known limits            |
-| [Adapters](docs/adapters.md)                                               | Writing an adapter: choosing a way, `adapter_fn` and what its logic may do, a state per shot, seeds, reports, `owning_adapter_fn`, an adapter written by hand, refusals and failures                                            |
+| [Adapters](docs/adapters.md)                                               | Writing an adapter: choosing a way, `adapter_fn` and what its logic may do, a state per shot, seeds, reports, `owning_adapter_fn`, an adapter written by hand, refusals and failures, the shot conditions it takes in and keeps |
 | [Adapters: the detailed rules](docs/internals/adapters.md)                 | For maintainers: the order of a run's readouts, failures in detail, drops over a placed executor, the merging of a state per shot's sends, the conformance kit, the owning way below, what a state depends on                   |
 | [Executors](docs/executors.md)                                             | Writing an executor: capabilities and needs, `executor_fn`, how it holds its shots and where it runs, an executor's life, an executor written by hand, seeds                                                                    |
 | [Executors: the detailed rules](docs/internals/executors.md)               | For maintainers: adding a capability, the rules of `executor_fn`, a state per shot and a placed executor, the order of `.shots` and `.run_on`, close and failure, the ensemble executor, the seeds' derivation                  |
 | [Instruction sets](docs/instruction-sets.md)                               | Describing and matching instructions: a static set, a run-time set, what an instruction does, compatibility, the three checks, and how applications use them                                                                    |
 | [Instruction sets: the detailed rules](docs/internals/instruction-sets.md) | For maintainers: calls and replies that allocate nothing, when two actions are the same, compatibility in full with renumbering and its costs, the three checks with their errors and the conformance check of calls            |
-| [Replies](docs/replies.md)                                                 | Taking and making replies: the execution models, one `Reply` and four ways to take it, `ImmediateReply` and `IncrementalReply`, how a reply ends, the waking model, readout tags                                                |
-| [Replies: the detailed rules](docs/internals/replies.md)                   | For maintainers: the order of a reply's events, the two replies and their ends in detail, the waking cycle step by step, `wait`'s park, several calls in flight, async tasks, the tests' runtimes, readout tags' tests and cost |
+| [Replies](docs/replies.md)                                                 | Taking and making replies: the execution models, one `Reply` and four ways to take it, `ImmediateReply` and `IncrementalReply`, how a reply ends, the waking model, readout tags, shot conditions                               |
+| [Replies: the detailed rules](docs/internals/replies.md)                   | For maintainers: the order of a reply's events, both replies and their ends in detail, the waking cycle step by step, `wait`'s park, several calls in flight, async tasks, the tests' runtimes, readout tags, shot conditions   |
 | [Rejections and retries](docs/rejections.md)                               | What a rejection says, retry classes, and the planned at-most-once resend over a link                                                                                                                                           |
 | [Guide walkthroughs](docs/guides.md)                                       | The guide tests explained, with sequence diagrams of the repetition code's call and of the debugger's step                                                                                                                      |
-| [Performance](docs/performance.md)                                         | What the protocol adds to an executor's own work, by batch size; shots on placements of their own                                                                                                                               |
+| [Performance](docs/performance.md)                                         | What the protocol adds to an executor's own work, by batch size; shots on placements of their own; what shot conditions cost                                                                                                    |
 | [Planned features](docs/planned.md)                                        | What will be added, each with a case that needs it and what to do until then                                                                                                                                                    |
 | [Glossary](docs/glossary.md)                                               | The terms of these pages, each in a sentence or two, with the section that details it                                                                                                                                           |

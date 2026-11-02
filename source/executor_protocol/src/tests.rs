@@ -179,11 +179,7 @@ fn allocations(f: impl FnOnce()) -> usize {
 
 /// Shot `shot`'s readout `tag`, of One.
 fn outcome(shot: ShotId, tag: u32) -> ShotOutcome {
-    ShotOutcome {
-        shot,
-        tag,
-        value: Value::One,
-    }
+    ShotOutcome::new(shot, tag, Value::One)
 }
 
 /// A reply that counts how often it is polled.
@@ -576,7 +572,7 @@ impl Executor<InstructionBatch<InstructionCall>> for BitsState {
         let outcomes = self.run(batch.instructions)?;
         Ok(ImmediateReply::done(
             (outcomes.into_iter())
-                .map(|(tag, value)| ShotOutcome { shot, tag, value })
+                .map(|(tag, value)| ShotOutcome::new(shot, tag, value))
                 .collect(),
         ))
     }
@@ -661,7 +657,7 @@ impl Executor<InstructionBatch<InstructionCall>> for SharedState {
                 .shots
                 .iter()
                 .flat_map(|&shot| {
-                    (outcomes.iter()).map(move |&(tag, value)| ShotOutcome { shot, tag, value })
+                    (outcomes.iter()).map(move |&(tag, value)| ShotOutcome::new(shot, tag, value))
                 })
                 .collect(),
         ))
@@ -975,6 +971,7 @@ mod adapter;
 mod capabilities;
 mod codes;
 mod compose;
+mod conditions;
 mod conformance;
 mod driver;
 mod executor;

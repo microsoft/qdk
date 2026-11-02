@@ -20,6 +20,7 @@ use crate::conformance::{
     continues_a_shot_from_one_call_to_the_next, default_is_empty,
     ends_calls_in_flight_at_an_earlier_failure, folds_in_any_order,
     gives_each_shot_alone_what_it_gives_among_others,
+    keeps_each_shots_conditions_from_one_call_to_the_next,
     refuses_a_repeated_tag_at_the_index_of_its_instruction, refuses_a_tag_repeated_within_a_batch,
     refuses_calls_after_a_failure, refuses_calls_outside_its_set, rejects_calls_once_closed,
     reports_once, starts_its_shots_as_made_whatever_an_earlier_executor_left,
@@ -28,8 +29,8 @@ use crate::reply::CANCELLATION;
 use crate::{
     Close, Executor, ExecutorLifecycle, Fold, ImmediateReply, IncrementalReply, InstructionBatch,
     InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, Operand,
-    OperandKind, Rejected, Reply, ReplyStatus, ShotId, ShotOutcome, ShotSet, check_unique_tags,
-    reply_channel,
+    OperandKind, Rejected, Reply, ReplyStatus, ShotConditions, ShotId, ShotOutcome, ShotSet,
+    check_unique_tags, reply_channel,
 };
 
 use super::{Count, SharedState, bits_set, flip_and_toss, on_shot_0, shots};
@@ -693,11 +694,7 @@ impl Executor<InstructionBatch<bool>> for TestDoubleEndsLaterCalls {
             match self.later {
                 LaterReply::FailsNamingAnother => sender.fail("another failure".into()),
                 LaterReply::HandsOverAReadout => {
-                    sender.push(ShotOutcome {
-                        shot: 0,
-                        tag: 0,
-                        value: true.into(),
-                    });
+                    sender.push(ShotOutcome::new(0, 0, true.into()));
                     sender.fail("an earlier call failed: the device stopped".into());
                 }
                 LaterReply::Cancelled => sender.cancel(),
@@ -1770,11 +1767,9 @@ impl Executor<InstructionBatch<Readout>> for TestDoubleWithAFaultyTagCheck {
         }
         let outcomes = (shots.iter())
             .flat_map(|&shot| {
-                batch.iter().map(move |&tag| ShotOutcome {
-                    shot,
-                    tag,
-                    value: false.into(),
-                })
+                batch
+                    .iter()
+                    .map(move |&tag| ShotOutcome::new(shot, tag, false.into()))
             })
             .collect();
         Ok(ImmediateReply::done(outcomes))
@@ -2232,6 +2227,10 @@ enum BitStep {
     /// Reads the complement of the shot's bit, under a tag: another
     /// readout than `Read`'s, of the same bit, the shot's only one.
     ReadInverted(u32),
+    /// Rejects an odd-numbered shot: raises [`ShotConditions::REJECTED`]
+    /// on it, which its readouts carry from then on; does nothing on an
+    /// even one.
+    RejectIfOdd,
 }
 
 impl BitStep {
@@ -2309,11 +2308,29 @@ enum BitsBehaviour {
     /// It keeps both, but refuses a batch at a readout that repeats an
     /// earlier readout, step for step, not at one that repeats its tag.
     RefusesARepeatedReadout,
+    /// It keeps both, but forgets its shots' conditions at every call.
+    ForgetsConditions,
+    /// It keeps both, but raises a condition raised on one shot of a call
+    /// on every shot of the call, and on their readouts (a layer that
+    /// marks the shots of a call as one).
+    RaisesOnEveryShotOfTheCall,
+    /// It keeps both, but raises a condition raised in a call on every
+    /// shot it holds, after the call (a layer that marks every state it
+    /// holds).
+    RaisesOnEveryShotItHolds,
+    /// It keeps both, but gives a shot's conditions on the shot's last
+    /// readout of a call alone (a layer that marks what its sends read,
+    /// but not what its logic wrote before them in its reply).
+    MarksTheLastReadoutOfAShotAlone,
 }
 
-/// The bit and the draws of each shot of a device that several
-/// [`TestDoubleOfBits`] run on, one after another.
-type Device = Rc<RefCell<BTreeMap<ShotId, (bool, u32)>>>;
+/// A shot of a [`TestDoubleOfBits`]: its bit, the draws its tosses made,
+/// and its conditions.
+type ShotOfBits = (bool, u32, ShotConditions);
+
+/// The shots of a device that several [`TestDoubleOfBits`] run on, one
+/// after another.
+type Device = Rc<RefCell<BTreeMap<ShotId, ShotOfBits>>>;
 
 /// An executor of a bit per shot, which offers `replayable` and `feedback`
 /// and may break one of them, or start its shots from a device that an
@@ -2323,8 +2340,8 @@ type Device = Rc<RefCell<BTreeMap<ShotId, (bool, u32)>>>;
 /// [`BitsBehaviour::RefusesARepeatAtTheIndexOfItsReadout`].
 struct TestDoubleOfBits {
     behaviour: BitsBehaviour,
-    /// Each shot's bit and the draws its tosses made.
-    shots: BTreeMap<ShotId, (bool, u32)>,
+    /// Each shot's bit, the draws its tosses made, and its conditions.
+    shots: BTreeMap<ShotId, ShotOfBits>,
     /// The draws of all the shots, for [`BitsBehaviour::SharesItsDraws`].
     shared: u32,
     /// The bit a new shot starts with, for
@@ -2436,6 +2453,53 @@ impl TestDoubleOfBits {
             _ => named.to_vec(),
         }
     }
+
+    /// Forgets, as a call starts, what its behaviour forgets: its shots,
+    /// all but shot 0's, or their conditions.
+    fn forget_at_call(&mut self) {
+        match self.behaviour {
+            BitsBehaviour::RestartsItsShots => self.shots.clear(),
+            BitsBehaviour::KeepsOnlyShot0 => self.shots.retain(|&shot, _| shot == 0),
+            BitsBehaviour::ForgetsConditions => {
+                for (_, _, conditions) in self.shots.values_mut() {
+                    *conditions = ShotConditions::NONE;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Raises `raised`, the conditions raised in a call on the shots
+    /// `named`, on the shots its behaviour spreads them to, and on the
+    /// call's `outcomes` when it marks them all.
+    fn spread(&mut self, named: &[ShotId], raised: ShotConditions, outcomes: &mut [ShotOutcome]) {
+        let raise_on = |shot: &ShotId| match self.behaviour {
+            BitsBehaviour::RaisesOnEveryShotOfTheCall => named.contains(shot),
+            BitsBehaviour::RaisesOnEveryShotItHolds => true,
+            _ => false,
+        };
+        for (_, (_, _, conditions)) in self.shots.iter_mut().filter(|(shot, _)| raise_on(shot)) {
+            *conditions |= raised;
+        }
+        if self.behaviour == BitsBehaviour::RaisesOnEveryShotOfTheCall {
+            for outcome in outcomes {
+                outcome.conditions |= raised;
+            }
+        }
+    }
+
+    /// Clears the conditions of each shot's readouts of the call but its
+    /// last, when its behaviour marks the last alone.
+    fn clear_earlier_readouts(&self, outcomes: &mut [ShotOutcome]) {
+        if self.behaviour == BitsBehaviour::MarksTheLastReadoutOfAShotAlone {
+            let mut later = BTreeSet::new();
+            for outcome in outcomes.iter_mut().rev() {
+                if !later.insert(outcome.shot) {
+                    outcome.conditions = ShotConditions::NONE;
+                }
+            }
+        }
+    }
 }
 
 impl Close for TestDoubleOfBits {
@@ -2457,11 +2521,8 @@ impl Executor<InstructionBatch<BitStep>> for TestDoubleOfBits {
 
     fn call(&mut self, batch: InstructionBatchRef<'_, BitStep>) -> Result<Self::Reply, Rejected> {
         self.check(batch.instructions)?;
-        match self.behaviour {
-            BitsBehaviour::RestartsItsShots => self.shots.clear(),
-            BitsBehaviour::KeepsOnlyShot0 => self.shots.retain(|&shot, _| shot == 0),
-            _ => {}
-        }
+        self.forget_at_call();
+        let mut raised = ShotConditions::NONE;
         let mut outcomes = Vec::new();
         let named = batch.shots.as_slice();
         let joins = named.iter().any(|shot| !self.shots.contains_key(shot));
@@ -2479,7 +2540,7 @@ impl Executor<InstructionBatch<BitStep>> for TestDoubleOfBits {
         }
         if self.behaviour == BitsBehaviour::CopiesNewShotsFromATemplateItChanges {
             for &shot in named {
-                self.shots.entry(shot).or_insert((self.template, shot));
+                (self.shots.entry(shot)).or_insert((self.template, shot, ShotConditions::NONE));
             }
             for step in batch.instructions {
                 match *step {
@@ -2488,13 +2549,15 @@ impl Executor<InstructionBatch<BitStep>> for TestDoubleOfBits {
                     BitStep::Toss
                     | BitStep::Read(_)
                     | BitStep::ReadIfOdd(_)
-                    | BitStep::ReadInverted(_) => {}
+                    | BitStep::ReadInverted(_)
+                    | BitStep::RejectIfOdd => {}
                 }
             }
         }
         for shot in self.runs_on(named) {
             let first = outcomes.len();
-            let (bit, draws) = self.shots.entry(shot).or_insert((false, shot));
+            let (bit, draws, conditions) =
+                (self.shots.entry(shot)).or_insert((false, shot, ShotConditions::NONE));
             for step in batch.instructions {
                 match *step {
                     BitStep::Flip => *bit = !*bit,
@@ -2508,22 +2571,20 @@ impl Executor<InstructionBatch<BitStep>> for TestDoubleOfBits {
                         *bit = *draw % 2 == 1;
                         *draw += 1;
                     }
-                    BitStep::Read(tag) => outcomes.push(ShotOutcome {
-                        shot,
-                        tag,
-                        value: (*bit).into(),
-                    }),
-                    BitStep::ReadIfOdd(tag) if shot % 2 == 1 => outcomes.push(ShotOutcome {
-                        shot,
-                        tag,
-                        value: (*bit).into(),
-                    }),
-                    BitStep::ReadIfOdd(_) => {}
-                    BitStep::ReadInverted(tag) => outcomes.push(ShotOutcome {
-                        shot,
-                        tag,
-                        value: (!*bit).into(),
-                    }),
+                    BitStep::Read(tag) => outcomes.push(
+                        ShotOutcome::new(shot, tag, (*bit).into()).with_conditions(*conditions),
+                    ),
+                    BitStep::ReadIfOdd(tag) if shot % 2 == 1 => outcomes.push(
+                        ShotOutcome::new(shot, tag, (*bit).into()).with_conditions(*conditions),
+                    ),
+                    BitStep::ReadInverted(tag) => outcomes.push(
+                        ShotOutcome::new(shot, tag, (!*bit).into()).with_conditions(*conditions),
+                    ),
+                    BitStep::RejectIfOdd if shot % 2 == 1 => {
+                        *conditions |= ShotConditions::REJECTED;
+                        raised |= ShotConditions::REJECTED;
+                    }
+                    BitStep::ReadIfOdd(_) | BitStep::RejectIfOdd => {}
                 }
             }
             if self.behaviour == BitsBehaviour::ReadsBackwardsAmongOthers && batch.shots.len() > 1 {
@@ -2531,6 +2592,8 @@ impl Executor<InstructionBatch<BitStep>> for TestDoubleOfBits {
             }
         }
         outcomes.retain(|outcome| named.contains(&outcome.shot));
+        self.spread(named, raised, &mut outcomes);
+        self.clear_earlier_readouts(&mut outcomes);
         let mut sorted = batch.shots.as_slice().to_vec();
         sorted.sort_unstable();
         let name: BTreeMap<ShotId, ShotId> = match self.behaviour {
@@ -2633,6 +2696,24 @@ fn gives_each_shot_alone_what_it_gives_among_others_catches_shots_named_as_if_co
         || TestDoubleOfBits::new(BitsBehaviour::NamesShotsAsIfContiguous),
         &shots(&[0, 1, 2, 3]),
         &[&[BitStep::Toss, BitStep::Read(0)]],
+    );
+}
+
+/// An executor that raises a condition raised on one shot of a call on
+/// every shot of the call, as a layer that marks a call's shots as one,
+/// gives its shots' own readouts, but marks the even shots rejected when
+/// they share a call with an odd one: alone, they are not. The check
+/// compares the conditions with the readouts, and names both.
+#[test]
+#[should_panic(
+    expected = "each shot alone must give what it gives among the shots [0, 1, 2, 3], but it \
+                gives otherwise on shots 0, 2"
+)]
+fn gives_each_shot_alone_what_it_gives_among_others_catches_a_condition_raised_on_other_shots() {
+    gives_each_shot_alone_what_it_gives_among_others(
+        || TestDoubleOfBits::new(BitsBehaviour::RaisesOnEveryShotOfTheCall),
+        &shots(&[0, 1, 2, 3]),
+        &[&[BitStep::Toss, BitStep::RejectIfOdd, BitStep::Read(0)]],
     );
 }
 
@@ -2746,6 +2827,64 @@ fn gives_each_shot_alone_what_it_gives_among_others_catches_a_reply_that_drops_w
         || TestDoubleReplacesWhatTheCallerHeld(TestDoubleOfBits::new(BitsBehaviour::Sound)),
         &shots(&[0, 1, 2]),
         &[&[BitStep::Toss, BitStep::Read(0)]],
+    );
+}
+
+/// A reply that marks the outcomes of the shots it flags with their
+/// conditions from the start of the caller's buffer, rather than from
+/// where its own events begin.
+struct MarksWhatTheCallerHeld(ImmediateReply<ShotOutcome>);
+
+impl Reply for MarksWhatTheCallerHeld {
+    type Item = ShotOutcome;
+
+    fn poll_events(&mut self, out: &mut Vec<ShotOutcome>, waker: &Waker) -> ReplyStatus {
+        let from = out.len();
+        let status = self.0.poll_events(out, waker);
+        let flagged: BTreeMap<ShotId, ShotConditions> = out[from..]
+            .iter()
+            .filter(|o| !o.conditions.is_empty())
+            .map(|o| (o.shot, o.conditions))
+            .collect();
+        for outcome in out.iter_mut() {
+            if let Some(&conditions) = flagged.get(&outcome.shot) {
+                outcome.conditions |= conditions;
+            }
+        }
+        status
+    }
+}
+
+/// A [`TestDoubleOfBits`] that keeps its promises, but whose replies mark
+/// the outcomes the caller held of the shots they flag.
+struct TestDoubleMarksWhatTheCallerHeld(TestDoubleOfBits);
+
+impl Executor<InstructionBatch<BitStep>> for TestDoubleMarksWhatTheCallerHeld {
+    type Reply = MarksWhatTheCallerHeld;
+
+    fn call(&mut self, batch: InstructionBatchRef<'_, BitStep>) -> Result<Self::Reply, Rejected> {
+        (self.0.call(batch)).map(MarksWhatTheCallerHeld)
+    }
+}
+
+/// A driver that gathers a shot's readouts of several calls in one buffer
+/// finds its earlier readouts of shot 1, the one the executor rejects and
+/// not the first of the call, marked by a later reply: the checks that
+/// read readouts hold an outcome of each shot the call names, so that they
+/// see it.
+#[test]
+#[should_panic(
+    expected = "a reply must append its events to the caller's buffer, keeping what it held"
+)]
+fn keeps_each_shots_conditions_from_one_call_to_the_next_catches_a_reply_that_marks_what_was_held()
+{
+    keeps_each_shots_conditions_from_one_call_to_the_next(
+        &mut TestDoubleMarksWhatTheCallerHeld(TestDoubleOfBits::new(BitsBehaviour::Sound)),
+        &shots(&[0, 1, 2]),
+        &[
+            &[BitStep::RejectIfOdd, BitStep::Read(0)],
+            &[BitStep::Read(1)],
+        ],
     );
 }
 
@@ -2967,6 +3106,25 @@ fn changes_no_shot_a_call_does_not_name_catches_a_call_run_on_held_shots() {
     );
 }
 
+/// An executor that raises a condition raised in a call on every shot it
+/// holds, as a layer that marks every state it holds, leaves shots 0 and
+/// 2 unchanged when the call on shots 1 and 3 rejects them, but marks
+/// them rejected too: their readouts carry it, where they do not when
+/// that call does not run. The check names both.
+#[test]
+#[should_panic(
+    expected = "a call must change no shot it does not name, but a shot reads otherwise after \
+                a call on the shots [1, 3], on shots 0, 2"
+)]
+fn changes_no_shot_a_call_does_not_name_catches_a_condition_raised_on_held_shots() {
+    changes_no_shot_a_call_does_not_name(
+        || TestDoubleOfBits::new(BitsBehaviour::RaisesOnEveryShotItHolds),
+        &shots_0_to_3(),
+        &[BitStep::Flip, BitStep::RejectIfOdd],
+        &[BitStep::Read(0)],
+    );
+}
+
 /// An executor that runs a call on the range of its shots breaks the rule
 /// where the call's shots are not contiguous: of shots 0 to 5, the call on
 /// shots 1, 3 and 5 flips shots 2 and 4 too, though not shot 0. The check
@@ -3176,6 +3334,27 @@ fn starts_its_shots_as_made_whatever_an_earlier_executor_left_catches_a_device_n
     );
 }
 
+/// Executors that start from the shots a device holds, and leave their own
+/// there, leave a shot's conditions too: `first` rejects shots 1 and 3
+/// and changes no bit, but the next executor's readouts of them carry the
+/// rejection. The check compares the conditions with the readouts, and
+/// names both.
+#[test]
+#[should_panic(
+    expected = "a new executor's shots must start as made, whatever an earlier executor left, \
+                but a shot reads otherwise after an earlier executor ran `first` on it, on \
+                shots 1, 3"
+)]
+fn starts_its_shots_as_made_whatever_an_earlier_executor_left_catches_conditions_left_behind() {
+    let device = Device::default();
+    starts_its_shots_as_made_whatever_an_earlier_executor_left(
+        || TestDoubleOfBits::on(&device),
+        &shots_0_to_3(),
+        &[BitStep::RejectIfOdd],
+        &[BitStep::Read(0)],
+    );
+}
+
 /// Executors that run on a device's shots themselves, and reset it when
 /// they close: each closed executor leaves the shots as made, but one
 /// dropped unclosed (by a caller that panics, or returns early) leaves
@@ -3254,5 +3433,126 @@ fn starts_its_shots_as_made_whatever_an_earlier_executor_left_needs_other_tags_w
         &shots_0_to_3(),
         &[BitStep::Read(0)],
         &[BitStep::Read(0)],
+    );
+}
+
+/// A code's runtime rejects shot 1 in a call, and reads it in the next:
+/// an executor that forgets its shots' conditions at each call gives the
+/// later readout clear. The check names the shot.
+#[test]
+#[should_panic(
+    expected = "each outcome of a shot must carry the conditions its outcomes in earlier calls \
+                carried, since a condition stays raised for its shot, but one drops a condition \
+                on shot 1"
+)]
+fn keeps_each_shots_conditions_from_one_call_to_the_next_catches_conditions_forgotten_at_a_call() {
+    keeps_each_shots_conditions_from_one_call_to_the_next(
+        &mut TestDoubleOfBits::new(BitsBehaviour::ForgetsConditions),
+        &shots(&[0, 1, 2]),
+        &[
+            &[BitStep::RejectIfOdd, BitStep::Read(0)],
+            &[BitStep::Read(1)],
+        ],
+    );
+}
+
+/// A code's runtime rejects shot 1 in a call, and reads it twice in the
+/// next: an executor that gives the condition on the shot's last readout
+/// of a call alone gives the earlier readout clear. The check looks at
+/// every outcome of the shot, not only its last, and names the shot.
+#[test]
+#[should_panic(
+    expected = "each outcome of a shot must carry the conditions its outcomes in earlier calls \
+                carried, since a condition stays raised for its shot, but one drops a condition \
+                on shot 1"
+)]
+fn keeps_each_shots_conditions_from_one_call_to_the_next_catches_a_condition_dropped_on_an_earlier_outcome()
+ {
+    keeps_each_shots_conditions_from_one_call_to_the_next(
+        &mut TestDoubleOfBits::new(BitsBehaviour::MarksTheLastReadoutOfAShotAlone),
+        &shots(&[0, 1, 2]),
+        &[
+            &[BitStep::RejectIfOdd, BitStep::Read(0)],
+            &[BitStep::Read(1), BitStep::Read(2)],
+        ],
+    );
+}
+
+/// A code's runtime rejects shot 1 in a call, and reads it twice in the
+/// next, under tag 2 then tag 1: an executor that gives the condition on
+/// the shot's last readout of a call alone gives the readout under tag 2,
+/// first in its reply, clear, though the one under tag 1 carries it. The
+/// check looks at each outcome of the shot, whatever their order, not at
+/// whether another of its call carries the condition, and names the shot.
+#[test]
+#[should_panic(
+    expected = "each outcome of a shot must carry the conditions its outcomes in earlier calls \
+                carried, since a condition stays raised for its shot, but one drops a condition \
+                on shot 1"
+)]
+fn keeps_each_shots_conditions_from_one_call_to_the_next_catches_a_condition_one_outcome_of_a_call_drops_while_another_carries_it()
+ {
+    keeps_each_shots_conditions_from_one_call_to_the_next(
+        &mut TestDoubleOfBits::new(BitsBehaviour::MarksTheLastReadoutOfAShotAlone),
+        &shots(&[0, 1, 2]),
+        &[
+            &[BitStep::RejectIfOdd, BitStep::Read(0)],
+            &[BitStep::Read(2), BitStep::Read(1)],
+        ],
+    );
+}
+
+/// A shot rejected between two readouts of a call carries the condition on
+/// the second only, tagged lower than the first, and on its readouts of
+/// later calls: the rule holds from one call to the next, not within a
+/// call, whose readouts a caller takes together, whatever their tags.
+#[test]
+fn keeps_each_shots_conditions_from_one_call_to_the_next_lets_a_call_raise_one_between_readouts() {
+    keeps_each_shots_conditions_from_one_call_to_the_next(
+        &mut TestDoubleOfBits::new(BitsBehaviour::Sound),
+        &shots(&[0, 1, 2]),
+        &[
+            &[BitStep::Read(1), BitStep::RejectIfOdd, BitStep::Read(0)],
+            &[BitStep::Read(2)],
+        ],
+    );
+}
+
+/// A code's runtime reads shot 1 clear under tag 2 in a first call,
+/// rejects it and reads it under tag 0 in a second, and under tag 1 in a
+/// third: the check takes the calls in the order they ran, whatever their
+/// tags, so the clear readout of the first call, tagged after the later
+/// ones, drops nothing.
+#[test]
+fn keeps_each_shots_conditions_from_one_call_to_the_next_takes_the_calls_in_their_order_whatever_their_tags()
+ {
+    keeps_each_shots_conditions_from_one_call_to_the_next(
+        &mut TestDoubleOfBits::new(BitsBehaviour::Sound),
+        &shots(&[0, 1, 2]),
+        &[
+            &[BitStep::Read(2)],
+            &[BitStep::RejectIfOdd, BitStep::Read(0)],
+            &[BitStep::Read(1)],
+        ],
+    );
+}
+
+/// A shot rejected in the last call only has no later outcome to carry
+/// the condition, so there is nothing to keep: the check needs batches
+/// that give some shot an outcome that carries a condition before a later
+/// call reads the shot.
+#[test]
+#[should_panic(
+    expected = "`batches` must give some shot an outcome that carries a condition before a later \
+                call reads that shot, so that there is a condition to keep"
+)]
+fn keeps_each_shots_conditions_from_one_call_to_the_next_needs_a_condition_to_keep() {
+    keeps_each_shots_conditions_from_one_call_to_the_next(
+        &mut TestDoubleOfBits::new(BitsBehaviour::ForgetsConditions),
+        &shots(&[0, 1, 2]),
+        &[
+            &[BitStep::Read(0)],
+            &[BitStep::RejectIfOdd, BitStep::Read(1)],
+        ],
     );
 }

@@ -23,6 +23,7 @@ pub use owning::{Owning, owning_adapter_fn};
 
 use super::below::Route;
 use crate::absorb::{DroppedOneByOne, HeldPart, HeldStates, Panic, caught, raise};
+use crate::conditions::{ConditionsSoFar, Marks, Raised};
 use crate::lifecycle::failing_on_panic;
 use crate::reply::CANCELLATION;
 use crate::{
@@ -99,6 +100,31 @@ pub struct AdapterFn<I, O, S, M, L, C = NoCheck<I>, R = NoStateReport> {
 /// it comes. So the logic writes no tag of a shot that one of its sends
 /// reads: the reply would give that readout twice, where a shot reports
 /// each tag once ([`ShotOutcome::tag`]). The adapter does not check it.
+///
+/// Each shot's conditions ([`ShotConditions`](crate::ShotConditions)) need
+/// no code in the logic: the adapter keeps, for each shot, those raised in
+/// its calls, by its logic ([`Outcomes::raise_conditions`]) and on the
+/// outcomes its logic writes, its runs read and its sends read during the
+/// call, while their reply is still pending too, and marks with them, as
+/// each call ends, every outcome it gives a shot of the call, in that
+/// call, failed or cancelled too, and in later calls on the shot. A
+/// refused call raises none. The conditions a run read count even when it
+/// then fails or is cancelled, but only on the shots it was given, as a
+/// readout of another shot may belong to another call; those a send read
+/// during the call count on whatever shot each names, as its reply passes
+/// up as it comes, unchecked, and a readout of a shot the call was not
+/// given, which only a faulty executor below gives, passes up with the
+/// conditions it carries from below alone. The
+/// adapter takes in a condition from below only from an outcome it reads
+/// before its call ends: those a send's reply gives after its call
+/// returned pass up on its outcomes, but the adapter never sees them. When
+/// the executor below keeps them, as one that offers `feedback` must, the
+/// shot's outcomes that a later call sends for carry them again, and so do
+/// those the logic writes in a later call that reads an outcome of the
+/// shot from below before it ends, before or after the read, as a
+/// decoder's run does, and in every call after it; those it writes in the
+/// calls before lack them, a known issue (`docs/replies.md`, §Shot
+/// conditions, where the tests are cited).
 ///
 /// What the logic calls says what the adapter is: one that sends what it is
 /// called with observes (a profiler); one that sends other instructions,
@@ -485,6 +511,8 @@ pub struct AdapterFnExecutor<I, O, S, M, L, C, R, D> {
     way_down: WayDown<O, D>,
     /// Whether a close reached the executor below ([`close_below_once`]).
     below_closed: bool,
+    /// The conditions of each shot so far, which mark its outcomes.
+    so_far: ConditionsSoFar,
     lifecycle: ExecutorLifecycle,
 }
 
@@ -501,6 +529,7 @@ impl<I, O, S, M, L, C, R, D> AdapterFnExecutor<I, O, S, M, L, C, R, D> {
             capabilities,
             way_down: WayDown::new(below),
             below_closed: false,
+            so_far: ConditionsSoFar::default(),
             lifecycle: ExecutorLifecycle::default(),
         }
     }
@@ -575,13 +604,19 @@ where
                 way: &mut self.way_down,
                 calls: &mut calls,
             };
-            let mut outcomes = Outcomes {
-                shots: batch.shots.as_slice(),
-                reply: &mut written,
-            };
-            (self.adapter.logic).serve_call(kept, &input, batch.shots, down, &mut outcomes)
+            let mut outcomes = Outcomes::new(batch.shots.as_slice(), &mut written);
+            let returned =
+                (self.adapter.logic).serve_call(kept, &input, batch.shots, down, &mut outcomes);
+            calls.take_in_raised(batch.shots.as_slice(), &outcomes);
+            returned
         };
-        let ended = calls.end_call(&mut self.lifecycle, written, returned);
+        let ended = calls.end_call(
+            &mut self.lifecycle,
+            &mut self.so_far,
+            batch.shots.as_slice(),
+            written,
+            returned,
+        );
         if ended.keeps_states {
             self.held.append(&mut made);
         }
@@ -761,13 +796,19 @@ where
 
 /// The calls below of one call, sends and runs: the replies of the sends
 /// still pending, in order, and what those polled read, whether a call went
-/// down, and how the call's calls below ended, if one did not go on.
+/// down, and how the call's calls below ended, if one did not go on; and
+/// the conditions raised in the call, by its logic, on what it wrote, and
+/// below.
 pub(super) struct CallsBelow<B> {
     /// Each reply held as it is given ([`HeldPart`]): dropped in a catch of
     /// its own, its panic absorbed, as its call ran.
     parts: Vec<HeldPart<B>>,
     /// What the sends' replies read when polled during the call.
     read: Vec<ShotOutcome>,
+    /// The conditions raised in the call: by its logic, and on the
+    /// outcomes it wrote and read below, from its runs and from its sends
+    /// polled during the call.
+    raised: Raised,
     /// Whether a send's reply ended cancelled.
     cancelled: bool,
     went_down: bool,
@@ -800,6 +841,7 @@ impl<B: Reply<Item = ShotOutcome>> CallsBelow<B> {
         Self {
             parts: Vec::new(),
             read: Vec::new(),
+            raised: Raised::default(),
             cancelled: false,
             went_down: false,
             end: None,
@@ -815,10 +857,21 @@ impl<B: Reply<Item = ShotOutcome>> CallsBelow<B> {
     /// reply of the logic's writes and its sends, which fails the adapter
     /// at once if a send's reply was cancelled. The call keeps the states
     /// made for it only when it ends none of these ways.
+    ///
+    /// Unless refused, it merges into `so_far`, the adapter's, the
+    /// conditions raised in the call: those the logic raised, those carried
+    /// by what it wrote and by what the sends read so far (a run's read
+    /// was taken in as it returned). Then it marks with the conditions so
+    /// far of the call's `shots` every outcome its reply gives: those
+    /// written and read now, and those of its sends' replies still pending
+    /// as they pass up. While no shot of the call has a condition, its
+    /// passes over the outcomes only read them.
     pub(super) fn end_call(
         mut self,
         lifecycle: &mut ExecutorLifecycle,
-        written: ImmediateReply<ShotOutcome>,
+        so_far: &mut ConditionsSoFar,
+        shots: &[ShotId],
+        mut written: ImmediateReply<ShotOutcome>,
         returned: Result<(), String>,
     ) -> CallEnd<B> {
         self.poll_sends();
@@ -839,15 +892,37 @@ impl<B: Reply<Item = ShotOutcome>> CallsBelow<B> {
         if let Some(reason) = failure.as_deref().or(cancellation) {
             lifecycle.fail(reason);
         }
+        self.raised.raise_carried(written.items());
+        self.raised.raise_carried(&self.read);
+        self.raised.into_so_far(so_far);
+        let mut marks = so_far.of_shots(shots);
+        marks.mark(written.items_mut());
+        marks.mark(&mut self.read);
+        if self.parts.is_empty() {
+            marks = Marks::default();
+        }
         CallEnd {
             keeps_states: failure.is_none() && !self.cancelled,
             reply: Ok(lifecycle.bind(AdapterFnReply {
                 written,
                 read: self.read,
                 parts: self.parts,
+                marks,
                 failure,
                 cancelled: self.cancelled,
             })),
+        }
+    }
+
+    /// Takes in the conditions a logic serving `shots` raised on them in
+    /// the call ([`Outcomes::raise_conditions`]); those its outcomes carry
+    /// are taken in as the call ends.
+    pub(super) fn take_in_raised(&mut self, shots: &[ShotId], outcomes: &Outcomes<'_>) {
+        let raised = outcomes.raised();
+        if !raised.is_empty() {
+            for &shot in shots {
+                self.raised.raise(shot, raised);
+            }
         }
     }
 
@@ -959,7 +1034,12 @@ impl<B: Reply<Item = ShotOutcome>> CallsBelow<B> {
     /// Runs `instructions` below on `shots` and waits for what they read
     /// ([`Below::run`]), once the sends' replies still pending are polled,
     /// so that one that failed stops the run; a reply that fails, is
-    /// cancelled or is not whole fails the call.
+    /// cancelled or is not whole fails the call. It takes in the conditions
+    /// of what the run read, whether it ends well or not: when not, only on
+    /// the run's `shots`, as a readout of another shot may belong to
+    /// another call. Those a send reads during the call are taken in on
+    /// whatever shot each names ([`end_call`](Self::end_call)), as a
+    /// send's reply passes up as it comes, unchecked.
     pub(super) fn run<O, D>(
         &mut self,
         below: &mut D,
@@ -971,25 +1051,34 @@ impl<B: Reply<Item = ShotOutcome>> CallsBelow<B> {
     {
         self.poll_sends();
         let reply = HeldPart::new(self.call(below, shots, instructions)?);
+        let asked = shots.sorted();
         let mut read = Vec::new();
-        let answered = wait(reply, &mut read).and_then(|()| whole(read, shots));
-        if let Err(reason) = &answered {
-            self.end = Some(CallsBelowEnd::Failed(reason.clone()));
+        match wait(reply, &mut read).and_then(|()| whole(&mut read, &asked)) {
+            Ok(()) => {
+                // Whole, so every readout is of one of `shots`: no filter.
+                self.raised.raise_carried(&read);
+                Ok(read)
+            }
+            Err(reason) => {
+                self.raised.raise_carried_on(&read, &asked);
+                self.end = Some(CallsBelowEnd::Failed(reason.clone()));
+                Err(reason)
+            }
         }
-        answered
     }
 }
 
-/// `read`, the readouts of a run on `shots`, by shot, in ascending order,
-/// each shot's in the order the reply gave them, so that a logic passing
-/// them up passes them as they came: the order the shot read them only when
-/// the executor below keeps it ([`Below::run`]).
+/// Puts `read`, the readouts of a run on the shots `asked` (given in
+/// increasing order), by shot, in ascending order, each shot's in the
+/// order the reply gave them, so that a logic passing them up passes them
+/// as they came: the order the shot read them only when the executor below
+/// keeps it ([`Below::run`]).
 ///
 /// # Errors
 ///
 /// When it is not whole: it reads a tag of a shot twice, or a shot not in
-/// `shots`.
-fn whole(mut read: Vec<ShotOutcome>, shots: &ShotSet) -> Result<Vec<ShotOutcome>, String> {
+/// `asked`.
+fn whole(read: &mut [ShotOutcome], asked: &[ShotId]) -> Result<(), String> {
     // Stable: a shot's readouts keep their order. A reply often gives its
     // readouts by shot already, and always for one shot: no sort then.
     if !read.is_sorted_by_key(|outcome| outcome.shot) {
@@ -1004,19 +1093,9 @@ fn whole(mut read: Vec<ShotOutcome>, shots: &ShotSet) -> Result<Vec<ShotOutcome>
             ));
         }
     }
-    let mut asked = shots.as_slice();
-    let sorted;
-    if !asked.is_sorted() {
-        sorted = {
-            let mut copy = asked.to_vec();
-            copy.sort_unstable();
-            copy
-        };
-        asked = &sorted;
-    }
     // Both are by shot: one pass over each.
     let mut rest = asked.iter().peekable();
-    for outcome in &read {
+    for outcome in &*read {
         while rest.next_if(|&&j| j < outcome.shot).is_some() {}
         if rest.peek() != Some(&&outcome.shot) {
             let shot = outcome.shot;
@@ -1025,7 +1104,7 @@ fn whole(mut read: Vec<ShotOutcome>, shots: &ShotSet) -> Result<Vec<ShotOutcome>
             ));
         }
     }
-    Ok(read)
+    Ok(())
 }
 
 /// A tag that `of_shot`, one shot's readouts, reads twice, if any. A few
@@ -1077,6 +1156,10 @@ pub struct AdapterFnReply<B> {
     /// The replies of the sends still pending, in the order of the sends,
     /// each held as [`CallsBelow`] holds it.
     parts: Vec<HeldPart<B>>,
+    /// The conditions of the call's shots as the call ended, which mark
+    /// the outcomes `parts` give: none when none has any, or none is
+    /// pending.
+    marks: Marks,
     failure: Option<String>,
     /// Whether a send's reply ended cancelled.
     cancelled: bool,
@@ -1089,7 +1172,10 @@ impl<B: Reply<Item = ShotOutcome>> Reply for AdapterFnReply<B> {
         // Never failed: the call's failure is this reply's own.
         self.written.poll_events(out, waker);
         out.append(&mut self.read);
-        if let Err(reason) = poll_parts(&mut self.parts, out, waker, &mut self.cancelled) {
+        let from = out.len();
+        let polled = poll_parts(&mut self.parts, out, waker, &mut self.cancelled);
+        self.marks.mark(&mut out[from..]);
+        if let Err(reason) = polled {
             // The call's own failure is the one its adapter kept.
             return ReplyStatus::Failed(self.failure.take().unwrap_or(reason));
         }

@@ -67,11 +67,7 @@ impl Executor<InstructionBatch<Op>> for OneBitState {
             match op {
                 Op::Reset => self.bit = false,
                 Op::X => self.bit = !self.bit,
-                Op::Measure => outcomes.push(ShotOutcome {
-                    shot: self.shot,
-                    tag: 0,
-                    value: self.bit.into(),
-                }),
+                Op::Measure => outcomes.push(ShotOutcome::new(self.shot, 0, self.bit.into())),
             }
         }
         Ok(ImmediateReply::done(outcomes))

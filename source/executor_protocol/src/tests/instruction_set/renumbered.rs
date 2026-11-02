@@ -102,11 +102,7 @@ impl Executor<InstructionBatch<InstructionCall>> for ToyState {
             match self.set.mnemonic(call.opcode) {
                 Some("reset") => *bit = false,
                 Some("x") => *bit = !*bit,
-                _ => outcomes.push(ShotOutcome {
-                    shot: self.shot,
-                    tag: operand(1),
-                    value: (*bit).into(),
-                }),
+                _ => outcomes.push(ShotOutcome::new(self.shot, operand(1), (*bit).into())),
             }
         }
         Ok(ImmediateReply::done(outcomes))

@@ -323,11 +323,11 @@ impl Executor<InstructionBatch<bool>> for TestDoubleState {
         let (sender, reply) = reply_channel();
         for (i, &read) in batch.instructions.iter().enumerate() {
             if read {
-                sender.push(ShotOutcome {
-                    shot: self.shot,
-                    tag: u32::try_from(i).unwrap_or(u32::MAX),
-                    value: self.bit(self.calls, i),
-                });
+                sender.push(ShotOutcome::new(
+                    self.shot,
+                    u32::try_from(i).unwrap_or(u32::MAX),
+                    self.bit(self.calls, i),
+                ));
             }
         }
         self.calls += 1;

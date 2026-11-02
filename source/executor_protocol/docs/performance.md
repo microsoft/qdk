@@ -158,6 +158,81 @@ the shots woken). And a shot on a placement of its own costs about 370 ns
 more than one in a shared job, for its own job, its reply and the copy of
 the batch; only an executor that places its shots apart pays it.
 
+## Shot conditions
+
+A shot's conditions ([Shot conditions](replies.md#shot-conditions)) ride
+on its outcomes, in a byte that leaves an outcome 12 bytes, as it was
+without them (`benches/shot_conditions.rs` prints both).
+
+**While none is raised**, a chain is compared with the same chain built
+before conditions were added, `push` inlined in both (inlining it alone
+made both about 20 % faster on batches of 100 instructions in
+`benches/adapter_overhead.rs`). Against the crate before this change, as
+it shipped, without `push` inlined, both built without alignment, by the
+fastest run: on batches of 100 instructions, the bare and by-hand cells
+of `benches/adapter_overhead.rs` run about 20 to 25 % faster and its
+`adapter_fn` cells about 12 to 23 % faster; on batches of one its
+`adapter_fn` cells are within 5 %, while its bare and by-hand cells on 10
+shots ranged from 17 % faster to 9 % slower from run to run;
+`benches/protocol_overhead.rs` stays within a few percent on batches of
+100, and on batches of one its typed per-shot column is up to about 9 %
+slower and its run-time column 18 to 23 % slower, depending on the run.
+Built with every function and block aligned, so that where the code lands
+changes no timing, no cell of `benches/adapter_overhead.rs`,
+`benches/protocol_overhead.rs` and `benches/shot_replies_wake.rs` was more
+than about 8 % slower than before conditions (the median of its runs),
+apart from two on batches of one instruction: the by-hand cell on one
+shot, about 11 % slower, though it uses no `adapter_fn`, and a cell of
+`benches/protocol_overhead.rs` with one outlier run. The bare, one-state
+and per-shot columns of `benches/adapter_overhead.rs`, each run alone in
+its process on four cells, were within a few percent, while the adapter's
+cells run about 3 to 9 % more instructions. Against the chain before
+conditions with `push` inlined, built without alignment, some cells on
+batches of one instruction were slower in every run: the run-time column
+of `benches/protocol_overhead.rs` by about 16 % (3 ns per call), by layout
+as far as measured, and the adapter cells of `benches/adapter_overhead.rs`
+by up to 12 %, partly by layout and partly by the adapter's read of the
+outcomes as each call ends, which the measurements did not separate; on
+batches of 100 instructions, every cell was within a few percent.
+
+**Once raised**, `benches/shot_conditions.rs` measures what they cost: an
+executor that raises them on its shots in every call, alone and under an
+`adapter_fn` that sends each call down, against the same with none raised.
+Nanoseconds per instruction per shot, each run giving the fastest of 45,
+and the ratio to the same with none raised, taken in each run; each
+figure is the median of three runs of the bench:
+
+| shots, batch | bare | bare, every shot | adapter | adapter, shot 0 | adapter, every shot |
+| :----------- | ---: | :--------------- | ------: | :-------------- | :------------------ |
+| 1, 1         | 30.7 | 31.4 (1.02×)     |     114 | 135 (1.18×)     | 132 (1.16×)         |
+| 1, 100       |  2.2 | 2.2 (1.00×)      |     3.4 | 4.0 (1.19×)     | 4.0 (1.16×)         |
+| 10, 1        |  7.9 | 8.4 (1.07×)      |    16.4 | 20.7 (1.26×)    | 28.4 (1.71×)        |
+| 10, 100      |  1.5 | 1.5 (0.99×)      |     1.7 | 2.1 (1.21×)     | 2.3 (1.35×)         |
+
+An executor alone pays almost nothing to raise them: the logic's
+`raise_conditions` marks the outcomes it wrote in the call. An adapter pays,
+in each call once any shot it served has a condition, an allocation and a
+lookup of each shot of the call in the conditions it holds, flagged or
+not; and in each call on a shot with a condition, a merge of those raised
+in the call and a pass that marks its outcomes; most on batches of one
+instruction on many shots, where these are per call and the work is
+small. The bench puts shot 0 in every call, so it does not measure a call
+on no flagged shot apart.
+
+It also holds the conditions of each flagged shot until it is dropped,
+since nothing tells it that a shot has ended: about 14.3 bytes per flagged
+shot, the same at 1 000, 100 000 and 1 000 000 shots (about 14 MB per
+adapter for a million flagged shots). A known issue, open, whose fix
+needs a signal that a shot has ended, which the protocol does not have.
+
+Method: `taskset -c 6` on each bench binary, run in turn with the binary
+of the chain before conditions, two or three runs each;
+`benches/shot_conditions.rs`, which has no counterpart before conditions,
+ran alone, three times; on one core of a Qualcomm Oryon machine under
+Linux (WSL), while no build ran; aligned builds add `-C
+llvm-args=-align-all-functions=6 -C
+llvm-args=-align-all-nofallthru-blocks=5` to `RUSTFLAGS`.
+
 ## Caveats
 
 - Only the counting profiler was measured. In an executor that does more

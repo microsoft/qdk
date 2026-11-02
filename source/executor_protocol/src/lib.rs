@@ -89,6 +89,7 @@ mod adapter;
 mod capabilities;
 mod codes;
 mod compose;
+mod conditions;
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
 mod driver;
@@ -115,12 +116,16 @@ pub use adapter::below::{Below, OwnedBelow};
 pub use adapter::boundary::AdapterBoundary;
 pub use adapter::{Adapter, Apply};
 pub use capabilities::{Capabilities, Describe};
-pub use codes::{need_code, need_of, reason_code, retry_code, retry_of, value_code, value_of};
+pub use codes::{
+    conditions_code, conditions_of, need_code, need_of, reason_code, retry_code, retry_of,
+    value_code, value_of,
+};
 pub use compose::adapters::{AdapterExecutor, ComposedAdapters};
 pub(crate) use compose::adapters::{Adapters, NoAdapter, UpstreamOf};
 pub use compose::chain::{Chain, JobFaults};
 pub use compose::run::Run;
 pub use compose::{BuildError, BuildFault, BuildFaults, Compose, WithExecutor, compose};
+pub use conditions::ShotConditions;
 pub use driver::interpreter::{
     DefaultInterpreter, Interpret, Interpreted, InterpreterDriver, interpreter,
 };

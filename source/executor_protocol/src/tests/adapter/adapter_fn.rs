@@ -2555,11 +2555,7 @@ impl Close for Answering {
 
 /// Readout `tag` of shot `shot`, a one.
 fn one(shot: ShotId, tag: u32) -> ShotOutcome {
-    ShotOutcome {
-        shot,
-        tag,
-        value: Value::One,
-    }
+    ShotOutcome::new(shot, tag, Value::One)
 }
 
 /// An executor below that answers a run on the target chain's shots 2

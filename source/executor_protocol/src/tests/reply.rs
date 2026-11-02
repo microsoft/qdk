@@ -820,11 +820,7 @@ fn one_reply_is_taken_four_ways() {
     let batch = [true, false, true];
     let expected: Vec<ShotOutcome> = (0..)
         .zip(batch)
-        .map(|(tag, one)| ShotOutcome {
-            shot: 0,
-            tag,
-            value: one.into(),
-        })
+        .map(|(tag, one)| ShotOutcome::new(0, tag, one.into()))
         .collect();
     let call = || {
         OnAThread

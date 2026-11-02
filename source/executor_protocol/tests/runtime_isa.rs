@@ -196,9 +196,9 @@ impl Executor<InstructionBatch<InstructionCall>> for Answers {
                 self.ran.push(shot);
             }
             let answers = self.outcomes.iter();
-            outcomes.extend(
-                answers.map(|&Outcome { tag, value, .. }| ShotOutcome::new(shot, tag, value)),
-            );
+            outcomes.extend(answers.map(|answer| {
+                ShotOutcome::new(shot, answer.tag, answer.value).with_conditions(answer.conditions)
+            }));
         }
         Ok(ImmediateReply::done(outcomes))
     }

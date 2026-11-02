@@ -49,11 +49,32 @@ The logic serves each call. With the call it is given, it may:
   by shot and decides on them, as a code that decodes does, or records them, as
   a debugger does;
 - **write outcomes**, with `outcomes`: what a run reads passes up only as the
-  logic writes it.
+  logic writes it. `outcomes.push(..)` writes an `Outcome`, with its
+  conditions, for every shot the state serves (each shot of the call with one
+  state), while `outcomes.extend(..)` with `ShotOutcome`s writes each, with its
+  conditions, for its own shot alone, which must be one the state serves.
 
 The [tests of `adapter_fn`](../src/tests/adapter/adapter_fn.rs) show each of
 these in code, and the [observer guide](../tests/observers.rs) shows a debugger
 that records what it reads.
+
+A shot's conditions (rejected, inconsistent, unresolved) need no code in
+the logic: the adapter keeps those its logic raises
+(`outcomes.raise_conditions(..)`) and those of the outcomes it writes, its
+runs read (one that fails or is cancelled too, on the shots it was given)
+and its sends read during the call, while their reply is still pending
+too (a refused call raises none), and marks with them every outcome it
+gives a shot of the call, in that call, failed or cancelled too, and in
+later calls on the shot, so a decoder that writes its readouts anew passes
+up the conditions found below it
+([Shot conditions](replies.md#shot-conditions)). The outcomes a send's
+reply gives after its call returned pass up with the conditions they
+carry, but the adapter never sees them. When the executor below keeps
+them, as one that offers `feedback` must, the shot's outcomes that a later
+call sends for carry them again, and so do those the logic writes in a
+later call that reads an outcome of the shot from below before it ends,
+before or after the read, as a decoder's run does, and in every call after
+it; those it writes in the calls before lack them, a known issue.
 
 What each costs: a `send` is one call below on the call's shots, and does not
 wait for its reply: once the call below returns, the reply passes up as it
@@ -241,9 +262,11 @@ An adapter keeps an executor's rules:
   instruction in the call below, not in the call (planned: a way for the
   logic to map it). A call refused below is refused though its logic ran, so a
   logic changes its state only after `send(..)?` or `run(..)?`. With a state per
-  shot, a send gives no such order: `send` returns `Ok` before the shots' sends
-  go below merged, so a call refused there leaves the kept states as its logic
-  left them.
+  shot, a send gives no such order: `send` returns `Ok` before the shot's sends
+  go below, merged with the other shots' or alone before its run, so a call
+  refused below leaves the kept states as its logic left them, but raises none
+  of the conditions its logic raised: such a logic raises a condition from its
+  state in each call, not once as its state changes.
 - **An error or a failure below fails the adapter.** The logic's error, unless
   the call was refused below as above, or a failure below, fails the call and
   the adapter, and nothing more goes down.

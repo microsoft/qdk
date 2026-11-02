@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ErrorKind, Need, Rejected, RetryClass, UnmetNeed, Value, need_code, need_of, reason_code,
-    retry_code, retry_of, value_code, value_of,
+    ErrorKind, Need, Rejected, RetryClass, ShotConditions, UnmetNeed, Value, conditions_code,
+    conditions_of, need_code, need_of, reason_code, retry_code, retry_of, value_code, value_of,
 };
 
 /// Each reason has a fixed code, so a code keeps its meaning between two
@@ -100,4 +100,32 @@ fn an_unknown_code_decodes_to_nothing() {
     assert_eq!(need_of(7), None);
     assert_eq!(retry_of(3), None);
     assert_eq!(value_of(4), None);
+}
+
+/// Each set of conditions has a fixed code, a bit for each condition, and
+/// its code decodes back to it.
+#[test]
+fn conditions_codes_are_fixed_and_decode_back() {
+    let bits = [
+        (1, ShotConditions::REJECTED),
+        (2, ShotConditions::INCONSISTENT),
+        (4, ShotConditions::UNRESOLVED),
+    ];
+    for code in 0_u8..8 {
+        let conditions = (bits.iter())
+            .filter(|&&(bit, _)| code & bit != 0)
+            .fold(ShotConditions::NONE, |all, &(_, condition)| all | condition);
+        assert_eq!(conditions_code(conditions), code);
+        assert_eq!(conditions_of(code), Some(conditions));
+    }
+}
+
+/// A code with a bit no condition of this end has, from a far end that
+/// knows more conditions, decodes to nothing rather than to fewer
+/// conditions than were raised: every code from 8 on has one.
+#[test]
+fn a_conditions_code_with_an_unknown_bit_decodes_to_nothing() {
+    for code in 8..=u8::MAX {
+        assert_eq!(conditions_of(code), None, "code {code:#x}");
+    }
 }

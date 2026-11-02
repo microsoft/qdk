@@ -216,8 +216,16 @@ impl<T> ImmediateReply<T> {
         self.failure = Some(reason);
     }
 
+    /// The events it holds, in order, to change in place.
+    pub(crate) fn items_mut(&mut self) -> &mut [T] {
+        match &mut self.items {
+            Events::One(item) => item.as_mut_slice(),
+            Events::Many(items) => items,
+        }
+    }
+
     /// The events it holds, in order.
-    fn items(&self) -> &[T] {
+    pub(crate) fn items(&self) -> &[T] {
         match &self.items {
             Events::One(item) => item.as_slice(),
             Events::Many(items) => items,

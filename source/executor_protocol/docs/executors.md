@@ -123,7 +123,12 @@ from the implementer's logic alone:
 - `logic` runs a call's instructions on the state, and pushes each readout to
   `Outcomes`. Its `Err` fails the call: the outcomes pushed before it are handed
   over, the reply ends with its reason, and the executor refuses every later
-  call.
+  call. It raises a shot's conditions on one readout
+  (`Outcome::with_conditions`) or on every readout it writes in the call
+  (`Outcomes::raise_conditions`); the executor keeps none across calls, so
+  the logic of one that offers `feedback` keeps them in its state and raises
+  them again in each call, as the protocol requires
+  ([Shot conditions](replies.md#shot-conditions)).
 
 The closures need no type annotations, and a plain function is passed by name.
 Methods shape the executor further:
@@ -357,8 +362,19 @@ failure and close with `ExecutorLifecycle`:
   is recorded when it is polled;
 - `close` refuses every later call.
 
+Each of its events is made with `ShotOutcome::new`, which gives it no
+condition, and `.with_conditions(..)` gives it its shot's conditions so
+far, which the executor must keep for each shot from one call to the next
+when it offers `feedback`; for such an executor, the conformance kit
+checks that it does, for the conditions that an earlier outcome of the
+shot carried (the requirement in
+[Shot conditions](replies.md#shot-conditions)).
+
 The crate's ensemble double, `SharedState` (`src/tests.rs`), is built on
-it, and so are the executors that `executor_fn` makes. An ensemble's
+`ExecutorLifecycle`, and so are the executors that `executor_fn` makes,
+which keep no condition across calls by themselves: one that offers
+`feedback` meets the requirement only when its logic keeps its shots'
+conditions in its state and raises them again in each call. An ensemble's
 reply, and the double's conformance checks, are in
 [An executor written by hand: the rules](internals/executors.md#an-executor-written-by-hand-the-rules)
 and [An ensemble executor](internals/executors.md#an-ensemble-executor).

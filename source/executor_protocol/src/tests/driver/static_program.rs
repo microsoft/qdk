@@ -765,7 +765,7 @@ impl Executor<InstructionBatch<InstructionCall>> for StatelessBits {
             outcomes.extend(
                 (bits.run(batch.instructions)?)
                     .into_iter()
-                    .map(|(tag, value)| ShotOutcome { shot, tag, value }),
+                    .map(|(tag, value)| ShotOutcome::new(shot, tag, value)),
             );
         }
         Ok(ImmediateReply::done(outcomes))

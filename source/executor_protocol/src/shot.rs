@@ -3,6 +3,7 @@
 
 //! Shots: their ids, and the set of shots a run or a batch runs on.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ops::{Deref, Range, RangeInclusive};
 
@@ -122,6 +123,20 @@ impl ShotSet {
         match &self.0 {
             Shots::One(shot) => std::slice::from_ref(shot),
             Shots::Many(shots) => shots,
+        }
+    }
+
+    /// The shots in increasing order, to search them or to go through them
+    /// beside a list by shot: the set itself when given so, as `1..=N` and
+    /// its parts are, with no copy; else a sorted copy.
+    pub(crate) fn sorted(&self) -> Cow<'_, [ShotId]> {
+        let shots = self.as_slice();
+        if shots.is_sorted() {
+            Cow::Borrowed(shots)
+        } else {
+            let mut sorted = shots.to_vec();
+            sorted.sort_unstable();
+            Cow::Owned(sorted)
         }
     }
 }

@@ -17,6 +17,7 @@ use super::{
 };
 use crate::absorb::{DroppedOneByOne, HeldStates, absorb_each};
 use crate::adapter::below::Route;
+use crate::conditions::ConditionsSoFar;
 use crate::lifecycle::failing_on_panic;
 use crate::shot::ShotIndex;
 use crate::{
@@ -211,6 +212,8 @@ pub struct OnePerShotAdapterExecutor<I, O, S, M, L, C, R, D> {
     /// The sends of the call being served, kept across calls so that its
     /// buffers are reused.
     merged: Merged<O>,
+    /// The conditions of each shot so far, which mark its outcomes.
+    so_far: ConditionsSoFar,
     lifecycle: ExecutorLifecycle,
 }
 
@@ -229,6 +232,7 @@ impl<I, O, S, M, L, C, R, D> OnePerShotAdapterExecutor<I, O, S, M, L, C, R, D> {
             below_closed: false,
             index: ShotIndex::default(),
             merged: Merged::default(),
+            so_far: ConditionsSoFar::default(),
             lifecycle: ExecutorLifecycle::default(),
         }
     }
@@ -309,12 +313,10 @@ where
                 way: &mut self.way_down,
                 calls: &mut calls,
             };
-            let mut outcomes = Outcomes {
-                shots: slice::from_ref(&j),
-                reply: &mut written,
-            };
+            let mut outcomes = Outcomes::new(slice::from_ref(&j), &mut written);
             returned =
                 (self.adapter.logic).serve_shot(kept, &input, j, down, &mut merged, &mut outcomes);
+            calls.take_in_raised(slice::from_ref(&j), &outcomes);
             if returned.is_err() || calls.ended() {
                 break;
             }
@@ -323,7 +325,13 @@ where
             merged.send(&mut calls, self.way_down.below(), batch.shots);
         }
         drop(merged);
-        let ended = calls.end_call(&mut self.lifecycle, written, returned);
+        let ended = calls.end_call(
+            &mut self.lifecycle,
+            &mut self.so_far,
+            shots,
+            written,
+            returned,
+        );
         if ended.keeps_states {
             for (j, _) in made.iter() {
                 self.index.push(*j);

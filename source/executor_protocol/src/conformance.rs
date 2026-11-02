@@ -13,7 +13,11 @@
 //! reads readouts), of [`Close`], [`Fold`], described instruction sets
 //! and readout tags, and the promises of
 //! [`Capabilities`](crate::Capabilities) (`replayable`; `feedback`, with
-//! its rule that a call changes no shot it does not name). They also
+//! its rule that a call changes no shot it does not name), and of shot
+//! conditions (a shot keeps from one call to the next those its outcomes
+//! carried; the checks that compare a shot's readouts over the same calls
+//! compare the conditions they carry too, since a shot's conditions are
+//! its own, as its readouts are). They also
 //! check that a new executor starts its shots as made, whatever an earlier
 //! one left, closed or dropped, a rule every check that builds several
 //! executors relies on.
@@ -41,6 +45,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
+use std::iter;
 use std::slice;
 use std::task::Waker;
 
@@ -48,7 +53,7 @@ use crate::reply::wait_status;
 use crate::{
     Close, ErrorKind, Executor, Fold, InstructionBatch, InstructionBatchRef, InstructionCall,
     InstructionSet, Message, Opcode, Operand, OperandKind, Rejected, Reply, ReplyStatus,
-    RetryClass, ShotId, ShotOutcome, ShotSet, Value, wait,
+    RetryClass, ShotConditions, ShotId, ShotOutcome, ShotSet, Value, wait,
 };
 
 /// Closes `executor`, then calls it with `message`: the call must be
@@ -930,8 +935,9 @@ fn expect_a_again_reads_under_the_tag_of_a<
 /// odd indices, then those at even indices; on the other, the shots in
 /// reverse order, in two halves. Both splits run whatever the number of
 /// batches, one batch included. Each shot's readouts must be the same,
-/// value for value, since an executor that offers `replayable` draws each
-/// shot's random numbers from that shot's own seeds, so which shots share
+/// value for value, with the same conditions, since an executor that
+/// offers `replayable` draws each shot's random numbers from that shot's
+/// own seeds, and a shot's conditions are its own, so which shots share
 /// its calls, and in which order they come, changes nothing. `make` must
 /// build the same executor each time, with the same seed; `shots` must
 /// hold three shots or more, since both splits of two shots give the same
@@ -1209,7 +1215,8 @@ pub fn continues_a_shot_from_one_call_to_the_next<I: Clone, E: Executor<Instruct
 /// 3. `first` twice on the shots at even indices, then `second` on them;
 /// 4. `second` alone on the shots at odd indices.
 ///
-/// Each shot at an even index must read the same in runs 1 and 2: the call
+/// Each shot at an even index must read the same in runs 1 and 2, with the
+/// same conditions (a call raises none on a shot it does not name): the call
 /// on the others changes it neither by running on it (an executor that
 /// also runs a call on shots it holds, or on the range of the call's
 /// shots) nor by making the others (one that makes every state again when
@@ -1358,12 +1365,13 @@ pub fn changes_no_shot_a_call_does_not_name<I, E: Executor<InstructionBatch<I>>>
 /// 5. `second` on `shots` again;
 /// 6. `first` and `second` in one batch on `shots`.
 ///
-/// Each shot must read the same in runs 1, 3 and 5. This shows provided
-/// that `first` changes each shot and `second` reads that change: on each
-/// shot, `second` must read otherwise in run 6 than in run 1. `make` must
-/// build the same executor each time, with the same seed; `second` must
-/// read under other tags than `first`'s, so that one batch of both is
-/// accepted.
+/// Each shot must read the same in runs 1, 3 and 5, with the same
+/// conditions (conditions an earlier executor raised do not carry over).
+/// This shows provided that `first` changes each shot and `second` reads
+/// that change: on each shot, `second` must read otherwise in run 6 than
+/// in run 1. `make` must build the same executor each time, with the same
+/// seed; `second` must read under other tags than `first`'s, so that one
+/// batch of both is accepted.
 /// It asks neither `feedback` nor `replayable`: each executor runs one
 /// call, and runs 1, 3 and 5 the same one.
 ///
@@ -1444,7 +1452,7 @@ pub fn starts_its_shots_as_made_whatever_an_earlier_executor_left<I, E>(
         |shot| {
             let alone = of(&before, shot);
             let mut after_first = of(&joined, shot);
-            after_first.retain(|&(_, tag, _)| alone.iter().any(|&(_, read, _)| read == tag));
+            after_first.retain(|&(_, tag, ..)| alone.iter().any(|&(_, read, ..)| read == tag));
             after_first != alone
         },
         |on| {
@@ -1454,6 +1462,81 @@ pub fn starts_its_shots_as_made_whatever_an_earlier_executor_left<I, E>(
                  read otherwise than alone on each shot, but it reads the same on {on}"
             )
         },
+    );
+}
+
+/// Runs `batches` on `shots` of `executor`, one call each, in order, and
+/// checks that each shot keeps its conditions from one call to the next:
+/// each outcome of a shot carries every condition that the shot's outcomes
+/// in earlier calls carried, since a condition, once raised, stays raised
+/// for the shot (`docs/replies.md`, §Shot conditions). Within a call, a
+/// shot's outcomes may carry different conditions, as an executor written
+/// by hand may give them, marking only the readouts after it found one; a
+/// caller takes their union. `batches` must give some shot an outcome that
+/// carries a condition in a call before a later call that reads that shot,
+/// so that there is a condition to keep. It applies to an executor that
+/// offers `feedback`, on which a shot continues from one call to the next,
+/// and which the protocol requires to keep each shot's conditions
+/// (`docs/replies.md`, §Shot conditions). It sees outcomes alone, so it
+/// checks only the conditions that an earlier outcome of the shot carried:
+/// a condition raised in a call that gave the shot no outcome, which the
+/// requirement covers too, is beyond it. That a shot's conditions are its
+/// own, whichever shots share its calls, is checked with its readouts by
+/// [`gives_each_shot_alone_what_it_gives_among_others`] and
+/// [`changes_no_shot_a_call_does_not_name`]; that a new executor starts
+/// its shots with none, by
+/// [`starts_its_shots_as_made_whatever_an_earlier_executor_left`].
+///
+/// # Panics
+///
+/// When an outcome of a shot lacks a condition that an outcome of the shot
+/// in an earlier call carried, naming every such shot; when a call is
+/// refused, or its reply fails, or changes the events the caller held (a
+/// reply appends its own); when no shot has an outcome with a condition
+/// followed by an outcome in a later call: `batches` raise none, or the
+/// executor gives none on its outcomes.
+pub fn keeps_each_shots_conditions_from_one_call_to_the_next<I, E>(
+    executor: &mut E,
+    shots: &ShotSet,
+    batches: &[&[I]],
+) where
+    E: Executor<InstructionBatch<I>>,
+{
+    let readouts = readouts(executor, shots, batches);
+    let mut kept_any = false;
+    expect_on_each_shot(
+        shots,
+        |shot| {
+            let mut earlier = ShotConditions::NONE;
+            let mut this_call = ShotConditions::NONE;
+            let mut call_at = None;
+            let mut keeps = true;
+            for &(call, _, _, conditions) in readouts.get(&shot).into_iter().flatten() {
+                if call_at != Some(call) {
+                    earlier |= this_call;
+                    this_call = ShotConditions::NONE;
+                    call_at = Some(call);
+                }
+                kept_any |= !earlier.is_empty();
+                keeps &= conditions.contains(earlier);
+                this_call |= conditions;
+            }
+            keeps
+        },
+        |on| {
+            format!(
+                "each outcome of a shot must carry the conditions its outcomes in earlier calls \
+                 carried, since a condition stays raised for its shot, but one drops a \
+                 condition on {on}"
+            )
+        },
+    );
+    assert!(
+        kept_any,
+        "`batches` must give some shot an outcome that carries a condition before a later \
+         call reads that shot, so that there is a condition to keep, but no outcome of a \
+         shot carries one before its outcomes in a later call: `batches` raise none, or the \
+         executor gives none on its outcomes"
     );
 }
 
@@ -1510,17 +1593,20 @@ fn expect_on_each_shot<'s>(
 /// `of` picks.
 fn tags(readouts: &Readouts, shot: ShotId, of: impl Fn(usize) -> bool) -> BTreeSet<u32> {
     (readouts.get(&shot).into_iter().flatten())
-        .filter_map(|&(call, tag, _)| of(call).then_some(tag))
+        .filter_map(|&(call, tag, ..)| of(call).then_some(tag))
         .collect()
 }
 
 /// Each shot's readouts in `readouts`, by tag alone, in the order of the
-/// tags: those of a run over several calls compare with those of one batch.
+/// tags, without their conditions: those of a run over several calls
+/// compare with those of one batch, whose earlier readouts carry the
+/// conditions raised by its later instructions, where a run over several
+/// calls marks only the readouts of later calls with them.
 fn tagged(readouts: Readouts) -> BTreeMap<ShotId, Vec<(u32, Value)>> {
     (readouts.into_iter())
         .map(|(shot, readouts)| {
             let mut tagged: Vec<_> = (readouts.into_iter())
-                .map(|(_, tag, value)| (tag, value))
+                .map(|(_, tag, value, _)| (tag, value))
                 .collect();
             tagged.sort_by_key(|&(tag, _)| tag);
             (shot, tagged)
@@ -1529,9 +1615,12 @@ fn tagged(readouts: Readouts) -> BTreeMap<ShotId, Vec<(u32, Value)>> {
 }
 
 /// Each shot's readouts in a run of several calls: the index of the batch
-/// that made each (its call, when each batch is one call), its tag and its
-/// value, in the order of the batches and the tags.
-type Readouts = BTreeMap<ShotId, Vec<(usize, u32, Value)>>;
+/// that made each (its call, when each batch is one call), its tag, its
+/// value and the conditions it carries, in the order of the batches and the
+/// tags. The checks that compare a shot's readouts over the same calls
+/// compare their conditions too, since a shot's conditions are its own, as
+/// its readouts are.
+type Readouts = BTreeMap<ShotId, Vec<(usize, u32, Value, ShotConditions)>>;
 
 /// Calls `executor` on `shots` with each of `batches`, in order, waiting
 /// for each reply, and gives each shot's readouts, under the index of the
@@ -1570,20 +1659,28 @@ fn readouts_of_calls<I, E: Executor<InstructionBatch<I>>>(
             panic!("the batches must be accepted, but one was refused with `{rejected:?}`")
         });
         for outcome in outcomes {
-            (readouts.entry(outcome.shot).or_default()).push((*call, outcome.tag, outcome.value));
+            (readouts.entry(outcome.shot).or_default()).push((
+                *call,
+                outcome.tag,
+                outcome.value,
+                outcome.conditions,
+            ));
         }
     }
     for readouts in readouts.values_mut() {
-        readouts.sort_by_key(|&(call, tag, _)| (call, tag));
+        readouts.sort_by_key(|&(call, tag, ..)| (call, tag));
     }
     readouts
 }
 
 /// Calls `executor` on `shots` with `instructions`, and gives the outcomes
 /// of its reply, or its refusal. The reply is waited for into a buffer that
-/// already holds an outcome ([`HELD`]): a reply appends its events, keeping
-/// what the caller held ([`Reply::poll_events`]), so that a caller may
-/// gather the events of several replies in one buffer.
+/// already holds [`HELD`] and one outcome of each shot of the call
+/// ([`held_of`]): a reply appends its events, keeping what the caller held
+/// ([`Reply::poll_events`]), so that a caller may gather the events of
+/// several replies in one buffer. The held outcomes of the call's shots
+/// show a reply that marks the caller's outcomes of a shot it flags,
+/// whichever shot of the call that is.
 ///
 /// # Panics
 ///
@@ -1594,12 +1691,14 @@ fn outcomes_of_call<I, E: Executor<InstructionBatch<I>>>(
     shots: &ShotSet,
     instructions: &[I],
 ) -> Result<Vec<ShotOutcome>, Rejected> {
-    let held = [HELD];
+    let held: Vec<ShotOutcome> = iter::once(HELD)
+        .chain(shots.iter().map(|&shot| held_of(shot)))
+        .collect();
     let reply = executor.call(InstructionBatchRef {
         shots,
         instructions,
     })?;
-    let mut outcomes = held.to_vec();
+    let mut outcomes = held.clone();
     if let Err(reason) = wait(reply, &mut outcomes) {
         panic!("the batches must run, but the reply to one failed: `{reason}`");
     }
@@ -1614,8 +1713,11 @@ fn outcomes_of_call<I, E: Executor<InstructionBatch<I>>>(
 /// The outcome that the readout checks' buffer holds before each reply's
 /// events: one that no executor gives for a caller's shots, of the last
 /// shot and the last tag, with no value.
-const HELD: ShotOutcome = ShotOutcome {
-    shot: ShotId::MAX,
-    tag: u32::MAX,
-    value: Value::Error(ErrorKind::Other),
-};
+const HELD: ShotOutcome = ShotOutcome::new(ShotId::MAX, u32::MAX, Value::Error(ErrorKind::Other));
+
+/// An outcome of `shot` that the readout checks' buffer holds before each
+/// reply's events, as a caller holds those of the shot's earlier calls:
+/// of the last tag, with no value and no condition.
+const fn held_of(shot: ShotId) -> ShotOutcome {
+    ShotOutcome::new(shot, u32::MAX, Value::Error(ErrorKind::Other))
+}

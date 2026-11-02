@@ -301,10 +301,7 @@ where
                 next_made += 1;
                 &mut made[next_made - 1].1
             };
-            let mut outcomes = Outcomes {
-                shots: slice::from_ref(&j),
-                reply: &mut reply,
-            };
+            let mut outcomes = Outcomes::new(slice::from_ref(&j), &mut reply);
             if let Err(reason) = (self.logic)(state, &input, &mut outcomes) {
                 fail(&mut self.lifecycle, &mut reply, reason);
                 return Ok(reply);

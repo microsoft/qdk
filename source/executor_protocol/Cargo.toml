@@ -45,5 +45,9 @@ name = "readout_tags"
 harness = false
 
 [[bench]]
+name = "shot_conditions"
+harness = false
+
+[[bench]]
 name = "shot_replies_wake"
 harness = false

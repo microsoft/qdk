@@ -22,7 +22,7 @@ use crate::lifecycle::failing_on_panic;
 use crate::{
     Capabilities, Close, Describe, Executor, ExecutorLifecycle, ExecutorReport, Fold,
     ImmediateReply, InstructionBatch, InstructionBatchRef, Outcome, PlacedExecutor, Placement,
-    Rejected, ShotContext, ShotId, ShotOutcome,
+    Rejected, ShotConditions, ShotContext, ShotId, ShotOutcome,
 };
 
 /// An executor made from its promise, what makes the state its calls run
@@ -540,10 +540,7 @@ where
         };
         self.calls += 1;
         let mut reply = ImmediateReply::default();
-        let mut outcomes = Outcomes {
-            shots: slice::from_ref(&shot),
-            reply: &mut reply,
-        };
+        let mut outcomes = Outcomes::new(slice::from_ref(&shot), &mut reply);
         if let Err(reason) = (self.logic)(state, &input, &mut outcomes) {
             fail(&mut self.lifecycle, &mut reply, reason);
             return Ok(reply);
@@ -777,22 +774,72 @@ impl<'a, I> ProgramInput<'a, I> {
 /// ([`OnePerShot`]), its own shot. A [`ShotOutcome`]
 /// answers the one shot it names, among
 /// those, as a decoder writes what it made of each shot's readouts.
+///
+/// Each outcome carries the conditions it is written with, and those the
+/// logic raises on its shots in the call
+/// ([`raise_conditions`](Self::raise_conditions)).
 #[derive(Debug)]
 pub struct Outcomes<'a> {
-    pub(crate) shots: &'a [ShotId],
-    pub(crate) reply: &'a mut ImmediateReply<ShotOutcome>,
+    shots: &'a [ShotId],
+    reply: &'a mut ImmediateReply<ShotOutcome>,
+    /// Where the logic's outcomes start in `reply`.
+    from: usize,
+    /// What the logic raised on its shots in the call.
+    raised: ShotConditions,
 }
 
-impl Outcomes<'_> {
+impl<'a> Outcomes<'a> {
+    /// Where a logic serving `shots` writes, after what `reply` holds.
+    #[inline]
+    pub(crate) fn new(shots: &'a [ShotId], reply: &'a mut ImmediateReply<ShotOutcome>) -> Self {
+        let from = reply.items().len();
+        Self {
+            shots,
+            reply,
+            from,
+            raised: ShotConditions::NONE,
+        }
+    }
+
+    /// What the logic raised on its shots in the call
+    /// ([`raise_conditions`](Self::raise_conditions)).
+    pub(crate) fn raised(&self) -> ShotConditions {
+        self.raised
+    }
+
     /// Adds `outcome` after those pushed before it, once for each shot it
-    /// answers, named by that shot.
+    /// answers, named by that shot, with its conditions and those the logic
+    /// raised in the call.
+    #[inline]
     pub fn push(&mut self, outcome: Outcome) {
+        let conditions = outcome.conditions | self.raised;
         for &shot in self.shots {
             self.reply.push(ShotOutcome {
                 shot,
                 tag: outcome.tag,
                 value: outcome.value,
+                conditions,
             });
+        }
+    }
+
+    /// Raises `conditions` on every shot it answers: every outcome the
+    /// logic writes in the call carries them, those written before as well
+    /// as after. An [`adapter_fn`](fn@crate::adapter_fn) also marks with
+    /// them the outcomes it gives those shots in later calls on them (a
+    /// refused call raises none), so that its logic may raise them in a
+    /// call that writes none; a condition raised in a call that gives the
+    /// shot no outcome reaches no caller in that call. An [`executor_fn`]
+    /// keeps nothing across calls: its logic keeps its shot's conditions in
+    /// its state, and raises them again in each call (`docs/replies.md`,
+    /// §Shot conditions).
+    pub fn raise_conditions(&mut self, conditions: ShotConditions) {
+        if conditions.is_empty() {
+            return;
+        }
+        self.raised |= conditions;
+        for outcome in &mut self.reply.items_mut()[self.from..] {
+            outcome.conditions |= conditions;
         }
     }
 }
@@ -835,7 +882,8 @@ impl Extend<ShotOutcome> for Outcomes<'_> {
                 served,
                 "a logic writes outcomes of its own shots only, not of shot {shot}"
             );
-            self.reply.push(outcome);
+            let conditions = outcome.conditions | self.raised;
+            self.reply.push(outcome.with_conditions(conditions));
         }
     }
 }

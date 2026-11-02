@@ -738,11 +738,7 @@ fn a_reply_with_a_part_pending_appends_its_outcomes_to_those_the_caller_holds() 
 
 /// The outcome of a read on shot `shot`.
 fn read(shot: ShotId, tag: u32) -> ShotOutcome {
-    ShotOutcome {
-        shot,
-        tag,
-        value: Value::One,
-    }
+    ShotOutcome::new(shot, tag, Value::One)
 }
 
 /// A state that names every outcome shot 99, as one copied from another
@@ -1093,11 +1089,7 @@ fn a_reply_ended_by_an_earlier_failure_keeps_the_events_its_caller_holds() {
     pending_reply(&seen, 1).fail("lost".into());
     let failed = first.poll_events(&mut Vec::new(), Waker::noop());
     assert_eq!(failed, ReplyStatus::Failed("lost".into()), "shot 1 failed");
-    let held = ShotOutcome {
-        shot: 9,
-        tag: 0,
-        value: Value::One,
-    };
+    let held = ShotOutcome::new(9, 0, Value::One);
     let mut out = vec![held];
     let ended = second.poll_events(&mut out, Waker::noop());
     let reason = ReplyStatus::Failed("an earlier call failed: lost".into());
@@ -1540,11 +1532,7 @@ fn a_failure_recorded_while_a_later_reply_ends_ends_it_without_its_outcomes() {
         let failed = first.poll_events(&mut Vec::new(), Waker::noop());
         assert_eq!(failed, ReplyStatus::Failed("lost".into()), "shot 1 failed");
     }));
-    let held = ShotOutcome {
-        shot: 9,
-        tag: 0,
-        value: Value::One,
-    };
+    let held = ShotOutcome::new(9, 0, Value::One);
     let mut out = vec![held];
     let ended = second.poll_events(&mut out, Waker::noop());
     let reason = ReplyStatus::Failed("an earlier call failed: lost".into());

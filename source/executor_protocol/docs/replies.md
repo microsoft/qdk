@@ -327,5 +327,189 @@ real case (a runtime whose result slots repeat within a batch, or one that
 defers measurements so that a batch holds several readouts). Meanwhile, an
 adapter can keep such a register by hand.
 
+## Shot conditions
+
+**The contract.** An outcome carries its shot's conditions so far
+(`ShotOutcome::conditions`, a `ShotConditions`): any of three that a
+component may find on a shot without ending it. The shot was flagged for
+rejection (`ShotConditions::REJECTED`: a check it was asked to pass failed,
+such as a post-selection; the caller chooses what to do with it, and one
+that post-selects drops the shot), its checks were inconsistent
+(`ShotConditions::INCONSISTENT`), or a value it depends on could not be
+determined (`ShotConditions::UNRESOLVED`). `ShotConditions::NONE` holds
+none, and `|` gives the union of two sets, as in
+`ShotConditions::REJECTED | ShotConditions::INCONSISTENT`. A condition
+belongs to the shot, not to a readout: once raised it stays raised, and the
+shot's outcomes in later calls carry it too, so a caller takes a shot's
+conditions as the union of those its outcomes carry, and tests them with
+`ShotConditions::contains`, which holds only when they include every
+condition of the set it is given. Conditions cost no event of their own:
+they ride on the outcomes, in a byte that leaves an outcome as small as it
+was without them. A condition raised in a call that gives the shot no
+outcome reaches no caller in that call. The conformance kit checks the
+rule across calls, for the conditions that an earlier outcome of the shot
+carried (`keeps_each_shots_conditions_from_one_call_to_the_next`),
+and its checks of a shot alone, of shots a call does not name, and of a
+fresh executor compare conditions as they compare values, so that a
+condition raised on one shot marks no other's outcomes, and a fresh
+executor's shots start without the conditions an earlier executor left.
+Its checks that read readouts wait for each reply into a buffer that
+already holds an outcome of each shot the call names, so that they see a
+reply that marks what its caller held
+([Conformance checks](composition.md#conformance-checks)).
+
+**In an `executor_fn`.** Its logic raises conditions on one outcome
+(`Outcome::with_conditions`, `ShotOutcome::with_conditions`, which give
+the outcome those conditions in place of its own), or on its shots with
+`Outcomes::raise_conditions`, which adds them to every outcome the logic
+writes for those shots in the call, those written before as well as
+after, and to no other shot's. A call its logic fails hands over the
+outcomes the logic wrote before its `Err` with those conditions too, as
+one state or a state per shot. An `executor_fn` keeps nothing across
+calls: a terminal whose shots' conditions outlast a call keeps them in its
+state, and raises them again in each call. For example, a code's runtime
+with a state per shot that rejects its shot, then writes a readout for it,
+whose caller finds the rejection on the readout (an excerpt of the
+[tests of shot conditions](../src/tests/conditions.rs)):
+
+```rust
+let mut runtime = executor_fn(
+    Capabilities::default(),
+    |context: ShotContext| Ok::<_, Rejected>(context.shot()),
+    |shot: &mut ShotId, _: &ProgramInput<'_, Step>, outcomes: &mut Outcomes<'_>| {
+        outcomes.raise_conditions(ShotConditions::REJECTED);
+        outcomes.extend([ShotOutcome::new(*shot, 0, Value::One)]);
+        Ok(())
+    },
+)
+.shots(OnePerShot);
+let outcomes = outcomes_of(&mut runtime, &[1], &[]);
+assert_eq!(marked(&outcomes), [(1, 0, ShotConditions::REJECTED)]);
+```
+
+There, `outcomes_of` waits for the reply of a call on the shots given, and
+`marked` lists each outcome as its shot, its tag and its conditions.
+
+**Through an `adapter_fn`.** It keeps each shot's conditions so far, with
+no code in its logic, and marks with them, as each call ends, every
+outcome it gives a shot of the call, in that call and in later calls on
+the shot: a condition the logic writes on one outcome marks the shot's
+others in the call too. It takes in the conditions its logic raises, and
+those carried by the outcomes the logic writes, its runs read, and its
+sends read during the call, while their reply is still pending too,
+merged by union, a shot's own with those from
+below, whatever the order of the call's shots. A run's are taken in even
+when it fails or is cancelled, from what it read before, a run that
+reads a tag of a shot twice too, but only on the shots it was given: a
+readout of another shot may belong to another call.
+A send's, read during the call, are taken in on whatever shot each names,
+given to the send or not, as a send's reply passes up as it comes,
+unchecked; a readout of a shot the call was not given, which only a
+faulty executor below gives, passes up with the conditions it carries
+from below alone. So a decoder that writes its readouts anew from those
+it ran below passes up the conditions found below it. The outcomes its
+sends give the call's shots carry the shot's conditions as the call that
+sent them ended, whenever and however they end, merged by union with the
+conditions they carry from below, and its reply marks its own outcomes
+alone, leaving those its caller held as they were. A logic's
+`Outcomes::raise_conditions` raises on its own shot alone when it has a
+state per shot, and on every shot of the call when it has one state for
+all. A refused call raises nothing, as nothing went down; a call that
+fails or is cancelled, by its logic, a run, a send, or a call below
+refused once another went down, still marks every outcome its reply hands
+over with the conditions it took in. The adapter passes the kit's check
+across calls, with one state, decoding or sending, and with a state per
+shot, over an executor below whose replies end within their call; and
+over one whose replies end after it, when that executor meets the
+requirement below, apart from the known issue below. The
+[tests of shot conditions](../src/tests/conditions.rs) pin these rules,
+each listed with the rule it pins in
+[Shot conditions: the rules](internals/replies.md#shot-conditions-the-rules).
+An adapter written by hand carries them by itself, merging those from
+below with its own; the kit checks that it keeps, from one call to the
+next, the conditions that an earlier outcome of each shot carried.
+
+**A requirement: an executor that offers `feedback` keeps each shot's
+conditions from one call to the next**, so that the shot's outcomes in a
+later call carry every condition raised on the shot in earlier calls,
+whether or not the call that raised it gave the shot an outcome. Neither
+its type, nor the build of a chain, nor the composition of a driver, nor
+the job given to a chain checks it
+([What is checked, and when](composition.md#what-is-checked-and-when)).
+The conformance kit's check across calls checks it at run time, on an
+executor that offers `feedback`, for the conditions that an earlier
+outcome of the shot carried: it sees outcomes alone, so a condition
+raised in a call that gave the shot no outcome is beyond it
+([Conformance checks](composition.md#conformance-checks)). An executor
+that breaks it is faulty, and it is easy to break: an `executor_fn` keeps
+no condition across calls by itself (above), yet offers `feedback`
+whenever the capabilities it is given do, as the default ones do, so it
+meets the requirement only when its logic keeps its shots' conditions in
+its state and raises them again in each call. Over an executor that
+breaks it, an adapter can lose a condition that a send gave after its
+call returned, as a send to an executor on another thread often does (a
+placed executor returns from its call once its work is scheduled): the
+send's outcomes pass up to the caller with the conditions they carry, but
+the adapter never sees them, and the executor gives the shot's later
+outcomes without them. A pass-through adapter over an `executor_fn`
+placed on another thread (`.shots(OnePerShot).run_on(OwnThread)`, or a
+thread per shot) often loses it, how often depending on timing. Over an
+executor that meets the requirement, the shot's outcomes that a later call
+sends for carry the condition again from below, as a send's outcomes pass
+up with the conditions they carry from below, whenever they end. So do the
+outcomes the logic writes for the shot in a later call that reads an
+outcome of the shot from below before it ends, as a decoder's run does,
+whether the logic writes them before or after the read, and in every call
+after it: the adapter takes the condition in from that outcome, keeps it,
+and marks with it, as each call ends, what the logic wrote in the call.
+Those it writes in the calls before lack it (the known issue below).
+
+**Known issue, open, pending a decision: the guides' hand-written
+adapters do not carry them yet.** The decoders of the guides
+(`tests/static_isa/repetition3.rs`, `tests/runtime_isa/code.rs`) write
+their readouts anew with no condition, so a condition raised below them
+reaches no caller. Whether they should carry them by hand, or with a
+facility the crate would offer, is open.
+
+**Known issue, open: in every call before one that reads from below an
+outcome of the shot that carries it, the outcomes a logic writes for the
+shot lack a condition that a send gave after its call returned.** The
+adapter takes a condition in only from an outcome it reads before its call
+ends (above): a send's outcomes that come after their call returned pass
+up to the caller with the conditions they carry, but the adapter never
+sees them. So, even over an executor that meets the requirement above, the
+outcomes the logic writes for the shot lack it, for instance, in a later
+call that neither sends nor runs the shot below, in one whose run reads
+nothing for the shot, or in one whose sends for the shot give their
+outcomes after it returned, as a send to a placed executor often does
+(above), when no call since the send has read an outcome of the shot
+that carries it. No known case writes a shot's outcomes in such a call: a
+decoder writes them in a call whose run reads the shot, and keeps the
+condition there (above). A caller that takes the union of a shot's
+outcomes still sees it, in the outcomes of that send; the kit's check
+across calls, and its check of a shot alone, which compares what a shot
+gives over several calls alone and among others, can then pass or fail
+from run to run on the same chain, as the send's reply ends within its
+call or after it. Keeping them would need the reply to hand them back to
+the adapter, and would hold only for a caller that reads a reply before
+its next call.
+
+**What they cost.** An outcome is no larger. While no condition is raised,
+a chain built with its code aligned ran no more than about 8 % slower than
+one without conditions, apart from two cells; built without alignment,
+some cells on batches of one instruction ran up to 16 % slower than the
+same chain before conditions with `push` inlined (up to about 23 % slower
+than the crate as it shipped), partly by layout and partly, in an adapter,
+by its read of the outcomes as each call ends, not separated. Once any
+shot it served has a condition, an adapter looks up the conditions of its
+call's shots in each call, and marks the outcomes of the flagged ones, and
+holds about 14 bytes per flagged shot until it is dropped, since nothing
+tells it that a shot has ended (known issue, open)
+([Performance](performance.md#shot-conditions)).
+
+Over a link (planned), a shot's conditions travel as one code of three
+bits (`conditions_code`, `conditions_of`), pinned by the
+[tests of codes](../src/tests/codes.rs).
+
 The detailed rules, for maintainers of the crate, are in
 [Replies: the detailed rules](internals/replies.md).

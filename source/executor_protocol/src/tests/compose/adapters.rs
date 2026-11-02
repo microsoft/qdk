@@ -431,11 +431,7 @@ fn a_late_failure_ends_a_batch_through_an_adapter_as_without() {
                 .remove(0)
         };
         let shot_3 = pending(3);
-        shot_3.push(ShotOutcome {
-            shot: 3,
-            tag: 2,
-            value: Value::One,
-        });
+        shot_3.push(ShotOutcome::new(3, 2, Value::One));
         shot_3.done();
         pending(7).fail("lost".into());
         let mut outcomes = Vec::new();
