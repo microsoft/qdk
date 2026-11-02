@@ -318,52 +318,40 @@ fn evaluation_order_compound_and_rhs_assignment_remains_conditional() {
         &expect![[r#"
             block_0:
               %var_0 = alloca i64
-              %var_3 = alloca i1
-              %var_5 = alloca i1
               %var_6 = alloca i64
               call void @__quantum__rt__initialize(ptr null)
               store i64 4, ptr %var_0
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              store i1 false, ptr %var_5
               br i1 %var_1, label %block_1, label %block_2
             block_1:
               store i64 0, ptr %var_0
-              store i1 false, ptr %var_5
               br label %block_2
             block_2:
-              %var_10 = load i1, ptr %var_5
-              store i1 %var_10, ptr %var_3
-              %var_12 = load i64, ptr %var_0
-              store i64 %var_12, ptr %var_6
-              %var_14 = load i64, ptr %var_6
-              %var_7 = icmp eq i64 %var_14, 4
+              %var_9 = load i64, ptr %var_0
+              store i64 %var_9, ptr %var_6
+              %var_11 = load i64, ptr %var_6
+              %var_7 = icmp eq i64 %var_11, 4
               call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, ptr @0)
               ret i64 0"#]],
         &expect![[r#"
             block_0:
               %var_1 = alloca i64
-              %var_4 = alloca i1
-              %var_6 = alloca i1
               %var_7 = alloca i64
               call void @__quantum__rt__initialize(ptr null)
               call void @X(ptr inttoptr (i64 0 to ptr))
               store i64 4, ptr %var_1
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              store i1 false, ptr %var_6
               br i1 %var_2, label %block_1, label %block_2
             block_1:
               store i64 0, ptr %var_1
-              store i1 false, ptr %var_6
               br label %block_2
             block_2:
-              %var_11 = load i1, ptr %var_6
-              store i1 %var_11, ptr %var_4
-              %var_13 = load i64, ptr %var_1
-              store i64 %var_13, ptr %var_7
-              %var_15 = load i64, ptr %var_7
-              %var_8 = icmp eq i64 %var_15, 4
+              %var_10 = load i64, ptr %var_1
+              store i64 %var_10, ptr %var_7
+              %var_12 = load i64, ptr %var_7
+              %var_8 = icmp eq i64 %var_12, 4
               call void @__quantum__rt__bool_record_output(i1 zeroext %var_8, ptr @0)
               ret i64 0"#]],
     );
@@ -390,8 +378,6 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
         &expect![[r#"
             block_0:
               %var_0 = alloca i64
-              %var_3 = alloca i1
-              %var_5 = alloca i1
               %var_6 = alloca i64
               %var_8 = alloca i1
               call void @__quantum__rt__initialize(ptr null)
@@ -399,28 +385,22 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
               %var_2 = icmp eq i1 %var_1, false
-              store i1 true, ptr %var_5
               br i1 %var_2, label %block_2, label %block_1
             block_1:
               store i64 0, ptr %var_0
-              store i1 true, ptr %var_5
               br label %block_2
             block_2:
-              %var_13 = load i1, ptr %var_5
-              store i1 %var_13, ptr %var_3
-              %var_15 = load i64, ptr %var_0
-              store i64 %var_15, ptr %var_6
-              %var_17 = load i64, ptr %var_6
-              %var_7 = icmp eq i64 %var_17, 4
+              %var_11 = load i64, ptr %var_0
+              store i64 %var_11, ptr %var_6
+              %var_13 = load i64, ptr %var_6
+              %var_7 = icmp eq i64 %var_13, 4
               store i1 %var_7, ptr %var_8
-              %var_19 = load i1, ptr %var_8
-              call void @__quantum__rt__bool_record_output(i1 zeroext %var_19, ptr @0)
+              %var_15 = load i1, ptr %var_8
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_15, ptr @0)
               ret i64 0"#]],
         &expect![[r#"
             block_0:
               %var_1 = alloca i64
-              %var_4 = alloca i1
-              %var_6 = alloca i1
               %var_7 = alloca i64
               %var_9 = alloca i1
               call void @__quantum__rt__initialize(ptr null)
@@ -429,22 +409,18 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
               %var_3 = icmp eq i1 %var_2, false
-              store i1 true, ptr %var_6
               br i1 %var_3, label %block_2, label %block_1
             block_1:
               store i64 0, ptr %var_1
-              store i1 true, ptr %var_6
               br label %block_2
             block_2:
-              %var_14 = load i1, ptr %var_6
-              store i1 %var_14, ptr %var_4
-              %var_16 = load i64, ptr %var_1
-              store i64 %var_16, ptr %var_7
-              %var_18 = load i64, ptr %var_7
-              %var_8 = icmp eq i64 %var_18, 4
+              %var_12 = load i64, ptr %var_1
+              store i64 %var_12, ptr %var_7
+              %var_14 = load i64, ptr %var_7
+              %var_8 = icmp eq i64 %var_14, 4
               store i1 %var_8, ptr %var_9
-              %var_20 = load i1, ptr %var_9
-              call void @__quantum__rt__bool_record_output(i1 zeroext %var_20, ptr @0)
+              %var_16 = load i1, ptr %var_9
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_16, ptr @0)
               ret i64 0"#]],
     );
 }
@@ -1347,9 +1323,7 @@ fn evaluation_order_effectful_callable_and_assign_replacement() {
             block_0:
               %var_0 = alloca i1
               %var_5 = alloca i64
-              %var_6 = alloca i1
               %var_7 = alloca i1
-              %var_8 = alloca i1
               %var_9 = alloca i64
               %var_10 = alloca i64
               call void @__quantum__rt__initialize(ptr null)
@@ -1361,18 +1335,14 @@ fn evaluation_order_effectful_callable_and_assign_replacement() {
               store i1 %var_2, ptr %var_0
               %var_17 = load i1, ptr %var_0
               store i1 %var_17, ptr %var_7
-              store i1 false, ptr %var_8
-              %var_20 = load i1, ptr %var_7
-              br i1 %var_20, label %block_1, label %block_2
+              %var_19 = load i1, ptr %var_7
+              br i1 %var_19, label %block_1, label %block_2
             block_1:
               store i64 7, ptr %var_5
-              store i1 false, ptr %var_8
               br label %block_2
             block_2:
-              %var_21 = load i1, ptr %var_8
-              store i1 %var_21, ptr %var_6
-              %var_23 = load i1, ptr %var_0
-              br i1 %var_23, label %block_3, label %block_4
+              %var_20 = load i1, ptr %var_0
+              br i1 %var_20, label %block_3, label %block_4
             block_3:
               store i64 12, ptr %var_9
               br label %block_5
@@ -1380,12 +1350,12 @@ fn evaluation_order_effectful_callable_and_assign_replacement() {
               store i64 11, ptr %var_9
               br label %block_5
             block_5:
-              %var_25 = load i64, ptr %var_9
-              store i64 %var_25, ptr %var_10
-              %var_27 = load i64, ptr %var_10
-              %var_11 = mul i64 %var_27, 100
-              %var_28 = load i64, ptr %var_5
-              %var_13 = add i64 %var_11, %var_28
+              %var_22 = load i64, ptr %var_9
+              store i64 %var_22, ptr %var_10
+              %var_24 = load i64, ptr %var_10
+              %var_11 = mul i64 %var_24, 100
+              %var_25 = load i64, ptr %var_5
+              %var_13 = add i64 %var_11, %var_25
               call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
               ret i64 0"#]],
         &expect![[r#"
@@ -1413,9 +1383,7 @@ fn evaluation_order_effectful_callable_and_assign_replacement() {
             block_0:
               %var_0 = alloca i1
               %var_4 = alloca i64
-              %var_5 = alloca i1
               %var_6 = alloca i1
-              %var_7 = alloca i1
               %var_8 = alloca i64
               %var_9 = alloca i64
               call void @__quantum__rt__initialize(ptr null)
@@ -1426,18 +1394,14 @@ fn evaluation_order_effectful_callable_and_assign_replacement() {
               store i1 %var_1, ptr %var_0
               %var_16 = load i1, ptr %var_0
               store i1 %var_16, ptr %var_6
-              store i1 false, ptr %var_7
-              %var_19 = load i1, ptr %var_6
-              br i1 %var_19, label %block_1, label %block_2
+              %var_18 = load i1, ptr %var_6
+              br i1 %var_18, label %block_1, label %block_2
             block_1:
               store i64 7, ptr %var_4
-              store i1 false, ptr %var_7
               br label %block_2
             block_2:
-              %var_20 = load i1, ptr %var_7
-              store i1 %var_20, ptr %var_5
-              %var_22 = load i1, ptr %var_0
-              br i1 %var_22, label %block_3, label %block_4
+              %var_19 = load i1, ptr %var_0
+              br i1 %var_19, label %block_3, label %block_4
             block_3:
               store i64 12, ptr %var_8
               br label %block_5
@@ -1445,12 +1409,12 @@ fn evaluation_order_effectful_callable_and_assign_replacement() {
               store i64 11, ptr %var_8
               br label %block_5
             block_5:
-              %var_24 = load i64, ptr %var_8
-              store i64 %var_24, ptr %var_9
-              %var_26 = load i64, ptr %var_9
-              %var_10 = mul i64 %var_26, 100
-              %var_27 = load i64, ptr %var_4
-              %var_12 = add i64 %var_10, %var_27
+              %var_21 = load i64, ptr %var_8
+              store i64 %var_21, ptr %var_9
+              %var_23 = load i64, ptr %var_9
+              %var_10 = mul i64 %var_23, 100
+              %var_24 = load i64, ptr %var_4
+              %var_12 = add i64 %var_10, %var_24
               call void @__quantum__rt__int_record_output(i64 %var_12, ptr @0)
               ret i64 0"#]],
     );

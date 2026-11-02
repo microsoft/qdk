@@ -642,6 +642,7 @@ impl<'a> PartialEvaluator<'a> {
         Ok(updated_array)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn eval_bin_op(
         &mut self,
         bin_op: BinOp,
