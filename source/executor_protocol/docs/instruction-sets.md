@@ -16,7 +16,7 @@ independent, and a chain may mix them:
 
 Either kind of executor may describe its set in
 `Capabilities::instruction_set`, and then a chain checks it when it is
-built and when a driver is composed with it (see [The checks](#the-checks)).
+built and when it is given a job (see [The checks](#the-checks)).
 
 ### A static set: a type
 
@@ -44,8 +44,9 @@ fn accepts(&self) -> Option<Arc<InstructionSet>> {
 A toy that lacks one of them is refused when the code is composed with it.
 
 An adapter that changes the instruction set states the set it accepts (or
-`None`), never the one downstream, which its caller cannot send. A driver that
-needs an instruction the code lacks is refused when composed. A way for a type
+`None`), never the one downstream, which its caller cannot send. A program
+that needs an instruction the code lacks is refused when given to the chain. A
+way for a type
 to give its own description, so that the two cannot drift, is left until an
 executor needs one; until then a test of the [static instruction set
 guide](../tests/static_isa.rs) matches every variant to a call of its
@@ -186,12 +187,12 @@ any order:
 - **An adapter** states the instructions it sends (`Adapter::sends`). `compose`
   checks them against the set downstream, and copies its calls into the
   downstream numbering where it numbers them otherwise.
-- **A driver** states the instructions its program sends
-  (`Needs::with_instructions`). A set the chain lacks is refused when composed,
-  with every instruction that does not fit. A driver of `InstructionCall`s whose
-  set numbers its instructions otherwise runs its own instructions, each batch
-  copied into the chain's numbering. A typed driver's calls reach the executor
-  as they are.
+- **A job's program** states the instructions it sends
+  (`Needs::with_instruction_set`). A set the chain lacks is refused when the
+  job is given to the chain, with every instruction that does not fit. A
+  program of `InstructionCall`s whose set numbers its instructions otherwise
+  runs its own instructions, each batch copied into the chain's numbering. A
+  typed program's calls reach the executor as they are.
 
 A caller that calls an executor directly, without a run, sends calls in
 the executor's numbering: the set the executor describes
@@ -202,7 +203,7 @@ call numbered by another set may reach another instruction, and when the
 two take the same operands (`x` and `reset`), no check sees it.
 
 Each way an instruction is matched or refused, what a boundary costs, and
-what a driver of each instruction type gets are in
+what a program of each instruction type gets are in
 [Compatibility: the rules](internals/instruction-sets.md#compatibility-the-rules).
 
 ### The checks
@@ -213,12 +214,13 @@ A description is checked in three places, each before anything runs:
    downstream, and every fault of the parts built together is reported at once;
    a part composed with the executor first is built on its own, before what is
    upstream of it ([Composing a run](composition.md#composing-a-run)).
-2. **When a driver is composed, or by hand with `Capabilities::admit`**: the
-   instructions a caller needs must fit the set the chain accepts, and their
-   unmet need lists each that does not. `compose` reports every unmet need of
-   the driver; `admit` returns only the first, in a fixed order where the
-   instructions come after qubits, feedback, resets, replayable and
-   probabilities, so an earlier unmet need hides the instructions'.
+2. **When a job is given to the chain, or by hand with
+   `Capabilities::admit`**: the instructions a caller needs must fit the set
+   the chain accepts, and their unmet need lists each that does not.
+   `Chain::run` reports every unmet need of the job's program; `admit` returns
+   only the first, in a fixed order where the
+   instructions come after qubits, resumable shots, resets, replayable and
+   log probability, so an earlier unmet need hides the instructions'.
 3. **At each call**, by an executor of `InstructionCall`s, since the compiler
    cannot: `InstructionSet::check_batch` refuses the batch with
    `Rejected::Instruction` at its first call whose opcode the set lacks or whose
@@ -353,7 +355,7 @@ guide](../tests/static_isa.rs) does.
 remote device, such as one behind a cloud service, is reached over a link.
 Its set is known only when it answers, so it describes it. The description
 is a value (names and operand kinds) that a link frame would carry, as it
-would carry `UnmetNeed`'s `mismatches`; `Need::Instructions` already has a
+would carry `UnmetNeed`'s `mismatches`; `Need::InstructionSet` already has a
 wire code (6).
 
 The detailed rules, for maintainers of the crate, are in

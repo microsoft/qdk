@@ -50,7 +50,7 @@ use crate::{Below, OnePerShot, ReplyStatus};
 /// of the call's own instructions, as an observer's, are merged with no
 /// comparison; others are compared with the sends of their rank. With an
 /// [`owning_adapter_fn`](fn@crate::owning_adapter_fn), each shot's state
-/// owns its way below ([`OwnedBelow`](crate::OwnedBelow)), which keeps
+/// owns its way below ([`BelowHandle`](crate::BelowHandle)), which keeps
 /// and runs as that [`Below`] does; its sends are all compared, since it
 /// does not know the call's instructions.
 ///

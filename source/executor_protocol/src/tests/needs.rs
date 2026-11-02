@@ -9,15 +9,15 @@ use crate::{
     UnmetNeed,
 };
 
-/// A small device: two qubits, two states, and none of the yes/no
+/// A small device: two qubits, two shots at once, and none of the yes/no
 /// capabilities.
 fn small() -> Capabilities {
     Capabilities::default()
         .with_qubits(2)
-        .with_feedback(false)
+        .with_resumable_shots(false)
         .with_resets(false)
         .with_replayable(false)
-        .with_states(2)
+        .with_max_shots(2)
 }
 
 /// A set of two instructions, for the needs of the tests.
@@ -38,16 +38,16 @@ fn unmet_by_small(needs: &Needs) -> Option<(Need, u64, u64)> {
     }
 }
 
-/// Every run needs one state per shot, so more shots than the states a
-/// component holds are refused even when the caller states no need.
+/// Every run holds its shots at once, so more shots than a component holds
+/// at once are refused even when the caller states no need.
 #[test]
-fn more_shots_than_states_are_unmet_even_with_the_default_needs() {
+fn more_shots_than_held_at_once_are_unmet_even_with_the_default_needs() {
     let shots = ShotSet::range(1..=3).expect("1..=3 is not empty");
     assert_eq!(
         small().admit("small", &shots, &Needs::default()),
         Err(Rejected::Unmet(UnmetNeed {
             component: "small".into(),
-            need: Need::States,
+            need: Need::Shots,
             needed: 3,
             offered: 2,
             mismatches: Vec::new(),
@@ -64,8 +64,8 @@ fn each_need_beyond_the_offer_is_unmet() {
         Some((Need::Qubits, 3, 2))
     );
     assert_eq!(
-        unmet_by_small(&Needs::default().with_feedback(true)),
-        Some((Need::Feedback, 1, 0))
+        unmet_by_small(&Needs::default().with_resumable_shots(true)),
+        Some((Need::ResumableShots, 1, 0))
     );
     assert_eq!(
         unmet_by_small(&Needs::default().with_resets(true)),
@@ -76,8 +76,8 @@ fn each_need_beyond_the_offer_is_unmet() {
         Some((Need::Replayable, 1, 0))
     );
     assert_eq!(
-        unmet_by_small(&Needs::default().with_probabilities(true)),
-        Some((Need::Probabilities, 1, 0))
+        unmet_by_small(&Needs::default().with_log_probability(true)),
+        Some((Need::LogProbability, 1, 0))
     );
 }
 
@@ -96,7 +96,7 @@ fn needed_instructions_in_another_order_are_met() {
         device.admit(
             "device",
             &ShotSet::one(1),
-            &Needs::default().with_instructions(Some(rotations()))
+            &Needs::default().with_instruction_set(Some(rotations()))
         ),
         Ok(())
     );
@@ -115,7 +115,7 @@ fn needed_instructions_the_set_lacks_are_unmet() {
             .admit(
                 "device",
                 &ShotSet::one(1),
-                &Needs::default().with_instructions(Some(rotations()))
+                &Needs::default().with_instruction_set(Some(rotations()))
             )
             .expect_err("the device lacks `measure`")
             .to_string(),
@@ -139,7 +139,7 @@ fn a_needed_instruction_taking_other_operands_is_unmet() {
             .admit(
                 "device",
                 &ShotSet::one(1),
-                &Needs::default().with_instructions(Some(rotations()))
+                &Needs::default().with_instruction_set(Some(rotations()))
             )
             .expect_err("the device's `rz` takes no angle")
             .to_string(),
@@ -158,7 +158,7 @@ fn every_needed_instruction_not_offered_is_reported() {
     let refused = device.admit(
         "device",
         &ShotSet::one(1),
-        &Needs::default().with_instructions(Some(rotations())),
+        &Needs::default().with_instruction_set(Some(rotations())),
     );
     let Err(Rejected::Unmet(unmet)) = refused else {
         panic!("the device offers neither instruction, but: {refused:?}");
@@ -186,25 +186,25 @@ fn every_needed_instruction_not_offered_is_reported() {
 #[test]
 fn needed_instructions_are_unmet_by_a_component_with_no_instruction_set() {
     assert_eq!(
-        unmet_by_small(&Needs::default().with_instructions(Some(rotations()))),
-        Some((Need::Instructions, 2, 0))
+        unmet_by_small(&Needs::default().with_instruction_set(Some(rotations()))),
+        Some((Need::InstructionSet, 2, 0))
     );
 }
 
 /// When several needs are unmet, the first in a fixed order is reported:
-/// qubits, feedback, resets, replayable, probabilities, instructions, then
-/// the states of the run's shots. A caller that meets each reported
-/// need in turn meets them in that order.
+/// qubits, resumable shots, resets, replayable, log probability,
+/// instruction set, then the run's shots at once. A caller that meets each
+/// reported need in turn meets them in that order.
 #[test]
 fn several_unmet_needs_are_reported_one_at_a_time_in_a_fixed_order() {
     let three = ShotSet::range(1..=3).expect("1..=3 is not empty");
     let mut needs = Needs::default()
         .with_qubits(3)
-        .with_feedback(true)
+        .with_resumable_shots(true)
         .with_resets(true)
         .with_replayable(true)
-        .with_probabilities(true)
-        .with_instructions(Some(rotations()));
+        .with_log_probability(true)
+        .with_instruction_set(Some(rotations()));
     let mut reported = Vec::new();
     while let Err(rejected) = small().admit("small", &three, &needs) {
         let Rejected::Unmet(unmet) = rejected else {
@@ -213,24 +213,24 @@ fn several_unmet_needs_are_reported_one_at_a_time_in_a_fixed_order() {
         reported.push(unmet.need);
         match unmet.need {
             Need::Qubits => needs.qubits = None,
-            Need::Feedback => needs.feedback = false,
+            Need::ResumableShots => needs.resumable_shots = false,
             Need::Resets => needs.resets = false,
             Need::Replayable => needs.replayable = false,
-            Need::Probabilities => needs.probabilities = false,
-            Need::Instructions => needs.instructions = None,
-            Need::States => break,
+            Need::LogProbability => needs.log_probability = false,
+            Need::InstructionSet => needs.instruction_set = None,
+            Need::Shots => break,
         }
     }
     assert_eq!(
         reported,
         [
             Need::Qubits,
-            Need::Feedback,
+            Need::ResumableShots,
             Need::Resets,
             Need::Replayable,
-            Need::Probabilities,
-            Need::Instructions,
-            Need::States
+            Need::LogProbability,
+            Need::InstructionSet,
+            Need::Shots
         ]
     );
 }
@@ -243,25 +243,28 @@ fn a_need_equal_to_the_offer_is_met() {
     assert_eq!(small().admit("small", &two, &Needs::default()), Ok(()));
 }
 
-/// A component with no limits, which also computes probabilities and
+/// A component with no limits, which also computes the log probability and
 /// accepts the instructions needed, meets every need.
 #[test]
 fn a_component_with_no_limits_meets_every_need() {
     let shots = ShotSet::range(1..=3).expect("1..=3 is not empty");
     assert_eq!(
         Capabilities::default()
-            .with_probabilities(true)
+            .with_resumable_shots(true)
+            .with_replayable(true)
+            .with_resets(true)
+            .with_log_probability(true)
             .with_instruction_set(Some(rotations()))
             .admit(
                 "any",
                 &shots,
                 &Needs::default()
                     .with_qubits(1000)
-                    .with_feedback(true)
+                    .with_resumable_shots(true)
                     .with_resets(true)
                     .with_replayable(true)
-                    .with_probabilities(true)
-                    .with_instructions(Some(rotations()))
+                    .with_log_probability(true)
+                    .with_instruction_set(Some(rotations()))
             ),
         Ok(())
     );
@@ -275,17 +278,17 @@ fn an_unmet_count_says_what_was_offered_and_needed() {
     assert_eq!(
         small()
             .admit("small", &shots, &Needs::default())
-            .expect_err("two states are fewer than three shots")
+            .expect_err("two shots at once are fewer than three")
             .to_string(),
-        "small holds at most 2 states at once, 3 needed (one per shot)"
+        "small holds at most 2 shots at once, 3 needed"
     );
 }
 
-/// An unmet count of one reads in the singular: a device of one qubit and
-/// one state, given a program of two qubits, then two shots.
+/// An unmet count of one reads in the singular: a device of one qubit that
+/// holds one shot, given a program of two qubits, then two shots.
 #[test]
 fn an_unmet_count_of_one_reads_in_the_singular() {
-    let one = Capabilities::default().with_qubits(1).with_states(1);
+    let one = Capabilities::default().with_qubits(1).with_max_shots(1);
     let two_qubits = one
         .admit("one", &ShotSet::one(1), &Needs::default().with_qubits(2))
         .expect_err("one qubit is too few");
@@ -296,23 +299,33 @@ fn an_unmet_count_of_one_reads_in_the_singular() {
         [two_qubits.to_string(), two_shots.to_string()],
         [
             "one offers 1 qubit per shot, 2 needed",
-            "one holds at most 1 state at once, 2 needed (one per shot)"
+            "one holds at most 1 shot at once, 2 needed"
         ]
     );
 }
 
-/// An unmet yes/no need says which component does not offer it.
+/// An unmet yes/no need says which component does not offer it, naming
+/// the capability.
 #[test]
 fn an_unmet_yes_or_no_need_says_which_component_lacks_it() {
-    assert_eq!(
+    let refusal = |needs: Needs| {
         small()
-            .admit(
-                "small",
-                &ShotSet::one(1),
-                &Needs::default().with_feedback(true)
-            )
-            .expect_err("`small` offers no feedback")
-            .to_string(),
-        "small does not offer feedback"
+            .admit("small", &ShotSet::one(1), &needs)
+            .expect_err("`small` offers none of the yes/no capabilities")
+            .to_string()
+    };
+    assert_eq!(
+        [
+            refusal(Needs::default().with_resumable_shots(true)),
+            refusal(Needs::default().with_resets(true)),
+            refusal(Needs::default().with_replayable(true)),
+            refusal(Needs::default().with_log_probability(true)),
+        ],
+        [
+            "small does not offer resumable shots",
+            "small does not offer resets",
+            "small does not offer replayable shots",
+            "small does not offer each shot's log probability at close",
+        ]
     );
 }

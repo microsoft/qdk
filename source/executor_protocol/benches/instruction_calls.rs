@@ -20,11 +20,11 @@
 //! call, on building, checking, renumbering and dispatching a batch; and a
 //! reply's one outcome, held in the reply.
 //!
-//! Then what an executor costs per call when a driver composed with it
-//! ([`compose`]) calls it, against the executor called directly: with the
-//! driver's set in the toy's numbering, as a driver's calls are when it
-//! builds them by name with the toy's set; and in another, into which each
-//! batch is copied on its way.
+//! Then what an executor costs per call when a program run on a chain of
+//! it (`chain.run`) calls it, against the executor called directly: with
+//! the program's set in the toy's numbering, as a program's calls are when
+//! it builds them by name with the toy's set; and in another, into which
+//! each batch is copied on its way.
 //!
 //! Then what an adapter composed with the toy's executor ([`compose`])
 //! costs at the boundary downstream of it, against the toy's executor
@@ -51,11 +51,11 @@ use std::task::Waker;
 use std::time::Instant;
 
 use executor_protocol::{
-    Action, Adapter, AdapterBoundary, Apply, Below, Capabilities, Close, Describe, Drive, Driver,
-    Executor, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionSet, Needs, OnePerShot, Opcode, OpcodeMap, OpcodeTable, Operand, OperandKind,
-    Outcomes, OwnedBelow, Pauli, ProgramInput, Rejected, Reply, ShotContext, ShotId, ShotOutcome,
-    ShotSet, adapter_fn, compose, owning_adapter_fn, wait,
+    Action, Adapter, AdapterBoundary, AdapterError, Apply, Below, BelowHandle, Capabilities, Close,
+    Describe, Drive, Executor, ImmediateReply, InstructionBatch, InstructionBatchRef,
+    InstructionCall, InstructionSet, Needs, OnePerShot, Opcode, OpcodeMap, OpcodeTable, Operand,
+    OperandKind, Outcomes, Pauli, ProgramInput, Rejected, Reply, ShotContext, ShotId, ShotOutcome,
+    ShotSet, adapter_fn, compose, interpreter, owning_adapter_fn, wait,
 };
 
 /// The calls of each batch.
@@ -739,14 +739,15 @@ fn replies() {
 }
 
 /// The toy's executor of one shot, called with batches of [`CALLS`] calls,
-/// then of one call: directly (bare), and by a driver composed with it
-/// whose set is the toy's (the same numbering) or the toy's reversed
-/// (another), whose batches are each copied into the toy's numbering on
-/// their way. Calls built by name with the toy's set, as a driver that
-/// cannot afford the copy builds them, are those of the same numbering, so
-/// they cost what it costs. Each measurement runs on a new executor, after
-/// a first batch of [`CALLS`] calls that makes its shot and whose outcomes
-/// are checked against the bare executor's. In ns per call.
+/// then of one call: directly (bare), and by a program run on a chain of
+/// it (`chain.run`) whose set is the toy's (the same numbering) or the
+/// toy's reversed (another), whose batches are each copied into the toy's
+/// numbering on their way. Calls built by name with the toy's set, as a
+/// program that cannot afford the copy builds them, are those of the same
+/// numbering, so they cost what it costs. Each measurement runs on a new
+/// executor, after a first batch of [`CALLS`] calls that makes its shot
+/// and whose outcomes are checked against the bare executor's. In ns per
+/// call.
 fn renumbering() {
     let toy = toy_set();
     let driver = reversed(&toy);
@@ -765,7 +766,8 @@ fn renumbering() {
     let bare = |size| Timed::new(&in_toy, size, None).on(&mut toy_executor(), &shots);
     let ran = |calls, set: &InstructionSet, size| {
         let program = Timed::new(calls, size, Some(set));
-        let run = compose(Driver::new(program, shots.clone()), toy_executor());
+        let chain = compose(interpreter(), toy_executor()).expect("nothing between to refuse");
+        let run = chain.run(program, shots.clone());
         run.expect("the toy accepts the driver's set").wait().0
     };
     let expected = bare(CALLS as usize).0;
@@ -835,7 +837,7 @@ impl Drive for Timed<'_> {
     type Output = (Vec<ShotOutcome>, f64);
 
     fn needs(&self) -> Needs {
-        Needs::default().with_instructions(self.set.clone())
+        Needs::default().with_instruction_set(self.set.clone())
     }
 
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
@@ -1022,7 +1024,7 @@ fn pass(
     input: &ProgramInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     below.send(input.instructions())
 }
 
@@ -1034,18 +1036,18 @@ fn pass(
 )]
 fn own(
     _: ShotContext,
-    below: OwnedBelow<InstructionCall>,
-) -> Result<OwnedBelow<InstructionCall>, Rejected> {
+    below: BelowHandle<InstructionCall>,
+) -> Result<BelowHandle<InstructionCall>, Rejected> {
     Ok(below)
 }
 
 /// The logic of an [`owning_adapter_fn`] that passes each call down as it
 /// is, through its state's way below.
 fn pass_owned(
-    below: &mut OwnedBelow<InstructionCall>,
+    below: &mut BelowHandle<InstructionCall>,
     input: &ProgramInput<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     below.send(input.instructions())
 }
 

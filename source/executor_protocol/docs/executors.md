@@ -4,17 +4,19 @@
 
 An implementer writes its own logic, the physics or a device's calls, and
 the crate makes it an executor that keeps the protocol's rules. This page
-gives what an executor offers and a driver needs, the facility that makes
+gives what an executor offers and a program needs, the facility that makes
 an executor (`executor_fn`), how it holds its shots' states (`.shots`),
 where it runs (`.run_on`), an executor's life, an executor written by hand
 (`ExecutorLifecycle`), and how shots are seeded.
 
 ## Capabilities and needs
 
-A component says what it offers (`Describe::capabilities`), and a driver
-says what it needs (`Drive::needs`, a `Needs`). When a driver is composed
-with an executor, `compose` builds the chain from the executor upstream,
-then checks each need against what the chain offers, before anything runs:
+A component says what it offers (`Describe::capabilities`), and a job's program
+says what it needs (a `Needs`: a `StaticProgram`'s; `Drive::needs` for a program
+that drives itself; or, for a program of another form, its interpreter's,
+`Interpret::needs`). `compose` builds the chain from the executor upstream; when
+a job is given to the chain, each need of its program is checked against what
+the chain offers, before anything runs:
 
 ```mermaid
 sequenceDiagram
@@ -22,16 +24,23 @@ sequenceDiagram
   participant P as compose
   participant E as executor
   participant A as each adapter, from the executor upstream
-  C->>P: driver >> adapters >> executor
+  participant H as chain
+  C->>P: interpreter() >> adapters >> executor
   P->>E: capabilities()
   E-->>P: Capabilities
   P->>A: build(boundary)
   A-->>P: what it offers upstream, and its own faults
-  P->>P: check each need of the driver against what the chain offers
-  alt every need met, no fault
-    P-->>C: Ok(Run): nothing has run
+  alt no fault
+    P-->>C: Ok(chain): nothing has run
   else
     P-->>C: Err(BuildFaults): every fault, upstream first
+  end
+  C->>H: run(program, shots)
+  H->>H: check each need of the program against what the chain offers
+  alt every need met, no fault
+    H-->>C: Ok(Run): nothing has run
+  else
+    H-->>C: Err(JobFaults): every fault
   end
 ```
 
@@ -43,22 +52,36 @@ the component, so the caller knows which one to change, and for
 instructions lists each needed instruction that does not fit
 (`mismatches`).
 
-| Property                           | Offered (`Capabilities`), default                    | Needed (`Needs`), default             | Checked                                                                                                                         |
-| ---------------------------------- | ---------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `qubits`                           | `Option<u32>`, `None`: no limit                      | `Option<u32>`, `None`                 | `admit`, 1st: when both are stated                                                                                              |
-| `feedback`                         | `bool`, `true`                                       | `bool`, `false`                       | `admit`, 2nd                                                                                                                    |
-| `resets`                           | `bool`, `true`                                       | `bool`, `false`                       | `admit`, 3rd                                                                                                                    |
-| `replayable`                       | `bool`, `true`                                       | `bool`, `false`                       | `admit`, 4th                                                                                                                    |
-| `probabilities`                    | `bool`, `false`                                      | `bool`, `false`                       | `admit`, 5th                                                                                                                    |
-| `instruction_set` / `instructions` | `Option<Arc<InstructionSet>>`, `None`: not described | `Option<Arc<InstructionSet>>`, `None` | `admit`, 6th: when needed; each needed instruction must [fit](instruction-sets.md#compatibility), so `None` offered refuses any |
-| `states`                           | `Option<u64>`, `None`: no limit                      | the driver's shots, implied           | `admit`, 7th: when a limit is stated                                                                                            |
-| `rng_ids`                          | `RngIds`, the last executor's id alone               | –                                     | when a chain is built: `Capabilities::drawing` (`RngInUse`)                                                                     |
+| Property          | Offered (`Capabilities`), default                    | Needed (`Needs`), default             | Checked                                                                                                                         |
+| ----------------- | ---------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `qubits`          | `Option<u32>`, `None`: no limit                      | `Option<u32>`, `None`                 | `admit`, 1st: when both are stated                                                                                              |
+| `resumable_shots` | `bool`, `false`                                      | `bool`, `false`                       | `admit`, 2nd                                                                                                                    |
+| `resets`          | `bool`, `false`                                      | `bool`, `false`                       | `admit`, 3rd                                                                                                                    |
+| `replayable`      | `bool`, `false`                                      | `bool`, `false`                       | `admit`, 4th                                                                                                                    |
+| `log_probability` | `bool`, `false`                                      | `bool`, `false`                       | `admit`, 5th                                                                                                                    |
+| `instruction_set` | `Option<Arc<InstructionSet>>`, `None`: not described | `Option<Arc<InstructionSet>>`, `None` | `admit`, 6th: when needed; each needed instruction must [fit](instruction-sets.md#compatibility), so `None` offered refuses any |
+| `max_shots`       | `Option<u64>`, `None`: no limit                      | the job's shots, implied              | `admit`, 7th: when a limit is stated                                                                                            |
+| `rng_ids`         | `RngIds`, the last executor's id alone               | –                                     | when a chain is built: `Capabilities::drawing` (`RngInUse`)                                                                     |
 
-The defaults keep an executor's meaning when a field is added:
+The default offers nothing an executor does not state, so an executor
+states what it offers, and one that forgets to state a capability is
+refused a job that needs it, naming the need, rather than running it
+wrong:
 
-- `resets` defaults to `true`: an executor that cannot prepare a qubit
-  again during a shot says so.
-- `probabilities` defaults to `false`: only an executor that computes each
+- `resumable_shots` defaults to `false`: an executor that keeps each
+  shot's state between calls, so that a later call continues the shot
+  where an earlier one left it, says so. A shot's conditions are part of
+  that state: an executor that offers it keeps each shot's conditions from
+  one call to the next ([Shot conditions](replies.md#shot-conditions)),
+  which is checked only at run time, by the conformance check
+  `keeps_each_shots_conditions_from_one_call_to_the_next`, for the
+  conditions an earlier outcome of the shot carried
+  ([Conformance checks](composition.md#conformance-checks)).
+- `replayable` defaults to `false`: an executor whose shots each replay,
+  giving what they gave whichever shots share their calls, says so.
+- `resets` defaults to `false`: an executor that can prepare a qubit again
+  during a shot says so.
+- `log_probability` defaults to `false`: only an executor that computes each
   shot's log probability says so (a simulator), not hardware, nor a
   sampler that returns values only.
 - `rng_ids` lists the ids of the components that draw random numbers at or
@@ -66,38 +89,38 @@ The defaults keep an executor's meaning when a field is added:
   against one that already draws with its id, so each draws from a seed of
   its own (see [Seeds](#seeds-not-generators)).
 
-`compose` reports every need the chain lacks, each a `BuildError::Unmet`. A
+A chain given a job reports every need of the job's program that the chain
+lacks, each a `Rejected::Unmet` among the job's `JobFaults`. A
 caller that holds an executor checks its needs itself with
 `Capabilities::admit`, which refuses the first need unmet, in the order of the
 table (`Rejected::Unmet`).
 
-`Needs::default()` states nothing but the one state per shot that every run
-implies, so every executor that can hold the driver's shots accepts a typed
-driver with nothing to check. A driver of `InstructionCall`s must state its set,
-which numbers its calls ([Instruction
-sets](internals/instruction-sets.md#compatibility-the-rules)): `compose` refuses
-one that does not, as its need of instructions unmet; `Capabilities::admit` does
-not yet, a known gap, since it does not know the caller's instruction type. A
-driver states a need only when it wants it checked. From the [tests of
-`compose`](../src/tests/compose.rs):
+`Needs::default()` states nothing but the run's shots, held at once, that every
+run implies, so every executor that can hold the job's shots accepts the job of
+a typed program with nothing to check. A program of `InstructionCall`s must
+state its set, which numbers its calls ([Instruction
+sets](internals/instruction-sets.md#compatibility-the-rules)): a chain refuses
+the job of one that does not, as its need of an instruction set unmet;
+`Capabilities::admit` does not yet, a known gap, since it does not know the
+caller's instruction type. A program states a need only when it wants it
+checked. From the [tests of `compose`](../src/tests/compose.rs):
 
 ```rust
 let mut program = Program::flip_and_toss(bits_set());
-program.needs = program.needs.with_qubits(3).with_probabilities(true);
-let Err(faults) =
-    Driver::new(program, shots(&[0])) >> TestDoubleExecutor::with_model(Bits::default(), 7)
-else {
-    panic!("three qubits and probabilities on two bits must be refused");
+program.needs = program.needs.with_qubits(3).with_log_probability(true);
+let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    .expect("nothing between to refuse");
+let Err(JobFaults(faults)) = chain.run(program, [0]) else {
+    panic!("three qubits and the log probability on two bits must be refused");
 };
 let needs: Vec<Option<Need>> = faults
-    .0
     .iter()
-    .map(|fault| match &fault.error {
-        BuildError::Unmet(unmet) => Some(unmet.need),
+    .map(|fault| match fault {
+        Rejected::Unmet(unmet) => Some(unmet.need),
         _ => None,
     })
     .collect();
-assert_eq!(needs, [Some(Need::Qubits), Some(Need::Probabilities)]);
+assert_eq!(needs, [Some(Need::Qubits), Some(Need::LogProbability)]);
 ```
 
 A property the table lacks is added to the protocol in five steps
@@ -126,8 +149,8 @@ from the implementer's logic alone:
   call. It raises a shot's conditions on one readout
   (`Outcome::with_conditions`) or on every readout it writes in the call
   (`Outcomes::raise_conditions`); the executor keeps none across calls, so
-  the logic of one that offers `feedback` keeps them in its state and raises
-  them again in each call, as the protocol requires
+  the logic of one that offers `resumable_shots` keeps them in its state and
+  raises them again in each call, as the protocol requires
   ([Shot conditions](replies.md#shot-conditions)).
 
 The closures need no type annotations, and a plain function is passed by name.
@@ -136,7 +159,7 @@ Methods shape the executor further:
 - `.check(check)` refuses the calls `check` refuses, before the state is made
   and the logic runs, such as a call on a qubit beyond the device's.
 - `.log_probability(read)` reads a state's log probability when the executor
-  closes, into its report. It is the only way to promise `probabilities`.
+  closes, into its report. It is the only way to promise `log_probability`.
 - `.state_report(report)` reads what a state tracked across its calls (a peak, a
   count) when the executor closes, folded into the executor's report.
 - `.seed(seed)` gives the executor the run's seed: shot `j`'s state is made from
@@ -144,11 +167,18 @@ Methods shape the executor further:
   serves a logic that draws nothing.
 - `.shots(strategy)` and `.run_on(placement)`, in the next two sections.
 
-Without a shot strategy, the executor holds one state, for one shot, so a driver
-of more shots is refused when composed. A panic inside `call` reaches the
-caller, and the executor refuses every later call. Its `drop` never panics. What
-changes the promise, and the rules of panics, drops, reports and the seed at
-their edges, are in [Making an executor: the
+Without a shot strategy, the executor holds one state, for one shot, so a job
+of more shots is refused when given to the chain. A panic inside `call` reaches
+the caller, and the executor refuses every later call. Its `drop` never panics,
+and frees the state before the closures, as `close` does, so that a state whose
+drop reaches its device through what a closure holds still finds it there; so
+does `.shots(OnePerShot)`. Placed per shot (`.run_on(..).shots(..)`, below),
+each shot's state is freed on its placement before that shot's copies of the
+closures, but `drop` does not wait for the shots, as no placed executor's drop
+waits for its placement (below), so the executor's own closures may be freed
+first: call `close`, which waits, when a state's drop needs them.
+What changes the promise, and the rules of panics,
+drops, reports and the seed at their edges, are in [Making an executor: the
 rules](internals/executors.md#making-an-executor-the-rules).
 
 An executor of a simulator with a bounded state per shot; its implementer writes
@@ -159,7 +189,9 @@ only its state, its logic and how to read its log probability. From
 ```rust
 let promise = Capabilities::default()
     .with_qubits(QUBITS)
-    .with_states(STATES);
+    .with_resumable_shots(true)
+    .with_replayable(true)
+    .with_max_shots(MAX_SHOTS);
 executor_fn(
     promise,
     move |context: ShotContext| {
@@ -209,10 +241,11 @@ a shot strategy (`ShotStrategy`), given to `.shots(strategy)`:
 | split over several executors, their replies merged (sharded) | a shot strategy                                     | as the inner ones | planned, with no milestone yet: a run spread over the cores, or over devices                        |
 
 _Replayable_ means each shot's outcomes depend only on the seed and the shot's
-id (`ShotId`), not on the other shots of the run; a driver that needs it says so
-in its `Needs`, `compose` refuses an executor that does not offer it, and the
-conformance check `gives_each_shot_alone_what_it_gives_among_others` checks an
-executor that does, such as the executor above given `.shots(OnePerShot)`.
+id (`ShotId`), not on the other shots of the run; a program that needs it says
+so in its `Needs`, a chain refuses its job when the chain's executor does not
+offer it, and the conformance check
+`gives_each_shot_alone_what_it_gives_among_others` checks an executor that does,
+such as the executor above given `.shots(OnePerShot)`.
 
 `.shots(OnePerShot)` makes a `OnePerShotExecutor`. Each shot's state is made at
 the shot's first call, from the run's seed and the shot, and kept for the shot's
@@ -230,8 +263,10 @@ from the [per-shot executor guide](../tests/per_shot_executor.rs):
 ```rust
 let shots = ShotSet::range(0..=7).expect("not empty");
 let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-let (outcomes, _) = (Driver::new(TossAgainOnOne, shots) >> executor)
-    .expect("the executor has feedback, probabilities and 8 states")
+let (outcomes, _) = (interpreter() >> executor)
+    .expect("nothing between to refuse")
+    .run(TossAgainOnOne, shots)
+    .expect("the executor has resumable shots, log probability, 8 shots")
     .wait();
 ```
 
@@ -316,12 +351,12 @@ sequenceDiagram
   participant R as run
   participant D as driver's program
   participant E as executor
-  C->>R: driver >> executor, checked (nothing runs)
+  C->>R: chain.run(program, shots), checked (nothing runs)
   C->>R: wait()
   R->>D: drive
   loop each call
     D->>R: call(InstructionBatchRef { shots, instructions })
-    alt a shot the driver did not name
+    alt a shot the job did not name
       R-->>D: Err(ShotNotHeld), the executor never sees it
     else
       R->>E: call
@@ -365,7 +400,7 @@ failure and close with `ExecutorLifecycle`:
 Each of its events is made with `ShotOutcome::new`, which gives it no
 condition, and `.with_conditions(..)` gives it its shot's conditions so
 far, which the executor must keep for each shot from one call to the next
-when it offers `feedback`; for such an executor, the conformance kit
+when it offers `resumable_shots`; for such an executor, the conformance kit
 checks that it does, for the conditions that an earlier outcome of the
 shot carried (the requirement in
 [Shot conditions](replies.md#shot-conditions)).
@@ -373,7 +408,7 @@ shot carried (the requirement in
 The crate's ensemble double, `SharedState` (`src/tests.rs`), is built on
 `ExecutorLifecycle`, and so are the executors that `executor_fn` makes,
 which keep no condition across calls by themselves: one that offers
-`feedback` meets the requirement only when its logic keeps its shots'
+`resumable_shots` meets the requirement only when its logic keeps its shots'
 conditions in its state and raises them again in each call. An ensemble's
 reply, and the double's conformance checks, are in
 [An executor written by hand: the rules](internals/executors.md#an-executor-written-by-hand-the-rules)

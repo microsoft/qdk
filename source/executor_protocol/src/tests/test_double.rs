@@ -48,7 +48,7 @@ pub(in crate::tests) trait Model: Describe {
     /// The log probability so far of `state`'s shot: the sum of ln p over
     /// every draw made for it, by every component in it. `None`, the
     /// default, where it is not known: absent, not 0. A model whose
-    /// capabilities offer `probabilities` overrides it.
+    /// capabilities offer `log_probability` overrides it.
     ///
     /// Read once per shot, as the executor closes.
     #[must_use]
@@ -68,7 +68,7 @@ pub(in crate::tests) trait Model: Describe {
 /// shot's measurements steer its own state only. Each shot draws only
 /// from its own seeds, so its outcomes do not depend on which other shots
 /// the executor runs, nor on how a run's shots are split over executors of
-/// the same seed. It offers what `M` offers and, with `probabilities`,
+/// the same seed. It offers what `M` offers and, with `log_probability`,
 /// reports each shot's [`Model::log_p`] at close. It runs batches by
 /// the rules of `ShotStates`, which each shot's placed executor follows
 /// too: a refusal by the first shot refuses the call; a later one fails it
@@ -144,13 +144,13 @@ impl<M: Model> Close for TestDoubleExecutor<M> {
 
     /// Closes each shot's state made before a failed call, if any, and
     /// folds their reports; adds each such shot's log probability, when its
-    /// model offers `probabilities` and knows the shot's. The shots' states
+    /// model offers `log_probability` and knows the shot's. The shots' states
     /// are dropped.
     fn close(&mut self) -> Self::Report {
-        let probabilities = self.capabilities.probabilities;
+        let log_probability = self.capabilities.log_probability;
         (self.shots).close(
             |_| {},
-            |shot| M::log_p(shot).filter(|_| probabilities),
+            |shot| M::log_p(shot).filter(|_| log_probability),
             drop,
         )
     }
@@ -203,15 +203,15 @@ pub(in crate::tests) struct TestDoubleModel {
     pub(in crate::tests) panicking: Option<ShotId>,
     /// Whether the executor's check refuses a batch with a `false`.
     pub(in crate::tests) refuses_false: bool,
-    /// The most states held at once; `None`: no limit.
-    pub(in crate::tests) states: Option<u64>,
+    /// The most shots held at once; `None`: no limit.
+    pub(in crate::tests) max_shots: Option<u64>,
     /// The shots whose replies wait until the test ends them.
     pub(in crate::tests) deferred: Vec<ShotId>,
-    pub(in crate::tests) probabilities: bool,
-    /// Whether it offers no feedback: an executor that does not continue a
-    /// shot in a later call. It keeps its states all the same, but a job
+    pub(in crate::tests) log_probability: bool,
+    /// Whether it offers no resumable shots: an executor that does not continue
+    /// a shot in a later call. It keeps its states all the same, but a job
     /// refused for that need runs none.
-    pub(in crate::tests) without_feedback: bool,
+    pub(in crate::tests) without_resumable_shots: bool,
     /// The states made so far, shared with the test.
     pub(in crate::tests) made: Rc<Cell<usize>>,
     /// What the shots ran, and their deferred replies, shared with the
@@ -258,9 +258,9 @@ impl Describe for TestDoubleModel {
     fn capabilities(&self) -> Capabilities {
         let mut offered = Capabilities::default()
             .with_qubits(4)
-            .with_probabilities(self.probabilities)
-            .with_feedback(!self.without_feedback);
-        offered.states = self.states;
+            .with_log_probability(self.log_probability)
+            .with_resumable_shots(!self.without_resumable_shots);
+        offered.max_shots = self.max_shots;
         offered
     }
 }

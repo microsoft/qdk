@@ -22,7 +22,8 @@
 //!   type, called directly: the baseline.
 //! - **typed per-shot**: that profiler as the state of each shot of an
 //!   executor made with [`executor_fn`] under [`OnePerShot`], run on one
-//!   shot by a run ([`compose`] of a [`Driver`] with the executor, then
+//!   shot by a run ([`compose`] of the crate's [`interpreter`] with the
+//!   executor, given the program as a job, then
 //!   [`Run::wait`](executor_protocol::Run::wait); [`per_shot_run`]): the
 //!   executor makes the shot's state at its first call, and is closed at
 //!   the end.
@@ -31,9 +32,10 @@
 //!   set ([`InstructionSet::check_batch`]) and finds a call's readout
 //!   through an [`OpcodeTable`], called directly.
 //! - **run-time per-shot**: that profiler as the state of each shot of an
-//!   executor made so, driven by a run whose driver states the set in its
-//!   needs, so `compose` checks the set and passes the calls as they are,
-//!   since the driver numbers the set as the profiler does.
+//!   executor made so, driven by a run whose program states the set in its
+//!   needs, so the chain checks the set when given the job and passes the
+//!   calls as they are, since the program numbers the set as the profiler
+//!   does.
 //! - **QEP-like**: the profiler as QEP's ([`QepCounting`]), called
 //!   directly on one shot, with no protocol: it takes QEP's instruction
 //!   ([`QepInstruction`]), finds a gate's counter by matching its name
@@ -64,11 +66,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use executor_protocol::{
-    Action, Angle, Capabilities, Close, Drive, Driver, Executor, ExecutorReport, Fold,
-    ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionSet, Needs, OnePerShot, OpcodeTable, Operand, OperandKind, Outcome, Outcomes, Pauli,
-    ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
-    check_unique_tags, compose, executor_fn, wait,
+    Action, Angle, Capabilities, Close, Drive, Executor, ExecutorReport, Fold, ImmediateReply,
+    Instruction, InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, Needs,
+    OnePerShot, OpcodeTable, Operand, OperandKind, Outcome, Outcomes, Pauli, ProgramInput,
+    Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
+    check_unique_tags, compose, executor_fn, interpreter, wait,
 };
 
 /// The instructions of the mix.
@@ -694,8 +696,9 @@ fn per_shot_run<I: Instruction, P: Profile<I>>(
         .state_report(|profiler: &P| profiler.counter().tally())
         .seed(SEED)
         .shots(OnePerShot);
-    let run = compose(Driver::new(program, ShotSet::one(SHOT)), executor);
-    run.expect("the driver's needs fit the profiler").wait()
+    let chain = compose(interpreter(), executor).expect("nothing between to refuse");
+    let run = chain.run(program, ShotSet::one(SHOT));
+    run.expect("the program's needs fit the profiler").wait()
 }
 
 /// The run of `program` on shot [`SHOT`] of an executor of
@@ -871,7 +874,7 @@ fn runtime_run(
     let program = Chunked {
         program,
         batch,
-        needs: Needs::default().with_instructions(Some(Arc::clone(&set.set))),
+        needs: Needs::default().with_instruction_set(Some(Arc::clone(&set.set))),
     };
     let capabilities = Capabilities::default().with_instruction_set(Some(Arc::clone(&set.set)));
     let check_set = Arc::clone(set);

@@ -46,7 +46,9 @@ use crate::{
 /// ```ignore
 /// let promise = Capabilities::default()
 ///     .with_qubits(QUBITS)
-///     .with_states(STATES);
+///     .with_resumable_shots(true)
+///     .with_replayable(true)
+///     .with_max_shots(MAX_SHOTS);
 /// executor_fn(
 ///     promise,
 ///     move |context: ShotContext| {
@@ -67,8 +69,10 @@ use crate::{
 /// ```ignore
 /// let shots = ShotSet::range(0..=7).expect("not empty");
 /// let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-/// let (outcomes, _) = (Driver::new(TossAgainOnOne, shots) >> executor)
-///     .expect("the executor has feedback, probabilities and 8 states")
+/// let (outcomes, _) = (interpreter() >> executor)
+///     .expect("nothing between to refuse")
+///     .run(TossAgainOnOne, shots)
+///     .expect("the executor has resumable shots, log probability, 8 shots")
 ///     .wait();
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,15 +112,15 @@ impl<I, S, M, P, C, L, R> ShotStrategy<ExecutorFn<I, S, M, P, C, L, R>> for OneP
 /// with.
 ///
 /// - It describes its promise as given, since a state per shot lowers
-///   nothing, but with [`probabilities`](Capabilities::probabilities)
-///   exactly when it is given how to read them
+///   nothing, but with [`log_probability`](Capabilities::log_probability)
+///   exactly when it is given how to read a state's log probability
 ///   ([`ExecutorFn::log_probability`]), whatever the promise says.
 /// - A call runs the logic on each of its shots in the batch's order,
 ///   inside `call` (the reply is [`ImmediateReply`]): the check first,
 ///   once; then the state of each shot new to the executor is made; then
 ///   the logic runs, shot by shot.
-/// - A call that would hold more states than the promise's
-///   [`states`](Capabilities::states) is refused
+/// - A call that would hold more shots than the promise's
+///   [`max_shots`](Capabilities::max_shots) is refused
 ///   ([`Rejected::ShotNotHeld`], for the first shot it has no room for)
 ///   before any state is made, so that the promise holds when it is called
 ///   directly too, not only in a run.
@@ -144,7 +148,10 @@ impl<I, S, M, P, C, L, R> ShotStrategy<ExecutorFn<I, S, M, P, C, L, R>> for OneP
 ///   is absorbed, each state in a catch of its own, after the panic hook
 ///   reported it (Rust API Guidelines, C-DTOR-FAIL); call `close` to see the
 ///   first one. So is the drop of what its closures capture, each closure in a
-///   catch of its own; `close` raises only the states'.
+///   catch of its own; `close` raises only the states'. It drops the states
+///   before its closures, as `close` frees them first, so that a state whose
+///   drop reaches its device through what a closure holds (a weak handle to
+///   the device's connection, say) still finds it there.
 /// - Its report counts the calls it accepted, and gives each state's log
 ///   probability and report, when it is given how to make them
 ///   ([`ExecutorFn::state_report`]), as their calls left them, the failed
@@ -161,8 +168,8 @@ pub struct OnePerShotExecutor<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R =
     promise: Capabilities,
     /// The states kept, each with its shot, in the order their shots first
     /// ran: shot `j`'s at `index.get(j)`. Declared before the closures, so
-    /// that they are dropped first (the reason, and that no test pins the
-    /// order, are at `HeldPart`).
+    /// that they are dropped first (the reason is at `HeldPart`;
+    /// `dropped_it_frees_its_states_before_its_closures`).
     states: HeldStates<(ShotId, S)>,
     make_state: HeldPart<M>,
     logic: HeldPart<P>,
@@ -204,8 +211,8 @@ where
     /// # Errors
     ///
     /// [`Rejected::ShotNotHeld`] for the first shot beyond the promise's
-    /// [`states`](Capabilities::states), checked before any state is made;
-    /// then the state closure's refusal, after which the states made by
+    /// [`max_shots`](Capabilities::max_shots), checked before any state is
+    /// made; then the state closure's refusal, after which the states made by
     /// this call are dropped.
     ///
     /// # Panics
@@ -246,7 +253,7 @@ where
     /// [`Rejected::Closed`] once closed, then
     /// [`Rejected::EarlierFailure`] after a call failed; then the check's
     /// refusal ([`ExecutorFn::check`]); then [`Rejected::ShotNotHeld`]
-    /// beyond the promise's [`states`](Capabilities::states), and the
+    /// beyond the promise's [`max_shots`](Capabilities::max_shots), and the
     /// refusal of the closure that makes a state. Nothing ran in each case.
     ///
     /// # Panics
@@ -316,9 +323,9 @@ where
 }
 
 impl<I, S, M, P, C, L, R> Describe for OnePerShotExecutor<I, S, M, P, C, L, R> {
-    /// The promise as given, but with probabilities exactly when it is
-    /// given how to read them ([`ExecutorFn::log_probability`]), whatever
-    /// the promise says.
+    /// The promise as given, but with `log_probability` exactly when it is
+    /// given how to read a state's log probability
+    /// ([`ExecutorFn::log_probability`]), whatever the promise says.
     fn capabilities(&self) -> Capabilities {
         described(&self.promise, self.log_probability.as_ref(), self.seed)
     }

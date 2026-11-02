@@ -47,9 +47,9 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::time::Instant;
 
 use executor_protocol::{
-    Below, Capabilities, Close, Describe, Executor, InstructionBatch, InstructionBatchRef,
-    OnePerShot, Outcome, Outcomes, ProgramInput, ShotConditions, ShotContext, ShotId, ShotOutcome,
-    ShotSet, TypedInstruction, Value, adapter_fn, executor_fn, wait,
+    AdapterError, Below, Capabilities, Close, Describe, Executor, InstructionBatch,
+    InstructionBatchRef, OnePerShot, Outcome, Outcomes, ProgramInput, ShotConditions, ShotContext,
+    ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, adapter_fn, executor_fn, wait,
 };
 
 /// The instructions each column runs, over all its shots.
@@ -177,7 +177,7 @@ fn pass(
     input: &ProgramInput<'_, Gate>,
     below: &mut Below<'_, Gate>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     below.send(input.instructions())
 }
 

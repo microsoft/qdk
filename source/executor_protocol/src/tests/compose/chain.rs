@@ -9,10 +9,9 @@ use crate::tests::{
     Bits, ByHand, Count, Relabel, bits_set, block_on, flip_and_toss, reversed_set, shots, values,
 };
 use crate::{
-    BuildError, BuildFaults, Chain, DefaultInterpreter, Driver, Executor, InstructionBatch,
-    InstructionBatchRef, InstructionCall, InstructionSet, Interpret, InterpreterDriver, JobFaults,
-    Need, Needs, Opcode, Operand, Rejected, ShotId, ShotSet, StaticProgram, Value, interpreter,
-    wait_async,
+    Chain, DefaultInterpreter, Executor, InstructionBatch, InstructionBatchRef, InstructionCall,
+    InstructionSet, Interpret, InterpreterDriver, JobFaults, Need, Needs, Opcode, Operand,
+    Rejected, ShotId, ShotSet, StaticProgram, Value, interpreter, wait_async,
 };
 
 /// [`flip_and_toss`] as a static program in `set`'s numbering, needing
@@ -21,7 +20,7 @@ fn flip_and_toss_in(set: InstructionSet, qubits: Option<u32>) -> StaticProgram<I
     let batches = flip_and_toss(&set);
     let needs = Needs {
         qubits,
-        ..Needs::default().with_instructions(Some(Arc::new(set)))
+        ..Needs::default().with_instruction_set(Some(Arc::new(set)))
     };
     StaticProgram::new(needs, batches)
 }
@@ -40,13 +39,13 @@ fn unmet(rejected: &Rejected) -> Option<(Need, u64, u64)> {
     }
 }
 
-/// A chain of the crate's interpreter on the test double, which holds the
-/// states of `states` shots at once when stated.
+/// A chain of the crate's interpreter on the test double, which holds at
+/// most `max_shots` shots at once when stated.
 fn double_chain(
-    states: Option<u64>,
+    max_shots: Option<u64>,
 ) -> Chain<DefaultInterpreter, bool, TestDoubleExecutor<TestDoubleModel>> {
     let model = TestDoubleModel {
-        states,
+        max_shots,
         ..TestDoubleModel::default()
     };
     (interpreter() >> TestDoubleExecutor::with_model(model, 7))
@@ -122,11 +121,11 @@ fn borrowed_shots_give_what_owned_shots_give() {
 }
 
 /// A job that names shot 1 twice among four ids, on an executor that holds
-/// the states of three shots at once: only the repeat is reported, since
-/// shots that are not a set are not counted against the states (the
-/// four ids would be one too many).
+/// three shots at once: only the repeat is reported, since shots that are
+/// not a set are not counted against `max_shots` (the four ids would be
+/// one too many).
 #[test]
-fn only_shots_that_are_a_set_are_counted_against_the_states() {
+fn only_shots_that_are_a_set_are_counted_against_max_shots() {
     let Err(rejected) = double_chain(Some(3)).run(one_read(), [1, 1, 2, 3]) else {
         panic!("a repeated shot must be refused");
     };
@@ -154,7 +153,7 @@ fn a_jobs_shot_faults_are_reported_with_its_programs_needs_and_calls() {
     let mut program = flip_and_toss(&bits_set());
     program[1].push(InstructionCall::new(Opcode::new(3), [Operand::Block(0)]));
     let needs = Needs::default()
-        .with_instructions(Some(Arc::new(bits_set())))
+        .with_instruction_set(Some(Arc::new(bits_set())))
         .with_qubits(3);
     let Err(JobFaults(faults)) = chain.run(StaticProgram::new(needs, program), 0..0) else {
         panic!("no shots, three qubits on two bits and opcode 3 must be refused");
@@ -201,20 +200,21 @@ fn a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal() {
     let [Rejected::Unmet(unmet)] = faults.as_slice() else {
         panic!("one unmet need: {faults:?}");
     };
-    assert_eq!(unmet.need, Need::Instructions, "{unmet}");
+    assert_eq!(unmet.need, Need::InstructionSet, "{unmet}");
     let text = unmet.to_string();
     assert!(text.starts_with("the program or "), "{text}");
 }
 
-/// A job of four shots on an executor that holds the states of three at
-/// once is refused when given to the chain, naming the states.
+/// A job of four shots on an executor that holds three shots at once is
+/// refused when given to the chain, naming the shots it holds
+/// (`Need::Shots`).
 #[test]
 fn a_job_of_more_shots_than_the_executor_holds_is_refused() {
     let Err(JobFaults(faults)) = double_chain(Some(3)).run(one_read(), 0..4) else {
-        panic!("four shots on three states must be refused");
+        panic!("four shots on three at once must be refused");
     };
     let faults: Vec<_> = faults.iter().map(unmet).collect();
-    assert_eq!(faults, [Some((Need::States, 4, 3))]);
+    assert_eq!(faults, [Some((Need::Shots, 4, 3))]);
 }
 
 /// A job's run gives the program's outcomes and, with them, the report of
@@ -223,7 +223,7 @@ fn a_job_of_more_shots_than_the_executor_holds_is_refused() {
 #[test]
 fn a_jobs_run_gives_its_outcomes_with_the_executors_report() {
     let bits = Bits {
-        probabilities: true,
+        log_probability: true,
         ..Bits::default()
     };
     let chain = (interpreter() >> TestDoubleExecutor::with_model(bits, 7))
@@ -360,13 +360,14 @@ fn a_chain_runs_a_job_as_its_program_written_as_a_driver_runs() {
         .expect("shots, needs met")
         .wait();
     let by_hand = ByHand {
-        needs: Needs::default().with_instructions(Some(Arc::new(bits_set()))),
+        needs: Needs::default().with_instruction_set(Some(Arc::new(bits_set()))),
         batches: flip_and_toss(&bits_set()),
     };
-    let (by_hand, by_hand_report) =
-        (Driver::new(by_hand, shots(&[2, 5, 6, 11])) >> relabel() >> bits())
-            .expect("the chain runs the bits' set")
-            .wait();
+    let (by_hand, by_hand_report) = (interpreter() >> relabel() >> bits())
+        .expect("the chain runs the bits' set")
+        .run(by_hand, [2, 5, 6, 11])
+        .expect("shots, needs met")
+        .wait();
     assert_eq!(
         interpreted.expect("the bits neither refuse nor fail"),
         by_hand
@@ -374,38 +375,35 @@ fn a_chain_runs_a_job_as_its_program_written_as_a_driver_runs() {
     assert_eq!(interpreted_report, by_hand_report);
 }
 
-/// A job whose program needs three qubits and probabilities, through an
-/// adapter onto the two bits, which give no probabilities: each unmet need
-/// is reported, in order and naming the chain's executor, as a driver of
-/// the same program and shots reports it on the same chain.
+/// A job whose program needs three qubits and the log probability, through an
+/// adapter onto the two bits, which give no log probability: each unmet need
+/// is reported, in the order `Capabilities::admit` checks them, naming the
+/// chain's executor, adapters included.
 #[test]
-fn a_jobs_unmet_needs_are_those_its_driver_reports() {
-    let relabel = || Relabel::new(reversed_set(), false);
-    let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
+fn a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor() {
+    let relabel = Relabel::new(reversed_set(), false);
+    let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
     let needs = Needs::default()
-        .with_instructions(Some(Arc::new(bits_set())))
+        .with_instruction_set(Some(Arc::new(bits_set())))
         .with_qubits(3)
-        .with_probabilities(true);
-    let program = StaticProgram::new(needs.clone(), flip_and_toss(&bits_set()));
-    let chain = (interpreter() >> relabel() >> bits()).expect("the chain runs the bits' set");
+        .with_log_probability(true);
+    let program = StaticProgram::new(needs, flip_and_toss(&bits_set()));
+    let chain = (interpreter() >> relabel >> bits).expect("the chain runs the bits' set");
     let Err(JobFaults(faults)) = chain.run(program, [2, 5]) else {
-        panic!("three qubits and probabilities on two bits must be refused");
+        panic!("three qubits and the log probability on two bits must be refused");
     };
-    let by_hand = ByHand {
-        needs,
-        batches: flip_and_toss(&bits_set()),
-    };
-    let Err(BuildFaults(built)) = Driver::new(by_hand, shots(&[2, 5])) >> relabel() >> bits()
-    else {
-        panic!("the driver's three qubits and probabilities must be refused");
-    };
-    let drivers: Vec<Rejected> = built
-        .into_iter()
-        .map(|fault| match fault.error {
-            BuildError::Unmet(unmet) => Rejected::Unmet(unmet),
-            other => panic!("the driver's faults are its unmet needs: {other:?}"),
+    let unmet: Vec<_> = (faults.iter())
+        .map(|fault| match fault {
+            Rejected::Unmet(unmet) => (unmet.need, unmet.component.as_str()),
+            other => panic!("the job's faults are its unmet needs: {other:?}"),
         })
         .collect();
-    assert_eq!(drivers.len(), 2, "qubits and probabilities: {drivers:?}");
-    assert_eq!(faults, drivers);
+    let needs: Vec<Need> = unmet.iter().map(|&(need, _)| need).collect();
+    assert_eq!(needs, [Need::Qubits, Need::LogProbability]);
+    for (_, component) in unmet {
+        assert!(
+            component.contains("Relabel") && component.contains("TestDoubleExecutor"),
+            "{component}"
+        );
+    }
 }

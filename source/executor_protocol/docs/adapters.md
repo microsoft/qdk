@@ -70,8 +70,8 @@ up the conditions found below it
 ([Shot conditions](replies.md#shot-conditions)). The outcomes a send's
 reply gives after its call returned pass up with the conditions they
 carry, but the adapter never sees them. When the executor below keeps
-them, as one that offers `feedback` must, the shot's outcomes that a later
-call sends for carry them again, and so do those the logic writes in a
+them, as one that offers `resumable_shots` must, the shot's outcomes that a
+later call sends for carry them again, and so do those the logic writes in a
 later call that reads an outcome of the shot from below before it ends,
 before or after the read, as a decoder's run does, and in every call after
 it; those it writes in the calls before lack them, a known issue.
@@ -96,7 +96,7 @@ pub fn lower_then_decode(
     input: &ProgramInput<'_, Logical>,
     below: &mut Below<'_, Op>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     let lowered: Vec<Op> = (input.instructions().iter())
         .flat_map(|&instruction| gadget(instruction))
         .collect();
@@ -106,7 +106,16 @@ pub fn lower_then_decode(
 }
 ```
 
-Unless its states draw, it offers what is below it, log probabilities included.
+Unless its states draw, it offers what is below it, each shot's log probability,
+resumable shots and replayable shots included. Should they draw, it still passes
+resumable shots up, but offers no log probability, nor, with one state,
+replayable shots. With one state, it passes replayable and resumable shots up,
+where it does, on the assumption that its logic keeps the shots apart: the state
+carries nothing from one shot to another, and the logic writes each shot's
+outcomes from that shot's readouts alone. The adapter cannot check that, so a
+logic that copies one shot's outcome into another takes a state per shot
+(below), until an adapter can state what it offers ([Planned
+features](planned.md#writing-adapters-and-codes)).
 
 ## A state per shot: `.shots(OnePerShot)`
 
@@ -157,10 +166,10 @@ report's `calls` are those the executor alone reports.
 
 No adapter has a log probability of its own, whether a facility made it or it
 was written by hand: a run's report passes up the last executor's, each shot's
-log probability included. An adapter that draws offers no `probabilities`, since
-the log probability downstream does not hold its draws: a driver that needs them
-is refused. Known issue: the run of a driver that does not need them still
-reports the log probabilities of the executor downstream, which miss the
+log probability included. An adapter that draws offers no `log_probability`,
+since the log probability downstream does not hold its draws: a program that
+needs it is refused. Known issue: the run of a program that does not need it
+still reports the log probabilities of the executor downstream, which miss the
 adapter's draws, for either kind of adapter (a test of the fix is written, and
 ignored until the fix lands); it goes with `.log_probability` on adapters,
 planned, with no milestone yet, for a noise model whose run reports each shot's
@@ -171,7 +180,7 @@ log probability ([Planned features](planned.md)).
 A state that keeps its way below for its whole life, such as a code's runtime
 made once per shot over a backend it owns, is made by
 `owning_adapter_fn(make_state, logic)`: `make_state` is given the way below
-(`OwnedBelow`) to keep, and the logic is lent none. It is the same adapter, with
+(`BelowHandle`) to keep, and the logic is lent none. It is the same adapter, with
 the same options and per-shot form: what the state sends or runs through it goes
 below as through a lent one, by the same refusal and failure rules ([The way
 below of an owning
@@ -190,7 +199,7 @@ shot's state over the way below it owns
 ```rust
 pub fn instantiated(
     plan: CodePlan,
-) -> impl FnMut(ShotContext, OwnedBelow<Op>) -> Result<CodeRuntime<Lower>, Rejected> {
+) -> impl FnMut(ShotContext, BelowHandle<Op>) -> Result<CodeRuntime<Lower>, Rejected> {
     move |_, below| Ok(plan.instantiate(Lower(below)))
 }
 ```
@@ -259,17 +268,24 @@ An adapter keeps an executor's rules:
   refused, refuses the call with the same refusal, whatever the logic returns,
   and the adapter serves the next call, unless that refusal is for an earlier
   failure below, which fails the adapter too. The index it names is that of the
-  instruction in the call below, not in the call (planned: a way for the
-  logic to map it). A call refused below is refused though its logic ran, so a
-  logic changes its state only after `send(..)?` or `run(..)?`. With a state per
-  shot, a send gives no such order: `send` returns `Ok` before the shot's sends
-  go below, merged with the other shots' or alone before its run, so a call
-  refused below leaves the kept states as its logic left them, but raises none
-  of the conditions its logic raised: such a logic raises a condition from its
-  state in each call, not once as its state changes.
+  instruction in the call below, not in the call (planned: the logic maps it
+  through its error's refusal, in the next point). A call refused below is
+  refused though its logic ran, so a logic changes its state only after
+  `send(..)?` or `run(..)?`. With a state per shot, a send gives no such order:
+  `send` returns `Ok` before the shot's sends go below, merged with the other
+  shots' or alone before its run, so a call refused below leaves the kept states
+  as its logic left them, but raises none of the conditions its logic raised:
+  such a logic raises a condition from its state in each call, not once as its
+  state changes.
 - **An error or a failure below fails the adapter.** The logic's error, unless
   the call was refused below as above, or a failure below, fails the call and
-  the adapter, and nothing more goes down.
+  the adapter, and nothing more goes down. The error is an `AdapterError`, as
+  `send` and `run` return it: a message, made from a `String` or a `&str`, so
+  `?` on a `Result` whose error is a `String` passes it up. Planned: a refusal
+  it carries, `AdapterError::refusal(rejected)`, with which the logic refuses
+  the call while nothing of it went down, for a code's layer whose runtime
+  refuses a call that ran nothing, or an adapter that maps the index a refusal
+  below names ([Planned features](planned.md)).
 - **Closing closes below once.** Closing it gives the report below, closing what
   is below once, whatever failed.
 

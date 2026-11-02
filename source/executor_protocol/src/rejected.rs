@@ -47,15 +47,16 @@ pub enum Rejected {
     /// that runs a set of shots from one state; one that holds the state of
     /// the shot of its first call alone
     /// ([`executor_fn`](fn@crate::executor_fn) without a shot strategy), and
-    /// that refuses that first call's first shot when promised no state
-    /// ([`Capabilities::states`](crate::Capabilities::states) `Some(0)`); one
-    /// that makes each shot's state at the shot's first call, for the first
-    /// shot beyond the states it promised ([`OnePerShot`](crate::OnePerShot)),
-    /// and never for its own sake with no limit promised; or a run, for a
-    /// shot outside its driver's ([`Run`](crate::Run)). A run gives it before
+    /// that refuses that first call's first shot when promised no shot
+    /// ([`Capabilities::max_shots`](crate::Capabilities::max_shots) `Some(0)`);
+    /// one that makes each shot's state at the shot's first call, for the first
+    /// shot beyond the promise's [`max_shots`](crate::Capabilities::max_shots)
+    /// ([`OnePerShot`](crate::OnePerShot)),
+    /// and never for its own sake with no limit promised; or a run, for a shot
+    /// outside its job's ([`Run`](crate::Run)). A run gives it before
     /// [`EarlierFailure`](Rejected::EarlierFailure), which only the executor
-    /// knows: asking it would make a state for the foreign shot. Where
-    /// opcodes are renumbered, the run's comes before the renumbering (see
+    /// knows: asking it would make a state for the foreign shot. Where opcodes
+    /// are renumbered, the run's comes before the renumbering (see
     /// [`Instruction`](Rejected::Instruction)).
     ShotNotHeld(ShotId),
     /// A shot named twice in a list of shots.
@@ -81,13 +82,15 @@ pub enum Rejected {
     /// first fault of the first check that finds one, which may come after
     /// a fault that a later check would find.
     ///
-    /// Where [`compose`](fn@crate::compose) renumbers opcodes, the
+    /// Where opcodes are renumbered, by [`compose`](fn@crate::compose) at an
+    /// adapter's boundary or when a job is given to the chain
+    /// ([`Chain::run`](crate::Chain::run)) at its program's, the
     /// renumbering sits between the sender of the calls, a driver or an
     /// adapter, and an executor that numbers its instructions otherwise. A
     /// batch the sender makes meets, in turn:
     /// - what sits between a driver and the renumbering, which checks only
     ///   the shots the batch names: a run refuses a shot outside its
-    ///   driver's with [`ShotNotHeld`](Rejected::ShotNotHeld), whatever the
+    ///   job's with [`ShotNotHeld`](Rejected::ShotNotHeld), whatever the
     ///   batch's calls; such a batch reaches neither the renumbering nor the
     ///   executor;
     /// - the renumbering: of the batches it is given, one with a call at an
@@ -96,7 +99,7 @@ pub enum Rejected {
     ///   asking the executor, so before any refusal of the executor's own,
     ///   such as its [`ShotNotHeld`](Rejected::ShotNotHeld), its
     ///   [`Closed`](Rejected::Closed) (which a driver meets when the
-    ///   executor was closed before `compose`) or its
+    ///   executor was closed before it was put in the chain) or its
     ///   [`EarlierFailure`](Rejected::EarlierFailure);
     /// - the executor: every other batch the renumbering is given reaches
     ///   it, even one outside its set only by its operands, and its own
@@ -118,11 +121,11 @@ pub enum Rejected {
     /// needs is in use (device memory another run holds). Nothing ran,
     /// and nothing is wrong with the message, so the same message may run
     /// when sent again later. Work beyond what a component offers at all is
-    /// refused whenever it is sent, by another variant: more shots than the
-    /// states an executor declares it holds is [`Rejected::Unmet`] when
-    /// composed (`>>`) or given to a chain
-    /// ([`Chain::run`](crate::Chain::run)), and [`Rejected::ShotNotHeld`]
-    /// from the executor called directly beyond its states.
+    /// refused whenever it is sent, by another variant: more shots than an
+    /// executor declares it holds at once is [`Rejected::Unmet`] when the
+    /// job is given to a chain ([`Chain::run`](crate::Chain::run)), and
+    /// [`Rejected::ShotNotHeld`] from the executor called directly beyond
+    /// that limit.
     Unavailable(String),
     /// A frame that is not a well-formed request, or a sequence number resent
     /// with other bytes. Planned: layer L0, where requests cross a link to a

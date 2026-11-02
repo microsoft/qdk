@@ -49,7 +49,7 @@ pub trait Interpret<P> {
 
     /// What it needs of the chain to run `program`, checked when the
     /// program is given to the chain ([`Chain::run`]). The default needs
-    /// nothing but a state per shot.
+    /// nothing but the run's shots, held at once ([`Needs`]).
     #[must_use]
     fn needs(&self, program: &P) -> Needs {
         let _ = program;
@@ -190,7 +190,7 @@ pub struct DefaultInterpreter;
 
 /// A program that drives itself, given to a chain as any job is: its needs
 /// are its own ([`Drive::needs`]), and it drives the chain's executor
-/// itself, as it does composed with one ([`Driver`](crate::Driver)).
+/// itself.
 // A program it does not interpret is then reported as `Interpret`'s fault,
 // whose notes name what it runs, not as a missing `Drive`.
 #[diagnostic::do_not_recommend]

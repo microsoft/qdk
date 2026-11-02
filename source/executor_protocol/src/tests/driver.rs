@@ -122,7 +122,7 @@ fn a_typed_driver_in_another_order_runs_its_instructions_as_they_are() {
             .with("measure", [OperandKind::Tag]),
     );
     let program = ResetFlipRead {
-        needs: Needs::default().with_instructions(Some(Arc::new(driver))),
+        needs: Needs::default().with_instruction_set(Some(Arc::new(driver))),
     };
     let (outcomes, _) = compose(
         Driver::new(program, ShotSet::one(1)),

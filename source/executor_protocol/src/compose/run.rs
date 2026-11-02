@@ -1,10 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The run a driver gives with an executor ([`Run`]), or a chain with its
-//! job: composed, it runs nothing; waited for, or awaited, it drives the
-//! executor and closes it. The run owns the chain: the driver only calls
-//! it.
+//! The run a chain gives with its job ([`Run`]): given, it runs nothing;
+//! waited for, or awaited, it drives the executor and closes it. The run
+//! owns the chain: the driver only calls it.
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
@@ -15,14 +14,13 @@ use crate::{
     Close, Drive, Executor, Instruction, InstructionBatch, InstructionBatchRef, Rejected, ShotSet,
 };
 
-/// The executor a driver of `P` calls once composed with `E`: `E`, as the
-/// driver's calls reach it ([`Instruction::Downstream`]).
+/// The executor a driver of `P` calls once its job is given to a chain of
+/// `E`: `E`, as the driver's calls reach it ([`Instruction::Downstream`]).
 type Called<P, E> = <<P as Drive>::Instruction as Instruction>::Downstream<E>;
 
-/// A driver composed with an executor, or a chain's job
-/// ([`Chain::run`](crate::Chain::run), whose driver is the program as the
-/// interpreter drives it): what runs when it is waited for ([`Run::wait`])
-/// or awaited. Until then, nothing runs.
+/// A chain's job ([`Chain::run`](crate::Chain::run), whose driver is the
+/// program as the interpreter drives it): what runs when it is waited for
+/// ([`Run::wait`]) or awaited. Until then, nothing runs.
 ///
 /// Known limit, an open question: a run whose future is dropped before its
 /// program ends (a timeout, a `select!`), or whose program, or an
@@ -34,16 +32,16 @@ type Called<P, E> = <<P as Drive>::Instruction as Instruction>::Downstream<E>;
 ///
 /// # Type parameters
 ///
-/// - `P`: the program that drives the run ([`Drive`]): a
-///   [`Driver`](crate::Driver)'s, or, for a chain's job, the program as the
-///   interpreter drives it ([`Interpreted`](crate::Interpreted)).
-/// - `E`: the executor the driver is composed with, adapters included,
-///   which the run closes once the program's future has ended.
+/// - `P`: the program that drives the run ([`Drive`]): the job's program
+///   as the interpreter drives it ([`Interpreted`](crate::Interpreted)).
+/// - `E`: the chain's executor, adapters included, which the run closes
+///   once the program's future has ended.
 #[must_use = "a run runs nothing until it is waited for or awaited"]
 pub struct Run<P: Drive, E: Executor<InstructionBatch<P::Instruction>> + Close> {
     program: P,
     shots: ShotSet,
-    /// The executor, as the driver's calls reach it, decided when composed.
+    /// The executor, as the driver's calls reach it, decided when the job
+    /// was given to the chain ([`Chain::run`](crate::Chain::run)).
     executor: Called<P, E>,
 }
 
@@ -84,7 +82,7 @@ impl<P: Drive, E: Executor<InstructionBatch<P::Instruction>> + Close> Run<P, E> 
     }
 }
 
-/// The executor restricted to the shots the driver holds: a call that names
+/// The executor restricted to the shots of the job: a call that names
 /// another shot is refused ([`Rejected::ShotNotHeld`]) before the executor
 /// sees it.
 struct HeldShots<'a, E> {

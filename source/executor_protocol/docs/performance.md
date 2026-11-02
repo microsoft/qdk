@@ -67,12 +67,12 @@ The columns:
   is the mix's instructions as a Rust type, called directly.
 - **typed per-shot**: that profiler as the state of each shot of an
   executor made with `executor_fn` under `OnePerShot`, run on one shot by
-  a run (a driver composed with the executor).
+  a run (a job given to a chain of the executor).
 - **run-time**: the profiler as an executor of `InstructionCall`s of the
   mix's set described at run time, which checks each batch against the set
   and finds a call's readout through an `OpcodeTable`, called directly.
 - **run-time per-shot**: that profiler as the state of each shot of an
-  executor made so, by a driver that states the set in its needs.
+  executor made so, by a program that states the set in its needs.
 - **QEP-like**: the profiler as QEP's, called directly on one shot, with no
   protocol: it takes QEP's instruction type, finds a gate's counter by
   matching its name against QEP's instruction names, and gives its
@@ -86,7 +86,7 @@ position.
 **Against QEP, typed is the fair comparison.** QEP has no shots, so it
 pays nothing for them, and its instruction set is fixed when it is
 compiled, which is what a Rust instruction type encodes. The per-shot
-columns pay for shots, which only a driver that uses them needs; the
+columns pay for shots, which only a program that uses them needs; the
 run-time columns answer a question QEP cannot, a set known only at run
 time, such as one loaded from a Qodec file. The QEP-like numbers are to be
 measured with the table.

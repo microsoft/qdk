@@ -25,7 +25,9 @@
 
 use std::collections::BTreeMap;
 
-use executor_protocol::{Below, Outcomes, ProgramInput, Rejected, ShotId, ShotOutcome, Value};
+use executor_protocol::{
+    AdapterError, Below, Outcomes, ProgramInput, Rejected, ShotId, ShotOutcome, Value,
+};
 
 use crate::logical::Logical;
 use crate::repetition3::gadget;
@@ -44,7 +46,7 @@ pub fn lower_then_decode(
     input: &ProgramInput<'_, Logical>,
     below: &mut Below<'_, Op>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     let lowered: Vec<Op> = (input.instructions().iter())
         .flat_map(|&instruction| gadget(instruction))
         .collect();

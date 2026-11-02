@@ -85,11 +85,12 @@ pub struct ShotOutcome {
     /// kit's `keeps_each_shots_conditions_from_one_call_to_the_next`), so a
     /// caller takes a shot's conditions as the union of those its outcomes
     /// carry. A condition raised in a call that gives the shot no outcome
-    /// reaches no caller in that call. An executor that offers `feedback`
-    /// must keep its shots' conditions from one call to the next, which
-    /// only the kit checks, and only for the conditions that an earlier
-    /// outcome of the shot carried. An [`adapter_fn`](fn@crate::adapter_fn)
-    /// never sees those that a send's reply gives after its call returned,
+    /// reaches no caller in that call. An executor that offers
+    /// `resumable_shots` must keep its shots' conditions from one call to
+    /// the next, which only the kit checks, and only for the conditions
+    /// that an earlier outcome of the shot carried. An
+    /// [`adapter_fn`](fn@crate::adapter_fn) never sees those that a send's
+    /// reply gives after its call returned,
     /// so the shot's later outcomes lack them over an executor that breaks
     /// that requirement; over one that keeps it, the outcomes its logic
     /// writes lack them in every call before the first in which the adapter

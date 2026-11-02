@@ -136,10 +136,14 @@ fn check_calls(input: &ProgramInput<'_, InstructionCall>) -> Result<(), Rejected
     check_unique_tags(tags)
 }
 
-/// What the simulator promises: the toy's qubits, and its set.
+/// What the simulator promises: the toy's qubits, a state per shot kept
+/// from one call to the next on its own seeds, resets, and its set.
 fn the_toys_promise() -> Capabilities {
     Capabilities::default()
         .with_qubits(QUBITS)
+        .with_resumable_shots(true)
+        .with_replayable(true)
+        .with_resets(true)
         .with_instruction_set(Some(Arc::new(toy_set())))
 }
 
@@ -291,7 +295,7 @@ fn program() -> StaticProgram<InstructionCall> {
 fn program_of(batches: Vec<Vec<InstructionCall>>) -> StaticProgram<InstructionCall> {
     let needs = Needs::default()
         .with_qubits(2)
-        .with_instructions(Some(Arc::new(toy_set())));
+        .with_instruction_set(Some(Arc::new(toy_set())));
     StaticProgram::new(needs, batches)
 }
 
@@ -468,7 +472,10 @@ fn the_debugger_logs_a_call_that_fails_below_with_its_reason() {
     assert_eq!(copied, &copy(), "the failing call is logged");
     let failed = failed.as_ref().expect("the copy returned");
     let why = failed.as_ref().expect_err("the copy failed");
-    assert!(why.contains("the device failed at its reset"), "{why}");
+    assert!(
+        why.message().contains("the device failed at its reset"),
+        "{why}"
+    );
 }
 
 /// A user debugs a shot whose device panics at its reset: the panic
@@ -787,7 +794,8 @@ fn the_debugger_logs_a_refused_call_in_the_calls_first_shot_alone() {
         assert_eq!(toss_logged, &tossed(first), "the toss is logged");
         assert_eq!(call, &refused, "the refused call is logged");
         assert!(
-            why.contains(&format!("the toy has {QUBITS} qubits")),
+            why.message()
+                .contains(&format!("the toy has {QUBITS} qubits")),
             "{why}"
         );
         for shot in others {
@@ -969,7 +977,7 @@ fn under_the_debugger_a_reply_that_reads_a_tag_twice_fails_the_run() {
     else {
         panic!("shot 2 logs its toss, failed: {logged:?}");
     };
-    assert!(why.contains("tag 0 of shot 2 twice"), "{why}");
+    assert!(why.message().contains("tag 0 of shot 2 twice"), "{why}");
 }
 
 /// A user debugs a toss on a device whose driver reads a shot no call
@@ -1003,7 +1011,10 @@ fn under_the_debugger_a_reply_that_reads_a_shot_not_given_fails_the_run() {
     else {
         panic!("shot 2 logs its toss, failed: {logged:?}");
     };
-    assert!(why.contains("shot 99, which it was not given"), "{why}");
+    assert!(
+        why.message().contains("shot 99, which it was not given"),
+        "{why}"
+    );
 }
 
 /// The profiler over the debugger, as a target chain stacks them: each

@@ -19,7 +19,7 @@ use std::task::Waker;
 
 pub use one_per_shot::{OnePerShotAdapter, OnePerShotAdapterExecutor};
 pub(crate) use owning::{MakeAdapterState, ServeAdapterCalls};
-pub use owning::{Owning, owning_adapter_fn};
+pub use owning::{Owning, OwningAdapterLogic, owning_adapter_fn};
 
 use super::below::Route;
 use crate::absorb::{DroppedOneByOne, HeldPart, HeldStates, Panic, caught, raise};
@@ -27,10 +27,11 @@ use crate::conditions::{ConditionsSoFar, Marks, Raised};
 use crate::lifecycle::failing_on_panic;
 use crate::reply::CANCELLATION;
 use crate::{
-    Adapter, AdapterBoundary, Below, Capabilities, Close, ComponentId, Describe, Executor,
-    ExecutorLifecycle, Fold, ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef,
-    InstructionSet, LifecycleBoundReply, MakeState, NoCheck, OnePerShot, Outcomes, ProgramInput,
-    Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, wait,
+    Adapter, AdapterBoundary, AdapterError, Below, Capabilities, Close, ComponentId, Describe,
+    Executor, ExecutorLifecycle, Fold, ImmediateReply, Instruction, InstructionBatch,
+    InstructionBatchRef, InstructionSet, LifecycleBoundReply, MakeState, NoCheck, OnePerShot,
+    Outcomes, ProgramInput, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome,
+    ShotSet, wait,
 };
 use owning::{CallDown, KeptState, WayDown};
 
@@ -38,27 +39,34 @@ use owning::{CallDown, KeptState, WayDown};
 /// [`owning_adapter_fn`] when its states own their way below.
 ///
 /// It accepts the instructions `I` and sends `O`. It offers upstream what
-/// the executor below offers, `probabilities` included: every readout it
-/// passes up comes from below, or from its logic. Should its states draw
-/// ([`AdapterFn::drawing`]), it offers no `probabilities`, nor, with one
-/// state, `replayable`. With one state, the `replayable` it offers holds
-/// only if the state carries nothing from shot to shot and the logic
-/// writes each shot's outcomes from that shot's readouts alone
-/// ([`Below::run`]). Where it changes the instructions, it states the sets
-/// ([`AdapterFn::accepts`], [`AdapterFn::sends`]). Given [`OnePerShot`]
-/// ([`AdapterFn::shots`]), it keeps a state per shot.
+/// the executor below offers, `resumable_shots`, `replayable` and
+/// `log_probability` included: every readout it passes up comes from below,
+/// or from its logic. Should its states draw ([`AdapterFn::drawing`]), it
+/// still passes `resumable_shots` up, but offers no `log_probability`,
+/// nor, with one state, `replayable`. With one state, it passes
+/// `replayable` and `resumable_shots` up, where it does, on the assumption
+/// that its logic keeps the shots apart: the state carries nothing from one
+/// shot to another, and the logic writes each shot's outcomes from that
+/// shot's readouts alone ([`Below::run`]). Where it changes the
+/// instructions, it states the sets ([`AdapterFn::accepts`],
+/// [`AdapterFn::sends`]). Given [`OnePerShot`] ([`AdapterFn::shots`]), it
+/// keeps a state per shot.
 ///
-/// Known issue, open (blocks neither): with one state, the adapter can
-/// check neither condition of `replayable`. The way out is
-/// `.shots(OnePerShot)`, where each shot's logic is given its own state
-/// and its own readouts alone.
+/// Known issue (blocks neither): with one state, the adapter cannot check
+/// that assumption, so a logic that copies one shot's outcome into another
+/// offers `replayable` it does not keep, with no error. Such a logic is
+/// given `.shots(OnePerShot)`, where each shot's logic is given its own
+/// state and its own readouts alone, until it can clear `replayable`
+/// (planned, below).
 ///
 /// Planned: options that build it against what is below, on the Promise
 /// axis (the crate's `docs/glossary.md`, §A part's axes) and named alike
-/// on every component (`.offers(..)`, `.needs(..)`), for a
-/// code that offers a qubit per block of three, or a decoder that needs
-/// feedback below; until then, its instruction sets apart, it offers what
-/// is below and needs nothing of it.
+/// on every component (`.offers(..)`, `.needs(..)`), for a code that offers
+/// a qubit per block of three, a decoder that needs resumable shots below,
+/// or a one-state logic that copies one shot's outcome into another, which
+/// clears `replayable`; passing up what is below stays the default. Until
+/// then, its instruction sets and seeds apart, it offers what is below and
+/// needs nothing of it.
 ///
 /// # Type parameters
 ///
@@ -118,10 +126,10 @@ pub struct AdapterFn<I, O, S, M, L, C = NoCheck<I>, R = NoStateReport> {
 /// adapter takes in a condition from below only from an outcome it reads
 /// before its call ends: those a send's reply gives after its call
 /// returned pass up on its outcomes, but the adapter never sees them. When
-/// the executor below keeps them, as one that offers `feedback` must, the
-/// shot's outcomes that a later call sends for carry them again, and so do
-/// those the logic writes in a later call that reads an outcome of the
-/// shot from below before it ends, before or after the read, as a
+/// the executor below keeps them, as one that offers `resumable_shots`
+/// must, the shot's outcomes that a later call sends for carry them again,
+/// and so do those the logic writes in a later call that reads an outcome
+/// of the shot from below before it ends, before or after the read, as a
 /// decoder's run does, and in every call after it; those it writes in the
 /// calls before lack them, a known issue (`docs/replies.md`, §Shot
 /// conditions, where the tests are cited).
@@ -149,9 +157,10 @@ pub struct AdapterFn<I, O, S, M, L, C = NoCheck<I>, R = NoStateReport> {
 ///   reports no state made for it ([`AdapterFn::state_report`]). An index
 ///   the refusal names, such as [`Rejected::Instruction`]'s `at`, is that
 ///   of the instruction in the call below, not in the call: the caller of
-///   a rewriting adapter gets it unmapped (planned: a way for the logic to
-///   map it). A refusal for an earlier failure below
-///   ([`Rejected::EarlierFailure`]) fails the adapter too. A state made
+///   a rewriting adapter gets it unmapped (planned: the logic maps it
+///   through the refusal an [`AdapterError`] would carry). A refusal for
+///   an earlier failure below ([`Rejected::EarlierFailure`]) fails the
+///   adapter too. A state made
 ///   before the call keeps what the logic changed in it: the call is
 ///   refused though its logic ran, so a logic should change its state
 ///   only after `send(..)?` or `run(..)?` ([`Below::send`]);
@@ -248,14 +257,20 @@ impl<I, O, S, M, L> AdapterFn<I, O, S, M, L> {
 
 /// What serves each call of an [`adapter_fn`], of instructions of type `I`, on
 /// its state, of type `S`, reaching the executor below with a [`Below`] that
-/// takes instructions of type `O`: its `logic` closure. Implemented for every
-/// closure of its signature, so that a function returning the facility's type
-/// names the closure in a word, as [`MakeState`] is: `-> OnePerShotAdapter<I,
-/// O, S, impl MakeState<S>, impl AdapterLogic<I, O, S>>`, which `>>` composes
-/// where a bare `impl Adapter` does not (see [`compose`](fn@crate::compose));
-/// `+ use<>` included, as for [`MakeState`].
+/// takes instructions of type `O`: its `logic` closure, whose error is an
+/// [`AdapterError`]. Implemented for every closure of its signature, so that a
+/// function returning the facility's type names the closure in a word, as
+/// [`MakeState`] is: `-> OnePerShotAdapter<I, O, S, impl MakeState<S>, impl
+/// AdapterLogic<I, O, S>>`, which `>>` composes where a bare `impl Adapter`
+/// does not (see [`compose`](fn@crate::compose)); `+ use<>` included, as for
+/// [`MakeState`].
 pub trait AdapterLogic<I, O, S>:
-    FnMut(&mut S, &ProgramInput<'_, I>, &mut Below<'_, O>, &mut Outcomes<'_>) -> Result<(), String>
+    FnMut(
+    &mut S,
+    &ProgramInput<'_, I>,
+    &mut Below<'_, O>,
+    &mut Outcomes<'_>,
+) -> Result<(), AdapterError>
 {
 }
 
@@ -265,17 +280,18 @@ impl<I, O, S, F> AdapterLogic<I, O, S> for F where
         &ProgramInput<'_, I>,
         &mut Below<'_, O>,
         &mut Outcomes<'_>,
-    ) -> Result<(), String>
+    ) -> Result<(), AdapterError>
 {
 }
 
 impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
-    /// This adapter, accepting the calls of `set` ([`Adapter::accepts`]):
-    /// it offers `set` upstream, where what is sent to it is checked
-    /// against it when the chain is built (the set an adapter above sends,
-    /// the instructions a driver needs). The adapter does not check the
-    /// calls it is given against it: to refuse here a call outside `set`,
-    /// give a [`check`](AdapterFn::check) that does, such as one that runs
+    /// This adapter, accepting the calls of `set` ([`Adapter::accepts`]): it
+    /// offers `set` upstream, where what is sent to it is checked against it:
+    /// the set an adapter above sends, when the chain is built; the
+    /// instructions a job's program needs, when its job is given to the chain
+    /// ([`Chain::run`](crate::Chain::run)). The adapter does not check the
+    /// calls it is given against it: to refuse here a call outside `set`, give
+    /// a [`check`](AdapterFn::check) that does, such as one that runs
     /// [`InstructionSet::check_batch`] on a call's instructions.
     //
     // Planned, with no milestone yet (`docs/planned.md`): the
@@ -400,7 +416,7 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     /// component below draws with `id`, however far down
     /// ([`BuildError::RngInUse`]), or when no run's seed reaches the adapter
     /// ([`BuildError::NoRunSeed`]), and the adapter offers no
-    /// `probabilities` upstream, since the log probability below does not
+    /// `log_probability` upstream, since the log probability below does not
     /// hold its draws. Its run's report is still the one below, whose log
     /// probabilities miss its draws: they are not the shots'.
     ///
@@ -410,7 +426,7 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     // Known issue, open (blocks a later unit: `.log_probability` on
     // adapters): the report below passes up as it is, its log
     // probabilities included, though the adapter offers no
-    // `probabilities` (`a_drawing_adapters_run_reports_no_log_probability`,
+    // `log_probability` (`a_drawing_adapters_run_reports_no_log_probability`,
     // ignored). Its type is any `Fold`, so the adapter cannot clear them;
     // its own report (`state_report`) goes beside it, and changes nothing
     // there.

@@ -19,8 +19,8 @@ pub enum Logical {
     MeasureZ { block: u32, tag: u32 },
 }
 
-/// A logical instruction names itself by its variant, so a driver of them
-/// is composed with a chain with no renumbering between them, whatever the
+/// A logical instruction names itself by its variant, so a program of them
+/// runs on a chain with no renumbering between them, whatever the
 /// order of the set it states.
 impl TypedInstruction for Logical {}
 

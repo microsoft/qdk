@@ -18,11 +18,12 @@ use crate::tests::{
     shots, values,
 };
 use crate::{
-    AdapterLogic, Below, Capabilities, Close, Describe, Drive, Driver, Executor, ExecutorLogic,
-    ExecutorReport, InstructionBatch, InstructionBatchRef, InstructionCall, MakeState, Needs,
-    NoAdapter, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor, Opcode, Outcome,
-    Outcomes, ProgramInput, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome,
-    ShotSet, Value, adapter_fn, compose, executor_fn, reply_channel, wait, wait_async,
+    AdapterError, AdapterLogic, Below, Capabilities, Close, Describe, Drive, Driver, Executor,
+    ExecutorLogic, ExecutorReport, InstructionBatch, InstructionBatchRef, InstructionCall,
+    MakeState, Needs, NoAdapter, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
+    Opcode, Outcome, Outcomes, ProgramInput, Rejected, Reply, ReplyStatus, ShotContext, ShotId,
+    ShotOutcome, ShotSet, Value, adapter_fn, compose, executor_fn, interpreter, reply_channel,
+    wait, wait_async,
 };
 
 /// A driver composed with adapters and an executor makes no shot until its
@@ -291,8 +292,12 @@ fn a_shot_run_alone_gives_what_it_gives_among_others() {
         )
         .seed(11)
         .shots(OnePerShot);
-        let driver = Driver::new(Program::flip_and_toss(bits_set()), shots(ids));
-        let (outcomes, _) = (driver >> simulator).expect("no adapter, no fault").wait();
+        let program = Program::flip_and_toss(bits_set());
+        let (outcomes, _) = (interpreter() >> simulator)
+            .expect("no adapter, no fault")
+            .run(program, shots(ids))
+            .expect("the simulator runs the bits' set")
+            .wait();
         outcomes
     };
     let among_others = run(&ids);
@@ -321,7 +326,7 @@ fn send_as_is(
     input: &ProgramInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     below.send(input.instructions())
 }
 
@@ -415,7 +420,7 @@ fn profile(
     input: &ProgramInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     for call in input.instructions() {
         *counts.entry(call.opcode).or_default() += 1;
     }
@@ -595,7 +600,7 @@ impl Drive for OnItsShotsThenSome {
     type Output = ();
 
     fn needs(&self) -> Needs {
-        Needs::default().with_instructions(Some(Arc::new(bits_set())))
+        Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
@@ -828,7 +833,7 @@ impl Drive for CallsShotsOneToFour {
     type Output = Result<(), Rejected>;
 
     fn needs(&self) -> Needs {
-        Needs::default().with_instructions(Some(Arc::new(bits_set())))
+        Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
     async fn drive<E>(self, executor: &mut E, _: &ShotSet) -> Result<(), Rejected>
@@ -876,7 +881,7 @@ impl Drive for CallsEach {
     type Output = Vec<Result<(), Rejected>>;
 
     fn needs(&self) -> Needs {
-        Needs::default().with_instructions(Some(Arc::new(bits_set())))
+        Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
     async fn drive<E>(self, executor: &mut E, _: &ShotSet) -> Vec<Result<(), Rejected>>
@@ -931,7 +936,7 @@ impl Drive for CallsShotZeroThenShotThree {
     type Output = [Result<(), Rejected>; 2];
 
     fn needs(&self) -> Needs {
-        Needs::default().with_instructions(Some(Arc::new(bits_set())))
+        Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
     async fn drive<E>(self, executor: &mut E, _: &ShotSet) -> [Result<(), Rejected>; 2]
@@ -974,7 +979,7 @@ impl Drive for CallsShotsOneToThreeThenItsOwn {
     type Output = Result<(), Rejected>;
 
     fn needs(&self) -> Needs {
-        Needs::default().with_instructions(Some(Arc::new(bits_set())))
+        Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
     async fn drive<E>(self, executor: &mut E, own: &ShotSet) -> Result<(), Rejected>
@@ -1060,7 +1065,9 @@ fn a_run_of_one_shot_on_a_one_state_executor_refuses_a_call_on_another() {
         },
     );
     let driver = Driver::new(ReadsThenCalls(6), ShotSet::one(5));
-    let (refused, _) = (driver >> device).expect("one shot fits one state").wait();
+    let (refused, _) = (driver >> device)
+        .expect("one shot fits the one shot it holds")
+        .wait();
     assert_eq!(refused, Err(Rejected::ShotNotHeld(6)));
     assert_eq!(made.get(), 1, "only shot 5's state is made");
 }

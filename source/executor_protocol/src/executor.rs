@@ -100,12 +100,12 @@ use crate::{Message, Rejected, Reply, ShotId};
 /// and its run closes it.
 ///
 /// It holds its shots' states its own way, and states what that allows in
-/// its capabilities, which [`compose`](fn@crate::compose) checks against a
-/// driver's needs before anything runs: how many states it holds at once
-/// ([`Capabilities::states`]), whether a shot continues from one call to the
-/// next (`feedback`), whether a shot replays from the seed (`replayable`).
-/// So a new way of holding shots is a new executor, and its callers do not
-/// change:
+/// its capabilities, which a chain checks against a job's needs before
+/// anything runs ([`Chain::run`](crate::Chain::run)): how many shots it
+/// holds at once ([`Capabilities::max_shots`]), whether a shot continues
+/// from one call to the next (`resumable_shots`), whether a shot replays
+/// from the seed (`replayable`). So a new way of holding shots is a new
+/// executor, and its callers do not change:
 ///
 /// | Executor                       | How it holds the shots                                                   | Replayable          |
 /// | ------------------------------ | ------------------------------------------------------------------------ | ------------------- |
@@ -302,7 +302,7 @@ impl<R: Fold> Fold for ExecutorReport<R> {
 /// executor closes, so folding two is adding shot by shot.
 ///
 /// Absent, not 0, for a shot where no component knows it
-/// ([`Capabilities::probabilities`]).
+/// ([`Capabilities::log_probability`]).
 ///
 /// It is per shot, and reported once, at close, because its consumers
 /// weigh whole shots (importance sampling of logical error rates, a

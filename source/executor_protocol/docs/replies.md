@@ -429,23 +429,22 @@ An adapter written by hand carries them by itself, merging those from
 below with its own; the kit checks that it keeps, from one call to the
 next, the conditions that an earlier outcome of each shot carried.
 
-**A requirement: an executor that offers `feedback` keeps each shot's
-conditions from one call to the next**, so that the shot's outcomes in a
-later call carry every condition raised on the shot in earlier calls,
+**A requirement: an executor that offers `resumable_shots` keeps each
+shot's conditions from one call to the next**, so that the shot's outcomes
+in a later call carry every condition raised on the shot in earlier calls,
 whether or not the call that raised it gave the shot an outcome. Neither
-its type, nor the build of a chain, nor the composition of a driver, nor
-the job given to a chain checks it
+its type, nor the build of a chain, nor the job given to a chain checks it
 ([What is checked, and when](composition.md#what-is-checked-and-when)).
 The conformance kit's check across calls checks it at run time, on an
-executor that offers `feedback`, for the conditions that an earlier
+executor that offers `resumable_shots`, for the conditions that an earlier
 outcome of the shot carried: it sees outcomes alone, so a condition
 raised in a call that gave the shot no outcome is beyond it
 ([Conformance checks](composition.md#conformance-checks)). An executor
 that breaks it is faulty, and it is easy to break: an `executor_fn` keeps
-no condition across calls by itself (above), yet offers `feedback`
-whenever the capabilities it is given do, as the default ones do, so it
-meets the requirement only when its logic keeps its shots' conditions in
-its state and raises them again in each call. Over an executor that
+no condition across calls by itself (above), yet offers `resumable_shots`
+whenever the capabilities it is given do, so it meets the requirement
+only when its logic keeps its shots' conditions in its state and raises
+them again in each call. Over an executor that
 breaks it, an adapter can lose a condition that a send gave after its
 call returned, as a send to an executor on another thread often does (a
 placed executor returns from its call once its work is scheduled): the

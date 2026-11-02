@@ -235,20 +235,56 @@ fn bits_fn()
     )
 }
 
-/// A noise model written by hand, upstream of a recorder, upstream of an
-/// executor given the run's seed 7 (`.seed(7)`): built, its seeds are of
-/// the run's seed 7, though only the executor is given it, through the
-/// recorder between.
+/// A noise model written by hand, upstream of an adapter between, upstream
+/// of an executor given the run's seed 7 (`.seed(7)`): built, its seeds are
+/// of the run's seed 7, though only the executor is given it, through the
+/// adapter between, whichever it is (a recorder written by hand, or an
+/// `adapter_fn` with one state or a state per shot, drawing or not) and
+/// whether the noise model is composed with it first or with the executor
+/// it makes.
 #[test]
 fn an_adapter_reads_when_built_the_runs_seed_the_last_executor_is_given() {
     let read = Rc::default();
-    let recorder = map_executor::<InstructionCall, _>(|below| below);
+    let noise = || KeepsItsSeeds::new(Some(NOISE), &read);
+    let recorder = || map_executor::<InstructionCall, _>(|below| below);
+    let pass = |(): &mut (),
+                input: &ProgramInput<'_, InstructionCall>,
+                below: &mut Below<'_, InstructionCall>,
+                _: &mut Outcomes<'_>| below.send(input.instructions());
+    let observer = || adapter_fn(|_: ShotContext| Ok(()), pass);
+    let between = ComponentId::named("between");
+    let drawing = || observer().drawing(between);
+    let fits = "the noise model draws with its own id";
+    let built = "the executor is given the run's seed";
+    compose(compose(noise(), recorder()), bits_fn().seed(7)).expect(fits);
     compose(
-        compose(KeepsItsSeeds::new(Some(NOISE), &read), recorder),
-        bits_fn().seed(7),
+        noise(),
+        compose(recorder(), bits_fn().seed(7)).expect(built),
     )
-    .expect("the noise model draws with its own id");
-    assert_eq!(KeepsItsSeeds::run_seeds(&read), [Some(7)]);
+    .expect(fits);
+    compose(compose(noise(), observer()), bits_fn().seed(7)).expect(fits);
+    compose(
+        noise(),
+        compose(observer(), bits_fn().seed(7)).expect(built),
+    )
+    .expect(fits);
+    compose(compose(noise(), drawing()), bits_fn().seed(7)).expect(fits);
+    compose(noise(), compose(drawing(), bits_fn().seed(7)).expect(built)).expect(fits);
+    let per_shot = || observer().shots(OnePerShot);
+    compose(compose(noise(), per_shot()), bits_fn().seed(7)).expect(fits);
+    compose(
+        noise(),
+        compose(per_shot(), bits_fn().seed(7)).expect(built),
+    )
+    .expect(fits);
+    let drawing_per_shot = || drawing().shots(OnePerShot);
+    compose(compose(noise(), drawing_per_shot()), bits_fn().seed(7)).expect(fits);
+    compose(
+        noise(),
+        compose(drawing_per_shot(), bits_fn().seed(7)).expect(built),
+    )
+    .expect(fits);
+    assert_eq!(KeepsItsSeeds::run_seeds(&read), [Some(7); 10]);
 }
 
 /// A noise model written by hand, drawing with [`NOISE`], and an
@@ -341,11 +377,11 @@ fn an_adapter_that_draws_nothing_is_given_no_seeds() {
 
 /// A noise model written by hand, which reads when built what it offers
 /// upstream, over a simulator that reports each shot's log probability: it
-/// reads no probabilities, since the simulator's log probability leaves out
+/// reads no log probability, since the simulator's log probability leaves out
 /// the noise model's draws, so that an offer it makes from what it reads
 /// does not claim them.
 #[test]
-fn an_adapter_that_draws_reads_no_probabilities_in_its_offer_when_built() {
+fn an_adapter_that_draws_reads_no_log_probability_in_its_offer_when_built() {
     struct ReadsItsOffer(Rc<Cell<Option<bool>>>);
     impl Adapter for ReadsItsOffer {
         type Accepts = InstructionCall;
@@ -356,7 +392,8 @@ fn an_adapter_that_draws_reads_no_probabilities_in_its_offer_when_built() {
         }
 
         fn build(self, boundary: &mut AdapterBoundary<'_>) -> Self {
-            self.0.set(Some(boundary.offered_upstream().probabilities));
+            self.0
+                .set(Some(boundary.offered_upstream().log_probability));
             self
         }
     }
@@ -368,7 +405,7 @@ fn an_adapter_that_draws_reads_no_probabilities_in_its_offer_when_built() {
         }
     }
     let simulator = Bits {
-        probabilities: true,
+        log_probability: true,
         ..Bits::default()
     };
     let read = Rc::default();

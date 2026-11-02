@@ -21,10 +21,10 @@ use crate::{
     Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, Apply, Below, BuildError,
     BuildFaults, Capabilities, Chain, Close, ComponentId, DefaultInterpreter, Describe, Drive,
     Driver, Executor, ExecutorLogic, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionMismatch, InstructionSet, LogP, MakeState, Need, Needs, NoCheck, OnePerShot,
-    OnePerShotAdapter, OnePerShotExecutor, OnePerShotPlacedExecutor, OperandKind, Outcome,
-    Outcomes, OwnThread, ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet,
-    StaticProgram, TypedInstruction, UnmetNeed, Value, adapter_fn, compose, executor_fn,
+    InstructionMismatch, InstructionSet, JobFaults, LogP, MakeState, Need, Needs, NoCheck,
+    OnePerShot, OnePerShotAdapter, OnePerShotExecutor, OnePerShotPlacedExecutor, OperandKind,
+    Outcome, Outcomes, OwnThread, ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome,
+    ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value, adapter_fn, compose, executor_fn,
     interpreter, wait, wait_async,
 };
 
@@ -103,7 +103,7 @@ impl Program {
     fn flip_and_toss(set: InstructionSet) -> Self {
         Self {
             batches: flip_and_toss(&set),
-            needs: Needs::default().with_instructions(Some(Arc::new(set))),
+            needs: Needs::default().with_instruction_set(Some(Arc::new(set))),
         }
     }
 }
@@ -238,7 +238,7 @@ where
 {
     let set = bits_set();
     let batches = flip_and_toss(&set);
-    let needs = Needs::default().with_instructions(Some(Arc::new(set)));
+    let needs = Needs::default().with_instruction_set(Some(Arc::new(set)));
     let (outcomes, _) = chain
         .run(StaticProgram::new(needs, batches), [0, 1])
         .expect("shots, needs met")
@@ -366,7 +366,15 @@ fn read_in_order(
 /// as [`profiler`]: it reads each bool it is called with, tagged in the
 /// order its shot reads them.
 fn readouts() -> OnePerShotExecutor<bool, u32, impl MakeState<u32>, impl ExecutorLogic<bool, u32>> {
-    executor_fn(Capabilities::default(), |_| Ok(0), read_in_order).shots(OnePerShot)
+    executor_fn(per_shot_readouts(), |_| Ok(0), read_in_order).shots(OnePerShot)
+}
+
+/// What [`readouts`] promise: each shot's reads continue from one call to
+/// the next, on its own state.
+fn per_shot_readouts() -> Capabilities {
+    Capabilities::default()
+        .with_resumable_shots(true)
+        .with_replayable(true)
 }
 
 /// [`readouts`], each shot on a thread of its own: `.run_on(..)` before
@@ -379,7 +387,7 @@ fn readouts_on_a_thread_per_shot() -> OnePerShotPlacedExecutor<
     impl ExecutorLogic<bool, u32> + Clone,
     OwnThread,
 > {
-    executor_fn(Capabilities::default(), |_| Ok(0), read_in_order)
+    executor_fn(per_shot_readouts(), |_| Ok(0), read_in_order)
         .run_on(OwnThread)
         .shots(OnePerShot)
 }
@@ -763,7 +771,7 @@ fn readouts_of_fair_coins() -> OnePerShotExecutor<
     NoCheck<bool>,
     impl FnMut(&u32) -> f64,
 > {
-    executor_fn(Capabilities::default(), |_| Ok(0), read_in_order)
+    executor_fn(per_shot_readouts(), |_| Ok(0), read_in_order)
         .log_probability(|reads: &u32| f64::from(*reads) * 0.5_f64.ln())
         .shots(OnePerShot)
 }
@@ -923,32 +931,6 @@ fn a_part_composed_with_the_executor_first_reports_its_faults_before_upstream_is
     assert_eq!(builds.load(Ordering::SeqCst), 0, "the adapter was built");
 }
 
-/// A driver that needs more qubits than the chain has, composed with a
-/// noise model that draws with the executor's id, composed with the
-/// executor first: the noise model's fault comes back alone, since the
-/// driver's needs are not checked, as they are when the noise model is
-/// composed with the driver first
-/// (`a_drivers_unmet_needs_are_reported_with_the_adapters_faults`).
-#[test]
-fn a_part_composed_with_the_executor_first_reports_its_faults_before_a_drivers_needs_are_checked() {
-    let mut program = Program::flip_and_toss(bits_set());
-    program.needs = program.needs.with_qubits(3);
-    let noise =
-        map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
-    let build = || {
-        let part = compose(noise, TestDoubleExecutor::with_model(Bits::default(), 7))?;
-        compose(Driver::new(program, shots(&[0])), part)
-    };
-    let Err(faults) = build() else {
-        panic!("the noise model is faulty");
-    };
-    assert_eq!(faults.0.len(), 1, "{faults}");
-    assert_eq!(
-        faults.0[0].error,
-        BuildError::RngInUse(ComponentId::LAST_EXECUTOR)
-    );
-}
-
 /// Two noise models given the one id: the refusal says which id, why that
 /// is refused, and how to change it, as `.drawing(..)` gives an adapter
 /// its id.
@@ -1021,9 +1003,10 @@ impl Model for Workers {
     }
 }
 
-/// A driver's needs are checked against what the chain offers when it is
-/// composed with an executor: a program that needs more qubits than the
-/// chain has is refused then, before anything runs, the program named.
+/// A driver's needs are checked against what the chain offers when its job
+/// is given to the chain, which composing the tests' `Driver` with an
+/// executor does: a program that needs more qubits than the chain has is
+/// refused then, before anything runs, the program named.
 #[test]
 fn a_driver_whose_needs_the_chain_lacks_is_refused_when_composed() {
     let mut program = Program::flip_and_toss(bits_set());
@@ -1041,103 +1024,74 @@ fn a_driver_whose_needs_the_chain_lacks_is_refused_when_composed() {
     assert_eq!((unmet.need, unmet.offered), (Need::Qubits, 2));
 }
 
-/// A program that needs more qubits than the chain has, and probabilities
+/// A program that needs more qubits than the chain has, and the log probability
 /// it does not give: both needs are reported at once, in the order of
-/// `Capabilities::admit`.
+/// `Capabilities::admit`, when the program is given to the chain.
 #[test]
-fn every_need_of_a_driver_that_the_chain_lacks_is_reported() {
+fn every_need_of_a_program_that_the_chain_lacks_is_reported() {
     let mut program = Program::flip_and_toss(bits_set());
-    program.needs = program.needs.with_qubits(3).with_probabilities(true);
-    let Err(faults) =
-        Driver::new(program, shots(&[0])) >> TestDoubleExecutor::with_model(Bits::default(), 7)
-    else {
-        panic!("three qubits and probabilities on two bits must be refused");
+    program.needs = program.needs.with_qubits(3).with_log_probability(true);
+    let chain = (interpreter() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("nothing between to refuse");
+    let Err(JobFaults(faults)) = chain.run(program, [0]) else {
+        panic!("three qubits and the log probability on two bits must be refused");
     };
     let needs: Vec<Option<Need>> = faults
-        .0
         .iter()
-        .map(|fault| match &fault.error {
-            BuildError::Unmet(unmet) => Some(unmet.need),
+        .map(|fault| match fault {
+            Rejected::Unmet(unmet) => Some(unmet.need),
             _ => None,
         })
         .collect();
-    assert_eq!(needs, [Some(Need::Qubits), Some(Need::Probabilities)]);
+    assert_eq!(needs, [Some(Need::Qubits), Some(Need::LogProbability)]);
 }
 
-/// A driver of more shots than the executor holds states at once is
-/// refused when composed, the states unmet, and no shot is made: the
-/// executor is never called.
+/// A driver of more shots than the executor holds at once is refused when
+/// its job is given to the chain, which composing the tests' `Driver` does,
+/// the shots unmet, and no shot is made: the executor is never called.
 #[test]
 fn a_driver_of_more_shots_than_the_executor_holds_is_refused_when_composed() {
     let doubles = TestDoubleModel {
-        states: Some(2),
+        max_shots: Some(2),
         ..TestDoubleModel::default()
     };
     let made = Rc::clone(&doubles.made);
     let Err(faults) =
         Driver::new(Waits, shots(&[0, 1, 2])) >> TestDoubleExecutor::with_model(doubles, 7)
     else {
-        panic!("three shots on two states must be refused");
+        panic!("three shots on two at once must be refused");
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
-        panic!("the states are unmet: {faults}");
+        panic!("the shots are unmet: {faults}");
     };
     assert_eq!(
         (unmet.need, unmet.needed, unmet.offered),
-        (Need::States, 3, 2)
+        (Need::Shots, 3, 2)
     );
     assert_eq!(made.get(), 0, "composing made a shot");
 }
 
-/// A driver that needs more qubits than the chain has, upstream of a noise
-/// model that draws with the executor's id: both are reported at once, the
-/// driver's fault first.
-#[test]
-fn a_drivers_unmet_needs_are_reported_with_the_adapters_faults() {
-    let mut program = Program::flip_and_toss(bits_set());
-    program.needs = program.needs.with_qubits(3);
-    let noise =
-        map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
-    let Err(faults) = Driver::new(program, shots(&[0]))
-        >> noise
-        >> TestDoubleExecutor::with_model(Bits::default(), 7)
-    else {
-        panic!("the driver and the noise model are faulty");
-    };
-    assert_eq!(faults.0.len(), 2, "{faults}");
-    assert!(faults.0[0].component.ends_with("Program"), "{faults}");
-    assert!(
-        matches!(&faults.0[0].error, BuildError::Unmet(unmet) if unmet.need == Need::Qubits),
-        "{faults}"
-    );
-    assert_eq!(
-        faults.0[1].error,
-        BuildError::RngInUse(ComponentId::LAST_EXECUTOR)
-    );
-}
-
-/// The two faults of the chain above read as one message, each as its
-/// component and its error, joined by "; ".
+/// Two noise models that draw from the generator the bits draw from, one
+/// upstream of the other: the faults of the chain read as one message,
+/// each as its component and its error, joined by "; ".
 #[test]
 fn the_faults_of_a_chain_read_as_one_message_in_their_order() {
-    let mut program = Program::flip_and_toss(bits_set());
-    program.needs = program.needs.with_qubits(3);
-    let noise =
+    let upstream =
         map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
-    let Err(faults) = Driver::new(program, shots(&[0]))
-        >> noise
-        >> TestDoubleExecutor::with_model(Bits::default(), 7)
-    else {
-        panic!("the driver and the noise model are faulty");
+    let downstream =
+        map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
+    let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
+    let Err(faults) = interpreter() >> upstream >> downstream >> bits else {
+        panic!("both noise models are faulty");
     };
-    let [driver, noise] = faults.0.as_slice() else {
+    let [upstream, downstream] = faults.0.as_slice() else {
         panic!("two faults: {faults}");
     };
     // The components are type names, whose text Rust does not promise.
     let expected = format!(
         "{}: {}; {}: {}",
-        driver.component, driver.error, noise.component, noise.error
+        upstream.component, upstream.error, downstream.component, downstream.error
     );
     assert_eq!(faults.to_string(), expected);
 }
@@ -1192,7 +1146,7 @@ fn two_build_errors_of_the_same_kind_stating_different_faults_are_not_equal() {
             mismatches: Vec::new(),
         })
     };
-    assert_ne!(unmet(Need::Feedback), unmet(Need::Probabilities));
+    assert_ne!(unmet(Need::ResumableShots), unmet(Need::LogProbability));
 }
 
 /// An adapter that states the set it accepts and not what it sends: it
@@ -1259,49 +1213,18 @@ fn a_driver_and_an_executor_sharing_a_set_without_actions_are_composed() {
     assert_eq!(values(&outcomes)[0], (0, 0, Value::One), "x, then measure");
 }
 
-/// A driver whose set, a vendor's of another name, leaves the coin
-/// undeclared, upstream of an adapter that declares every action: between
-/// sets of other names the driver's coin cannot be checked, so the run is
-/// refused, as the driver's need of instructions unmet.
-#[test]
-fn an_instruction_whose_action_the_drivers_set_leaves_undeclared_is_refused_when_composed() {
-    let driver = Driver::new(
-        Program::flip_and_toss(undeclaring(bits_set(), &["coin"])),
-        shots(&[0]),
-    );
-    let Err(faults) =
-        driver >> Accepting::new(bits_set()) >> TestDoubleExecutor::with_model(Bits::default(), 7)
-    else {
-        panic!("the driver's coin declares nothing");
-    };
-    assert_eq!(faults.0.len(), 1, "{faults}");
-    let BuildError::Unmet(unmet) = &faults.0[0].error else {
-        panic!("the driver's need is unmet: {faults}");
-    };
-    assert_eq!(unmet.need, Need::Instructions);
-    let undeclared = InstructionMismatch::UndeclaredAction {
-        mnemonic: "coin".to_owned(),
-    };
-    assert_eq!(unmet.mismatches, [undeclared]);
-}
-
-/// A driver whose set, a vendor's of another name, leaves the coin
-/// undeclared, two adapters, the downstream one accepting a vendor's set
-/// that leaves its read undeclared, and bits whose vendor's set leaves
-/// their flip undeclared: each boundary's fault is reported at once, the
-/// driver's first, then each adapter's, from upstream.
+/// A chain of two adapters, the downstream one accepting a vendor's set
+/// that leaves its read undeclared, upstream of bits whose vendor's set
+/// leaves their flip undeclared: each boundary's fault is reported at
+/// once when the chain is built, from upstream.
 #[test]
 fn every_undeclared_action_of_a_chain_is_reported_at_once() {
-    let driver = Driver::new(
-        Program::flip_and_toss(undeclaring(bits_set(), &["coin"])),
-        shots(&[0]),
-    );
     let between = Accepting::new(undeclaring(bits_set(), &["measure"]));
     let downstream = Bits {
         undeclared: &["x"],
         ..Bits::default()
     };
-    let Err(faults) = driver
+    let Err(faults) = interpreter()
         >> Accepting::new(bits_set())
         >> between
         >> TestDoubleExecutor::with_model(downstream, 7)
@@ -1315,7 +1238,6 @@ fn every_undeclared_action_of_a_chain_is_reported_at_once() {
         .0
         .iter()
         .map(|fault| match &fault.error {
-            BuildError::Unmet(unmet) => unmet.mismatches.clone(),
             BuildError::Instructions(mismatches) => mismatches.clone(),
             other => panic!("only undeclared actions: {other}"),
         })
@@ -1323,7 +1245,6 @@ fn every_undeclared_action_of_a_chain_is_reported_at_once() {
     assert_eq!(
         mismatches,
         [
-            vec![undeclared("coin")],
             vec![undeclared("measure")],
             vec![undeclared("x"), undeclared("measure")],
         ]
@@ -1381,7 +1302,7 @@ fn a_passing_adapter_offers_the_set_downstream_under_its_name() {
 
 /// A driver of calls by opcode that states no set, on bits that describe
 /// theirs: its opcodes cannot be checked, so the run is refused, as the
-/// driver's need of instructions unmet.
+/// driver's need of an instruction set unmet.
 #[test]
 fn a_driver_of_calls_by_opcode_that_states_no_set_is_refused_when_composed() {
     let program = Program {
@@ -1396,7 +1317,7 @@ fn a_driver_of_calls_by_opcode_that_states_no_set_is_refused_when_composed() {
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
         panic!("the driver's need is unmet: {faults}");
     };
-    assert_eq!(unmet.need, Need::Instructions);
+    assert_eq!(unmet.need, Need::InstructionSet);
     assert!(unmet.mismatches.is_empty(), "{unmet}");
 }
 
@@ -1517,6 +1438,25 @@ fn a_driver_whose_calls_a_decoder_does_not_accept_is_refused_when_composed() {
     assert_eq!(unmet.mismatches, vec![missing_coin()]);
 }
 
+/// A decoder that accepts bits without their coin, in a chain given the
+/// job of a program that tosses one: the program's calls are checked
+/// against the set the decoder accepts, so the coin is missing and the job
+/// is refused, before anything runs.
+#[test]
+fn a_job_whose_calls_a_decoder_does_not_accept_is_refused() {
+    let chain = (interpreter()
+        >> DecodeCalls::accepting(bits_without_coin())
+        >> TestDoubleExecutor::with_model(Workers, 7))
+    .expect("the decoder's downstream boundary is typed");
+    let Err(JobFaults(faults)) = chain.run(Program::flip_and_toss(bits_set()), [0]) else {
+        panic!("the decoder accepts no coin");
+    };
+    let [Rejected::Unmet(unmet)] = &faults[..] else {
+        panic!("the program's need is unmet: {faults:?}");
+    };
+    assert_eq!(unmet.mismatches, vec![missing_coin()]);
+}
+
 /// The bits' flip and read, without their coin.
 fn bits_without_coin() -> InstructionSet {
     let set = InstructionSet::new("bits without coin")
@@ -1577,7 +1517,7 @@ fn a_decoder_stating_no_set_accepts_the_set_downstream() {
 
 /// A decoder stating no set, under a driver of calls by opcode, upstream of
 /// workers that describe none: no set downstream of the driver numbers its
-/// calls, so the run is refused, as the driver's need of instructions
+/// calls, so the run is refused, as the driver's need of an instruction set
 /// unmet.
 #[test]
 fn a_driver_over_a_decoder_and_workers_stating_no_set_is_refused_when_composed() {
@@ -1593,7 +1533,7 @@ fn a_driver_over_a_decoder_and_workers_stating_no_set_is_refused_when_composed()
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
         panic!("the driver's need is unmet: {faults}");
     };
-    assert_eq!((unmet.need, unmet.offered), (Need::Instructions, 0));
+    assert_eq!((unmet.need, unmet.offered), (Need::InstructionSet, 0));
 }
 
 /// A driver with no adapter composes with any executor, not only a

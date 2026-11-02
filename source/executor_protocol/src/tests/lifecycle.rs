@@ -1218,16 +1218,13 @@ fn a_shared_state_executor_refuses_calls_outside_its_set() {
 }
 
 /// An ensemble executor whose state carries over: a second call reads the
-/// flip of the first, by the conformance kit's check of `feedback`. Its
-/// shots share one state, so a call changes the shots it does not name:
-/// the kit's check of that rule is not run on it, and the check of
-/// `feedback` runs on one shot, since on two it also checks that a shot
-/// new to the executor reads as made when a call names it with shots an
-/// earlier call named, which the shared state breaks the same way.
-// Known issue (blocks neither): the double offers `feedback`, whose doc
-// says that only a call on a shot changes its state, which its shared
-// state breaks; whether an ensemble may offer `feedback` is a design
-// question held for the user.
+/// flip of the first, by the conformance kit's check of `resumable_shots`,
+/// run on one shot. It offers no `resumable_shots` all the same: its shots
+/// share one state, so a call changes the shots it does not name (the
+/// kit's check of that rule is not run on it), and on two shots the check
+/// of `resumable_shots` also checks that a shot new to the executor reads
+/// as made when a call names it with shots an earlier call named, which the
+/// shared state breaks the same way.
 #[test]
 fn a_shared_state_executor_continues_its_shots_from_one_call_to_the_next() {
     let flip_and_read = &flip_and_toss(&bits_set())[0];
@@ -1242,7 +1239,7 @@ fn a_shared_state_executor_continues_its_shots_from_one_call_to_the_next() {
 /// An ensemble executor built after another flipped the bit its shots
 /// share reads it as made: the conformance kit's check that a new
 /// executor's shots start as made, whatever an earlier executor left,
-/// which asks neither `feedback` nor `replayable`, so it applies to an
+/// which asks neither `resumable_shots` nor `replayable`, so it applies to an
 /// ensemble whose shots share one state too.
 #[test]
 fn a_new_shared_state_executor_starts_its_shots_as_made() {

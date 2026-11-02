@@ -10,9 +10,10 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use super::{
-    Bit, Flipped, Flips, Freed, Op, PowerDownFailed, PowersDownBadly, ReleasesBadly, count_flips,
-    draw_value, flips, freed_so_far, holding_a_handle, narrow_promise, panic_text, panics,
-    powering_down_badly, promise, read_drawn_bits, readouts, run_bit, runs, stops, values,
+    Bit, Connection, Flipped, Flips, Freed, Op, PowerDownFailed, PowersDownBadly, ReleasesBadly,
+    connected_device, count_flips, draw_value, flips, freed_so_far, holding_a_handle,
+    narrow_promise, panic_text, panics, powering_down_badly, promise, read_drawn_bits, readouts,
+    run_bit, runs, stops, values,
 };
 use crate::{
     Close, Describe, Executor, Fold, InstructionBatch, InstructionBatchRef, OnePerShot, Outcome,
@@ -163,12 +164,12 @@ fn each_shot_alone_gives_what_it_gives_among_others() {
     );
 }
 
-/// A device of two states, called on three shots with a batch its check
-/// refuses: the check's refusal comes first, not the shot it has no room
-/// for.
+/// A device that holds two shots at once, called on three shots with a batch
+/// its check refuses: the check's refusal comes first, not the shot it has no
+/// room for.
 #[test]
 fn the_check_refuses_a_call_before_its_room_is_checked() {
-    let mut executor = executor_fn(promise().with_states(2), Bit::new, run_bit)
+    let mut executor = executor_fn(promise().with_max_shots(2), Bit::new, run_bit)
         .check(|input| check_unique_tags(readouts(input.instructions())))
         .shots(OnePerShot);
     let refused = send(&mut executor, &[0, 1, 2], &[Op::Read(1), Op::Read(1)]).err();
@@ -178,11 +179,12 @@ fn the_check_refuses_a_call_before_its_room_is_checked() {
     );
 }
 
-/// A device of two states, closed, then called on three shots: the call
-/// is refused as closed, not for the shot it has no room for.
+/// A device that holds two shots at once, closed, then called on three shots:
+/// the call is refused as closed, not for the shot it has no room for.
 #[test]
 fn closed_it_refuses_a_call_before_its_room_is_checked() {
-    let mut executor = executor_fn(promise().with_states(2), Bit::new, run_bit).shots(OnePerShot);
+    let mut executor =
+        executor_fn(promise().with_max_shots(2), Bit::new, run_bit).shots(OnePerShot);
     executor.close();
     assert_eq!(
         send(&mut executor, &[0, 1, 2], &[Op::Flip]).err(),
@@ -221,13 +223,13 @@ fn a_failed_executor_names_its_failure_whatever_the_batch() {
     );
 }
 
-/// A device of two states: a call that would hold a third shot is refused
-/// with that shot, and runs nothing; a call within its two runs.
+/// A device that holds two shots at once: a call that would hold a third shot
+/// is refused with that shot, and runs nothing; a call within its two runs.
 #[test]
-fn a_call_beyond_the_promised_states_is_refused_with_the_first_shot_it_has_no_room_for() {
+fn a_call_beyond_the_promised_max_shots_is_refused_with_the_first_shot_it_has_no_room_for() {
     let (ran, counted) = counter();
     let mut executor = executor_fn(
-        promise().with_states(2),
+        promise().with_max_shots(2),
         Bit::new,
         move |bit, input, outcomes| {
             counted.set(counted.get() + 1);
@@ -248,13 +250,13 @@ fn a_call_beyond_the_promised_states_is_refused_with_the_first_shot_it_has_no_ro
     );
 }
 
-/// A device of two states, a call on three new shots: the call is refused
-/// for room before any state is made, so the device makes none.
+/// A device that holds two shots at once, a call on three new shots: the call
+/// is refused for room before any state is made, so the device makes none.
 #[test]
 fn a_call_refused_for_room_makes_no_state() {
     let (made, counted) = counter();
     let mut executor = executor_fn(
-        promise().with_states(2),
+        promise().with_max_shots(2),
         move |context: ShotContext| {
             counted.set(counted.get() + 1);
             Bit::new(context)
@@ -262,7 +264,7 @@ fn a_call_refused_for_room_makes_no_state() {
         run_bit,
     )
     .shots(OnePerShot);
-    send(&mut executor, &[0, 1, 2], &[Op::Flip]).expect_err("two states, three shots");
+    send(&mut executor, &[0, 1, 2], &[Op::Flip]).expect_err("two shots at once, three shots");
     assert_eq!(made.get(), 0);
 }
 
@@ -523,8 +525,8 @@ fn a_second_close_reports_nothing() {
     conformance::reports_once(&mut executor);
 }
 
-/// A device of two states refuses a call that would hold a third shot,
-/// then runs one on its two: the conformance kit's check that a refusal
+/// A device that holds two shots at once refuses a call that would hold a third
+/// shot, then runs one on its two: the conformance kit's check that a refusal
 /// leaves the executor usable.
 #[test]
 fn a_refused_call_leaves_it_usable() {
@@ -533,7 +535,7 @@ fn a_refused_call_leaves_it_usable() {
         ShotSet::range(0..=1).expect("two shots"),
     );
     conformance::accepts_calls_after_a_refusal::<InstructionBatch<Op>, _>(
-        &mut executor_fn(promise().with_states(2), Bit::new, run_bit).shots(OnePerShot),
+        &mut executor_fn(promise().with_max_shots(2), Bit::new, run_bit).shots(OnePerShot),
         InstructionBatchRef {
             shots: &three,
             instructions: &[Op::Flip],
@@ -569,7 +571,8 @@ fn a_tag_repeated_within_a_batch_is_refused() {
 }
 
 /// A second call on shots 7, 2 and 5, given out of order and with gaps,
-/// reads the flip of the first: the conformance kit's check of `feedback`.
+/// reads the flip of the first: the conformance kit's check of
+/// `resumable_shots`.
 #[test]
 fn a_second_call_continues_each_shot() {
     conformance::continues_a_shot_from_one_call_to_the_next(
@@ -734,15 +737,15 @@ fn describes_the_promise_as_given() {
 /// A simulator promises each shot's log probability, or does not say: it
 /// promises it exactly when it is told how to read it from a state.
 #[test]
-fn promises_probabilities_only_with_a_log_probability() {
+fn promises_log_probability_only_when_a_function_gives_it() {
     for given in [true, false] {
-        let promise = promise().with_probabilities(given);
+        let promise = promise().with_log_probability(given);
         let without = executor_fn(promise.clone(), Bit::new, run_bit).shots(OnePerShot);
-        assert!(!without.capabilities().probabilities, "given {given}");
+        assert!(!without.capabilities().log_probability, "given {given}");
         let with = executor_fn(promise, Bit::new, run_bit)
             .log_probability(|_| 0.0)
             .shots(OnePerShot);
-        assert!(with.capabilities().probabilities, "given {given}");
+        assert!(with.capabilities().log_probability, "given {given}");
     }
 }
 
@@ -769,14 +772,14 @@ fn the_check_refuses_a_call_before_any_state_is_made() {
     assert_eq!(made.get(), 0);
 }
 
-/// A simulator of two states runs a call, refuses one beyond its states,
-/// then stops in a third: its report counts the two it accepted.
+/// A simulator that holds two shots at once runs a call, refuses one beyond
+/// them, then stops in a third: its report counts the two it accepted.
 #[test]
 fn the_report_counts_the_calls_it_accepted() {
     let mut executor =
-        executor_fn(promise().with_states(2), shot_state, run_shot_state).shots(OnePerShot);
+        executor_fn(promise().with_max_shots(2), shot_state, run_shot_state).shots(OnePerShot);
     run(&mut executor, &[0], &[]);
-    send(&mut executor, &[2, 3, 4], &[]).expect_err("no room for a third state");
+    send(&mut executor, &[2, 3, 4], &[]).expect_err("no room for a third shot");
     let (_, end) = send(&mut executor, &[1], &[]).expect("the call runs");
     end.expect_err("shot 1 stops");
     assert_eq!(executor.close().calls, 2);
@@ -984,6 +987,21 @@ fn dropped_it_frees_every_state_raising_no_panic_of_their_drops() {
     panic::catch_unwind(AssertUnwindSafe(|| drop(executor)))
         .expect("a drop raises no panic of the states' drops");
     assert_eq!(freed_so_far(&freed), [0, 1]);
+}
+
+/// A device whose every closure holds a handle on its connection, and
+/// whose sessions release their shots' resources through it, ran a call
+/// on shots 0 and 1 and is dropped unclosed: both sessions are dropped
+/// first, before any closure closes the connection, as `close` frees them
+/// first.
+#[test]
+fn dropped_it_frees_its_states_before_its_closures() {
+    let connection = Connection::default();
+    let mut per_shot = connected_device(&connection).shots(OnePerShot);
+    let (_, end) = send(&mut per_shot, &[0, 1], &[Op::Flip]).expect("an open executor runs a call");
+    end.expect("the logic runs");
+    drop(per_shot);
+    assert_eq!(connection.logged(), ["released shot 0", "released shot 1"]);
 }
 
 /// A device whose state closure and logic each hold a handle on its

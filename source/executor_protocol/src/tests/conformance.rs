@@ -2245,7 +2245,7 @@ impl BitStep {
 }
 
 /// How a [`TestDoubleOfBits`] keeps the promises of `replayable` and
-/// `feedback`, or breaks one.
+/// `resumable_shots`, or breaks one.
 #[derive(Clone, Copy, PartialEq)]
 enum BitsBehaviour {
     /// It keeps both.
@@ -2332,12 +2332,12 @@ type ShotOfBits = (bool, u32, ShotConditions);
 /// after another.
 type Device = Rc<RefCell<BTreeMap<ShotId, ShotOfBits>>>;
 
-/// An executor of a bit per shot, which offers `replayable` and `feedback`
-/// and may break one of them, or start its shots from a device that an
-/// earlier executor left as it was. It refuses a batch that reads twice
-/// under one tag, unless it is [`BitsBehaviour::AcceptsARepeatedTag`], at
-/// the instruction that repeats the tag, unless it is
-/// [`BitsBehaviour::RefusesARepeatAtTheIndexOfItsReadout`].
+/// An executor of a bit per shot, which offers `replayable` and
+/// `resumable_shots` and may break one of them, or start its shots from a
+/// device that an earlier executor left as it was. It refuses a batch that
+/// reads twice under one tag, unless it is
+/// [`BitsBehaviour::AcceptsARepeatedTag`], at the instruction that repeats the
+/// tag, unless it is [`BitsBehaviour::RefusesARepeatAtTheIndexOfItsReadout`].
 struct TestDoubleOfBits {
     behaviour: BitsBehaviour,
     /// Each shot's bit, the draws its tosses made, and its conditions.
@@ -2889,8 +2889,8 @@ fn keeps_each_shots_conditions_from_one_call_to_the_next_catches_a_reply_that_ma
 }
 
 /// An executor that makes its shots again at every call breaks the promise
-/// of `feedback`: a flip, then a read in a second call, reads zero, where
-/// one batch of both reads one.
+/// of `resumable_shots`: a flip, then a read in a second call, reads zero,
+/// where one batch of both reads one.
 #[test]
 #[should_panic(
     expected = "a second call must continue each shot where the first left it: its readouts \
@@ -2906,7 +2906,7 @@ fn continues_a_shot_from_one_call_to_the_next_catches_shots_made_again_at_each_c
 }
 
 /// An executor that keeps shot 0's bit from one call to the next, but
-/// makes the others' again, breaks the promise of `feedback` on shots 1
+/// makes the others' again, breaks the promise of `resumable_shots` on shots 1
 /// and 2 only: a flip, then a read in a second call, reads zero on them.
 /// The check names both.
 #[test]
@@ -2924,7 +2924,7 @@ fn continues_a_shot_from_one_call_to_the_next_catches_a_shot_made_again_among_ke
 }
 
 /// An executor that makes its shots again when a call names other shots
-/// than the call before it breaks the promise of `feedback`, though two
+/// than the call before it breaks the promise of `resumable_shots`, though two
 /// calls on the same shots continue them: after a toss on shots 0 to 3,
 /// which changes shots 1 and 3, a read on shots 1 and 3, then one on 0 and
 /// 2, reads zero on 1 and 3, where one batch of both reads one. The check
@@ -2946,7 +2946,7 @@ fn continues_a_shot_from_one_call_to_the_next_catches_shots_made_again_when_the_
 }
 
 /// An executor that makes again the shots a call names when one of them is
-/// new to it breaks the promise of `feedback` where a feedback program
+/// new to it breaks the promise of `resumable_shots` where a feedback program
 /// calls a subset of its shots, then all of them: shots 0, 2, 1, 3, 4 and
 /// 5, given in that order, are at odd indices 2, 3 and 5, which a toss
 /// changes on 3 and 5; the read on all the shots that follows makes them

@@ -26,12 +26,19 @@ pub type Counts = BTreeMap<&'static str, u64>;
 /// executor that counts the instructions each shot runs, and reads each
 /// readout as a random bit drawn from the shot's seed. It promises the
 /// toy's instruction set, and no qubit count: it counts any of them, on
-/// any qubit. Its report holds the counts of every shot that ran, folded
+/// any qubit. Each shot's state keeps its counts and its draws from one
+/// call to the next, and raises no shot condition, so it has none to keep:
+/// it promises resumable shots. A shot draws from its own seed alone, so it
+/// reads the same bits alone or among others: it promises replayable
+/// shots. Its report holds the counts of every shot that ran, folded
 /// ([`ExecutorReport::states`]).
 pub fn toy_profiler(
     seed: u64,
 ) -> impl Executor<InstructionBatch<Op>> + Describe + Close<Report = ExecutorReport<Counts>> {
-    let promise = Capabilities::default().with_instruction_set(Some(Arc::new(toy_set())));
+    let promise = Capabilities::default()
+        .with_instruction_set(Some(Arc::new(toy_set())))
+        .with_resumable_shots(true)
+        .with_replayable(true);
     executor_fn(promise, ShotProfile::start, ShotProfile::run)
         .check(|input: &ProgramInput<'_, Op>| check_unique_tags(readouts(input.instructions())))
         .state_report(|shot: &ShotProfile| shot.counts.clone())

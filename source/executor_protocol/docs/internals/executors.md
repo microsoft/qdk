@@ -36,7 +36,7 @@ default keeps every existing executor and caller as they were; `Need` is
 crate. Adding a capability takes five steps:
 
 1. A field in `Capabilities`, whose default is what an executor that says
-   nothing of it offers (as `probabilities` defaults to `false`).
+   nothing of it offers (as `log_probability` defaults to `false`).
 2. A field in `Needs`, whose default states nothing (`false`, `None`), so
    no existing driver changes.
 3. A `Need` variant, its check in `Capabilities::admit`, and its code in
@@ -49,21 +49,21 @@ crate. Adding a capability takes five steps:
    `src/tests/compose/adapters.rs`), and so promises it, whether or not
    it can keep it. An adapter that cannot keep the promise clears it in
    its `build` (`AdapterBoundary::offered_upstream`), as a sampler that
-   returns values only clears `probabilities`
-   (`an_adapter_turning_probabilities_off_offers_none`,
+   returns values only clears `log_probability`
+   (`an_adapter_turning_log_probability_off_offers_none`,
    `src/tests/compose/adapters.rs`); where no adapter of a kind can keep
    it, `compose` clears it before the adapter is built, as it clears
-   `probabilities` upstream of an adapter that draws
-   (`an_adapter_that_draws_reads_no_probabilities_in_its_offer_when_built`,
+   `log_probability` upstream of an adapter that draws
+   (`an_adapter_that_draws_reads_no_log_probability_in_its_offer_when_built`,
    `src/tests/adapter/boundary.rs`;
-   `a_driver_needing_probabilities_is_refused_upstream_of_an_adapter_that_draws`,
-   `src/tests/compose/adapters.rs`). So adding the field means going
-   through each existing adapter, the guides' included.
-5. The tests: a driver with the need, composed with an executor that
-   offers it and with one that does not (`BuildError::Unmet`, naming the
-   component); through an adapter; the refusal at the call, if a call can
-   need it without the driver stating it; and across a link, once the
-   link is built (planned).
+   `a_driver_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws`,
+   `src/tests/compose/adapters.rs`). So adding the field means going through
+   each existing adapter, the guides' included.
+5. The tests: a program with the need, given to a chain over an executor
+   that offers it and over one that does not (`Rejected::Unmet`, naming
+   the chain's executor); through an adapter; the refusal at the call, if
+   a call can need it without the program stating it; and across a link,
+   once the link is built (planned).
 
 Two capabilities are planned, with no milestone yet, each added by these
 steps:
@@ -79,10 +79,10 @@ steps:
 from the implementer's logic alone:
 
 - `promise` is what the executor offers (`Describe`), changed in two ways
-  only. It offers `probabilities` exactly when `.log_probability` (below)
+  only. It offers `log_probability` exactly when `.log_probability` (below)
   gives it how to read a state's, whatever `promise` says
-  (`probabilities_are_promised_only_with_a_log_probability`); and without
-  a shot strategy, it lowers `states` to at most one (below). The rest is
+  (`log_probability_is_promised_only_when_a_function_gives_it`); and without
+  a shot strategy, it lowers `max_shots` to at most one (below). The rest is
   offered as given, under `OnePerShot` too
   (`describes_the_promise_as_given`), and wherever it is
   placed (`a_placed_executor_promises_what_the_executor_it_places_does`).
@@ -124,8 +124,8 @@ executor further:
 - `.log_probability(read)`, the
   [report closure](../glossary.md#making-and-placing-an-executor), reads a
   state's log probability, once, when the executor closes, into its report
-  (`ExecutorReport::log_p`). It is the only way to promise `probabilities`
-  (`probabilities_are_promised_only_with_a_log_probability`,
+  (`ExecutorReport::log_p`). It is the only way to promise `log_probability`
+  (`log_probability_is_promised_only_when_a_function_gives_it`,
   `closing_reports_the_log_probability_of_the_state_it_made`).
 - `.state_report(report)`, the other report closure, reads what a state
   tracked across its calls (a peak, a count), once, when the executor
@@ -169,9 +169,9 @@ freed; a later `close` then reports none of those states (it calls that
 `src/tests/executor_fn.rs`).
 
 Without a shot strategy, the executor holds one state, for one shot: it
-lowers its promise to at most one state, so that a driver of more shots is
-refused when composed
-(`without_a_shot_strategy_the_promise_is_lowered_to_one_state`); it
+lowers its promise to at most one shot, so that a job of more shots is
+refused when given to the chain
+(`without_a_shot_strategy_the_promise_is_lowered_to_one_shot`); it
 refuses a call on another shot
 (`a_call_on_a_shot_other_than_the_one_it_holds_is_refused`), and a first
 call on two shots, which makes no state
@@ -215,9 +215,9 @@ pinned in `src/tests/executor_fn/one_per_shot.rs`:
   inside `call` (`a_batch_runs_on_each_of_its_shots_in_its_order`).
 - It describes its promise as given (`describes_the_promise_as_given`). A
   call that would hold
-  more states than the promise's `states` is refused, with the first shot
+  more shots than the promise's `max_shots` is refused, with the first shot
   it has no room for
-  (`a_call_beyond_the_promised_states_is_refused_with_the_first_shot_it_has_no_room_for`).
+  (`a_call_beyond_the_promised_max_shots_is_refused_with_the_first_shot_it_has_no_room_for`).
 - A state that cannot be made refuses the whole call: no shot runs, and
   the states made for the call are dropped
   (`a_state_that_cannot_be_made_refuses_the_whole_call_with_its_refusal`,
@@ -681,11 +681,15 @@ sections above do not pin, in each page's order, with the tests that pin it.
 
 From [Executors](../executors.md):
 
-| Promise                                                                                                                  | Tests                                                                                                                                                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The per-shot executor guide's executor, given `.shots(OnePerShot)`, gives each shot alone what it gives among the others | `each_shot_alone_gives_what_it_gives_among_others` (`tests/per_shot_executor.rs`; tests of the same name pin it for `executor_fn`'s state per shot in `src/tests/executor_fn/one_per_shot.rs`, and placed, in `src/tests/executor_fn/one_per_shot/placed.rs`) |
-| A program with feedback runs its next batch on the shots it chose, on the state their first batch left                   | `a_program_with_feedback_runs_its_next_batch_on_the_shots_it_chose` (`tests/per_shot_executor.rs`)                                                                                                                                                            |
-| `ExecutorLifecycle::fail` records a failure learnt inside `call`, so the next call is refused                            | `a_counter_refuses_calls_after_its_device_stops` (`src/tests/lifecycle.rs`)                                                                                                                                                                                   |
+| Promise                                                                                                                                                 | Tests                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The default offers nothing an executor does not state: no limit of qubits or shots, and no resumable shots, replayable shots, resets or log probability | `default_capabilities_state_no_limit_and_offer_nothing_unstated` (`src/tests/capabilities.rs`)                                                                                                                                                                |
+| An executor that does not state a capability is refused a job that needs it, naming the need                                                            | `an_executor_that_states_no_resumable_shots_is_refused_a_job_that_continues_a_shot` (`src/tests/capabilities.rs`)                                                                                                                                             |
+| The conformance check across calls fails an executor that forgets a shot's conditions at a call                                                         | `keeps_each_shots_conditions_from_one_call_to_the_next_catches_conditions_forgotten_at_a_call` (`src/tests/conformance.rs`)                                                                                                                                   |
+| An executor made by `executor_fn`, dropped unclosed, frees its state before its closures, as `close` does, and so does its shot form                    | `dropped_it_frees_its_state_before_its_closures` (`src/tests/executor_fn.rs`), `dropped_it_frees_its_states_before_its_closures` (`src/tests/executor_fn/one_per_shot.rs`)                                                                                    |
+| The per-shot executor guide's executor, given `.shots(OnePerShot)`, gives each shot alone what it gives among the others                                | `each_shot_alone_gives_what_it_gives_among_others` (`tests/per_shot_executor.rs`; tests of the same name pin it for `executor_fn`'s state per shot in `src/tests/executor_fn/one_per_shot.rs`, and placed, in `src/tests/executor_fn/one_per_shot/placed.rs`) |
+| A program with feedback runs its next batch on the shots it chose, on the state their first batch left                                                  | `a_program_with_feedback_runs_its_next_batch_on_the_shots_it_chose` (`tests/per_shot_executor.rs`)                                                                                                                                                            |
+| `ExecutorLifecycle::fail` records a failure learnt inside `call`, so the next call is refused                                                           | `a_counter_refuses_calls_after_its_device_stops` (`src/tests/lifecycle.rs`)                                                                                                                                                                                   |
 
 From the [Glossary](../glossary.md#a-parts-axes), a wrapper never forgets a
 refusal, in either order of `.shots(OnePerShot)` and `.run_on(..)` ([An executor
@@ -701,10 +705,10 @@ From the guide [Running a program](../guides.md#running-a-program), in
 
 | Promise                                                                                                                                                                                                                 | Tests                                                                                                                                                                                                                  |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A driver composed with the toy simulator and waited for gives the program's output, one outcome per shot, and the executor's report                                                                                     | `a_program_runs_on_an_executor_when_composed_and_waited_for`                                                                                                                                                           |
+| A program given to a chain on the toy simulator and waited for gives the program's output, one outcome per shot, and the executor's report                                                                              | `a_program_runs_on_an_executor_when_given_to_its_chain_and_waited_for`                                                                                                                                                 |
 | An executor built with the same seed gives the same outcomes, and one built with another seed gives others                                                                                                              | `an_executor_built_with_the_same_seed_gives_the_same_outcomes`, `an_executor_built_with_another_seed_gives_other_outcomes`                                                                                             |
 | A shot draws the same outcomes whichever shots run beside it                                                                                                                                                            | `a_shots_outcomes_do_not_depend_on_the_shots_run_beside_it`                                                                                                                                                            |
-| A program that needs more qubits than the simulator has is refused when composed, with the need it does not meet                                                                                                        | `a_program_needing_more_than_the_executor_offers_is_refused_when_composed`                                                                                                                                             |
+| A program that needs more qubits than the simulator has is refused when given to the chain, with the need it does not meet                                                                                              | `a_program_needing_more_than_the_executor_offers_is_refused_when_given_to_the_chain`                                                                                                                                   |
 | A refused batch changes no shot                                                                                                                                                                                         | `a_refused_batch_changes_no_shot`                                                                                                                                                                                      |
 | The toy names the first instruction it does not accept                                                                                                                                                                  | `a_batch_out_of_the_toys_range_is_refused_at_its_first_bad_instruction`                                                                                                                                                |
 | The toy keeps the conformance kit's rules: it takes calls after a refusal, refuses them once closed, reports once, gives each shot alone what it gives among the others, and continues a shot from one call to the next | `the_toy_accepts_calls_after_a_refusal`, `the_toy_rejects_calls_once_closed`, `the_toy_reports_once`, `the_toy_gives_each_shot_alone_what_it_gives_among_others`, `the_toy_continues_a_shot_from_one_call_to_the_next` |
@@ -724,7 +728,7 @@ profiler](../guides.md#an-existing-backend-and-a-profiler), in
 | After either failure, the bridge refuses its later calls with `EarlierFailure`                                     | `the_bridge_refuses_calls_after_the_backend_errs`, `the_bridge_refuses_calls_after_a_wrong_number_of_results`                               |
 | After a refusal, the bridge takes the corrected batch                                                              | `the_bridge_accepts_calls_after_a_refusal`                                                                                                  |
 | Once closed, or after a failure, the bridge says so whatever the batch                                             | `a_closed_bridge_says_closed_whatever_the_batch`, `a_failed_bridge_names_its_failure_whatever_the_batch`                                    |
-| A `Driver` of one shot runs its calls on the bridge                                                                | `a_driver_runs_its_calls_on_the_bridge`                                                                                                     |
+| A program of one shot runs its calls on the bridge                                                                 | `a_program_runs_its_calls_on_the_bridge`                                                                                                    |
 
 From the API docs of the executor types:
 
@@ -733,6 +737,8 @@ From the API docs of the executor types:
 | `ExecutorFn::check` frees the check it replaces, raising no panic of its drop                                                                                                                                                                                                                                                 | `a_replaced_closure_is_freed_raising_no_panic_of_its_drop` (`src/tests/executor_fn.rs`)                                                                                                                                                                                                                                                                                 |
 | At close, the drop of a state while the panic of a report closure or of `Q::default` unwinds leaves its panic to the panic hook, with one state or a state per shot                                                                                                                                                           | `a_reports_default_panic_wins_over_its_states_drops` (`src/tests/executor_fn.rs`)                                                                                                                                                                                                                                                                                       |
 | Dropped, an executor with a state per shot absorbs the panic of each state's drop                                                                                                                                                                                                                                             | `dropped_it_frees_every_state_raising_no_panic_of_their_drops` (`src/tests/executor_fn/one_per_shot.rs`)                                                                                                                                                                                                                                                                |
+| Placed per shot and dropped unclosed, it frees a state held from before it was placed before its closures, and each shot's state, on its placement, before the shot's copies of the closures                                                                                                                                  | `dropped_it_frees_a_state_held_from_before_it_was_placed_before_its_closures`, `dropped_each_shot_frees_its_state_before_its_copies_of_the_closures` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                   |
+| Placed per shot and dropped unclosed, it frees its own closures (the state closure, the check, and the closures it copies for each shot) on the dropping thread without waiting for the shots' states, so they may be freed before a shot's state                                                                             | `dropped_it_frees_its_own_closures_without_waiting_for_its_shots_states` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                                               |
 | Placed per shot and holding a state from before, a `Clone` of the logic or of the placement that panics as that state's shot is placed frees the state, or the placement, raising the copy's own panic; a report closure's copy is made there as in `call` (next row)                                                         | `a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_from_before_raising_its_own_panic`, `a_placement_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_from_before_raising_its_own_panic`, `a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_placement_raising_its_own_panic` (`src/tests/executor_fn/one_per_shot/placed.rs`) |
 | Placed per shot, a `Clone` of the logic that panics as a new shot's copies are made reaches the caller before the shot's state is made; one of a report closure (`state_report`'s, copied after the logic and `log_probability`'s closure) frees the copies made before it, each in a catch of its own, raising its own panic | `a_shots_copy_of_the_logic_that_panics_reaches_the_caller_before_its_state_is_made`, `a_shots_copy_that_panics_frees_the_copies_made_before_it_raising_its_own_panic` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                  |
 | Placed per shot, a copy of the placement that panics as a new shot's copies are made frees the shot's state, raising its own panic                                                                                                                                                                                            | `a_shots_copy_of_the_placement_that_panics_frees_its_state_raising_its_own_panic` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                                      |

@@ -35,11 +35,11 @@ mod toy;
 use std::sync::{Arc, Mutex};
 
 use executor_protocol::{
-    Action, BuildError, BuildFaults, Capabilities, Close, Describe, Drive, Driver, ErrorKind,
-    Executor, ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef,
-    InstructionCall, InstructionMismatch, InstructionSet, Need, Needs, Operand, OperandKind,
-    Outcome, Pauli, Rejected, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose,
-    conformance, wait,
+    Action, BuildError, BuildFaults, Capabilities, Close, Describe, Drive, ErrorKind, Executor,
+    ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
+    InstructionMismatch, InstructionSet, JobFaults, Need, Needs, Operand, OperandKind, Outcome,
+    Pauli, Rejected, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose, conformance,
+    interpreter, wait,
 };
 
 use code::{Code, CodeFault, Encoding, GadgetCall, Slot};
@@ -176,7 +176,7 @@ struct Answers {
 
 impl Describe for Answers {
     fn capabilities(&self) -> Capabilities {
-        device(8).capabilities().with_probabilities(true)
+        device(8).capabilities().with_log_probability(true)
     }
 }
 
@@ -469,7 +469,7 @@ impl Drive for PrepareFlipAndRead {
     type Output = Vec<Value>;
 
     fn needs(&self) -> Needs {
-        Needs::default().with_instructions(Some(Arc::clone(&self.0)))
+        Needs::default().with_instruction_set(Some(Arc::clone(&self.0)))
     }
 
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
@@ -490,28 +490,28 @@ impl Drive for PrepareFlipAndRead {
     }
 }
 
-/// A driver that states the instructions it will send is composed with the
-/// code when the code has them all, and is refused when composed, before
-/// any shot is made, when it lacks one.
+/// A program that states the instructions it will send is taken by a chain
+/// of the code when the code has them all, and is refused when given to
+/// it, before any shot is made, when it lacks one.
 #[test]
-fn a_driver_is_composed_only_with_a_code_that_has_the_instructions_it_needs() {
+fn a_program_is_taken_only_by_a_code_that_has_the_instructions_it_needs() {
     let composes = |program: InstructionSet| {
         let program = PrepareFlipAndRead(Arc::new(program));
-        compose(Driver::new(program, ShotSet::one(0)), composed(8))
+        let chain = compose(interpreter(), composed(8)).expect("nothing between to refuse");
+        chain.run(program, ShotSet::one(0))
     };
     let program = InstructionSet::new("program")
         .with_action("prepare_z", [Block], reset())
         .with_action("__quantum__qis__x__body", [Block], pauli(Pauli::x(0)))
         .with_action("__quantum__qis__m__body", [Block, Tag], measure());
     assert!(composes(program.clone()).is_ok());
-    let Err(BuildFaults(faults)) = composes(program.with_action("h", [Block], hadamard())) else {
-        panic!("composed with a code without `h`")
+    let Err(JobFaults(faults)) = composes(program.with_action("h", [Block], hadamard())) else {
+        panic!("given to a code without `h`")
     };
-    let errors: Vec<BuildError> = faults.into_iter().map(|fault| fault.error).collect();
-    let [BuildError::Unmet(unmet)] = errors.as_slice() else {
-        panic!("{errors:?}")
+    let [Rejected::Unmet(unmet)] = faults.as_slice() else {
+        panic!("{faults:?}")
     };
-    assert_eq!(unmet.need, Need::Instructions);
+    assert_eq!(unmet.need, Need::InstructionSet);
     assert_eq!(
         unmet.mismatches,
         [InstructionMismatch::Missing {
@@ -539,7 +539,7 @@ impl Drive for PrepareAndRead {
 
     fn needs(&self) -> Needs {
         let needs = Needs::default().with_resets(true);
-        needs.with_instructions(Some(Arc::clone(&self.0)))
+        needs.with_instruction_set(Some(Arc::clone(&self.0)))
     }
 
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
@@ -586,19 +586,17 @@ fn without_a_reset() -> Code {
     code
 }
 
-/// A driver that resets, upstream of a code whose logical set has no reset
-/// (only `x` and `m`), on a device that resets, is refused when composed,
-/// its reset named as an instruction the code lacks, and for nothing
-/// else: the code passes the device's resets on, and where sets are
-/// described the instructions matched are what guarantee a reset.
+/// A program that resets, given to a chain of a code whose logical set has
+/// no reset (only `x` and `m`), on a device that resets, is refused, its
+/// reset named as an instruction the code lacks, and for nothing else: the
+/// code passes the device's resets on, and where sets are described the
+/// instructions matched are what guarantee a reset.
 #[test]
-fn a_driver_resetting_upstream_of_a_code_without_a_reset_is_refused_when_composed() {
+fn a_program_resetting_upstream_of_a_code_without_a_reset_is_refused_when_given_to_the_chain() {
     let run = |code| {
-        let driver = compose(
-            Driver::new(PrepareAndRead::new(), ShotSet::one(0)),
-            Encoding::new(code),
-        );
-        compose(driver, device(8))
+        let chain = compose(interpreter(), Encoding::new(code));
+        let chain = compose(chain, device(8)).expect("the code runs on the device");
+        chain.run(PrepareAndRead::new(), ShotSet::one(0))
     };
     (run(repetition3()).expect("the fixture's code has `prepare_z`")).wait();
     let offered = code_upstream_of(without_a_reset(), device(8))
@@ -606,14 +604,13 @@ fn a_driver_resetting_upstream_of_a_code_without_a_reset_is_refused_when_compose
         .capabilities();
     assert!(offered.resets, "the code passes the device's resets on");
 
-    let Err(BuildFaults(faults)) = run(without_a_reset()) else {
-        panic!("composed with a code without a reset")
+    let Err(JobFaults(faults)) = run(without_a_reset()) else {
+        panic!("given to a code without a reset")
     };
-    let errors: Vec<BuildError> = faults.into_iter().map(|fault| fault.error).collect();
-    let [BuildError::Unmet(unmet)] = errors.as_slice() else {
-        panic!("{errors:?}")
+    let [Rejected::Unmet(unmet)] = faults.as_slice() else {
+        panic!("{faults:?}")
     };
-    assert_eq!(unmet.need, Need::Instructions);
+    assert_eq!(unmet.need, Need::InstructionSet);
     assert_eq!(
         unmet.mismatches,
         [InstructionMismatch::Missing {
@@ -623,7 +620,7 @@ fn a_driver_resetting_upstream_of_a_code_without_a_reset_is_refused_when_compose
 }
 
 /// A driver whose set declares the logical instructions in another order
-/// is composed with the code, and each of its batches is copied into the
+/// runs on a chain of the code, and each of its batches is copied into the
 /// code's numbering: its `prepare_z`, `x` and `m` run as such, though at
 /// the opcodes of the code's `m`, `prepare_z` and `x`.
 #[test]
@@ -633,7 +630,9 @@ fn a_driver_in_another_order_runs_its_own_instructions_on_the_code() {
         .with_action("__quantum__qis__m__body", [Block, Tag], measure())
         .with_action("prepare_z", [Block], reset());
     let program = PrepareFlipAndRead(Arc::new(driver));
-    let run = (compose(Driver::new(program, ShotSet::one(0)), composed(8)))
+    let run = compose(interpreter(), composed(8))
+        .expect("nothing between to refuse")
+        .run(program, ShotSet::one(0))
         .expect("the code has the driver's set");
     let (output, _) = run.wait();
     assert_eq!(output, [Value::One]);
@@ -649,7 +648,9 @@ fn a_driver_builds_its_calls_by_name_with_the_codes_set() {
         .capabilities()
         .instruction_set
         .expect("the code describes the logical set");
-    let run = compose(Driver::new(PrepareFlipAndRead(set), ShotSet::one(0)), code)
+    let run = compose(interpreter(), code)
+        .expect("nothing between to refuse")
+        .run(PrepareFlipAndRead(set), ShotSet::one(0))
         .expect("the code accepts its own set");
     let (output, _) = run.wait();
     assert_eq!(output, [Value::One]);
@@ -664,7 +665,7 @@ impl Drive for CallsOutside {
     type Output = ();
 
     fn needs(&self) -> Needs {
-        Needs::default().with_instructions(Some(Arc::clone(&self.0)))
+        Needs::default().with_instruction_set(Some(Arc::clone(&self.0)))
     }
 
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
@@ -693,7 +694,9 @@ fn the_code_in_a_drivers_numbering_refuses_calls_outside_the_drivers_set() {
     let driver = InstructionSet::new("driver");
     let driver = driver.with_action("__quantum__qis__x__body", [Block], pauli(Pauli::x(0)));
     let program = CallsOutside(Arc::new(driver));
-    (compose(Driver::new(program, ShotSet::one(0)), composed(8)))
+    compose(interpreter(), composed(8))
+        .expect("nothing between to refuse")
+        .run(program, ShotSet::one(0))
         .expect("the code has the driver's instructions")
         .wait();
 }

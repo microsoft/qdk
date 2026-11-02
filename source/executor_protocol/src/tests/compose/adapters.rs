@@ -1120,11 +1120,11 @@ fn an_adapter_written_by_hand_draws_otherwise_than_the_last_executor() {
 #[test]
 fn a_run_reports_the_last_executors_log_probability_through_its_adapters() {
     let downstream = Bits {
-        probabilities: true,
+        log_probability: true,
         ..Bits::default()
     };
     let mut program = Program::flip_and_toss(bits_set());
-    program.needs = program.needs.with_probabilities(true);
+    program.needs = program.needs.with_log_probability(true);
     let log = Log::default();
     let (_, report) = (Driver::new(program, shots(&[0, 3]))
         >> logger("debugger", &log)
@@ -1142,13 +1142,13 @@ fn a_run_reports_the_last_executors_log_probability_through_its_adapters() {
 /// states its own: the log probability that executor reports does not hold
 /// the noise model's draws.
 #[test]
-fn a_driver_needing_probabilities_is_refused_upstream_of_an_adapter_that_draws() {
+fn a_driver_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws() {
     let downstream = Bits {
-        probabilities: true,
+        log_probability: true,
         ..Bits::default()
     };
     let mut program = Program::flip_and_toss(bits_set());
-    program.needs = program.needs.with_probabilities(true);
+    program.needs = program.needs.with_log_probability(true);
     let refused = (Driver::new(program, shots(&[0]))
         >> Noise::default()
         >> TestDoubleExecutor::with_model(downstream, 7))
@@ -1157,11 +1157,11 @@ fn a_driver_needing_probabilities_is_refused_upstream_of_an_adapter_that_draws()
     let Some([BuildError::Unmet(unmet)]) = errors.as_deref() else {
         panic!("{errors:?}")
     };
-    assert_eq!(unmet.need, Need::Probabilities);
+    assert_eq!(unmet.need, Need::LogProbability);
 }
 
 /// A noise model written by hand that states its offer whole as what
-/// downstream offers, probabilities included, in place of the offer
+/// downstream offers, the log probability included, in place of the offer
 /// `compose` gave it, which has none.
 struct NoiseOffersDownstreamsWhole;
 
@@ -1192,16 +1192,16 @@ impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E>
 /// A driver that needs each shot's log probability is refused upstream of
 /// a noise model that states its offer whole, as what downstream offers,
 /// though the executor downstream states its own: an adapter that draws
-/// offers no probabilities, whatever it offers.
+/// offers no log probability, whatever it offers.
 #[test]
-fn a_driver_needing_probabilities_is_refused_upstream_of_an_adapter_that_draws_and_states_its_offer_whole()
+fn a_driver_needing_log_probability_is_refused_upstream_of_an_adapter_that_draws_and_states_its_offer_whole()
  {
     let downstream = Bits {
-        probabilities: true,
+        log_probability: true,
         ..Bits::default()
     };
     let mut program = Program::flip_and_toss(bits_set());
-    program.needs = program.needs.with_probabilities(true);
+    program.needs = program.needs.with_log_probability(true);
     let refused = (Driver::new(program, shots(&[0]))
         >> NoiseOffersDownstreamsWhole
         >> TestDoubleExecutor::with_model(downstream, 7))
@@ -1210,28 +1210,28 @@ fn a_driver_needing_probabilities_is_refused_upstream_of_an_adapter_that_draws_a
     let Some([BuildError::Unmet(unmet)]) = errors.as_deref() else {
         panic!("{errors:?}")
     };
-    assert_eq!(unmet.need, Need::Probabilities);
+    assert_eq!(unmet.need, Need::LogProbability);
 }
 
 /// A driver that needs each shot's log probability, upstream of a code
-/// that draws nothing and claims log probabilities, upstream of a noise
+/// that draws nothing and claims `log_probability`, upstream of a noise
 /// model over an executor that states its own: the driver is refused,
-/// since an adapter may turn probabilities off but never on, and the
+/// since an adapter may turn the log probability off but never on, and the
 /// executor's log probability leaves out the noise model's draws.
 #[test]
-fn a_driver_needing_probabilities_is_refused_through_an_adapter_offering_them_above_one_that_draws()
+fn a_driver_needing_log_probability_is_refused_through_an_adapter_offering_it_above_one_that_draws()
 {
-    struct ClaimsProbabilities;
-    impl Adapter for ClaimsProbabilities {
+    struct ClaimsLogProbability;
+    impl Adapter for ClaimsLogProbability {
         type Accepts = InstructionCall;
         type Sends = InstructionCall;
 
         fn build(self, boundary: &mut AdapterBoundary<'_>) -> Self {
-            boundary.offered_upstream().probabilities = true;
+            boundary.offered_upstream().log_probability = true;
             self
         }
     }
-    impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for ClaimsProbabilities {
+    impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for ClaimsLogProbability {
         type Output = E;
 
         fn apply(self, downstream: E) -> E {
@@ -1239,13 +1239,13 @@ fn a_driver_needing_probabilities_is_refused_through_an_adapter_offering_them_ab
         }
     }
     let downstream = Bits {
-        probabilities: true,
+        log_probability: true,
         ..Bits::default()
     };
     let mut program = Program::flip_and_toss(bits_set());
-    program.needs = program.needs.with_probabilities(true);
+    program.needs = program.needs.with_log_probability(true);
     let refused = (Driver::new(program, shots(&[0]))
-        >> ClaimsProbabilities
+        >> ClaimsLogProbability
         >> Noise::default()
         >> TestDoubleExecutor::with_model(downstream, 7))
     .err();
@@ -1253,25 +1253,25 @@ fn a_driver_needing_probabilities_is_refused_through_an_adapter_offering_them_ab
     let Some([BuildError::Unmet(unmet)]) = errors.as_deref() else {
         panic!("{errors:?}")
     };
-    assert_eq!(unmet.need, Need::Probabilities);
+    assert_eq!(unmet.need, Need::LogProbability);
 }
 
 /// A sampler that returns values only, over a simulator that states each
 /// shot's log probability: it offers none, since an adapter may turn
-/// probabilities off.
+/// the log probability off.
 #[test]
-fn an_adapter_turning_probabilities_off_offers_none() {
-    struct TurnsProbabilitiesOff;
-    impl Adapter for TurnsProbabilitiesOff {
+fn an_adapter_turning_log_probability_off_offers_none() {
+    struct TurnsLogProbabilityOff;
+    impl Adapter for TurnsLogProbabilityOff {
         type Accepts = InstructionCall;
         type Sends = InstructionCall;
 
         fn build(self, boundary: &mut AdapterBoundary<'_>) -> Self {
-            boundary.offered_upstream().probabilities = false;
+            boundary.offered_upstream().log_probability = false;
             self
         }
     }
-    impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for TurnsProbabilitiesOff {
+    impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for TurnsLogProbabilityOff {
         type Output = E;
 
         fn apply(self, downstream: E) -> E {
@@ -1279,18 +1279,18 @@ fn an_adapter_turning_probabilities_off_offers_none() {
         }
     }
     let downstream = Bits {
-        probabilities: true,
+        log_probability: true,
         ..Bits::default()
     };
     let executor = compose(
-        TurnsProbabilitiesOff,
+        TurnsLogProbabilityOff,
         TestDoubleExecutor::with_model(downstream, 7),
     )
     .expect("the sampler passes the bits' calls through");
-    assert!(!executor.capabilities().probabilities);
+    assert!(!executor.capabilities().log_probability);
 }
 
-/// A run through a noise model, which offers no probabilities, reports
+/// A run through a noise model, which offers no log probability, reports
 /// none, though the executor downstream of it states its own: a log
 /// probability without the noise model's draws would not be the shot's.
 #[test]
@@ -1298,14 +1298,14 @@ fn an_adapter_turning_probabilities_off_offers_none() {
             `.log_probability` on adapters (planned)"]
 fn a_run_through_an_adapter_that_draws_reports_no_log_probability() {
     let downstream = Bits {
-        probabilities: true,
+        log_probability: true,
         ..Bits::default()
     };
     let program = Program::flip_and_toss(bits_set());
     let (_, report) = (Driver::new(program, shots(&[0]))
         >> Noise::default()
         >> TestDoubleExecutor::with_model(downstream, 7))
-    .expect("the driver needs no probabilities")
+    .expect("the driver needs no log probability")
     .wait();
     assert!(report.log_p.is_empty(), "{:?}", report.log_p);
 }
@@ -1476,12 +1476,12 @@ fn an_adapter_upstream_of_a_component_with_no_instruction_set_is_refused_when_bu
 
 /// A driver of calls by opcode that states an empty set, over shots that
 /// describe none: nothing downstream numbers its calls, so the run is
-/// refused, as the driver's need of instructions unmet.
+/// refused, as the driver's need of an instruction set unmet.
 #[test]
 fn a_driver_stating_an_empty_set_over_shots_describing_none_is_refused_when_composed() {
     let mut program = Program::flip_and_toss(bits_set());
     let empty = InstructionSet::new("empty");
-    program.needs = program.needs.with_instructions(Some(Arc::new(empty)));
+    program.needs = program.needs.with_instruction_set(Some(Arc::new(empty)));
     let unstated = Bits::default().capabilities().with_instruction_set(None);
     let executor = TestDoubleExecutor::with_model(Described(Bits::default(), unstated), 7);
     let Err(faults) = Driver::new(program, shots(&[0])) >> executor else {
@@ -1491,7 +1491,7 @@ fn a_driver_stating_an_empty_set_over_shots_describing_none_is_refused_when_comp
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
         panic!("the driver's need is unmet: {faults}");
     };
-    assert_eq!((unmet.need, unmet.offered), (Need::Instructions, 0));
+    assert_eq!((unmet.need, unmet.offered), (Need::InstructionSet, 0));
 }
 
 /// A code that accepts the bits numbered otherwise and sends
@@ -1636,13 +1636,13 @@ fn an_adapter_passing_its_calls_through_offers_the_set_downstream_whatever_its_o
 
 /// An adapter that accepts the bits numbered otherwise changes only the
 /// instruction set: it keeps every other capability of the shots
-/// downstream (their qubits, their limit of states, no feedback and no
-/// resets), since it runs on them.
+/// downstream (their qubits, their limit of shots at once, no resumable
+/// shots and no resets), since it runs on them.
 #[test]
 fn an_adapter_keeps_the_capabilities_it_does_not_change() {
     let limited = Capabilities {
-        states: Some(4),
-        feedback: false,
+        max_shots: Some(4),
+        resumable_shots: false,
         resets: false,
         ..Bits::default().capabilities()
     };

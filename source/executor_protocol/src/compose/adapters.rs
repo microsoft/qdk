@@ -103,8 +103,9 @@ pub trait UpstreamOf<E>: Adapters {
 
     /// These adapters upstream of `executor`, built against it starting at
     /// the executor and going upstream. `upstream` is given what the chain
-    /// offers, and returns the faults of what composes upstream of it (a
-    /// driver's needs that the chain does not meet).
+    /// offers, and returns the faults of what composes upstream of it,
+    /// reported first (the crate's interpreter reports none: a job's needs
+    /// are checked when the job is given to the chain).
     ///
     /// # Errors
     ///
@@ -209,7 +210,7 @@ impl<A: Adapter> AdapterList for A {
             }
             // Its draws are not in the log probability its downstream
             // executor reports.
-            offered.probabilities = false;
+            offered.log_probability = false;
         }
         let derived = offered.clone();
         let mut boundary = AdapterBoundary::new(&downstream, draws, numbering.as_ref(), offered);
@@ -239,7 +240,7 @@ impl<A: Adapter> AdapterList for A {
 /// as derived from the one the adapter states it accepts
 /// ([`Adapter::accepts`]), downstream's when it passes its calls through
 /// as they are; the ids drawn with at or below the adapter, its own
-/// ([`Adapter::draws`]) and those below; and `probabilities`, which it may
+/// ([`Adapter::draws`]) and those below; and `log_probability`, which it may
 /// turn off but not on, since its report passes up the log probability
 /// from below, and `derived` holds none when it draws. The rest is the
 /// adapter's to change.
@@ -247,7 +248,7 @@ fn keep_derived_fields(offered: &mut Capabilities, derived: &Capabilities) {
     offered.run_seed = derived.run_seed;
     offered.instruction_set.clone_from(&derived.instruction_set);
     offered.rng_ids.clone_from(&derived.rng_ids);
-    offered.probabilities &= derived.probabilities;
+    offered.log_probability &= derived.log_probability;
 }
 
 /// The set `adapter` sends: the set it states, or else the set it accepts,
@@ -474,7 +475,7 @@ where
 // Known issues, open.
 // - Blocks a later unit (`.log_probability` on adapters): the report of
 //   the executor `A` gives passes up as it is, so under an adapter that
-//   draws, which offers no probabilities, it still gives the log
+//   draws, which offers no log probability, it still gives the log
 //   probabilities of the executor below, which miss the adapter's draws
 //   (`a_run_through_an_adapter_that_draws_reports_no_log_probability`,
 //   ignored); an `adapter_fn` that draws has the same issue.

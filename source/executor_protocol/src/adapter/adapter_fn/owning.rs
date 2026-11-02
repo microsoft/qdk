@@ -3,7 +3,7 @@
 
 //! The owning form of an [`adapter_fn`](fn@crate::adapter_fn)
 //! ([`owning_adapter_fn`]): each state owns its way below
-//! ([`OwnedBelow`]) for its life, and the logic is lent none; and how the
+//! ([`BelowHandle`]) for its life, and the logic is lent none; and how the
 //! executors of an `adapter_fn` serve both forms, lent and owning, with
 //! one implementation of the rules below ([`MakeAdapterState`],
 //! [`ServeAdapterCalls`]).
@@ -13,17 +13,17 @@ use std::mem;
 
 use super::one_per_shot::{Merged, ShotRoute};
 use super::{AdapterFn, CallRoute, CallsBelow};
-use crate::adapter::below::{OwnedBelow, Route, StateId, StateIds, lend_while};
+use crate::adapter::below::{BelowHandle, Route, StateId, StateIds, lend_while};
 use crate::{
-    AdapterLogic, Below, Executor, InstructionBatch, MakeState, Outcomes, ProgramInput, Rejected,
-    Reply, ShotContext, ShotId, ShotOutcome, ShotSet,
+    AdapterError, AdapterLogic, Below, Executor, InstructionBatch, MakeState, Outcomes,
+    ProgramInput, Rejected, Reply, ShotContext, ShotId, ShotOutcome, ShotSet,
 };
 #[cfg(doc)]
 use crate::{OnePerShot, OnePerShotAdapter};
 
 /// A state and a logic as an adapter whose states own their way below: the
 /// state closure is given the context of the state's first shot and the
-/// executor below ([`OwnedBelow`]), to keep in the state it makes, as a
+/// executor below ([`BelowHandle`]), to keep in the state it makes, as a
 /// code's runtime is made over a backend it owns; the logic serves each
 /// call on the state, which reaches below through what it owns.
 ///
@@ -32,7 +32,7 @@ use crate::{OnePerShot, OnePerShotAdapter};
 /// [`AdapterFn::check`], [`AdapterFn::drawing`]), a state per shot under
 /// [`OnePerShot`] ([`AdapterFn::shots`]), and the same rules, those of
 /// [`adapter_fn`](fn@crate::adapter_fn) and of [`OnePerShotAdapter`]: what
-/// the state sends or runs through its [`OwnedBelow`] while its logic
+/// the state sends or runs through its [`BelowHandle`] while its logic
 /// serves a call goes below as through a lent [`Below`], and a refusal or
 /// a failure below has the effect it has through a lent one. At
 /// close the states are dropped, with what they own, before the executor
@@ -76,10 +76,11 @@ use crate::{OnePerShot, OnePerShotAdapter};
 /// # Type parameters
 ///
 /// - `I`, `O`, `S`: as [`AdapterFn`]'s.
-/// - `M`: the state closure, given the executor below ([`OwnedBelow`]);
+/// - `M`: the state closure, given the executor below ([`BelowHandle`]);
 ///   the adapter holds it in an [`Owning`], as its `M`.
-/// - `L`: the logic, given no [`Below`], since the state reaches below;
-///   the adapter holds it in an [`Owning`], as its `L`.
+/// - `L`: the logic ([`OwningAdapterLogic`]), given no [`Below`], since
+///   the state reaches below; the adapter holds it in an [`Owning`], as
+///   its `L`.
 //
 // Planned (blocks neither): a facility for a runtime's glue, which maps its
 // results, which name no shot, to the tags it sent, refusing a readout
@@ -90,10 +91,28 @@ pub fn owning_adapter_fn<I, O, S, M, L>(
     logic: L,
 ) -> AdapterFn<I, O, S, Owning<M>, Owning<L>>
 where
-    M: FnMut(ShotContext, OwnedBelow<O>) -> Result<S, Rejected>,
-    L: FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>,
+    M: FnMut(ShotContext, BelowHandle<O>) -> Result<S, Rejected>,
+    L: OwningAdapterLogic<I, S>,
 {
     AdapterFn::new(Owning(make_state), Owning(logic))
+}
+
+/// What serves each call of an [`owning_adapter_fn`], of instructions of
+/// type `I`, on its state, of type `S`: its `logic` closure, which is lent
+/// no [`Below`], since its state reaches below through the [`BelowHandle`]
+/// it owns. Its error is an [`AdapterError`](crate::AdapterError), as an
+/// [`AdapterLogic`]'s is. Implemented for every closure of its signature,
+/// so that a function returning the facility's type names the closure in
+/// a word, as [`AdapterLogic`] is: `Owning<impl OwningAdapterLogic<I, S>>`
+/// (see [`Owning`]).
+pub trait OwningAdapterLogic<I, S>:
+    FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), AdapterError>
+{
+}
+
+impl<I, S, F> OwningAdapterLogic<I, S> for F where
+    F: FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), AdapterError>
+{
 }
 
 /// The state closure or the logic of an [`owning_adapter_fn`], `F`, as its
@@ -101,12 +120,11 @@ where
 /// returns the type the facility gives, as for
 /// [`adapter_fn`](fn@crate::adapter_fn) (see
 /// [`compose`](fn@crate::compose)), each closure opaque inside an
-/// `Owning`: the state closure by its signature, the logic by its role,
-/// that of an [`executor_fn`](fn@crate::executor_fn)'s logic
-/// ([`ExecutorLogic`](crate::ExecutorLogic)), since it is lent nothing:
+/// `Owning`: the state closure by its signature, the logic by its role
+/// ([`OwningAdapterLogic`]):
 /// `-> OnePerShotAdapter<I, O, S,
-/// Owning<impl FnMut(ShotContext, OwnedBelow<O>) -> Result<S, Rejected>>,
-/// Owning<impl ExecutorLogic<I, S>>>`.
+/// Owning<impl FnMut(ShotContext, BelowHandle<O>) -> Result<S, Rejected>>,
+/// Owning<impl OwningAdapterLogic<I, S>>>`.
 pub struct Owning<F>(F);
 
 /// A state, with its id: the id its way below is lent by, when the state
@@ -157,7 +175,7 @@ impl<O, D> WayDown<O, D> {
     ) -> Result<KeptState<S>, Rejected> {
         let id = self.ids.next();
         let serving = self.ids.serving();
-        let state = make.make(context, || OwnedBelow::new(id, serving))?;
+        let state = make.make(context, || BelowHandle::new(id, serving))?;
         Ok(KeptState { id, state })
     }
 }
@@ -180,7 +198,7 @@ pub trait MakeAdapterState<S, O> {
     fn make(
         &mut self,
         context: ShotContext,
-        below: impl FnOnce() -> OwnedBelow<O>,
+        below: impl FnOnce() -> BelowHandle<O>,
     ) -> Result<S, Rejected>;
 }
 
@@ -188,7 +206,7 @@ impl<S, O, M: MakeState<S>> MakeAdapterState<S, O> for M {
     fn make(
         &mut self,
         context: ShotContext,
-        _: impl FnOnce() -> OwnedBelow<O>,
+        _: impl FnOnce() -> BelowHandle<O>,
     ) -> Result<S, Rejected> {
         self(context)
     }
@@ -196,12 +214,12 @@ impl<S, O, M: MakeState<S>> MakeAdapterState<S, O> for M {
 
 impl<S, O, M> MakeAdapterState<S, O> for Owning<M>
 where
-    M: FnMut(ShotContext, OwnedBelow<O>) -> Result<S, Rejected>,
+    M: FnMut(ShotContext, BelowHandle<O>) -> Result<S, Rejected>,
 {
     fn make(
         &mut self,
         context: ShotContext,
-        below: impl FnOnce() -> OwnedBelow<O>,
+        below: impl FnOnce() -> BelowHandle<O>,
     ) -> Result<S, Rejected> {
         (self.0)(context, below())
     }
@@ -209,7 +227,7 @@ where
 
 /// How an `adapter_fn`'s logic serves a call, or a shot of one, on a
 /// state: lent a [`Below`], or reaching below through what its state owns
-/// ([`OwnedBelow`]); either way its calls below go through the same
+/// ([`BelowHandle`]); either way its calls below go through the same
 /// routes, which keep the rules of [`CallsBelow`].
 pub trait ServeAdapterCalls<S, I, O, D: Executor<InstructionBatch<O>>> {
     /// Serves a call of `input` on `shots` with one state, `kept`, each
@@ -271,6 +289,7 @@ where
             &mut Below::new(&mut route),
             outcomes,
         )
+        .map_err(String::from)
     }
 
     fn serve_shot(
@@ -300,12 +319,13 @@ where
             &mut Below::new(&mut route),
             outcomes,
         )
+        .map_err(String::from)
     }
 }
 
 impl<S, I, O, D, L> ServeAdapterCalls<S, I, O, D> for Owning<L>
 where
-    L: FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>,
+    L: OwningAdapterLogic<I, S>,
     O: 'static,
     D: Executor<InstructionBatch<O>> + 'static,
     D::Reply: 'static,
@@ -333,7 +353,7 @@ where
                 calls: mem::replace(*calls, CallsBelow::new()),
                 shots: shots.clone(),
             },
-            || logic(state, input, outcomes),
+            || logic(state, input, outcomes).map_err(String::from),
             |(below, calls), route| {
                 **below = Some(route.below);
                 **calls = route.calls;
@@ -371,7 +391,7 @@ where
                 shot,
                 rank: 0,
             },
-            || logic(state, input, outcomes),
+            || logic(state, input, outcomes).map_err(String::from),
             |(below, calls, merged), route| {
                 **below = Some(route.below);
                 **calls = route.calls;

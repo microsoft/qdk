@@ -5,9 +5,11 @@
 //! it with: the executor downstream, called with the shots of the call the
 //! logic serves, to pass a reply up ([`Below::send`]) or to read it
 //! ([`Below::run`]). The logic is lent it for each call ([`Below`]), or
-//! its state owns it for its life ([`OwnedBelow`]), as
+//! its state owns it for its life ([`BelowHandle`]), as
 //! [`owning_adapter_fn`](fn@crate::owning_adapter_fn) gives it; both reach
-//! below by the same rules, which the adapter's executor holds.
+//! below by the same rules, which the adapter's executor holds. A call
+//! below that cannot go on says why with an [`AdapterError`], the error
+//! the logic returns too.
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -31,34 +33,35 @@ use crate::{AdapterFnReply, OnePerShotAdapter, Outcomes, Rejected, ReplyStatus, 
 /// one function, whatever is below it.
 ///
 /// A state that keeps its way below for its whole life, such as a code's
-/// runtime made over a backend it owns, is given an [`OwnedBelow`]
+/// runtime made over a backend it owns, is given a [`BelowHandle`]
 /// instead, which reaches below by the same rules while its state's logic
 /// serves a call.
 //
 // Known issue, held for the user (blocks neither): a refusal below after
 // the logic changed its state refuses the call, though the logic ran. A
-// proposed fix: the logic decides, through a typed send error (its refusal
-// returned refuses the call, any other `Err` fails it).
+// proposed fix: the logic decides, through `AdapterError`'s planned refusal
+// (its refusal returned refuses the call, any other `Err` fails it).
 //
-// Planned, with that typed send error: a way for the logic to map the index
-// a refusal below names (`Rejected::Instruction`'s `at`) to its call's, as
-// a code adapter written by hand does (`tests/runtime_isa.rs`,
-// `a_downstream_refusal_names_the_logical_call`); a Qodec layer needs a
-// way to refuse, the typed send error, and this mapping too, and so does
-// the repetition code as a logic, whose run below names a physical
-// instruction (`tests/static_isa/repetition_fn.rs`). Until then, the index
-// passes up unmapped (`a_refusal_below_names_the_instruction_as_sent`).
+// Planned, with that refusal: a way for the logic to map the index a
+// refusal below names (`Rejected::Instruction`'s `at`) to its call's, as a
+// code adapter written by hand does (`tests/runtime_isa.rs`,
+// `a_downstream_refusal_names_the_logical_call`): it reads the refusal
+// with `AdapterError::refused()` and returns its own. A code's layer needs
+// a way to refuse and this mapping too, and so does the repetition code as
+// a logic, whose run below names a physical instruction
+// (`tests/static_isa/repetition_fn.rs`). Until then, the index passes up
+// unmapped (`a_refusal_below_names_the_instruction_as_sent`).
 //
 // The rules of a call's calls below live in the executor's `CallsBelow`,
 // which this type reaches through a `Route` (the call's shots, or, with a
-// state per shot, the shot's); an `OwnedBelow` reaches the same `Route`,
+// state per shot, the shot's); a `BelowHandle` reaches the same `Route`,
 // lent on the executor's thread for the length of each call
 // (`lend_while`), so that it adds no second implementation of the refusal,
 // failure and reply rules.
 //
 // The lent form stays as it was, a borrow, and costs what it did (the
 // `merging` rows of `benches/instruction_calls.rs`, run on both trees).
-// The owned one pays to be lifetime-free: two boxes and a copy of the
+// The handle pays to be lifetime-free: two boxes and a copy of the
 // call's shots per call with one state; two boxes per shot with a state
 // per shot, whose sends are compared by content, as it does not know the
 // call's instructions; a mark of the state that serves, two stores per
@@ -69,7 +72,7 @@ use crate::{AdapterFnReply, OnePerShotAdapter, Outcomes, Rejected, ReplyStatus, 
 // down as they are, the worst case: 1.0 to 1.5 times the lent form's time
 // with one state, 1.4 to 2.4 times with a state per shot; on calls of a
 // hundred, 1.0 to 1.1 and 1.0 to 1.4. The mark adds 1 to 8 percent to the
-// owned rows of calls of one instruction (fastest of two to four runs on
+// owning rows of calls of one instruction (fastest of two to four runs on
 // each tree), as much as the rows vary from run to run. Known issue, open
 // (blocks neither): with a state per shot, the route could be installed
 // once per call, the state it serves switched per shot.
@@ -121,11 +124,11 @@ impl<'a, O> Below<'a, O> {
     /// per shot there is no such order for a send, since `send` returns
     /// `Ok` and a merged send is refused after every shot's logic ran: a
     /// call refused there is refused with what every shot's logic changed
-    /// in its kept state (planned: a typed send error, through which the
-    /// logic would decide). A run, and the sends its shot kept, go below
-    /// at once and are refused at `run(..)?`: there the order holds, and a
-    /// call refused is refused with what the earlier shots' logic changed
-    /// in their kept states.
+    /// in its kept state (planned: the refusal an [`AdapterError`] would
+    /// carry, through which the logic would decide). A run, and the sends
+    /// its shot kept, go below at once and are refused at `run(..)?`: there
+    /// the order holds, and a call refused is refused with what the
+    /// earlier shots' logic changed in their kept states.
     ///
     /// A send's reply that fails fails the call and the adapter, and one
     /// cancelled ends the call cancelled, unless it fails, and fails the
@@ -142,8 +145,8 @@ impl<'a, O> Below<'a, O> {
     /// send was refused below, or its reply failed within its call below.
     /// Nothing goes down after. With a state per shot, only after a run:
     /// a send goes nowhere while the logic runs.
-    pub fn send(&mut self, instructions: &[O]) -> Result<(), String> {
-        self.route.send(instructions)
+    pub fn send(&mut self, instructions: &[O]) -> Result<(), AdapterError> {
+        self.route.send(instructions).map_err(AdapterError::from)
     }
 
     /// Runs `instructions` below, on the shots of the call the logic
@@ -201,8 +204,71 @@ impl<'a, O> Below<'a, O> {
     /// not whole; or an earlier call below of the call ended it
     /// ([`Below::send`]), a send's reply that failed included, which the
     /// run checks before it goes down. Nothing goes down after.
-    pub fn run(&mut self, instructions: &[O]) -> Result<Vec<ShotOutcome>, String> {
-        self.route.run(instructions)
+    pub fn run(&mut self, instructions: &[O]) -> Result<Vec<ShotOutcome>, AdapterError> {
+        self.route.run(instructions).map_err(AdapterError::from)
+    }
+}
+
+/// Why the call an adapter's logic serves cannot go on, as a call below
+/// ([`Below::send`], [`Below::run`], and their [`BelowHandle`] forms) or the
+/// logic returns it: the error of an [`AdapterLogic`](crate::AdapterLogic)
+/// and of an [`OwningAdapterLogic`](crate::OwningAdapterLogic).
+///
+/// It holds a message, read with [`message`](AdapterError::message) or
+/// displayed. It converts from a `String` and a `&str`, so that a logic
+/// returns `Err("…".into())` or `Err(format!(..).into())`, and `?` on a
+/// call that fails with a `String` returns it; and into a `String`, for a
+/// caller that keeps one. The logic's error fails the call and the
+/// adapter, unless the call was refused below, as
+/// [`adapter_fn`](fn@crate::adapter_fn) states.
+///
+/// Planned, with no break: a refusal it carries,
+/// `AdapterError::refusal(Rejected)`, read with `refused()`, through which
+/// a logic refuses the call it serves, the adapter living on, while
+/// nothing of the call went down; once something did, the call fails, as
+/// today. The cases: a code's layer whose runtime refuses a call that ran
+/// nothing, which today fails the adapter; and an adapter that rewrites
+/// its calls, which would map the index a refusal below names
+/// ([`Rejected::Instruction`]'s `at`) to its call's, which today passes
+/// up unmapped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AdapterError {
+    message: String,
+}
+
+impl AdapterError {
+    /// Why the call cannot go on, as [`Display`](fmt::Display) gives it.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl fmt::Display for AdapterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for AdapterError {}
+
+impl From<String> for AdapterError {
+    fn from(message: String) -> Self {
+        Self { message }
+    }
+}
+
+impl From<&str> for AdapterError {
+    fn from(message: &str) -> Self {
+        Self {
+            message: message.to_owned(),
+        }
+    }
+}
+
+impl From<AdapterError> for String {
+    fn from(error: AdapterError) -> Self {
+        error.message
     }
 }
 
@@ -212,11 +278,14 @@ impl<O> fmt::Debug for Below<'_, O> {
     }
 }
 
-/// The executor below an [`owning_adapter_fn`](fn@crate::owning_adapter_fn),
-/// owned by one of its states for the state's life: the state closure is
-/// given it, to keep in the state it makes, as a code's runtime keeps the
-/// backend it is made over. While that state's logic serves a call, what
-/// it [`send`](OwnedBelow::send)s and [`run`](OwnedBelow::run)s goes below
+/// A handle to the executor below an
+/// [`owning_adapter_fn`](fn@crate::owning_adapter_fn), which one of its
+/// states owns for the state's life: the state closure is given it, to
+/// keep in the state it makes, as a code's runtime keeps the backend it is
+/// made over. It holds no part of what is below, and dropping it frees
+/// nothing: the adapter closes the executor below. While that state's
+/// logic serves a call, what it [`send`](BelowHandle::send)s and
+/// [`run`](BelowHandle::run)s goes below
 /// as through the [`Below`] an [`adapter_fn`](fn@crate::adapter_fn)'s
 /// logic is lent: on the call's shots with one state, on the logic's shot
 /// with a state per shot ([`OnePerShotAdapter`]), and a refusal or a
@@ -268,29 +337,29 @@ impl<O> fmt::Debug for Below<'_, O> {
 /// # Type parameters
 ///
 /// - `O`: the instructions it takes, as [`Below`]'s.
-pub struct OwnedBelow<O> {
+pub struct BelowHandle<O> {
     state: StateId,
     serving: Serving,
     instructions: PhantomData<fn(&[O])>,
 }
 
-/// Why a call through an [`OwnedBelow`] is refused while its state's logic
+/// Why a call through a [`BelowHandle`] is refused while its state's logic
 /// serves no call.
-pub(crate) const NOT_SERVING: &str = "an owned way below was used while its state's logic \
+pub(crate) const NOT_SERVING: &str = "a BelowHandle was used while its state's logic \
      serves no call; it reaches below only from inside that logic";
 
-/// Why a call through an [`OwnedBelow`] is refused on another thread than
+/// Why a call through a [`BelowHandle`] is refused on another thread than
 /// the one its state's logic serves a call on.
-pub(crate) const ON_ANOTHER_THREAD: &str = "an owned way below was used on another thread than \
+pub(crate) const ON_ANOTHER_THREAD: &str = "a BelowHandle was used on another thread than \
      the one its state's logic serves a call on; it reaches below only on that thread";
 
-/// Why a call through an [`OwnedBelow`] is refused inside another chain's
+/// Why a call through a [`BelowHandle`] is refused inside another chain's
 /// owning state's logic, which its state's logic runs.
-pub(crate) const INSIDE_ANOTHER_LOGIC: &str = "an owned way below was used inside another chain's \
+pub(crate) const INSIDE_ANOTHER_LOGIC: &str = "a BelowHandle was used inside another chain's \
      owning logic, which its state's logic runs; there, only that logic's own way below reaches \
      below";
 
-impl<O> OwnedBelow<O> {
+impl<O> BelowHandle<O> {
     /// The way below of the state `state`, lent to it while the state's
     /// logic serves a call ([`lend_while`]), on the adapter's executor
     /// that marks which of its states serves in `serving`.
@@ -303,16 +372,17 @@ impl<O> OwnedBelow<O> {
     }
 }
 
-impl<O: 'static> OwnedBelow<O> {
+impl<O: 'static> BelowHandle<O> {
     /// Sends `instructions` down, on the shots of the call its state's
     /// logic serves, as [`Below::send`] does.
     ///
     /// # Errors
     ///
     /// Those of [`Below::send`]; and, outside its state's logic, why it
-    /// reaches nothing there ([`OwnedBelow`]).
-    pub fn send(&mut self, instructions: &[O]) -> Result<(), String> {
+    /// reaches nothing there ([`BelowHandle`]).
+    pub fn send(&mut self, instructions: &[O]) -> Result<(), AdapterError> {
         self.through(|route| route.send(instructions))
+            .map_err(AdapterError::from)
     }
 
     /// Runs `instructions` below, on the shots of the call its state's
@@ -321,9 +391,10 @@ impl<O: 'static> OwnedBelow<O> {
     /// # Errors
     ///
     /// Those of [`Below::run`]; and, outside its state's logic, why it
-    /// reaches nothing there ([`OwnedBelow`]).
-    pub fn run(&mut self, instructions: &[O]) -> Result<Vec<ShotOutcome>, String> {
+    /// reaches nothing there ([`BelowHandle`]).
+    pub fn run(&mut self, instructions: &[O]) -> Result<Vec<ShotOutcome>, AdapterError> {
         self.through(|route| route.run(instructions))
+            .map_err(AdapterError::from)
     }
 
     /// `call` on the route its state's logic is served through, if that
@@ -341,15 +412,15 @@ impl<O: 'static> OwnedBelow<O> {
     }
 }
 
-impl<O> fmt::Debug for OwnedBelow<O> {
+impl<O> fmt::Debug for BelowHandle<O> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OwnedBelow")
+        f.debug_struct("BelowHandle")
             .field("state", &self.state)
             .finish_non_exhaustive()
     }
 }
 
-/// Which state of which adapter an [`OwnedBelow`] belongs to: no two
+/// Which state of which adapter a [`BelowHandle`] belongs to: no two
 /// states of a process have the same ([`StateIds`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct StateId {

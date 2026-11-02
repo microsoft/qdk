@@ -123,7 +123,7 @@ fn the_last_shot_id_and_the_first_have_their_own_states() {
 fn a_call_refused_by_its_first_shot_keeps_no_state() {
     let (mut executor, _, _) = executor(TestDoubleModel {
         refusing: Some(2),
-        probabilities: true,
+        log_probability: true,
         ..TestDoubleModel::default()
     });
     run(&mut executor, &shot_set(&[2, 1]), &[true]).expect_err("shot 2, called first, refuses");
@@ -138,7 +138,7 @@ fn a_call_refused_by_its_first_shot_keeps_no_state() {
 fn a_call_refused_because_a_state_could_not_be_made_keeps_none() {
     let (mut executor, _, _) = executor(TestDoubleModel {
         unavailable_once: Cell::new(Some(2)),
-        probabilities: true,
+        log_probability: true,
         ..TestDoubleModel::default()
     });
     run(&mut executor, &shot_set(&[1, 2]), &[true]).expect_err("shot 2's memory is in use");
@@ -451,7 +451,7 @@ fn a_failed_batch_hands_over_its_outcomes_before_its_failure() {
 fn a_call_whose_batch_failed_reports_no_state_made_for_it() {
     let (mut executor, _, _) = executor(TestDoubleModel {
         failing: Some(2),
-        probabilities: true,
+        log_probability: true,
         ..TestDoubleModel::default()
     });
     step(&mut executor, &ShotSet::one(4), &[true], "shot 4 runs");
@@ -472,7 +472,7 @@ fn a_call_whose_batch_failed_reports_no_state_made_for_it() {
 fn a_call_whose_reply_failed_later_reports_no_state_made_for_it() {
     let (mut executor, seen, _) = executor(TestDoubleModel {
         deferred: vec![2],
-        probabilities: true,
+        log_probability: true,
         ..TestDoubleModel::default()
     });
     step(&mut executor, &ShotSet::one(4), &[true], "shot 4 runs");
@@ -2292,7 +2292,7 @@ fn closing_folds_the_report_of_each_shots_state() {
 #[test]
 fn closing_gives_each_shot_its_states_log_probability() {
     let (mut executor, _, _) = executor(TestDoubleModel {
-        probabilities: true,
+        log_probability: true,
         ..TestDoubleModel::default()
     });
     step(
@@ -2323,7 +2323,7 @@ fn closing_drops_the_states() {
 #[test]
 fn a_second_close_reports_nothing() {
     let (mut executor, _, _) = executor(TestDoubleModel {
-        probabilities: true,
+        log_probability: true,
         ..TestDoubleModel::default()
     });
     step(&mut executor, &ShotSet::one(1), &[true], "shot 1 runs");
@@ -2339,7 +2339,7 @@ fn a_second_close_reports_nothing() {
 fn a_call_a_later_shot_refused_reports_no_state_made_for_it() {
     let (mut executor, _, _) = executor(TestDoubleModel {
         refusing: Some(2),
-        probabilities: true,
+        log_probability: true,
         ..TestDoubleModel::default()
     });
     step(&mut executor, &ShotSet::one(4), &[true], "shot 4 runs");

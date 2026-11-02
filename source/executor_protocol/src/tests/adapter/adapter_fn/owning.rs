@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! An `owning_adapter_fn`'s states own their way below (`OwnedBelow`), as a
+//! An `owning_adapter_fn`'s states own their way below (`BelowHandle`), as a
 //! code's runtime owns the backend it is made over: through it, their
 //! logic reaches below by the rules of a lent `Below`, on its own call's
 //! shots, or its own shot's; it reaches nothing outside its state's logic,
@@ -29,10 +29,10 @@ use crate::tests::executor_fn::panic_text;
 use crate::tests::test_double::{run, step};
 use crate::tests::{shots, values};
 use crate::{
-    AdapterFn, Below, Capabilities, Close, Compose, Describe, Executor, ExecutorLogic,
+    AdapterError, AdapterFn, Below, BelowHandle, Capabilities, Close, Compose, Describe, Executor,
     ImmediateReply, InstructionBatch, InstructionBatchRef, OnePerShot, OnePerShotAdapter, Outcome,
-    Outcomes, OwnedBelow, Owning, ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome,
-    ShotSet, Value, WithExecutor, adapter_fn, compose, executor_fn, owning_adapter_fn,
+    Outcomes, Owning, ProgramInput, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
+    WithExecutor, adapter_fn, compose, executor_fn, owning_adapter_fn,
 };
 
 /// The shots of the target chain's run: not a range.
@@ -89,7 +89,7 @@ struct Downstream {
     failing: Option<ShotId>,
     passing: Arc<AtomicUsize>,
     panics: Arc<AtomicUsize>,
-    handed: Arc<Mutex<Vec<OwnedBelow<bool>>>>,
+    handed: Arc<Mutex<Vec<BelowHandle<bool>>>>,
 }
 
 impl Downstream {
@@ -132,7 +132,8 @@ impl Executor<InstructionBatch<bool>> for Downstream {
         self.log.push(call);
         let mut handed = self.handed.lock().unwrap_or_else(PoisonError::into_inner);
         for below in handed.iter_mut() {
-            self.log.push(Event::Reentered(below.send(&[true])));
+            self.log
+                .push(Event::Reentered(below.send(&[true]).map_err(String::from)));
         }
         let mut read = Vec::new();
         for &shot in batch.shots {
@@ -188,37 +189,39 @@ downstream_by_shr!(OnePerShotAdapter);
     clippy::unnecessary_wraps,
     reason = "the signature a state closure has"
 )]
-fn its_way_below(_: ShotContext, below: OwnedBelow<bool>) -> Result<OwnedBelow<bool>, Rejected> {
+fn its_way_below(_: ShotContext, below: BelowHandle<bool>) -> Result<BelowHandle<bool>, Rejected> {
     Ok(below)
 }
 
 /// The logic of an observer that sends each call down as it is, through
 /// its state's way below.
 fn pass_owned(
-    below: &mut OwnedBelow<bool>,
+    below: &mut BelowHandle<bool>,
     input: &ProgramInput<'_, bool>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     below.send(input.instructions())
 }
 
 /// The logic of a decoder that runs each call below and writes what it
 /// reads, through its state's way below.
 fn run_each_owned(
-    below: &mut OwnedBelow<bool>,
+    below: &mut BelowHandle<bool>,
     input: &ProgramInput<'_, bool>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     outcomes.extend(below.run(input.instructions())?);
     Ok(())
 }
 
 /// A shared place where a test keeps the ways below its states give up.
-type Kept = Rc<RefCell<Vec<OwnedBelow<bool>>>>;
+type Kept = Rc<RefCell<Vec<BelowHandle<bool>>>>;
 
 /// A state closure that gives its way below up to `kept`, and keeps its
 /// shot.
-fn giving_up(kept: &Kept) -> impl FnMut(ShotContext, OwnedBelow<bool>) -> Result<ShotId, Rejected> {
+fn giving_up(
+    kept: &Kept,
+) -> impl FnMut(ShotContext, BelowHandle<bool>) -> Result<ShotId, Rejected> {
     let kept = Rc::clone(kept);
     move |context, below| {
         kept.borrow_mut().push(below);
@@ -230,7 +233,7 @@ fn giving_up(kept: &Kept) -> impl FnMut(ShotContext, OwnedBelow<bool>) -> Result
 /// its shot.
 fn giving_up_2s(
     kept: &Kept,
-) -> impl FnMut(ShotContext, OwnedBelow<bool>) -> Result<ShotId, Rejected> + use<> {
+) -> impl FnMut(ShotContext, BelowHandle<bool>) -> Result<ShotId, Rejected> + use<> {
     let kept = Rc::clone(kept);
     move |context, below| {
         if context.shot() == 2 {
@@ -280,7 +283,7 @@ fn owned_sends_of_each_shot_merge_as_lent_ones_do() {
             [SKIP_READ, READ]
         }
     }
-    fn send_each(below: &mut Below<'_, bool>, shot: ShotId) -> Result<(), String> {
+    fn send_each(below: &mut Below<'_, bool>, shot: ShotId) -> Result<(), AdapterError> {
         by_parity(shot)
             .into_iter()
             .try_for_each(|batch| below.send(batch))
@@ -296,7 +299,7 @@ fn owned_sends_of_each_shot_merge_as_lent_ones_do() {
     );
     let owning = owning_adapter_fn(
         |context: ShotContext, below| Ok::<_, Rejected>((context.shot(), below)),
-        |(shot, below): &mut (ShotId, OwnedBelow<bool>),
+        |(shot, below): &mut (ShotId, BelowHandle<bool>),
          _: &ProgramInput<'_, bool>,
          _: &mut Outcomes<'_>| {
             let [first, second] = by_parity(*shot);
@@ -343,7 +346,7 @@ fn an_owned_run_with_one_state_goes_below_on_the_calls_shots() {
         let got = Rc::clone(&got);
         owning_adapter_fn(
             its_way_below,
-            move |below: &mut OwnedBelow<bool>,
+            move |below: &mut BelowHandle<bool>,
                   input: &ProgramInput<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 got.borrow_mut().extend(below.run(input.instructions())?);
@@ -389,7 +392,7 @@ fn an_owned_run_gives_its_readouts_by_shot_each_in_the_order_read() {
         let read = Rc::clone(&read);
         owning_adapter_fn(
             its_way_below,
-            move |below: &mut OwnedBelow<bool>,
+            move |below: &mut BelowHandle<bool>,
                   input: &ProgramInput<'_, bool>,
                   _: &mut Outcomes<'_>| {
                 read.borrow_mut().extend(below.run(input.instructions())?);
@@ -428,7 +431,7 @@ fn a_shots_way_below_reaches_nothing_in_another_shots_logic() {
     let downstream = Downstream::default();
     let mut executor = (debugging.shots(OnePerShot) >> downstream.clone()).expect("bools fit");
     step(&mut executor, &shots(&SHOTS), &[true], "the call runs");
-    let refused = Err(NOT_SERVING.to_owned());
+    let refused = Err(AdapterError::from(NOT_SERVING.to_owned()));
     let expected = [
         (2, Ok(())),
         (5, refused.clone()),
@@ -458,7 +461,7 @@ fn a_way_below_reaches_nothing_in_the_logic_of_an_adapter_below() {
                 }
                 Ok(Some(below))
             },
-            |below: &mut Option<OwnedBelow<bool>>,
+            |below: &mut Option<BelowHandle<bool>>,
              input: &ProgramInput<'_, bool>,
              outcomes: &mut Outcomes<'_>| match below {
                 Some(below) => run_each_owned(below, input, outcomes),
@@ -470,7 +473,7 @@ fn a_way_below_reaches_nothing_in_the_logic_of_an_adapter_below() {
         let (kept, sent) = (Rc::clone(&kept), Rc::clone(&sent));
         owning_adapter_fn(
             its_way_below,
-            move |below: &mut OwnedBelow<bool>,
+            move |below: &mut BelowHandle<bool>,
                   input: &ProgramInput<'_, bool>,
                   outcomes: &mut Outcomes<'_>| {
                 let mut kept = kept.borrow_mut();
@@ -487,7 +490,10 @@ fn a_way_below_reaches_nothing_in_the_logic_of_an_adapter_below() {
     )
     .expect("bools fit");
     step(&mut executor, &shots(&[2, 5]), &[true], "the call runs");
-    assert_eq!(*sent.borrow(), [Err(NOT_SERVING.to_owned())]);
+    assert_eq!(
+        *sent.borrow(),
+        [Err(AdapterError::from(NOT_SERVING.to_owned()))]
+    );
     assert_eq!(downstream.log.calls(), [Event::Call(vec![5], vec![true])]);
 }
 
@@ -506,7 +512,7 @@ fn a_way_below_reaches_nothing_in_another_chains_logic_its_logic_runs() {
         let (kept, sent) = (Rc::clone(&kept), Rc::clone(&sent));
         owning_adapter_fn(
             its_way_below,
-            move |below: &mut OwnedBelow<bool>,
+            move |below: &mut BelowHandle<bool>,
                   input: &ProgramInput<'_, bool>,
                   outcomes: &mut Outcomes<'_>| {
                 let mut kept = kept.borrow_mut();
@@ -528,14 +534,17 @@ fn a_way_below_reaches_nothing_in_another_chains_logic_its_logic_runs() {
                 input.instructions(),
             )
             .map_err(|refused| refused.to_string())?;
-            end
+            Ok(end?)
         }
     };
     let downstream = Downstream::default();
     let mut executor =
         (owning_adapter_fn(giving_up(&kept), consulting) >> downstream.clone()).expect("bools fit");
     step(&mut executor, &ShotSet::one(3), &[true], "the call runs");
-    assert_eq!(*sent.borrow(), [Err(INSIDE_ANOTHER_LOGIC.to_owned())]);
+    assert_eq!(
+        *sent.borrow(),
+        [Err(AdapterError::from(INSIDE_ANOTHER_LOGIC.to_owned()))]
+    );
     assert!(downstream.log.calls().is_empty(), "nothing went below");
     assert_eq!(consulted.log.calls(), [Event::Call(vec![0], vec![true])]);
 }
@@ -554,9 +563,9 @@ fn a_way_below_reaches_below_from_a_merged_send_its_logic_runs() {
     let consulting = move |(): &mut (), input: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
         let (_, end) = run(&mut tracing, &shots(&[0, 1]), input.instructions())
             .map_err(|refused| refused.to_string())?;
-        end
+        Ok(end?)
     };
-    let handing = move |_: ShotContext, below: OwnedBelow<bool>| {
+    let handing = move |_: ShotContext, below: BelowHandle<bool>| {
         (handed.lock().unwrap_or_else(PoisonError::into_inner)).push(below);
         Ok::<_, Rejected>(())
     };
@@ -600,7 +609,7 @@ fn an_owned_run_refused_after_a_send_fails_the_call_and_the_adapter() {
         ..Downstream::default()
     };
     let read_then_skip =
-        |below: &mut OwnedBelow<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
             below.send(&[true])?;
             below.run(&[false]).map(drop)
         };
@@ -625,7 +634,7 @@ fn an_owned_send_refused_below_gives_its_logic_the_refusal() {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let skipping = {
         let seen = Rc::clone(&seen);
-        move |below: &mut OwnedBelow<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
             seen.borrow_mut().push(below.send(&[false]));
             Ok(())
         }
@@ -637,7 +646,10 @@ fn an_owned_send_refused_below_gives_its_logic_the_refusal() {
         at: 0,
         reason: "not a read".to_owned(),
     };
-    assert_eq!(*seen.borrow(), [Err(refusal.to_string())]);
+    assert_eq!(
+        *seen.borrow(),
+        [Err(AdapterError::from(refusal.to_string()))]
+    );
 }
 
 /// The executor below refuses a skip, and a debugger with a state per shot
@@ -652,7 +664,7 @@ fn a_shots_owned_send_after_its_refused_run_gives_its_logic_the_refusal() {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let going_on = {
         let seen = Rc::clone(&seen);
-        move |below: &mut OwnedBelow<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
             below.run(&[false]).expect_err("the skip is refused below");
             seen.borrow_mut().push(below.send(&[true]));
             Ok(())
@@ -665,7 +677,10 @@ fn a_shots_owned_send_after_its_refused_run_gives_its_logic_the_refusal() {
         at: 0,
         reason: "not a read".to_owned(),
     };
-    assert_eq!(*seen.borrow(), [Err(refusal.to_string())]);
+    assert_eq!(
+        *seen.borrow(),
+        [Err(AdapterError::from(refusal.to_string()))]
+    );
 }
 
 /// Shot 0's calls fail below, and a decoder with one state ignores its
@@ -680,7 +695,9 @@ fn an_owned_run_that_fails_below_fails_the_call_and_the_adapter() {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let ignoring = {
         let seen = Rc::clone(&seen);
-        move |below: &mut OwnedBelow<bool>, input: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |below: &mut BelowHandle<bool>,
+              input: &ProgramInput<'_, bool>,
+              _: &mut Outcomes<'_>| {
             seen.borrow_mut()
                 .push(below.run(input.instructions()).map(drop));
             Ok(())
@@ -689,7 +706,11 @@ fn an_owned_run_that_fails_below_fails_the_call_and_the_adapter() {
     let mut decoded =
         (owning_adapter_fn(its_way_below, ignoring) >> downstream).expect("bools fit");
     let (_, end) = run(&mut decoded, &ShotSet::one(0), &[true]).expect("the call is accepted");
-    assert_eq!(*seen.borrow(), [Err("lost".to_owned())], "the logic saw it");
+    assert_eq!(
+        *seen.borrow(),
+        [Err(AdapterError::from("lost".to_owned()))],
+        "the logic saw it"
+    );
     assert_eq!(end, Err("lost".to_owned()));
     let later = run(&mut decoded, &ShotSet::one(1), &[true]).expect_err("the adapter failed");
     assert!(matches!(later, Rejected::EarlierFailure(_)), "{later:?}");
@@ -727,7 +748,7 @@ fn a_per_shot_logic_that_returns_a_refusal_fails_the_call_and_the_adapter() {
 #[test]
 fn a_one_state_logic_that_returns_a_refusal_fails_the_call_and_the_adapter() {
     let handing_off =
-        |below: &mut OwnedBelow<bool>, input: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        |below: &mut BelowHandle<bool>, input: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
             let instructions = input.instructions();
             thread::scope(|scope| scope.spawn(|| below.send(instructions)).join())
                 .expect("the thread ends well")
@@ -743,7 +764,7 @@ fn a_one_state_logic_that_returns_a_refusal_fails_the_call_and_the_adapter() {
 /// A state that owns its way below and logs when it is dropped, as a
 /// runtime that flushes its backend at its end would.
 struct Logged {
-    below: OwnedBelow<bool>,
+    below: BelowHandle<bool>,
     log: Log,
 }
 
@@ -758,7 +779,7 @@ fn pass_logged(
     state: &mut Logged,
     input: &ProgramInput<'_, bool>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     state.below.send(input.instructions())
 }
 
@@ -813,7 +834,7 @@ fn a_way_below_reaches_nothing_from_its_state_closure() {
     let sent = Rc::new(RefCell::new(Vec::new()));
     let eager = {
         let sent = Rc::clone(&sent);
-        move |_: ShotContext, mut below: OwnedBelow<bool>| {
+        move |_: ShotContext, mut below: BelowHandle<bool>| {
             sent.borrow_mut().push(below.send(&[true]));
             Ok::<_, Rejected>(below)
         }
@@ -822,13 +843,20 @@ fn a_way_below_reaches_nothing_from_its_state_closure() {
     let mut executor =
         (owning_adapter_fn(eager, pass_owned) >> downstream.clone()).expect("bools fit");
     step(&mut executor, &ShotSet::one(0), &[], "the call runs");
-    assert_eq!(*sent.borrow(), [Err(NOT_SERVING.to_owned())]);
+    assert_eq!(
+        *sent.borrow(),
+        [Err(AdapterError::from(NOT_SERVING.to_owned()))]
+    );
     assert_eq!(downstream.log.calls(), [Event::Call(vec![0], vec![])]);
 }
 
 /// The logic of an adapter that does nothing below.
 #[expect(clippy::unnecessary_wraps, reason = "the signature a logic has")]
-fn idle(_: &mut ShotId, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>) -> Result<(), String> {
+fn idle(
+    _: &mut ShotId,
+    _: &ProgramInput<'_, bool>,
+    _: &mut Outcomes<'_>,
+) -> Result<(), AdapterError> {
     Ok(())
 }
 
@@ -843,7 +871,7 @@ fn a_way_below_kept_between_calls_reaches_nothing() {
         (owning_adapter_fn(giving_up(&kept), idle) >> downstream.clone()).expect("bools fit");
     step(&mut executor, &ShotSet::one(0), &[true], "the call runs");
     let between = kept.borrow_mut()[0].send(&[true]);
-    assert_eq!(between, Err(NOT_SERVING.to_owned()));
+    assert_eq!(between, Err(NOT_SERVING.into()));
     assert!(downstream.log.calls().is_empty(), "nothing went below");
 }
 
@@ -861,7 +889,7 @@ fn a_way_below_kept_between_calls_reaches_nothing_from_another_thread() {
     let mut below = (kept.borrow_mut().pop()).expect("the state gave its way below up");
     let between = thread::scope(|scope| scope.spawn(|| below.send(&[true])).join())
         .expect("the thread ends well");
-    assert_eq!(between, Err(NOT_SERVING.to_owned()));
+    assert_eq!(between, Err(NOT_SERVING.into()));
     assert!(downstream.log.calls().is_empty(), "nothing went below");
 }
 
@@ -898,7 +926,10 @@ fn a_way_below_of_a_state_dropped_with_a_refused_call_reaches_nothing() {
         "the next call runs",
     );
     assert_eq!(kept.borrow().len(), 2, "a state was made for each call");
-    assert_eq!(*sent.borrow(), [Err(NOT_SERVING.to_owned())]);
+    assert_eq!(
+        *sent.borrow(),
+        [Err(AdapterError::from(NOT_SERVING.to_owned()))]
+    );
     assert_eq!(downstream.log.calls(), [Event::Call(vec![0], vec![true])]);
 }
 
@@ -926,7 +957,7 @@ fn a_way_below_of_a_state_dropped_with_a_failed_call_reaches_nothing() {
     let (_, end) = run(&mut executor, &ShotSet::one(0), &[true]).expect("the call is accepted");
     end.expect_err("the call fails below");
     let after = kept.borrow_mut()[0].send(&[true]);
-    assert_eq!(after, Err(NOT_SERVING.to_owned()));
+    assert_eq!(after, Err(NOT_SERVING.into()));
     assert_eq!(downstream.log.calls(), [Event::Call(vec![0], vec![true])]);
 }
 
@@ -943,21 +974,23 @@ fn a_way_below_kept_past_close_reaches_nothing() {
     step(&mut executor, &ShotSet::one(0), &[true], "the call runs");
     executor.close();
     let after = kept.borrow_mut()[0].send(&[true]);
-    assert_eq!(after, Err(NOT_SERVING.to_owned()));
+    assert_eq!(after, Err(NOT_SERVING.into()));
     assert_eq!(downstream.log.events().last(), Some(&Event::Close));
 }
 
 /// A runtime that flushes a read below at its end, as one that buffers
 /// would.
 struct FlushingAtItsEnd {
-    below: OwnedBelow<bool>,
+    below: BelowHandle<bool>,
     flushed: Rc<RefCell<Vec<Result<(), String>>>>,
 }
 
 impl Drop for FlushingAtItsEnd {
     fn drop(&mut self) {
         let flushed = self.below.send(&[true]);
-        self.flushed.borrow_mut().push(flushed);
+        self.flushed
+            .borrow_mut()
+            .push(flushed.map_err(String::from));
     }
 }
 
@@ -995,14 +1028,14 @@ fn a_way_below_reaches_nothing_from_inside_a_call_below() {
     let downstream = Downstream::default();
     let handed = Arc::clone(&downstream.handed);
     let debugging = owning_adapter_fn(
-        move |context: ShotContext, below: OwnedBelow<bool>| {
+        move |context: ShotContext, below: BelowHandle<bool>| {
             if context.shot() == 2 {
                 (handed.lock().unwrap_or_else(PoisonError::into_inner)).push(below);
                 return Ok::<_, Rejected>(None);
             }
             Ok(Some(below))
         },
-        |below: &mut Option<OwnedBelow<bool>>,
+        |below: &mut Option<BelowHandle<bool>>,
          input: &ProgramInput<'_, bool>,
          outcomes: &mut Outcomes<'_>| {
             if let Some(below) = below {
@@ -1064,8 +1097,8 @@ fn owned_lowering_failing_at_5(
 ) -> impl Executor<InstructionBatch<bool>> + use<> {
     let pulses = [Pulse::on(0, released), Pulse::on(1, released)];
     let lowering = owning_adapter_fn(
-        |context: ShotContext, below: OwnedBelow<Pulse>| Ok((context.shot(), below)),
-        move |(shot, below): &mut (ShotId, OwnedBelow<Pulse>),
+        |context: ShotContext, below: BelowHandle<Pulse>| Ok((context.shot(), below)),
+        move |(shot, below): &mut (ShotId, BelowHandle<Pulse>),
               _: &ProgramInput<'_, bool>,
               _: &mut Outcomes<'_>| {
             assert!(*shot != 5, "the lowering has a bug");
@@ -1087,8 +1120,8 @@ fn an_owned_sends_drop_that_panics_after_its_call_ran_leaves_the_adapter_serving
     let released = Rc::new(Cell::new(0));
     let pulses = [Pulse::on(0, &released), Pulse::on(1, &released)];
     let lowering = owning_adapter_fn(
-        |_: ShotContext, below: OwnedBelow<Pulse>| Ok(below),
-        move |below: &mut OwnedBelow<Pulse>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        |_: ShotContext, below: BelowHandle<Pulse>| Ok(below),
+        move |below: &mut BelowHandle<Pulse>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
             below.send(&pulses)
         },
     )
@@ -1105,10 +1138,10 @@ fn an_owned_sends_drop_that_panics_after_its_call_ran_leaves_the_adapter_serving
 /// caller, and the executor below is still there to close.
 #[test]
 fn closing_after_a_logic_panicked_closes_below() {
-    let buggy = |below: &mut OwnedBelow<bool>,
+    let buggy = |below: &mut BelowHandle<bool>,
                  input: &ProgramInput<'_, bool>,
                  _: &mut Outcomes<'_>|
-     -> Result<(), String> {
+     -> Result<(), AdapterError> {
         below.send(input.instructions())?;
         panic!("the logic has a bug")
     };
@@ -1157,16 +1190,20 @@ fn a_way_below_reaches_below_after_its_logic_caught_a_panic_there() {
          input: &ProgramInput<'_, bool>,
          below: &mut Below<'_, bool>,
          outcomes: &mut Outcomes<'_>| {
-            outcomes.extend(after_a_caught_panic(|| below.run(input.instructions()))?);
+            outcomes.extend(after_a_caught_panic(|| {
+                below.run(input.instructions()).map_err(String::from)
+            })?);
             Ok(())
         },
     );
     let owned = owning_adapter_fn(
         its_way_below,
-        |below: &mut OwnedBelow<bool>,
+        |below: &mut BelowHandle<bool>,
          input: &ProgramInput<'_, bool>,
          outcomes: &mut Outcomes<'_>| {
-            outcomes.extend(after_a_caught_panic(|| below.run(input.instructions()))?);
+            outcomes.extend(after_a_caught_panic(|| {
+                below.run(input.instructions()).map_err(String::from)
+            })?);
             Ok(())
         },
     );
@@ -1212,7 +1249,7 @@ fn a_shots_way_below_reaches_below_after_its_logic_caught_a_panic_there() {
     );
     let owned = owning_adapter_fn(
         |context: ShotContext, below| Ok::<_, Rejected>((context.shot(), below)),
-        |(shot, below): &mut (ShotId, OwnedBelow<bool>),
+        |(shot, below): &mut (ShotId, BelowHandle<bool>),
          _: &ProgramInput<'_, bool>,
          _: &mut Outcomes<'_>| {
             if *shot == 5 {
@@ -1276,7 +1313,7 @@ fn a_shots_kept_sends_go_below_once_though_one_panics_going_alone() {
     );
     let owned = owning_adapter_fn(
         |context: ShotContext, below| Ok::<_, Rejected>((context.shot(), below)),
-        |(shot, below): &mut (ShotId, OwnedBelow<bool>),
+        |(shot, below): &mut (ShotId, BelowHandle<bool>),
          _: &ProgramInput<'_, bool>,
          _: &mut Outcomes<'_>| {
             if *shot == 5 {
@@ -1317,9 +1354,9 @@ fn a_shots_kept_sends_go_below_once_though_one_panics_going_alone() {
 #[test]
 fn a_kept_sends_panic_below_comes_at_its_shots_run_not_at_the_send() {
     fn a_catch_around_a_send(
-        mut send: impl FnMut(&[bool]) -> Result<(), String>,
-        mut run: impl FnMut(&[bool]) -> Result<(), String>,
-    ) -> Result<(), String> {
+        mut send: impl FnMut(&[bool]) -> Result<(), AdapterError>,
+        mut run: impl FnMut(&[bool]) -> Result<(), AdapterError>,
+    ) -> Result<(), AdapterError> {
         send(&[true])?;
         catch_unwind(AssertUnwindSafe(|| send(&[true, true])))
             .expect("the send is kept, so nothing panics there")?;
@@ -1341,7 +1378,7 @@ fn a_kept_sends_panic_below_comes_at_its_shots_run_not_at_the_send() {
     );
     let owned = owning_adapter_fn(
         its_way_below,
-        |below: &mut OwnedBelow<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
             let below = RefCell::new(below);
             a_catch_around_a_send(
                 |sent| below.borrow_mut().send(sent),
@@ -1401,7 +1438,7 @@ fn a_shots_send_that_panicked_going_alone_is_not_sent_as_the_call_ends() {
     );
     let owned = owning_adapter_fn(
         |context: ShotContext, below| Ok::<_, Rejected>((context.shot(), below)),
-        |(shot, below): &mut (ShotId, OwnedBelow<bool>),
+        |(shot, below): &mut (ShotId, BelowHandle<bool>),
          _: &ProgramInput<'_, bool>,
          _: &mut Outcomes<'_>| {
             below.send(SENT)?;
@@ -1431,9 +1468,9 @@ fn a_shots_send_that_panicked_going_alone_is_not_sent_as_the_call_ends() {
 #[test]
 fn a_shots_calls_below_around_a_caught_panic_are_a_one_state_adapters() {
     fn sends_around_a_caught_panic(
-        mut send: impl FnMut(&[bool]) -> Result<(), String>,
-        mut run: impl FnMut(&[bool]) -> Result<(), String>,
-    ) -> Result<(), String> {
+        mut send: impl FnMut(&[bool]) -> Result<(), AdapterError>,
+        mut run: impl FnMut(&[bool]) -> Result<(), AdapterError>,
+    ) -> Result<(), AdapterError> {
         send(&[true])?;
         catch_unwind(AssertUnwindSafe(|| {
             send(&[true, true])?;
@@ -1468,7 +1505,7 @@ fn a_shots_calls_below_around_a_caught_panic_are_a_one_state_adapters() {
     );
     let owned = owning_adapter_fn(
         its_way_below,
-        |below: &mut OwnedBelow<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
             let below = RefCell::new(below);
             sends_around_a_caught_panic(
                 |sent| below.borrow_mut().send(sent),
@@ -1513,7 +1550,7 @@ fn a_way_below_reaches_nothing_from_another_thread_in_its_logic() {
     let sent = Rc::new(RefCell::new(Vec::new()));
     let handing_off = {
         let sent = Rc::clone(&sent);
-        move |below: &mut OwnedBelow<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
+        move |below: &mut BelowHandle<bool>, _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| {
             let elsewhere = thread::scope(|scope| scope.spawn(|| below.send(&[true])).join());
             sent.borrow_mut()
                 .push(elsewhere.expect("the thread ends well"));
@@ -1524,7 +1561,10 @@ fn a_way_below_reaches_nothing_from_another_thread_in_its_logic() {
     let mut executor =
         (owning_adapter_fn(its_way_below, handing_off) >> downstream.clone()).expect("bools fit");
     step(&mut executor, &ShotSet::one(0), &[true], "the call runs");
-    assert_eq!(*sent.borrow(), [Err(ON_ANOTHER_THREAD.to_owned())]);
+    assert_eq!(
+        *sent.borrow(),
+        [Err(AdapterError::from(ON_ANOTHER_THREAD.to_owned()))]
+    );
     assert!(downstream.log.calls().is_empty(), "nothing went below");
 }
 
@@ -1535,8 +1575,8 @@ fn a_way_below_reaches_nothing_from_another_thread_in_its_logic() {
 #[test]
 fn a_way_below_reaches_nothing_from_a_thread_locals_destructor() {
     struct Left {
-        below: OwnedBelow<bool>,
-        sent: mpsc::Sender<Option<Result<(), String>>>,
+        below: BelowHandle<bool>,
+        sent: mpsc::Sender<Option<Result<(), AdapterError>>>,
     }
     impl Drop for Left {
         fn drop(&mut self) {
@@ -1568,7 +1608,7 @@ fn a_way_below_reaches_nothing_from_a_thread_locals_destructor() {
     .join()
     .expect("the thread ends well");
     let sent = sent.recv().expect("the destructor sends");
-    assert_eq!(sent, Some(Err(NOT_SERVING.to_owned())), "None: it panicked");
+    assert_eq!(sent, Some(Err(NOT_SERVING.into())), "None: it panicked");
     assert!(downstream.log.calls().is_empty(), "nothing went below");
 }
 
@@ -1623,7 +1663,7 @@ fn closing_after_a_call_from_a_thread_locals_destructor_closes_below() {
 /// that it is not `Send`, and the way below it owns.
 struct Runtime {
     plan: Rc<[bool]>,
-    below: OwnedBelow<bool>,
+    below: BelowHandle<bool>,
 }
 
 /// A runtime's logic: runs its plan, then the call, below, and writes what
@@ -1632,7 +1672,7 @@ fn run_planned(
     runtime: &mut Runtime,
     input: &ProgramInput<'_, bool>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     let lowered: Vec<bool> = (runtime.plan.iter().chain(input.instructions()))
         .copied()
         .collect();
@@ -1654,8 +1694,8 @@ fn code_adapter(
     bool,
     bool,
     Runtime,
-    Owning<impl FnMut(ShotContext, OwnedBelow<bool>) -> Result<Runtime, Rejected> + use<>>,
-    Owning<impl ExecutorLogic<bool, Runtime> + use<>>,
+    Owning<impl FnMut(ShotContext, BelowHandle<bool>) -> Result<Runtime, Rejected> + use<>>,
+    Owning<impl crate::OwningAdapterLogic<bool, Runtime> + use<>>,
 > {
     let plan: Rc<[bool]> = plan.into();
     let runtimes = move |_, below| {
@@ -1701,7 +1741,7 @@ fn owning_adapters_whose_states_are_not_send_stack_either_way() {
 fn a_way_below_is_send_and_sync_whatever_is_below() {
     fn assert_send_sync<T: Send + Sync>(_: &T) {}
     let tracing = owning_adapter_fn(
-        |_: ShotContext, below: OwnedBelow<bool>| {
+        |_: ShotContext, below: BelowHandle<bool>| {
             assert_send_sync(&below);
             Ok::<_, Rejected>(below)
         },
@@ -1724,7 +1764,7 @@ fn a_way_below_cannot_be_cloned() {
     }
     impl<T> NotClone<()> for T {}
     impl<T: Clone> NotClone<u8> for T {}
-    <OwnedBelow<bool> as NotClone<_>>::checked();
+    <BelowHandle<bool> as NotClone<_>>::checked();
 }
 
 /// `outcomes` by shot, then tag: shots served one by one come up in the

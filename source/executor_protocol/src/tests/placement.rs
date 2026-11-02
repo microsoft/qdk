@@ -82,13 +82,17 @@ pub(in crate::tests) type RunBit =
 pub(in crate::tests) type BitLogP = fn(&Bit) -> f64;
 
 /// The device's executor, one state, whose logic records in `threads`
-/// the thread it runs on; its log probability is the bit's value.
+/// the thread it runs on; its log probability is the bit's value. It
+/// promises what the bit keeps: each shot from one call to the next, and
+/// the same readouts alone as among others.
 pub(in crate::tests) fn recording(
     threads: &Threads,
 ) -> ExecutorFn<Op, Bit, impl MakeState<Bit> + use<>, RunBit, NoCheck<Op>, BitLogP> {
     let threads = Arc::clone(threads);
     executor_fn(
-        Capabilities::default(),
+        Capabilities::default()
+            .with_resumable_shots(true)
+            .with_replayable(true),
         move |_| {
             Ok(Bit {
                 one: false,
@@ -2908,9 +2912,9 @@ fn a_second_close_reports_nothing() {
 }
 
 /// A second call on shot 0, on the executor's thread, reads the flip of
-/// the first: the conformance kit's check of `feedback`. The check that a
-/// call changes no shot it does not name does not apply: the executor
-/// holds one shot.
+/// the first: the conformance kit's check of `resumable_shots`. The check that
+/// a call changes no shot it does not name does not apply: the executor holds
+/// one shot.
 #[test]
 fn a_second_call_continues_its_shot() {
     let threads = Threads::default();
@@ -2932,10 +2936,14 @@ fn a_second_call_continues_its_shot() {
 #[test]
 fn placed_after_one_per_shot_each_shot_alone_gives_what_it_gives_among_others() {
     let drawing = || {
-        executor_fn(Capabilities::default(), draw_value, read_drawn_bits)
-            .seed(7)
-            .shots(OnePerShot)
-            .run_on(OwnThread)
+        executor_fn(
+            Capabilities::default().with_replayable(true),
+            draw_value,
+            read_drawn_bits,
+        )
+        .seed(7)
+        .shots(OnePerShot)
+        .run_on(OwnThread)
     };
     ends_soon(move || {
         let ops: Vec<_> = (0..16).map(DrawingOp::Read).collect();
@@ -2948,7 +2956,7 @@ fn placed_after_one_per_shot_each_shot_alone_gives_what_it_gives_among_others() 
 }
 
 /// A second call on shots 0 and 1, every shot on one thread, reads the
-/// flip of the first: the conformance kit's check of `feedback`.
+/// flip of the first: the conformance kit's check of `resumable_shots`.
 #[test]
 fn placed_after_one_per_shot_a_second_call_continues_each_shot() {
     let threads = Threads::default();

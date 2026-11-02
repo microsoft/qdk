@@ -22,9 +22,7 @@
 //!   it gives a [`Chain`], built and checked, and a program and its shots
 //!   are a job, the chain's input, not one of its components:
 //!   `chain.run(program, shots)` checks the job ([`JobFaults`]) and gives
-//!   its [`Run`]. A [`Driver`] is a program that drives itself ([`Drive`])
-//!   bound to its shots: composed with an executor, it gives its [`Run`]
-//!   directly.
+//!   its [`Run`].
 //! - The executor at the end of the chain ([`Executor`]) is an executor of
 //!   [`InstructionBatch`]es, each a list of instructions run on some of the
 //!   run's shots, whose states carry over from one batch to the next. It is
@@ -44,11 +42,12 @@
 //!   way below for its whole life.
 //!
 //! [`compose`](fn@crate::compose), or `>>`, puts them together. Each adapter
-//! is built once against what is downstream of it, and a driver's needs are
-//! checked against what the chain offers, every fault of the parts built
-//! together reported together before anything runs ([`BuildFaults`]); a
-//! part composed with the executor first is built on its own, before what
-//! is upstream of it. A [`Run`] runs nothing until
+//! is built once against what is downstream of it, every fault of the parts
+//! built together reported together ([`BuildFaults`]); a part composed with
+//! the executor first is built on its own, before what is upstream of it. A
+//! job's needs are checked against what the chain offers when it is given
+//! to the chain, every fault reported together before anything runs
+//! ([`JobFaults`]). A [`Run`] runs nothing until
 //! waited for ([`Run::wait`]) or awaited: it then drives the executor and
 //! closes it once its program ends, giving the program's output and the
 //! executor's report.
@@ -77,8 +76,9 @@
 //! [`Describe`], and a component that keeps totals returns them as a composable
 //! report from [`Close`]. An executor may describe the set of instructions it
 //! accepts as an [`InstructionSet`], whatever their type, so that a chain
-//! checks what is sent against it when it is composed; a set known only at run
-//! time is an [`InstructionBatch`] of [`InstructionCall`]s.
+//! checks what is sent against it: an adapter's calls when the chain is
+//! built, a program's when its job is given to the chain; a set known only
+//! at run time is an [`InstructionBatch`] of [`InstructionCall`]s.
 //!
 //! The crate depends on `std` and `futures-core` (for [`AsyncEvents`]'s
 //! `Stream`) only, so that every part of qdk can use it. The crate's
@@ -110,9 +110,9 @@ mod shot_states;
 
 pub use adapter::adapter_fn::{
     AdapterFn, AdapterFnExecutor, AdapterFnReply, AdapterLogic, NoStateReport, OnePerShotAdapter,
-    OnePerShotAdapterExecutor, Owning, adapter_fn, owning_adapter_fn,
+    OnePerShotAdapterExecutor, Owning, OwningAdapterLogic, adapter_fn, owning_adapter_fn,
 };
-pub use adapter::below::{Below, OwnedBelow};
+pub use adapter::below::{AdapterError, Below, BelowHandle};
 pub use adapter::boundary::AdapterBoundary;
 pub use adapter::{Adapter, Apply};
 pub use capabilities::{Capabilities, Describe};
@@ -126,11 +126,13 @@ pub use compose::chain::{Chain, JobFaults};
 pub use compose::run::Run;
 pub use compose::{BuildError, BuildFault, BuildFaults, Compose, WithExecutor, compose};
 pub use conditions::ShotConditions;
+pub use driver::Drive;
+#[cfg(test)]
+pub(crate) use driver::Driver;
 pub use driver::interpreter::{
     DefaultInterpreter, Interpret, Interpreted, InterpreterDriver, interpreter,
 };
 pub use driver::static_program::{StaticProgram, StaticProgramError};
-pub use driver::{Drive, Driver};
 pub use executor::{Close, Executor, ExecutorReport, Fold, LogP};
 pub use executor_fn::{
     ExecutorFn, ExecutorLogic, MakeState, NoCheck, OnePerShot, OnePerShotExecutor,

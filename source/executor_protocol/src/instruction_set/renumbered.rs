@@ -2,10 +2,11 @@
 // Licensed under the MIT License.
 
 //! How calls by opcode ([`InstructionCall`]s) reach an executor that
-//! numbers their instructions otherwise: [`compose`](fn@crate::compose)
-//! inserts [`Renumbered`] where a driver's calls meet the executor it is
-//! composed with, or an adapter's meet the executor downstream of it, and
-//! they are numbered otherwise.
+//! numbers their instructions otherwise: [`Renumbered`] is inserted where a
+//! driver's calls meet the chain's executor, when a job is given to the
+//! chain ([`Chain::run`](crate::Chain::run)), or where an adapter's meet the
+//! executor downstream of it, when it is composed
+//! ([`compose`](fn@crate::compose)), and they are numbered otherwise.
 
 use std::sync::Arc;
 
@@ -16,10 +17,11 @@ use crate::{
     InstructionMismatch, Opcode, OpcodeMap, Rejected, Renumbering,
 };
 
-/// A driver's calls reach the executor it is composed with, and an adapter's
-/// reach the executor downstream of it: unchanged when that executor
-/// numbers the instructions as their set does, and otherwise through an
-/// executor that renumbers each batch ([`compose`](fn@crate::compose) chooses).
+/// A driver's calls reach the chain's executor, and an adapter's reach the
+/// executor downstream of it: unchanged when that executor numbers the
+/// instructions as their set does, and otherwise through an executor that
+/// renumbers each batch ([`Chain::run`](crate::Chain::run) chooses for a
+/// driver, [`compose`](fn@crate::compose) for an adapter).
 impl Instruction for InstructionCall {
     type Downstream<E>
         = Renumbered<E>
@@ -40,11 +42,12 @@ impl Instruction for InstructionCall {
     }
 }
 
-/// The executor `compose` inserts where calls by opcode meet an executor
-/// that numbers their instructions otherwise: between a driver and the
-/// executor, or between an adapter and the executor downstream of it. It
+/// The executor inserted where calls by opcode meet an executor that
+/// numbers their instructions otherwise: between a driver and the chain's
+/// executor ([`Chain::run`](crate::Chain::run)), or between an adapter and
+/// the executor downstream of it ([`compose`](fn@crate::compose)). It
 /// renumbers each batch into the numbering of the executor it wraps; where
-/// the numberings agree, `compose` gives the driver this type too, which
+/// the numberings agree, the driver is given this type too, which
 /// then passes calls as they are, so that the driver's type is the same
 /// either way. In what follows, the driver is whichever sends the calls, a
 /// driver or an adapter. Planned: it becomes an adapter of its own, once
@@ -53,7 +56,8 @@ impl Instruction for InstructionCall {
 /// An opcode means something only in its set, and a driver's set may
 /// declare the chain's instructions in another order, or only some of them:
 /// the driver's `x` may be at the opcode of the chain's `reset`. The
-/// instructions are matched once, by [`compose`](fn@crate::compose)
+/// instructions are matched once, when the job is given to the chain, or
+/// the adapter composed
 /// ([`InstructionSet::opcodes_in`](crate::InstructionSet::opcodes_in)).
 /// When the numbering differs, each batch is copied with each opcode
 /// replaced by its match, into a buffer kept from one call to the next, and

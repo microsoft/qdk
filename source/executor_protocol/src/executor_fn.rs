@@ -32,11 +32,11 @@ use crate::{
 /// Without a shot strategy ([`ExecutorFn::shots`]) it holds one state, for
 /// one shot:
 ///
-/// - it describes its promise lowered to one state
-///   ([`Capabilities::states`]), so that a job of more shots is refused,
-///   when composed with its driver or given to a chain; and with
-///   [`probabilities`](Capabilities::probabilities) exactly when it is
-///   given how to read them from its state
+/// - it describes its promise lowered to one shot
+///   ([`Capabilities::max_shots`]), so that a job of more shots is refused
+///   when it is given to a chain ([`Chain::run`](crate::Chain::run)); and
+///   with [`log_probability`](Capabilities::log_probability) exactly when
+///   it is given how to read a state's log probability
 ///   ([`ExecutorFn::log_probability`]), whatever the promise says;
 /// - it makes the state at its first call, from the context of that call's
 ///   shot in the run whose seed it is given ([`ExecutorFn::seed`]), as
@@ -44,8 +44,8 @@ use crate::{
 ///   closes, which drops it;
 /// - it refuses a call that names another shot
 ///   ([`Rejected::ShotNotHeld`]), so that the rule holds when it is called
-///   directly too, not only in a run; and, promised no state
-///   ([`Capabilities::states`] `Some(0)`), it refuses the first call's
+///   directly too, not only in a run; and, promised no shot
+///   ([`Capabilities::max_shots`] `Some(0)`), it refuses the first call's
 ///   first shot before it makes a state, as [`OnePerShot`] does;
 /// - a panic inside `call` (the check's, the state closure's or the
 ///   logic's) reaches the caller and fails the executor, as a `Mutex` is
@@ -58,7 +58,10 @@ use crate::{
 ///   dropped, the implementer's code, is absorbed, after the panic hook
 ///   reported it (Rust API Guidelines, C-DTOR-FAIL); call `close` to see it. So
 ///   is the drop of what its closures capture, each closure in a catch of its
-///   own; `close` raises only the state's;
+///   own; `close` raises only the state's. It drops the state before its
+///   closures, as `close` frees it first, so that a state whose drop
+///   reaches its device through what a closure holds (a weak handle to the
+///   device's connection, say) still finds it there;
 /// - it refuses every call once closed or once a call failed
 ///   ([`ExecutorLifecycle`]), and so does every wrapper put on it
 ///   ([`ExecutorFn::shots`], [`ExecutorFn::run_on`]), in any order: a
@@ -83,7 +86,7 @@ use crate::{
 ///   call.
 /// - `L`: what reads a state's log probability
 ///   ([`ExecutorFn::log_probability`]); by default none is held, so the
-///   executor offers no `probabilities` and reports no log probability.
+///   executor offers no `log_probability` and reports no log probability.
 /// - `R`: what makes a state's report ([`ExecutorFn::state_report`]); by
 ///   default one that makes `()`, so the report's
 ///   [`states`](ExecutorReport::states) is `()`.
@@ -96,7 +99,10 @@ pub struct ExecutorFn<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)>
     /// Dropped with the executor in a catch, its panic absorbed, so that
     /// `drop` never panics, during an unwind too; `close` raises it.
     /// Declared before the closures, so that it is dropped first (the
-    /// reason, and that no test pins the order, are at `HeldPart`).
+    /// reason is at `HeldPart`;
+    /// `dropped_it_frees_its_state_before_its_closures`, and for a shot's
+    /// executor on its placement,
+    /// `dropped_each_shot_frees_its_state_before_its_copies_of_the_closures`).
     held: HeldStates<(ShotId, S)>,
     make_state: HeldPart<M>,
     logic: HeldPart<P>,
@@ -114,11 +120,11 @@ pub struct ExecutorFn<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)>
 /// ([`ExecutorFn`]).
 ///
 /// - `promise` is what the executor offers ([`Describe`]), changed in two
-///   ways only: it offers [`probabilities`](Capabilities::probabilities)
+///   ways only: it offers [`log_probability`](Capabilities::log_probability)
 ///   exactly when [`ExecutorFn::log_probability`] gives it how to read a
 ///   state's, whatever `promise` says; and without a shot strategy
-///   ([`ExecutorFn::shots`]), it lowers [`states`](Capabilities::states) to
-///   at most one.
+///   ([`ExecutorFn::shots`]), it lowers [`max_shots`](Capabilities::max_shots)
+///   to at most one.
 /// - `make_state` makes the state a shot's calls run on, the executor's
 ///   working state (a simulator's qubits), from the context of the shot it
 ///   is made for, lazily, at the first call that needs it
@@ -272,7 +278,7 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
 
     /// This executor, reading with `log_probability` the log probability of
     /// a state's shot, over every draw made for it: the only way to promise
-    /// [`probabilities`](Capabilities::probabilities). It is read once per
+    /// [`log_probability`](Capabilities::log_probability). It is read once per
     /// state reported ([`ExecutorFn::state_report`]), when the executor
     /// closes, into the report ([`ExecutorReport::log_p`]), and never on a
     /// state left out of it. It replaces the one given before, if any,
@@ -480,8 +486,8 @@ where
     /// [`Rejected::Closed`] once closed, then
     /// [`Rejected::EarlierFailure`] after a call failed; then the check's
     /// refusal ([`ExecutorFn::check`]); then [`Rejected::ShotNotHeld`] for
-    /// the first call's first shot when the promise holds no state
-    /// ([`Capabilities::states`] `Some(0)`), or for a shot other than the
+    /// the first call's first shot when the promise holds no shot
+    /// ([`Capabilities::max_shots`] `Some(0)`), or for a shot other than the
     /// one it holds (the first call's first), and the refusal of the
     /// closure that makes the state: the order of [`OnePerShotExecutor`]'s
     /// refusals. Nothing ran in each case.
@@ -521,7 +527,7 @@ where
         } else {
             let first = batch.shots.as_slice()[0];
             // Before the check that the batch names one shot, so that a
-            // promise of no state refuses the first shot, as
+            // promise of no shot refuses the first shot, as
             // `OnePerShotExecutor` does.
             check_room(&self.promise, 0, std::iter::once(first))?;
             first
@@ -553,12 +559,12 @@ where
 }
 
 impl<I, S, M, P, C, L, R> Describe for ExecutorFn<I, S, M, P, C, L, R> {
-    /// The promise, lowered to one state, with probabilities exactly when
-    /// it is given how to read them ([`ExecutorFn::log_probability`]),
-    /// whatever the promise says.
+    /// The promise, lowered to one shot, with `log_probability` exactly when
+    /// it is given how to read a state's log probability
+    /// ([`ExecutorFn::log_probability`]), whatever the promise says.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            states: Some(self.promise.states.map_or(1, |states| states.min(1))),
+            max_shots: Some(self.promise.max_shots.map_or(1, |max| max.min(1))),
             ..described(&self.promise, self.log_probability.as_ref(), self.seed)
         }
     }
@@ -613,16 +619,17 @@ where
 }
 
 /// `promise` as every form of an [`executor_fn`] describes it: with
-/// [`probabilities`](Capabilities::probabilities) exactly when it is given
-/// how to read them (`log_probability`), and the run's `seed` it is given,
-/// which adapters upstream that draw derive their seeds from.
+/// [`log_probability`](Capabilities::log_probability) exactly when it is given
+/// how to read a state's log probability (`log_probability`), and the run's
+/// `seed` it is given, which adapters upstream that draw derive their seeds
+/// from.
 fn described<L>(
     promise: &Capabilities,
     log_probability: Option<&L>,
     seed: Option<u64>,
 ) -> Capabilities {
     Capabilities {
-        probabilities: log_probability.is_some(),
+        log_probability: log_probability.is_some(),
         run_seed: seed,
         ..promise.clone()
     }
@@ -637,16 +644,16 @@ fn described<L>(
 /// # Errors
 ///
 /// [`Rejected::ShotNotHeld`] with the first shot of `new` past the
-/// promise's [`states`](Capabilities::states).
+/// promise's [`max_shots`](Capabilities::max_shots).
 fn check_room(
     promise: &Capabilities,
     held: usize,
     mut new: impl Iterator<Item = ShotId>,
 ) -> Result<(), Rejected> {
-    let Some(states) = promise.states else {
+    let Some(max_shots) = promise.max_shots else {
         return Ok(());
     };
-    let room = u64::try_from(held).map_or(0, |held| states.saturating_sub(held));
+    let room = u64::try_from(held).map_or(0, |held| max_shots.saturating_sub(held));
     // Past `usize::MAX` new shots cannot come: a batch is a slice.
     let room = usize::try_from(room).unwrap_or(usize::MAX);
     match new.nth(room) {

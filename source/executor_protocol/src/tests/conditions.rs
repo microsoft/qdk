@@ -13,9 +13,9 @@ use std::task::Waker;
 use crate::reply::wait_status;
 use crate::tests::shots;
 use crate::{
-    Below, Capabilities, Close, Describe, Executor, ImmediateReply, InstructionBatch,
-    InstructionBatchRef, OnePerShot, Outcome, Outcomes, OwnedBelow, ProgramInput, Rejected, Reply,
-    ReplyStatus, ShotConditions, ShotContext, ShotId, ShotOutcome, TypedInstruction, Value,
+    AdapterError, Below, BelowHandle, Capabilities, Close, Describe, Executor, ImmediateReply,
+    InstructionBatch, InstructionBatchRef, OnePerShot, Outcome, Outcomes, ProgramInput, Rejected,
+    Reply, ReplyStatus, ShotConditions, ShotContext, ShotId, ShotOutcome, TypedInstruction, Value,
     adapter_fn, compose, conformance, executor_fn, owning_adapter_fn, wait,
 };
 
@@ -91,7 +91,7 @@ fn pass(
     input: &ProgramInput<'_, Step>,
     below: &mut Below<'_, Step>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     below.send(input.instructions())
 }
 
@@ -109,7 +109,7 @@ fn decode(
     input: &ProgramInput<'_, Step>,
     below: &mut Below<'_, Step>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     let read = below.run(input.instructions())?;
     outcomes.extend(decoded(read));
     Ok(())
@@ -430,7 +430,7 @@ fn a_decoders_outcomes_carry_the_conditions_of_its_runs_with_no_code_in_its_logi
 fn an_owning_decoders_outcomes_carry_the_conditions_of_its_runs() {
     let owning = owning_adapter_fn(
         |_: ShotContext, below| Ok::<_, Rejected>(below),
-        |below: &mut OwnedBelow<Step>,
+        |below: &mut BelowHandle<Step>,
          input: &ProgramInput<'_, Step>,
          outcomes: &mut Outcomes<'_>| {
             let read = below.run(input.instructions())?;
@@ -458,7 +458,7 @@ fn unresolves_extraction(
     input: &ProgramInput<'_, Step>,
     below: &mut Below<'_, Step>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     if input.instructions().is_empty() {
         outcomes.raise_conditions(ShotConditions::UNRESOLVED);
     }
@@ -511,7 +511,7 @@ fn the_conditions_a_logic_with_one_state_writes_on_an_outcome_mark_every_shot_of
         _: &ProgramInput<'_, Step>,
         _: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         outcomes.push(Outcome::new(0, Value::One).with_conditions(ShotConditions::REJECTED));
         Ok(())
     }
@@ -538,7 +538,7 @@ fn the_conditions_a_logic_writes_on_a_shots_outcome_mark_that_shot_alone() {
         _: &ProgramInput<'_, Step>,
         _: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         let inconsistent = ShotOutcome::new(1, 0, Value::One);
         outcomes.extend([
             inconsistent.with_conditions(ShotConditions::INCONSISTENT),
@@ -570,7 +570,7 @@ fn the_conditions_a_logic_raises_twice_in_a_call_with_no_readouts_both_mark_late
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if input.instructions().is_empty() {
             outcomes.raise_conditions(ShotConditions::REJECTED);
             outcomes.raise_conditions(ShotConditions::UNRESOLVED);
@@ -613,7 +613,7 @@ fn the_conditions_a_logic_writes_on_an_outcome_mark_the_shots_outcomes_in_later_
         _: &ProgramInput<'_, Step>,
         _: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         let conditions = if *calls == 0 {
             ShotConditions::REJECTED
         } else {
@@ -652,7 +652,7 @@ fn the_conditions_a_logic_writes_on_an_outcome_mark_the_shots_other_outcomes_in_
         _: &ProgramInput<'_, Step>,
         _: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         outcomes.push(Outcome::new(0, Value::One));
         outcomes.push(Outcome::new(1, Value::One).with_conditions(ShotConditions::REJECTED));
         outcomes.push(Outcome::new(2, Value::One));
@@ -682,7 +682,7 @@ fn a_condition_a_send_reads_marks_the_outcomes_the_logic_writes_for_the_shot_in_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         below.send(input.instructions())?;
         outcomes.push(Outcome::new(50, Value::One));
         Ok(())
@@ -729,7 +729,7 @@ fn a_condition_a_logic_raises_and_one_from_below_on_the_same_shot_both_mark_the_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if input.instructions().is_empty() {
             outcomes.push(Outcome::new(5, Value::One));
             return Ok(());
@@ -823,7 +823,7 @@ fn the_conditions_of_several_runs_merge_by_union_shot_by_shot() {
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         let (first, second) = input.instructions().split_at(3);
         below.run(first)?;
         let read = below.run(second)?;
@@ -859,7 +859,7 @@ fn pass_rejecting(
     input: &ProgramInput<'_, Step>,
     below: &mut Below<'_, Step>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     outcomes.raise_conditions(ShotConditions::REJECTED);
     below.send(input.instructions())
 }
@@ -884,7 +884,7 @@ fn a_refused_call_raises_nothing() {
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if input.instructions().contains(&Step::Refused) {
             outcomes.raise_conditions(ShotConditions::REJECTED);
         }
@@ -918,7 +918,7 @@ fn with_a_state_per_shot_a_call_refused_below_raises_none_of_the_conditions_its_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         below.send(input.instructions())?;
         *count += 1;
         if *count == 2 {
@@ -965,7 +965,7 @@ fn with_a_state_per_shot_a_call_refused_at_a_later_shots_run_raises_none_of_the_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if *shot == 2 {
             return below.run(input.instructions()).map(drop);
         }
@@ -1020,7 +1020,7 @@ fn with_a_state_per_shot_a_call_refused_at_its_shots_own_run_raises_none_of_the_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         below.send(input.instructions())?;
         *count += 1;
         if *count == 2 {
@@ -1058,8 +1058,8 @@ fn with_a_state_per_shot_a_call_refused_at_its_shots_own_run_raises_none_of_the_
 /// [`Step::Read`], and nothing otherwise, as a batch of gates alone would,
 /// raising on what it reads the conditions it holds: in its first call
 /// alone, as an executor that keeps no condition from one call to the
-/// next, though it offers `feedback`; or, once [`keeping`](Self::keeping)
-/// them, in every call, as one that keeps them.
+/// next, though it offers `resumable_shots`; or, once
+/// [`keeping`](Self::keeping) them, in every call, as one that keeps them.
 struct ReadsLater {
     /// How many polls its reply waits through.
     waits: u8,
@@ -1104,7 +1104,7 @@ impl ReadsLater {
     }
 
     /// This one, raising its conditions again in each call, as an
-    /// executor that offers `feedback` must keep them.
+    /// executor that offers `resumable_shots` must keep them.
     const fn keeping(self) -> Self {
         Self {
             keeps: true,
@@ -1156,7 +1156,7 @@ impl Executor<InstructionBatch<Step>> for ReadsLater {
 
 impl Describe for ReadsLater {
     fn capabilities(&self) -> Capabilities {
-        Capabilities::default()
+        Capabilities::default().with_resumable_shots(true)
     }
 }
 
@@ -1178,7 +1178,7 @@ fn a_condition_a_logic_raises_marks_its_shots_outcomes_of_its_sends_ending_later
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if *shot == 2 {
             outcomes.raise_conditions(ShotConditions::REJECTED);
         }
@@ -1378,7 +1378,7 @@ fn a_condition_a_send_reads_while_its_reply_is_pending_in_the_call_marks_the_sho
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if input.instructions().is_empty() {
             outcomes.push(Outcome::new(7, Value::One));
             return Ok(());
@@ -1431,7 +1431,7 @@ fn with_a_state_per_shot_the_conditions_each_pending_send_reads_as_the_call_ends
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if input.instructions().is_empty() {
             outcomes.push(Outcome::new(7, Value::One));
             return Ok(());
@@ -1489,7 +1489,7 @@ fn a_condition_raised_in_a_call_whose_send_ends_after_it_marks_the_shots_outcome
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if input.instructions().is_empty() {
             outcomes.push(Outcome::new(7, Value::One));
             return Ok(());
@@ -1531,12 +1531,13 @@ fn a_condition_raised_in_a_call_whose_send_ends_after_it_marks_the_shots_outcome
 }
 
 /// An observer sends each call on shot 1 below, to a runtime that offers
-/// `feedback` but keeps no condition from one call to the next, and whose
-/// reply ends after the call with a readout it rejected: the readout
+/// `resumable_shots` but keeps no condition from one call to the next, and
+/// whose reply ends after the call with a readout it rejected: the readout
 /// passes up with its rejection, but the adapter never sees it, and the
 /// runtime gives the shot's next readout without it, so that readout
 /// carries none. The runtime breaks the protocol's requirement on an
-/// executor that offers `feedback` (`docs/replies.md`, §Shot conditions).
+/// executor that offers `resumable_shots` (`docs/replies.md`, §Shot
+/// conditions).
 #[test]
 fn an_adapter_whose_sends_end_after_their_call_loses_a_condition_over_an_executor_that_forgets_it()
 {
@@ -1554,9 +1555,9 @@ fn an_adapter_whose_sends_end_after_their_call_loses_a_condition_over_an_executo
 
 /// A profiler, one state for all its shots, sends each call below, to a
 /// runtime that keeps its shots' conditions from one call to the next, as
-/// an executor that offers `feedback` must, and whose reply ends after the
-/// call: the shot's readouts it passes up in later calls carry the
-/// rejection again from below, by the conformance kit's check.
+/// an executor that offers `resumable_shots` must, and whose reply ends
+/// after the call: the shot's readouts it passes up in later calls carry
+/// the rejection again from below, by the conformance kit's check.
 #[test]
 fn an_adapter_whose_sends_end_after_their_call_keeps_each_shots_conditions_over_an_executor_that_keeps_them()
  {
@@ -1602,7 +1603,7 @@ fn a_logic_that_writes_a_shots_outcome_with_no_call_below_loses_a_condition_a_se
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if *sent {
             outcomes.push(Outcome::new(0, Value::One));
             return Ok(());
@@ -1639,7 +1640,7 @@ fn a_logic_that_writes_a_shots_outcome_in_a_call_whose_send_ends_after_it_loses_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if *sent {
             outcomes.push(Outcome::new(5, Value::One));
         }
@@ -1683,7 +1684,7 @@ fn a_logic_that_writes_a_shots_outcome_after_a_run_below_that_reads_none_of_it_l
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if *sent {
             let read = below.run(&[])?;
             assert!(read.is_empty(), "a batch with no readout reads nothing");
@@ -1720,7 +1721,7 @@ fn a_logic_that_writes_a_shots_outcome_after_a_run_below_reads_it_keeps_a_condit
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if *sent {
             let read = below.run(input.instructions())?;
             outcomes.extend(decoded(read));
@@ -1756,7 +1757,7 @@ fn a_logic_that_writes_a_shots_outcome_before_a_run_below_reads_it_in_the_call_k
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if *sent {
             outcomes.push(Outcome::new(7, Value::One));
             below.run(input.instructions())?;
@@ -1795,7 +1796,7 @@ fn a_condition_an_earlier_calls_run_read_marks_what_the_logic_writes_in_a_later_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         *calls += 1;
         match *calls {
             1 => below.send(input.instructions()),
@@ -1866,7 +1867,7 @@ fn a_failed_calls_outcomes_carry_the_conditions_of_its_runs() {
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         decode(&mut (), input, below, outcomes)?;
         Err("the decoder found no correction".into())
     }
@@ -1892,7 +1893,7 @@ fn with_one_state_a_failed_calls_outcomes_carry_the_conditions_its_logic_raised(
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         below.send(input.instructions())?;
         outcomes.raise_conditions(ShotConditions::REJECTED);
         Err("the layer found no correction".into())
@@ -1920,7 +1921,7 @@ fn with_a_state_per_shot_a_failed_calls_outcomes_carry_the_conditions_its_logic_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         below.send(input.instructions())?;
         below.run(&[Step::Read(9)])?;
         outcomes.raise_conditions(ShotConditions::REJECTED);
@@ -2091,7 +2092,7 @@ fn with_a_state_per_shot_every_outcome_a_send_hands_over_after_its_call_carries_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         match *shot {
             1 => outcomes.raise_conditions(ShotConditions::REJECTED),
             6 => outcomes.raise_conditions(ShotConditions::UNRESOLVED),
@@ -2147,7 +2148,7 @@ fn a_condition_a_send_reads_at_the_poll_where_its_reply_ends_marks_the_outcomes_
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         outcomes.push(Outcome::new(7, Value::One));
         below.send(input.instructions())?;
         if *runs {
@@ -2222,7 +2223,7 @@ fn a_condition_a_run_reads_after_a_send_pending_or_cancelled_marks_the_outcomes_
         _: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         outcomes.push(Outcome::new(7, Value::One));
         if send_cancelled {
             below.send(&[Step::Read(0), Step::Ends(Ending::Cancelled)])?;
@@ -2263,7 +2264,7 @@ fn writes_then_runs(
     input: &ProgramInput<'_, Step>,
     below: &mut Below<'_, Step>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     outcomes.push(Outcome::new(100, Value::One));
     below.run(input.instructions())?;
     Ok(())
@@ -2521,7 +2522,7 @@ impl CallEnding {
 /// returns, by `Err` if `ending` says so, or ends the call by a run or a
 /// send of readouts under tag 2, whose reply fails or is cancelled, or by
 /// a call below that is refused.
-fn ends_as(ending: CallEnding, below: &mut Below<'_, Step>) -> Result<(), String> {
+fn ends_as(ending: CallEnding, below: &mut Below<'_, Step>) -> Result<(), AdapterError> {
     match ending {
         CallEnding::ByASendAfterTheCall(how) => {
             below.send(&[Step::Read(1), Step::AfterTheCall, Step::Ends(how)])?;
@@ -2574,7 +2575,7 @@ fn however_a_call_ends_unless_refused_it_marks_what_it_hands_over_with_the_condi
         _: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         outcomes.raise_conditions(ShotConditions::REJECTED);
         below.send(&[Step::Raise(1, ShotConditions::INCONSISTENT), Step::Read(0)])?;
         ends_as(*ending, below)
@@ -2609,7 +2610,7 @@ fn however_a_call_ends_unless_refused_it_marks_what_it_hands_over_with_the_condi
         _: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         let read = below.run(&[Step::Raise(1, ShotConditions::INCONSISTENT), Step::Read(5)])?;
         let unresolved = |o: ShotOutcome| o.with_conditions(ShotConditions::UNRESOLVED);
         outcomes.extend(decoded(read).map(unresolved));
@@ -2645,7 +2646,7 @@ fn with_a_state_per_shot_however_a_call_fails_or_is_cancelled_below_it_marks_wha
         _: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         match *ending {
             CallEnding::ByASendInTheCall(how) => below.send(&[Step::Read(0), Step::Ends(how)])?,
             CallEnding::ByASendAfterTheCall(how) => {
@@ -2757,7 +2758,7 @@ fn a_condition_a_send_reads_on_a_shot_it_was_not_given_marks_that_shots_outcomes
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if input.instructions().is_empty() {
             outcomes.push(Outcome::new(5, Value::One));
             return Ok(());
@@ -2818,7 +2819,7 @@ fn with_a_state_per_shot_a_condition_a_logic_raises_marks_its_own_shots_outcomes
         input: &ProgramInput<'_, Step>,
         below: &mut Below<'_, Step>,
         outcomes: &mut Outcomes<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AdapterError> {
         if *shot == 2 && *calls == 0 {
             outcomes.raise_conditions(ShotConditions::REJECTED);
         }
@@ -2895,13 +2896,13 @@ fn with_a_state_per_shot_an_adapter_keeps_each_shots_conditions_from_one_call_to
 
 /// A code's runtime made with `executor_fn`, a state per shot, keeps in
 /// its state the conditions it found on its shot and raises them again in
-/// each call, as the logic of one that offers `feedback` must: it passes
-/// the conformance kit's check across calls.
+/// each call, as the logic of one that offers `resumable_shots` must: it
+/// passes the conformance kit's check across calls.
 #[test]
 fn an_executor_fn_whose_logic_keeps_its_shots_conditions_in_its_state_keeps_them_from_one_call_to_the_next()
  {
     let mut runtime = executor_fn(
-        Capabilities::default(),
+        Capabilities::default().with_resumable_shots(true),
         |context: ShotContext| Ok::<_, Rejected>((context.shot(), ShotConditions::NONE)),
         |(shot, kept): &mut (ShotId, ShotConditions),
          input: &ProgramInput<'_, Step>,

@@ -23,17 +23,20 @@ use crate::backend::{ExistingInterface, NamedInstruction, Reading};
 /// as `naming` does: pairs of a mnemonic of `set` and the backend's name.
 ///
 /// The backend's state is one shot's: the bridge runs the shot of its first
-/// call alone. It promises no limit beyond its set and its one state
-/// (`Capabilities::default()`): an existing backend does not say how many
-/// qubits it has, so no qubit count is checked over it, and a driver that
-/// needs more than the backend has fails at run time, by the backend's
-/// `Err`. Each instruction of `set` is named once, here, so that a call
-/// is translated by its opcode. A call's tags are not sent: the backend
-/// returns its results in the order of the batch, and the bridge gives the
-/// `k`-th result the `k`-th tag. The backend's `Err` does not say whether
-/// the batch started, so it ends the reply `Failed`, as does a count of
-/// results that is not the count of tags; either fails the bridge, whose
-/// backend's state is then not the one its caller expects.
+/// call alone, and continues it from one call to the next, since the
+/// backend keeps its state between batches; it raises no shot condition, so
+/// it has none to keep. It promises that, its set and its one state
+/// (`Capabilities::default()` with resumable shots), and no other limit:
+/// an existing backend does not say how many qubits it has, so no qubit
+/// count is checked over it, and a driver that needs more than the backend
+/// has fails at run time, by the backend's `Err`. Each instruction of `set`
+/// is named once, here, so that a call is translated by its opcode. A
+/// call's tags are not sent: the backend returns its results in the order
+/// of the batch, and the bridge gives the `k`-th result the `k`-th tag. The
+/// backend's `Err` does not say whether the batch started, so it ends the
+/// reply `Failed`, as does a count of results that is not the count of
+/// tags; either fails the bridge, whose backend's state is then not the
+/// one its caller expects.
 ///
 /// # Errors
 ///
@@ -50,7 +53,9 @@ pub fn backend_bridge<B: ExistingInterface>(
         let pair = naming.iter().find(|(ours, _)| *ours == mnemonic);
         pair.map(|&(_, theirs)| theirs)
     })?;
-    let promise = Capabilities::default().with_instruction_set(Some(set.clone()));
+    let promise = Capabilities::default()
+        .with_instruction_set(Some(set.clone()))
+        .with_resumable_shots(true);
     let mut backend = Some(backend);
     let bridge = executor_fn(
         promise,

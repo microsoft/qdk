@@ -48,16 +48,24 @@ pub struct Capabilities {
     /// it, after a read or not: the executor keeps a state per shot between
     /// calls, which only a call on that shot changes (the conformance kit's
     /// `continues_a_shot_from_one_call_to_the_next` and
-    /// `changes_no_shot_a_call_does_not_name`).
-    pub feedback: bool,
-    /// The most states it holds at once; `None` when it knows no limit. A
-    /// limit it always has (its memory holds that many); a shortage now
-    /// (another run holds the memory) is [`Rejected::Unavailable`]
-    /// instead.
-    pub states: Option<u64>,
-    /// Whether each shot draws only from its own random numbers, so that a
-    /// shot's outcomes do not depend on which shots share its executor (the
-    /// conformance kit's `gives_each_shot_alone_what_it_gives_among_others`).
+    /// `changes_no_shot_a_call_does_not_name`). A shot's conditions are part
+    /// of that state: an executor that offers it keeps each shot's conditions
+    /// from one call to the next (`docs/replies.md`, §Shot conditions), which
+    /// is checked only at run time, by the kit's
+    /// `keeps_each_shots_conditions_from_one_call_to_the_next`, for the
+    /// conditions an earlier outcome of the shot carried.
+    pub resumable_shots: bool,
+    /// The most shots it holds at once, a state each; `None` when it knows
+    /// no limit. A limit it always has (its memory holds that many); a
+    /// shortage now (another run holds the memory) is
+    /// [`Rejected::Unavailable`] instead.
+    pub max_shots: Option<u64>,
+    /// Whether each shot replays: run again on the run's seed, alone or
+    /// among other shots, in one call or split over several, it gives what it
+    /// gave (the conformance kit's
+    /// `gives_each_shot_alone_what_it_gives_among_others`), since it draws
+    /// only from its own random numbers, so its outcomes do not depend on
+    /// which shots share its executor.
     pub replayable: bool,
     /// Whether it can prepare a qubit again during a shot (a reset). An adapter
     /// passes downstream's on by default, one that changes the instruction set
@@ -74,7 +82,7 @@ pub struct Capabilities {
     /// report passes up the log probability from below, so it is never offered
     /// upstream of an adapter that draws, not even by one above that draws
     /// nothing.
-    pub probabilities: bool,
+    pub log_probability: bool,
     /// The ids of the components that draw random numbers at or downstream of
     /// it, each with its own seed per shot: a component that draws is refused
     /// when built against one that already draws with its id
@@ -112,21 +120,21 @@ impl PartialEq for Capabilities {
         // Destructured, so that a new field is not left out unseen.
         let Self {
             qubits,
-            feedback,
-            states,
+            resumable_shots,
+            max_shots,
             replayable,
             resets,
-            probabilities,
+            log_probability,
             rng_ids,
             run_seed: _,
             instruction_set,
         } = self;
         *qubits == other.qubits
-            && *feedback == other.feedback
-            && *states == other.states
+            && *resumable_shots == other.resumable_shots
+            && *max_shots == other.max_shots
             && *replayable == other.replayable
             && *resets == other.resets
-            && *probabilities == other.probabilities
+            && *log_probability == other.log_probability
             && *rng_ids == other.rng_ids
             && *instruction_set == other.instruction_set
     }
@@ -136,22 +144,22 @@ impl fmt::Debug for Capabilities {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self {
             qubits,
-            feedback,
-            states,
+            resumable_shots,
+            max_shots,
             replayable,
             resets,
-            probabilities,
+            log_probability,
             rng_ids,
             run_seed: _,
             instruction_set,
         } = self;
         f.debug_struct("Capabilities")
             .field("qubits", qubits)
-            .field("feedback", feedback)
-            .field("states", states)
+            .field("resumable_shots", resumable_shots)
+            .field("max_shots", max_shots)
             .field("replayable", replayable)
             .field("resets", resets)
-            .field("probabilities", probabilities)
+            .field("log_probability", log_probability)
             .field("rng_ids", rng_ids)
             .field("instruction_set", instruction_set)
             .finish()
@@ -159,26 +167,21 @@ impl fmt::Debug for Capabilities {
 }
 
 impl Default for Capabilities {
-    /// An executor that states no limit: any number of qubits and states,
-    /// feedback, replayable shots and resets, drawing with the last executor's
-    /// id only. No probabilities, which an executor states only when it
-    /// computes them, and no instruction set, which an executor states only
-    /// when it describes one.
-    ///
-    /// Known issue (an open design question, with whether `feedback`
-    /// requires a state per shot): an executor built from the default
-    /// claims `feedback` until it states otherwise, so one that keeps no
-    /// state between calls and forgets `with_feedback(false)` accepts a
-    /// program with a call before its last batch, whose later batches then
-    /// find fresh states, with no error.
+    /// An executor that states no limit, any number of qubits and shots at
+    /// once, and offers nothing it does not state: no resumable shots,
+    /// replayable shots, resets or log probability, and no instruction set,
+    /// drawing with the last executor's id only. So an executor states what
+    /// it offers, and one that forgets to state a capability is refused a
+    /// job that needs it, naming the need ([`Need`](crate::Need)), rather
+    /// than running it wrong.
     fn default() -> Self {
         Self {
             qubits: None,
-            feedback: true,
-            states: None,
-            replayable: true,
-            resets: true,
-            probabilities: false,
+            resumable_shots: false,
+            max_shots: None,
+            replayable: false,
+            resets: false,
+            log_probability: false,
             rng_ids: RngIds::last_executor(),
             run_seed: None,
             instruction_set: None,
@@ -195,18 +198,18 @@ impl Capabilities {
         self
     }
 
-    /// These capabilities, with or without feedback.
+    /// These capabilities, with or without resumable shots.
     #[must_use]
-    pub fn with_feedback(mut self, feedback: bool) -> Self {
-        self.feedback = feedback;
+    pub fn with_resumable_shots(mut self, resumable_shots: bool) -> Self {
+        self.resumable_shots = resumable_shots;
         self
     }
 
-    /// These capabilities, with at most `states` states at once. No limit
+    /// These capabilities, with at most `max_shots` shots at once. No limit
     /// is the default.
     #[must_use]
-    pub fn with_states(mut self, states: u64) -> Self {
-        self.states = Some(states);
+    pub fn with_max_shots(mut self, max_shots: u64) -> Self {
+        self.max_shots = Some(max_shots);
         self
     }
 
@@ -227,8 +230,8 @@ impl Capabilities {
     /// These capabilities, with or without each shot's log probability at
     /// close.
     #[must_use]
-    pub fn with_probabilities(mut self, probabilities: bool) -> Self {
-        self.probabilities = probabilities;
+    pub fn with_log_probability(mut self, log_probability: bool) -> Self {
+        self.log_probability = log_probability;
         self
     }
 

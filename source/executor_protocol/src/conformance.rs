@@ -12,7 +12,7 @@
 //! its events, keeping what the caller held, checked wherever a check
 //! reads readouts), of [`Close`], [`Fold`], described instruction sets
 //! and readout tags, and the promises of
-//! [`Capabilities`](crate::Capabilities) (`replayable`; `feedback`, with
+//! [`Capabilities`](crate::Capabilities) (`replayable`; `resumable_shots`, with
 //! its rule that a call changes no shot it does not name), and of shot
 //! conditions (a shot keeps from one call to the next those its outcomes
 //! carried; the checks that compare a shot's readouts over the same calls
@@ -1057,7 +1057,7 @@ fn split_into_calls<'a, I>(
 
 /// Runs `first`, then `second`, in two calls on `shots` of an executor that
 /// `make` builds, and both in one batch on `shots` of another: each shot's
-/// readouts must be the same, since an executor that offers `feedback`
+/// readouts must be the same, since an executor that offers `resumable_shots`
 /// keeps each shot's state from one call to the next, so the second call
 /// continues the shot where the first left it. With two shots or more, two
 /// more executors run `first`, then `second` on other shots than `first`,
@@ -1081,8 +1081,8 @@ fn split_into_calls<'a, I>(
 /// executor, must read otherwise on each shot than after `first` in one
 /// batch of both (a flip, then a read), so that an executor that starts a
 /// shot again at a call would show. For an executor that offers
-/// `feedback`; if it does not offer `replayable`, choose batches that draw
-/// nothing, since its draws may depend on how the shots' instructions are
+/// `resumable_shots`; if it does not offer `replayable`, choose batches that
+/// draw nothing, since its draws may depend on how the shots' instructions are
 /// split into calls.
 ///
 /// # Panics
@@ -1198,15 +1198,14 @@ pub fn continues_a_shot_from_one_call_to_the_next<I: Clone, E: Executor<Instruct
 }
 
 /// Checks that a call changes no shot it does not name, whether the
-/// executor holds that shot yet or not: an executor that offers `feedback`
-/// keeps a state per shot, which only a call on that shot changes, so a
-/// shot held is left as it was, and a new shot starts fresh (in a new
-/// executor too, which
-/// [`starts_its_shots_as_made_whatever_an_earlier_executor_left`] checks).
-/// The shots of `shots`, taken in increasing order whatever order it gives
-/// them in, are split into those at even indices and those at odd indices,
-/// which lie between each other. Four runs, each on an executor that
-/// `make` builds:
+/// executor holds that shot yet or not: an executor that offers
+/// `resumable_shots` keeps a state per shot, which only a call on that shot
+/// changes, so a shot held is left as it was, and a new shot starts fresh (in a
+/// new executor too, which
+/// [`starts_its_shots_as_made_whatever_an_earlier_executor_left`] checks). The
+/// shots of `shots`, taken in increasing order whatever order it gives them in,
+/// are split into those at even indices and those at odd indices, which lie
+/// between each other. Four runs, each on an executor that `make` builds:
 ///
 /// 1. `first` on the shots at even indices, then on those at odd indices,
 ///    then `second` on those at even indices, then on those at odd ones;
@@ -1231,8 +1230,8 @@ pub fn continues_a_shot_from_one_call_to_the_next<I: Clone, E: Executor<Instruct
 /// must build the same executor each time, with the same seed; `shots`
 /// must hold four shots or more, so that the shots at odd indices are not
 /// contiguous and an executor that runs a call on the range of its shots
-/// would show. For an executor that offers `feedback`; if it does not offer
-/// `replayable`, choose batches that draw nothing, since its draws may
+/// would show. For an executor that offers `resumable_shots`; if it does not
+/// offer `replayable`, choose batches that draw nothing, since its draws may
 /// depend on how the shots' instructions are split into calls.
 ///
 /// # Panics
@@ -1372,7 +1371,7 @@ pub fn changes_no_shot_a_call_does_not_name<I, E: Executor<InstructionBatch<I>>>
 /// in run 1. `make` must build the same executor each time, with the same
 /// seed; `second` must read under other tags than `first`'s, so that one
 /// batch of both is accepted.
-/// It asks neither `feedback` nor `replayable`: each executor runs one
+/// It asks neither `resumable_shots` nor `replayable`: each executor runs one
 /// call, and runs 1, 3 and 5 the same one.
 ///
 /// # Panics
@@ -1475,8 +1474,8 @@ pub fn starts_its_shots_as_made_whatever_an_earlier_executor_left<I, E>(
 /// caller takes their union. `batches` must give some shot an outcome that
 /// carries a condition in a call before a later call that reads that shot,
 /// so that there is a condition to keep. It applies to an executor that
-/// offers `feedback`, on which a shot continues from one call to the next,
-/// and which the protocol requires to keep each shot's conditions
+/// offers `resumable_shots`, on which a shot continues from one call to the
+/// next, and which the protocol requires to keep each shot's conditions
 /// (`docs/replies.md`, §Shot conditions). It sees outcomes alone, so it
 /// checks only the conditions that an earlier outcome of the shot carried:
 /// a condition raised in a call that gave the shot no outcome, which the

@@ -19,8 +19,8 @@ use crate::toy::{Op, QUBITS, ToyState, check};
 /// The largest bond a shot's state may reach: each `Cx` adds one.
 pub const MAX_BOND: u32 = 2;
 
-/// The most states the device holds at once.
-pub const STATES: u64 = 8;
+/// The most shots the device holds at once, a state each.
+pub const MAX_SHOTS: u64 = 8;
 
 /// One shot's state: the toy's bits, the bond its `Cx`s reached, and the
 /// log probability of its coins.
@@ -72,16 +72,15 @@ pub fn run_bond_limited(
 }
 
 /// The executor, whose device is busy when shot `busy_at` first starts,
-/// and free afterwards: [`QUBITS`] qubits, at most [`STATES`] states,
-/// feedback, replayable shots and resets, the toy's [`check`], and the log
-/// probability of each state's coins. Each shot's state draws from the
-/// last executor's seed in the shot ([`ShotContext::seed`]), so a run
-/// gives it the run's seed and a state per shot:
-/// `bond_limited_executor(None).seed(seed).shots(OnePerShot)`.
-/// Its logic and log probability's reader are `Clone`, so that each
-/// shot's state may also run on a thread of its own:
-/// `.run_on(OwnThread).shots(OnePerShot)`, which gives what the
-/// states give on the caller's thread
+/// and free afterwards: [`QUBITS`] qubits, at most [`MAX_SHOTS`] shots at
+/// once, resumable shots, replayable shots and resets, the toy's [`check`], and
+/// the log probability of each state's coins. Each shot's state draws from the
+/// last executor's seed in the shot ([`ShotContext::seed`]), so a run gives it
+/// the run's seed and a state per shot:
+/// `bond_limited_executor(None).seed(seed).shots(OnePerShot)`. Its logic and
+/// log probability's reader are `Clone`, so that each shot's state may also run
+/// on a thread of its own: `.run_on(OwnThread).shots(OnePerShot)`, which gives
+/// what the states give on the caller's thread
 /// (`a_run_gives_the_same_outcomes_and_report_wherever_the_shots_states_run`).
 #[expect(
     clippy::type_complexity,
@@ -102,7 +101,9 @@ pub fn bond_limited_executor(
     let mut busy = busy_at;
     let promise = Capabilities::default()
         .with_qubits(QUBITS)
-        .with_states(STATES);
+        .with_resumable_shots(true)
+        .with_replayable(true)
+        .with_max_shots(MAX_SHOTS);
     executor_fn(
         promise,
         move |context: ShotContext| {

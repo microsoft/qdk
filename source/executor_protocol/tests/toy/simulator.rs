@@ -34,8 +34,8 @@ pub enum Op {
     Reset(u32),
 }
 
-/// A toy instruction names itself by its variant, so a driver of them is
-/// composed with a chain with no adapter between them.
+/// A toy instruction names itself by its variant, so a program of them
+/// runs on a chain with no adapter between them.
 impl TypedInstruction for Op {}
 
 impl Op {
@@ -141,6 +141,9 @@ pub fn toy_simulator(seed: u64) -> ToySimulator {
 pub fn toy_simulator_described_with(seed: u64, set: InstructionSet) -> ToySimulator {
     let promise = Capabilities::default()
         .with_qubits(QUBITS)
+        .with_resumable_shots(true)
+        .with_replayable(true)
+        .with_resets(true)
         .with_instruction_set(Some(Arc::new(set)));
     executor_fn(
         promise,

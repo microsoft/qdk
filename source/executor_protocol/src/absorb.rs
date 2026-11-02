@@ -243,10 +243,19 @@ impl<T> Drop for HeldStates<T> {
 /// `drop` does not wait for; there, its shot's executor holds the shot's
 /// copies of the logic and the report closures, declared after its
 /// state. The order is kept by the fields' declaration order alone, which
-/// the compiler does not check; the public docs promise no order. For the
-/// executors (`ExecutorFn`, `OnePerShotExecutor`,
-/// `OnePerShotPlacedExecutor` and its shots' executors), no test pins it.
-/// For the adapters, tests pin it
+/// the compiler does not check, rather than by a `Drop` impl, which would
+/// forbid the builders that move the fields out
+/// (`ExecutorFn::log_probability`). The executors' public docs promise it,
+/// and tests pin it (`dropped_it_frees_its_state_before_its_closures`, in
+/// `src/tests/executor_fn.rs`;
+/// `dropped_it_frees_its_states_before_its_closures`, in
+/// `src/tests/executor_fn/one_per_shot.rs`;
+/// `dropped_it_frees_a_state_held_from_before_it_was_placed_before_its_closures`
+/// and `dropped_each_shot_frees_its_state_before_its_copies_of_the_closures`,
+/// in `src/tests/executor_fn/one_per_shot/placed.rs`, where
+/// `dropped_it_frees_its_own_closures_without_waiting_for_its_shots_states`
+/// pins that `drop` does not wait for a placed state).
+/// For the adapters, whose public docs do not promise it, tests pin it
 /// (`dropped_it_frees_its_state_before_its_closures_and_the_executor_below`,
 /// in `src/tests/adapter/adapter_fn.rs`, and
 /// `dropped_it_frees_its_states_before_its_closures_and_the_executor_below`,

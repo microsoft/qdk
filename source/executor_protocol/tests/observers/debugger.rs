@@ -53,8 +53,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use executor_protocol::{
-    AdapterLogic, Below, InstructionCall, MakeState, OnePerShot, OnePerShotAdapter, Outcomes,
-    ProgramInput, ShotContext, ShotId, ShotOutcome, adapter_fn,
+    AdapterError, AdapterLogic, Below, InstructionCall, MakeState, OnePerShot, OnePerShotAdapter,
+    Outcomes, ProgramInput, ShotContext, ShotId, ShotOutcome, adapter_fn,
 };
 
 /// One call the debugger passed down, with its result below.
@@ -69,7 +69,7 @@ pub struct LoggedCall {
 
 /// What a call gave below: its readouts, in the order the reply below gave
 /// them, or why it failed or was refused there.
-pub type CallResult = Result<Vec<ShotOutcome>, String>;
+pub type CallResult = Result<Vec<ShotOutcome>, AdapterError>;
 
 /// The debugger's log of one chain's run: each shot's calls, in the order
 /// they were made, each with its result. A handle: its clones share one
@@ -142,7 +142,7 @@ fn log_and_pass(
     input: &ProgramInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     let call = log.call(input.instructions());
     let result = below.run(input.instructions());
     log.returned(call, &result);

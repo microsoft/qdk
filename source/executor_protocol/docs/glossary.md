@@ -16,13 +16,12 @@ what they belong to; the names in code are the crate's.
   job given to it, `chain.run(program, shots)`
   ([A chain and its job](composition.md#a-chain-and-its-job)).
 - **Driver**: the caller at the upstream end of a chain, which sends
-  batches and reads their outcomes. The crate's interpreter is one; a
-  `Driver` is another: a program that drives itself (`Drive`) bound to the
-  shots it runs, `Driver::new(program, shots)`
-  ([Composing a run](composition.md#composing-a-run)).
+  batches and reads their outcomes. The crate's interpreter is one, which
+  runs a program of fixed batches, or lets a program that drives itself
+  (`Drive`) drive ([Composing a run](composition.md#composing-a-run)).
 - **Executor** (`Executor<M>`): anything that runs one message type `M`, a
   batch of its instruction type (`InstructionBatch<I>`), on each shot the
-  batch names. Offering `feedback` promises that a later call continues a
+  batch names. Offering `resumable_shots` promises that a later call continues a
   shot from the state its earlier calls left; without it, a caller may not
   count on that, though an executor made by `executor_fn` keeps each shot's
   state until it closes, whatever it promises. An ensemble holds one state
@@ -47,11 +46,11 @@ what they belong to; the names in code are the crate's.
   ([Adapters compose](internals/composition.md#adapters-compose)).
 - **Component**: a part of a chain, in one of its three roles: the driver,
   an adapter, or the executor (at the end of the chain, the last
-  executor). A refusal when a chain is composed names the component
-  checked (`UnmetNeed`), by a type name that includes those it wraps, so
-  that the caller finds the one that falls short; each component that
-  draws does so under an id of its own (`ComponentId`), so
-  that adding one changes no other's draws
+  executor). A refusal of a job's needs, when the job is given to the
+  chain, names the component checked (`UnmetNeed`), by a type name that
+  includes those it wraps, so that the caller finds the one that falls
+  short; each component that draws does so under an id of its own
+  (`ComponentId`), so that adding one changes no other's draws
   ([Levels, roles and laws](internals/composition.md#levels-roles-and-laws)).
 - **Runtime**, three senses, each named by whose it is:
   - a **code's runtime**: what runs a code's gadgets and decodes their
@@ -79,8 +78,7 @@ what they belong to; the names in code are the crate's.
   in order to every shot of its job, which decides nothing on its
   outcomes; a batch refused or failed stops it
   ([A chain and its job](composition.md#a-chain-and-its-job)).
-- **Run** (`Run`): a driver composed with an executor, or a `Chain` given
-  a job. It owns the chain and
+- **Run** (`Run`): a `Chain` given a job. It owns the chain and
   runs nothing until it is waited for; then it runs the program, passes its
   calls on and closes the executor, once, when its program ends; a run
   dropped or unwound before then, and a `Chain` dropped without a job or
@@ -92,9 +90,10 @@ what they belong to; the names in code are the crate's.
   fault reported at once (`BuildFaults`), except a part composed with the
   executor first, built on its own
   ([Composing a run](composition.md#composing-a-run)).
-- **Boundary** (`AdapterBoundary`): where the calls of a driver or an
-  adapter meet the executor downstream. `compose` decides each boundary
-  once, when it builds the chain: it checks the set sent against the set
+- **Boundary** (`AdapterBoundary`): where the calls of an adapter, or of a
+  job's program, meet the executor downstream. `compose` decides an
+  adapter's when it builds the chain, and the chain a program's when its job
+  is given to it (`Chain::run`): it checks the set sent against the set
   downstream, and has calls by opcode renumbered on their way down where
   the two sets number them otherwise
   ([Composing a run](composition.md#composing-a-run)).
@@ -102,9 +101,9 @@ what they belong to; the names in code are the crate's.
   adapter that lowers instructions goes down a level and sends the same
   message
   ([Levels, roles and laws](internals/composition.md#levels-roles-and-laws)).
-- **Capabilities and needs** (`Capabilities`, `Needs`): what a component
-  offers (`Describe`) and what a driver needs (`Drive::needs`); `compose`
-  checks one against the other, and an unmet need names the component
+- **Capabilities and needs** (`Capabilities`, `Needs`): what a component offers
+  (`Describe`) and what a job's program needs; a chain given a job checks one
+  against the other (`Chain::run`), and an unmet need names the component
   (`UnmetNeed`) ([Capabilities and needs](executors.md#capabilities-and-needs)).
 - **Conformance kit** (the `conformance` feature and module): checks of the
   rules the compiler cannot check, such as those of `call`, `close` and
@@ -120,12 +119,12 @@ what they belong to; the names in code are the crate's.
   - **What**: what the part does with a call: its logic
     ([Making an executor](executors.md#making-an-executor-executor_fn),
     [Adapters](adapters.md#a-state-and-a-logic-adapter_fn));
-  - **Promise**: what it offers and admits, checked when the chain is built
-    (what it offers) and at each call (what it admits, `.check`): an executor's
-    `promise` argument; an adapter's sets, `.accepts(set)` and `.sends(set)`,
-    and the id it draws with, `.drawing(id)`; and, on both, `.check(f)`, which
-    refuses a call before the state is made and the logic runs. Options that
-    change what an adapter offers or needs
+  - **Promise**: what it offers and admits, checked when the chain is built and
+    when a job is given to it (what it offers) and at each call (what it admits,
+    `.check`): an executor's `promise` argument; an adapter's sets,
+    `.accepts(set)` and `.sends(set)`, and the id it draws with, `.drawing(id)`;
+    and, on both, `.check(f)`, which refuses a call before the state is made and
+    the logic runs. Options that change what an adapter offers or needs
     (`.offers(..)`, `.needs(..)`) are planned, and so is a facility that checks
     each call against the instruction set its part promises, so that `.check`
     holds only the part's other rules ([Capabilities and
@@ -162,9 +161,10 @@ what they belong to; the names in code are the crate's.
   `state_report` and `log_probability` read only the shot's state and what they
   captured when built, both orders give the same outcomes and report, and a
   failed call reports no state made for it in either. Drivers have no axes
-  spelled as methods yet: a driver states its needs in `Drive::needs`. The seed
-  is not an axis, since no part offers it: it is the run's
-  ([Seed](#shots-and-states)).
+  spelled as methods yet: a job's program states its needs, `Drive::needs` for a
+  program that drives itself, its interpreter's `Interpret::needs` for an
+  interpreted one. The seed is not an axis, since no part offers it: it is the
+  run's ([Seed](#shots-and-states)).
 
 - **Wrapper**: an executor that wraps another of the same message, or is made of
   one, and continues it, such as the one `.shots(..)` or `.run_on(..)` puts on
@@ -283,7 +283,8 @@ what they belong to; the names in code are the crate's.
   instructions an executor runs, each named by its mnemonic, with the kinds
   of its operands and, where declared, its action. Any executor may give
   one (`Capabilities::instruction_set`), whatever its instruction type, and
-  a chain checks it when it is composed
+  a chain checks it: against an adapter's when the chain is built, and
+  against a program's when its job is given to the chain
   ([A run-time set: a description](instruction-sets.md#a-run-time-set-a-description)).
 - **Instruction call** (`InstructionCall`): an instruction of a set known
   only at run time: its opcode and its operands

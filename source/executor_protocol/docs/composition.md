@@ -20,9 +20,8 @@ A driver, the adapters downstream of it and an executor are put together by
 | ------------------------------ | -------- | ----------------------------------------------------------------------- |
 | adapter, executor              | executor | the executor, its calls through the adapters                            |
 | adapter, adapter               | adapter  | `ComposedAdapters`, the left one upstream                               |
-| driver, adapter                | driver   | the driver (`InterpreterDriver` or `Driver`), the adapter its own       |
+| driver, adapter                | driver   | the driver (`InterpreterDriver`), the adapter its own                   |
 | interpreter's driver, executor | chain    | `Chain`, which runs the job given to it ([below](#a-chain-and-its-job)) |
-| driver of a program, executor  | run      | `Run`, which runs when it is waited for                                 |
 
 - The **executor**, on the right, is any executor of the run's batches that
   describes what it offers and closes with a report: the last executor, built
@@ -34,28 +33,28 @@ A driver, the adapters downstream of it and an executor are put together by
   ([Adapters](adapters.md)).
 - A **driver** heads the chain. The crate's interpreter, `interpreter()`,
   makes a `Chain`, which runs the job given to it
-  ([A chain and its job](#a-chain-and-its-job)).
-  `Driver::new(program, shots)` binds a program that drives itself
-  (`Drive`) to its shots, and composed with an executor gives its run
-  directly. Either way, the run's seed is the one the last executor is
+  ([A chain and its job](#a-chain-and-its-job)), a program that drives
+  itself (`Drive`) included. The run's seed is the one the last executor is
   built with ([Seeds](executors.md#seeds-not-generators)).
 - A **run** owns the chain, and runs nothing until it is waited for or awaited.
   Then `run.wait()`, or `run.await` for an asynchronous caller, drives the
   executor, closes it once its program ends, and gives the program's output and
   the executor's report. An awaited run, and a run stopped before its program
   ends, have limits ([Known limits](internals/composition.md#known-limits)).
-- A call on a shot the driver did not name is refused before the executor sees
+- A call on a shot the job did not name is refused before the executor sees
   it.
 
-From the [debugger guide](../tests/debugger.rs): a driver, a paused debugger and
-the toy simulator, composed into a run that waits on its own thread while this
-one steps the debugger through its handle:
+From the [debugger guide](../tests/debugger.rs): the crate's interpreter, a
+paused debugger and the toy simulator, composed into a chain whose run waits on
+its own thread while this one steps the debugger through its handle:
 
 ```rust
 let shots = ShotSet::range(0..=1).expect("0..=1 is not empty");
 let debuggers = Debuggers::paused();
-let run = (Driver::new(FlipACoin, shots.clone()) >> debuggers.clone() >> toy_simulator(9))
-    .expect("the debugger changes nothing the toy checks");
+let run = (interpreter() >> debuggers.clone() >> toy_simulator(9))
+    .expect("the debugger changes nothing the toy checks")
+    .run(FlipACoin, shots.clone())
+    .expect("the program needs nothing");
 let driver = thread::spawn(move || run.wait());
 ```
 
@@ -68,7 +67,7 @@ The rules of composition:
   (`BuildFaults`), but for a part composed with the executor first, built on its
   own: `compose` gives it as a `Result`, which is unwrapped before the part is
   composed further, so its faults come back before what is upstream of it is
-  built, or a driver's needs are checked ([The rules of
+  built ([The rules of
   composition](internals/composition.md#the-rules-of-composition)). From the
   [tests of composed adapters](../src/tests/compose/adapters.rs), where both
   adapters are faulty:
@@ -85,8 +84,9 @@ The rules of composition:
   };
   ```
 
-- **The driver is checked when it is composed with an executor**: every need the
-  chain lacks is reported, before anything runs.
+- **A job is checked when it is given to the chain**: every need of its program
+  that the chain lacks is reported, before anything runs
+  ([A chain and its job](#a-chain-and-its-job)).
 - **Where an adapter's calls meet the executor downstream, the boundary is
   decided once, when the chain is built.** The compiler checks typed
   instructions. Calls by opcode are checked against the set downstream, and
@@ -113,7 +113,7 @@ The job is the chain's input, not a component:
 (`BuildFaults`), and `chain.run(program, shots)` gives the run of one job. The
 crate's interpreter runs a `StaticProgram`, whose batches go each to every shot
 of the job in one call, in order. It also runs any program that drives itself
-(`Drive`), as its `Driver` runs on the same chain.
+(`Drive`), which it lets drive.
 
 - **The job is checked when given, before any call**: its shots, its program's
   needs and its program's calls, every fault together (`JobFaults`), but for
@@ -131,17 +131,16 @@ Each rule's edges and every test are in
 
 ## What is checked, and when
 
-| When                           | What                                                                                                                                                                                                                                                                                        | How                                                                                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| compile time                   | an executor wraps only an executor of the messages it sends; a reply's events are its message's events                                                                                                                                                                                      | `Executor<M>` bounds; `Reply: Reply<Item = M::Event>` (compile errors, which no test pins)                                                             |
-| compile time                   | a batch's instructions are of the type the executor accepts                                                                                                                                                                                                                                 | the instruction type, `InstructionBatch<I>` (a compile error, which no test pins)                                                                      |
-| when the shots are built       | a set of shots names at least one shot, and each shot once                                                                                                                                                                                                                                  | `ShotSet::new` (`Rejected::{NoShots, RepeatedShot}`), `ShotSet::range` (`Rejected::NoShots`)                                                           |
-| when a chain is built          | what an adapter sends is in the described set downstream, matched once; no two components draw with one RNG id; every fault of a chain at once (a part composed with the executor first reports only its own faults, before what is upstream is built: [Composing a run](#composing-a-run)) | `compose` (`BuildFaults`), or `Capabilities::drawing` by hand                                                                                          |
-| when a driver is composed      | the caller's needs fit what each component offers, the instructions it will send included, and its shots the states the executor holds                                                                                                                                                      | `compose` (`BuildError::Unmet`, every need at once); by hand, `Capabilities::admit` (`Rejected::Unmet`, naming the component)                          |
-| when a job is given to a chain | its shots are a set, no more than the executor holds; its program's needs fit what the chain offers; the interpreter finds no fault in its program                                                                                                                                          | `Chain::run` (`JobFaults`, every fault at once, but only the least of the shots named twice): [A chain and its job](#a-chain-and-its-job)              |
-| at a shot's first call         | the shot's state can be made                                                                                                                                                                                                                                                                | `make_state` of `executor_fn` or `adapter_fn` (its refusal refuses the call)                                                                           |
-| at each call                   | a batch's shots against the driver's or the job's; a batch of `InstructionCall`s against the executor's set; a batch's shots against those the executor holds; a closed or failed executor                                                                                                  | `Run` (`Rejected::ShotNotHeld`); `InstructionSet::check_batch`; `Rejected::{ShotNotHeld, Closed, EarlierFailure}` (`executor_fn`, `ExecutorLifecycle`) |
-| at each call                   | within a batch, a tag names one readout of each shot, where an executor reports by tag ([readout tags](replies.md#readout-tags))                                                                                                                                                            | `check_unique_tags` (`Rejected::Instruction`)                                                                                                          |
+| When                           | What                                                                                                                                                                                                                                                                                        | How                                                                                                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| compile time                   | an executor wraps only an executor of the messages it sends; a reply's events are its message's events                                                                                                                                                                                      | `Executor<M>` bounds; `Reply: Reply<Item = M::Event>` (compile errors, which no test pins)                                                                                                                          |
+| compile time                   | a batch's instructions are of the type the executor accepts                                                                                                                                                                                                                                 | the instruction type, `InstructionBatch<I>` (a compile error, which no test pins)                                                                                                                                   |
+| when the shots are built       | a set of shots names at least one shot, and each shot once                                                                                                                                                                                                                                  | `ShotSet::new` (`Rejected::{NoShots, RepeatedShot}`), `ShotSet::range` (`Rejected::NoShots`)                                                                                                                        |
+| when a chain is built          | what an adapter sends is in the described set downstream, matched once; no two components draw with one RNG id; every fault of a chain at once (a part composed with the executor first reports only its own faults, before what is upstream is built: [Composing a run](#composing-a-run)) | `compose` (`BuildFaults`), or `Capabilities::drawing` by hand                                                                                                                                                       |
+| when a job is given to a chain | its shots are a set, no more than the executor holds; its program's needs fit what the chain offers, the instructions it will send included; the interpreter finds no fault in its program                                                                                                  | `Chain::run` (`JobFaults`, every fault at once, but only the least of the shots named twice): [A chain and its job](#a-chain-and-its-job); by hand, `Capabilities::admit` (`Rejected::Unmet`, naming the component) |
+| at a shot's first call         | the shot's state can be made                                                                                                                                                                                                                                                                | `make_state` of `executor_fn` or `adapter_fn` (its refusal refuses the call)                                                                                                                                        |
+| at each call                   | a batch's shots against the job's; a batch of `InstructionCall`s against the executor's set; a batch's shots against those the executor holds; a closed or failed executor                                                                                                                  | `Run` (`Rejected::ShotNotHeld`); `InstructionSet::check_batch`; `Rejected::{ShotNotHeld, Closed, EarlierFailure}` (`executor_fn`, `ExecutorLifecycle`)                                                              |
+| at each call                   | within a batch, a tag names one readout of each shot, where an executor reports by tag ([readout tags](replies.md#readout-tags))                                                                                                                                                            | `check_unique_tags` (`Rejected::Instruction`)                                                                                                                                                                       |
 
 Placed whole (`.run_on(..)` alone, or after `.shots(..)`), an `executor_fn`
 refuses on its own thread, after `call` accepted the call: a refusal of its
@@ -174,7 +173,7 @@ own tests:
   (`refuses_a_repeated_tag_at_the_index_of_its_instruction`);
 - those of the capabilities `replayable` (a shot alone, or among shots
   split into calls in another order, gives what it gives among others,
-  `gives_each_shot_alone_what_it_gives_among_others`) and `feedback` (a
+  `gives_each_shot_alone_what_it_gives_among_others`) and `resumable_shots` (a
   second call continues a shot, `continues_a_shot_from_one_call_to_the_next`,
   and changes no shot it does not name,
   `changes_no_shot_a_call_does_not_name`);
@@ -204,10 +203,10 @@ executor of its own, made from the toy simulator of the guide tests
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
 | a program with feedback, on one shot    | `coin_then_feedback(&mut toy_simulator(seed), j)`, which calls with `ShotSet::one(j)`                  | the [debugger guide](../tests/debugger.rs)                 |
 | a static program, observed              | `(interpreter() >> profiler() >> debugger(log.clone()) >> simulator())?.run(program(), SHOTS)?.wait()` | the [observer guide](../tests/observers.rs)                |
-| a driver of many shots, with a debugger | `(Driver::new(program, shots) >> debuggers.clone() >> toy_simulator(seed))?`                           | the [debugger guide](../tests/debugger.rs)                 |
-| a logical driver                        | `(Driver::new(program, shots) >> RepetitionCode::default() >> toy_simulator(seed))?.wait()`            | the [static instruction set guide](../tests/static_isa.rs) |
+| a program of many shots, with debugging | `(interpreter() >> debuggers.clone() >> toy_simulator(seed))?.run(program, shots)?`                    | the [debugger guide](../tests/debugger.rs)                 |
+| a logical program                       | `(interpreter() >> RepetitionCode::default() >> toy_simulator(seed))?.run(program, shots)?.wait()`     | the [static instruction set guide](../tests/static_isa.rs) |
 
-Another user, a driver whose executor is on another machine, is planned,
+Another user, a program whose executor is on another machine, is planned,
 with no milestone yet: the link and its layers L1 and L0 are inside the
 remote executor
 ([Levels, roles and laws](internals/composition.md#levels-roles-and-laws)), so

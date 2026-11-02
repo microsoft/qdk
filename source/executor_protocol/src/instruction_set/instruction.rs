@@ -15,9 +15,11 @@ use crate::{Close, Executor, InstructionBatch, OpcodeMap, Renumbering};
 /// An instruction type a driver or an adapter sends, and what each
 /// boundary where its calls meet an executor needs: whether its calls name
 /// their instruction by an opcode, and so must be in the executor's
-/// numbering. [`compose`](fn@crate::compose) uses it at each boundary it
-/// checks: between a driver and the executor it is composed with, and
-/// between an adapter and the executor downstream of it.
+/// numbering. It is used at each boundary the crate checks: between a
+/// driver and the chain's executor, when a job is given to the chain
+/// ([`Chain::run`](crate::Chain::run)), and between an adapter and the
+/// executor downstream of it, when it is composed
+/// ([`compose`](fn@crate::compose)).
 ///
 /// The crate implements it for [`InstructionCall`] and for every
 /// [`TypedInstruction`]: a typed instruction, which names its instruction
@@ -34,7 +36,7 @@ pub trait Instruction: sealed::Sealed + Sized {
     /// means something only in a set: then whoever sends the calls states
     /// its set, and a chain that cannot check it is refused (a driver's
     /// [`UnmetNeed`](crate::UnmetNeed) of
-    /// [`Instructions`](crate::Need::Instructions), an adapter's
+    /// [`InstructionSet`](crate::Need::InstructionSet), an adapter's
     /// [`NoInstructionSetDownstream`] or
     /// [`UnstatedSends`](BuildError::UnstatedSends)).
     /// A typed call names it by its type, which the compiler checks, so
@@ -64,8 +66,7 @@ pub trait Instruction: sealed::Sealed + Sized {
 
 /// An instruction that names itself by its type (an enum's variant, a
 /// struct of its own) rather than by an opcode, so that no numbering
-/// concerns it: a driver of it calls the executor it is composed with
-/// itself.
+/// concerns it: a driver of it calls the chain's executor itself.
 ///
 /// A type that carries an opcode must not implement it, since its calls
 /// would reach the chain in the driver's numbering.

@@ -203,7 +203,7 @@ fn unmet(faults: &BuildFaults) -> Vec<&UnmetNeed> {
 
 /// The needs of a driver that builds its calls with `set`.
 fn needing(set: &InstructionSet) -> Needs {
-    Needs::default().with_instructions(Some(Arc::new(set.clone())))
+    Needs::default().with_instruction_set(Some(Arc::new(set.clone())))
 }
 
 /// A driver's set that declares the toy's instructions in another order:
@@ -262,8 +262,8 @@ fn a_batch_in_the_executors_numbering_reaches_it_as_it_is() {
     assert_eq!(received.get(), held);
 }
 
-/// A driver's set the executor does not accept is refused when composed,
-/// with each of its instructions that does not fit.
+/// A driver's set the executor does not accept is refused when its job is
+/// given to the chain, with each of its instructions that does not fit.
 #[test]
 fn a_set_the_executor_lacks_is_refused_with_every_instruction_that_does_not_fit() {
     let driver = driver_set().with("h", [Block]).with("cx", [Block, Block]);
@@ -273,7 +273,7 @@ fn a_set_the_executor_lacks_is_refused_with_every_instruction_that_does_not_fit(
     assert_eq!(
         (unmet[0].need, unmet[0].mismatches.clone()),
         (
-            Need::Instructions,
+            Need::InstructionSet,
             vec![
                 InstructionMismatch::Missing {
                     mnemonic: "h".into()
@@ -715,19 +715,19 @@ fn a_batch_on_a_shot_the_driver_does_not_hold_is_refused_before_the_renumbering(
     assert_eq!(refusals[1], Some(Rejected::ShotNotHeld(2)));
 }
 
-/// A driver that needs probabilities, which the toy does not compute, is
-/// refused when composed, whether it states no set, a set in the
-/// executor's numbering, or one in another numbering: its needs other than
-/// its instructions are checked on every path.
+/// A driver that needs the log probability, which the toy does not compute, is
+/// refused when its job is given to the chain, whether it states no set, a
+/// set in the executor's numbering, or one in another numbering: its needs
+/// other than its instructions are checked on every path.
 #[test]
 fn a_driver_needing_what_the_executor_lacks_is_refused_whatever_its_set() {
     let first = declared(InstructionSet::new("first").with("reset", [Block]));
     for needs in [Needs::default(), needing(&first), needing(&driver_set())] {
-        let faults = refused(needs.with_probabilities(true));
+        let faults = refused(needs.with_log_probability(true));
         assert!(
             unmet(&faults)
                 .iter()
-                .any(|unmet| unmet.need == Need::Probabilities),
+                .any(|unmet| unmet.need == Need::LogProbability),
             "{faults}"
         );
     }
@@ -735,15 +735,15 @@ fn a_driver_needing_what_the_executor_lacks_is_refused_whatever_its_set() {
 
 /// A driver whose `x` declares nothing, on a toy, a set of another name,
 /// that declares what each instruction does: what the `x` does cannot be
-/// checked, so compose refuses it, as the driver's need of instructions
-/// unmet.
+/// checked, so the chain refuses the job, as the driver's need of an
+/// instruction set unmet.
 #[test]
 fn an_instruction_whose_action_the_drivers_set_leaves_undeclared_is_refused() {
     let driver = driver_set().with("x", [Block]);
     let faults = refused(needing(&driver));
     let unmet = unmet(&faults);
     assert_eq!(unmet.len(), 1, "{faults}");
-    assert_eq!(unmet[0].need, Need::Instructions);
+    assert_eq!(unmet[0].need, Need::InstructionSet);
     let undeclared = InstructionMismatch::UndeclaredAction {
         mnemonic: "x".to_owned(),
     };

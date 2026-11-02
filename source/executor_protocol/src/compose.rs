@@ -27,13 +27,13 @@
 //! `driver >> a >> b >> executor`. Adapters grouped either way among
 //! themselves report the same faults; a part composed with the executor
 //! first is built on its own, and its faults are returned before what is
-//! upstream of it is built or a driver's needs are checked.
+//! upstream of it is built.
 //! Adapters are held until the chain reaches an executor; then each is
 //! built once against what is downstream of it, from that executor
-//! upstream ([`Adapter::build`]), and a driver's needs are checked against
-//! what the chain offers, so that every fault is reported together, before
-//! anything runs ([`BuildFaults`], each a [`BuildFault`] with its
-//! [`BuildError`]).
+//! upstream ([`Adapter::build`]), so that every fault is reported together,
+//! before anything runs ([`BuildFaults`], each a [`BuildFault`] with its
+//! [`BuildError`]). A job's needs are checked against what the chain
+//! offers when the job is given to it ([`Chain::run`]).
 //!
 //! A chain is a type, fixed when it is compiled. Type-erased chains, chosen
 //! at run time, are planned, with no milestone yet, for cases such as a
@@ -42,34 +42,38 @@
 //!
 //! - [`adapters`]: adapters composed, and applied to an executor once
 //!   checked.
-//! - [`run`]: the run a driver gives with an executor.
+//! - [`run`]: the run a chain gives for a job.
 //! - [`chain`]: the chain an interpreter's driver gives with an executor,
 //!   which runs the job given to it.
 //!
 //! What is composed has its own module: an adapter ([`Adapter`]), where it
 //! meets what is downstream of it ([`AdapterBoundary`]), and a driver
-//! ([`Driver`], [`InterpreterDriver`]).
+//! ([`InterpreterDriver`]).
 
 pub(crate) mod adapters;
 pub(crate) mod chain;
 pub(crate) mod run;
 
+#[cfg(test)]
 use std::any::type_name;
 use std::fmt;
 use std::ops::Shr;
 use std::sync::Arc;
 
+#[cfg(any(test, doc))]
+use crate::Rejected;
 use crate::compose::adapters::DownstreamOf;
 use crate::instruction_set::write_mismatches;
 use crate::{
     Adapter, AdapterExecutor, AdapterFn, AdapterFnExecutor, Adapters, Apply, Chain, Close,
-    ComponentId, ComposedAdapters, Drive, Driver, Executor, ExecutorFn, Instruction,
-    InstructionBatch, InstructionMismatch, InterpreterDriver, NoAdapter, OnePerShotAdapter,
-    OnePerShotAdapterExecutor, OnePerShotExecutor, OnePerShotPlacedExecutor, PlacedExecutor, Run,
-    UnmetNeed, UpstreamOf,
+    ComponentId, ComposedAdapters, Executor, ExecutorFn, InstructionBatch, InstructionMismatch,
+    InterpreterDriver, NoAdapter, OnePerShotAdapter, OnePerShotAdapterExecutor, OnePerShotExecutor,
+    OnePerShotPlacedExecutor, PlacedExecutor, UnmetNeed, UpstreamOf,
 };
 #[cfg(doc)]
-use crate::{AdapterBoundary, Rejected};
+use crate::{AdapterBoundary, Drive};
+#[cfg(test)]
+use crate::{DefaultInterpreter, Drive, Driver, Interpreted, JobFaults, Run};
 
 /// Two entities put together into one, `Self` upstream of `Rhs`: the rules
 /// of [`compose`](fn@crate::compose), one impl each.
@@ -119,12 +123,10 @@ pub enum WithExecutor {}
 /// | adapter, executor | executor | the executor, calls through the adapters |
 /// | adapter, adapter  | adapter  | [`ComposedAdapters`]                     |
 /// | driver, adapter   | driver   | the driver with one more adapter         |
-/// | driver, executor  | run      | [`Run`], which runs when waited for      |
-/// |                   | chain    | [`Chain`], an interpreter's, runs a job  |
+/// | driver, executor  | chain    | [`Chain`], an interpreter's, runs a job  |
 ///
 /// The grouping does not matter: a driver, adapters and an executor
-/// composed in one order give the same run, or chain, however they are
-/// grouped.
+/// composed in one order give the same chain, however they are grouped.
 ///
 /// The right side is an executor of batches ([`InstructionBatch`]) that
 /// describes what it offers ([`Describe`](crate::Describe)) and is closed
@@ -136,13 +138,13 @@ pub enum WithExecutor {}
 /// the logic sends; an adapter written by hand maps the whole executor
 /// once, and the result runs on the executor it gives ([`Apply`]).
 ///
-/// Where `right` is an executor, the driver's needs are checked against what
-/// the chain offers, the number of its shots against the states the
-/// executor holds at once ([`Capabilities::states`](crate::Capabilities)),
-/// and each adapter against what is downstream of it, before anything
-/// runs or any shot is made. An interpreter's driver has no program yet:
-/// its adapters are checked here, and the job's needs and shots when the
-/// job is given to the chain ([`Chain::run`]).
+/// Where `right` is an executor, each adapter is checked against what is
+/// downstream of it, before anything runs or any shot is made. The driver,
+/// an interpreter, has no program yet: the job's needs are checked against
+/// what the chain offers, and the number of its shots against the shots
+/// the executor holds at once
+/// ([`Capabilities::max_shots`](crate::Capabilities)), when the job is
+/// given to the chain ([`Chain::run`]).
 ///
 /// # Components made by functions
 ///
@@ -181,8 +183,7 @@ pub enum WithExecutor {}
 /// # Errors
 ///
 /// Where `right` is an executor, [`BuildFaults`]: every adapter that cannot
-/// be built against what is downstream of it, and every need of a driver
-/// that the chain does not meet ([`BuildError::Unmet`]), and why. The
+/// be built against what is downstream of it, and why. The
 /// executor, taken by value, is then dropped without being closed: an
 /// executor whose `close` releases something (a device, a paid job) does so
 /// only in its own `Drop`, if it has one. Known limit, open, which no test
@@ -213,6 +214,7 @@ impl<X: UpstreamOf<E>, E> Compose<E, WithExecutor> for X {
 }
 
 /// Driver, adapter: the driver, with `y` downstream of its adapters.
+#[cfg(test)]
 impl<P: Drive, L: Adapters, Y: Adapters<Accepts = L::Sends>> Compose<Y, WithAdapter>
     for Driver<P, L>
 {
@@ -223,43 +225,39 @@ impl<P: Drive, L: Adapters, Y: Adapters<Accepts = L::Sends>> Compose<Y, WithAdap
     }
 }
 
-/// Driver, executor: the run of the driver on its adapters upstream of
-/// `executor`, the driver's needs checked against what the chain offers,
-/// with the adapters' faults.
+/// Driver, executor: the chain of the crate's interpreter on the driver's
+/// adapters upstream of `executor`, given the driver's program and shots
+/// as its job, so that the needs and the renumbering are the chain's
+/// ([`Chain::run`]). The adapters' faults are returned alone, as the
+/// chain's are returned before any job is given; otherwise the program's
+/// unmet needs, each as [`BuildError::Unmet`].
+#[cfg(test)]
 impl<P, L, E> Compose<E, WithExecutor> for Driver<P, L>
 where
     P: Drive,
     L: UpstreamOf<E, Accepts = P::Instruction>,
+    L::Output: Executor<InstructionBatch<P::Instruction>> + Close,
 {
-    type Output = Result<Run<P, L::Output>, BuildFaults>;
+    type Output = Result<Run<Interpreted<DefaultInterpreter, P>, L::Output>, BuildFaults>;
 
     fn compose(self, executor: E) -> Self::Output {
         let (program, shots, adapters) = self.into_parts();
-        let needs = program.needs();
-        let mut renumbering = None;
-        let executor = adapters.upstream_of(executor, |offered| {
-            let checked = offered.check_needs(
-                type_name::<L::Output>(),
-                Some(shots.as_slice().len()),
-                &needs,
-                P::Instruction::BY_OPCODE,
-            );
-            match checked {
-                Ok(map) => {
-                    renumbering = map.and_then(P::Instruction::renumbering).map(Arc::new);
-                    Vec::new()
-                }
-                Err(unmet) => unmet
-                    .into_iter()
-                    .map(|unmet| BuildFault {
-                        component: type_name::<P>(),
-                        error: BuildError::Unmet(unmet),
-                    })
-                    .collect(),
-            }
-        })?;
-        let executor = P::Instruction::downstream(executor, renumbering.as_ref());
-        Ok(Run::new(program, shots, executor))
+        let chain = InterpreterDriver::<_, NoAdapter<P::Instruction>>::new(DefaultInterpreter)
+            .map_adapters(|_| adapters)
+            .compose(executor)?;
+        chain.run(program, shots).map_err(|JobFaults(faults)| {
+            let unmet = faults.into_iter().map(|rejected| match rejected {
+                Rejected::Unmet(unmet) => BuildFault {
+                    component: type_name::<P>(),
+                    error: BuildError::Unmet(unmet),
+                },
+                other => unreachable!(
+                    "a driver's shots are a set, and the crate's interpreter finds no \
+                     fault in a program that drives itself, so only needs fail: {other}"
+                ),
+            });
+            BuildFaults(unmet.collect())
+        })
     }
 }
 
@@ -295,14 +293,14 @@ impl<T, L: UpstreamOf<E>, E> Compose<E, WithExecutor> for InterpreterDriver<T, L
 }
 
 /// `>>` for the crate's types: `a >> b` is `compose(a, b)`, where `b` is
-/// an adapter. A chain that starts at a driver is written with `>>` all
+/// an adapter. A chain that starts at an interpreter is written with `>>` all
 /// along, a component made by a function included, when the function
 /// returns the type the facility gives ([`compose`]'s documentation).
 ///
 /// Not for any executor: `>>` takes no rule to infer, and an impl for any
 /// adapter and one for any executor would overlap. An executor is composed with
-/// `compose`, or its crate implements `>>` on [`Driver`],
-/// [`InterpreterDriver`] and [`ComposedAdapters`] for it, as this crate does
+/// `compose`, or its crate implements `>>` on [`InterpreterDriver`] and
+/// [`ComposedAdapters`] for it, as this crate does
 /// for the executors its facility makes and for an adapter, written by hand
 /// or not, composed with an executor; likewise an adapter of another
 /// crate, which this crate cannot give `>>`. Planned: a macro that writes
@@ -323,6 +321,7 @@ macro_rules! compose_by_shr {
     };
 }
 
+#[cfg(test)]
 compose_by_shr!(P, L; Driver<P, L>);
 compose_by_shr!(T, L; InterpreterDriver<T, L>);
 compose_by_shr!(X, Y; ComposedAdapters<X, Y>);
@@ -342,6 +341,7 @@ macro_rules! compose_executor_by_shr {
     // The bounds of the executor's type, which every impl that names it
     // states.
     ([$($right_generics:ident),*] $right:ty where $($bounds:tt)*) => {
+        #[cfg(test)]
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; P0, L0; Driver<P0, L0>);
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; T0, L0; InterpreterDriver<T0, L0>);
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; X0, Y0; ComposedAdapters<X0, Y0>);
@@ -382,8 +382,7 @@ compose_executor_by_shr!(
 );
 
 /// A component of a chain that cannot be built against what is downstream
-/// of it, and why: an adapter, or a driver whose needs the chain does not
-/// meet.
+/// of it, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BuildFault {
     /// The component's type.
@@ -392,8 +391,8 @@ pub struct BuildFault {
     pub error: BuildError,
 }
 
-/// Every fault of a chain built against an executor, upstream first (the
-/// driver's, then each adapter's), so that whoever builds the chain can fix
+/// Every fault of a chain built against an executor, each adapter's,
+/// upstream first, so that whoever builds the chain can fix
 /// them all at once. It reads as one message: each fault as its component
 /// and its error (`component: error`), in their order, joined by `"; "`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -475,9 +474,13 @@ pub enum BuildError {
     /// Equal only to itself: two faults compare equal when they share one
     /// error.
     Adapter(Arc<dyn std::error::Error + Send + Sync>),
-    /// A need of the driver that the chain downstream of it does not meet
-    /// ([`UnmetNeed`], as [`Rejected::Unmet`] states it), reported when the
-    /// driver is composed with an executor.
+    /// A need of a component that the chain downstream of it does not meet
+    /// ([`UnmetNeed`], as [`Rejected::Unmet`] states it). No component
+    /// reports it yet: a job's unmet needs are reported when the job is
+    /// given to the chain, among its [`JobFaults`](crate::JobFaults).
+    /// Planned: an adapter that states what it needs downstream, such as a
+    /// decoder that needs resumable shots, reports its unmet needs as this
+    /// when the chain is built (`docs/planned.md`).
     Unmet(UnmetNeed),
 }
 

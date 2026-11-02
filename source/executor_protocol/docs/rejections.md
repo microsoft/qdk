@@ -55,29 +55,29 @@ that is planned ([below](#a-reason-this-end-does-not-know-planned-decoder)).
 
 ## The reasons, and what produces them
 
-| Reason                           | Class         | Produced by                                                                                                                      |
-| -------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `NoShots`, `RepeatedShot`        | `Never`       | `ShotSet::new`, and `ShotSet::range` (`NoShots` only), when the caller builds the shots                                          |
-| `ShotNotHeld`                    | `Never`       | an executor, for a shot it does not hold (`executor_fn`, `OnePerShot` beyond its states); a run, for a shot outside its driver's |
-| `Instruction { at, reason }`     | `Never`       | an executor, for an instruction it does not accept, such as one outside its set or repeating a readout's tag within its batch    |
-| `Unmet`                          | `Never`       | `Capabilities::admit`, for a need beyond what a component offers (`compose` reports it as `BuildError::Unmet`)                   |
-| `Closed`, `EarlierFailure`       | `Never`       | an executor after `close`; one whose state carries over, after a failure (`ExecutorLifecycle`, `executor_fn`)                    |
-| `Unavailable`                    | `Later`       | an executor that cannot take the work now, such as an `executor_fn` whose state cannot be made yet                               |
-| `IdReused`                       | `Never`       | planned: layer L1, for an id resent with other content                                                                           |
-| `Malformed`                      | `Never`       | planned: layer L0, for a frame that does not decode, or a sequence number resent with other bytes                                |
-| `NoReply`                        | `Resend`      | planned: the caller's end of a link, when no verdict came                                                                        |
-| `Unrecognized { retry, reason }` | the far end's | planned: a decoder of reason codes, for a code this end does not know                                                            |
+| Reason                           | Class         | Produced by                                                                                                                        |
+| -------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `NoShots`, `RepeatedShot`        | `Never`       | `ShotSet::new`, and `ShotSet::range` (`NoShots` only), when the caller builds the shots                                            |
+| `ShotNotHeld`                    | `Never`       | an executor, for a shot it does not hold (`executor_fn`, `OnePerShot` beyond its `max_shots`); a run, for a shot outside its job's |
+| `Instruction { at, reason }`     | `Never`       | an executor, for an instruction it does not accept, such as one outside its set or repeating a readout's tag within its batch      |
+| `Unmet`                          | `Never`       | `Capabilities::admit`, for a need beyond what a component offers; `Chain::run`, for each, among a job's `JobFaults`                |
+| `Closed`, `EarlierFailure`       | `Never`       | an executor after `close`; one whose state carries over, after a failure (`ExecutorLifecycle`, `executor_fn`)                      |
+| `Unavailable`                    | `Later`       | an executor that cannot take the work now, such as an `executor_fn` whose state cannot be made yet                                 |
+| `IdReused`                       | `Never`       | planned: layer L1, for an id resent with other content                                                                             |
+| `Malformed`                      | `Never`       | planned: layer L0, for a frame that does not decode, or a sequence number resent with other bytes                                  |
+| `NoReply`                        | `Resend`      | planned: the caller's end of a link, when no verdict came                                                                          |
+| `Unrecognized { retry, reason }` | the far end's | planned: a decoder of reason codes, for a code this end does not know                                                              |
 
 ### A limit, or a shortage now: `Unmet` or `Unavailable`
 
-A device that holds at most two shots' states declares it
-(`Capabilities::with_states(2)`). A driver of three shots is beyond that limit
-whenever it is composed with it: `Unmet(States)`, refused before anything runs;
-`Capabilities::admit` refuses it too, for a caller that checks by hand. The
-caller splits the shots into runs one after the other. Within the limit, the
-memory may still be in use now (another run holds it): the executor refuses with
-`Unavailable`, class `Later`. Nothing ran, and the same message runs when sent
-again, downstream of an adapter too.
+A device that holds at most two shots at once declares it
+(`Capabilities::with_max_shots(2)`). A job of three shots is beyond that
+limit whenever it is given to a chain of it: `Unmet(Shots)`, refused before
+anything runs; `Capabilities::admit` refuses it too, for a caller that checks by
+hand. The caller splits the shots into runs one after the other. Within the
+limit, the memory may still be in use now (another run holds it): the executor
+refuses with `Unavailable`, class `Later`. Nothing ran, and the same message
+runs when sent again, downstream of an adapter too.
 
 Nothing in this crate produces the planned four yet; they are defined so
 that their reason codes (`reason_code`) keep their meaning when layers L1

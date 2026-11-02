@@ -8,13 +8,14 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex, mpsc};
 use std::task::Waker;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::tests::Count;
 use crate::tests::executor_fn::{
-    Flipped, Flips, Freed, Op as DrawingOp, PowerDownFailed, PowersDownBadly, ReleasesBadly,
-    count_flips, draw_value, flips, freed_so_far, holding_a_handle, narrow_promise, panic_text,
-    panics, powering_down_badly, read_drawn_bits, runs, stops,
+    Connection, Flipped, Flips, Freed, Op as DrawingOp, PowerDownFailed, PowersDownBadly,
+    ReleasesBadly, connected_device, count_flips, draw_value, flips, freed_so_far,
+    holding_a_handle, narrow_promise, panic_text, panics, powering_down_badly, read_drawn_bits,
+    runs, stops,
 };
 use crate::tests::placement::{
     Bit, BitLogP, CopyPanics, Op, PanicsWhenWoken, RunBit, Threads, dropped_while_a_call_runs,
@@ -688,13 +689,13 @@ fn states_and_log_p(
     })
 }
 
-/// A device of two states: a call that would hold a third shot is refused
-/// with that shot, and runs nothing; a call within its two runs.
+/// A device that holds two shots at once: a call that would hold a third shot
+/// is refused with that shot, and runs nothing; a call within its two runs.
 #[test]
-fn a_call_beyond_the_promised_states_is_refused_with_the_first_shot_it_has_no_room_for() {
+fn a_call_beyond_the_promised_max_shots_is_refused_with_the_first_shot_it_has_no_room_for() {
     let threads = Threads::default();
     let mut per_shot = executor_fn(
-        Capabilities::default().with_states(2),
+        Capabilities::default().with_max_shots(2),
         bits(&threads),
         run_bit as RunBit,
     )
@@ -705,7 +706,7 @@ fn a_call_beyond_the_promised_states_is_refused_with_the_first_shot_it_has_no_ro
         Some(Rejected::ShotNotHeld(2))
     );
     assert!(seen(&threads).is_empty(), "the refused call runs nothing");
-    let (_, end) = send(&mut per_shot, &[0, 1], &[Op::Flip]).expect("two states fit");
+    let (_, end) = send(&mut per_shot, &[0, 1], &[Op::Flip]).expect("two shots fit");
     end.expect("the logic does not fail");
     assert_eq!(
         send(&mut per_shot, &[0, 2], &[Op::Flip]).err(),
@@ -713,15 +714,15 @@ fn a_call_beyond_the_promised_states_is_refused_with_the_first_shot_it_has_no_ro
     );
 }
 
-/// A device of two states, a call on three new shots: the call is refused
-/// for room before any state is made, so the device makes none.
+/// A device that holds two shots at once, a call on three new shots: the call
+/// is refused for room before any state is made, so the device makes none.
 #[test]
 fn a_call_refused_for_room_makes_no_state() {
     let made = Arc::new(Mutex::new(0));
     let counted = Arc::clone(&made);
     let mut bit = bits(&Threads::default());
     let mut per_shot = executor_fn(
-        Capabilities::default().with_states(2),
+        Capabilities::default().with_max_shots(2),
         move |context: ShotContext| {
             *counted.lock().expect("no test thread panics holding it") += 1;
             bit(context)
@@ -730,7 +731,7 @@ fn a_call_refused_for_room_makes_no_state() {
     )
     .run_on(OwnThread)
     .shots(OnePerShot);
-    send(&mut per_shot, &[0, 1, 2], &[Op::Flip]).expect_err("two states, three shots");
+    send(&mut per_shot, &[0, 1, 2], &[Op::Flip]).expect_err("two shots at once, three shots");
     assert_eq!(*made.lock().expect("no test thread panics holding it"), 0);
 }
 
@@ -836,13 +837,13 @@ fn the_check_refuses_a_call_before_any_state_is_made() {
     assert!(seen(&threads).is_empty());
 }
 
-/// A device of two states, called on three shots with a batch its check
-/// refuses: the check's refusal comes first, not the shot it has no room
-/// for.
+/// A device that holds two shots at once, called on three shots with a batch
+/// its check refuses: the check's refusal comes first, not the shot it has no
+/// room for.
 #[test]
 fn the_check_refuses_a_call_before_its_room_is_checked() {
     let mut per_shot = executor_fn(
-        Capabilities::default().with_states(2),
+        Capabilities::default().with_max_shots(2),
         bits(&Threads::default()),
         run_bit as RunBit,
     )
@@ -863,12 +864,12 @@ fn the_check_refuses_a_call_before_its_room_is_checked() {
     );
 }
 
-/// A device of two states, closed, then called on three shots: the call
-/// is refused as closed, not for the shot it has no room for.
+/// A device that holds two shots at once, closed, then called on three shots:
+/// the call is refused as closed, not for the shot it has no room for.
 #[test]
 fn closed_it_refuses_a_call_before_its_room_is_checked() {
     let mut per_shot = executor_fn(
-        Capabilities::default().with_states(2),
+        Capabilities::default().with_max_shots(2),
         bits(&Threads::default()),
         run_bit as RunBit,
     )
@@ -1388,13 +1389,13 @@ fn a_second_close_reports_nothing() {
     ends_soon(move || conformance::reports_once(&mut per_shot));
 }
 
-/// A device of two states, each placed, refuses a call that would hold a
-/// third shot, then runs one on its two: the conformance kit's check that
-/// a refusal leaves the executor usable.
+/// A device that holds two shots at once, each placed, refuses a call that
+/// would hold a third shot, then runs one on its two: the conformance kit's
+/// check that a refusal leaves the executor usable.
 #[test]
 fn a_refused_call_leaves_it_usable() {
     let mut per_shot = executor_fn(
-        Capabilities::default().with_states(2),
+        Capabilities::default().with_max_shots(2),
         bits(&Threads::default()),
         run_bit as RunBit,
     )
@@ -1463,10 +1464,14 @@ fn a_tag_repeated_within_a_batch_is_refused() {
 #[test]
 fn each_shot_alone_gives_what_it_gives_among_others() {
     let drawing = || {
-        executor_fn(Capabilities::default(), draw_value, read_drawn_bits)
-            .seed(SEED)
-            .run_on(OwnThread)
-            .shots(OnePerShot)
+        executor_fn(
+            Capabilities::default().with_replayable(true),
+            draw_value,
+            read_drawn_bits,
+        )
+        .seed(SEED)
+        .run_on(OwnThread)
+        .shots(OnePerShot)
     };
     ends_soon(move || {
         let ops: Vec<_> = (0..16).map(DrawingOp::Read).collect();
@@ -1479,7 +1484,7 @@ fn each_shot_alone_gives_what_it_gives_among_others() {
 }
 
 /// A second call on shots 0 and 1, each on its own thread, reads the flip
-/// of the first: the conformance kit's check of `feedback`.
+/// of the first: the conformance kit's check of `resumable_shots`.
 #[test]
 fn a_second_call_continues_each_shot() {
     let threads = Threads::default();
@@ -1949,12 +1954,12 @@ fn given_a_state_per_shot_a_placed_executor_keeps_its_own_refusal() {
 
 /// A chain is composed against what its executor offers wherever its
 /// shots run: a device that states every limit it can, and claims
-/// probabilities, gets the promise of the other order, whether or not it
-/// is told how to read them.
+/// the log probability, gets the promise of the other order, whether or not it
+/// is told how to read a state's.
 #[test]
 fn it_promises_what_the_other_order_does() {
     let threads = Threads::default();
-    let promise = narrow_promise().with_probabilities(true);
+    let promise = narrow_promise().with_log_probability(true);
     let without = || executor_fn(promise.clone(), bits(&threads), run_bit as RunBit);
     let with = || without().log_probability(bit_value as BitLogP);
     assert_eq!(
@@ -2499,6 +2504,80 @@ fn dropped_it_frees_what_its_closures_and_placement_capture_raising_no_panic_of_
     panic::catch_unwind(AssertUnwindSafe(|| drop(per_shot)))
         .expect("`drop` raises no panic of a capture's drop");
     assert_eq!(released.load(Ordering::SeqCst), 2);
+}
+
+/// A device whose every closure holds a handle on its connection ran a
+/// call on shot 0 before its shots were each placed on a thread of their
+/// own, so it holds that session where its calls ran; dropped unclosed
+/// before any call there, it frees that session first, before any closure
+/// closes the connection, as `close` does.
+#[test]
+fn dropped_it_frees_a_state_held_from_before_it_was_placed_before_its_closures() {
+    let connection = Connection::default();
+    let mut device = connected_device(&connection);
+    let (_, end) = send(&mut device, &[0], &[Op::Flip]).expect("an open executor runs a call");
+    end.expect("the logic runs");
+    let per_shot = device.run_on(OwnThread).shots(OnePerShot);
+    drop(per_shot);
+    assert_eq!(connection.logged(), ["released shot 0"]);
+}
+
+/// A device whose every closure holds a handle on its connection, reached
+/// through a context per thread, runs its shots each on a thread of its
+/// own, with copies of the logic, log probability and report maker; it ran
+/// a call on shots 0 and 1, and is dropped unclosed: on each shot's
+/// thread, the session is dropped first, before the shot's copies of the
+/// closures close that thread's context.
+#[test]
+fn dropped_each_shot_frees_its_state_before_its_copies_of_the_closures() {
+    let connection = Connection::default();
+    let mut per_shot = connected_device(&connection)
+        .run_on(OwnThread)
+        .shots(OnePerShot);
+    let (_, end) = send(&mut per_shot, &[0, 1], &[Op::Flip]).expect("an open executor runs a call");
+    end.expect("the logic runs");
+    drop(per_shot);
+    // `drop` does not wait for the shots' threads, which drop their states.
+    let deadline = Instant::now() + PATIENT;
+    while connection.logged().len() < 2 && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(1));
+    }
+    let mut ended = connection.logged();
+    ended.sort();
+    assert_eq!(ended, ["released shot 0", "released shot 1"]);
+}
+
+/// A device whose every closure holds a handle on its connection, reached
+/// through a context per thread, runs its shots on a placement that holds
+/// each job until the test runs it; it ran a call on shot 0, and is
+/// dropped unclosed: `drop` returns without waiting for the shot's state,
+/// whose drop is a job still held, so the executor's own closures are
+/// freed first, on the dropping thread; the shot's session, freed there
+/// afterwards, finds that thread's context closed and leaks (`close`,
+/// which waits, would have freed it first).
+#[test]
+fn dropped_it_frees_its_own_closures_without_waiting_for_its_shots_states() {
+    let connection = Connection::default();
+    let (placement, jobs) = holding();
+    let mut per_shot = connected_device(&connection)
+        .run_on(placement)
+        .shots(OnePerShot);
+    let reply = per_shot
+        .call(InstructionBatchRef {
+            shots: &ShotSet::one(0),
+            instructions: &[Op::Flip],
+        })
+        .expect("an open executor queues a call");
+    (jobs.try_recv().expect("shot 0's call hands a job"))();
+    ended(reply).1.expect("the logic runs");
+    let logged = ends_soon(move || {
+        drop(per_shot);
+        for job in jobs.try_iter() {
+            job();
+        }
+        connection.logged()
+    });
+    assert_eq!(logged, ["shot 0 leaked"]);
 }
 
 /// What a closure of a device, or its placement, captures: a handle on

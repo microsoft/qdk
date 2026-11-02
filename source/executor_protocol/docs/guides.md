@@ -12,7 +12,7 @@ shot's seed). Read them in this order:
 
 | Task                                              | Test file                    | What it builds                                                                                                           | Section                                                                            |
 | ------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| run a program on a simulator                      | `tests/simulator.rs`         | a program run on the toy simulator: a driver composed with an executor, checked, then waited for                         | [Running a program](#running-a-program)                                            |
+| run a program on a simulator                      | `tests/simulator.rs`         | a program run on the toy simulator: a job given to a chain, checked, then waited for                                     | [Running a program](#running-a-program)                                            |
 | bridge a backend written before the protocol      | `tests/existing_tool.rs`     | a bridge for a backend written before the protocol, and a profiler                                                       | [An existing backend and a profiler](#an-existing-backend-and-a-profiler)          |
 | write an executor, and place it on a thread       | `tests/per_shot_executor.rs` | an executor with a state per shot: its logic alone, made an executor by `executor_fn`, driven by a program with feedback | [Making an executor](executors.md#making-an-executor-executor_fn)                  |
 | write an adapter that observes a chain            | `tests/observers.rs`         | a profiler that counts each shot's calls, and a debugger that logs them, between the interpreter and the toy             | [Observers: a profiler and a debugger](#observers-a-profiler-and-a-debugger)       |
@@ -29,19 +29,16 @@ placement on a thread of its own included
 
 [`tests/simulator.rs`](../tests/simulator.rs) is what a user of a simulator
 writes. Its program, `FlipACoin` (a `Drive`), flips a coin on qubit 0 of each
-shot and reads it; with the shots it runs, it is a driver, composed with the toy
-simulator built with its seed. Waited for, the run gives the program's output,
-one outcome per shot, and the executor's report, here of the one batch sent:
+shot and reads it; with the shots it runs, it is a job, given to the chain of
+the crate's interpreter composed with the toy simulator built with its seed.
+Waited for, the run gives the program's output, one outcome per shot, and the
+executor's report, here of the one batch sent:
 
 ```rust
 let (program, shots, seed) = (FlipACoin { qubits: 1 }, shots(), 7);
-let run = compose(Driver::new(program, shots), toy_simulator(seed))?;
+let run = compose(interpreter(), toy_simulator(seed))?.run(program, shots)?;
 let (output, report) = run.wait();
 ```
-
-This guide binds its program to its shots as a `Driver`. Given instead as a job
-to a chain headed by the interpreter, as in the README's example
-(`chain.run(program, shots)`), the same program runs the same.
 
 What a user relies on, each shown by a test of
 [`tests/simulator.rs`](../tests/simulator.rs):
@@ -51,8 +48,8 @@ What a user relies on, each shown by a test of
   with another seed gives others.
 - A shot draws the same outcomes whichever shots run beside it: the even shots
   and the odd shots, run apart, read the coins they read together.
-- A program that needs more qubits than the simulator has is refused when
-  composed, with the need it does not meet.
+- A program that needs more qubits than the simulator has is refused when its
+  job is given to the chain (`chain.run`), with the need it does not meet.
 - A refused batch runs nothing: after a batch refused for its last instruction,
   each shot reads the coin it read before. The toy names the first instruction
   it does not accept.
@@ -81,6 +78,9 @@ What the protocol adds, each shown by a test of
   on.
 - The profiler's random bits replay from the run's seed, and its counts are a
   report folded over shots.
+- A program of more than one batch, which continues its shots from one batch to
+  the next, runs on the profiler and on the bridge: each promises resumable
+  shots, and the profiler replayable ones too.
 - Within a batch, a tag names one readout of each shot ([readout
   tags](replies.md#readout-tags)).
 
@@ -137,13 +137,14 @@ Use it for a backend that exists already, one that names its instructions by
 string or by id; for a backend of ids, the table holds its id of each opcode
 instead. An executor written for the protocol takes its instruction type
 directly, as the toy does. The guide's bridge holds one shot's state, the
-backend, and describes the set it runs, so a `Driver` of one shot composes with
-it. It promises no other limit (`Capabilities::default()`, lowered to one
-state): an existing backend does not say how many qubits it has, so no qubit
-count is checked over the bridge, and a driver that needs more fails at run
-time, by the backend's error. It drops its backend when it closes, so nothing
-reads the backend after a run; a port of an existing tool would give the backend
-back when it closes (in its report, say).
+backend, and describes the set it runs, so a job of one shot runs on it. It
+promises that it continues its shot from one call to the next, since the backend
+keeps its state, and nothing else (`Capabilities::default()` with resumable
+shots, which `executor_fn` lowers to one shot): an existing backend does not say
+how many qubits it has, so no qubit count is checked over the bridge, and a
+program that needs more fails at run time, by the backend's error. It drops its
+backend when it closes, so nothing reads the backend after a run; a port of an
+existing tool would give the backend back when it closes (in its report, say).
 
 ## Observers: a profiler and a debugger
 
@@ -316,7 +317,8 @@ The general rule:
 - **The type still has a description**: the toy describes its set, and `compose`
   checks that it runs every instruction the gadgets send, when it puts the code
   upstream of the toy's shots. It states the logical set, not the physical one,
-  so a driver that needs an instruction the code lacks is refused when composed.
+  so a program that needs an instruction the code lacks is refused when given to
+  the chain.
   The type and its description are written apart; a test keeps them together,
   matching each variant to an instruction of the description.
 - **A lowering keeps the message kind and changes the instruction set**; it
@@ -402,16 +404,16 @@ What the guide shows, each rule pinned by a test:
   its own, before what is upstream of it, so its faults come back without those
   ([Composing a run](composition.md#composing-a-run)).
 - **The code describes the logical set**, so the chain upstream of it is checked
-  against what it accepts, and a driver is composed with it only when the code
-  has every instruction it needs. The code passes the device's resets on, and
-  the instructions matched guarantee a reset: a driver that resets, upstream of
-  a code with no reset, is refused when composed, its reset named.
-- **A driver in another order is served, and a fast one builds its calls by
-  name.** A driver whose set declares the logical instructions in another order
-  is composed with the code, and each of its batches is copied into the code's
-  numbering; a call at an opcode the driver's set lacks is refused, or an
+  against what it accepts, and a program runs on it only when the code has
+  every instruction it needs. The code passes the device's resets on, and the
+  instructions matched guarantee a reset: a program that resets is refused when
+  given to a chain whose code has no reset, its reset named.
+- **A program in another order is served, and a fast one builds its calls by
+  name.** A program whose set declares the logical instructions in another
+  order runs on the code, and each of its batches is copied into the code's
+  numbering; a call at an opcode the program's set lacks is refused, or an
   earlier call of the batch that the code's set refuses, if there is one. A
-  driver that cannot afford the copy builds its calls by name with the set the
+  program that cannot afford the copy builds its calls by name with the set the
   code describes, and states that set as its needs, so its calls are in the
   code's numbering, run as it means them, and pass as they are
   ([Compatibility](internals/instruction-sets.md#compatibility-the-rules)):
@@ -421,7 +423,9 @@ What the guide shows, each rule pinned by a test:
       .capabilities()
       .instruction_set
       .expect("the code describes the logical set");
-  let run = compose(Driver::new(PrepareFlipAndRead(set), ShotSet::one(0)), code)
+  let run = compose(interpreter(), code)
+      .expect("nothing between to refuse")
+      .run(PrepareFlipAndRead(set), ShotSet::one(0))
       .expect("the code accepts its own set");
   ```
 

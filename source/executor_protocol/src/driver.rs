@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The driver: a program that calls the executor it is composed with
-//! ([`Drive`]), with the shots and the adapters it runs with ([`Driver`]).
+//! The driver: a program that calls the executor of the chain it is given
+//! to ([`Drive`]).
 //!
 //! - [`interpreter`]: a driver that is an interpreter of programs, which
 //!   are then data: composed with an executor, it gives a chain that runs
@@ -15,9 +15,11 @@ pub(crate) mod static_program;
 
 use std::future::Future;
 
-use crate::{Executor, Instruction, InstructionBatch, Needs, NoAdapter, ShotSet};
+#[cfg(test)]
+use crate::NoAdapter;
 #[cfg(doc)]
-use crate::{Run, compose};
+use crate::{Chain, Run};
+use crate::{Executor, Instruction, InstructionBatch, Needs, ShotSet};
 
 /// A program that drives an executor: what it needs of the chain, and how it
 /// drives any executor of its instructions, through one generic method.
@@ -32,9 +34,9 @@ pub trait Drive {
     /// What it gives when it is done.
     type Output;
 
-    /// What it needs of the chain, checked when it is composed with an executor
-    /// ([`compose`](fn@crate::compose)). The default needs nothing but a state
-    /// per shot.
+    /// What it needs of the chain, checked when it is given to a chain
+    /// ([`Chain::run`]). The default needs nothing but the run's shots, held
+    /// at once ([`Needs`]).
     #[must_use]
     fn needs(&self) -> Needs {
         Needs::default()
@@ -44,16 +46,18 @@ pub trait Drive {
     /// it runs on, a part of `shots`; a call naming another shot is refused
     /// by the run ([`Rejected::ShotNotHeld`](crate::Rejected::ShotNotHeld)).
     /// The program only calls `executor`: what the chain offers was checked
-    /// when the driver was composed with it, and the run closes it once the
+    /// when the program was given to it, and the run closes it once the
     /// program's future has ended.
     fn drive<E>(self, executor: &mut E, shots: &ShotSet) -> impl Future<Output = Self::Output>
     where
         E: Executor<InstructionBatch<Self::Instruction>>;
 }
 
-/// A driver: a program, the shots it runs, and the adapters composed
-/// downstream of it (none at first). Composed with an executor, it
-/// gives a [`Run`].
+/// A driver, for the crate's tests: a program, the shots it runs, and the
+/// adapters composed downstream of it (none at first). Composed with an
+/// executor, it gives the [`Run`] of the chain of the crate's interpreter
+/// on its adapters and that executor, its job's faults reported as
+/// [`BuildFaults`](crate::BuildFaults).
 ///
 /// It takes no seed: the run's seed is given to the last executor when it
 /// is built ([`ExecutorFn::seed`](crate::ExecutorFn::seed)), and reaches
@@ -68,12 +72,14 @@ pub trait Drive {
 /// - `P`: the program ([`Drive`]), given to [`Driver::new`].
 /// - `L`: the adapters composed downstream of it by `>>`
 ///   ([`ComposedAdapters`](crate::ComposedAdapters)); none at first.
-pub struct Driver<P, L> {
+#[cfg(test)]
+pub(crate) struct Driver<P, L> {
     program: P,
     shots: ShotSet,
     adapters: L,
 }
 
+#[cfg(test)]
 impl<P: Drive> Driver<P, NoAdapter<P::Instruction>> {
     /// `program`, to run `shots`. The same job also runs as any other
     /// does, given to a chain of the crate's interpreter:
@@ -81,7 +87,7 @@ impl<P: Drive> Driver<P, NoAdapter<P::Instruction>> {
     /// ([`Chain::run`](crate::Chain::run)), its faults then reported
     /// together with the shots' ([`JobFaults`](crate::JobFaults)).
     #[must_use]
-    pub fn new(program: P, shots: ShotSet) -> Self {
+    pub(crate) fn new(program: P, shots: ShotSet) -> Self {
         Self {
             program,
             shots,
@@ -90,6 +96,7 @@ impl<P: Drive> Driver<P, NoAdapter<P::Instruction>> {
     }
 }
 
+#[cfg(test)]
 impl<P, L> Driver<P, L> {
     /// This driver, with its adapters replaced by `f` of them.
     pub(crate) fn map_adapters<M>(self, f: impl FnOnce(L) -> M) -> Driver<P, M> {

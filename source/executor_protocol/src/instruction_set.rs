@@ -13,8 +13,9 @@
 //! fixes the shape of an instruction, not which ones the executor runs (a
 //! device without `cx` still takes `InstructionBatch<Op>`). With the
 //! description, a chain checks, when it is built, that each adapter sends
-//! only what the downstream executor accepts ([`InstructionSet::fits`]), and
-//! that the executor a driver is composed with accepts the driver's set. An
+//! only what the downstream executor accepts ([`InstructionSet::fits`]), and,
+//! when a job is given to it ([`Chain::run`](crate::Chain::run)), that the
+//! executor accepts the set of the job's program. An
 //! executor of `InstructionCall`s also checks each call
 //! ([`InstructionSet::check_batch`]), since the compiler cannot.
 //!
@@ -27,10 +28,10 @@
 //! instructions in another order, numbers them differently. So one set's
 //! instructions are matched in another once, giving each its opcode there
 //! ([`InstructionSet::opcodes_in`], an [`OpcodeMap`]): an adapter resolves
-//! what it sends into the downstream numbering when it is built, and
-//! [`compose`](fn@crate::compose) adapts a driver's numbering to its
-//! chain's. Where two numberings differ, calls are renumbered on
-//! their way ([`Renumbering`]).
+//! what it sends into the downstream numbering when it is built, and a
+//! chain adapts its job's numbering to its own when the job is given to it
+//! ([`Chain::run`](crate::Chain::run)). Where two numberings differ, calls
+//! are renumbered on their way ([`Renumbering`]).
 //!
 //! The description follows Qodec's: an instruction is named by its mnemonic,
 //! takes block operands, then parameters, then one tag per readout, and may

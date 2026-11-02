@@ -12,7 +12,7 @@ use crate::{
 fn reason_codes_are_fixed() {
     let unmet = UnmetNeed {
         component: String::new(),
-        need: Need::Feedback,
+        need: Need::ResumableShots,
         needed: 1,
         offered: 0,
         mismatches: Vec::new(),
@@ -53,12 +53,12 @@ fn reason_codes_are_fixed() {
 fn need_codes_are_fixed_and_decode_back() {
     let needs = [
         (Need::Qubits, 0),
-        (Need::Feedback, 1),
+        (Need::ResumableShots, 1),
         (Need::Resets, 2),
-        (Need::States, 3),
+        (Need::Shots, 3),
         (Need::Replayable, 4),
-        (Need::Probabilities, 5),
-        (Need::Instructions, 6),
+        (Need::LogProbability, 5),
+        (Need::InstructionSet, 6),
     ];
     for (need, code) in needs {
         assert_eq!(need_code(need), code);

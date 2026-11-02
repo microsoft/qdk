@@ -37,17 +37,14 @@ section states the protocol's rules that the other pages build on.
   (`Apply`) that sits upstream of it, so adapters composed with an executor
   give an executor again, and a driver written once runs on every chain.
 - A **chain** is built by `compose`, or `>>`: each adapter is built once
-  against what is downstream of it, and a driver's needs are checked
-  against what the chain offers, every fault of the parts built together
-  reported together before anything runs (`BuildFaults`); a part composed
+  against what is downstream of it, every fault of the parts built
+  together reported together before anything runs (`BuildFaults`); a part composed
   with the executor first is built on its own, before what is upstream of
   it ([The rules of composition](#the-rules-of-composition)). Headed by
   the crate's interpreter, `interpreter()`, the chain is a `Chain`, which
   checks each job given to it, `chain.run(program, shots)`, before any
-  call (`JobFaults`), and gives its `Run`; a `Driver`, a program that
-  drives itself (`Drive`) bound to its shots by
-  `Driver::new(program, shots)`, composed with an executor gives its `Run`
-  directly. A run owns the chain: when it is waited for or awaited, it
+  call (`JobFaults`), and gives its `Run`. A run owns the chain: when it is
+  waited for or awaited, it
   drives the executor and closes it once its program ends
   ([Composing a run](../composition.md#composing-a-run),
   [A chain and its job](../composition.md#a-chain-and-its-job)).
@@ -170,7 +167,7 @@ at the end of the chain:
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **driver**        | not an executor: the caller at the upstream end, which names the shots, sends instructions and reads the outcomes                                                                                                                                                                                                                                                                                                                                                                                   | `FlipALogicalCoin`, a `Drive`, in `tests/static_isa.rs`; `coin_then_feedback` in `tests/toy/simulator.rs`; `Program` in `tests/existing_tool.rs`             |
 | **adapter**       | not an executor: a map from an executor to an executor. It maps the executor downstream of it, once, to the executor upstream, which calls it on the shots it is called on, possibly with another instruction type                                                                                                                                                                                                                                                                                  | `RepetitionCode` puts a `Repetition3` upstream, which sends `Op` for `Logical` (a lowering); `Debuggers` a `Debugger`, which sends what it accepts (a probe) |
-| **executor**      | an `Executor<M>`: it runs each shot named; offering `feedback`, it promises that a later call continues a shot from the state its earlier calls left                                                                                                                                                                                                                                                                                                                                                | the guide's `toy_simulator`, made with `executor_fn` and `OnePerShot`; adapters composed with an executor                                                    |
+| **executor**      | an `Executor<M>`: it runs each shot named; offering `resumable_shots`, it promises that a later call continues a shot from the state its earlier calls left                                                                                                                                                                                                                                                                                                                                         | the guide's `toy_simulator`, made with `executor_fn` and `OnePerShot`; adapters composed with an executor                                                    |
 | **last executor** | not a type: the executor at the end of a chain, which calls nothing. Its capabilities (`Describe`) and its report (`Close`) originate there, and every adapter passes them on: the capabilities changed where it changes them, the report as it is, unless the adapter is given a `state_report`, which adds its own report beside the one below, its own first (`an_adapter_given_no_state_report_adds_no_pair_to_the_report`, `a_one_state_adapters_report_is_its_state_beside_the_report_below`) | the guide's `toy_simulator`                                                                                                                                  |
 
 Three laws make the parts interchangeable; the second holds on a replayable
@@ -198,8 +195,12 @@ let run = |ids: &[ShotId]| {
     )
     .seed(11)
     .shots(OnePerShot);
-    let driver = Driver::new(Program::flip_and_toss(bits_set()), shots(ids));
-    let (outcomes, _) = (driver >> simulator).expect("no adapter, no fault").wait();
+    let program = Program::flip_and_toss(bits_set());
+    let (outcomes, _) = (interpreter() >> simulator)
+        .expect("no adapter, no fault")
+        .run(program, shots(ids))
+        .expect("the simulator runs the bits' set")
+        .wait();
     outcomes
 };
 ```
@@ -300,8 +301,9 @@ The parts of a run, as
   `toy_simulator(seed)`, made with `executor_fn`, `.seed(seed)` and
   `.shots(OnePerShot)`), or adapters composed with it. A driver with
   no adapter runs on any executor, an ensemble (one state shared by its
-  shots) included (`a_driver_composes_with_any_executor`), its needs
-  checked when it is composed, as for any; adapters map an ensemble whole,
+  shots) included (`a_driver_composes_with_any_executor`), its job's needs
+  checked when the job is given to the chain, as for any; adapters map an
+  ensemble whole,
   as they map any executor, so one that passes every call through changes
   nothing (`a_passing_adapter_over_an_ensemble_changes_nothing`).
 - An **adapter** maps the executor downstream of it to the executor
@@ -316,13 +318,12 @@ The parts of a run, as
   [A state that owns its way below](../adapters.md#a-state-that-owns-its-way-below-owning_adapter_fn)).
 - A **driver** heads the chain. The crate's interpreter, `interpreter()`
   (an `InterpreterDriver`), makes a `Chain`, which runs the job given to
-  it ([A chain and its job](../composition.md#a-chain-and-its-job)).
-  `Driver::new(program, shots)` binds a program that drives itself
-  (`Drive`) to its shots, and composed with an executor gives its run
-  directly. Either way, the run's seed is the one the last executor is
-  built with ([Seeds](../executors.md#seeds-not-generators)).
-- A **run** is what a driver composed with an executor gives, or a chain
-  given a job, and it owns the chain: the driver only calls it. Composing
+  it ([A chain and its job](../composition.md#a-chain-and-its-job)), a
+  program that drives itself (`Drive`) included. The run's seed is the one
+  the last executor is built with
+  ([Seeds](../executors.md#seeds-not-generators)).
+- A **run** is what a chain given a job gives, and it owns the chain: the
+  driver only calls it. Composing, or giving a job,
   runs nothing
   (`a_run_runs_nothing_until_it_is_waited_for`); `run.wait()`, or
   `run.await` for an asynchronous caller, drives the executor, closes it
@@ -334,7 +335,7 @@ The parts of a run, as
   and gives the program's output and
   the executor's report
   (`a_run_gives_the_programs_output_and_the_executors_report`). A call on a
-  shot the driver did not name is refused before the executor sees it
+  shot the job did not name is refused before the executor sees it
   (`a_call_on_a_shot_outside_the_drivers_is_refused_before_the_executor_sees_it`).
   A program may take replies with `wait` inside its run: the run's own
   parking loses none of its wakes
@@ -356,10 +357,7 @@ The parts of a run, as
   as a `Result`, unwrapped before it is composed further, so
   `compose(a, compose(b, executor)?)` returns the faults of `b` before `a`
   is built
-  (`a_part_composed_with_the_executor_first_reports_its_faults_before_upstream_is_built`),
-  and `compose(driver, compose(b, executor)?)` before the driver's needs
-  are checked
-  (`a_part_composed_with_the_executor_first_reports_its_faults_before_a_drivers_needs_are_checked`).
+  (`a_part_composed_with_the_executor_first_reports_its_faults_before_upstream_is_built`).
 - **An adapter written by hand is applied once, to the whole executor**,
   when the chain is built, and its executor is called with each batch on
   all its shots
@@ -389,7 +387,7 @@ The parts of a run, as
   adapter that changes the set still passes `resets` on, since the
   instructions matched guarantee a reset where sets are described
   ([instruction sets](instruction-sets.md#compatibility-the-rules):
-  `a_driver_resetting_upstream_of_a_code_without_a_reset_is_refused_when_composed`).
+  `a_program_resetting_upstream_of_a_code_without_a_reset_is_refused_when_given_to_the_chain`).
   The faults come back together, the most upstream adapter's first,
   each named (`BuildFaults`):
 
@@ -414,14 +412,12 @@ The parts of a run, as
   executor composed describes what the adapters derive
   (`an_executor_composed_describes_what_its_adapters_derive`).
 
-- **The driver is checked when it is composed with an executor**, against
-  what the chain offers, so that nothing runs that would be refused
-  (`a_driver_whose_needs_the_chain_lacks_is_refused_when_composed`). Every
-  need it lacks is reported
-  (`every_need_of_a_driver_that_the_chain_lacks_is_reported`), the
-  driver's first, with the adapters' faults
-  (`a_drivers_unmet_needs_are_reported_with_the_adapters_faults`), each a
-  `BuildError::Unmet`.
+- **A job's needs are checked when it is given to the chain**, not when
+  the chain is built, against what the chain offers, so that nothing runs
+  that would be refused: every need its program lacks is reported
+  (`every_need_of_a_program_that_the_chain_lacks_is_reported`), each a
+  `Rejected::Unmet` among the job's `JobFaults`
+  ([A chain and its job: the rules](#a-chain-and-its-job-the-rules)).
 - **Where an adapter's calls meet the executor downstream, the boundary is
   decided once, when the chain is built.** Typed instructions are checked by
   the compiler, and the downstream shot is given to the adapter as it is, at
@@ -433,8 +429,10 @@ The parts of a run, as
   avoids the copy by sending in the downstream numbering, taken when it is built
   (`AdapterBoundary::adopt_downstream_numbering`, as the run-time guide's
   `Encoding` does: `an_adapter_that_can_send_in_the_downstream_numbering_does`).
-  The driver's boundary is the same: a driver whose set numbers the instructions
-  otherwise has each batch copied into the chain's numbering
+  The driver's boundary is renumbered the same way, decided when a job is given
+  to the chain (`a_job_whose_calls_a_decoder_does_not_accept_is_refused`): a
+  driver whose set numbers the instructions otherwise has each batch copied
+  into the chain's numbering
   (`a_driver_in_another_order_runs_its_own_instructions_through_the_chain`), and
   a driver that cannot afford the copy builds its calls by name with the set the
   chain describes (`InstructionSet::call`), so they pass as they are
@@ -455,20 +453,21 @@ The parts of a run, as
 - **Every boundary of calls by opcode is checked, or the chain is refused**,
   in each of these cases:
 
-| Case                                                                                                                                                                          | Verdict                                                                                                     | Shown by                                                                                                                                                    |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| sets of one name, at the driver's boundary or at an adapter's                                                                                                                 | composed: matched by mnemonic, no action needed                                                             | `a_driver_and_an_executor_sharing_a_set_without_actions_are_composed`, `an_adapter_sending_the_set_downstream_without_actions_is_composed`                  |
-| at the driver's boundary, between sets of other names, an instruction both sets have under its mnemonic, with the same operands, that either leaves without a declared action | refused (`InstructionMismatch::UndeclaredAction`), with every other fault at once                           | `an_instruction_whose_action_the_drivers_set_leaves_undeclared_is_refused_when_composed`, `every_undeclared_action_of_a_chain_is_reported_at_once`          |
-| at an adapter's boundary, the same                                                                                                                                            | refused (`InstructionMismatch::UndeclaredAction`)                                                           | `an_instruction_whose_action_the_downstream_set_leaves_undeclared_is_refused`                                                                               |
-| a driver of `InstructionCall`s that states no set, so its opcodes are just numbers                                                                                            | refused, its need of instructions unmet (`BuildError::Unmet`)                                               | `a_driver_of_calls_by_opcode_that_states_no_set_is_refused_when_composed`                                                                                   |
-| an adapter that passes such calls through, stating no set, over an executor that describes none                                                                               | refused (`BuildError::NoInstructionSetDownstream`)                                                          | `a_passing_adapter_of_calls_by_opcode_over_no_set_is_refused`                                                                                               |
-| the same adapter over a set                                                                                                                                                   | composed: it accepts the set downstream as it is, and the calls upstream of it are checked against that set | `a_passing_adapter_of_calls_by_opcode_stating_no_set_accepts_the_set_downstream`                                                                            |
-| an adapter that makes such calls from instructions of another type and states no set it sends, whatever it accepts and whatever is downstream                                 | refused (`BuildError::UnstatedSends`)                                                                       | `an_adapter_that_makes_calls_by_opcode_and_states_no_set_is_refused`, `an_adapter_that_makes_calls_by_opcode_and_states_only_the_set_it_accepts_is_refused` |
-| an adapter that states the set it sends                                                                                                                                       | composed, that set checked against the set downstream                                                       | `an_adapter_that_makes_calls_by_opcode_and_states_the_set_it_sends_is_composed`                                                                             |
-| a typed boundary over no set                                                                                                                                                  | composed: the compiler checks that both sides run the same type                                             | `a_typed_chain_that_describes_no_set_is_composed`                                                                                                           |
-| a typed adapter that states the set it accepts, and sends it as it is, over no set                                                                                            | refused (`BuildError::NoInstructionSetDownstream`): a set sent is checked, so it needs one downstream       | `a_typed_adapter_stating_the_set_it_accepts_over_no_set_is_refused`                                                                                         |
-| an adapter that decodes calls by opcode into typed instructions, stating only the set it accepts, over no set                                                                 | composed, and the calls upstream of it checked against the set it accepts (`BuildError::Unmet` otherwise)   | `a_decoder_of_calls_by_opcode_over_no_set_is_composed`, `a_driver_whose_calls_a_decoder_does_not_accept_is_refused_when_composed`                           |
-| the same decoder stating no set                                                                                                                                               | composed: it accepts the set downstream as it is, and the calls upstream of it are checked against that set | `a_decoder_stating_no_set_accepts_the_set_downstream`                                                                                                       |
+| Case                                                                                                                                                                          | Verdict                                                                                                                                    | Shown by                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sets of one name, at the driver's boundary                                                                                                                                    | accepted when the job is given to the chain: matched by mnemonic, no action needed                                                         | `a_driver_and_an_executor_sharing_a_set_without_actions_are_composed`                                                                                       |
+| sets of one name, at an adapter's boundary                                                                                                                                    | composed: matched by mnemonic, no action needed                                                                                            | `an_adapter_sending_the_set_downstream_without_actions_is_composed`                                                                                         |
+| at the driver's boundary, between sets of other names, an instruction both sets have under its mnemonic, with the same operands, that either leaves without a declared action | refused (`InstructionMismatch::UndeclaredAction`), when the job is given to the chain                                                      | `an_instruction_whose_action_the_drivers_set_leaves_undeclared_is_refused`                                                                                  |
+| at an adapter's boundary, the same                                                                                                                                            | refused (`InstructionMismatch::UndeclaredAction`), every boundary's at once                                                                | `an_instruction_whose_action_the_downstream_set_leaves_undeclared_is_refused`, `every_undeclared_action_of_a_chain_is_reported_at_once`                     |
+| a program of `InstructionCall`s that states no set, so its opcodes are just numbers                                                                                           | refused, its need of an instruction set unmet (`Rejected::Unmet`), when the job is given to the chain                                      | `a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal`                                                                                  |
+| an adapter that passes such calls through, stating no set, over an executor that describes none                                                                               | refused (`BuildError::NoInstructionSetDownstream`)                                                                                         | `a_passing_adapter_of_calls_by_opcode_over_no_set_is_refused`                                                                                               |
+| the same adapter over a set                                                                                                                                                   | composed: it accepts the set downstream as it is, and the calls upstream of it are checked against that set                                | `a_passing_adapter_of_calls_by_opcode_stating_no_set_accepts_the_set_downstream`                                                                            |
+| an adapter that makes such calls from instructions of another type and states no set it sends, whatever it accepts and whatever is downstream                                 | refused (`BuildError::UnstatedSends`)                                                                                                      | `an_adapter_that_makes_calls_by_opcode_and_states_no_set_is_refused`, `an_adapter_that_makes_calls_by_opcode_and_states_only_the_set_it_accepts_is_refused` |
+| an adapter that states the set it sends                                                                                                                                       | composed, that set checked against the set downstream                                                                                      | `an_adapter_that_makes_calls_by_opcode_and_states_the_set_it_sends_is_composed`                                                                             |
+| a typed boundary over no set                                                                                                                                                  | composed: the compiler checks that both sides run the same type                                                                            | `a_typed_chain_that_describes_no_set_is_composed`                                                                                                           |
+| a typed adapter that states the set it accepts, and sends it as it is, over no set                                                                                            | refused (`BuildError::NoInstructionSetDownstream`): a set sent is checked, so it needs one downstream                                      | `a_typed_adapter_stating_the_set_it_accepts_over_no_set_is_refused`                                                                                         |
+| an adapter that decodes calls by opcode into typed instructions, stating only the set it accepts, over no set                                                                 | composed, and the calls upstream of it checked against the set it accepts when the job is given to the chain (`Rejected::Unmet` otherwise) | `a_decoder_of_calls_by_opcode_over_no_set_is_composed`, `a_job_whose_calls_a_decoder_does_not_accept_is_refused`                                            |
+| the same decoder stating no set                                                                                                                                               | composed: it accepts the set downstream as it is, and the calls upstream of it are checked against that set                                | `a_decoder_stating_no_set_accepts_the_set_downstream`                                                                                                       |
 
 So a chain that composes is verified, provided that an adapter of calls by
 opcode that states no set sends the calls it is called with, as
@@ -508,10 +507,11 @@ Two other ways serve callers that need them:
 
 ## A chain and its job: the rules
 
-A program that drives itself (`Drive`), given to a chain, runs as its
-`Driver` runs on the same chain
-(`a_drive_program_given_to_a_chain_runs_as_its_driver_runs`,
-`a_chain_runs_a_job_as_its_program_written_as_a_driver_runs`). The
+A program that drives itself (`Drive`), given to a chain, runs as it runs
+driving the chain's executor itself
+(`a_drive_program_given_to_a_chain_runs_as_it_runs_driving_the_executor_itself`),
+and a static program as the same program written as a `Drive`
+(`a_chain_runs_a_job_as_its_program_written_as_a_driver_runs`). The
 rules of a job given to a chain
 ([A chain and its job](../composition.md#a-chain-and-its-job)):
 
@@ -521,8 +521,10 @@ rules of a job given to a chain
   `a_job_that_names_a_shot_twice_is_refused`), no more than the executor
   holds at once
   (`a_job_of_more_shots_than_the_executor_holds_is_refused`); the
-  program's needs must be met by what the chain offers, reported as a
-  driver's are (`a_jobs_unmet_needs_are_those_its_driver_reports`,
+  program's needs must be met by what the chain offers, each unmet need
+  reported in the order `Capabilities::admit` checks them, naming the
+  chain's executor
+  (`a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor`,
   `a_static_programs_needs_are_checked_when_given_to_a_chain`); and the
   interpreter must find no fault in the program, such as a call outside its
   set (`a_call_outside_the_programs_set_is_refused`). The shots' fault
@@ -563,8 +565,9 @@ where one does. Where a planned feature lifts one, it is named here, and
 
 ### Which parts the operator joins
 
-`>>` is implemented for the crate's types (`Driver`, `InterpreterDriver`,
-`ComposedAdapters`, `NoAdapter`, `AdapterFn`, `OnePerShotAdapter`), with
+`>>` is implemented for the crate's types (`InterpreterDriver`,
+`ComposedAdapters`, `NoAdapter`, `AdapterFn`, `OnePerShotAdapter`, and the
+test-only `Driver`), with
 an adapter or an executor the facility makes (`ExecutorFn`,
 `OnePerShotExecutor`, `OnePerShotPlacedExecutor`, `PlacedExecutor`,
 `AdapterFnExecutor`, `OnePerShotAdapterExecutor`, `AdapterExecutor`) on
@@ -586,16 +589,17 @@ takes more for an executor than for an adapter. An adapter written by
 hand already follows a driver with `>>`
 (`a_logical_run_draws_each_shots_coins_from_its_physical_seed`,
 `tests/static_isa.rs`, writes
-`Driver::new(program, shots.clone()) >> RepetitionCode::default()`), and
+`interpreter() >> RepetitionCode::default()`), and
 gets `>>` with an executor on its right in a few lines, one impl per
 executor type, as `tests/static_isa/repetition_code.rs` does for
 `RepetitionCode` with the toy simulator. An executor written by hand gets
 `>>` from a left-hand type only where its crate implements it: one impl
-for each of the five public ones (`Driver`, `InterpreterDriver`,
+for each of the four public ones (`InterpreterDriver`,
 `ComposedAdapters`, `AdapterFn`, `OnePerShotAdapter`), as
-`src/compose.rs` does for the executors the facilities make; the sixth
-impl there, for `NoAdapter`, is the crate's own, since that type is
-private to it. No test builds such an executor in another crate. A macro
+`src/compose.rs` does for the executors the facilities make; the impl
+there for `NoAdapter` is the crate's own, since that type is private to
+it, and so is the one for the crate's test-only `Driver`. No test builds
+such an executor in another crate. A macro
 that writes these impls is planned, with no milestone yet, for when a
 second crate gives its adapters `>>`, such as a crate of codes or of
 noise models.
@@ -652,9 +656,11 @@ it with the job, so that one chain serves many seeds.
 Three facilities for an adapter's logic are planned, with no milestone
 yet; until then:
 
-- **Refusing a call from the logic**, for a code's adapter that refuses a
+- **Refusing a call from the logic**, with a refusal its error carries
+  (`AdapterError::refusal(..)`), for a code's adapter that refuses a
   call on a block that does not fit what it was built against, or what
-  its state holds. `.check(f)` refuses before the state is made and the
+  its state holds, or a code's layer whose runtime refuses a call that
+  ran nothing. `.check(f)` refuses before the state is made and the
   logic runs
   (`the_check_refuses_a_call_before_the_state_is_made_and_the_logic_runs`),
   so it sees neither, and the logic's error fails the call and the adapter
@@ -662,10 +668,17 @@ yet; until then:
 - **Stating what the adapter offers and needs** (`.offers(..)`,
   `.needs(..)`, on the Promise axis:
   [Glossary](../glossary.md#a-parts-axes)), for a decoder that needs
-  feedback below, or a code that offers a qubit per block of three. An
-  `adapter_fn` offers what is below it
-  (`it_offers_what_the_executor_below_offers`), but for its instruction
-  sets and its seeds ([Adapters](../adapters.md#seeds-drawingid)).
+  resumable shots below, a code that offers a qubit per block of three, or
+  a one-state logic that copies one shot's outcome into another, which
+  clears `replayable`. An `adapter_fn` offers what is below it and
+  nothing more (`it_offers_what_the_executor_below_offers`,
+  `it_offers_nothing_the_executor_below_does_not`), but for its instruction
+  sets and its seeds ([Adapters](../adapters.md#seeds-drawingid)): should
+  its states draw, it still passes resumable shots up, but offers no log
+  probability, nor, with one state, replayable shots. With one state, it
+  passes replayable and resumable shots up, where it does, on the
+  assumption that its logic keeps the shots apart, which it cannot check.
+  Passing up stays the default, so the options add to it with no break.
 - **Reading the replies below without holding the thread**, for an async
   caller over a code's adapter whose device answers later.
   `below.run(..)` gives the readouts it waits for, so it parks the thread
@@ -735,13 +748,13 @@ From [Planned features](../planned.md):
 
 From [Rejections and retries](../rejections.md):
 
-| Promise                                                                                                                    | Tests                                                                                                                                                                                     |
-| -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Each reason has its retry class                                                                                            | `every_known_reason_has_its_retry_class` (`src/tests/rejected.rs`)                                                                                                                        |
-| An `Unrecognized` reason keeps the far end's class and text                                                                | `an_unrecognized_reason_keeps_the_far_ends_class_and_text` (`src/tests/rejected.rs`)                                                                                                      |
-| A driver of more shots than the executor holds is refused with `Unmet(States)` when composed, and by `Capabilities::admit` | `a_driver_of_more_shots_than_the_executor_holds_is_refused_when_composed` (`src/tests/compose.rs`), `more_shots_than_states_are_unmet_even_with_the_default_needs` (`src/tests/needs.rs`) |
-| A busy device refuses with `Unavailable`, and the same message runs when sent again                                        | `a_busy_device_refuses_the_call_and_prepares_the_state_at_the_next` (`tests/per_shot_executor.rs`)                                                                                        |
-| A state that cannot be made yet refuses the call downstream of an adapter too                                              | `a_state_that_cannot_be_made_refuses_the_call_through_an_adapter` (`src/tests/compose/adapters.rs`)                                                                                       |
+| Promise                                                                                                                                        | Tests                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Each reason has its retry class                                                                                                                | `every_known_reason_has_its_retry_class` (`src/tests/rejected.rs`)                                                                                                                   |
+| An `Unrecognized` reason keeps the far end's class and text                                                                                    | `an_unrecognized_reason_keeps_the_far_ends_class_and_text` (`src/tests/rejected.rs`)                                                                                                 |
+| A job of more shots than the executor holds at once is refused with `Unmet(Shots)` when it is given to the chain, and by `Capabilities::admit` | `a_job_of_more_shots_than_the_executor_holds_is_refused` (`src/tests/compose/chain.rs`), `more_shots_than_held_at_once_are_unmet_even_with_the_default_needs` (`src/tests/needs.rs`) |
+| A busy device refuses with `Unavailable`, and the same message runs when sent again                                                            | `a_busy_device_refuses_the_call_and_prepares_the_state_at_the_next` (`tests/per_shot_executor.rs`)                                                                                   |
+| A state that cannot be made yet refuses the call downstream of an adapter too                                                                  | `a_state_that_cannot_be_made_refuses_the_call_through_an_adapter` (`src/tests/compose/adapters.rs`)                                                                                  |
 
 From the API docs of `AdapterExecutor`, the executor `compose` makes of an
 adapter written by hand, in `src/tests/compose/adapters.rs` unless named

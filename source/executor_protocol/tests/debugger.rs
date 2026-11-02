@@ -32,8 +32,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use executor_protocol::{
-    Close, Describe, Drive, Driver, Executor, InstructionBatch, InstructionBatchRef, Rejected,
-    Reply, ReplyStatus, ShotOutcome, ShotSet, Value, conformance, wait,
+    Close, Describe, Drive, Executor, InstructionBatch, InstructionBatchRef, Rejected, Reply,
+    ReplyStatus, ShotOutcome, ShotSet, Value, conformance, interpreter, wait,
 };
 
 use debugger::debugger;
@@ -243,8 +243,10 @@ impl Drive for FlipACoin {
 fn a_debugger_composed_into_a_chain_hands_out_its_handle() {
     let shots = ShotSet::range(0..=1).expect("0..=1 is not empty");
     let debuggers = Debuggers::paused();
-    let run = (Driver::new(FlipACoin, shots.clone()) >> debuggers.clone() >> toy_simulator(9))
-        .expect("the debugger changes nothing the toy checks");
+    let run = (interpreter() >> debuggers.clone() >> toy_simulator(9))
+        .expect("the debugger changes nothing the toy checks")
+        .run(FlipACoin, shots.clone())
+        .expect("the program needs nothing");
     let driver = thread::spawn(move || run.wait());
 
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -258,8 +260,10 @@ fn a_debugger_composed_into_a_chain_hands_out_its_handle() {
         thread::sleep(Duration::from_millis(1));
     }
     let (with, _) = driver.join().expect("the driver thread did not panic");
-    let (without, _) = (Driver::new(FlipACoin, shots) >> toy_simulator(9))
-        .expect("nothing to check")
+    let (without, _) = (interpreter() >> toy_simulator(9))
+        .expect("nothing between to refuse")
+        .run(FlipACoin, shots)
+        .expect("the program needs nothing")
         .wait();
     assert_eq!(with, without);
 }

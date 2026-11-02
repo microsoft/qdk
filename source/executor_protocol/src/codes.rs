@@ -67,12 +67,12 @@ pub fn retry_of(code: u8) -> Option<RetryClass> {
 pub fn need_code(need: Need) -> u8 {
     match need {
         Need::Qubits => 0,
-        Need::Feedback => 1,
+        Need::ResumableShots => 1,
         Need::Resets => 2,
-        Need::States => 3,
+        Need::Shots => 3,
         Need::Replayable => 4,
-        Need::Probabilities => 5,
-        Need::Instructions => 6,
+        Need::LogProbability => 5,
+        Need::InstructionSet => 6,
     }
 }
 
@@ -83,12 +83,12 @@ pub fn need_code(need: Need) -> u8 {
 pub fn need_of(code: u8) -> Option<Need> {
     Some(match code {
         0 => Need::Qubits,
-        1 => Need::Feedback,
+        1 => Need::ResumableShots,
         2 => Need::Resets,
-        3 => Need::States,
+        3 => Need::Shots,
         4 => Need::Replayable,
-        5 => Need::Probabilities,
-        6 => Need::Instructions,
+        5 => Need::LogProbability,
+        6 => Need::InstructionSet,
         _ => return None,
     })
 }

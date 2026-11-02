@@ -99,14 +99,14 @@ where
 ///   keeps one for every shot;
 /// - the check runs once per call, on the caller's thread, before any state
 ///   is made; a call beyond the promise's
-///   [`states`](Capabilities::states) is refused
+///   [`max_shots`](Capabilities::max_shots) is refused
 ///   ([`Rejected::ShotNotHeld`]) before any state is made, and a state
 ///   that cannot be made refuses the call with the state closure's
 ///   refusal: nothing runs, and the states made for the call are dropped;
 /// - each shot's placement holds its state until it closes or is dropped: under
 ///   [`OwnThread`](crate::OwnThread), one thread per shot held, as many as the
-///   promise's [`states`](Capabilities::states) allows; dropped, each shot
-///   cancels its calls not yet started, as a [`PlacedExecutor`] does, so a
+///   promise's [`max_shots`](Capabilities::max_shots) allows; dropped, each
+///   shot cancels its calls not yet started, as a [`PlacedExecutor`] does, so a
 ///   call's reply ends
 ///   [`ReplyStatus::Cancelled`](crate::ReplyStatus::Cancelled) once a shot of
 ///   it was cancelled, unless a shot of it failed: a failure outranks a
@@ -117,7 +117,20 @@ where
 ///   absorbed, as a [`PlacedExecutor`]'s drop absorbs it, so that `drop` never
 ///   panics (`close` raises it, as a refused call does for the states made for
 ///   it); so is the drop of what its closures and the placement capture, each
-///   in a catch of its own;
+///   in a catch of its own. A shot's state is dropped, on its placement,
+///   before the shot's copies of the logic, of the log probability's reader
+///   and of the report's maker, so that a state whose drop reaches its
+///   device through itself or through those copies (a weak handle to the
+///   device's connection, which the logic's copy holds, say) still finds it
+///   there.
+///   The executor's own closures (the state closure, the check, and the
+///   closures it copies for each shot) are dropped on the thread that drops
+///   it, and `drop` does not wait for the shots, as no placed executor's
+///   drop waits for its placement ([`Placement`]): they may be dropped
+///   before a shot's state, so a state whose drop reaches its device
+///   through them may not find it there; `close` waits, and frees every
+///   state first. A state held from before it was placed, and not called
+///   since, is dropped before the executor's closures;
 /// - the shots of a batch run in parallel, so their outcomes interleave, each
 ///   shot's in order ([`ShotReplies`]); a logic that fails on a shot fails the
 ///   call, though the other shots of the batch may have run, and every later
@@ -176,9 +189,11 @@ pub struct OnePerShotPlacedExecutor<I, S, M, P, T, C = NoCheck<I>, L = fn(&S) ->
     /// The run's seed, if the executor was given one.
     seed: Option<u64>,
     promise: Capabilities,
-    /// Declared before the closures and the placement, so that the shots'
-    /// executors are dropped first (the reason, and that no test pins the
-    /// order, are at `HeldPart`).
+    /// Declared before the closures, so that the shots' executors are
+    /// dropped first (the reason is at `HeldPart`;
+    /// `dropped_it_frees_a_state_held_from_before_it_was_placed_before_its_closures`).
+    /// The placement's place in the order is not promised: it is not a
+    /// closure the states were made or run with.
     shots: ShotStates<PlacedShotExecutor<I, S, P, L, R, T>>,
     make_state: HeldPart<M>,
     logic: HeldPart<P>,
@@ -269,16 +284,15 @@ where
     /// names, with the earliest failed call's reason, whatever order the
     /// calls failed in; then the check's refusal ([`ExecutorFn::check`]); then
     /// [`Rejected::ShotNotHeld`] beyond the promise's
-    /// [`states`](Capabilities::states), checked before any state is made,
-    /// and the refusal of the closure that makes a state. Nothing ran in
+    /// [`max_shots`](Capabilities::max_shots), checked before any state is
+    /// made, and the refusal of the closure that makes a state. Nothing ran in
     /// each case. A failure that happens while this call starts, after its
     /// failure check, refuses it with [`Rejected::EarlierFailure`] only when
     /// the failed shot comes first in the batch and the failure is recorded
-    /// before that shot is given the call; otherwise the reply fails: with
-    /// the failure named by the failed shot, when that shot refused the
-    /// call, or with `an earlier call failed: …`, when that shot had queued
-    /// the call behind the failing one; and the batch's other shots may
-    /// have run.
+    /// before that shot is given the call; otherwise the reply fails: with the
+    /// failure named by the failed shot, when that shot refused the call, or
+    /// with `an earlier call failed: …`, when that shot had queued the call
+    /// behind the failing one; and the batch's other shots may have run.
     ///
     /// # Panics
     ///
@@ -337,9 +351,9 @@ where
 }
 
 impl<I, S, M, P, T, C, L, R> Describe for OnePerShotPlacedExecutor<I, S, M, P, T, C, L, R> {
-    /// The promise as given, but with probabilities exactly when it is
-    /// given how to read them ([`ExecutorFn::log_probability`]), whatever
-    /// the promise says.
+    /// The promise as given, but with `log_probability` exactly when it is
+    /// given how to read a state's log probability
+    /// ([`ExecutorFn::log_probability`]), whatever the promise says.
     fn capabilities(&self) -> Capabilities {
         described(&self.promise, self.log_probability.as_ref(), self.seed)
     }

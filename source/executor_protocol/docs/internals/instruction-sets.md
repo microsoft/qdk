@@ -63,7 +63,7 @@ same order:
   action is needed. One set at both ends, as QEP's driver and executor
   share theirs, is matched with nothing renumbered
   (`a_set_without_actions_is_matched_by_mnemonic_in_a_set_of_its_name`),
-  so such a driver and executor are composed and run
+  so such a job runs on such an executor
   (`a_driver_and_an_executor_sharing_a_set_without_actions_are_composed`),
   with an adapter sending that set between them
   (`an_adapter_sending_the_set_downstream_without_actions_is_composed`) or
@@ -87,8 +87,8 @@ same order:
   `sets_of_other_names_still_need_actions`), wherever sets are matched:
   when an adapter is composed with the executor downstream of it
   (`an_instruction_whose_action_the_downstream_set_leaves_undeclared_is_refused`),
-  and when a driver is
-  (`an_instruction_whose_action_the_drivers_set_leaves_undeclared_is_refused_when_composed`;
+  and when a job is given to the chain
+  (`an_instruction_whose_action_the_drivers_set_leaves_undeclared_is_refused`;
   see
   [The rules of composition](composition.md#the-rules-of-composition)).
   It is not looked for under another mnemonic
@@ -139,9 +139,9 @@ instructions is matched there: `fits` is `opcodes_in` without the map
   (`an_instruction_taking_its_operands_in_another_order_downstream_does_not_fit`).
 
 The rule is the same when a chain is built (what an adapter sends, against
-the set downstream) and when a driver is composed (what it needs, against the
-set the chain accepts: a needed instruction not matched is one not
-offered). Both checks call `opcodes_in`, so they cannot drift apart.
+the set downstream) and when a job is given to the chain (what its program
+needs, against the set the chain accepts: a needed instruction not matched is
+one not offered). Both checks call `opcodes_in`, so they cannot drift apart.
 `Capabilities::resets` stays a field of its own, not derived from the set,
 since a component need not describe a set. An adapter, even one that
 changes the set, passes on by default the `resets` of the executor
@@ -150,7 +150,7 @@ downstream (it may change them, through
 where sets are described, the instructions matched are what guarantee a
 reset. A caller that resets has a reset instruction in its set, and a
 chain whose set lacks it is refused, though downstream resets
-(`a_driver_resetting_upstream_of_a_code_without_a_reset_is_refused_when_composed`,
+(`a_program_resetting_upstream_of_a_code_without_a_reset_is_refused_when_given_to_the_chain`,
 `tests/runtime_isa.rs`). `resets` informs only where no set is described.
 
 Since a part fits the whole, a component states only the instructions it
@@ -174,47 +174,48 @@ order:
   (`benches/instruction_calls.rs`, its `emitting` table). Each boundary is
   matched once. A typed adapter gets the executor downstream of it as it is, at
   no cost.
-- **A driver** states the instructions its program sends
-  (`Needs::with_instructions`) and builds its calls with its own set. It is
-  composed with a chain into a run (`compose`, or `>>`), which checks the two
-  sets' compatibility when they are composed. A set the chain lacks is
-  refused with every instruction that does not fit
+- **A job's program** states the instructions it sends
+  (`Needs::with_instruction_set`) and builds its calls with its own set. Its
+  chain is headed by `interpreter()`, the program given with the job, and the
+  chain checks the two sets' compatibility when the job is given to it
+  (`Chain::run`). A set the chain lacks is refused with every instruction that
+  does not fit
   (`a_set_the_executor_lacks_is_refused_with_every_instruction_that_does_not_fit`),
-  as are the driver's other needs the chain lacks, whatever its set
+  as are the program's other needs the chain lacks, whatever its set
   (`a_driver_needing_what_the_executor_lacks_is_refused_whatever_its_set`).
-  Otherwise, by the driver's instruction type:
+  Otherwise, by the program's instruction type:
   - **`InstructionCall`s**, which name their instruction by opcode, are
-    matched once, when the driver is composed. When each instruction has
+    matched once, when the job is given to the chain. When each instruction has
     the same opcode in both sets, a batch reaches the chain as it is
     (`a_batch_in_the_executors_numbering_reaches_it_as_it_is`). When the
     numbering differs, the run holds the chain behind an executor that
     copies each batch with its opcodes replaced, into a buffer it keeps,
-    and the driver runs its own `x`, not the chain's instruction at that
+    and the program runs its own `x`, not the chain's instruction at that
     opcode
     (`a_driver_whose_set_is_in_another_order_runs_its_own_instructions`,
     `each_call_runs_only_its_own_batch`); a call at an opcode the
-    driver's set lacks is refused, though the chain has one there, or an
+    program's set lacks is refused, though the chain has one there, or an
     earlier call of the batch that the executor's set refuses, if there is
     one, as the executor alone would refuse it
     (`a_call_outside_the_drivers_set_is_refused`,
     `a_renumbered_batch_is_refused_at_its_first_call_outside`, and on the
     guide's code,
     `the_code_in_a_drivers_numbering_refuses_calls_outside_the_drivers_set`).
-    A driver that states no set is refused, since its opcodes cannot be
+    A program that states no set is refused, since its opcodes cannot be
     checked
-    (`a_driver_of_calls_by_opcode_that_states_no_set_is_refused_when_composed`).
+    (`a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal`).
     The renumbering costs at most about 1 ns per batch when calls reach
     the chain as they are, which any executor that does work hides, and
     when it copies, about 2 ns per call and 4.6 ns per batch (measured on
     an executor that only reads its calls; on the toy, about 55 ns per
-    batch of one call). A driver that cannot afford the copy builds its
-    calls by name with the set the chain describes, read before the driver
+    batch of one call). A program that cannot afford the copy builds its
+    calls by name with the set the chain describes, read before the program
     is made (`Capabilities::instruction_set`, then `InstructionSet::call`),
     and states that set as its needs, so its calls are in the chain's
     numbering and reach it as they are, as above; on the guide's code,
-    they run as the driver means them
+    they run as the program means them
     (`a_driver_builds_its_calls_by_name_with_the_codes_set`).
-  - **A typed driver**, whose instructions name themselves (an enum's
+  - **A typed program**, whose instructions name themselves (an enum's
     variants), states its set in any order, and its calls reach the
     executor as they are, at no cost
     (`a_typed_driver_in_another_order_runs_its_instructions_as_they_are`):
@@ -248,8 +249,8 @@ A description is checked in three places, each before anything runs:
    accepts does not number those calls, so it states the set it sends. One
    that decodes calls by opcode into typed instructions and states only the
    set it accepts sends no set: the calls upstream of it are checked against
-   the set it accepts
-   (`a_driver_whose_calls_a_decoder_does_not_accept_is_refused_when_composed`),
+   the set it accepts, when a job is given to the chain
+   (`a_job_whose_calls_a_decoder_does_not_accept_is_refused`),
    and nothing is checked downstream
    (`a_decoder_stating_only_the_set_it_accepts_describes_it_whatever_the_set_downstream`).
    Otherwise `compose` checks that what it sends fits the downstream set
@@ -283,20 +284,21 @@ A description is checked in three places, each before anything runs:
    it at the call it received, with `Rejected::at_origin`
    (`a_downstream_refusal_names_the_logical_call`).
 
-2. **A caller's needs, when a driver is composed, or by hand
+2. **A caller's needs, when a job is given to the chain, or by hand
    (`Capabilities::admit`).** A caller that states the instructions it will send
-   (`Needs::with_instructions`) is refused by `Capabilities::admit` with
-   `Rejected::Unmet` for `Need::Instructions` when the chain accepts fewer of
-   them, and that is its first unmet need, after qubits, feedback, resets,
-   replayable and probabilities
+   (`Needs::with_instruction_set`) is refused by `Capabilities::admit` with
+   `Rejected::Unmet` for `Need::InstructionSet` when the chain accepts fewer of
+   them, and that is its first unmet need, after qubits, resumable shots,
+   resets, replayable and log probability
    (`several_unmet_needs_are_reported_one_at_a_time_in_a_fixed_order`);
    `needed` and `offered` count instructions, and `mismatches` lists each
    needed instruction that does not fit
    (`every_needed_instruction_not_offered_is_reported`;
-   `a_driver_is_composed_only_with_a_code_that_has_the_instructions_it_needs`,
-   in both guides). A driver composed with an executor is refused then, before
-   anything runs, each need it lacks a `BuildError::Unmet` among the chain's
-   faults (`a_driver_whose_needs_the_chain_lacks_is_refused_when_composed`).
+   `a_program_is_taken_only_by_a_code_that_has_the_instructions_it_needs`,
+   in both guides). A job given to a chain is refused then, before anything
+   runs, each need its program lacks a `Rejected::Unmet` among the job's
+   `JobFaults` (`every_need_of_a_program_that_the_chain_lacks_is_reported`,
+   `a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor`).
 
 3. **A call**, by an executor of `InstructionCall`s, since the compiler
    cannot: `InstructionSet::check_batch(batch)` refuses the batch with

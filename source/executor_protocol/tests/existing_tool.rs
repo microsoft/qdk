@@ -40,9 +40,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use executor_protocol::{
-    Close, Describe, Drive, Driver, ErrorKind, Executor, ExecutorReport, Instruction,
-    InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, Needs, Operand,
-    OperandKind, Rejected, ShotOutcome, ShotSet, Value, compose, conformance, wait,
+    Close, Describe, Drive, ErrorKind, Executor, ExecutorReport, Instruction, InstructionBatch,
+    InstructionBatchRef, InstructionCall, InstructionSet, Needs, Operand, OperandKind, Rejected,
+    ShotOutcome, ShotSet, Value, compose, conformance, interpreter, wait,
 };
 
 use backend::{Bits, ExistingInterface, FixedReply, NAMES, Reading};
@@ -157,14 +157,21 @@ impl<I: Instruction> Drive for Program<I> {
 }
 
 /// The counts of `program` and its outcomes, on `shots` of the profiler
-/// whose shots draw from `seed`.
-fn profile(program: Vec<Vec<Op>>, seed: u64, shots: ShotSet) -> (Counts, Vec<ShotOutcome>) {
+/// whose shots draw from `seed`, the program needing what `needs` states.
+fn profile(
+    program: Vec<Vec<Op>>,
+    needs: Needs,
+    seed: u64,
+    shots: ShotSet,
+) -> (Counts, Vec<ShotOutcome>) {
     let program = Program {
         batches: program,
-        needs: Needs::default(),
+        needs,
     };
-    let run = compose(Driver::new(program, shots), toy_profiler(seed))
-        .expect("the profiler counts any of the toy's instructions");
+    let run = compose(interpreter(), toy_profiler(seed))
+        .expect("nothing between to refuse")
+        .run(program, shots)
+        .expect("the profiler meets the needs the tests' programs state");
     let (output, report) = run.wait();
     (report.states, output)
 }
@@ -280,21 +287,48 @@ fn the_bridge_accepts_calls_after_a_refusal() {
     }
 }
 
-/// A driver of one shot, whose calls are numbered by the bridge's set,
+/// A program of one shot, whose calls are numbered by the bridge's set,
 /// flips qubit 0 and reads it: the bridge describes that set, so the chain
-/// composes, and the run reads the backend's one under the readout's tag.
+/// takes the job, and the run reads the backend's one under the readout's
+/// tag.
 #[test]
-fn a_driver_runs_its_calls_on_the_bridge() {
+fn a_program_runs_its_calls_on_the_bridge() {
     let (bridge, set) = bridged(Bits::new(2, []));
     let program = Program {
         batches: vec![vec![
             call(&set, Op::X(0)),
             call(&set, Op::Measure { qubit: 0, tag: 4 }),
         ]],
-        needs: Needs::default().with_instructions(Some(set)),
+        needs: Needs::default().with_instruction_set(Some(set)),
     };
-    let run = compose(Driver::new(program, ShotSet::one(0)), bridge)
-        .expect("the bridge describes the set the driver's calls are of");
+    let run = compose(interpreter(), bridge)
+        .expect("nothing between to refuse")
+        .run(program, ShotSet::one(0))
+        .expect("the bridge describes the set the program's calls are of");
+    let (outcomes, _) = run.wait();
+    assert_eq!(outcomes, [ShotOutcome::new(0, 4, Value::One)]);
+}
+
+/// A program of one shot that flips qubit 0 in one batch and reads it in
+/// the next, stating that it continues its shot: the bridge promises
+/// resumable shots, so the chain takes the job, and the second batch reads
+/// the flip of the first.
+#[test]
+fn a_program_that_continues_its_shot_from_one_batch_to_the_next_runs_on_the_bridge() {
+    let (bridge, set) = bridged(Bits::new(2, []));
+    let program = Program {
+        batches: vec![
+            vec![call(&set, Op::X(0))],
+            vec![call(&set, Op::Measure { qubit: 0, tag: 4 })],
+        ],
+        needs: Needs::default()
+            .with_instruction_set(Some(set))
+            .with_resumable_shots(true),
+    };
+    let run = compose(interpreter(), bridge)
+        .expect("nothing between to refuse")
+        .run(program, ShotSet::one(0))
+        .expect("the bridge keeps its shot from one call to the next");
     let (outcomes, _) = run.wait();
     assert_eq!(outcomes, [ShotOutcome::new(0, 4, Value::One)]);
 }
@@ -385,8 +419,8 @@ fn the_bridge_reports_once() {
 }
 
 /// A second call reads the flip of the first on the backend's qubit 0:
-/// the conformance kit's check of `feedback`. The checks that a shot alone
-/// gives what it gives among others, and that a call changes no shot it
+/// the conformance kit's check of `resumable_shots`. The checks that a shot
+/// alone gives what it gives among others, and that a call changes no shot it
 /// does not name, do not apply: the bridge runs one shot.
 #[test]
 fn the_bridge_continues_the_backends_shot_from_one_call_to_the_next() {
@@ -413,17 +447,32 @@ fn a_new_bridge_starts_the_backends_shot_as_made() {
     );
 }
 
-/// A profile of sixteen shots, each reading once, reads the same bits when
-/// run again with its seed, and others with another seed.
+/// A profile of sixteen shots, each reading once, needing its shots to
+/// replay: the profiler takes it, and reads the same bits when it is run
+/// again with its seed, and others with another seed.
 #[test]
 fn a_profiles_draws_replay_from_the_runs_seed() {
     let program = || vec![vec![Op::Measure { qubit: 0, tag: 0 }]];
+    let replay = || Needs::default().with_replayable(true);
     let shots = || ShotSet::range(0..=15).expect("0..=15 is not empty");
-    let (_, first) = profile(program(), 7, shots());
-    let (_, again) = profile(program(), 7, shots());
-    let (_, other) = profile(program(), 8, shots());
+    let (_, first) = profile(program(), replay(), 7, shots());
+    let (_, again) = profile(program(), replay(), 7, shots());
+    let (_, other) = profile(program(), replay(), 8, shots());
     assert_eq!(first, again);
     assert_ne!(first, other);
+}
+
+/// A profile of two shots in two batches, which continues each shot from
+/// one batch to the next and states so in its needs, as a program of more
+/// than one batch does: the profiler promises resumable shots, so the chain
+/// takes the job, and each shot reads in both batches.
+#[test]
+fn a_profile_that_continues_its_shots_from_one_batch_to_the_next_runs() {
+    let continuing = Needs::default().with_resumable_shots(true);
+    let shots = ShotSet::range(0..=1).expect("0..=1 is not empty");
+    let two = vec![sixteen_readouts(0), sixteen_readouts(16)];
+    let (_, outcomes) = profile(two, continuing, 7, shots);
+    assert_eq!(outcomes.len(), 2 * 32);
 }
 
 /// The report of a run of three shots of the profiler counts each
@@ -436,9 +485,10 @@ fn a_profile_of_many_shots_is_the_sum_of_their_counts() {
             vec![Op::X(0), Op::Measure { qubit: 1, tag: 0 }],
         ]
     };
-    let (one, _) = profile(program(), 0, ShotSet::one(0));
+    let (one, _) = profile(program(), Needs::default(), 0, ShotSet::one(0));
     let (three, _) = profile(
         program(),
+        Needs::default(),
         0,
         ShotSet::range(0..=2).expect("0..=2 is not empty"),
     );
@@ -505,7 +555,7 @@ fn the_profiler_gives_each_shot_alone_what_it_gives_among_others() {
 
 /// A second call of sixteen readouts reads the bits that follow those of
 /// the first, as one batch of both reads them: the conformance kit's
-/// check of `feedback`, on each shot's draws.
+/// check of `resumable_shots`, on each shot's draws.
 #[test]
 fn the_profiler_continues_a_shots_draws_from_one_call_to_the_next() {
     conformance::continues_a_shot_from_one_call_to_the_next(

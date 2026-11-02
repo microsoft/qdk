@@ -207,7 +207,7 @@ What to write, by task, and where it is explained:
 | To                                                                                      | Write                                                                          | Section                                                                                                                                                                                |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | run a program                                                                           | `interpreter() >> … >> executor`, `chain.run(program, shots)`                  | [Running a chain](#running-a-chain)                                                                                                                                                    |
-| run a program that decides as it runs                                                   | a driver: `Drive`, `Driver::new(program, shots)`                               | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
+| run a program that decides as it runs                                                   | a driver: `Drive`, given to `chain.run(program, shots)`                        | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
 | run another form of program (a circuit, QIR)                                            | an interpreter: `Interpret<P>`, `InterpreterDriver::new`                       | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
 | plug in a device, or a simulator with a state per shot                                  | an executor: `executor_fn`                                                     | [Writing an executor](#writing-an-executor)                                                                                                                                            |
 | plug in a simulator whose shots share one state (an ensemble, such as an MPS simulator) | an executor written by hand, on `ExecutorLifecycle`                            | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)                                                                                         |
@@ -240,16 +240,16 @@ runs one job ([A chain and its job](docs/composition.md#a-chain-and-its-job)).
 fn program_of(batches: Vec<Vec<InstructionCall>>) -> StaticProgram<InstructionCall> {
     let needs = Needs::default()
         .with_qubits(2)
-        .with_instructions(Some(Arc::new(toy_set())));
+        .with_instruction_set(Some(Arc::new(toy_set())));
     StaticProgram::new(needs, batches)
 }
 ```
 
 ### Writing a driver
 
-A program that drives the chain itself, its next batch depending on what
-the last one read, implements `Drive`: what it needs, and `drive`, which
-calls the executor it is given, each call on a part of the shots
+A program that drives itself, its next batch depending on what the last one
+read, implements `Drive`: what it needs, and `drive`, which calls the executor
+it is given, each call on a part of the shots
 ([the interfaces](#the-interfaces-for-a-part-written-by-hand)). This one
 tosses a coin on every shot, then again on the shots whose coin showed 1
 ([`tests/per_shot_executor.rs`](tests/per_shot_executor.rs)):
@@ -264,8 +264,8 @@ impl Drive for TossAgainOnOne {
     fn needs(&self) -> Needs {
         Needs::default()
             .with_qubits(2)
-            .with_feedback(true)
-            .with_probabilities(true)
+            .with_resumable_shots(true)
+            .with_log_probability(true)
     }
 
     async fn drive<E: Executor<InstructionBatch<Op>>>(
@@ -298,14 +298,15 @@ impl Drive for TossAgainOnOne {
 ```
 
 Given to `chain.run`, it runs as any job: the chain's `interpreter()` lets
-it drive. Or it is bound to its shots as `Driver::new(program, shots)`;
-then `>>` with an executor gives the run itself, with no `chain.run`:
+it drive:
 
 ```rust
 let shots = ShotSet::range(0..=7).expect("not empty");
 let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-let (outcomes, _) = (Driver::new(TossAgainOnOne, shots) >> executor)
-    .expect("the executor has feedback, probabilities and 8 states")
+let (outcomes, _) = (interpreter() >> executor)
+    .expect("nothing between to refuse")
+    .run(TossAgainOnOne, shots)
+    .expect("the executor has resumable shots, log probability, 8 shots")
     .wait();
 ```
 
@@ -367,17 +368,17 @@ a function pointer, has the type `NoCheck<I>`, the default of that type
 parameter, so the return type leaves it out. Its arguments and options,
 for instructions `I` and a state `S`:
 
-| Argument or option    | Type                                                                           | When it acts                                                                                                                                                                                            |
-| --------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `promise`             | [`Capabilities`](docs/executors.md#capabilities-and-needs)                     | when the chain is built and the job given; at each call, a new shot past the states it promises is refused ([`ShotNotHeld`](docs/rejections.md#the-reasons-and-what-produces-them))                     |
-| `make_state`          | `FnMut(ShotContext) -> Result<S, Rejected>`                                    | at the first call (with `.shots(OnePerShot)`, each shot's); `Err` refuses the call                                                                                                                      |
-| `logic`               | `FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>` | at each call; `Err` fails it, and every later call is refused                                                                                                                                           |
-| `.check(f)`           | `FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>`                          | at each call, before the state is made and the logic runs; `Err` refuses the call                                                                                                                       |
-| `.seed(s)`            | `u64`                                                                          | when each shot's state is made, which draws from `ShotContext::seed()`; without it, a state that draws panics                                                                                           |
-| `.state_report(f)`    | `FnMut(&S) -> Q`, `Q:` [`Fold`](#the-interfaces-for-a-part-written-by-hand)    | at close, once per state, into the report's `states`                                                                                                                                                    |
-| `.log_probability(f)` | `FnMut(&S) -> f64`                                                             | at close, once per state, into `log_p`; the only way to promise probabilities                                                                                                                           |
-| `.shots(OnePerShot)`  | -                                                                              | a state per shot, kept for its later calls; without it, one state, for one shot                                                                                                                         |
-| `.run_on(placement)`  | `T: Placement` (`OwnThread`, or a closure)                                     | where the logic runs: `.run_on(OwnThread).shots(OnePerShot)`, a thread per shot; the other order, one thread for every shot ([Where an executor runs](docs/executors.md#where-an-executor-runs-run_on)) |
+| Argument or option    | Type                                                                           | When it acts                                                                                                                                                                                                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `promise`             | [`Capabilities`](docs/executors.md#capabilities-and-needs)                     | when the chain is built and the job given; at each call, a new shot past the shots it promises to hold at once (`max_shots`) is refused ([`ShotNotHeld`](docs/rejections.md#the-reasons-and-what-produces-them)). `Capabilities::default()` offers nothing it does not state: state each capability the executor offers (`.with_resumable_shots(true)`, …) |
+| `make_state`          | `FnMut(ShotContext) -> Result<S, Rejected>`                                    | at the first call (with `.shots(OnePerShot)`, each shot's); `Err` refuses the call                                                                                                                                                                                                                                                                         |
+| `logic`               | `FnMut(&mut S, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>` | at each call; `Err` fails it, and every later call is refused                                                                                                                                                                                                                                                                                              |
+| `.check(f)`           | `FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>`                          | at each call, before the state is made and the logic runs; `Err` refuses the call                                                                                                                                                                                                                                                                          |
+| `.seed(s)`            | `u64`                                                                          | when each shot's state is made, which draws from `ShotContext::seed()`; without it, a state that draws panics                                                                                                                                                                                                                                              |
+| `.state_report(f)`    | `FnMut(&S) -> Q`, `Q:` [`Fold`](#the-interfaces-for-a-part-written-by-hand)    | at close, once per state, into the report's `states`                                                                                                                                                                                                                                                                                                       |
+| `.log_probability(f)` | `FnMut(&S) -> f64`                                                             | at close, once per state, into `log_p`; the only way to promise `log_probability`                                                                                                                                                                                                                                                                          |
+| `.shots(OnePerShot)`  | -                                                                              | a state per shot, kept for its later calls; without it, one state, for one shot                                                                                                                                                                                                                                                                            |
+| `.run_on(placement)`  | `T: Placement` (`OwnThread`, or a closure)                                     | where the logic runs: `.run_on(OwnThread).shots(OnePerShot)`, a thread per shot; the other order, one thread for every shot ([Where an executor runs](docs/executors.md#where-an-executor-runs-run_on))                                                                                                                                                    |
 
 Under `.run_on(..)` alone or `.shots(..).run_on(..)`, the refusals of the
 `promise`, `make_state` and `.check` rows come on the executor's thread,
@@ -403,7 +404,7 @@ fn profile(
     input: &ProgramInput<'_, InstructionCall>,
     below: &mut Below<'_, InstructionCall>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     for call in input.instructions() {
         *counts.entry(call.opcode).or_default() += 1;
     }
@@ -432,25 +433,29 @@ check is `NoCheck<I>`, named because the report's parameter comes after
 it. Its arguments and options, for instructions `I` accepted, `O` sent and
 a state `S`:
 
-| Argument or option   | Type                                                                                              | When it acts                                                                                                                                                                                                                                                                                                                  |
-| -------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make_state`         | `FnMut(ShotContext) -> Result<S, Rejected>`                                                       | at the first call, from its first shot, one state for every shot (with `.shots(OnePerShot)`, each shot's, at its first call); `Err` refuses the call                                                                                                                                                                          |
-| `logic`              | `FnMut(&mut S, &ProgramInput<'_, I>, &mut Below<'_, O>, &mut Outcomes<'_>) -> Result<(), String>` | at each call; `Err` fails it, and every later call is refused; but a first call below that is refused, a send or a run, refuses the call with its refusal instead, whatever the logic returns, and fails nothing, unless it is for an earlier failure below ([Refusals and failures](docs/adapters.md#refusals-and-failures)) |
-| `.accepts(set)`      | `impl Into<Arc<InstructionSet>>`                                                                  | when the chain is built: the set offered upstream; the calls are not checked against it ([planned](docs/planned.md); meanwhile, a `.check` that runs `InstructionSet::check_batch`)                                                                                                                                           |
-| `.sends(set)`        | `impl Into<Arc<InstructionSet>>`                                                                  | when the chain is built: checked against the set below, calls renumbered into it                                                                                                                                                                                                                                              |
-| `.check(f)`          | `FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>`                                             | as an executor's                                                                                                                                                                                                                                                                                                              |
-| `.drawing(id)`       | `ComponentId`                                                                                     | when the chain is built: the id its states draw with ([Seeds](docs/adapters.md#seeds-drawingid)); with one state, the shots of a call share its draws (to draw per shot, `.shots(OnePerShot)`)                                                                                                                                |
-| `.state_report(f)`   | `FnMut(&S) -> Q`, `Q:` [`Fold`](#the-interfaces-for-a-part-written-by-hand)                       | at close: its report, beside the report below                                                                                                                                                                                                                                                                                 |
-| `.shots(OnePerShot)` | -                                                                                                 | a state per shot; the shots' equal k-th sends go below as one call, but for a shot's kept sends, which go alone at its `run`                                                                                                                                                                                                  |
+| Argument or option   | Type                                                                                                    | When it acts                                                                                                                                                                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make_state`         | `FnMut(ShotContext) -> Result<S, Rejected>`                                                             | at the first call, from its first shot, one state for every shot (with `.shots(OnePerShot)`, each shot's, at its first call); `Err` refuses the call                                                                                                                                                                          |
+| `logic`              | `FnMut(&mut S, &ProgramInput<'_, I>, &mut Below<'_, O>, &mut Outcomes<'_>) -> Result<(), AdapterError>` | at each call; `Err` fails it, and every later call is refused; but a first call below that is refused, a send or a run, refuses the call with its refusal instead, whatever the logic returns, and fails nothing, unless it is for an earlier failure below ([Refusals and failures](docs/adapters.md#refusals-and-failures)) |
+| `.accepts(set)`      | `impl Into<Arc<InstructionSet>>`                                                                        | when the chain is built: the set offered upstream; the calls are not checked against it ([planned](docs/planned.md); meanwhile, a `.check` that runs `InstructionSet::check_batch`)                                                                                                                                           |
+| `.sends(set)`        | `impl Into<Arc<InstructionSet>>`                                                                        | when the chain is built: checked against the set below, calls renumbered into it                                                                                                                                                                                                                                              |
+| `.check(f)`          | `FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected>`                                                   | as an executor's                                                                                                                                                                                                                                                                                                              |
+| `.drawing(id)`       | `ComponentId`                                                                                           | when the chain is built: the id its states draw with ([Seeds](docs/adapters.md#seeds-drawingid)); with one state, the shots of a call share its draws (to draw per shot, `.shots(OnePerShot)`)                                                                                                                                |
+| `.state_report(f)`   | `FnMut(&S) -> Q`, `Q:` [`Fold`](#the-interfaces-for-a-part-written-by-hand)                             | at close: its report, beside the report below                                                                                                                                                                                                                                                                                 |
+| `.shots(OnePerShot)` | -                                                                                                       | a state per shot; the shots' equal k-th sends go below as one call, but for a shot's kept sends, which go alone at its `run`                                                                                                                                                                                                  |
 
 The logic reaches below in one of two ways:
 
-- `below.send(&[O]) -> Result<(), String>` is one call below, whose reply
+- `below.send(&[O]) -> Result<(), AdapterError>` is one call below, whose reply
   passes up as it comes (with a state per shot, kept and merged as the
   `.shots` row says);
-- `below.run(&[O]) -> Result<Vec<ShotOutcome>, String>` holds the thread
+- `below.run(&[O]) -> Result<Vec<ShotOutcome>, AdapterError>` holds the thread
   until the readouts are in, and gives them by shot; they pass up only as
   the logic writes them.
+
+An `AdapterError` holds why the call cannot go on, a message. It is made
+from a `String` or a `&str`: the logic returns `Err("…".into())`, and `?`
+on a `Result` whose error is a `String` passes it up.
 
 A state that keeps its way below for its whole life, such as a code's
 runtime, is made with `owning_adapter_fn`
@@ -621,7 +626,7 @@ There is one message, an `InstructionBatch`: instructions run in order on
 each shot of a set, after the batches before them. One shot is a set of one:
 an executor that holds one shot's state is called with that shot alone and
 refuses another (`ShotNotHeld`), as one with a state per shot refuses a new
-shot past the states it promises
+shot past the shots it promises to hold at once (`max_shots`)
 ([The reasons](docs/rejections.md#the-reasons-and-what-produces-them)).
 The planned layers L1 and L0 carry this
 message for executors that run remotely, and add at-most-once execution and

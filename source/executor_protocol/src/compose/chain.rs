@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 #[cfg(doc)]
-use crate::{BuildError, BuildFaults, Driver, InterpreterDriver, ShotSet, UnmetNeed};
+use crate::{BuildFaults, InterpreterDriver, ShotSet, UnmetNeed};
 use crate::{
     Capabilities, Close, Drive, Executor, Instruction, InstructionBatch, Interpret, Interpreted,
     IntoShotSet, Rejected, Run,
@@ -23,20 +23,18 @@ use crate::{
 /// executor), which runs the job given to it ([`run`](Chain::run)).
 ///
 /// A chain runs one job: the run takes the executor, and closes it with
-/// the job's report, as the run of a [`Driver`] does. A function that
-/// builds the chain builds it again for the next job, each with its own
-/// executor and its own report. On an executor that offers replayable
-/// shots ([`Capabilities::replayable`]), a shot then runs again with the
-/// outcomes it gave, whichever other shots the job names; on one that does
-/// not, its outcomes may differ.
+/// the job's report. A function that builds the chain builds it again for
+/// the next job, each with its own executor and its own report. On an
+/// executor that offers replayable shots ([`Capabilities::replayable`]), a
+/// shot then runs again with the outcomes it gave, whichever other shots
+/// the job names; on one that does not, its outcomes may differ.
 /// Planned, with no milestone yet: a chain that runs many jobs, each on
 /// components opened afresh for it, for a service that runs many jobs or a
 /// sweep of one program over parameters; it needs a protocol addition, a
 /// per-run session.
 ///
 /// Known limit, as for a [`Run`]: a chain dropped without running a job,
-/// or whose job is refused, does not close its executor, as a [`Driver`]
-/// refused when composed with an executor does not close it.
+/// or whose job is refused, does not close its executor.
 ///
 /// # Type parameters
 ///
@@ -153,7 +151,7 @@ where
     /// The job is checked here, before any call, and every fault is
     /// reported together: its shots must be a set ([`ShotSet`]), the
     /// program's needs ([`Interpret::needs`]) must be met by what the chain
-    /// offers, its shots counted against the states the executor holds at
+    /// offers, its shots counted against the shots the executor holds at
     /// once when they are a set (shots that are not are reported as such,
     /// not counted), and the interpreter must find no fault in the program
     /// ([`Interpret::check`]). Calls by opcode reach the executor
@@ -217,13 +215,9 @@ where
 /// one message: each fault's text, in their order, joined by `"; "`, as
 /// [`BuildFaults`] reads.
 ///
-/// An unmet need is the [`UnmetNeed`] that a [`Driver`] of the same
-/// program and shots, composed with the same executor, reports in
-/// [`BuildFaults`]: here as [`Rejected::Unmet`], there as
-/// [`BuildError::Unmet`], in the same order. The shots' faults have no
-/// counterpart there, since a driver's shots are a [`ShotSet`] already,
-/// nor the program's, since a driver's program is not checked before it
-/// runs.
+/// Each unmet need is a [`Rejected::Unmet`], an [`UnmetNeed`] naming the
+/// chain's executor, adapters included, in the order
+/// [`Capabilities::admit`] checks them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobFaults(pub Vec<Rejected>);
 

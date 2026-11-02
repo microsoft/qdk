@@ -20,12 +20,12 @@ mod toy;
 use std::collections::BTreeMap;
 
 use executor_protocol::{
-    Capabilities, Close, Describe, Drive, Driver, Executor, InstructionBatch, InstructionBatchRef,
-    Needs, OnePerShot, OwnThread, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
-    conformance, executor_fn, wait,
+    Capabilities, Close, Describe, Drive, Executor, InstructionBatch, InstructionBatchRef, Needs,
+    OnePerShot, OwnThread, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Value, conformance,
+    executor_fn, interpreter, wait,
 };
 
-use bond_limited::{MAX_BOND, STATES, bond_limited_executor};
+use bond_limited::{MAX_BOND, MAX_SHOTS, bond_limited_executor};
 use toy::{Op, QUBITS, ToyState};
 
 const COIN: [Op; 2] = [Op::Coin(0), Op::Measure { qubit: 0, tag: 0 }];
@@ -62,8 +62,8 @@ impl Drive for TossAgainOnOne {
     fn needs(&self) -> Needs {
         Needs::default()
             .with_qubits(2)
-            .with_feedback(true)
-            .with_probabilities(true)
+            .with_resumable_shots(true)
+            .with_log_probability(true)
     }
 
     async fn drive<E: Executor<InstructionBatch<Op>>>(
@@ -109,8 +109,10 @@ fn first_coins(outcomes: &[ShotOutcome]) -> BTreeMap<ShotId, Value> {
 fn a_program_with_feedback_runs_its_next_batch_on_the_shots_it_chose() {
     let shots = ShotSet::range(0..=7).expect("not empty");
     let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-    let (outcomes, _) = (Driver::new(TossAgainOnOne, shots) >> executor)
-        .expect("the executor has feedback, probabilities and 8 states")
+    let (outcomes, _) = (interpreter() >> executor)
+        .expect("nothing between to refuse")
+        .run(TossAgainOnOne, shots)
+        .expect("the executor has resumable shots, log probability, 8 shots")
         .wait();
     let ones: Vec<_> = (first_coins(&outcomes).into_iter())
         .filter_map(|(j, value)| (value == Value::One).then_some(j))
@@ -125,10 +127,13 @@ fn a_program_with_feedback_runs_its_next_batch_on_the_shots_it_chose() {
 /// coins: ln ½ for a shot that tossed one, ln ¼ for one that tossed two.
 #[test]
 fn a_run_reports_each_shots_log_probability() {
-    let driver = Driver::new(TossAgainOnOne, ShotSet::range(0..=7).expect("not empty"));
-    let (outcomes, report) = (driver >> bond_limited_executor(None).seed(3).shots(OnePerShot))
-        .expect("the executor has feedback, probabilities and 8 states")
-        .wait();
+    let shots = ShotSet::range(0..=7).expect("not empty");
+    let (outcomes, report) = (interpreter()
+        >> bond_limited_executor(None).seed(3).shots(OnePerShot))
+    .expect("nothing between to refuse")
+    .run(TossAgainOnOne, shots)
+    .expect("the executor has resumable shots, log probability, 8 shots")
+    .wait();
     let firsts = first_coins(&outcomes);
     assert!(
         [Value::Zero, Value::One]
@@ -153,23 +158,28 @@ fn a_run_gives_the_same_outcomes_and_report_wherever_the_shots_states_run() {
         outcomes.sort_by_key(|o| (o.shot, o.tag));
         (outcomes, report)
     };
-    let here = (Driver::new(TossAgainOnOne, shots.clone())
-        >> bond_limited_executor(None).seed(3).shots(OnePerShot))
-    .expect("the executor has feedback, probabilities and 8 states")
-    .wait();
-    let one_thread = (Driver::new(TossAgainOnOne, shots.clone())
+    let here = (interpreter() >> bond_limited_executor(None).seed(3).shots(OnePerShot))
+        .expect("nothing between to refuse")
+        .run(TossAgainOnOne, shots.clone())
+        .expect("the executor has resumable shots, log probability, 8 shots")
+        .wait();
+    let one_thread = (interpreter()
         >> bond_limited_executor(None)
             .seed(3)
             .shots(OnePerShot)
             .run_on(OwnThread))
-    .expect("placed, the executor still has 8 states")
+    .expect("nothing between to refuse")
+    .run(TossAgainOnOne, shots.clone())
+    .expect("placed, the executor still holds 8 shots at once")
     .wait();
-    let a_thread_each = (Driver::new(TossAgainOnOne, shots)
+    let a_thread_each = (interpreter()
         >> bond_limited_executor(None)
             .seed(3)
             .run_on(OwnThread)
             .shots(OnePerShot))
-    .expect("placed per shot, the executor still has 8 states")
+    .expect("nothing between to refuse")
+    .run(TossAgainOnOne, shots)
+    .expect("placed per shot, the executor still holds 8 shots at once")
     .wait();
     let here = sorted(here);
     assert_eq!(sorted(one_thread), here, "on one thread of their own");
@@ -358,26 +368,26 @@ fn a_call_in_flight_when_a_batch_outgrows_the_capacity_ends_with_that_failure() 
     );
 }
 
-/// The executor describes what it offers: the toy's qubits, the states its
-/// device holds, and probabilities, since it reads each state's log
-/// probability.
+/// The executor describes what it offers: the toy's qubits, the shots its
+/// device holds at once, and the log probability, since it reads each state's
+/// log probability.
 #[test]
-fn the_executor_describes_its_qubits_states_and_probabilities() {
+fn the_executor_describes_its_qubits_shots_and_log_probability() {
     let offered = bond_limited_executor(None)
         .seed(3)
         .shots(OnePerShot)
         .capabilities();
     assert_eq!(
-        (offered.qubits, offered.states, offered.probabilities),
-        (Some(QUBITS), Some(STATES), true)
+        (offered.qubits, offered.max_shots, offered.log_probability),
+        (Some(QUBITS), Some(MAX_SHOTS), true)
     );
 }
 
-/// A call on more shots than the device holds states for is refused,
+/// A call on more shots than the device holds at once is refused,
 /// naming the first shot it has no room for, and runs nothing; a call on as
 /// many shots as it holds runs.
 #[test]
-fn a_call_beyond_the_devices_states_is_refused() {
+fn a_call_beyond_the_shots_the_device_holds_is_refused() {
     let mut executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
     let nine = ShotSet::range(0..=8).expect("0..=8 is not empty");
     let refused = executor.call(InstructionBatchRef {
@@ -466,7 +476,7 @@ fn each_shot_alone_gives_what_it_gives_among_others() {
     );
 }
 
-/// The executor keeps the conformance kit's promise of `feedback`: a
+/// The executor keeps the conformance kit's promise of `resumable_shots`: a
 /// second call reads the flip of the first, on each of shots 0 and 1.
 #[test]
 fn a_second_call_continues_each_shot() {

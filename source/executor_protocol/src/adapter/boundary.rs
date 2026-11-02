@@ -102,23 +102,25 @@ impl<'a> AdapterBoundary<'a> {
 
     /// What the adapter offers upstream: what downstream offers, the qubit
     /// count included, with the instruction set the adapter accepts and the ids
-    /// it draws with, and no `probabilities` if it draws ([`Adapter::draws`]).
-    /// An adapter changes what it changes: a code offers a qubit per block of
-    /// qubits downstream. [`compose`](fn@crate::compose) keeps the fields it
-    /// derives as derived, whatever the adapter offers, even an offer it
-    /// assigns whole: the run's seed ([`drawing_seeds`](Self::drawing_seeds));
-    /// the instruction set, the one the adapter states in [`Adapter::accepts`],
-    /// or downstream's for one that states none and passes its calls through as
-    /// they are ([`Capabilities::instruction_set`]); and the ids drawn with,
-    /// those below the adapter and its own ([`Capabilities::rng_ids`]). The
-    /// offer may turn `probabilities` off, never on
-    /// ([`Capabilities::probabilities`]).
+    /// it draws with, and no `log_probability` if it draws
+    /// ([`Adapter::draws`]). An adapter changes what it changes: a code offers
+    /// a qubit per block of qubits downstream. [`compose`](fn@crate::compose)
+    /// keeps the fields it derives as derived, whatever the adapter offers,
+    /// even an offer it assigns whole: the run's seed
+    /// ([`drawing_seeds`](Self::drawing_seeds)); the instruction set, the one
+    /// the adapter states in [`Adapter::accepts`], or downstream's for one that
+    /// states none and passes its calls through as they are
+    /// ([`Capabilities::instruction_set`]); and the ids drawn with, those below
+    /// the adapter and its own ([`Capabilities::rng_ids`]). The offer may turn
+    /// `log_probability` off, never on ([`Capabilities::log_probability`]).
     ///
-    /// An offer assigned whole states every limit, the shots' states, the
-    /// feedback and the resets included, so an adapter that assigns one
+    /// An offer assigned whole states every limit, the shots at once, the
+    /// resumable shots and the resets included, so an adapter that assigns one
     /// starts it from `boundary.downstream().clone()`, and changes what it
-    /// changes: one made from [`Capabilities::default`] states no limit,
-    /// and would offer upstream what downstream cannot do.
+    /// changes: one made from [`Capabilities::default`] states no limit of
+    /// qubits or shots, so it would offer upstream more than downstream
+    /// holds, and none of downstream's resumable shots, replayable shots or
+    /// resets.
     pub fn offered_upstream(&mut self) -> &mut Capabilities {
         &mut self.offered
     }

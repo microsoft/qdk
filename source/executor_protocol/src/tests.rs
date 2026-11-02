@@ -9,7 +9,6 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::Shr;
 use std::pin::{Pin, pin};
-use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::task::{Context, Poll, Wake, Waker};
@@ -473,7 +472,7 @@ impl Drive for ByHand {
 struct Bits {
     received: Arc<AtomicUsize>,
     /// Whether it states log probabilities: ln ½ per coin tossed.
-    probabilities: bool,
+    log_probability: bool,
     /// Whether its bits also reset ([`resetting_bits_set`]).
     resets: bool,
     /// The instructions whose action its set leaves undeclared
@@ -498,8 +497,11 @@ impl Describe for Bits {
     fn capabilities(&self) -> Capabilities {
         Capabilities::default()
             .with_qubits(2)
+            .with_resumable_shots(true)
+            .with_replayable(true)
+            .with_resets(self.resets)
             .with_instruction_set((!self.undescribed).then(|| Arc::new(self.set())))
-            .with_probabilities(self.probabilities)
+            .with_log_probability(self.log_probability)
     }
 }
 
@@ -601,8 +603,6 @@ struct SharedState {
     /// The call at which its device stops, after the batch ran; `None`:
     /// never.
     fails_at: Option<u64>,
-    /// The calls it received, refused ones too, shared with the test.
-    received: Rc<Cell<u64>>,
 }
 
 impl SharedState {
@@ -616,17 +616,19 @@ impl SharedState {
             lifecycle: ExecutorLifecycle::default(),
             calls: 0,
             fails_at: None,
-            received: Rc::default(),
         }
     }
 }
 
-/// What its bits offer, but replayable shots: its shots share one state on
-/// one seed, so a shot's values depend on how the shots' batches are split
+/// What its bits offer, but neither resumable nor replayable shots: its
+/// shots share one state on one seed, so a call on one shot changes the
+/// others, and a shot's values depend on how the shots' batches are split
 /// into calls.
 impl Describe for SharedState {
     fn capabilities(&self) -> Capabilities {
-        Bits::default().capabilities().with_replayable(false)
+        (Bits::default().capabilities())
+            .with_resumable_shots(false)
+            .with_replayable(false)
     }
 }
 
@@ -637,7 +639,6 @@ impl Executor<InstructionBatch<InstructionCall>> for SharedState {
         &mut self,
         batch: InstructionBatchRef<'_, InstructionCall>,
     ) -> Result<Self::Reply, Rejected> {
-        self.received.set(self.received.get() + 1);
         self.lifecycle.admit()?;
         let state = self
             .state
@@ -869,10 +870,10 @@ impl<I: Instruction, F> Adapter for MapExecutor<I, F> {
         self.draws
     }
 
-    /// It offers no `probabilities`: what its executor draws is unknown to
+    /// It offers no `log_probability`: what its executor draws is unknown to
     /// the log probability its downstream executor reports.
     fn build(self, boundary: &mut AdapterBoundary<'_>) -> Self {
-        boundary.offered_upstream().probabilities = false;
+        boundary.offered_upstream().log_probability = false;
         self
     }
 }

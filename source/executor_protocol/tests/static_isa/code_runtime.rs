@@ -19,11 +19,11 @@
 //!   and at the end of the batch, so that one batch may flush twice.
 //!
 //! The glue is the adapter's own code: the way below a state owns
-//! ([`OwnedBelow`]), wrapped in [`Lower`], is the runtime's backend, and
+//! ([`BelowHandle`]), wrapped in [`Lower`], is the runtime's backend, and
 //! the logic calls the runtime and writes its results
 //! ([`through_the_runtime`]). The wrapper is needed: the adapter's crate
 //! owns neither `Backend`, which the runtime's crate defines, nor
-//! `OwnedBelow`, so it cannot implement one for the other.
+//! `BelowHandle`, so it cannot implement one for the other.
 //!
 //! It runs a state per shot: a runtime's results name no shot, so one
 //! state serving a call on several shots could not tell them apart. The
@@ -33,7 +33,7 @@
 use std::rc::Rc;
 
 use executor_protocol::{
-    Outcome, Outcomes, OwnedBelow, ProgramInput, Rejected, ShotContext, Value,
+    AdapterError, BelowHandle, Outcome, Outcomes, ProgramInput, Rejected, ShotContext, Value,
 };
 
 use crate::logical::Logical;
@@ -140,7 +140,7 @@ fn physical_tag(instruction: &Op) -> Option<u32> {
 }
 
 /// The way below a state owns, as its runtime's backend.
-pub struct Lower(pub OwnedBelow<Op>);
+pub struct Lower(pub BelowHandle<Op>);
 
 /// A batch that reads runs below, and its reads must match its readouts
 /// one to one, as one shot's do, and come back in input order; one that
@@ -179,7 +179,7 @@ impl Backend<Op> for Lower {
 /// it owns.
 pub fn instantiated(
     plan: CodePlan,
-) -> impl FnMut(ShotContext, OwnedBelow<Op>) -> Result<CodeRuntime<Lower>, Rejected> {
+) -> impl FnMut(ShotContext, BelowHandle<Op>) -> Result<CodeRuntime<Lower>, Rejected> {
     move |_, below| Ok(plan.instantiate(Lower(below)))
 }
 
@@ -195,7 +195,7 @@ pub fn through_the_runtime<R: Backend<Logical, Error = String>>(
     runtime: &mut R,
     input: &ProgramInput<'_, Logical>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     let results = runtime.execute_batch(input.instructions())?.results;
     let tags: Vec<_> = (input.instructions().iter())
         .filter_map(|instruction| match *instruction {
@@ -204,11 +204,11 @@ pub fn through_the_runtime<R: Backend<Logical, Error = String>>(
         })
         .collect();
     if results.len() != tags.len() {
-        return Err(format!(
+        return Err(AdapterError::from(format!(
             "readouts: {}, results from the runtime: {}",
             tags.len(),
             results.len()
-        ));
+        )));
     }
     outcomes.extend(
         tags.into_iter()

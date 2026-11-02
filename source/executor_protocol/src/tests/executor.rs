@@ -20,7 +20,7 @@ use crate::tests::test_double::{TestDoubleModel, step};
 fn the_reports_of_a_split_fold_into_the_report_of_one_executor() {
     fn run_on(shots: &[ShotId]) -> ExecutorReport<Count> {
         let doubles = TestDoubleModel {
-            probabilities: true,
+            log_probability: true,
             ..TestDoubleModel::default()
         };
         let held = ShotSet::new(shots.to_vec()).expect("a test names distinct shots");

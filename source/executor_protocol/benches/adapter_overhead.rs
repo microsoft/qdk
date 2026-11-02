@@ -36,7 +36,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use executor_protocol::{
-    Adapter, Apply, Below, Capabilities, Close, Describe, Executor, InstructionBatch,
+    Adapter, AdapterError, Apply, Below, Capabilities, Close, Describe, Executor, InstructionBatch,
     InstructionBatchRef, OnePerShot, Outcome, Outcomes, ProgramInput, ShotContext, ShotOutcome,
     ShotSet, TypedInstruction, Value, adapter_fn, executor_fn, wait,
 };
@@ -112,7 +112,7 @@ fn pass<S>(
     input: &ProgramInput<'_, Gate>,
     below: &mut Below<'_, Gate>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     below.send(input.instructions())
 }
 

@@ -9,10 +9,11 @@ use std::sync::atomic::Ordering;
 use std::task::Waker;
 
 use super::{
-    DropLog, Dropped, DroppedBelow, HeldOpen, Pulse, Senders, Unmade, after_a_stop, close_counted,
-    count_and_pass, decodable, decode, device, device_promising, finds_no_syndrome,
-    holding_until_busy, no_calls, one, panics_decoding, pass_unless_empty, pulse_device, recorded,
-    refusal_after_a_panic, send_down,
+    DropLog, Dropped, DroppedBelow, HeldOpen, Pulse, Senders, Unmade, after_a_stop,
+    ample_simulator, close_counted, count_and_pass, decodable, decode, device, device_promising,
+    finds_no_syndrome, holding_until_busy, no_calls, one, panics_decoding, pass_unless_empty,
+    pulse_device, recorded, refusal_after_a_panic, scant_simulator, send_down,
+    unmet_needs_of_a_job_beyond_the_scant_simulator,
 };
 use crate::tests::executor_fn::{
     Freed, Op, PowerDownFailed, PowersDownBadly, ReleasesBadly, freed_so_far, panic_text,
@@ -21,11 +22,11 @@ use crate::tests::executor_fn::{
 use crate::tests::test_double::{TestDoubleExecutor, TestDoubleModel, run, step};
 use crate::tests::{Bits, PanicsOnClose, bits_set, ends_soon, flip_and_toss, shots, values};
 use crate::{
-    Below, BuildError, Capabilities, Close, ComponentId, Describe, Executor, ExecutorFn,
-    ExecutorLogic, IncrementalReply, InstructionBatch, InstructionBatchRef, MakeState, OnePerShot,
-    OnePerShotExecutor, Outcome, Outcomes, OwnThread, ProgramInput, Rejected, Reply, ReplyStatus,
-    ShotContext, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose, conformance,
-    executor_fn, reply_channel, wait,
+    AdapterError, Below, BuildError, Capabilities, Close, ComponentId, Describe, Executor,
+    ExecutorFn, ExecutorLogic, IncrementalReply, InstructionBatch, InstructionBatchRef, MakeState,
+    Need, OnePerShot, OnePerShotExecutor, Outcome, Outcomes, OwnThread, ProgramInput, Rejected,
+    Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose,
+    conformance, executor_fn, reply_channel, wait,
 };
 
 /// The shots of the target chain's run: not a range.
@@ -52,7 +53,7 @@ fn pass<S>(
     input: &ProgramInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     below.send(input.instructions())
 }
 
@@ -63,7 +64,7 @@ fn by_parity(
     _: &ProgramInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     if shot.is_multiple_of(2) {
         below.send(&[true])
     } else {
@@ -127,7 +128,7 @@ fn profile(
     input: &ProgramInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     for &read in input.instructions() {
         *counts.borrow_mut().entry(read).or_default() += 1;
     }
@@ -350,7 +351,7 @@ fn growing(
     _: &ProgramInput<'_, bool>,
     below: &mut Below<'_, bool>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     *calls += 1;
     let batch = vec![true; *calls as usize];
     below.send(&batch)?;
@@ -463,9 +464,9 @@ fn a_drawing_adapters_states_seed_from_their_shot_bound_to_its_id() {
 }
 
 /// A simulator of bools made with `executor_fn`, given the run's seed,
-/// whose read `i` reads bit `i` of its shot's seed, under tag `i`; with
-/// no shot strategy yet, so that a test can give it one and a placement,
-/// in either order.
+/// whose read `i` reads bit `i` of its shot's seed, under tag `i`, so it
+/// offers replayable shots; with no shot strategy yet, so that a test can
+/// give it one and a placement, in either order.
 fn seeded_reading_simulator() -> ExecutorFn<
     bool,
     u64,
@@ -473,7 +474,7 @@ fn seeded_reading_simulator() -> ExecutorFn<
     impl ExecutorLogic<bool, u64> + Clone + Send + 'static,
 > {
     executor_fn(
-        Capabilities::default().with_qubits(4),
+        Capabilities::default().with_qubits(4).with_replayable(true),
         |context: ShotContext| Ok(context.seed()),
         |seed: &mut u64, input: &ProgramInput<'_, bool>, outcomes: &mut Outcomes<'_>| {
             for (i, &read) in input.instructions().iter().enumerate() {
@@ -504,7 +505,7 @@ fn losing_reads(
     input: &ProgramInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     *generator = generator
         .wrapping_mul(6_364_136_223_846_793_005)
         .wrapping_add(1_442_695_040_888_963_407);
@@ -542,6 +543,108 @@ fn a_drawing_adapter_offers_replayable_shots() {
         "the simulator replays its shots"
     );
     assert!(noisy().capabilities().replayable);
+}
+
+/// A noise adapter whose states draw with [`NOISE`], over a simulator given
+/// the run's seed, a state per shot, which keeps each shot's state across
+/// calls: a program with feedback, run through the noise, continues each
+/// shot in a later call, so the adapter offers resumable shots upstream.
+#[test]
+fn a_drawing_adapter_passes_resumable_shots_up() {
+    let simulator = executor_fn(
+        Capabilities::default()
+            .with_qubits(4)
+            .with_resumable_shots(true),
+        |_| Ok(()),
+        |(): &mut (), _: &ProgramInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+    )
+    .seed(SEED)
+    .shots(OnePerShot);
+    assert!(
+        simulator.capabilities().resumable_shots,
+        "the simulator keeps each shot's state across calls"
+    );
+    let noise = adapter_fn(drawing, losing_reads)
+        .drawing(NOISE)
+        .shots(OnePerShot);
+    let executor = (noise >> simulator).expect("bools fit");
+    assert!(executor.capabilities().resumable_shots);
+}
+
+/// [`ample_simulator`], which offers every capability it can, under an
+/// adapter with a state per shot: an observer that draws nothing offers all
+/// the simulator offers; a noise adapter whose states draw with [`NOISE`]
+/// offers it all but the stated exception (no log probability), with
+/// [`NOISE`] added to the ids drawn with.
+#[test]
+fn it_offers_what_the_executor_below_offers() {
+    let ample = ample_simulator().capabilities();
+    let observer = adapter_fn(no_state, pass).shots(OnePerShot);
+    let executor = (observer >> ample_simulator()).expect("bools fit");
+    assert_eq!(executor.capabilities(), ample);
+    let noise = adapter_fn(drawing, losing_reads)
+        .drawing(NOISE)
+        .shots(OnePerShot);
+    let executor = (noise >> ample_simulator()).expect("the simulator is given the run's seed");
+    let mut expected = ample
+        .drawing(NOISE)
+        .expect("nothing below draws with NOISE");
+    expected.log_probability = false;
+    assert_eq!(executor.capabilities(), expected);
+}
+
+/// Two [`scant_simulator`]s, which offer only what they must, one bounded
+/// (3 qubits, 2 shots at once) and one not, each under an adapter with a
+/// state per shot, an observer that draws nothing or a noise adapter whose
+/// states draw with [`NOISE`]: it offers nothing the simulator does not,
+/// [`NOISE`] among the ids drawn with apart; and a job beyond the bounded
+/// simulator in every need, given to the chain, is refused with each need
+/// unmet, as it is with no adapter.
+#[test]
+fn it_offers_nothing_the_executor_below_does_not() {
+    let noise = || {
+        adapter_fn(drawing, losing_reads)
+            .drawing(NOISE)
+            .shots(OnePerShot)
+    };
+    for (qubits, max_shots) in [(Some(3), Some(2)), (None, None)] {
+        let scant = || scant_simulator(qubits, max_shots);
+        let offered = scant().capabilities();
+        let observer = adapter_fn(no_state, pass).shots(OnePerShot);
+        let executor = (observer >> scant()).expect("bools fit");
+        assert_eq!(executor.capabilities(), offered);
+        let executor = (noise() >> scant()).expect("the simulator is given the run's seed");
+        let expected = offered
+            .drawing(NOISE)
+            .expect("nothing below draws with NOISE");
+        assert_eq!(executor.capabilities(), expected);
+    }
+    let bounded = || scant_simulator(Some(3), Some(2));
+    let every_need = [
+        Need::Qubits,
+        Need::ResumableShots,
+        Need::Resets,
+        Need::Replayable,
+        Need::LogProbability,
+        Need::InstructionSet,
+        Need::Shots,
+    ];
+    assert_eq!(
+        unmet_needs_of_a_job_beyond_the_scant_simulator(bounded()),
+        every_need,
+        "the simulator meets none of the job's needs"
+    );
+    let observer = adapter_fn(no_state, pass).shots(OnePerShot);
+    let executor = (observer >> bounded()).expect("bools fit");
+    assert_eq!(
+        unmet_needs_of_a_job_beyond_the_scant_simulator(executor),
+        every_need
+    );
+    let executor = (noise() >> bounded()).expect("the simulator is given the run's seed");
+    assert_eq!(
+        unmet_needs_of_a_job_beyond_the_scant_simulator(executor),
+        every_need
+    );
 }
 
 /// `noise >> simulator` ([`noisy`]) keeps the promise of `replayable`:
@@ -683,7 +786,7 @@ fn two_drawing_adapters_seed_from_the_one_seed_each_with_its_own_id() {
 
 /// A noise adapter whose states draw with [`NOISE`], over a simulator
 /// that states each shot's log probability: the adapter offers no
-/// probabilities, so its run reports none, since one without the noise's
+/// log probability, so its run reports none, since one without the noise's
 /// draws would not be the shot's.
 #[test]
 #[ignore = "the report below passes up as it is, its log probabilities included; goes with \
@@ -698,8 +801,8 @@ fn a_drawing_adapters_run_reports_no_log_probability() {
         .shots(OnePerShot);
     let mut executor = (noise >> simulator).expect("bools fit");
     assert!(
-        !executor.capabilities().probabilities,
-        "the adapter offers no probabilities"
+        !executor.capabilities().log_probability,
+        "the adapter offers no log probability"
     );
     step(&mut executor, &shots(&SHOTS), &[true], "the call runs");
     let report = executor.close();
@@ -886,7 +989,7 @@ fn count_calls(
     input: &ProgramInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     *calls += 1;
     below.send(input.instructions())
 }
@@ -1016,7 +1119,7 @@ fn failing_on_five() -> FailedOnFive {
             outcomes.push(Outcome::new(9, Value::One));
             below.send(input.instructions())?;
             if *shot == 5 {
-                return Err("no syndrome".to_owned());
+                return Err("no syndrome".into());
             }
             Ok(())
         }
@@ -1072,7 +1175,7 @@ fn a_logic_that_fails_on_a_shot_ends_the_call_after_what_its_sends_alone_read() 
                     below: &mut Below<'_, bool>,
                     outcomes: &mut Outcomes<'_>| {
         if *shot == 5 {
-            return Err("no syndrome".to_owned());
+            return Err("no syndrome".into());
         }
         below.send(&[true, true])?;
         below.run(&[false])?;
@@ -1096,7 +1199,7 @@ fn a_logic_that_fails_fails_the_adapter() {
     let failing = |(): &mut (),
                    _: &ProgramInput<'_, bool>,
                    _: &mut Below<'_, bool>,
-                   _: &mut Outcomes<'_>| { Err("no syndrome".to_owned()) };
+                   _: &mut Outcomes<'_>| { Err("no syndrome".into()) };
     let mut decoded = (adapter_fn(no_state, failing).shots(OnePerShot)
         >> below(TestDoubleModel::default()))
     .expect("bools fit");
@@ -1200,7 +1303,7 @@ fn a_failed_call_keeps_no_state_made_for_it() {
              below: &mut Below<'_, bool>,
              _: &mut Outcomes<'_>| {
                 if *shot == 5 {
-                    return Err("disk full".to_owned());
+                    return Err("disk full".to_owned().into());
                 }
                 below.send(input.instructions())
             },
@@ -1233,7 +1336,7 @@ fn count_and_send(
     input: &ProgramInput<'_, bool>,
     below: &mut Below<'_, bool>,
     _: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     for &read in input.instructions() {
         *tally.entry(read).or_default() += 1;
     }
@@ -1287,7 +1390,7 @@ fn a_failed_call_reports_no_state_made_for_it() {
                            _: &mut Outcomes<'_>| {
         *calls += 1;
         if *shot == 5 {
-            return Err("no syndrome".to_owned());
+            return Err("no syndrome".into());
         }
         below.send(input.instructions())
     };
@@ -1393,7 +1496,7 @@ fn a_call_that_failed_ends_with_its_own_failure_though_a_send_fails_after_it_ret
                    _: &mut Outcomes<'_>| {
         below.send(&[false])?;
         below.run(&[true])?;
-        Err("no syndrome".to_owned())
+        Err("no syndrome".into())
     };
     let senders = Senders::default();
     let mut executor = compose(
@@ -2197,7 +2300,7 @@ fn run_each<S>(
     input: &ProgramInput<'_, bool>,
     below: &mut Below<'_, bool>,
     outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     outcomes.extend(below.run(input.instructions())?);
     Ok(())
 }
@@ -2381,7 +2484,7 @@ fn a_shots_send_after_its_run_failed_gives_the_failure() {
         (adapter_fn(its_shot, run_then_send).shots(OnePerShot) >> below(model)).expect("bools fit");
     let (_, end) = run(&mut decoded, &shots(&SHOTS), &[true]).expect("the call is accepted");
     end.expect_err("shot 5's run failed");
-    assert_eq!(*sent.borrow(), [(2, Ok(())), (5, Err("lost".to_owned()))]);
+    assert_eq!(*sent.borrow(), [(2, Ok(())), (5, Err("lost".into()))]);
 }
 
 /// A profiler with a state per shot over the device, closed: it refuses
@@ -2436,14 +2539,14 @@ fn a_call_the_adapter_refuses_leaves_the_chain_usable() {
     );
 }
 
-/// A profiler with a state per shot over a device of two states, called
-/// on three shots: the device refuses the merged send, the profiler
-/// refuses the call with that refusal, and the chain runs a call on two
-/// shots (the conformance kit's check).
+/// A profiler with a state per shot over a device that holds two shots at once,
+/// called on three shots: the device refuses the merged send, the profiler
+/// refuses the call with that refusal, and the chain runs a call on two shots
+/// (the conformance kit's check).
 #[test]
 fn a_call_refused_below_leaves_the_chain_usable() {
     let mut profiled = (adapter_fn(no_calls, count_and_pass).shots(OnePerShot)
-        >> device_promising(promise().with_states(2)))
+        >> device_promising(promise().with_max_shots(2)))
     .expect("ops fit");
     conformance::accepts_calls_after_a_refusal::<InstructionBatch<Op>, _>(
         &mut profiled,
@@ -2519,8 +2622,8 @@ fn a_decoder_refuses_a_tag_repeated_within_a_batch() {
 
 /// A profiler with a state per shot over the device: a second call reads
 /// the flip of the first, on each shot, as the device alone does (the
-/// conformance kit's check of `feedback`). Its check of `replayable` runs
-/// on a drawing adapter
+/// conformance kit's check of `resumable_shots`). Its check of `replayable`
+/// runs on a drawing adapter
 /// (`a_drawing_adapters_shot_draws_alone_what_it_draws_among_the_others`).
 #[test]
 fn a_profiler_continues_a_shot_from_one_call_to_the_next() {
@@ -2607,7 +2710,7 @@ fn a_failed_adapter_closes_what_is_below() {
     let failing = |(): &mut (),
                    _: &ProgramInput<'_, bool>,
                    _: &mut Below<'_, bool>,
-                   _: &mut Outcomes<'_>| { Err("no syndrome".to_owned()) };
+                   _: &mut Outcomes<'_>| { Err("no syndrome".into()) };
     let (counted, closes) = close_counted(below(TestDoubleModel::default()));
     let mut decoded =
         compose(adapter_fn(no_state, failing).shots(OnePerShot), counted).expect("bools fit");

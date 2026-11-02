@@ -15,7 +15,7 @@ use std::thread::{self, ThreadId};
 use std::time::Duration;
 
 use crate::{
-    Capabilities, Close, Describe, Executor, ExecutorReport, Fold, InstructionBatch,
+    Capabilities, Close, Describe, Executor, ExecutorFn, ExecutorReport, Fold, InstructionBatch,
     InstructionBatchRef, OnePerShot, Outcome, Outcomes, OwnThread, PlacementJob, ProgramInput,
     Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction,
     Value, check_unique_tags, conformance, executor_fn, shot_seed, wait,
@@ -74,23 +74,27 @@ pub(in crate::tests) fn run_bit(
     Ok(())
 }
 
-/// The promise of the tests' device: no limit stated.
+/// The promise of the tests' device: it keeps each shot from one call to the
+/// next, and a shot reads alone what it reads among others, as each of the
+/// tests' states does; no other limit stated.
 pub(in crate::tests) fn promise() -> Capabilities {
     Capabilities::default()
+        .with_resumable_shots(true)
+        .with_replayable(true)
 }
 
 /// The promise of a device that states every limit it can: four qubits,
-/// eight states, no feedback, no replay, no reset. What a wrapper raised in
-/// it would show.
+/// eight shots at once, no resumable shots, no replay, no reset. What a wrapper
+/// raised in it would show.
 fn narrow_promise() -> Capabilities {
     Capabilities {
-        feedback: false,
+        resumable_shots: false,
         replayable: false,
         resets: false,
         ..Capabilities::default()
     }
     .with_qubits(4)
-    .with_states(8)
+    .with_max_shots(8)
 }
 
 /// The state of a simulator whose state is a value drawn from its shot's
@@ -641,7 +645,7 @@ fn a_tag_repeated_within_a_batch_is_refused() {
 }
 
 /// A second call reads the flip of the first: the conformance kit's check
-/// of `feedback`. The checks that a shot alone gives what it gives among
+/// of `resumable_shots`. The checks that a shot alone gives what it gives among
 /// others, and that a call changes no shot it does not name, do not apply:
 /// the executor holds one shot.
 #[test]
@@ -741,15 +745,15 @@ fn extended_outcomes_follow_those_pushed_before_in_order() {
     );
 }
 
-/// A device that states no limit, or every limit it can, holds one state
+/// A device that states no limit, or every limit it can, holds one shot
 /// without a shot strategy: it describes one, and the rest of its promise
-/// as given; a device that promises no state is not raised to one.
+/// as given; a device that promises no shot is not raised to one.
 #[test]
-fn without_a_shot_strategy_the_promise_is_lowered_to_one_state() {
-    let none = promise().with_states(0);
+fn without_a_shot_strategy_the_promise_is_lowered_to_one_shot() {
+    let none = promise().with_max_shots(0);
     for (given, described) in [
-        (promise(), promise().with_states(1)),
-        (narrow_promise(), narrow_promise().with_states(1)),
+        (promise(), promise().with_max_shots(1)),
+        (narrow_promise(), narrow_promise().with_max_shots(1)),
         (none.clone(), none),
     ] {
         let executor = executor_fn(given, Bit::new, run_bit);
@@ -757,15 +761,15 @@ fn without_a_shot_strategy_the_promise_is_lowered_to_one_state() {
     }
 }
 
-/// A device that promises no state (none free on it) is called on shot 0:
+/// A device that promises no shot (none free on it) is called on shot 0:
 /// the call is refused for want of room, `ShotNotHeld(0)`, as under
 /// `OnePerShot`, and no state is made, so the promise holds.
 #[test]
-fn a_promise_of_no_states_refuses_the_first_call() {
+fn a_promise_of_no_shots_refuses_the_first_call() {
     let made = Rc::new(Cell::new(0));
     let counted = Rc::clone(&made);
     let mut executor = executor_fn(
-        promise().with_states(0),
+        promise().with_max_shots(0),
         move |shot| {
             counted.set(counted.get() + 1);
             Bit::new(shot)
@@ -779,12 +783,12 @@ fn a_promise_of_no_states_refuses_the_first_call() {
     assert_eq!(made.get(), 0, "no state is made");
 }
 
-/// A device that promises no state is first called on shots 5 and 6: the
+/// A device that promises no shot is first called on shots 5 and 6: the
 /// call is refused for want of room naming its first shot,
 /// `ShotNotHeld(5)`, as under `OnePerShot`, not for a second shot.
 #[test]
-fn a_promise_of_no_states_refuses_a_first_call_on_several_shots_naming_its_first() {
-    let mut executor = executor_fn(promise().with_states(0), Bit::new, run_bit);
+fn a_promise_of_no_shots_refuses_a_first_call_on_several_shots_naming_its_first() {
+    let mut executor = executor_fn(promise().with_max_shots(0), Bit::new, run_bit);
     let refused = executor.call(InstructionBatchRef {
         shots: &ShotSet::new(vec![5, 6]).expect("two shots"),
         instructions: &[Op::Flip],
@@ -796,13 +800,13 @@ fn a_promise_of_no_states_refuses_a_first_call_on_several_shots_naming_its_first
 /// executor promises it exactly when it is told how to read it from the
 /// state, since only then can it report it.
 #[test]
-fn probabilities_are_promised_only_with_a_log_probability() {
+fn log_probability_is_promised_only_when_a_function_gives_it() {
     for given in [true, false] {
-        let promise = promise().with_probabilities(given);
+        let promise = promise().with_log_probability(given);
         let without = executor_fn(promise.clone(), Bit::new, run_bit);
-        assert!(!without.capabilities().probabilities, "given {given}");
+        assert!(!without.capabilities().log_probability, "given {given}");
         let with = executor_fn(promise, Bit::new, run_bit).log_probability(|_| 0.0);
-        assert!(with.capabilities().probabilities, "given {given}");
+        assert!(with.capabilities().log_probability, "given {given}");
     }
 }
 
@@ -1081,6 +1085,131 @@ pub(in crate::tests) fn freed_so_far(freed: &Freed) -> Vec<ShotId> {
         .lock()
         .expect("nothing panics holding the lock")
         .clone()
+}
+
+/// A device's connection, reached through a context per thread, as a GPU
+/// is: each closure of an executor holds a handle on it
+/// ([`ConnectionHandle`]), whose drop closes the context of the thread it
+/// is dropped on; and each shot's session ([`Session`]) releases its
+/// resources through the context of the thread it is dropped on. So a
+/// session dropped after any closure's handle, on the same thread, leaks.
+#[derive(Clone, Default)]
+pub(in crate::tests) struct Connection {
+    /// The threads whose context a handle's drop closed.
+    closed_on: Arc<Mutex<Vec<ThreadId>>>,
+    /// What the device logs as its shots' sessions end: `released shot j`,
+    /// or `shot j leaked` when the context was closed, in the order they
+    /// ended.
+    log: Arc<Mutex<Vec<String>>>,
+}
+
+impl Connection {
+    /// A handle on this connection, for a closure to hold.
+    pub(in crate::tests) fn handle(&self) -> ConnectionHandle {
+        ConnectionHandle(self.clone())
+    }
+
+    /// What the device logged so far.
+    pub(in crate::tests) fn logged(&self) -> Vec<String> {
+        (self.log.lock().expect("nothing panics holding the lock")).clone()
+    }
+
+    /// Whether the context of the thread this runs on was closed.
+    fn closed_here(&self) -> bool {
+        let closed_on = self.closed_on.lock();
+        (closed_on.expect("nothing panics holding the lock")).contains(&thread::current().id())
+    }
+}
+
+/// A handle on a device's connection, which a closure holds: dropped, it
+/// closes the context of the thread it is dropped on. A copy is another
+/// handle on the same connection.
+#[derive(Clone)]
+pub(in crate::tests) struct ConnectionHandle(Connection);
+
+impl ConnectionHandle {
+    /// The session of `shot`, which releases its resources through this
+    /// handle's connection.
+    pub(in crate::tests) fn session(&self, shot: ShotId) -> Session {
+        Session {
+            shot,
+            connection: self.0.clone(),
+        }
+    }
+}
+
+impl Drop for ConnectionHandle {
+    fn drop(&mut self) {
+        let closed_on = self.0.closed_on.lock();
+        (closed_on.expect("nothing panics holding the lock")).push(thread::current().id());
+    }
+}
+
+/// A shot's session on a device, a state whose drop releases its shot's
+/// resources through the context of the thread it is dropped on, or leaks
+/// them once a handle's drop closed that context.
+pub(in crate::tests) struct Session {
+    shot: ShotId,
+    connection: Connection,
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        let line = if self.connection.closed_here() {
+            format!("shot {} leaked", self.shot)
+        } else {
+            format!("released shot {}", self.shot)
+        };
+        let log = self.connection.log.lock();
+        (log.expect("nothing panics holding the lock")).push(line);
+    }
+}
+
+/// A device whose every closure (its state closure, logic, check, log
+/// probability and report maker) holds a handle on `connection`, through
+/// which its shots' sessions release their resources: an executor that
+/// drops any closure before a session leaks it.
+#[expect(
+    clippy::type_complexity,
+    reason = "each closure is named by its signature, so that the tests can \
+              make the device's shot forms from it"
+)]
+pub(in crate::tests) fn connected_device<I>(
+    connection: &Connection,
+) -> ExecutorFn<
+    I,
+    Session,
+    impl FnMut(ShotContext) -> Result<Session, Rejected> + Send + 'static,
+    impl FnMut(&mut Session, &ProgramInput<'_, I>, &mut Outcomes<'_>) -> Result<(), String>
+    + Clone
+    + Send
+    + 'static,
+    impl FnMut(&ProgramInput<'_, I>) -> Result<(), Rejected> + Send + 'static,
+    impl FnMut(&Session) -> f64 + Clone + Send + 'static,
+    impl FnMut(&Session) + Clone + Send + 'static,
+> {
+    let making = connection.handle();
+    let (running, checking) = (connection.handle(), connection.handle());
+    let (reading, reporting) = (connection.handle(), connection.handle());
+    executor_fn(
+        Capabilities::default(),
+        move |context: ShotContext| Ok(making.session(context.shot())),
+        move |_: &mut Session, _: &ProgramInput<'_, I>, _: &mut Outcomes<'_>| {
+            let _held = &running;
+            Ok(())
+        },
+    )
+    .check(move |_: &ProgramInput<'_, I>| {
+        let _held = &checking;
+        Ok(())
+    })
+    .log_probability(move |_: &Session| {
+        let _held = &reading;
+        0.0
+    })
+    .state_report(move |_: &Session| {
+        let _held = &reporting;
+    })
 }
 
 /// The payload of the panic of a [`ReleasesBadly`]'s drop.
@@ -1618,6 +1747,20 @@ fn dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops() 
     panic::catch_unwind(AssertUnwindSafe(|| drop(executor)))
         .expect("a drop raises no panic of a capture's drop");
     assert_eq!(released.load(Ordering::SeqCst), 5);
+}
+
+/// A device whose every closure holds a handle on its connection, and
+/// whose session on shot 0 releases its resources through it, ran a call
+/// and is dropped unclosed: the session is dropped first, before any
+/// closure closes the connection, as `close` frees it first.
+#[test]
+fn dropped_it_frees_its_state_before_its_closures() {
+    let connection = Connection::default();
+    let mut executor = connected_device(&connection);
+    let (_, end) = send(&mut executor, 0, &[Op::Flip]).expect("an open executor runs a call");
+    end.expect("the logic runs");
+    drop(executor);
+    assert_eq!(connection.logged(), ["released shot 0"]);
 }
 
 /// A device's check, log probability and report maker each hold a handle

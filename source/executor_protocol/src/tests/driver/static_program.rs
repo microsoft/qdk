@@ -8,8 +8,7 @@ use std::sync::Arc;
 
 use crate::tests::test_double::{Model, TestDoubleExecutor, TestDoubleModel};
 use crate::tests::{
-    Bits, BitsState, Count, SharedState, YieldNow, bits_set, call, ends_soon, flip_and_toss,
-    run_tasks, values,
+    Bits, BitsState, Count, YieldNow, bits_set, call, ends_soon, flip_and_toss, run_tasks, values,
 };
 use crate::{
     Action, Capabilities, Close, Describe, Executor, ExecutorLifecycle, ImmediateReply,
@@ -25,7 +24,7 @@ fn flip_and_toss_program(qubits: Option<u32>) -> StaticProgram<InstructionCall> 
     let set = bits_set();
     let needs = Needs {
         qubits,
-        ..Needs::default().with_instructions(Some(Arc::new(set.clone())))
+        ..Needs::default().with_instruction_set(Some(Arc::new(set.clone())))
     };
     StaticProgram::new(needs, flip_and_toss(&set))
 }
@@ -133,29 +132,37 @@ fn a_refusal_at_an_instruction_reads_as_the_programs_check_reads_it() {
     );
 }
 
-/// An ensemble executor whose device stops in its first call: the program
-/// stops at its first batch, naming it and the reply's reason, and sends
-/// the executor no later batch.
+/// A program of two reads on a double whose device fails shot 4's batches
+/// as they are called: the program stops at its first batch, naming it and
+/// the reply's reason, and sends the executor no later batch.
 #[test]
 fn a_static_program_stops_at_the_first_batch_that_fails() {
-    let executor = SharedState {
-        fails_at: Some(1),
-        ..SharedState::new(3)
+    let model = TestDoubleModel {
+        failing: Some(4),
+        ..TestDoubleModel::default()
     };
-    let received = Rc::clone(&executor.received);
-    let chain = compose(interpreter(), executor).expect("the shared state runs calls by opcode");
+    let seen = Rc::clone(&model.seen);
+    let chain = (interpreter() >> TestDoubleExecutor::with_model(model, 7))
+        .expect("the double takes any batch of `bool`s");
     let (outcomes, _) = chain
-        .run(flip_and_toss_program(None), 0..2)
-        .expect("the shared state runs the program's set")
+        .run(
+            StaticProgram::new(Needs::default(), vec![vec![true], vec![true]]),
+            [4],
+        )
+        .expect("a new shot")
         .wait();
     assert_eq!(
         outcomes,
         Err(StaticProgramError::Failed {
             batch: 0,
-            reason: "the device stopped".into(),
+            reason: "lost".into(),
         })
     );
-    assert_eq!(received.get(), 1, "a batch after the failure was sent");
+    assert_eq!(
+        seen.borrow().calls.get(&4),
+        Some(&1),
+        "a batch after the failure was sent"
+    );
 }
 
 /// A program of an empty batch, then a read, on two shots: an empty batch
@@ -248,12 +255,13 @@ fn a_static_program_run_awaited_leaves_its_thread_to_other_tasks_while_a_reply_i
 /// A program that flips bit 0 in its first batch and reads it in its
 /// second: its second call continues each shot where the first left it,
 /// so on bits that keep no state between calls it is refused for
-/// `feedback` when given to the chain, and the executor receives no call.
+/// `resumable_shots` when given to the chain, and the executor receives no
+/// call.
 #[test]
-fn a_call_before_a_static_programs_last_batch_needs_feedback() {
+fn a_call_before_a_static_programs_last_batch_needs_resumable_shots() {
     let set = bits_set();
     let program = StaticProgram::new(
-        Needs::default().with_instructions(Some(Arc::new(set.clone()))),
+        Needs::default().with_instruction_set(Some(Arc::new(set.clone()))),
         vec![
             vec![call(&set, "x", &[Operand::Block(0)])],
             vec![read(0, 0)],
@@ -263,22 +271,22 @@ fn a_call_before_a_static_programs_last_batch_needs_feedback() {
     let received = Rc::clone(&executor.received);
     let chain = compose(interpreter(), executor).expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
-        panic!("a call before the last batch must need feedback");
+        panic!("a call before the last batch must need resumable shots");
     };
-    assert!(is_unmet_feedback(&faults), "{faults:?}");
+    assert!(is_unmet_resumable_shots(&faults), "{faults:?}");
     assert_eq!(received.get(), 0, "a refused job sends nothing");
 }
 
 /// A program whose only call before its last batch is in neither its first
 /// earlier batch nor the one just before its last (`[], [x], [], [read]`):
 /// the later batches still continue each shot where that call left it, so
-/// on bits that keep no state between calls it is refused for `feedback`
+/// on bits that keep no state between calls it is refused for `resumable_shots`
 /// when given to the chain, and the executor receives no call.
 #[test]
-fn a_call_in_any_batch_before_a_static_programs_last_needs_feedback() {
+fn a_call_in_any_batch_before_a_static_programs_last_needs_resumable_shots() {
     let set = bits_set();
     let program = StaticProgram::new(
-        Needs::default().with_instructions(Some(Arc::new(set.clone()))),
+        Needs::default().with_instruction_set(Some(Arc::new(set.clone()))),
         vec![
             vec![],
             vec![call(&set, "x", &[Operand::Block(0)])],
@@ -290,49 +298,49 @@ fn a_call_in_any_batch_before_a_static_programs_last_needs_feedback() {
     let received = Rc::clone(&executor.received);
     let chain = compose(interpreter(), executor).expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
-        panic!("a call in a middle batch must need feedback");
+        panic!("a call in a middle batch must need resumable shots");
     };
-    assert!(is_unmet_feedback(&faults), "{faults:?}");
+    assert!(is_unmet_resumable_shots(&faults), "{faults:?}");
     assert_eq!(received.get(), 0, "a refused job sends nothing");
 }
 
 /// The same for typed calls: a program of the test double's reads, one per
-/// batch, is refused on an executor without feedback when given to the
+/// batch, is refused on an executor without resumable shots when given to the
 /// chain.
 #[test]
-fn a_typed_call_before_a_static_programs_last_batch_needs_feedback() {
+fn a_typed_call_before_a_static_programs_last_batch_needs_resumable_shots() {
     let model = TestDoubleModel {
-        without_feedback: true,
+        without_resumable_shots: true,
         ..TestDoubleModel::default()
     };
     let program = StaticProgram::new(Needs::default(), vec![vec![true], vec![true]]);
     let chain = (interpreter() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
-        panic!("a typed call before the last batch must need feedback");
+        panic!("a typed call before the last batch must need resumable shots");
     };
-    assert!(is_unmet_feedback(&faults), "{faults:?}");
+    assert!(is_unmet_resumable_shots(&faults), "{faults:?}");
 }
 
-/// A program of one batch whose writer states `feedback` anyway: its
+/// A program of one batch whose writer states `resumable_shots` anyway: its
 /// batches add no need, but they take none of the needs it states away, so
-/// on bits that keep no state between calls it is refused for `feedback`
+/// on bits that keep no state between calls it is refused for `resumable_shots`
 /// when given to the chain.
 #[test]
-fn a_static_programs_stated_feedback_is_kept() {
+fn a_static_programs_stated_resumable_shots_are_kept() {
     let set = bits_set();
     let program = StaticProgram::new(
         Needs::default()
-            .with_instructions(Some(Arc::new(set.clone())))
-            .with_feedback(true),
+            .with_instruction_set(Some(Arc::new(set.clone())))
+            .with_resumable_shots(true),
         vec![vec![call(&set, "x", &[Operand::Block(0)]), read(0, 0)]],
     );
     let chain =
         compose(interpreter(), StatelessBits::new(7)).expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
-        panic!("a program that states feedback must need it");
+        panic!("a program that states resumable shots must need them");
     };
-    assert!(is_unmet_feedback(&faults), "{faults:?}");
+    assert!(is_unmet_resumable_shots(&faults), "{faults:?}");
 }
 
 /// A program of no batches, stating its set: it adds no need to those it
@@ -341,7 +349,7 @@ fn a_static_programs_stated_feedback_is_kept() {
 #[test]
 fn a_static_program_of_no_batches_adds_no_need_and_gives_no_outcomes() {
     let program = StaticProgram::new(
-        Needs::default().with_instructions(Some(Arc::new(bits_set()))),
+        Needs::default().with_instruction_set(Some(Arc::new(bits_set()))),
         Vec::<Vec<InstructionCall>>::new(),
     );
     let executor = StatelessBits::new(7);
@@ -349,7 +357,7 @@ fn a_static_program_of_no_batches_adds_no_need_and_gives_no_outcomes() {
     let chain = compose(interpreter(), executor).expect("the bits run calls by opcode");
     let (outcomes, _) = chain
         .run(program, [4, 9])
-        .expect("a program of no batches needs no feedback")
+        .expect("a program of no batches needs no resumable shots")
         .wait();
     assert_eq!(outcomes, Ok(vec![]));
     assert_eq!(received.get(), 0, "a program of no batches sends no call");
@@ -359,17 +367,17 @@ fn a_static_program_of_no_batches_adds_no_need_and_gives_no_outcomes() {
 /// a shot, so it runs on bits that keep no state between calls, each
 /// shot's bit reading one.
 #[test]
-fn a_static_program_of_one_batch_runs_on_an_executor_without_feedback() {
+fn a_static_program_of_one_batch_runs_on_an_executor_without_resumable_shots() {
     let set = bits_set();
     let program = StaticProgram::new(
-        Needs::default().with_instructions(Some(Arc::new(set.clone()))),
+        Needs::default().with_instruction_set(Some(Arc::new(set.clone()))),
         vec![vec![call(&set, "x", &[Operand::Block(0)]), read(0, 0)]],
     );
     let chain =
         compose(interpreter(), StatelessBits::new(7)).expect("the bits run calls by opcode");
     let outcomes = chain
         .run(program, [4, 9])
-        .expect("a program of one batch needs no feedback")
+        .expect("a program of one batch needs no resumable shots")
         .wait()
         .0
         .expect("the bits neither refuse nor fail");
@@ -385,7 +393,7 @@ fn a_static_program_of_one_batch_runs_on_an_executor_without_feedback() {
 fn empty_batches_before_a_static_programs_last_add_no_need() {
     let set = bits_set();
     let program = StaticProgram::new(
-        Needs::default().with_instructions(Some(Arc::new(set.clone()))),
+        Needs::default().with_instruction_set(Some(Arc::new(set.clone()))),
         vec![
             vec![],
             vec![],
@@ -408,13 +416,13 @@ fn empty_batches_before_a_static_programs_last_add_no_need() {
 /// A program that flips bit 0 and reads it in its first batch, then sends
 /// an empty batch: an empty batch is a call like any other, so the second
 /// continues each shot, and on bits that keep no state between calls the
-/// job is refused for `feedback` when given to the chain, the executor
+/// job is refused for `resumable_shots` when given to the chain, the executor
 /// receiving no call.
 #[test]
-fn an_empty_last_batch_after_calls_needs_feedback() {
+fn an_empty_last_batch_after_calls_needs_resumable_shots() {
     let set = bits_set();
     let program = StaticProgram::new(
-        Needs::default().with_instructions(Some(Arc::new(set.clone()))),
+        Needs::default().with_instruction_set(Some(Arc::new(set.clone()))),
         vec![
             vec![call(&set, "x", &[Operand::Block(0)]), read(0, 0)],
             vec![],
@@ -424,15 +432,15 @@ fn an_empty_last_batch_after_calls_needs_feedback() {
     let received = Rc::clone(&executor.received);
     let chain = compose(interpreter(), executor).expect("the bits run calls by opcode");
     let Err(JobFaults(faults)) = chain.run(program, [4, 9]) else {
-        panic!("an empty batch after calls must need feedback");
+        panic!("an empty batch after calls must need resumable shots");
     };
-    assert!(is_unmet_feedback(&faults), "{faults:?}");
+    assert!(is_unmet_resumable_shots(&faults), "{faults:?}");
     assert_eq!(received.get(), 0, "a refused job sends nothing");
 }
 
-/// Whether `faults` is one fault, an unmet `feedback`.
-fn is_unmet_feedback(faults: &[Rejected]) -> bool {
-    matches!(faults, [Rejected::Unmet(unmet)] if unmet.need == Need::Feedback)
+/// Whether `faults` is one fault, an unmet `resumable_shots`.
+fn is_unmet_resumable_shots(faults: &[Rejected]) -> bool {
+    matches!(faults, [Rejected::Unmet(unmet)] if unmet.need == Need::ResumableShots)
 }
 
 /// A static program needs what it states: one that needs three qubits is
@@ -464,7 +472,7 @@ fn a_static_programs_needs_are_checked_when_given_to_a_chain() {
 fn a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_batch() {
     let set = bits_set();
     let program = StaticProgram::new(
-        Needs::default().with_instructions(Some(Arc::new(set.clone()))),
+        Needs::default().with_instruction_set(Some(Arc::new(set.clone()))),
         vec![
             vec![
                 call(&set, "x", &[Operand::Block(0)]),
@@ -475,6 +483,7 @@ fn a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_bat
     );
     let two_bits = Capabilities::default()
         .with_qubits(2)
+        .with_resumable_shots(true)
         .with_instruction_set(Some(Arc::new(set.clone())));
     let device = executor_fn(
         two_bits,
@@ -546,7 +555,7 @@ fn a_static_program_by_opcode_that_states_no_set_is_refused() {
     };
     assert_eq!(
         (unmet.need, unmet.needed, unmet.offered),
-        (Need::Instructions, 1, 0)
+        (Need::InstructionSet, 1, 0)
     );
 }
 
@@ -566,7 +575,7 @@ fn a_static_program_by_opcode_of_no_batches_that_states_no_set_is_refused() {
     let [Rejected::Unmet(unmet)] = faults.as_slice() else {
         panic!("one unmet need: {faults:?}");
     };
-    assert_eq!(unmet.need, Need::Instructions, "{faults:?}");
+    assert_eq!(unmet.need, Need::InstructionSet, "{faults:?}");
     assert_eq!(received.get(), 0, "a refused job sends nothing");
 }
 
@@ -588,7 +597,7 @@ fn with_calls_outside_its_set(
     }
     let needs = Needs {
         qubits,
-        ..Needs::default().with_instructions(Some(Arc::new(set)))
+        ..Needs::default().with_instruction_set(Some(Arc::new(set)))
     };
     StaticProgram::new(needs, batches)
 }
@@ -686,7 +695,7 @@ fn flip_and_toss_edited(
     let mut batches = flip_and_toss(&set);
     edit(&mut batches);
     StaticProgram::new(
-        Needs::default().with_instructions(Some(Arc::new(set))),
+        Needs::default().with_instruction_set(Some(Arc::new(set))),
         batches,
     )
 }
@@ -723,7 +732,7 @@ impl Model for BitsOffering {
 
 /// Bits that keep no state between calls: each call runs every shot it
 /// names on fresh bits, made from the seed and the shot, so they offer no
-/// feedback. They keep only whether they are closed, on their
+/// resumable shots. They keep only whether they are closed, on their
 /// [`ExecutorLifecycle`].
 struct StatelessBits {
     seed: u64,
@@ -744,7 +753,7 @@ impl StatelessBits {
 
 impl Describe for StatelessBits {
     fn capabilities(&self) -> Capabilities {
-        Bits::default().capabilities().with_feedback(false)
+        Bits::default().capabilities().with_resumable_shots(false)
     }
 }
 
@@ -912,7 +921,7 @@ fn a_tag_that_a_later_operand_of_a_call_reads_again_is_refused() {
     let set = reading_both_set();
     let mut batches = flip_and_toss(&set);
     batches[1][1] = read_both([1, 0]);
-    let needs = Needs::default().with_instructions(Some(Arc::new(set.clone())));
+    let needs = Needs::default().with_instruction_set(Some(Arc::new(set.clone())));
     let faults = faults_on(set, StaticProgram::new(needs, batches));
     let [fault] = faults.as_slice() else {
         panic!("one fault: {faults:?}");
@@ -931,7 +940,7 @@ fn a_call_that_reads_one_tag_twice_is_refused_as_its_own_repeat() {
     let set = reading_both_set();
     let mut batches = flip_and_toss(&set);
     batches[0][1] = read_both([0, 0]);
-    let needs = Needs::default().with_instructions(Some(Arc::new(set.clone())));
+    let needs = Needs::default().with_instruction_set(Some(Arc::new(set.clone())));
     let faults = faults_on(set, StaticProgram::new(needs, batches));
     let [fault] = faults.as_slice() else {
         panic!("one fault: {faults:?}");

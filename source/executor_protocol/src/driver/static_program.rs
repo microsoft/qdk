@@ -22,14 +22,14 @@ use crate::{
 ///
 /// A program whose calls are all in its last batch adds no need. One with
 /// a call in a batch before its last continues each shot in a later call,
-/// so it needs `feedback`, an executor that keeps each shot's state
-/// between calls ([`Capabilities::feedback`]), and is refused when it is
+/// so it needs `resumable_shots`, an executor that keeps each shot's state
+/// between calls ([`Capabilities::resumable_shots`]), and is refused when it is
 /// given to a chain whose executor does not offer it ([`Chain::run`]). An
 /// empty batch is a call like any other, sent to every shot, so a program
-/// of calls then an empty last batch needs `feedback` too.
+/// of calls then an empty last batch needs `resumable_shots` too.
 ///
 /// A program of calls by opcode states the set they are numbered in
-/// ([`Needs::with_instructions`]), and its calls are of that set, or it is
+/// ([`Needs::with_instruction_set`]), and its calls are of that set, or it is
 /// refused when it is given to a chain ([`Chain::run`]).
 ///
 /// When it is given to a chain, the qubits it states
@@ -86,17 +86,17 @@ impl<I: Instruction> Interpret<StaticProgram<I>> for DefaultInterpreter {
     type Instruction = I;
     type Output = Result<Vec<ShotOutcome>, StaticProgramError>;
 
-    /// The needs the program states, and `feedback` when a batch before
+    /// The needs the program states, and `resumable_shots` when a batch before
     /// its last holds a call: the later batches, empty ones too, continue
     /// each shot where that call left it, so the executor must keep each
-    /// shot's state between calls ([`Capabilities::feedback`]), whether or
-    /// not the shot was read. A program whose calls are all in its last
+    /// shot's state between calls ([`Capabilities::resumable_shots`]), whether
+    /// or not the shot was read. A program whose calls are all in its last
     /// batch (its earlier batches empty, if any) adds no need, nor does a
     /// program of no batches.
     fn needs(&self, program: &StaticProgram<I>) -> Needs {
         let needs = program.needs.clone();
         if calls_before_its_last_batch(&program.batches) {
-            needs.with_feedback(true)
+            needs.with_resumable_shots(true)
         } else {
             needs
         }
@@ -110,7 +110,7 @@ impl<I: Instruction> Interpret<StaticProgram<I>> for DefaultInterpreter {
     /// set is refused for its needs already; typed calls are checked by
     /// the compiler, and their tags are not read.
     fn check(&self, program: &StaticProgram<I>) -> Vec<Rejected> {
-        let set = program.needs.instructions.as_deref();
+        let set = program.needs.instruction_set.as_deref();
         // Once per job, not per batch: a map costs 0.14 s for 1e6 readouts.
         let mut first_reads: BTreeMap<u32, (usize, usize)> = BTreeMap::new();
         let mut faults = Vec::new();

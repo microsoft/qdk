@@ -99,11 +99,11 @@ pub trait Adapter {
     /// So an adapter written by hand that draws is tested composed over such an
     /// executor, which is how it gets its seeds, as in the simulator guide
     /// (`tests/simulator.rs`). An adapter that draws offers its id with those
-    /// below it ([`Capabilities::rng_ids`]) and no `probabilities`, whatever it
-    /// offers ([`AdapterBoundary::offered_upstream`]): the log probability its
-    /// downstream executor reports does not hold its draws. One id per adapter:
-    /// one that draws several streams derives them from its one seed, as a JAX
-    /// key is split: stream `k` of a shot from
+    /// below it ([`Capabilities::rng_ids`]) and no `log_probability`, whatever
+    /// it offers ([`AdapterBoundary::offered_upstream`]): the log probability
+    /// its downstream executor reports does not hold its draws. One id per
+    /// adapter: one that draws several streams derives them from its one seed,
+    /// as a JAX key is split: stream `k` of a shot from
     /// [`shot_seed`](crate::shot_seed)`(s, k)`, with `k` in the place of the
     /// shot and `s` the adapter's seed for the shot
     /// ([`AdapterSeeds::shot`](crate::AdapterSeeds::shot)). The streams of one
