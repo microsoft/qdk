@@ -31,8 +31,9 @@ use crate::{Below, OnePerShot, ReplyStatus};
 /// An [`adapter_fn`](fn@crate::adapter_fn) under [`OnePerShot`]
 /// ([`AdapterFn::shots`]): shot `j`'s state is made at the shot's first
 /// call, from the context of `j` in the run, and kept for the shot's later
-/// calls until the adapter closes, which drops them. It describes itself
-/// as the adapter it was made from does.
+/// calls until the adapter closes, which drops them. It accepts, sends and
+/// draws as the adapter it was made from does, and stays `replayable` when
+/// it draws, since each shot's state draws from its own shot's context.
 ///
 /// A call runs the logic once per shot, in the batch's order, each on its
 /// shot's state, with [`Outcomes`] that answer that shot alone and a

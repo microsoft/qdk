@@ -100,7 +100,8 @@ The rules of composition:
 - **Where an adapter's calls meet the executor downstream, the boundary is
   decided once, when the chain is built.** The compiler checks typed
   instructions: an adapter must send the type that the part downstream of it
-  accepts. Where it does not, with one of the crate's executors on the right,
+  accepts. Where it does not, with an executor on the right that has `>>`
+  (one of the crate's, or one whose crate implements it),
   `a >> executor` and `driver() >> a >> executor` fail with the compiler's
   bare `no implementation for … >> …`, which does not say why; written with
   `compose` for that step, `compose(a, executor)` or

@@ -204,7 +204,10 @@ order:
     `the_code_in_a_programs_numbering_refuses_calls_outside_the_programs_set`).
     A program that states no set is refused, since its opcodes cannot be
     checked
-    (`a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal`).
+    (`a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal`);
+    the crate's driver still checks a static program's tags, and reports a
+    tag read twice with that unmet need
+    (`the_tags_of_a_static_program_that_states_no_set_are_still_checked`).
     The renumbering costs at most about 1 ns per batch when calls reach
     the chain as they are, which any executor that does work hides, and
     when it copies, about 2 ns per call and 4.6 ns per batch (measured on

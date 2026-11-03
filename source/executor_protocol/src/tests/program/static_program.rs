@@ -892,6 +892,33 @@ fn a_call_outside_a_static_programs_set_that_repeats_a_tag_is_reported_for_both(
     );
 }
 
+/// A program of calls by opcode whose writer forgot to state its set, and
+/// whose second batch reads its coin under tag 0, which its first batch's
+/// read has already: it is refused when given to the chain for the set it
+/// needs, and the repeat is reported with that unmet need, since with no
+/// set to check its calls against its tags are still read, so that both
+/// are fixed in one go.
+#[test]
+fn the_tags_of_a_static_program_that_states_no_set_are_still_checked() {
+    let mut batches = flip_and_toss(&bits_set());
+    batches[1][1] = read(1, 0);
+    let program = StaticProgram::new(Needs::default(), batches);
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+    let Err(JobFaults(faults)) = chain.run(program, [2, 5]) else {
+        panic!("calls by opcode in no stated set must be refused");
+    };
+    let [Rejected::Unmet(unmet), repeat] = faults.as_slice() else {
+        panic!("an unmet need, then the repeat: {faults:?}");
+    };
+    assert_eq!(unmet.need, Need::InstructionSet, "{faults:?}");
+    let (at, reason) = at_and_reason(repeat);
+    assert!(
+        at == 1 && reason.starts_with(&tag_zero_read_again_in(1)),
+        "{faults:?}"
+    );
+}
+
 /// [`bits_set`] with `measure both`, which reads two bits, each under a
 /// tag of its own.
 fn reading_both_set() -> InstructionSet {

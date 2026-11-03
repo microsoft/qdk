@@ -546,8 +546,11 @@ rules of a job given to a chain
   (`a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor`,
   `a_static_programs_needs_are_checked_when_given_to_a_chain`); and the
   driver must find no fault in the program, such as a call outside its
-  set (`a_call_outside_the_programs_set_is_refused`). The shots' fault
-  comes first, then each unmet need, then the program's
+  set (`a_call_outside_the_programs_set_is_refused`), or a tag a static
+  program of calls by opcode reads twice, whether it states a set or not
+  (`a_static_program_that_reads_a_tag_again_in_a_later_batch_is_refused`,
+  `the_tags_of_a_static_program_that_states_no_set_are_still_checked`).
+  The shots' fault comes first, then each unmet need, then the program's
   (`a_jobs_shot_faults_are_reported_with_its_programs_needs_and_calls`).
   Known issue: of shots named twice, only the least is reported
   (`a_job_that_names_several_shots_twice_reports_the_least`).
@@ -605,11 +608,16 @@ named by role, not a bare `impl Adapter`: `profiler()`
 (`tests/observers/profiler.rs`) returns a `OnePerShotAdapter<..>` and
 composes (`the_profilers_report_counts_each_instruction_over_the_shots`,
 `tests/observers.rs`); a bare `impl Adapter` is a compile error, which no
-test pins (`compose`'s rustdoc says why). And since two impls fit an
-executor's type on the right, a pair whose instruction types do not meet
-is reported as no `>>` for the pair, with no note of the crate, while
-`compose` reports it with `Compose`'s notes; no test pins either
-(`Compose`'s rustdoc).
+test pins (`compose`'s rustdoc says why). And since two impls fit the
+type of an executor on the right that has `>>` (one of the crate's, or one
+whose crate implements it, as below), a pair whose instruction types do
+not meet, or such an executor of another crate that lacks `Describe` or
+`Close`, is reported as no `>>` for the pair, with no note of the crate,
+while `compose` reports it with `Compose`'s notes; no test pins either
+(`Compose`'s rustdoc). A chain's head with no adapter below it takes the
+executor's instruction type, so its driver's own is checked when the job
+is given (`Chain::run`), as a type mismatch with no note of the crate,
+which no test pins either.
 
 Another crate composes with `compose`, or gives its own types `>>`, which
 takes more for an executor than for an adapter. An adapter written by
