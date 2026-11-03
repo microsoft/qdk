@@ -19,13 +19,13 @@ use crate::tests::test_double::TestDoubleModel;
 use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::{
     Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, AdaptiveProgram, Apply,
-    Below, BuildError, BuildFaults, BuiltinDriver, CallInput, Capabilities, Chain, ChainHead,
-    Close, ComponentId, ComposedJob, Describe, Driver, Executor, ExecutorLogic, InstructionBatch,
-    InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP,
-    MakeState, Need, Needs, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
-    OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, Rejected, ShotContext,
-    ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value, adapter_fn,
-    compose, driver, executor_fn, wait, wait_async,
+    Below, BuildError, BuildFaults, BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix,
+    Close, ComponentId, ComposedJob, Describe, Driver, DriverExt, Executor, ExecutorLogic,
+    InstructionBatch, InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet,
+    JobFaults, LogP, MakeState, Need, Needs, NoCheck, OnePerShot, OnePerShotAdapter,
+    OnePerShotExecutor, OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread,
+    Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction,
+    UnmetNeed, Value, adapter_fn, compose, driver, executor_fn, wait, wait_async,
 };
 
 use OperandKind::{Block, Tag};
@@ -244,7 +244,7 @@ where
 /// ways makes a chain with the same run: a job's calls meet the adapters in
 /// the same order and give the same outcomes. Among them,
 /// `(driver() >> a) >> rest` and `driver() >> (adapters >> executor)?`;
-/// `driver() >> a` is a chain's head again.
+/// `driver() >> a` is a chain's prefix again.
 #[test]
 fn the_grouping_of_a_drivers_chain_does_not_matter() {
     let logs: [Log; 5] = Default::default();
@@ -273,8 +273,8 @@ fn the_grouping_of_a_drivers_chain_does_not_matter() {
         {
             let (a, b) = ab(&logs[4]);
             let executor = compose(b, bits()).expect("loggers fit");
-            let head: ChainHead<BuiltinDriver, _> = driver() >> a;
-            run_flip_and_toss(compose(head, executor).expect("loggers fit"))
+            let prefix: ChainPrefix<BuiltinDriver, _> = driver() >> a;
+            run_flip_and_toss(compose(prefix, executor).expect("loggers fit"))
         },
     ];
     for (output, log) in outputs.iter().zip(&logs).skip(1) {
@@ -318,14 +318,14 @@ impl Driver<Program> for InTurn {
 }
 
 /// A user's runtime heads a chain as the crate's driver does,
-/// `ChainHead::new(runtime) >> adapter >> executor`: its calls pass through
+/// `runtime.into_chain() >> adapter >> executor`: its calls pass through
 /// the adapter below it, which with the executor is the one executor it is
 /// given, and the job gives what it gives under the crate's driver.
 #[test]
 fn a_driver_written_by_hand_calls_through_the_adapters_below_it() {
     let by_hand = Log::default();
     let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
-    let (outcomes, _) = (ChainHead::new(InTurn) >> logger("a", &by_hand) >> bits())
+    let (outcomes, _) = (InTurn.into_chain() >> logger("a", &by_hand) >> bits())
         .expect("the logger fits")
         .run(Program::flip_and_toss(bits_set()), [0, 1])
         .expect("shots, needs met")
@@ -673,7 +673,7 @@ fn the_grouping_of_a_chain_mixing_adapters_written_by_hand_and_by_the_facility_d
 }
 
 /// An adapter written by hand composed with an executor, then put
-/// downstream of a chain's head with `>>`, as the facility's executors
+/// downstream of a chain's prefix with `>>`, as the facility's executors
 /// are: the chain runs as the executor alone does, and its report is the
 /// counter's.
 #[test]
@@ -715,7 +715,7 @@ fn counted_readouts() -> AdapterExecutor<
 /// A function that makes an adapter written by hand over an executor
 /// returns it by name ([`AdapterExecutor`]), as one that makes an
 /// `adapter_fn` over an executor does: `>>` takes it after a
-/// chain's head, and the chain runs as the executor alone does, its report
+/// chain's prefix, and the chain runs as the executor alone does, its report
 /// the counter's.
 #[test]
 fn a_function_returns_an_adapter_written_by_hand_over_an_executor_for_shr() {

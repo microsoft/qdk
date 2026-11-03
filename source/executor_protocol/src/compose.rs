@@ -27,7 +27,7 @@
 //! `driver() >> a >> b >> executor`, and `(driver() >> a) >> executor` is
 //! `driver() >> (a >> executor)?`, the adapter composed with the executor
 //! first, its `Result` unwrapped. A driver with adapters below it is still
-//! the chain's head ([`ChainHead`]), as the driver alone is; it is not yet
+//! the chain's prefix ([`ChainPrefix`]), as the driver alone is; it is not yet
 //! a [`Driver`] itself (planned, `docs/planned.md`). Adapters grouped
 //! either way among themselves report the same faults; a part composed
 //! with the executor first is built on its own, and its faults are
@@ -52,7 +52,7 @@
 //!
 //! What is composed has its own module: an adapter ([`Adapter`]), where it
 //! meets what is downstream of it ([`AdapterBoundary`]), and a driver
-//! ([`Driver`], at the chain's head, [`ChainHead`]).
+//! ([`Driver`], in the chain's prefix, [`ChainPrefix`]).
 
 pub(crate) mod adapters;
 pub(crate) mod chain;
@@ -69,13 +69,13 @@ use crate::Rejected;
 use crate::compose::adapters::DownstreamOf;
 use crate::instruction_set::write_mismatches;
 use crate::{
-    Adapter, AdapterExecutor, AdapterFn, AdapterFnExecutor, Adapters, Apply, Chain, ChainHead,
+    Adapter, AdapterExecutor, AdapterFn, AdapterFnExecutor, Adapters, Apply, Chain, ChainPrefix,
     Close, ComponentId, ComposedAdapters, Executor, ExecutorFn, InstructionBatch,
     InstructionMismatch, NoAdapter, OnePerShotAdapter, OnePerShotAdapterExecutor,
     OnePerShotExecutor, OnePerShotPlacedExecutor, PlacedExecutor, UnmetNeed, UpstreamOf,
 };
 #[cfg(doc)]
-use crate::{AdapterBoundary, Driver};
+use crate::{AdapterBoundary, Driver, DriverExt};
 #[cfg(test)]
 use crate::{AdaptiveProgram, BuiltinDriver, ComposedJob, DrivenProgram, JobFaults, Run};
 
@@ -96,19 +96,19 @@ use crate::{AdaptiveProgram, BuiltinDriver, ComposedJob, DrivenProgram, JobFault
 /// component to [`Chain::run`]. That is where no rule has the left side's
 /// type, or none the right side's for it: an executor or a chain on the
 /// left, a generic part with no bound (`compose(a, toy)`, `a: A`), an
-/// executor of another crate after a chain's head, where the executor's
+/// executor of another crate after a chain's prefix, where the executor's
 /// crate implements no `>>` (`driver() >> hand`), an executor of another
 /// crate that lacks [`Describe`](crate::Describe) or [`Close`], which the
 /// rules require of an executor (in `compose`; after `>>`, see below), a
-/// `Result` on the right of a chain's head or in `compose` (a `?`
+/// `Result` on the right of a chain's prefix or in `compose` (a `?`
 /// forgotten: `driver() >> (a >> toy)`), or a program and its shots on the
 /// right. An adapter given as a generic `A: Adapter`, or returned as a bare
 /// `impl Adapter`, is reported otherwise, the executor after it as no
 /// [`Adapter`] (in `compose`) or as not of the crate's `Adapters` (after
 /// `>>`), with notes that name that case. Parts whose instruction types
-/// do not meet (an adapter, or a chain's head with adapters below it, that
+/// do not meet (an adapter, or a chain's prefix with adapters below it, that
 /// sends `Op`, upstream of a part that accepts `Gate`) show these notes in
-/// `compose`, and after `>>` with a chain's head on the left and an
+/// `compose`, and after `>>` with a chain's prefix on the left and an
 /// adapter, or adapters composed, on the right. After `>>`, with an
 /// executor on the right that has `>>` (one of the crate's, or one whose
 /// crate implements it), they are reported as no `>>` for the pair, with
@@ -117,15 +117,15 @@ use crate::{AdaptiveProgram, BuiltinDriver, ComposedJob, DrivenProgram, JobFault
 /// `Close`. With an adapter on the right of an adapter, or of adapters
 /// composed, they are reported as a type mismatch on what it accepts.
 /// Written as `compose(upstream, downstream)`, the pair shows the rule. A
-/// chain's head with no adapter below it takes the instruction type of
+/// chain's prefix with no adapter below it takes the instruction type of
 /// the part it is composed with, an adapter or the executor: its driver's
 /// own instruction type is checked when the job is given ([`Chain::run`]),
 /// as a type mismatch with no note of the crate.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not compose upstream of `{Rhs}`",
     label = "no rule of `compose` puts `{Self}` upstream of this",
-    note = "`compose` puts an adapter or a chain's head (`driver()`, `ChainHead::new(driver)`, with \
-            adapters below it or not) upstream of an adapter, or of an executor \
+    note = "`compose` puts an adapter or a chain's prefix (`driver()`, `runtime.into_chain()`, \
+            with adapters below it or not) upstream of an adapter, or of an executor \
             (`Executor<InstructionBatch<_>> + Describe + Close`), where what the upstream one \
             sends is what the downstream one accepts; a `Result` on the right is neither: apply `?` \
             to the step that made it (docs/composition.md, \"Composing a run\")",
@@ -152,26 +152,27 @@ pub enum WithAdapter {}
 #[derive(Debug)]
 pub enum WithExecutor {}
 
-/// `left` upstream of `right`: an adapter, or a chain's head (a driver, with
+/// `left` upstream of `right`: an adapter, or a chain's prefix (a driver, with
 /// the adapters composed below it so far), upstream of an adapter or an
 /// executor. `left >> right` is the same where `>>` is implemented.
 /// `Lhs` and `Rhs` are their types, and `Rule` the rule that composes them,
 /// [`WithExecutor`] where `Rhs` is an executor, which the compiler infers.
 ///
-/// | `compose`            | gives      | as                                   |
-/// | -------------------- | ---------- | ------------------------------------ |
-/// | adapter, executor    | executor   | the executor, through the adapters   |
-/// | adapter, adapter     | adapters   | [`ComposedAdapters`], as one adapter |
-/// | chain head, adapter  | chain head | the head with one more adapter       |
-/// | chain head, executor | chain      | [`Chain`], a driver's, runs a job    |
+/// | `compose`              | gives        | as                               |
+/// | ---------------------- | ------------ | -------------------------------- |
+/// | adapter, executor      | executor     | the executor, through adapters   |
+/// | adapter, adapter       | adapters     | [`ComposedAdapters`], as one     |
+/// | chain prefix, adapter  | chain prefix | the prefix with one more adapter |
+/// | chain prefix, executor | chain        | [`Chain`], which runs a job      |
 ///
-/// A driver alone is a chain's head with no adapter ([`ChainHead`],
-/// [`driver()`](fn@crate::driver)); a head is not itself a
-/// [`Driver`](crate::Driver) (planned, `docs/planned.md`). The grouping
-/// does not matter: a driver, adapters and an executor composed in one
-/// order give a chain with the same run, however they are grouped, the
-/// head with adapters below it composed with the executor, or the head
-/// with the adapters composed with the executor first.
+/// A driver alone is a chain's prefix with no adapter ([`ChainPrefix`],
+/// [`driver()`](fn@crate::driver), [`DriverExt::into_chain`]); a prefix
+/// is not itself a [`Driver`](crate::Driver) (planned, `docs/planned.md`).
+/// The grouping does not matter: a driver, adapters and an executor
+/// composed in one order give a chain with the same run, however they are
+/// grouped: the prefix with adapters below it composed with the
+/// executor, or the prefix composed with the suffix, the adapters composed
+/// with the executor first.
 ///
 /// The right side is an executor of batches ([`InstructionBatch`]) that
 /// describes what it offers ([`Describe`](crate::Describe)) and is closed
@@ -219,7 +220,7 @@ pub enum WithExecutor {}
 /// implementation for impl Adapter<..> >> ..`, with no note of this
 /// crate's. And the rule that puts an adapter over an executor is
 /// implemented for each of the facility's adapters, not carried by the
-/// [`Adapter`] trait, so neither `>>` after a chain's head nor `compose`
+/// [`Adapter`] trait, so neither `>>` after a chain's prefix nor `compose`
 /// takes an opaque adapter over an executor. An executor returned as a bare
 /// `impl Executor<..> + Describe + Close` composes by `compose`, not by
 /// `>>`, which takes an executor on its right only where it is implemented
@@ -289,7 +290,7 @@ where
 
     fn compose(self, executor: E) -> Self::Output {
         let (program, shots, adapters) = self.into_parts();
-        let chain = ChainHead::<_, NoAdapter<P::Instruction>>::new(BuiltinDriver)
+        let chain = ChainPrefix::<_, NoAdapter<P::Instruction>>::new(BuiltinDriver)
             .map_adapters(|_| adapters)
             .compose(executor)?;
         chain.run(program, shots).map_err(|JobFaults(faults)| {
@@ -308,20 +309,22 @@ where
     }
 }
 
-/// Chain head, adapter: the head, with `y` downstream of its adapters.
-impl<T, L: Adapters, Y: Adapters<Accepts = L::Sends>> Compose<Y, WithAdapter> for ChainHead<T, L> {
-    type Output = ChainHead<T, ComposedAdapters<L, Y>>;
+/// Chain prefix, adapter: the prefix, with `y` downstream of its adapters.
+impl<T, L: Adapters, Y: Adapters<Accepts = L::Sends>> Compose<Y, WithAdapter>
+    for ChainPrefix<T, L>
+{
+    type Output = ChainPrefix<T, ComposedAdapters<L, Y>>;
 
     fn compose(self, y: Y) -> Self::Output {
         self.map_adapters(|adapters| ComposedAdapters::new(adapters, y))
     }
 }
 
-/// Chain head, executor: the chain of the head's driver on its adapters
+/// Chain prefix, executor: the chain of the prefix's driver on its adapters
 /// upstream of `executor`, with the adapters' faults. It has no
 /// program yet: the job's needs are checked against what the chain
 /// offers when the job is given to it ([`Chain::run`]).
-impl<T, L: UpstreamOf<E>, E> Compose<E, WithExecutor> for ChainHead<T, L> {
+impl<T, L: UpstreamOf<E>, E> Compose<E, WithExecutor> for ChainPrefix<T, L> {
     type Output = Result<Chain<T, L::Accepts, L::Output>, BuildFaults>;
 
     fn compose(self, executor: E) -> Self::Output {
@@ -344,7 +347,7 @@ impl<T, L: UpstreamOf<E>, E> Compose<E, WithExecutor> for ChainHead<T, L> {
 /// Not for any executor: `>>` takes no rule to infer, and an impl for any
 /// adapter and one for any executor would overlap. An executor is composed with
 /// `compose`, or its crate implements `>>` for it on each of the four
-/// public types that may be on its left, [`ChainHead`],
+/// public types that may be on its left, [`ChainPrefix`],
 /// [`ComposedAdapters`], [`AdapterFn`] and [`OnePerShotAdapter`], so that
 /// a chain groups either way, as this crate does
 /// for the executors its facility makes and for an adapter, written by hand
@@ -369,7 +372,7 @@ macro_rules! compose_by_shr {
 
 #[cfg(test)]
 compose_by_shr!(P, L; ComposedJob<P, L>);
-compose_by_shr!(T, L; ChainHead<T, L>);
+compose_by_shr!(T, L; ChainPrefix<T, L>);
 compose_by_shr!(X, Y; ComposedAdapters<X, Y>);
 compose_by_shr!(I; NoAdapter<I>);
 compose_by_shr!(I, O, S, M, L, C, R; AdapterFn<I, O, S, M, L, C, R>);
@@ -389,7 +392,7 @@ macro_rules! compose_executor_by_shr {
     ([$($right_generics:ident),*] $right:ty where $($bounds:tt)*) => {
         #[cfg(test)]
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; P0, L0; ComposedJob<P0, L0>);
-        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; T0, L0; ChainHead<T0, L0>);
+        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; T0, L0; ChainPrefix<T0, L0>);
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; X0, Y0; ComposedAdapters<X0, Y0>);
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; I0; NoAdapter<I0>);
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; I0, O0, S0, M0, L0, C0, R0; AdapterFn<I0, O0, S0, M0, L0, C0, R0>);

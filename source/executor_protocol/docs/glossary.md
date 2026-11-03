@@ -12,7 +12,7 @@ what they belong to; the names in code are the crate's.
   `compose` (written `>>`); each part knows only the message of the one
   downstream
   ([Levels, roles and laws](internals/composition.md#levels-roles-and-laws)).
-  Its head composed with the executor, the built chain is a `Chain`, which
+  Its prefix composed with the executor, the built chain is a `Chain`, which
   runs the job given to it, `chain.run(program, shots)`
   ([A chain and its job](composition.md#a-chain-and-its-job)).
 - **Driver** (`Driver<P>`): the top of a chain, which runs any program of
@@ -21,18 +21,19 @@ what they belong to; the names in code are the crate's.
   `drive` it makes its calls on the one executor it is given, sending
   batches and reading their outcomes, and the adapters and the executor
   below look to it like that single executor. The caller builds the chain,
-  `ChainHead::new(runtime) >> adapters >> executor`, then calls
-  `chain.run(program, shots)`. The crate's driver (`BuiltinDriver`, at the
-  head `driver()` gives) runs a static program, and lets an adaptive
+  `runtime.into_chain() >> adapters >> executor`, then calls
+  `chain.run(program, shots)`. The crate's driver (`BuiltinDriver`, in the
+  prefix `driver()` gives) runs a static program, and lets an adaptive
   program drive ([Composing a run](composition.md#composing-a-run)). A
   device's driver, the vendor's software below an executor, is not a
   `Driver`; and a caller that takes a reply is called a caller, not a
   driver.
-- **Chain head** (`ChainHead`): the top of a chain being built: a driver,
-  lifted so that it composes with `>>`, with the adapters composed below it
-  so far. `driver()` is the crate's driver at the head with no adapter;
-  `ChainHead::new(driver)` puts any driver there. A head with an adapter
-  composed below it is a head still, and with the executor it gives a
+- **Chain prefix** (`ChainPrefix`): every element of a chain being built
+  but its last, the executor: a driver, wrapped so that it composes with
+  `>>`, with the adapters composed below it so far. `driver()` is the
+  crate's driver as a prefix with no adapter; `driver.into_chain()`
+  (`DriverExt`) makes one of any driver. A prefix with an adapter composed
+  below it is a prefix still, and with the executor it gives a
   `Chain`. It is not itself a `Driver<P>`: that is planned
   ([Planned features](planned.md)).
 - **Executor** (`Executor<M>`): anything that runs one message type `M`, a

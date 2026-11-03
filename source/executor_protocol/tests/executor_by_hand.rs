@@ -7,7 +7,7 @@
 //! and what its crate writes so that a chain ending at it is written with
 //! `>>` all along. The protocol's crate cannot give that executor `>>`, so
 //! its crate does: one impl for each of the four public types that may be
-//! on its left (`ChainHead`, `ComposedAdapters`, `AdapterFn` and
+//! on its left (`ChainPrefix`, `ComposedAdapters`, `AdapterFn` and
 //! `OnePerShotAdapter`), each through `Compose<_, WithExecutor>`. The
 //! chain then groups either way.
 
@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::ops::Shr;
 
 use executor_protocol::{
-    AdapterFn, AdapterLogic, Below, CallInput, Capabilities, ChainHead, Close, Compose,
+    AdapterFn, AdapterLogic, Below, CallInput, Capabilities, ChainPrefix, Close, Compose,
     ComposedAdapters, Describe, Executor, ExecutorLifecycle, ImmediateReply, InstructionBatch,
     InstructionBatchRef, MakeState, Needs, OnePerShot, OnePerShotAdapter, Outcomes, Rejected,
     ShotId, ShotOutcome, StaticProgram, TypedInstruction, Value, WithExecutor, adapter_fn,
@@ -80,9 +80,9 @@ impl Close for Bits {
     }
 }
 
-/// `>>` after a chain's head, as `Bits`'s crate writes it; the three
+/// `>>` after a chain's prefix, as `Bits`'s crate writes it; the three
 /// impls below are its like.
-impl<T, L> Shr<Bits> for ChainHead<T, L>
+impl<T, L> Shr<Bits> for ChainPrefix<T, L>
 where
     Self: Compose<Bits, WithExecutor>,
 {

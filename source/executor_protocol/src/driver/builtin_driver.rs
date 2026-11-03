@@ -2,32 +2,32 @@
 // Licensed under the MIT License.
 
 //! The crate's driver ([`BuiltinDriver`]), which [`driver()`](fn@driver)
-//! puts at the head of a chain: it runs a [`StaticProgram`] and lets any
+//! makes a chain's prefix: it runs a [`StaticProgram`] and lets any
 //! [`AdaptiveProgram`] drive, so that every job reads
 //! `chain.run(program, shots)`. Its impl for a static program is with the
 //! program ([`StaticProgram`]).
 
 use crate::{
-    AdaptiveProgram, ChainHead, Driver, Executor, Instruction, InstructionBatch, Needs, NoAdapter,
-    ShotSet,
+    AdaptiveProgram, ChainPrefix, Driver, Executor, Instruction, InstructionBatch, Needs,
+    NoAdapter, ShotSet,
 };
 #[cfg(doc)]
-use crate::{Chain, StaticProgram};
+use crate::{Chain, DriverExt, StaticProgram};
 
-/// The crate's driver, at the head of a chain with no adapter yet: composed
+/// The crate's driver, as a chain's prefix with no adapter yet: composed
 /// with an executor, through adapters or not, it gives a [`Chain`] that
 /// runs a [`StaticProgram`] of `I`s, or any [`AdaptiveProgram`] that sends
 /// `I`s, `chain.run(program, shots)`. `I` is fixed by what it is composed
 /// with.
 #[must_use]
-pub fn driver<I: Instruction>() -> ChainHead<BuiltinDriver, NoAdapter<I>> {
-    ChainHead::new(BuiltinDriver)
+pub fn driver<I: Instruction>() -> ChainPrefix<BuiltinDriver, NoAdapter<I>> {
+    ChainPrefix::new(BuiltinDriver)
 }
 
-/// The crate's driver, the one [`driver()`](fn@driver) puts at the head of
-/// a chain: of a [`StaticProgram`] (each batch to every shot, in order), and
+/// The crate's driver, the one [`driver()`](fn@driver) makes a chain's
+/// prefix: of a [`StaticProgram`] (each batch to every shot, in order), and
 /// of any [`AdaptiveProgram`], which it lets drive. A chain of another
-/// driver starts at `ChainHead::new(driver)`.
+/// driver starts at `runtime.into_chain()` ([`DriverExt`]).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BuiltinDriver;
 

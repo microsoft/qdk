@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use crate::tests::{Count, MapExecutor};
 use crate::{
-    AdapterFn, Capabilities, ChainHead, Close, Compose, ComposedAdapters, ComposedJob, Describe,
+    AdapterFn, Capabilities, ChainPrefix, Close, Compose, ComposedAdapters, ComposedJob, Describe,
     Executor, ExecutorReport, IncrementalReply, InstructionBatch, InstructionBatchRef, NoAdapter,
     OnePerShotAdapter, Rejected, ReplySender, ShotContext, ShotId, ShotOutcome, ShotReplies,
     ShotSet, ShotStates, Value, WithExecutor, reply_channel, wait,
@@ -174,7 +174,7 @@ macro_rules! compose_by_shr {
 }
 
 compose_by_shr!(P, L; ComposedJob<P, L>);
-compose_by_shr!(T, L; ChainHead<T, L>);
+compose_by_shr!(T, L; ChainPrefix<T, L>);
 compose_by_shr!(X, Y; ComposedAdapters<X, Y>);
 compose_by_shr!(I; NoAdapter<I>);
 compose_by_shr!(I, O, S, N, L, C, R; AdapterFn<I, O, S, N, L, C, R>);

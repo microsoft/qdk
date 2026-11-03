@@ -16,28 +16,32 @@ A driver, the adapters downstream of it and an executor are put together by
 `compose(a, b)` where `>>` is implemented
 ([Which parts the operator joins](internals/composition.md#which-parts-the-operator-joins)):
 
-| `compose`            | gives      | as                                                                      |
-| -------------------- | ---------- | ----------------------------------------------------------------------- |
-| adapter, executor    | executor   | the executor, its calls through the adapters                            |
-| adapter, adapter     | adapters   | `ComposedAdapters`, the left one upstream, composed as one adapter      |
-| chain head, adapter  | chain head | the driver with its adapters so far (`ChainHead`), the adapter the last |
-| chain head, executor | chain      | `Chain`, which runs the job given to it ([below](#a-chain-and-its-job)) |
+| `compose`              | gives        | as                                                                        |
+| ---------------------- | ------------ | ------------------------------------------------------------------------- |
+| adapter, executor      | executor     | the executor, its calls through the adapters                              |
+| adapter, adapter       | adapters     | `ComposedAdapters`, the left one upstream, composed as one adapter        |
+| chain prefix, adapter  | chain prefix | the driver with its adapters so far (`ChainPrefix`), the adapter the last |
+| chain prefix, executor | chain        | `Chain`, which runs the job given to it ([below](#a-chain-and-its-job))   |
 
 - The **executor**, on the right, is any executor of the run's batches that
   describes what it offers and closes with a report: the last executor, built
-  with its seed, or adapters composed with it. A chain's head with no adapter
+  with its seed, or adapters composed with it. A chain's prefix with no adapter
   runs on any executor, an ensemble included.
 - An **adapter** maps the executor downstream of it to the executor
   upstream. It is made by `adapter_fn`, by `owning_adapter_fn` for a state
   that keeps its way below, or by hand (`Apply`)
   ([Adapters](adapters.md)).
 - A **driver** (`Driver<P>`) heads the chain, and runs any program of form
-  `P` given to it. In the chain being built it sits in a **chain head**
-  (`ChainHead`), with the adapters composed below it so far: the crate's
-  driver, `driver()`, is a head with no adapter yet; `ChainHead::new(driver)`
-  makes one of any driver. A head with adapters below it is a `ChainHead`
-  still, not a `Driver<P>` (planned: [Planned features](planned.md)).
-  Composed with the executor, a head makes a `Chain`, which runs the job given
+  `P` given to it. In the chain being built it is in a **chain prefix**
+  (`ChainPrefix`): every element of the chain but its last, the executor;
+  that is the driver with the adapters composed below it so far. The crate's
+  driver, `driver()`, is a prefix with no adapter yet; `runtime.into_chain()`
+  makes one of any driver (the trait `DriverExt`, in scope), and a driver of
+  several program types names the one it drives,
+  `DriverExt::<P>::into_chain(runtime)`. A prefix with adapters below it is a
+  `ChainPrefix` still, not a `Driver<P>` (planned:
+  [Planned features](planned.md)). Composed with the executor, a prefix makes
+  a `Chain`, which runs the job given
   to it ([A chain and its job](#a-chain-and-its-job)), an adaptive program
   (`AdaptiveProgram`) included. The run's seed is the one the last executor is
   built with ([Seeds](executors.md#seeds-not-generators)).
@@ -70,7 +74,7 @@ The rules of composition:
   `(driver() >> a) >> executor` and `driver() >> (a >> executor)?` (the
   executor `a >> executor` gives, unwrapped, below) build a chain with the
   same run; so does any other grouping of `driver() >> a >> b >> executor`.
-  The head, with or without adapters, is a `ChainHead`, not yet a
+  The prefix, with or without adapters, is a `ChainPrefix`, not yet a
   `Driver<P>` itself (planned).
 - **The chain is built once, from the executor upstream, and every fault is
   reported at once**, the most upstream adapter's first, each named

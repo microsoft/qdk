@@ -36,7 +36,7 @@ use crate::{
 /// is implemented by the crate, for every [`Adapter`], for
 /// [`ComposedAdapters`], and for [`NoAdapter`].
 //
-// The notes show where a `>>` after a chain's head or after adapters
+// The notes show where a `>>` after a chain's prefix or after adapters
 // cannot take its right side as an executor, takes it as one more adapter,
 // and reports the executor as not of this trait, with none of `Adapter`'s
 // notes. Two cases reach it, even over one of this crate's executors: the
@@ -116,7 +116,7 @@ pub trait UpstreamOf<E>: Adapters {
     /// These adapters upstream of `executor`, built against it starting at
     /// the executor and going upstream. `upstream` is given what the chain
     /// offers, and returns the faults of what composes upstream of it,
-    /// reported first (a chain's head reports none: a job's needs
+    /// reported first (a chain's prefix reports none: a job's needs
     /// are checked when the job is given to the chain).
     ///
     /// # Errors
@@ -432,7 +432,7 @@ where
 }
 
 /// No adapter: the calls of type `I` reach the executor as they are. A
-/// chain's head starts with it.
+/// chain's prefix starts with it.
 #[derive(Debug)]
 pub struct NoAdapter<I>(PhantomData<fn() -> I>);
 

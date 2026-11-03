@@ -418,7 +418,7 @@ and [An ensemble executor](internals/executors.md#an-ensemble-executor).
 Such an executor is composed with `compose`. So that a chain ending at it
 is written with `>>` all along, grouped either way, its crate implements
 `>>` for it on each of the four public types that may be on its left,
-`ChainHead`, `ComposedAdapters`, `AdapterFn` and `OnePerShotAdapter`
+`ChainPrefix`, `ComposedAdapters`, `AdapterFn` and `OnePerShotAdapter`
 ([example](../tests/executor_by_hand.rs);
 [Which parts the operator joins](internals/composition.md#which-parts-the-operator-joins)).
 

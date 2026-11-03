@@ -20,7 +20,7 @@ This crate is that contract:
   it, it gives an executor upstream of it, with the same contract. So every link
   of a running chain is the same call and reply.
 - **Composition** (`>>`) works the same at every link: a driver with adapters
-  below it is still the chain's head, which composes the same way (planned: that
+  below it is still the chain's prefix, which composes the same way (planned: that
   it is itself a driver); adapters composed act as one adapter wherever `>>` or
   `compose` takes one (planned: that they implement the trait `Adapter`); and an
   adapter with the executor below it is an executor. So a chain can be built in
@@ -191,7 +191,7 @@ What to write, by task, and where it is explained:
 | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | run a program                                                                           | `driver() >> … >> executor`, `chain.run(program, shots)`                           | [Running a chain](#running-a-chain)                                                                                                                                                    |
 | run a program that drives the executor itself, choosing its next batch                  | an adaptive program: `AdaptiveProgram`, given to `chain.run(program, shots)`       | [Writing an adaptive program](#writing-an-adaptive-program)                                                                                                                            |
-| run your own runtime or interpreter (QIR, a circuit form)                               | a driver: `Driver<P>`, `ChainHead::new`                                            | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
+| run your own runtime or interpreter (QIR, a circuit form)                               | a driver: `Driver<P>`, `runtime.into_chain()`                                      | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
 | plug in a device, or a simulator with a state per shot                                  | an executor: `executor_fn`                                                         | [Writing an executor](#writing-an-executor)                                                                                                                                            |
 | plug in a simulator whose shots share one state (an ensemble, such as an MPS simulator) | an executor written by hand, on `ExecutorLifecycle`                                | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)                                                                                         |
 | compose your own executor type with `>>`, in either grouping                            | its `>>` for each type that may be on its left, through `Compose<_, WithExecutor>` | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle); guide: [`tests/executor_by_hand.rs`](tests/executor_by_hand.rs)                        |
@@ -352,7 +352,7 @@ the adapters below it:
 ```rust
 let by_hand = Log::default();
 let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
-let (outcomes, _) = (ChainHead::new(InTurn) >> logger("a", &by_hand) >> bits())
+let (outcomes, _) = (InTurn.into_chain() >> logger("a", &by_hand) >> bits())
     .expect("the logger fits")
     .run(Program::flip_and_toss(bits_set()), [0, 1])
     .expect("shots, needs met")
@@ -360,12 +360,13 @@ let (outcomes, _) = (ChainHead::new(InTurn) >> logger("a", &by_hand) >> bits())
 ```
 
 The caller's entry point is the chain:
-`ChainHead::new(runtime) >> adapters >> executor`, then
-`chain.run(program, shots)`. The crate's driver, `BuiltinDriver`, runs
-static and adaptive programs, and `driver()` is
-`ChainHead::new(BuiltinDriver)`. A driver with adapters below it is still
-a `ChainHead`, which composes the same way, but not yet a `Driver<P>`
-itself ([planned](docs/planned.md)).
+`runtime.into_chain() >> adapters >> executor` (with the trait `DriverExt`
+in scope), then `chain.run(program, shots)`. A driver of several program
+types names the one it drives, `DriverExt::<P>::into_chain(runtime)`. The
+crate's driver, `BuiltinDriver`, runs static and adaptive programs, and
+`driver()` makes it a chain's prefix. A driver with adapters below it is
+still a `ChainPrefix`, which composes the same way, but not yet a
+`Driver<P>` itself ([planned](docs/planned.md)).
 
 ### Writing an executor
 

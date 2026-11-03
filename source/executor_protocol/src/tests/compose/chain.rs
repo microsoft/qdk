@@ -9,7 +9,7 @@ use crate::tests::{
     Bits, ByHand, Count, Relabel, bits_set, block_on, flip_and_toss, reversed_set, shots, values,
 };
 use crate::{
-    BuiltinDriver, Chain, ChainHead, Driver, Executor, InstructionBatch, InstructionBatchRef,
+    BuiltinDriver, Chain, Driver, DriverExt, Executor, InstructionBatch, InstructionBatchRef,
     InstructionCall, InstructionSet, JobFaults, Need, Needs, Opcode, Operand, Rejected, ShotId,
     ShotSet, StaticProgram, Value, driver, wait_async,
 };
@@ -321,7 +321,7 @@ impl Driver<()> for ReadsShotZero {
 fn a_job_that_calls_a_shot_not_its_own_is_refused() {
     let model = TestDoubleModel::default();
     let made = Rc::clone(&model.made);
-    let chain = (ChainHead::new(ReadsShotZero) >> TestDoubleExecutor::with_model(model, 7))
+    let chain = (ReadsShotZero.into_chain() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
     let (output, _) = chain.run((), [1]).expect("a shot").wait();
     assert_eq!(output, Err(Rejected::ShotNotHeld(0)));

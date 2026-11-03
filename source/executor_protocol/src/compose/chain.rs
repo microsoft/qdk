@@ -16,10 +16,10 @@ use crate::{
     InstructionBatch, IntoShotSet, Rejected, Run,
 };
 #[cfg(doc)]
-use crate::{BuildFaults, ChainHead, ShotSet, UnmetNeed};
+use crate::{BuildFaults, ChainPrefix, ShotSet, UnmetNeed};
 
 /// A driver composed with an executor, through adapters or not: the
-/// chain, built and checked ([`ChainHead`] `>>`
+/// chain, built and checked ([`ChainPrefix`] `>>`
 /// executor), which runs the job given to it ([`run`](Chain::run)).
 ///
 /// A chain runs one job: the run takes the executor, and closes it with
@@ -38,11 +38,11 @@ use crate::{BuildFaults, ChainHead, ShotSet, UnmetNeed};
 ///
 /// # Type parameters
 ///
-/// Each is set by `ChainHead<T, L> >> executor`:
+/// Each is set by `ChainPrefix<T, L> >> executor`:
 ///
-/// - `T`: the driver ([`Driver`]), the [`ChainHead`]'s.
+/// - `T`: the driver ([`Driver`]), the [`ChainPrefix`]'s.
 /// - `I`: the type of the instructions the driver sends, which the
-///   first of the head's adapters `L` accepts, or the executor where there
+///   first of the prefix's adapters `L` accepts, or the executor where there
 ///   is none.
 /// - `E`: the executor its calls reach: the adapters `L` composed with the
 ///   executor, which together are an executor, or the executor itself.

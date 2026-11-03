@@ -9,8 +9,8 @@
 //! [`Reply`] that delivers the message kind's events: [`Executor::call`]
 //! returns the reply, or a typed [`Rejected`] when it refuses the call.
 //! A chain is three kinds of components, composed; the roles, in order
-//! (in code, the driver is first put in a head,
-//! `ChainHead::new(driver) >> …`):
+//! (in code, the driver is first made a chain's prefix,
+//! `driver.into_chain() >> …`, [`DriverExt`]):
 //!
 //! ```text
 //! Driver >> Adapter >> ... >> Executor
@@ -25,8 +25,8 @@
 //!   `chain.run(program, shots)` checks the job ([`JobFaults`]) and gives
 //!   its [`Run`], which runs the program as the driver drives it
 //!   ([`DrivenProgram`]). While a chain is built, its driver and the
-//!   adapters composed below it so far are the chain's head
-//!   ([`ChainHead`]).
+//!   adapters composed below it so far are the chain's prefix
+//!   ([`ChainPrefix`]).
 //! - The executor at the end of the chain ([`Executor`]) is an executor of
 //!   [`InstructionBatch`]es, each a list of instructions run on some of the
 //!   run's shots, whose states carry over from one batch to the next. It is
@@ -133,7 +133,7 @@ pub use compose::{BuildError, BuildFault, BuildFaults, Compose, WithExecutor, co
 pub use conditions::ShotConditions;
 pub use driver::Driver;
 pub use driver::builtin_driver::{BuiltinDriver, driver};
-pub use driver::chain_head::ChainHead;
+pub use driver::chain_prefix::{ChainPrefix, DriverExt};
 pub use driver::driven_program::DrivenProgram;
 pub use executor::{Close, Executor, ExecutorReport, Fold, LogP};
 pub use executor_fn::{

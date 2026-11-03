@@ -467,7 +467,7 @@ impl AdaptiveProgram for ByHand {
     }
 }
 
-/// A job composed as a chain's head is, for the crate's tests: a program,
+/// A job composed as a chain's prefix is, for the crate's tests: a program,
 /// the shots it runs, and the adapters composed downstream of it (none at
 /// first). Composed with an executor, it gives the [`Run`](crate::Run) of
 /// the chain of the crate's driver on its adapters and that executor, its

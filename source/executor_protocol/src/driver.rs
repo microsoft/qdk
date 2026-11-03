@@ -4,16 +4,17 @@
 //! The driver ([`Driver`]): the component at the top of a chain, which runs
 //! any program of its form given to the chain, so that programs are data (a
 //! list of batches, a circuit, a QIR program) and one driver runs every
-//! program of its form. In a chain being built it sits in the chain's head
-//! ([`ChainHead`]), with the adapters composed below it so far, which
+//! program of its form. In a chain being built it is in the chain's prefix
+//! ([`ChainPrefix`]), with the adapters composed below it so far, which
 //! composes with adapters and an executor into a [`Chain`], built and
 //! checked, which runs the job given to it:
 //! `chain.run(program, shots)`, a [`Run`] of the program as the driver
 //! drives it ([`DrivenProgram`]). A job is the chain's input, not one of its
 //! components.
 //!
-//! - [`chain_head`]: the head of a chain being built, a driver with the
-//!   adapters composed below it so far ([`ChainHead`]).
+//! - [`chain_prefix`]: a chain's prefix, a driver with the adapters
+//!   composed below it so far ([`ChainPrefix`]), and how a driver becomes
+//!   one ([`DriverExt`]).
 //! - [`builtin_driver`]: the crate's driver, which runs a [`StaticProgram`]
 //!   and any [`AdaptiveProgram`] ([`BuiltinDriver`], from
 //!   [`driver()`](fn@crate::driver)).
@@ -21,13 +22,16 @@
 //!   run runs ([`DrivenProgram`]).
 
 pub(crate) mod builtin_driver;
-pub(crate) mod chain_head;
+pub(crate) mod chain_prefix;
 pub(crate) mod driven_program;
 
 use std::future::Future;
 
 #[cfg(doc)]
-use crate::{AdaptiveProgram, BuiltinDriver, Chain, ChainHead, DrivenProgram, Run, StaticProgram};
+use crate::{
+    AdaptiveProgram, BuiltinDriver, Chain, ChainPrefix, DrivenProgram, DriverExt, Run,
+    StaticProgram,
+};
 use crate::{Executor, Instruction, InstructionBatch, Needs, Rejected, ShotSet};
 
 /// A driver of programs of type `P`: what it needs of the chain to run a
@@ -37,10 +41,11 @@ use crate::{Executor, Instruction, InstructionBatch, Needs, Rejected, ShotSet};
 /// A runtime that executes a program's control logic, such as a QIR
 /// runtime, is a driver: in [`drive`](Driver::drive) it makes its calls on
 /// the one executor it is given, and the adapters and the executor below
-/// look to it like that single executor. A caller puts it at the head of a
-/// chain, `ChainHead::new(runtime) >> adapters >> executor`, then calls
-/// `chain.run(program, shots)`. A driver with adapters below it is a
-/// [`ChainHead`], not itself a `Driver` (planned).
+/// look to it like that single executor. A caller makes it a chain's
+/// prefix, `runtime.into_chain() >> adapters >> executor` (with
+/// [`DriverExt`] in scope), then calls `chain.run(program, shots)`. A
+/// driver with adapters below it is a [`ChainPrefix`], not itself a
+/// `Driver` (planned).
 ///
 /// The driver is apart from the program, so a crate may drive a program
 /// type of another crate, and one driver may drive several program types,
