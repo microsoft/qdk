@@ -4,10 +4,11 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::OperandKind::{Block, Tag};
 use crate::tests::test_double::{TestDoubleExecutor, TestDoubleModel};
 use crate::tests::{
-    Batches, Bits, ByHand, Count, Relabel, bits_set, block_on, flip_and_toss, resetting_bits_set,
-    reversed_set, shots, values,
+    Batches, Bits, ByHand, Count, EVERY_BIT, Relabel, bits_set, block_on, declaring, flip_and_toss,
+    resetting_bits_set, reversed_set, shots, values,
 };
 use crate::{
     BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix, Driver, DriverExt, Executor,
@@ -499,6 +500,23 @@ fn each_need_a_program_states_is_checked_whatever_its_driver_adds() {
     }
 }
 
+/// A program of one read that states a need, driven by a runtime whose way
+/// of sending needs it too, on a sampler that offers none: the job is
+/// refused for that need, stated on both sides, whichever flag it is.
+#[test]
+fn each_need_both_the_program_and_its_driver_state_is_checked() {
+    for (stated, need) in each_flag() {
+        let chain = (adding(stated.clone()) >> offering_nothing())
+            .expect("the sampler takes any batch of `bool`s");
+        let program = StaticProgram::new(stated, vec![vec![true]]);
+        let Err(JobFaults(faults)) = chain.run(program, [4]) else {
+            panic!("{need:?}, stated by the program and its driver, must be refused");
+        };
+        let faults: Vec<_> = faults.iter().map(unmet).collect();
+        assert_eq!(faults, [Some((need, 1, 0))], "{need:?}");
+    }
+}
+
 /// A job on the two bits whose program and driver state qubits, one side
 /// three, the other one or none, in either order: it is refused for the
 /// three, the larger, wherever it is stated.
@@ -526,6 +544,29 @@ fn a_job_needs_the_larger_qubits_its_program_and_driver_state() {
             "program {stated:?}, driver {added:?}"
         );
     }
+}
+
+/// A job on the two bits whose program and driver state the same qubits, as
+/// a runtime that restates its program's count does: two are met, and three
+/// are refused for the three, so a count both sides state is the job's.
+#[test]
+fn a_job_needs_the_qubits_its_program_and_driver_both_state() {
+    let run = |qubits: u32| {
+        let chain = (adding(Needs::default().with_qubits(qubits))
+            >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+        chain.run(flip_and_toss_in(bits_set(), Some(qubits)), [2])
+    };
+    run(2)
+        .expect("two qubits, stated by both, on two bits")
+        .wait()
+        .0
+        .expect("the bits neither refuse nor fail");
+    let Err(JobFaults(faults)) = run(3) else {
+        panic!("three qubits, stated by both, on two bits must be refused");
+    };
+    let faults: Vec<_> = faults.iter().map(unmet).collect();
+    assert_eq!(faults, [Some((Need::Qubits, 3, 2))]);
 }
 
 /// A job whose calls are in the reversed set's numbering, that set stated
@@ -596,6 +637,64 @@ fn a_job_whose_program_and_driver_state_different_sets_is_refused() {
         "{sets}"
     );
     assert_eq!(unmet(qubits), Some((Need::Qubits, 3, 2)), "{faults:?}");
+}
+
+/// A job whose program states the bits' set and also calls opcode 3,
+/// outside it, driven by a runtime that states the reversed set: the
+/// different sets and the call its driver refuses are both reported, the
+/// sets first, so that a conflict of sets hides none of the program's
+/// faults.
+#[test]
+fn different_sets_do_not_hide_the_faults_the_driver_finds_in_the_program() {
+    let added = Needs::default().with_instruction_set(Some(Arc::new(reversed_set())));
+    let chain = (adding(added) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+    let mut batches = flip_and_toss(&bits_set());
+    batches[1].push(InstructionCall::new(Opcode::new(3), [Operand::Block(0)]));
+    let needs = Needs::default().with_instruction_set(Some(Arc::new(bits_set())));
+    let Err(JobFaults(faults)) = chain.run(StaticProgram::new(needs, batches), [2]) else {
+        panic!("different sets and opcode 3 must be refused");
+    };
+    let [Rejected::Unmet(sets), call] = faults.as_slice() else {
+        panic!("the sets, then the call: {faults:?}");
+    };
+    assert_eq!(
+        (sets.need, sets.needed, sets.offered),
+        (Need::InstructionSet, 2, 1),
+        "{sets}"
+    );
+    assert!(
+        matches!(call, Rejected::Instruction { at: 2, reason } if reason.starts_with("batch 1:")),
+        "{faults:?}"
+    );
+}
+
+/// A job whose program states the bits' set, driven by a runtime that
+/// states a set also named "bits", of the same instructions in another
+/// order: the two number the calls otherwise, so they are different sets,
+/// refused as such, naming the driver, whatever their name.
+#[test]
+fn sets_of_one_name_in_another_order_are_different_sets() {
+    let reordered = InstructionSet::new("bits")
+        .with("measure", [Block, Tag])
+        .with("x", [Block])
+        .with("coin", [Block]);
+    let reordered = declaring(reordered, EVERY_BIT);
+    let added = Needs::default().with_instruction_set(Some(Arc::new(reordered)));
+    let chain = (adding(added) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+    let Err(JobFaults(faults)) = chain.run(flip_and_toss_in(bits_set(), None), [2]) else {
+        panic!("the bits' set in two orders must be refused");
+    };
+    let [Rejected::Unmet(sets)] = faults.as_slice() else {
+        panic!("one fault, the sets: {faults:?}");
+    };
+    assert_eq!(
+        (sets.need, sets.needed, sets.offered, sets.mismatches.len()),
+        (Need::InstructionSet, 2, 1, 0),
+        "{sets}"
+    );
+    assert!(sets.component.contains("AddsNeeds"), "{sets}");
 }
 
 /// A job whose program states a set with a reset, which the bits lack, and

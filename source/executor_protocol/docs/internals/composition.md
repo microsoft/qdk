@@ -569,13 +569,17 @@ rules of a job given to a chain
   either side states is checked
   (`each_need_a_program_states_is_checked_whatever_its_driver_adds`,
   `each_need_a_driver_adds_is_checked_with_its_programs`,
-  `a_job_is_refused_for_the_need_its_driver_adds`), the larger qubit count
-  of the two
-  (`a_job_needs_the_larger_qubits_its_program_and_driver_state`), and the
-  set one side states, or both alike, numbers the job's calls
+  `a_job_is_refused_for_the_need_its_driver_adds`), also when both state it
+  (`each_need_both_the_program_and_its_driver_state_is_checked`), the larger
+  qubit count of the two
+  (`a_job_needs_the_larger_qubits_its_program_and_driver_state`), or the one
+  both state (`a_job_needs_the_qubits_its_program_and_driver_both_state`),
+  and the set one side states, or both alike, numbers the job's calls
   (`a_set_stated_by_one_side_or_the_same_by_both_numbers_the_jobs_calls`);
-  two different sets are refused as `Unmet(InstructionSet)` naming the
-  driver (`a_job_whose_program_and_driver_state_different_sets_is_refused`),
+  two different sets, the same instructions in another order under one name
+  included, are refused as `Unmet(InstructionSet)` naming the driver
+  (`a_job_whose_program_and_driver_state_different_sets_is_refused`,
+  `sets_of_one_name_in_another_order_are_different_sets`),
   the program's then checked against the chain
   (`where_the_sets_differ_the_programs_is_checked_against_the_chain`); and the
   driver must find no fault in the program, such as a call outside its
@@ -586,7 +590,9 @@ rules of a job given to a chain
   The shots' fault comes first, then the sets' conflict, then each unmet
   need, then the program's
   (`a_jobs_shot_faults_are_reported_with_its_programs_needs_and_calls`,
-  `a_job_whose_program_and_driver_state_different_sets_is_refused`).
+  `a_job_whose_program_and_driver_state_different_sets_is_refused`), the
+  sets' conflict hiding none of the program's faults
+  (`different_sets_do_not_hide_the_faults_the_driver_finds_in_the_program`).
   Known issue: of shots named twice, only the least is reported
   (`a_job_that_names_several_shots_twice_reports_the_least`).
 - **A job calls only its own shots**: a call on another is refused before
@@ -825,7 +831,8 @@ From [Composition](../composition.md):
 | Observers stacked in one chain each see what they see alone                                                                                                                | `stacked_observers_each_see_what_they_see_alone` (`tests/observers.rs`)                                                                                                                                                                                                                                                                                           |
 | Through two adapters, a job's needs are checked against what the upstream one offers, in either order                                                                      | `a_chain_of_two_adapters_offers_what_the_upstream_one_offers_over_the_downstream_one` (`src/tests/compose/adapters.rs`)                                                                                                                                                                                                                                           |
 | A job's needs are its program's combined with those its driver adds: the larger qubit count, each flag either side states, and the set one side states or both state alike | `each_need_a_program_states_is_checked_whatever_its_driver_adds`, `each_need_a_driver_adds_is_checked_with_its_programs`, `a_job_needs_the_larger_qubits_its_program_and_driver_state`, `a_set_stated_by_one_side_or_the_same_by_both_numbers_the_jobs_calls` (`src/tests/compose/chain.rs`), `a_job_is_refused_for_the_need_its_driver_adds` (`tests/driver.rs`) |
-| A program and a driver that state different sets are refused as `Unmet(InstructionSet)`, naming the driver, and the program's set is checked against the chain             | `a_job_whose_program_and_driver_state_different_sets_is_refused`, `where_the_sets_differ_the_programs_is_checked_against_the_chain` (`src/tests/compose/chain.rs`)                                                                                                                                                                                                |
+| A qubit count or a flag that the program and its driver both state is the job's, as if one side stated it                                                                  | `a_job_needs_the_qubits_its_program_and_driver_both_state`, `each_need_both_the_program_and_its_driver_state_is_checked` (`src/tests/compose/chain.rs`)                                                                                                                                                                                                           |
+| A program and a driver that state different sets are refused as `Unmet(InstructionSet)`, naming the driver, and the program's set is checked against the chain             | `a_job_whose_program_and_driver_state_different_sets_is_refused`, `where_the_sets_differ_the_programs_is_checked_against_the_chain`, `sets_of_one_name_in_another_order_are_different_sets` (`src/tests/compose/chain.rs`)                                                                                                                                        |
 
 From [Planned features](../planned.md):
 
