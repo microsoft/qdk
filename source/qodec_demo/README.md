@@ -4,10 +4,9 @@
 > (`source/executor_protocol`) running the Qodec runtime's code layers as
 > adapters, end to end. Nothing here is meant to be used or maintained as is:
 > read it as a worked example of the protocol on a real case.
-> `source/qodec_runtime` is an unchanged copy of the Qodec runtime prototype
-> at commit `564b78cf4` of the `oscarpuente/qodec-runtime` branch, and
-> `source/qodec_lowerer` a copy of its lowerer at the same commit, without
-> the interactive prompt (and its `rustyline` dependency). The demo's own
+> `source/qodec_runtime` and `source/qodec_lowerer` are unchanged copies of
+> the Qodec runtime prototype and its lowerer at commit `564b78cf4` of the
+> `oscarpuente/qodec-runtime` branch. The demo's own
 > code is `source/qodec_demo`. The questions it leaves open for the protocol
 > are in `docs/open-questions.md`.
 
@@ -88,9 +87,13 @@ assert_eq!(profile.batches, C4C6_BOTTOM_BATCHES * shots.len() as u64);
 
 ## How to run it
 
-The tests load repetition3 from the `qdk-ec` checkout that the
-workspace's `[patch.crates-io]` builds the `qodec` library from, and c422
-and c4c6 from the lowerer's examples (`source/qodec_lowerer/examples`).
+The `qodec` library comes from crates.io (0.2.1). The tests load
+repetition3 from [`tests/data`](tests/data/repetition3.qodec.yaml), a
+copy of the bundle the library's repository ships (`microsoft/qdk-ec` at
+commit `50f3bff`, `qodec/examples/repetition3`), kept unchanged since its
+gadgets declare the checks the decoder conditions outcomes on, which the
+lowerer's copy lacks; and c422 and c4c6 from the lowerer's examples
+(`source/qodec_lowerer/examples`).
 
 ```sh
 cargo test -p qodec_demo                       # the behaviours

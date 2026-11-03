@@ -91,6 +91,11 @@ proptest = "1.10"
 indenter = "0.3"
 regex-lite = "0.1"
 rustc-hash = "1"
+
+# TODO: remove this before merging, this is only needed by qodec_lowerer, which is a
+# throwaway crate.
+rustyline = { version = "19.0", default-features = false }
+
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 sorted-vec = "0.8"
@@ -132,8 +137,3 @@ debug = true
 strip = false
 lto = "thin"
 codegen-units = 1
-
-# Demo only: crates.io's `qodec` 0.2.1 is not in the offline cache; this is
-# the local source of the same version (qdk-ec at 50f3bff).
-[patch.crates-io]
-qodec = { path = "../../qdk-ec/qodec" }

@@ -43,15 +43,16 @@ pub const DRAWS_FLIP: f64 = 0.3;
 /// The shots of the c422 and c4c6 runs, as the Qodec prototype ran them.
 pub const CODE_SHOTS: std::ops::RangeInclusive<ShotId> = 0..=3;
 
-/// The repetition3 bundle as the qodec library ships it, in the checkout
-/// that the workspace's `[patch.crates-io]` builds the library from (a
-/// `qdk-ec` checkout beside the workspace's worktree folder). Its gadgets
-/// are written in Stim, so the crate's Stim parser is registered first.
+/// The repetition3 bundle as the qodec library's repository ships it,
+/// copied unchanged into `tests/data` (from `microsoft/qdk-ec` at commit
+/// `50f3bff`, `qodec/examples/repetition3`). Its gadgets are written in
+/// Stim, and declare the checks the decoder conditions outcomes on, which
+/// the lowerer's copy (`source/qodec_lowerer/examples`) does not; the
+/// crate's Stim parser is registered first.
 pub fn repetition3() -> Qodec {
     qodec_demo::stim::register().expect("the parser registers");
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../qdk-ec/qodec/examples/repetition3/repetition3.qodec.yaml");
-    Qodec::load(path).expect("the repetition3 bundle loads from the qdk-ec checkout")
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/repetition3.qodec.yaml");
+    Qodec::load(path).expect("the repetition3 bundle of tests/data loads")
 }
 
 /// The c422 example of the lowerer: one layer, `c832` and `c422` blocks

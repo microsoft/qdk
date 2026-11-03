@@ -29,10 +29,9 @@
 //! `latency` measures what the layer's blocking costs an async caller
 //! over a device with a latency (Q65).
 //!
-//! The tests load repetition3 from the `qdk-ec` checkout that the
-//! workspace's `[patch.crates-io]` builds the `qodec` library from, and
-//! c422 and c4c6 from the lowerer's examples
-//! (`source/qodec_lowerer/examples`).
+//! The tests load repetition3 from `tests/data`, a copy of the bundle the
+//! `qodec` library's repository ships, and c422 and c4c6 from the
+//! lowerer's examples (`source/qodec_lowerer/examples`).
 //!
 //! The ids QD1 to QD6, Q65 and Q67 to Q69 in the docs name design
 //! questions, each open but for QD5's carrier, which is built (the

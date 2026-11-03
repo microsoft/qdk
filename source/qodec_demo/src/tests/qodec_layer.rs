@@ -20,13 +20,12 @@ use crate::coin::coin_device;
 use crate::program::Program;
 use crate::stim;
 
-/// The repetition3 bundle of the qodec checkout that the workspace builds
-/// the library from, as the integration tests load it.
+/// The repetition3 bundle of `tests/data`, as the integration tests load
+/// it.
 fn repetition3() -> Qodec {
     stim::register().expect("the parser registers");
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../qdk-ec/qodec/examples/repetition3/repetition3.qodec.yaml");
-    Qodec::load(path).expect("the repetition3 bundle loads from the qdk-ec checkout")
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/repetition3.qodec.yaml");
+    Qodec::load(path).expect("the repetition3 bundle of tests/data loads")
 }
 
 /// The layer above the bottom one builds: repetition3's layer 0 sends to

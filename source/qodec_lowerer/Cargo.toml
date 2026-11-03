@@ -14,6 +14,7 @@ anstream = { workspace = true }
 anstyle = { workspace = true }
 qodec = { workspace = true }
 qodec_runtime = { path = "../qodec_runtime" }
+rustyline = { workspace = true }
 smallvec = { workspace = true }
 
 [dev-dependencies]
