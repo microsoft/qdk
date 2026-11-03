@@ -20,6 +20,177 @@ static CAPABILITIES_DYNAMIC_QUBIT_ALLOC: std::sync::LazyLock<TargetCapabilityFla
     });
 
 #[test]
+fn retained_loop_result_uses_read_write_copies_without_unrolling_measurement() {
+    let qir = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            mutable first = Zero;
+            for i in 0..1 {
+                if i == 0 { X(q); }
+                let r = MResetZ(q);
+                if i == 0 { first = r; }
+            }
+            first
+        }
+        "#,
+        *CAPABILITIES,
+    );
+
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__mresetz__body(")
+            .count(),
+        1,
+    );
+    assert!(qir.contains("@__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))"));
+    assert_eq!(
+        qir.matches("call void @__quantum__rt__write_result(i1 zeroext %")
+            .count(),
+        2,
+    );
+    assert!(qir.contains("\"required_num_results\"=\"3\""));
+}
+
+#[test]
+fn loop_result_copies_share_literal_declaration_without_rewriting_recursive_storage() {
+    let qir = compile_source_to_qir(
+        r#"
+        operation Retain(n : Int, r : Result) : Bool {
+            let saved = r;
+            if n > 0 { let ignored = Retain(n - 1, Zero); }
+            saved == One
+        }
+        operation Main() : (Result, Bool) {
+            use q = Qubit();
+            mutable first = Zero;
+            for i in 0..1 {
+                if i == 0 { X(q); }
+                let r = MResetZ(q);
+                if i == 0 { first = r; }
+            }
+            (first, Retain(1, first))
+        }
+        "#,
+        *CAPABILITIES,
+    );
+
+    assert_eq!(
+        qir.matches("declare void @__quantum__rt__write_result(")
+            .count(),
+        1,
+    );
+    assert!(qir.contains("@__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))"));
+    let recursive_body = qir
+        .split_once("define internal zeroext i1 @Retain(")
+        .expect("recursive callable should remain emitted")
+        .1
+        .split_once("\n}")
+        .expect("recursive body should terminate")
+        .0;
+    assert!(recursive_body.contains("@Retain("));
+    assert!(recursive_body.contains("alloca ptr"));
+    assert!(recursive_body.contains("store ptr %"));
+    assert!(!recursive_body.contains("@__quantum__rt__write_result("));
+}
+
+#[test]
+fn returned_scalar_callable_in_mutable_loop_compiles_to_qir() {
+    let qir = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use r = Qubit();
+            mutable a = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            for _ in 0..0 { a = g(a)(2); }
+            if a == 4 { X(r); }
+            MResetZ(r)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
+
+#[test]
+fn returned_scalar_callable_in_runtime_while_compiles_to_qir() {
+    let qir = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use r = Qubit();
+            let count = if MResetZ(r) == Zero { 3 } else { 0 };
+            mutable a = 0;
+            mutable i = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            while i < count {
+                a = g(a)(2);
+                i += 1;
+            }
+            if a == 12 { X(r); }
+            MResetZ(r)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
+
+#[test]
+fn conditional_returned_scalar_callable_with_argument_mutation_compiles_to_qir() {
+    let qir = compile_source_to_qir(
+        r#"
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : Result {
+            use q = Qubit();
+            use r = Qubit();
+            mutable a = 0;
+            let value = (
+                if MResetZ(q) == Zero { Make(a) }
+                else { Make(a + 1) }
+            )({ a = 9; 2 });
+            if value == 4 { X(r); }
+            MResetZ(r)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
+
+#[test]
+fn array_update_scalar_evaluates_index_then_replacement_then_container() {
+    assert_array_update_operand_order("0", "true");
+}
+
+#[test]
+fn array_update_range_evaluates_index_then_replacement_then_container() {
+    assert_array_update_operand_order("0..0", "[true]");
+}
+
+fn assert_array_update_operand_order(index: &str, replacement: &str) {
+    let expected = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            H(q); X(q); Z(q);
+            MResetZ(q)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    let source = format!(
+        r#"
+        operation Main() : Result {{
+            use q = Qubit();
+            let ignored = {{ Z(q); [false] }}
+                w/ {{ H(q); {index} }} <- {{ X(q); {replacement} }};
+            MResetZ(q)
+        }}
+        "#
+    );
+    assert_eq!(compile_source_to_qir(&source, *CAPABILITIES), expected);
+}
+
+#[test]
 fn nested_for_over_qubit_slice_succeeds() {
     let source = "namespace Test {
             import Std.Intrinsic.*;
@@ -596,46 +767,48 @@ fn result_array_dynamic_index_succeeds() {
           store i64 0, ptr %var_3
           br label %block_1
         block_1:
-          %var_20 = load i64, ptr %var_3
-          store i64 %var_20, ptr %var_4
-          %var_22 = load i64, ptr %var_4
-          %var_5 = icmp sle i64 %var_22, 3
+          %var_21 = load i64, ptr %var_3
+          store i64 %var_21, ptr %var_4
+          %var_23 = load i64, ptr %var_4
+          %var_5 = icmp sle i64 %var_23, 3
           store i1 true, ptr %var_7
           br i1 %var_5, label %block_2, label %block_3
         block_2:
-          %var_25 = load i1, ptr %var_7
-          br i1 %var_25, label %block_4, label %block_5
+          %var_26 = load i1, ptr %var_7
+          br i1 %var_26, label %block_4, label %block_5
         block_3:
           store i1 false, ptr %var_7
           br label %block_2
         block_4:
-          %var_29 = load i64, ptr %var_3
-          store i64 %var_29, ptr %var_8
-          %var_31 = load i64, ptr %var_8
-          %var_32_offset_chk = icmp slt i64 %var_31, 0
-          %var_32_offset = select i1 %var_32_offset_chk, i64 1, i64 0
-          %var_32 = getelementptr [4 x ptr], ptr @array0, i64 %var_32_offset, i64 %var_31
-          %var_9 = load ptr, ptr %var_32
-          %var_11 = call zeroext i1 @__quantum__rt__read_result(ptr %var_9)
+          %var_30 = load i64, ptr %var_3
+          store i64 %var_30, ptr %var_8
+          %var_32 = load i64, ptr %var_8
+          %var_33_offset_chk = icmp slt i64 %var_32, 0
+          %var_33_offset = select i1 %var_33_offset_chk, i64 1, i64 0
+          %var_33 = getelementptr [4 x ptr], ptr @array0, i64 %var_33_offset, i64 %var_32
+          %var_9 = load ptr, ptr %var_33
+          %var_18 = call zeroext i1 @__quantum__rt__read_result(ptr %var_9)
+          call void @__quantum__rt__write_result(i1 zeroext %var_18, ptr inttoptr (i64 4 to ptr))
+          %var_11 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
           br i1 %var_11, label %block_6, label %block_7
         block_5:
-          %var_26 = load i64, ptr %var_2
-          store i64 %var_26, ptr %var_17
-          %var_28 = load i64, ptr %var_17
-          call void @__quantum__rt__int_record_output(i64 %var_28, ptr @0)
+          %var_27 = load i64, ptr %var_2
+          store i64 %var_27, ptr %var_17
+          %var_29 = load i64, ptr %var_17
+          call void @__quantum__rt__int_record_output(i64 %var_29, ptr @0)
           ret i64 0
         block_6:
-          %var_37 = load i64, ptr %var_2
-          store i64 %var_37, ptr %var_13
-          %var_39 = load i64, ptr %var_13
-          %var_14 = add i64 %var_39, 1
+          %var_38 = load i64, ptr %var_2
+          store i64 %var_38, ptr %var_13
+          %var_40 = load i64, ptr %var_13
+          %var_14 = add i64 %var_40, 1
           store i64 %var_14, ptr %var_2
           br label %block_7
         block_7:
-          %var_33 = load i64, ptr %var_3
-          store i64 %var_33, ptr %var_15
-          %var_35 = load i64, ptr %var_15
-          %var_16 = add i64 %var_35, 1
+          %var_34 = load i64, ptr %var_3
+          store i64 %var_34, ptr %var_15
+          %var_36 = load i64, ptr %var_15
+          %var_16 = add i64 %var_36, 1
           store i64 %var_16, ptr %var_3
           br label %block_1
         }
@@ -648,7 +821,9 @@ fn result_array_dynamic_index_succeeds() {
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
+        declare void @__quantum__rt__write_result(i1 zeroext, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="5" }
         attributes #1 = { "irreversible" }
         attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
@@ -721,37 +896,39 @@ fn result_array_while_loop_dynamic_index_succeeds() {
           store i64 0, ptr %var_3
           br label %block_1
         block_1:
-          %var_17 = load i64, ptr %var_3
-          store i64 %var_17, ptr %var_4
-          %var_19 = load i64, ptr %var_4
-          %var_5 = icmp slt i64 %var_19, 4
+          %var_18 = load i64, ptr %var_3
+          store i64 %var_18, ptr %var_4
+          %var_20 = load i64, ptr %var_4
+          %var_5 = icmp slt i64 %var_20, 4
           br i1 %var_5, label %block_2, label %block_3
         block_2:
-          %var_23 = load i64, ptr %var_3
-          %var_24_offset_chk = icmp slt i64 %var_23, 0
-          %var_24_offset = select i1 %var_24_offset_chk, i64 1, i64 0
-          %var_24 = getelementptr [4 x ptr], ptr @array0, i64 %var_24_offset, i64 %var_23
-          %var_6 = load ptr, ptr %var_24
-          %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr %var_6)
+          %var_24 = load i64, ptr %var_3
+          %var_25_offset_chk = icmp slt i64 %var_24, 0
+          %var_25_offset = select i1 %var_25_offset_chk, i64 1, i64 0
+          %var_25 = getelementptr [4 x ptr], ptr @array0, i64 %var_25_offset, i64 %var_24
+          %var_6 = load ptr, ptr %var_25
+          %var_15 = call zeroext i1 @__quantum__rt__read_result(ptr %var_6)
+          call void @__quantum__rt__write_result(i1 zeroext %var_15, ptr inttoptr (i64 4 to ptr))
+          %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
           br i1 %var_8, label %block_4, label %block_5
         block_3:
-          %var_20 = load i64, ptr %var_2
-          store i64 %var_20, ptr %var_14
-          %var_22 = load i64, ptr %var_14
-          call void @__quantum__rt__int_record_output(i64 %var_22, ptr @0)
+          %var_21 = load i64, ptr %var_2
+          store i64 %var_21, ptr %var_14
+          %var_23 = load i64, ptr %var_14
+          call void @__quantum__rt__int_record_output(i64 %var_23, ptr @0)
           ret i64 0
         block_4:
-          %var_29 = load i64, ptr %var_2
-          store i64 %var_29, ptr %var_10
-          %var_31 = load i64, ptr %var_10
-          %var_11 = add i64 %var_31, 1
+          %var_30 = load i64, ptr %var_2
+          store i64 %var_30, ptr %var_10
+          %var_32 = load i64, ptr %var_10
+          %var_11 = add i64 %var_32, 1
           store i64 %var_11, ptr %var_2
           br label %block_5
         block_5:
-          %var_25 = load i64, ptr %var_3
-          store i64 %var_25, ptr %var_12
-          %var_27 = load i64, ptr %var_12
-          %var_13 = add i64 %var_27, 1
+          %var_26 = load i64, ptr %var_3
+          store i64 %var_26, ptr %var_12
+          %var_28 = load i64, ptr %var_12
+          %var_13 = add i64 %var_28, 1
           store i64 %var_13, ptr %var_3
           br label %block_1
         }
@@ -772,7 +949,9 @@ fn result_array_while_loop_dynamic_index_succeeds() {
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
+        declare void @__quantum__rt__write_result(i1 zeroext, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="5" }
         attributes #1 = { "irreversible" }
         attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
@@ -817,23 +996,26 @@ fn mutable_result_variable_succeeds() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_1 = alloca ptr
-          %var_5 = alloca ptr
           call void @__quantum__rt__initialize(ptr null)
           call void @H(ptr inttoptr (i64 0 to ptr))
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          store ptr inttoptr (i64 0 to ptr), ptr %var_1
+          %var_6 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__write_result(i1 zeroext %var_6, ptr inttoptr (i64 2 to ptr))
+          store ptr inttoptr (i64 2 to ptr), ptr %var_1
           %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_2, label %block_1, label %block_2
         block_1:
           call void @X(ptr inttoptr (i64 0 to ptr))
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-          store ptr inttoptr (i64 1 to ptr), ptr %var_1
+          %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__rt__write_result(i1 zeroext %var_7, ptr inttoptr (i64 2 to ptr))
+          store ptr inttoptr (i64 2 to ptr), ptr %var_1
           br label %block_2
         block_2:
-          %var_7 = load ptr, ptr %var_1
-          store ptr %var_7, ptr %var_5
-          %var_9 = load ptr, ptr %var_5
-          call void @__quantum__rt__result_record_output(ptr %var_9, ptr @0)
+          %var_10 = load ptr, ptr %var_1
+          %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr %var_10)
+          call void @__quantum__rt__write_result(i1 zeroext %var_8, ptr inttoptr (i64 3 to ptr))
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 3 to ptr), ptr @0)
           ret i64 0
         }
 
@@ -861,7 +1043,9 @@ fn mutable_result_variable_succeeds() {
 
         declare void @__quantum__rt__result_record_output(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
+        declare void @__quantum__rt__write_result(i1 zeroext, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="4" }
         attributes #1 = { "irreversible" }
         attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
@@ -908,31 +1092,31 @@ fn result_variables_with_default_values_succeeds() {
         block_0:
           %var_0 = alloca ptr
           %var_1 = alloca ptr
-          %var_6 = alloca ptr
-          %var_7 = alloca ptr
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__rt__write_result(i1 zeroext false, ptr inttoptr (i64 1 to ptr))
-          call void @__quantum__rt__write_result(i1 zeroext true, ptr inttoptr (i64 2 to ptr))
           store ptr inttoptr (i64 1 to ptr), ptr %var_0
+          call void @__quantum__rt__write_result(i1 zeroext true, ptr inttoptr (i64 2 to ptr))
           store ptr inttoptr (i64 2 to ptr), ptr %var_1
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_2, label %block_1, label %block_2
         block_1:
-          store ptr inttoptr (i64 2 to ptr), ptr %var_0
-          store ptr inttoptr (i64 1 to ptr), ptr %var_1
+          call void @__quantum__rt__write_result(i1 zeroext true, ptr inttoptr (i64 1 to ptr))
+          store ptr inttoptr (i64 1 to ptr), ptr %var_0
+          call void @__quantum__rt__write_result(i1 zeroext false, ptr inttoptr (i64 2 to ptr))
+          store ptr inttoptr (i64 2 to ptr), ptr %var_1
           br label %block_2
         block_2:
           call void @Reset(ptr inttoptr (i64 0 to ptr))
-          %var_10 = load ptr, ptr %var_0
-          store ptr %var_10, ptr %var_6
-          %var_12 = load ptr, ptr %var_1
-          store ptr %var_12, ptr %var_7
+          %var_12 = load ptr, ptr %var_0
+          %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr %var_12)
+          call void @__quantum__rt__write_result(i1 zeroext %var_8, ptr inttoptr (i64 3 to ptr))
+          %var_13 = load ptr, ptr %var_1
+          %var_9 = call zeroext i1 @__quantum__rt__read_result(ptr %var_13)
+          call void @__quantum__rt__write_result(i1 zeroext %var_9, ptr inttoptr (i64 4 to ptr))
           call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
-          %var_14 = load ptr, ptr %var_6
-          call void @__quantum__rt__result_record_output(ptr %var_14, ptr @1)
-          %var_15 = load ptr, ptr %var_7
-          call void @__quantum__rt__result_record_output(ptr %var_15, ptr @2)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 3 to ptr), ptr @1)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 4 to ptr), ptr @2)
           ret i64 0
         }
 
@@ -956,7 +1140,7 @@ fn result_variables_with_default_values_succeeds() {
 
         declare void @__quantum__rt__write_result(i1 zeroext, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="3" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="5" }
         attributes #1 = { "irreversible" }
         attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 

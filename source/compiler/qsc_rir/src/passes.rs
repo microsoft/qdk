@@ -7,6 +7,7 @@ mod insert_alloca_load;
 mod prune_unneeded_stores;
 mod reindex_qubits;
 mod remap_block_ids;
+mod result_copy;
 mod result_literal;
 mod simplify_control_flow;
 mod ssa_check;
@@ -30,7 +31,8 @@ pub use unreachable_code_check::check_unreachable_code;
 use crate::{
     passes::{
         insert_alloca_load::insert_alloca_load_instrs,
-        prune_unneeded_stores::prune_unneeded_stores, result_literal::transform_result_literals,
+        prune_unneeded_stores::prune_unneeded_stores, result_copy::copy_results,
+        result_literal::transform_result_literals,
     },
     rir::Program,
     utils::build_predecessors_map,
@@ -43,6 +45,7 @@ use crate::{
 /// - Checking types
 /// - Remapping block IDs
 /// - Transforming the program to SSA form
+///   (or copying stored Results before inserting loads for full Adaptive targets)
 /// - Checking that the program is in SSA form
 /// - If the target has no reset capability, reindexing qubit IDs and removing resets.
 /// - If the target has no mid-program measurement capability, deferring measurements to the end of the program.
@@ -54,6 +57,7 @@ pub fn check_and_transform(program: &mut Program) {
 
     let uses_non_ssa_pipeline = program.config.capabilities >= Profile::Adaptive.into();
     if uses_non_ssa_pipeline {
+        copy_results(program);
         prune_unneeded_stores(program);
         insert_alloca_load_instrs(program);
         transform_result_literals(program);

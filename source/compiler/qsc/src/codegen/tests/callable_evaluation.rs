@@ -34,12 +34,12 @@ fn local_result_array_with_zero_literal_initializes_constant_storage() {
     let qir = interpreter.qirgen("Main()").expect("mixed Zero array QIR");
     assert!(
         qir.contains(
-            "call void @__quantum__rt__write_result(i1 zeroext false, ptr inttoptr (i64 2 to ptr))"
+            "call void @__quantum__rt__write_result(i1 zeroext false, ptr inttoptr (i64 4 to ptr))"
         ),
         "{qir}"
     );
     assert!(
-        qir.contains("store ptr inttoptr (i64 2 to ptr), ptr"),
+        qir.contains("store ptr inttoptr (i64 4 to ptr), ptr"),
         "{qir}"
     );
 }

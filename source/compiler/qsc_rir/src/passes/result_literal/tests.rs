@@ -53,6 +53,34 @@ fn result_array_program(operands: Vec<Operand>) -> Program {
 }
 
 #[test]
+fn result_literals_reuse_existing_write_result_declaration() {
+    let mut program = result_array_program(vec![
+        Operand::Literal(Literal::ResultLit(false)),
+        Operand::Literal(Literal::ResultLit(true)),
+    ]);
+    let write_id = CallableId(17);
+    program
+        .callables
+        .insert(write_id, crate::builder::write_result_decl());
+    crate::passes::check_types(&program);
+
+    transform_result_literals(&mut program);
+
+    crate::passes::check_types(&program);
+    assert_eq!(program.callables.iter().count(), 3);
+    assert_eq!(program.num_results, 3);
+    expect![[r#"
+        Block:
+            Call id(1), args( Pointer, )
+            Call id(17), args( Bool(false), Result(1), )
+            Call id(17), args( Bool(true), Result(2), )
+            Variable(0, Result) = Store Result(0)
+            Variable(1, Array(2, Result)) = StoreArray [Result(1), Result(2)]
+            Return"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+}
+
+#[test]
 fn store_array_zero_literals_share_one_initialized_result() {
     let mut program = result_array_program(vec![
         Operand::Variable(RUNTIME_RESULT),

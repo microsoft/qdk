@@ -118,7 +118,18 @@ pub fn transform_result_literals(program: &mut Program) {
     }
 }
 
-fn add_write_result(program: &mut Program) -> CallableId {
+/// Reuses the runtime declaration also needed by Result value copies.
+pub(super) fn add_write_result(program: &mut Program) -> CallableId {
+    let declaration = builder::write_result_decl();
+    if let Some((id, _)) = program.callables.iter().find(|(_, callable)| {
+        callable.name == declaration.name
+            && callable.body.is_none()
+            && callable.input_type == declaration.input_type
+            && callable.output_type == declaration.output_type
+            && callable.call_type == declaration.call_type
+    }) {
+        return id;
+    }
     let write_id = CallableId(
         program
             .callables
@@ -126,10 +137,9 @@ fn add_write_result(program: &mut Program) -> CallableId {
             .map(|(id, _)| id.0)
             .max()
             .expect("should be at least one callable")
-            + 1,
+            .checked_add(1)
+            .expect("callable ID overflow"),
     );
-    program
-        .callables
-        .insert(write_id, builder::write_result_decl());
+    program.callables.insert(write_id, declaration);
     write_id
 }
