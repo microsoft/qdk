@@ -414,8 +414,8 @@ fn by_shot(outcomes: Result<Vec<ShotOutcome>, StaticProgramError>) -> Vec<ShotOu
 }
 
 /// The code written as a logic, [`lower_then_decode`], with one state and
-/// with a state per shot, on shots that are not a range: the program reads
-/// through it what it reads through the code's own adapter, in the same
+/// with a state per shot, on shots that are not a range: the program's readouts
+/// through it are those through the code's own adapter, in the same
 /// order, with each shot's coins drawn from that shot's seed below.
 #[test]
 fn the_code_as_a_logic_reads_what_its_adapter_reads() {
@@ -522,8 +522,8 @@ fn flip_first_votes(
 
 /// The code as a logic over noise that flips each block's first vote, on
 /// shots whose blocks read both 0 and 1: each logical readout is the
-/// majority of its block's votes, so the program reads what it reads with
-/// no noise.
+/// majority of its block's votes, so the program's readouts are those
+/// with no noise.
 #[test]
 fn the_code_as_a_logic_reads_the_majority_of_votes_that_disagree() {
     let seed = 11;
@@ -573,7 +573,7 @@ fn the_code_as_a_logic_refuses_a_block_beyond_its_own_as_repetition3_does() {
 /// The code as a runtime that owns its backend for each shot's life, as a
 /// Qodec runtime does, made an adapter with no change to it, on shots that
 /// are not a range, with a batch the runtime flushes twice, a run then a
-/// send: the program reads through it what it reads through the code
+/// send: the program's readouts through it are those through the code
 /// written as a logic lent its way below, each shot's coins drawn from
 /// that shot's seed below.
 #[test]

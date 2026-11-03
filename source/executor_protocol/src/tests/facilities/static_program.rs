@@ -84,11 +84,11 @@ fn a_static_program_gives_each_batchs_outcomes_in_the_order_its_reply_delivers_t
 }
 
 /// A program of three reads, the second of which (a `false`) the
-/// executor's check refuses: the program stops there, naming that batch
+/// executor's check refuses: the driver stops there, naming that batch
 /// and the refusal as the executor typed it, and the third batch is never
 /// sent.
 #[test]
-fn a_static_program_stops_at_the_first_batch_the_chain_refuses() {
+fn the_driver_stops_at_the_first_batch_the_chain_refuses() {
     let model = TestDoubleModel {
         refuses_false: true,
         ..TestDoubleModel::default()
@@ -112,11 +112,11 @@ fn a_static_program_stops_at_the_first_batch_the_chain_refuses() {
 }
 
 /// A program of a read, then a `false` the executor's check refuses at
-/// its first instruction: the refusal reads as a fault the program's check
+/// its first instruction: the refusal reads as a fault the driver's check
 /// finds when the job is given to the chain, by the instruction, then the
 /// batch.
 #[test]
-fn a_refusal_at_an_instruction_reads_as_the_programs_check_reads_it() {
+fn a_refusal_at_an_instruction_reads_as_the_drivers_check_reads_it() {
     let model = TestDoubleModel {
         refuses_false: true,
         ..TestDoubleModel::default()
@@ -132,10 +132,10 @@ fn a_refusal_at_an_instruction_reads_as_the_programs_check_reads_it() {
 }
 
 /// A program of two reads on a double whose device fails shot 4's batches
-/// as they are called: the program stops at its first batch, naming it and
+/// as they are called: the driver stops at its first batch, naming it and
 /// the reply's reason, and sends the executor no later batch.
 #[test]
-fn a_static_program_stops_at_the_first_batch_that_fails() {
+fn the_driver_stops_at_the_first_batch_that_fails() {
     let model = TestDoubleModel {
         failing: Some(4),
         ..TestDoubleModel::default()
@@ -187,9 +187,9 @@ fn every_batch_of_a_static_program_is_sent_to_every_shot_empty_ones_too() {
 
 /// A program of two reads on a double whose calls for shot 4 are cancelled
 /// as they are called: a cancelled reply is a failure of its batch, the
-/// first ([`StaticProgramError::Failed`]), and the program stops there.
+/// first ([`StaticProgramError::Failed`]), and the driver stops there.
 #[test]
-fn a_static_program_stops_at_a_cancelled_batch_as_failed() {
+fn the_driver_stops_at_a_cancelled_batch_as_failed() {
     let model = TestDoubleModel {
         cancelling: Some(4),
         ..TestDoubleModel::default()
@@ -462,7 +462,7 @@ fn a_static_programs_needs_are_checked_when_given_to_a_chain() {
 /// bit 2, given to a device of two bits whose check refuses a call on a bit
 /// it lacks. Its calls' qubits are not read when the job is given, so the
 /// chain accepts it; the bit it lacks is found as its batch runs, by the
-/// device's check, and the program stops there, the first batch's
+/// device's check, and the driver stops there, the first batch's
 /// outcomes dropped.
 #[test]
 fn a_qubit_a_static_program_does_not_state_is_found_only_by_the_check_at_its_batch() {

@@ -65,9 +65,9 @@ wrong:
   against one that already draws with its id, so each draws from a seed of
   its own (see [Seeds](#seeds-not-generators)).
 
-A chain given a job reports every need of the job's program that the chain
-lacks, each a `Rejected::Unmet` among the job's `JobFaults`. A
-caller that holds an executor checks its needs itself with
+A chain given a job reports every need of the job (its program's, with what
+its driver adds) that the chain lacks, each a `Rejected::Unmet` among the
+job's `JobFaults`. A caller that holds an executor checks its needs itself with
 `Capabilities::admit`, which refuses the first need unmet, in the order of the
 table (`Rejected::Unmet`).
 
@@ -235,9 +235,9 @@ API docs), and one that returns an executor placed per shot
 `impl ExecutorLogic<I, S> + Clone`, as each shot's placement gets a copy
 (`ExecutorLogic`'s API docs). A bare `impl Executor` composes only with
 `compose`, and a bare `impl Adapter` does not compose
-([Composing a run](composition.md#composing-a-run)). The check of
-`simulator_recording`, a function pointer, has the type `NoCheck<I>`, the
-default of that type parameter, so the return type leaves it out.
+([Composing a run](composition.md#composing-a-run)). `simulator_recording`
+states no check, so its check has the default type `NoCheck<I>`, a function
+pointer, which the return type leaves out.
 
 ## How an executor holds its shots
 
@@ -358,15 +358,15 @@ drop, a logic's own state, the report), and what splitting a run costs, is in
 
 ## An executor's whole life
 
-A run owns its executor: it passes the program's calls on, as its driver runs
-it, and closes the executor once, after the program's last call. The arrows read
-as in [Replies](replies.md#reading-the-sequence-diagrams):
+A run owns its executor: it passes the driver's calls on, as the driver drives
+the program, and closes the executor once, after the driver's last call. The
+arrows read as in [Replies](replies.md#reading-the-sequence-diagrams):
 
 ```mermaid
 sequenceDiagram
   participant C as caller
   participant R as run
-  participant D as program, as its driver runs it
+  participant D as driver
   participant E as executor
   C->>R: chain.run(program, shots), checked (nothing runs)
   C->>R: wait()
@@ -380,7 +380,7 @@ sequenceDiagram
       E-->>R: Ok(reply), or Err(rejected): nothing ran, unless its class is Resend
       R-->>D: the same, unchanged
     end
-    Note over D,E: the program takes the reply its own way (see Replies)
+    Note over D,E: the driver takes the reply its own way (see Replies)
   end
   D-->>R: the program's output
   R->>E: close(), once
@@ -388,9 +388,9 @@ sequenceDiagram
   R-->>C: (output, report)
 ```
 
-The run closes the executor once, after the program's last call, also when a
+The run closes the executor once, after the driver's last call, also when a
 call failed. A call after close is refused with `Rejected::Closed` (the
-conformance check `rejects_calls_once_closed`). A run dropped before its program
+conformance check `rejects_calls_once_closed`). A run dropped before its driver
 ends does not close its executor (`Run`'s doc, which no test pins), an open
 question that goes with the planned cancellation ([An executor's
 close](internals/executors.md#an-executors-close)).

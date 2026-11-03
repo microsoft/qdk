@@ -221,7 +221,10 @@ stated as data, with the needs it states ([A run](protocol.md#a-run) draws
 one). The driver adds `resumable_shots` to them for a program with a call
 in a batch before its last, since its later batches continue its shots;
 the chain checks the two combined when the job is given to it
-([Needs, combined](composition.md#needs-combined)). It sends each batch to
+([Needs, combined](composition.md#needs-combined)). At the same time, the
+driver's check refuses every call by opcode outside the program's set and
+every repeat of a readout tag among those calls, each at its batch and
+instruction, all at once. It sends each batch to
 every shot of the job in one call, in order, awaits the reply, and stops
 at the first batch that is refused or does not end `Done`:
 
@@ -238,14 +241,14 @@ sequenceDiagram
     D->>E: call(batch k, on every shot of the job)
     break refused
       E-->>D: Err(rejected)
-      Note over D: the program ends with Err(Refused, at batch k)
+      Note over D: the driver ends with Err(Refused, at batch k)
     end
     E-->>D: Ok(reply)
     D->>Y: poll_events(out, waker), through wait_async
     Note over R: waited for, the run's thread parks while the reply is pending
     Y-->>D: the batch's outcomes, then its end
     break failed or cancelled
-      Note over D: the program ends with Err(Failed, at batch k)
+      Note over D: the driver ends with Err(Failed, at batch k)
     end
   end
   D-->>R: the program's output, Ok or Err
@@ -260,8 +263,9 @@ The error names the batch and what stopped it
 reply is pending.
 
 **Write a driver by hand** for a program in another form, such as a
-circuit that a runtime interprets, or a program that chooses its next
-batch, and the shots it goes to, from the outcomes
+circuit that a runtime interprets, or a program with a branch, whose
+driver chooses its next batch, and the shots it goes to, from the
+outcomes
 ([Writing a driver](../README.md#writing-a-driver)).
 
 ## Keep a rule for a part

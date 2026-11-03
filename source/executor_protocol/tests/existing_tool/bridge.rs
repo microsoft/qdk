@@ -64,7 +64,7 @@ pub fn backend_bridge<B: ExistingInterface>(
                 .take()
                 .expect("a one-state executor makes its state once"))
         },
-        // The calls' type is named here, since the program reads their
+        // The calls' type is named here, since this logic reads their
         // fields before anything else says what they are.
         move |backend, input: &CallInput<'_, InstructionCall>, outcomes| {
             let calls = input.instructions();

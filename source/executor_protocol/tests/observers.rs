@@ -8,7 +8,7 @@
 //!
 //! - A profiler counts the instructions each shot sends below, and sends
 //!   each call down as it is (`observers/profiler.rs`;
-//!   `the_profiler_sends_each_call_down_as_the_program_sent_it`). The run's
+//!   `the_profiler_sends_each_call_down_as_the_driver_sent_it`). The run's
 //!   report gives its counts, folded over the shots, beside the report
 //!   below.
 //! - A debugger logs each call of each shot, with what the call read or
@@ -385,10 +385,10 @@ fn below_the_profiler_the_shots_equal_calls_go_as_one() {
 }
 
 /// A user profiles a program to learn what it runs: the simulator below
-/// the profiler receives, on each shot, each call as the program sent it,
+/// the profiler receives, on each shot, each call as the driver sent it,
 /// none dropped, changed or added.
 #[test]
-fn the_profiler_sends_each_call_down_as_the_program_sent_it() {
+fn the_profiler_sends_each_call_down_as_the_driver_sent_it() {
     let received = Received::default();
     let chain = driver() >> profiler() >> simulator_recording(received.clone());
     let chain = chain.expect("the profiler fits");
@@ -570,10 +570,10 @@ fn the_debugger_changes_no_outcome() {
 }
 
 /// A user debugs a program to see what it runs: the simulator below the
-/// debugger receives, on each shot, each call as the program sent it, none
+/// debugger receives, on each shot, each call as the driver sent it, none
 /// dropped, changed or added.
 #[test]
-fn the_debugger_runs_each_call_below_as_the_program_sent_it() {
+fn the_debugger_runs_each_call_below_as_the_driver_sent_it() {
     let received = Received::default();
     let log = DebugLog::default();
     let chain = driver() >> debugger(log.clone()) >> simulator_recording(received.clone());

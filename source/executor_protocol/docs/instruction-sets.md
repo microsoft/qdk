@@ -165,7 +165,9 @@ operands of the same kinds in the same order:
 - **By action, whatever its mnemonic, in a set of another name**, when both sets
   declare what it does: Stim's `R` is the toy's `reset`.
 - **Refused otherwise**: between sets of other names, an instruction whose
-  action either set leaves undeclared.
+  action either set leaves undeclared, unless it declares what it does and
+  another instruction there does the same with the same operands, to which
+  it is matched by action.
 
 A mnemonic that both sets declare to do different things is refused as
 `DifferentAction`, even where another instruction does the same. Every
@@ -217,10 +219,11 @@ A description is checked in three places, each before anything runs:
 2. **When a job is given to the chain, or by hand with
    `Capabilities::admit`**: the instructions a caller needs must fit the set
    the chain accepts, and their unmet need lists each that does not.
-   `Chain::run` reports every unmet need of the job's program; `admit` returns
-   only the first, in a fixed order where the
-   instructions come after qubits, resumable shots, resets, replayable and
-   log probability, so an earlier unmet need hides the instructions'.
+   `Chain::run` reports every unmet need of the job (its program's, with
+   what its driver adds); `admit` returns only the first, in a fixed order
+   where the instructions come after qubits, resumable shots, resets,
+   replayable and log probability, so an earlier unmet need hides the
+   instructions'.
 3. **At each call**, by an executor of `InstructionCall`s, since the compiler
    cannot: `InstructionSet::check_batch` refuses the batch with
    `Rejected::Instruction` at its first call whose opcode the set lacks or whose

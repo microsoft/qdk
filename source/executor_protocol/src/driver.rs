@@ -44,10 +44,11 @@ use crate::{Executor, InstructionBatch, Needs, Program, Rejected, ShotSet};
 /// itself a `Driver` is planned (`docs/planned.md`).
 ///
 /// The driver is apart from the program, so a crate may drive a program
-/// type of another crate, and one driver may drive several program types,
-/// one impl each. It takes itself by reference: a program does not use it
-/// up, so that a chain that runs many jobs, planned ([`Chain`]), can keep
-/// it.
+/// type of another crate whose data it can read (a [`StaticProgram`]'s
+/// batches are read by the crate's driver only), and one driver may drive
+/// several program types, one impl each. It takes itself by reference: a
+/// program does not use it up, so that a chain that runs many jobs, planned
+/// ([`Chain`]), can keep it.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not drive a `{P}`",
     label = "not a driver of this program",
@@ -75,10 +76,10 @@ pub trait Driver<P: Program> {
     }
 
     /// The faults of `program` that it can know before any call (a call
-    /// outside the set it states), checked when the program is given to
-    /// the chain ([`Chain::run`]) and reported with the job's other faults,
-    /// so that none is found only once earlier calls have run. The default
-    /// finds none.
+    /// outside the set the program states), checked when the program is given
+    /// to the chain ([`Chain::run`]) and reported with the job's other
+    /// faults, so that none is found only once earlier calls have run. The
+    /// default finds none.
     #[must_use]
     fn check(&self, program: &P) -> Vec<Rejected> {
         let _ = program;

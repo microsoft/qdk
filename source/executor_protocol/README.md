@@ -158,7 +158,7 @@ What the protocol checks itself, so that a part's logic need not:
 
 - a chain whose parts do not fit is refused when it is built, and a job its
   chain cannot run is refused before any call;
-- a run closes its chain once, after the program's last call, and a call on
+- a run closes its chain once, after the driver's last call, and a call on
   a shot the job did not name is refused before the executor sees it.
 
 What every part keeps, so that the parts around it can rely on it. The
@@ -197,7 +197,7 @@ The chain, from the program down to the simulator:
 
 ```mermaid
 flowchart LR
-  P["program()<br/>two batches"] --> I["driver()<br/>runs the program"]
+  P["program()<br/>two batches"] --> I["driver()<br/>drives the program"]
   I --> F["profiler()<br/>counts instructions"]
   F --> D["debugger(log)<br/>logs each shot's calls"]
   D --> S["simulator()<br/>a state per shot"]
@@ -209,7 +209,7 @@ call on the job's shots. The
 [profiler](docs/guides.md#observers-a-profiler-and-a-debugger) counts each
 shot's instructions and sends the batch on, the shots' equal calls as one;
 the debugger sends each shot's call alone, and logs it with what it read.
-Once the program ends, the run
+Once the driver ends, the run
 [closes the chain, once](docs/executors.md#an-executors-whole-life): its
 report is the profiler's counts, folded over the shots, beside the report
 below it; the debugger fills a log the caller keeps a handle on. The
@@ -227,7 +227,7 @@ sequenceDiagram
   T->>R: chain.run(program(), SHOTS)
   Note over R: the job checked against the chain, a Run given
   T->>R: wait()
-  R->>I: run the program
+  R->>I: drive the program
   loop each batch in turn: toss, then copy
     I->>P: the batch, on shots 2, 5, 6, 11
     Note over P: each shot's state counts its instructions
@@ -283,12 +283,14 @@ by hand instead.
   ([`src/facilities/adapter_fn.rs`](src/facilities/adapter_fn.rs)) make an
   adapter from a state and a logic that reaches the executor below: a
   profiler, a debugger, a code's lowering and decoding. It passes up what
-  the executor below offers (less `log_probability` when its states draw,
-  and `replayable` too with one state) and reports, and merges the shots'
-  conditions raised below, as it reads them during a call, with those its
-  logic raises, with no code in its logic; with a state per shot, the
-  shots' equal calls below go as one, but for those a shot kept before its
-  run, which go alone at that run.
+  the executor below offers, apart from the instruction sets it accepts and
+  sends (`.accepts`, `.sends`) and less `log_probability` when its states
+  draw (and `replayable` too with one state), and the report of the
+  executor below; it merges the shots' conditions raised below, as it
+  reads them during a call, with those its logic raises, with no code in
+  its logic; with a state per shot, the shots' equal calls below go as
+  one, but for those a shot kept before its run, which go alone at that
+  run.
 - `driver()` ([`src/facilities/builtin_driver.rs`](src/facilities/builtin_driver.rs))
   is the crate's driver: it runs a `StaticProgram`
   ([`src/facilities/static_program.rs`](src/facilities/static_program.rs)),
@@ -319,7 +321,7 @@ What to write, by task, and where it is explained:
 
 | To                                                                                      | Write                                                                              | Section                                                                                                                                                                                |
 | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| run a program                                                                           | `driver() >> … >> executor`, `chain.run(program, shots)`                           | [Running a chain](#running-a-chain)                                                                                                                                                    |
+| run a program of fixed batches (`StaticProgram`)                                        | `driver() >> … >> executor`, `chain.run(program, shots)`                           | [Running a chain](#running-a-chain)                                                                                                                                                    |
 | run a program that branches on its readouts, or your own runtime (QIR, a circuit form)  | a program, `Program`, and its driver, `Driver<P>`, `runtime.into_chain()`          | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
 | plug in a device, or a simulator with a state per shot                                  | an executor: `executor_fn`                                                         | [Writing an executor](#writing-an-executor)                                                                                                                                            |
 | plug in a simulator whose shots share one state (an ensemble, such as an MPS simulator) | an executor written by hand, on `ExecutorLifecycle`                                | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)                                                                                         |
@@ -354,7 +356,8 @@ fn program_of(batches: Vec<Vec<InstructionCall>>) -> StaticProgram<InstructionCa
 ```
 
 The chain, `driver() >> simulator()` with no adapter between, is built,
-given the program on the job's shots, then waited for:
+given `program()`, the guide's program, made by `program_of(batches())`
+from its two batches, on the job's shots, then waited for:
 
 ```rust
 let chain = (driver() >> simulator()).expect("the program's calls fit the toy");
@@ -457,8 +460,9 @@ impl Driver<IfOne> for IfOneDriver {
 }
 ```
 
-A program tosses a coin, then tosses again on the shots that read 1; it
-states its qubits ([`tests/driver.rs`](tests/driver.rs)):
+A program tosses a coin, then, on the shots that read 1, tosses a second
+coin and reads the first again; it states its qubits
+([`tests/driver.rs`](tests/driver.rs)):
 
 ```rust
 fn toss_again_on_one() -> IfOne {

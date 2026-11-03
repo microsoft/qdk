@@ -50,7 +50,7 @@ A driver, the adapters downstream of it and an executor are put together by
   Then, in `run.wait()`, or `run.await` for an asynchronous caller, the driver
   drives the program; the run closes the executor once the driver is done, and
   gives the program's output and the executor's report. An awaited run, and a run stopped before its
-  program ends, have limits
+  driver ends, have limits
   ([Known limits](internals/composition.md#known-limits)).
 - A call on a shot the job did not name is refused before the executor sees
   it.
@@ -179,7 +179,7 @@ program's set is then the one checked against the chain.
 | compile time                   | a batch's instructions are of the type the executor accepts                                                                                                                                                                                                                                 | the instruction type, `InstructionBatch<I>` (a compile error, which no test pins)                                                                                                                                   |
 | when the shots are built       | a set of shots names at least one shot, and each shot once                                                                                                                                                                                                                                  | `ShotSet::new` (`Rejected::{NoShots, RepeatedShot}`), `ShotSet::range` (`Rejected::NoShots`)                                                                                                                        |
 | when a chain is built          | what an adapter sends is in the described set downstream, matched once; no two components draw with one RNG id; every fault of a chain at once (a part composed with the executor first reports only its own faults, before what is upstream is built: [Composing a run](#composing-a-run)) | `compose` (`BuildFaults`), or `Capabilities::drawing` by hand                                                                                                                                                       |
-| when a job is given to a chain | its shots are a set, no more than the executor holds; its program's needs fit what the chain offers, the instructions it will send included; the driver finds no fault in its program                                                                                                       | `Chain::run` (`JobFaults`, every fault at once, but only the least of the shots named twice): [A chain and its job](#a-chain-and-its-job); by hand, `Capabilities::admit` (`Rejected::Unmet`, naming the component) |
+| when a job is given to a chain | its shots are a set, no more than the executor holds; its program's needs, with what its driver adds, fit what the chain offers, the instructions it will send included; the driver finds no fault in its program                                                                           | `Chain::run` (`JobFaults`, every fault at once, but only the least of the shots named twice): [A chain and its job](#a-chain-and-its-job); by hand, `Capabilities::admit` (`Rejected::Unmet`, naming the component) |
 | at a shot's first call         | the shot's state can be made                                                                                                                                                                                                                                                                | `make_state` of `executor_fn` or `adapter_fn` (its refusal refuses the call)                                                                                                                                        |
 | at each call                   | a batch's shots against the job's; a batch of `InstructionCall`s against the executor's set; a batch's shots against those the executor holds; a closed or failed executor                                                                                                                  | `Run` (`Rejected::ShotNotHeld`); `InstructionSet::check_batch`; `Rejected::{ShotNotHeld, Closed, EarlierFailure}` (`executor_fn`, `ExecutorLifecycle`)                                                              |
 | at each call                   | within a batch, a tag names one readout of each shot, where an executor reports by tag ([readout tags](replies.md#readout-tags))                                                                                                                                                            | `check_unique_tags` (`Rejected::Instruction`)                                                                                                                                                                       |
@@ -241,12 +241,12 @@ One simulator serves several users: each builds the chain it needs on an
 executor of its own, made from the toy simulator of the guide tests
 (`toy_simulator(seed)`, an executor with a state per shot):
 
-| User                                    | Builds                                                                                            | Shown in                                                   |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| a program with feedback, on one shot    | `coin_then_feedback(&mut toy_simulator(seed), j)`, which calls with `ShotSet::one(j)`             | the [debugger guide](../tests/debugger.rs)                 |
-| a static program, observed              | `(driver() >> profiler() >> debugger(log.clone()) >> simulator())?.run(program(), SHOTS)?.wait()` | the [observer guide](../tests/observers.rs)                |
-| a program of many shots, with debugging | `(driver() >> debuggers.clone() >> toy_simulator(seed))?.run(program, shots)?`                    | the [debugger guide](../tests/debugger.rs)                 |
-| a logical program                       | `(driver() >> RepetitionCode::default() >> toy_simulator(seed))?.run(program, shots)?.wait()`     | the [static instruction set guide](../tests/static_isa.rs) |
+| User                                                              | Builds                                                                                            | Shown in                                                   |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| a caller with feedback, calling the executor directly on one shot | `coin_then_feedback(&mut toy_simulator(seed), j)`, which calls with `ShotSet::one(j)`             | the [debugger guide](../tests/debugger.rs)                 |
+| a static program, observed                                        | `(driver() >> profiler() >> debugger(log.clone()) >> simulator())?.run(program(), SHOTS)?.wait()` | the [observer guide](../tests/observers.rs)                |
+| a program of many shots, with debugging                           | `(driver() >> debuggers.clone() >> toy_simulator(seed))?.run(program, shots)?`                    | the [debugger guide](../tests/debugger.rs)                 |
+| a logical program                                                 | `(driver() >> RepetitionCode::default() >> toy_simulator(seed))?.run(program, shots)?.wait()`     | the [static instruction set guide](../tests/static_isa.rs) |
 
 Another user, a program whose executor is on another machine, is planned,
 with no milestone yet: the link and its layers L1 and L0 are inside the
@@ -254,9 +254,10 @@ remote executor
 ([Levels, roles and laws](internals/composition.md#levels-roles-and-laws)), so
 its chain is written as the others are.
 
-A program with feedback needs each call's outcomes before it builds the next, so
-it may drive one shot at a time: called on shot `j` alone, a replayable executor
-gives shot `j` the outcomes it gives among the others (law 2, "a shot alone", of
+A caller with feedback (a driver, or a caller of the executor by hand) needs
+each call's outcomes before it sends the next, so it may call one shot at a
+time: called on shot `j` alone, a replayable executor gives shot `j` the
+outcomes it gives among the others (law 2, "a shot alone", of
 [Levels, roles and laws](internals/composition.md#levels-roles-and-laws)). An
 executor called on one shot only (here a `toy_simulator(seed)` called on shot
 `j` alone) holds that shot's state. Run one after another, such executors hold

@@ -274,8 +274,8 @@ Each need sleeps its own way at step 2:
   unparks it;
 - a worker thread that passes an inner reply up, with `relay`, parks the
   worker's thread the same way;
-- `Run::wait` runs a job's program on its thread and parks it the same
-  way, on a parker of its own, since the program may itself call `wait`;
+- `Run::wait` runs a job's driver on its thread and parks it the same
+  way, on a parker of its own, since the driver may itself call `wait`;
 - an async caller (`wait_async`) and a stream (`async_events`) give their
   runtime's waker: the task yields, and the thread runs other tasks;
 - a caller that polls with `Waker::noop()` never sleeps: it polls when it

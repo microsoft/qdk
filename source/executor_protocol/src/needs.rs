@@ -301,7 +301,9 @@ impl Capabilities {
     }
 }
 
-/// A need that a component cannot honour, and which component.
+/// A need that a component cannot honour, and which component; or, among a
+/// job's faults ([`JobFaults`](crate::JobFaults)), a program and a driver
+/// that state different instruction sets, naming the driver.
 ///
 /// Needed because a chain is several components, and the caller must know
 /// which one to change (a bigger simulator, a different executor).
@@ -332,9 +334,11 @@ pub struct UnmetNeed {
 }
 
 impl UnmetNeed {
-    /// Checks that `component` offers at least what is `needed`: for an
-    /// executor that refuses, at call time, a call needing what it lacks (a
-    /// yes-or-no need is 1 needed against 0 offered).
+    /// Checks that `component` offers at least what is `needed`, for a
+    /// counted need or a yes-or-no one (1 needed against 0 offered): for an
+    /// executor that refuses, at call time, a call needing what it lacks. A
+    /// need of instructions is checked by its set, not by counts
+    /// ([`Capabilities::admit`], a chain's job).
     ///
     /// # Errors
     ///
@@ -378,7 +382,10 @@ impl UnmetNeed {
     /// name, state different instruction sets, when its job is given to a
     /// chain ([`Needs::combined`]): its calls are numbered by one set. Of
     /// [`Need::InstructionSet`], 2 needed and 1 offered, with no mismatch,
-    /// so that it reads apart from [`undescribed`](Self::undescribed).
+    /// so that it reads apart from [`undescribed`](Self::undescribed). Its
+    /// message tells it from an unmet need of instructions; a relay of a
+    /// job's faults over a link, planned, must encode it apart, since its
+    /// counts alone would not (docs/planned.md, "Callers and bindings").
     fn different_sets(driver: &str) -> UnmetNeed {
         UnmetNeed {
             component: driver.to_owned(),

@@ -143,21 +143,22 @@ fn a_run_turned_into_a_future_runs_nothing_until_polled() {
     assert_eq!(calls.count(), 2, "the program's two batches");
 }
 
-/// A run closes its executor once, after the program's last call: an
-/// executor holding a device releases it when the program is done with it,
+/// A run closes its executor once, after the driver's last call: an
+/// executor holding a device releases it when the driver is done with it,
 /// never while it still calls.
 #[test]
-fn a_run_closes_its_executor_once_after_the_programs_last_call() {
+fn a_run_closes_its_executor_once_after_the_drivers_last_call() {
     let (executor, record) = Recorded::new(TestDoubleExecutor::with_model(Bits::default(), 7));
     let job = flip_and_toss_job(bits_set(), &[0, 1]);
     compose(job, executor).expect("no adapter, no fault").wait();
     assert_eq!(seen(&record), [Seen::Call, Seen::Call, Seen::Close]);
 }
 
-/// A run whose program never calls its executor still closes it, once: an
-/// executor holding a device releases it whatever the program did.
+/// A run whose driver never calls its executor, here for a program of no
+/// batches, still closes it, once: an executor holding a device releases
+/// it whatever the driver did.
 #[test]
-fn a_run_whose_program_never_calls_still_closes_its_executor() {
+fn a_run_whose_driver_never_calls_still_closes_its_executor() {
     let (executor, record) = Recorded::new(TestDoubleExecutor::with_model(Bits::default(), 7));
     let idle = Batches {
         batches: Vec::new(),
@@ -210,7 +211,7 @@ impl Driver<WrittenInItsDriver<bool, TwoReads>> for ReadsTwice {
 }
 
 /// A run whose first call fails, at shot 1, so that the executor refuses
-/// the second, still closes its executor once, after the program's last
+/// the second, still closes its executor once, after the driver's last
 /// call: an executor holding a device releases it whatever its shots did.
 #[test]
 fn a_run_closes_its_executor_once_after_a_call_failed() {
@@ -230,10 +231,10 @@ fn a_run_closes_its_executor_once_after_a_call_failed() {
 }
 
 /// A run through a debugger closes the last executor of its chain once,
-/// after the program's last call: the debugger's executor of the shot does
+/// after the driver's last call: the debugger's executor of the shot does
 /// not close it again, so a device behind the debugger is released once.
 #[test]
-fn a_run_through_an_adapter_closes_the_last_executor_once_after_the_programs_last_call() {
+fn a_run_through_an_adapter_closes_the_last_executor_once_after_the_drivers_last_call() {
     let (executor, record) = Recorded::new(TestDoubleExecutor::with_model(Bits::default(), 7));
     let log = Log::default();
     let job = flip_and_toss_job(bits_set(), &[0]);
@@ -689,7 +690,7 @@ fn a_run_awaited_gives_what_it_gives_waited_for() {
     assert_eq!(awaited, waited);
 }
 
-/// A run whose program and executor are `Send`, awaited: its future is
+/// A run whose driver, program and executor are `Send`, awaited: its future is
 /// not `Send`, so a caller that needs one waits for the run instead.
 #[test]
 fn an_awaited_runs_future_is_not_send() {

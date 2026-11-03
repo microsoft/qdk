@@ -105,7 +105,7 @@ work runs on a worker thread. The adapter's executor calls the executor
 below, and its reply holds the reply below and passes the caller's waker
 down at each poll, as the reply of an `adapter_fn` does, so
 the worker's push wakes the run's thread directly. Once the
-program ends, the run closes the adapter's executor, which closes the one
+driver is done, the run closes the adapter's executor, which closes the one
 below and gives its report up, beside its own if it keeps one. It is one
 possible execution: the events may already be in at the first poll, more
 than one poll may take them, and a reply may end `Failed` or `Cancelled`
@@ -166,8 +166,9 @@ and for a program with a branch on a readout, chooses the next calls, and
 the shots they go to, from those outcomes. `IfOneDriver`, the driver of
 the README's [Writing a driver](../README.md#writing-a-driver)
 ([`tests/driver/if_one.rs`](../tests/driver/if_one.rs)), drives
-`toss_again_on_one()`, which tosses a coin on every shot of the job, then
-again on the shots whose coin showed 1, on an executor that keeps each
+`toss_again_on_one()`, which tosses a coin on every shot of the job, then,
+on the shots whose coin showed 1, tosses a second coin and reads the first
+again, on an executor that keeps each
 shot's state from one call to the next (`resumable_shots`, which the
 driver adds to the program's needs):
 
@@ -332,7 +333,8 @@ adapter written by hand merges them itself. How a decoder decides a logical
 value over a missing one is its own rule: the guide's code gives the
 logical readout no value either, rather than a guess. An executor that
 offers `resumable_shots` keeps each shot's conditions from one call to the
-next (the conformance kit checks it). The rules in full are in
+next (the conformance kit checks those an earlier outcome of the shot
+carried). The rules in full are in
 [Shot conditions](replies.md#shot-conditions), and how each readout is
 named in [Readout tags](replies.md#readout-tags).
 

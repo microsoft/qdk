@@ -83,7 +83,7 @@ impl<A: Fold, B: Fold> Fold for (A, B) {
 }
 
 /// Ends an executor's work and returns its report. A driver never closes the
-/// executor it calls: the run does, once, when the program's future has ended
+/// executor it calls: the run does, once, when the driver's future has ended
 /// ([`Run`](crate::Run)).
 ///
 /// The rules of `close` (later calls rejected, a second report empty) are

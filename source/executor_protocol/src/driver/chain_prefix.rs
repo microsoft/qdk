@@ -83,11 +83,13 @@ impl<T, L> ChainPrefix<T, L> {
 /// A type that drives no program has no `into_chain`:
 ///
 /// ```compile_fail,E0277
-/// use executor_protocol::{DriverExt, InstructionCall};
+/// use executor_protocol::{DriverExt, InstructionCall, StaticProgram};
 ///
 /// struct Interpreter; // implements no `Driver`
 ///
-/// let prefix = DriverExt::<()>::into_chain::<InstructionCall>(Interpreter);
+/// let prefix = DriverExt::<StaticProgram<InstructionCall>>::into_chain::<InstructionCall>(
+///     Interpreter,
+/// );
 /// ```
 pub trait DriverExt<P: Program>: Driver<P> + Sized {
     /// This driver as a chain's prefix, sending `I`s, with no adapter

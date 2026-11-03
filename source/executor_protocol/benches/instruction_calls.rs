@@ -20,11 +20,11 @@
 //! call, on building, checking, renumbering and dispatching a batch; and a
 //! reply's one outcome, held in the reply.
 //!
-//! Then what an executor costs per call when a program run on a chain of
-//! it (`chain.run`) calls it, against the executor called directly: with
-//! the program's set in the toy's numbering, as a program's calls are when
-//! it builds them by name with the toy's set; and in another, into which
-//! each batch is copied on its way.
+//! Then what an executor costs per call when the driver of a program run
+//! on a chain of it (`chain.run`) calls it, against the same driver
+//! calling it directly: with the program's set in the toy's numbering, as
+//! a program's calls are when they are built by name with the toy's set;
+//! and in another, into which each batch is copied on its way.
 //!
 //! Then what an adapter composed with the toy's executor ([`compose`])
 //! costs at the boundary downstream of it, against the toy's executor
@@ -45,9 +45,10 @@
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::hint::black_box;
+use std::pin::pin;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::task::Waker;
+use std::task::{Context, Poll, Waker};
 use std::time::Instant;
 
 use executor_protocol::{
@@ -745,8 +746,9 @@ fn replies() {
 }
 
 /// The toy's executor of one shot, called with batches of [`CALLS`] calls,
-/// then of one call: directly (bare), and by a program run on a chain of
-/// it (`chain.run`) whose set is the toy's (the same numbering) or the
+/// then of one call, by the driver of a [`Timed`] program ([`Timing`]):
+/// directly (bare), and with the program run on a chain of it
+/// (`chain.run`) whose set is the toy's (the same numbering) or the
 /// toy's reversed (another), whose batches are each copied into the toy's
 /// numbering on their way. Calls built by name with the toy's set, as a
 /// program that cannot afford the copy builds them, are those of the same
@@ -769,13 +771,18 @@ fn renumbering() {
             .collect()
     };
     let (in_toy, in_program) = (calls_of(&toy), calls_of(&program_set));
-    let bare = |size| Timed::new(&in_toy, size, None).on(&mut toy_executor(), &shots);
+    let bare = |size| {
+        let program = Timed::new(&in_toy, size, None);
+        at_once(Timing.drive(program, &mut toy_executor(), &shots))
+    };
     let ran = |calls, set: &InstructionSet, size| {
         let program = Timed::new(calls, size, Some(set));
         let chain =
             compose(Timing.into_chain(), toy_executor()).expect("nothing between to refuse");
         let run = chain.run(program, shots.clone());
-        run.expect("the toy accepts the program's set").wait().0
+        run.expect("the toy accepts the program's set and keeps each shot")
+            .wait()
+            .0
     };
     let expected = bare(CALLS as usize).0;
 
@@ -822,21 +829,6 @@ impl<'a> Timed<'a> {
         let set = set.map(|set| Arc::new(set.clone()));
         Self { calls, size, set }
     }
-
-    /// Its calls sent once, whole, on `executor`, then timed in batches of
-    /// its size ([`per_call`]): the first's outcomes and the time.
-    fn on<E>(&self, executor: &mut E, shots: &ShotSet) -> (Vec<ShotOutcome>, f64)
-    where
-        E: Executor<InstructionBatch<InstructionCall>>,
-    {
-        let first = shot_outcomes(executor, shots, self.calls);
-        let time = per_call(|| {
-            for batch in self.calls.chunks(self.size) {
-                run_batch(executor, shots, batch);
-            }
-        });
-        (first, time)
-    }
 }
 
 impl Program for Timed<'_> {
@@ -849,18 +841,41 @@ impl Program for Timed<'_> {
     }
 }
 
-/// The driver of a [`Timed`] program: it runs it ([`Timed::on`]) on the
-/// chain's executor.
+/// The driver of a [`Timed`] program: it calls the program's calls once,
+/// whole, then times them in batches of its size ([`per_call`]), each
+/// called and then waited for; it gives the first call's outcomes and the
+/// time.
 struct Timing;
 
 impl<'a> Driver<Timed<'a>> for Timing {
+    /// `resumable_shots` when there are calls: it sends them whole, then
+    /// again in batches, and each later call continues the shot.
+    fn needs(&self, program: &Timed<'a>) -> Needs {
+        Needs::default().with_resumable_shots(!program.calls.is_empty())
+    }
+
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
         &self,
         program: Timed<'a>,
         executor: &mut E,
         shots: &ShotSet,
     ) -> (Vec<ShotOutcome>, f64) {
-        program.on(executor, shots)
+        let first = shot_outcomes(executor, shots, program.calls);
+        let time = per_call(|| {
+            for batch in program.calls.chunks(program.size) {
+                run_batch(executor, shots, batch);
+            }
+        });
+        (first, time)
+    }
+}
+
+/// The output of `future`, ready at its first poll: a driver whose
+/// executor's replies are immediate never waits.
+fn at_once<F: Future>(future: F) -> F::Output {
+    match pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(output) => output,
+        Poll::Pending => unreachable!("the toy's replies are ready when called"),
     }
 }
 
@@ -1305,7 +1320,8 @@ fn toy_executor() -> ToyExecutor {
 
 /// The toy's executor of [`InstructionCall`]s: it describes `set`, holds
 /// a toy per shot, made at the shot's first call, which runs calls through
-/// `table`, and counts the calls it is given in `calls`.
+/// `table`, and counts the calls it is given in `calls`. It keeps each
+/// shot's toy from one call to the next, so it offers `resumable_shots`.
 struct ToyExecutor {
     set: Arc<InstructionSet>,
     table: OpcodeTable<ToOp>,
@@ -1335,7 +1351,9 @@ impl ToyExecutor {
 
 impl Describe for ToyExecutor {
     fn capabilities(&self) -> Capabilities {
-        Capabilities::default().with_instruction_set(Some(Arc::clone(&self.set)))
+        Capabilities::default()
+            .with_instruction_set(Some(Arc::clone(&self.set)))
+            .with_resumable_shots(true)
     }
 }
 

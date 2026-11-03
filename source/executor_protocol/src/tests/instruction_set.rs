@@ -411,6 +411,26 @@ fn an_instruction_doing_the_same_with_other_operands_differs_by_its_operands() {
     );
 }
 
+/// A program in Stim's mnemonics sent to a device of another name whose
+/// own `R`, a vendor's instruction, declares nothing, and whose `rz` takes
+/// an integer angle: Stim's `R` and `rz` are matched to the instructions
+/// that do the same with the same operands, `init` and `rotate_z`, not
+/// refused for the instructions of their mnemonics.
+#[test]
+fn an_instruction_is_matched_by_action_past_one_of_its_mnemonic_that_does_not_fit() {
+    let rz = || Action::new([1], [1]).rotate(Pauli::z(0), Angle::Parameter(0));
+    let accepted = InstructionSet::new("device")
+        .with("R", [Block])
+        .with_action("init", [Block], reset())
+        .with_action("rz", [Block, Integer], rz())
+        .with_action("rotate_z", [Block, Real], rz());
+    let sent = InstructionSet::new("stim")
+        .with_action("R", [Block], reset())
+        .with_action("rz", [Block, Real], rz());
+    let found = ["R", "rz"].map(|mnemonic| matched(&sent, &accepted, mnemonic));
+    assert_eq!(found, ["init", "rotate_z"]);
+}
+
 /// Every instruction not matched is reported, whatever the reason, in the
 /// order the sent set declares them; those matched are not.
 #[test]

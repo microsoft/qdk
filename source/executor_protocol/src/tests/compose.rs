@@ -14,18 +14,18 @@ use super::{
     Batches, Bits, ByHand, Count, EVERY_BIT, Relabel, SharedState, Worker, bits_set, block_on,
     declaring, ends_soon, flip_and_toss, reversed_set, run_and_close, shots, undeclaring, values,
 };
-use crate::tests::map_executor;
 use crate::tests::test_double::TestDoubleModel;
 use crate::tests::test_double::{Model, TestDoubleExecutor};
+use crate::tests::{declared, map_executor};
 use crate::{
     Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, Apply, Below, BuildError,
     BuildFaults, BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix, Close, ComposedJob,
-    Describe, Driver, DriverExt, Executor, ExecutorLogic, InstructionBatch, InstructionBatchRef,
-    InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP, MakeState, Need, Needs,
-    NoAdapter, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
+    Describe, Driver, DriverExt, Executor, ExecutorLogic, ImmediateReply, InstructionBatch,
+    InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP,
+    MakeState, Need, Needs, NoAdapter, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
     OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, Program, Rejected, RngId,
-    ShotContext, ShotId, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value, adapter_fn,
-    compose, driver, executor_fn, wait,
+    ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value,
+    adapter_fn, compose, driver, executor_fn, wait,
 };
 
 use OperandKind::{Block, Tag};
@@ -1174,13 +1174,140 @@ impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for Accept
 /// run: each of its batches is copied into the adapter's numbering, so its
 /// flip flips the bit.
 #[test]
-fn a_program_in_another_order_runs_its_own_instructions_through_the_chain() {
+fn a_program_in_another_order_has_its_own_instructions_run_through_the_chain() {
     let job = flip_and_toss_job(reversed_set(), &[0]);
     let (outcomes, _) =
         (job >> Accepting::new(bits_set()) >> TestDoubleExecutor::with_model(Bits::default(), 7))
             .expect("the bits run what it accepts")
             .wait();
     assert_eq!(values(&outcomes)[0], (0, 0, Value::One), "x, then measure");
+}
+
+/// A typed instruction: each names itself by its variant.
+#[derive(Clone, Copy)]
+enum Op {
+    Reset,
+    X,
+    Measure,
+}
+
+impl TypedInstruction for Op {}
+
+/// Makes shots of one bit that run [`Op`]s, and describe them as a set,
+/// `reset` first.
+struct OneBit;
+
+impl Describe for OneBit {
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::default().with_instruction_set(Some(Arc::new(declared(
+            InstructionSet::new("one bit")
+                .with("reset", [])
+                .with("x", [])
+                .with("measure", [OperandKind::Tag]),
+        ))))
+    }
+}
+
+impl Model for OneBit {
+    type Instruction = Op;
+    type State = OneBitState;
+
+    fn state(&self, context: &ShotContext) -> Result<OneBitState, String> {
+        Ok(OneBitState {
+            shot: context.shot(),
+            bit: false,
+        })
+    }
+}
+
+/// A shot of [`OneBit`].
+struct OneBitState {
+    shot: ShotId,
+    bit: bool,
+}
+
+impl Executor<InstructionBatch<Op>> for OneBitState {
+    type Reply = ImmediateReply<ShotOutcome>;
+
+    fn call(&mut self, batch: InstructionBatchRef<'_, Op>) -> Result<Self::Reply, Rejected> {
+        batch.shots.check_only(self.shot)?;
+        let mut outcomes = Vec::new();
+        for op in batch.instructions {
+            match op {
+                Op::Reset => self.bit = false,
+                Op::X => self.bit = !self.bit,
+                Op::Measure => outcomes.push(ShotOutcome::new(self.shot, 0, self.bit.into())),
+            }
+        }
+        Ok(ImmediateReply::done(outcomes))
+    }
+}
+
+impl Close for OneBitState {
+    type Report = ();
+
+    fn close(&mut self) {}
+}
+
+/// A typed program that resets, flips and reads its bit, needing `needs`.
+fn reset_flip_read(needs: Needs) -> StaticProgram<Op> {
+    StaticProgram::new(needs, vec![vec![Op::Reset, Op::X, Op::Measure]])
+}
+
+/// A typed program states its set in another order than the executor's,
+/// which does not concern it, since its instructions name themselves: it
+/// composes with the executor, with no adapter, and its `X` runs as `x`.
+#[test]
+fn a_typed_program_in_another_order_has_its_instructions_run_as_they_are() {
+    let set = declared(
+        InstructionSet::new("program")
+            .with("x", [])
+            .with("reset", [])
+            .with("measure", [OperandKind::Tag]),
+    );
+    let program = reset_flip_read(Needs::default().with_instruction_set(Some(Arc::new(set))));
+    let (outcomes, _) = compose(
+        ComposedJob::new(program, ShotSet::one(1)),
+        TestDoubleExecutor::with_model(OneBit, 7),
+    )
+    .expect("the executor accepts the program's set")
+    .wait();
+    let outcomes = outcomes.expect("the bit neither refuses nor fails");
+    assert_eq!(outcomes[0].value, Value::One);
+}
+
+/// Makes the shots of [`OneBit`], but describes no instruction set.
+struct Undescribed;
+
+impl Describe for Undescribed {
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::default()
+    }
+}
+
+impl Model for Undescribed {
+    type Instruction = Op;
+    type State = OneBitState;
+
+    fn state(&self, context: &ShotContext) -> Result<OneBitState, String> {
+        OneBit.state(context)
+    }
+}
+
+/// A typed program that states no set composes with an executor that
+/// describes none: the compiler checks that both run the same type, and
+/// an instruction the executor does not run is refused at run time.
+#[test]
+fn a_typed_job_and_an_executor_that_describe_no_set_compose() {
+    let program = reset_flip_read(Needs::default());
+    let (outcomes, _) = compose(
+        ComposedJob::new(program, ShotSet::one(1)),
+        TestDoubleExecutor::with_model(Undescribed, 7),
+    )
+    .expect("a typed boundary needs no description")
+    .wait();
+    let outcomes = outcomes.expect("the bit neither refuses nor fails");
+    assert_eq!(outcomes[0].value, Value::One);
 }
 
 /// A program and bits that share one set, described once by its vendor and

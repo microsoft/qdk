@@ -36,10 +36,10 @@
 //! the nested wait could take the outer one's wake.
 //!
 //! [`block_on`], with which [`Run::wait`](crate::Run::wait) runs a job's
-//! program on this thread, has a second one, its own
-//! ([`FUTURE_PARKER`]): the program's async code, run synchronously, may
+//! driver on this thread, has a second one, its own
+//! ([`FUTURE_PARKER`]): the driver's async code, run synchronously, may
 //! itself call [`wait`] (an adapter's logic does, inside its `call`), and
-//! those parks must not take a wake meant for the program's future.
+//! those parks must not take a wake meant for the driver's future.
 //!
 //! Other callers do not park here. An async caller ([`wait_async`]) and a
 //! stream ([`async_events`]) hand the reply their runtime's waker, and their

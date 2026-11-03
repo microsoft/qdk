@@ -55,18 +55,18 @@ that is planned ([below](#a-reason-this-end-does-not-know-planned-decoder)).
 
 ## The reasons, and what produces them
 
-| Reason                           | Class         | Produced by                                                                                                                        |
-| -------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `NoShots`, `RepeatedShot`        | `Never`       | `ShotSet::new`, and `ShotSet::range` (`NoShots` only), when the caller builds the shots                                            |
-| `ShotNotHeld`                    | `Never`       | an executor, for a shot it does not hold (`executor_fn`, `OnePerShot` beyond its `max_shots`); a run, for a shot outside its job's |
-| `Instruction { at, reason }`     | `Never`       | an executor, for an instruction it does not accept, such as one outside its set or repeating a readout's tag within its batch      |
-| `Unmet`                          | `Never`       | `Capabilities::admit`, for a need beyond what a component offers; `Chain::run`, for each, among a job's `JobFaults`                |
-| `Closed`, `EarlierFailure`       | `Never`       | an executor after `close`; one whose state carries over, after a failure (`ExecutorLifecycle`, `executor_fn`)                      |
-| `Unavailable`                    | `Later`       | an executor that cannot take the work now, such as an `executor_fn` whose state cannot be made yet                                 |
-| `IdReused`                       | `Never`       | planned: layer L1, for an id resent with other content                                                                             |
-| `Malformed`                      | `Never`       | planned: layer L0, for a frame that does not decode, or a sequence number resent with other bytes                                  |
-| `NoReply`                        | `Resend`      | planned: the caller's end of a link, when no verdict came                                                                          |
-| `Unrecognized { retry, reason }` | the far end's | planned: a decoder of reason codes, for a code this end does not know                                                              |
+| Reason                           | Class         | Produced by                                                                                                                                                                                                     |
+| -------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NoShots`, `RepeatedShot`        | `Never`       | `ShotSet::new`, and `ShotSet::range` (`NoShots` only), when the caller builds the shots                                                                                                                         |
+| `ShotNotHeld`                    | `Never`       | an executor, for a shot it does not hold (`executor_fn`, `OnePerShot` beyond its `max_shots`); a run, for a shot outside its job's                                                                              |
+| `Instruction { at, reason }`     | `Never`       | an executor, for an instruction it does not accept, such as one outside its set or repeating a readout's tag within its batch; a driver's check of a job's program (`Driver::check`), among a job's `JobFaults` |
+| `Unmet`                          | `Never`       | `Capabilities::admit`, for a need beyond what a component offers; `Chain::run`, for each, and for a program and driver that state different instruction sets, among a job's `JobFaults`                         |
+| `Closed`, `EarlierFailure`       | `Never`       | an executor after `close`; one whose state carries over, after a failure (`ExecutorLifecycle`, `executor_fn`)                                                                                                   |
+| `Unavailable`                    | `Later`       | an executor that cannot take the work now, such as an `executor_fn` whose state cannot be made yet                                                                                                              |
+| `IdReused`                       | `Never`       | planned: layer L1, for an id resent with other content                                                                                                                                                          |
+| `Malformed`                      | `Never`       | planned: layer L0, for a frame that does not decode, or a sequence number resent with other bytes                                                                                                               |
+| `NoReply`                        | `Resend`      | planned: the caller's end of a link, when no verdict came                                                                                                                                                       |
+| `Unrecognized { retry, reason }` | the far end's | planned: a decoder of reason codes, for a code this end does not know                                                                                                                                           |
 
 ### A limit, or a shortage now: `Unmet` or `Unavailable`
 

@@ -136,7 +136,7 @@ fn profile(
         .run(program, shots)
         .expect("the profiler meets the needs the tests' programs state");
     let (output, report) = run.wait();
-    let output = output.expect("the tests' programs send only what the profiler runs");
+    let output = output.expect("the tests' programs hold only what the profiler runs");
     (report.states, output)
 }
 
@@ -256,7 +256,7 @@ fn the_bridge_accepts_calls_after_a_refusal() {
 /// takes the job, and the run reads the backend's one under the readout's
 /// tag.
 #[test]
-fn a_program_runs_its_calls_on_the_bridge() {
+fn a_programs_calls_run_on_the_bridge() {
     let (bridge, set) = bridged(Bits::new(2, []));
     let batch = vec![
         call(&set, Op::X(0)),

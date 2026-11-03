@@ -249,9 +249,9 @@ pub fn check(input: &CallInput<'_, Op>) -> Result<(), Rejected> {
     check_unique_tags(readouts(batch))
 }
 
-/// A program with feedback, as a user writes it against any executor of the
-/// toy's instructions, run on shot `j`. Toss a coin; if it shows 1, flip
-/// qubit 1; copy qubit 1 onto qubit 2; read both.
+/// A caller with feedback, written against any executor of the toy's
+/// instructions, calling it directly on shot `j`. Toss a coin; if it shows
+/// 1, flip qubit 1; copy qubit 1 onto qubit 2; read both.
 pub fn coin_then_feedback<E: Executor<InstructionBatch<Op>>>(
     executor: &mut E,
     j: ShotId,

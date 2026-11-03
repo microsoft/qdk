@@ -477,13 +477,13 @@ costs O(n²) polls of shots
 
 ## An executor's close
 
-The run closes the executor once, whether its program called it
-(`a_run_closes_its_executor_once_after_the_programs_last_call`), never
-called it (`a_run_whose_program_never_calls_still_closes_its_executor`)
+The run closes the executor once, whether its driver called it
+(`a_run_closes_its_executor_once_after_the_drivers_last_call`), never
+called it (`a_run_whose_driver_never_calls_still_closes_its_executor`)
 or saw a call fail (`a_run_closes_its_executor_once_after_a_call_failed`),
 and through adapters it closes the last executor of its chain once
-(`a_run_through_an_adapter_closes_the_last_executor_once_after_the_programs_last_call`;
-all in `src/tests/compose/run.rs`). A run dropped before its program ends,
+(`a_run_through_an_adapter_closes_the_last_executor_once_after_the_drivers_last_call`;
+all in `src/tests/compose/run.rs`). A run dropped before its driver ends,
 or unwound by a panic, does not close its executor (`Run`'s doc, which no
 test pins; an open question that goes with the planned cancellation). A
 call after close is refused (`Rejected::Closed`, the conformance check
@@ -740,7 +740,7 @@ profiler](../guides.md#an-existing-backend-and-a-profiler), in
 | After either failure, the bridge refuses its later calls with `EarlierFailure`                                     | `the_bridge_refuses_calls_after_the_backend_errs`, `the_bridge_refuses_calls_after_a_wrong_number_of_results`                               |
 | After a refusal, the bridge takes the corrected batch                                                              | `the_bridge_accepts_calls_after_a_refusal`                                                                                                  |
 | Once closed, or after a failure, the bridge says so whatever the batch                                             | `a_closed_bridge_says_closed_whatever_the_batch`, `a_failed_bridge_names_its_failure_whatever_the_batch`                                    |
-| A program of one shot runs its calls on the bridge                                                                 | `a_program_runs_its_calls_on_the_bridge`                                                                                                    |
+| A program of one shot runs its calls on the bridge                                                                 | `a_programs_calls_run_on_the_bridge`                                                                                                        |
 
 From the API docs of the executor types:
 

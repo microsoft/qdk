@@ -41,7 +41,7 @@
 //!
 //! The same logic with one state, without `.shots(OnePerShot)`, is the
 //! transparent alternative: it would run each call below whole, as the
-//! program sent it, so the first three things above would not follow. It
+//! driver sent it, so the first three things above would not follow. It
 //! would be transparent over any executor, and a call refused below would
 //! refuse the run, as alone. What it loses is the log by shot: its log
 //! would be by call, since its logic is not given the call's shots

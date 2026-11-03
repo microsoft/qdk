@@ -124,7 +124,7 @@ what they belong to; the names in code are the crate's.
   whose job is refused, do not close it
   ([A run](protocol.md#a-run),
   [An executor's whole life](executors.md#an-executors-whole-life),
-  [Known limits](internals/composition.md#a-run-closes-its-executor-only-when-its-program-ends)).
+  [Known limits](internals/composition.md#a-run-closes-its-executor-only-when-its-driver-ends)).
 - **Compose** (`compose`, `>>`): puts the parts together, builds the chain
   from the executor upstream and checks it before anything runs, every
   fault reported at once (`BuildFaults`), except a part composed with the

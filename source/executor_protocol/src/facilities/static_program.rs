@@ -18,7 +18,7 @@ use crate::{Capabilities, Chain, driver};
 
 /// A program of fixed batches of `I`s, run in order on every shot, and
 /// what it needs of the chain: a program that decides nothing on its
-/// outcomes, so that it sends the same batches whatever the shots read.
+/// outcomes, so that the same batches are sent whatever the shots read.
 ///
 /// Its needs are those it states. The crate's driver adds one to a program
 /// with a call in a batch before its last, which continues each shot in a
@@ -43,8 +43,8 @@ use crate::{Capabilities, Chain, driver};
 /// from its calls is planned.
 ///
 /// A program of no batches gets no need added to those it states (a
-/// program of calls by opcode states its set all the same), sends no call
-/// and gives no outcomes.
+/// program of calls by opcode states its set all the same); the driver
+/// sends no call for it, and it gives no outcomes.
 ///
 /// Its outcomes are one list, told apart by shot and tag, so each tag
 /// names one readout in the whole program, not only within its batch (a
@@ -180,11 +180,12 @@ impl<I: Instruction> Driver<StaticProgram<I>> for BuiltinDriver {
     }
 }
 
-/// Why a [`StaticProgram`] stopped before its end: the batch it stopped at,
-/// by its index in the program, refused or failed. A refusal stays typed,
-/// so that its caller can match it; a failure is its reply's text. A
-/// refusal at an instruction reads as a fault the program's check finds
-/// when the job is given to the chain (`instruction 0: batch 1: …`).
+/// Why the crate's driver stopped a [`StaticProgram`] before its end: the
+/// batch it stopped at, by its index in the program, refused or failed. A
+/// refusal stays typed, so that its caller can match it; a failure is its
+/// reply's text. A refusal at an instruction reads as a fault the driver's
+/// check finds when the job is given to the chain
+/// (`instruction 0: batch 1: …`).
 ///
 /// Only the whole job can be retried (after a refusal of class
 /// [`RetryClass::Later`](crate::RetryClass::Later), for one), on a chain
@@ -240,7 +241,7 @@ fn calls_before_its_last_batch<I>(batches: &[Vec<I>]) -> bool {
 }
 
 /// The fault of instruction `at` of batch `batch`, for `reason`: named by
-/// the instruction, then the batch, whether the program's check finds it
+/// the instruction, then the batch, whether the driver's check finds it
 /// when the job is given to the chain or the chain refuses the batch as it
 /// runs (`StaticProgramError`'s `Display`), so that both read alike.
 fn at_instruction_of_batch(batch: usize, at: usize, reason: impl fmt::Display) -> Rejected {

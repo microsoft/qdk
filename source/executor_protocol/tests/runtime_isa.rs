@@ -566,7 +566,7 @@ fn a_program_resetting_upstream_of_a_code_without_a_reset_is_refused_when_given_
 /// code's numbering: its `prepare_z`, `x` and `m` run as such, though at
 /// the opcodes of the code's `m`, `prepare_z` and `x`.
 #[test]
-fn a_program_in_another_order_runs_its_own_instructions_on_the_code() {
+fn a_program_in_another_order_has_its_own_instructions_run_on_the_code() {
     let program_set = InstructionSet::new("program")
         .with_action("__quantum__qis__x__body", [Block], pauli(Pauli::x(0)))
         .with_action("__quantum__qis__m__body", [Block, Tag], measure())

@@ -232,7 +232,7 @@ fn ran_shots_that_power_down_badly(
             instructions: &[DeviceOp::Flip],
         })
         .expect("an open executor runs the call");
-    wait(reply, &mut Vec::new()).expect("the program runs");
+    wait(reply, &mut Vec::new()).expect("the call runs");
     executor
 }
 
@@ -1313,7 +1313,7 @@ fn a_run_through_an_adapter_that_draws_reports_no_log_probability() {
     assert!(report.log_p.is_empty(), "{:?}", report.log_p);
 }
 
-/// A job whose program sends two batches on four shots, through a
+/// A job whose program has two batches, on four shots, through a
 /// recorder that passes every call down: the run reports the two calls
 /// that the executor alone reports for the same program.
 #[test]

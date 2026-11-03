@@ -409,10 +409,10 @@ What the guide shows, each rule pinned by a test:
   its own, before what is upstream of it, so its faults come back without those
   ([Composing a run](composition.md#composing-a-run)).
 - **The code describes the logical set**, so the chain upstream of it is checked
-  against what it accepts, and a program runs on it only when the code has
-  every instruction it needs. The code passes the device's resets on, and the
-  instructions matched guarantee a reset: a program that resets is refused when
-  given to a chain whose code has no reset, its reset named.
+  against what it accepts, and a program is run through it only when the code
+  has every instruction it needs. The code passes the device's resets on, and
+  the instructions matched guarantee a reset: a program that resets is refused
+  when given to a chain whose code has no reset, its reset named.
 - **A program in another order is served, and a fast one builds its calls by
   name.** A program whose set declares the logical instructions in another
   order runs on the code, and each of its batches is copied into the code's

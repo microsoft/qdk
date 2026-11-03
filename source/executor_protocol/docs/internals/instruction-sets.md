@@ -93,6 +93,12 @@ same order:
   [The rules of composition](composition.md#the-rules-of-composition)).
   It is not looked for under another mnemonic
   (`an_instruction_without_an_action_is_not_matched_under_another_mnemonic`).
+  An instruction that declares what it does is matched by action first,
+  so it is refused, here or for other operands, only when no instruction
+  of the other set does the same with the same operands: one of its
+  mnemonic that declares nothing, or takes other operands, does not
+  refuse it
+  (`an_instruction_is_matched_by_action_past_one_of_its_mnemonic_that_does_not_fit`).
 
 Whatever the names, a mnemonic that both sets declare to do different
 things is refused as `DifferentAction`, though another instruction does
@@ -127,7 +133,10 @@ instructions is matched there: `fits` is `opcodes_in` without the map
   the empty set fits any set (`an_empty_set_fits_any_set`). Between sets
   of other names, an instruction whose action either set leaves
   undeclared does not fit, though both sets have it under its mnemonic
-  (`an_instruction_whose_action_either_set_leaves_undeclared_is_refused`).
+  (`an_instruction_whose_action_either_set_leaves_undeclared_is_refused`),
+  unless it declares what it does and another instruction does the same
+  with the same operands
+  (`an_instruction_is_matched_by_action_past_one_of_its_mnemonic_that_does_not_fit`).
 - **Fitting goes one way.** A set does not fit a part of itself, which
   lacks some of its instructions (`a_set_does_not_fit_a_part_of_itself`).
 - **Opcodes do not matter.** Instructions match by mnemonic or by action, so
@@ -191,9 +200,9 @@ order:
     (`a_batch_in_the_executors_numbering_reaches_it_as_it_is`). When the
     numbering differs, the run holds the chain behind an executor that
     copies each batch with its opcodes replaced, into a buffer it keeps,
-    and the program runs its own `x`, not the chain's instruction at that
+    and the program's own `x` runs, not the chain's instruction at that
     opcode
-    (`a_program_whose_set_is_in_another_order_runs_its_own_instructions`,
+    (`a_program_whose_set_is_in_another_order_has_its_own_instructions_run`,
     `each_call_runs_only_its_own_batch`); a call at an opcode the
     program's set lacks is refused, though the chain has one there, or an
     earlier call of the batch that the executor's set refuses, if there is
@@ -222,7 +231,7 @@ order:
   - **A typed program**, whose instructions name themselves (an enum's
     variants), states its set in any order, and its calls reach the
     executor as they are, at no cost
-    (`a_typed_program_in_another_order_runs_its_instructions_as_they_are`):
+    (`a_typed_program_in_another_order_has_its_instructions_run_as_they_are`):
     its instruction type implements `TypedInstruction`, in one line. With
     no set stated on either side, the compiler checks that both run the
     same type
@@ -400,6 +409,6 @@ data](../guides.md#a-run-time-isa-a-code-given-as-data), in
 | A reply that ends before every circuit readout came up fails                                                 | `a_logical_readout_missing_a_circuit_readout_fails_the_reply`                                                                                  |
 | A code with a fault is never resolved, whatever is downstream                                                | `a_logical_instruction_without_a_gadget_is_refused_when_built`                                                                                 |
 | The code describes the logical set, against which the chain upstream is checked                              | `the_code_describes_the_logical_set`                                                                                                           |
-| A program whose set declares the logical instructions in another order runs its own instructions on the code | `a_program_in_another_order_runs_its_own_instructions_on_the_code`                                                                             |
+| A program whose set declares the logical instructions in another order runs its own instructions on the code | `a_program_in_another_order_has_its_own_instructions_run_on_the_code`                                                                          |
 | A call outside the logical set, or on a block the code does not have, is refused before anything goes down   | `a_call_outside_the_logical_set_is_refused_before_anything_goes_down`, `a_call_on_a_block_the_code_lacks_is_refused_before_anything_goes_down` |
 | The code draws nothing: each shot's log probability is the one the executor downstream states                | `the_code_passes_on_the_log_probability_of_the_executor_downstream`                                                                            |

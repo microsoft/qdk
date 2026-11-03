@@ -340,7 +340,11 @@ impl InstructionSet {
     /// [`UndeclaredAction`](InstructionMismatch::UndeclaredAction) when
     /// `accepted`, a set of another name, has an instruction of its
     /// mnemonic taking the same operands, and either set leaves what it
-    /// does undeclared.
+    /// does undeclared. Under another name, an instruction of this set that
+    /// declares what it does is matched to an instruction of `accepted`
+    /// that does the same with the same operands, if there is one, before
+    /// either of the last two can be given: its mnemonic's instruction, of
+    /// other operands or undeclared, does not refuse it.
     pub fn opcodes_in(
         &self,
         accepted: &InstructionSet,

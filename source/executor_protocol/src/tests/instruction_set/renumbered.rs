@@ -239,7 +239,7 @@ fn flip_and_measure(set: &InstructionSet) -> [InstructionCall; 2] {
 /// an executor that runs calls in its own numbering only: its `x` flips the
 /// bit, where the executor's instruction at that opcode would reset it.
 #[test]
-fn a_program_whose_set_is_in_another_order_runs_its_own_instructions() {
+fn a_program_whose_set_is_in_another_order_has_its_own_instructions_run() {
     let set = program_set();
     let program = Batches::new(&set, vec![flip_and_measure(&set).to_vec()]);
     let shots = ShotSet::range(1..=3).expect("a range of shots");
@@ -627,10 +627,10 @@ fn a_renumbered_batch_outside_the_set_only_by_its_operands_reaches_the_executor(
 }
 
 /// An executor of one state has served shot 5 before `compose`, so it
-/// holds no other shot. A program in another numbering drives it on shot 1:
-/// its batch `[x, lacked]` is refused at the opcode lacked, by the
-/// renumbering, which does not ask the executor; a batch within the set
-/// reaches the executor, which refuses shot 1 as not held.
+/// holds no other shot. A driver runs a program in another numbering on
+/// it, on shot 1: its batch `[x, lacked]` is refused at the opcode lacked,
+/// by the renumbering, which does not ask the executor; a batch within the
+/// set reaches the executor, which refuses shot 1 as not held.
 #[test]
 fn a_renumbered_batch_is_refused_at_its_call_before_the_executors_shot_not_held() {
     fn run_nothing(

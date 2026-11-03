@@ -467,8 +467,9 @@ impl Program for Batches {
     }
 }
 
-/// The crate's driver of a static program, written by hand: each batch to
-/// every shot, in order, waiting for each.
+/// A driver written by hand that runs [`Batches`] as the crate's driver
+/// runs a static program: each batch to every shot, in order, waiting for
+/// each. Unlike the crate's driver, it panics on a refusal or a failure.
 struct ByHand;
 
 impl Driver<Batches> for ByHand {
@@ -1130,7 +1131,6 @@ mod executor;
 mod facilities;
 mod instruction_set;
 mod needs;
-mod program;
 mod rejected;
 mod reply;
 mod seeds;

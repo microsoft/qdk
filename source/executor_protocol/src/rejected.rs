@@ -132,7 +132,9 @@ pub enum Rejected {
     /// with other bytes. Planned: layer L0, where requests cross a link to a
     /// remote executor as frames, produces it; no component does yet.
     Malformed(String),
-    /// A need beyond what a component of the chain offers.
+    /// A need beyond what a component of the chain offers, or, among a
+    /// job's faults ([`JobFaults`](crate::JobFaults)), a program and a
+    /// driver that state different instruction sets.
     Unmet(UnmetNeed),
     /// No verdict came over a link: the request may have run at the far end,
     /// or may never have arrived. Its class is [`RetryClass::Resend`].
