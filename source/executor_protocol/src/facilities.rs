@@ -6,9 +6,10 @@
 //! them, which make a part from the user's logic
 //! ([`executor_fn`](fn@crate::executor_fn) from an [`ExecutorLogic`],
 //! [`adapter_fn`](fn@crate::adapter_fn) from an [`AdapterLogic`],
-//! [`driver()`](fn@crate::driver) running a [`StaticProgram`]) or keep a
-//! protocol rule for a part written by hand.
-//! [`driver()`](fn@crate::driver) is the facility most chains start from.
+//! [`static_driver()`](fn@crate::static_driver) running a [`StaticProgram`]) or
+//! keep a protocol rule for a part written by hand.
+//! [`static_driver()`](fn@crate::static_driver) is the facility most chains
+//! start from.
 //!
 //! Make a part from your logic:
 //!
@@ -19,9 +20,9 @@
 //!   [`AdapterLogic`] ([`AdapterFn`]), with one state or a state per shot;
 //!   [`owning_adapter_fn`](fn@crate::owning_adapter_fn) makes one from a
 //!   state that keeps its way below for its whole life.
-//! - [`builtin_driver`]: the crate's driver, which runs a [`StaticProgram`]
-//!   ([`BuiltinDriver`], from [`driver()`](fn@crate::driver)).
-//! - [`static_program`]: a program of fixed batches, and how the crate's
+//! - [`static_driver`]: the static driver, which runs a [`StaticProgram`]
+//!   ([`StaticDriver`], from [`static_driver()`](fn@crate::static_driver)).
+//! - [`static_program`]: a program of fixed batches, and how the static
 //!   driver runs it ([`StaticProgram`]).
 //!
 //! Keep a rule for a hand-written part:
@@ -50,7 +51,6 @@
 //!   when dropped or closed.
 
 pub(crate) mod adapter_fn;
-pub(crate) mod builtin_driver;
 pub(crate) mod executor_fn;
 pub(crate) mod executor_lifecycle;
 pub(crate) mod executor_placement;
@@ -59,12 +59,13 @@ pub(crate) mod placed_executor;
 pub(crate) mod readout_tags;
 pub(crate) mod replies;
 pub(crate) mod shot_states;
+pub(crate) mod static_driver;
 pub(crate) mod static_program;
 pub(crate) mod teardown;
 
 #[cfg(doc)]
 use crate::{
-    AdapterFn, AdapterLogic, BuiltinDriver, ExecutorFn, ExecutorLifecycle, ExecutorLogic,
-    ExecutorPlacement, ImmediateReply, MappedReply, OwnThread, PlacedExecutor, ShotReplies,
+    AdapterFn, AdapterLogic, ExecutorFn, ExecutorLifecycle, ExecutorLogic, ExecutorPlacement,
+    ImmediateReply, MappedReply, OwnThread, PlacedExecutor, ShotReplies, StaticDriver,
     StaticProgram, check_unique_tags, relay, reply_channel,
 };

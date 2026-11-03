@@ -58,7 +58,7 @@ sequenceDiagram
   participant E as executor
   participant A as each adapter, from the executor upstream
   participant H as chain
-  C->>P: driver() >> adapters >> executor
+  C->>P: static_driver() >> adapters >> executor
   P->>E: capabilities()
   E-->>P: Capabilities
   P->>A: build(boundary)

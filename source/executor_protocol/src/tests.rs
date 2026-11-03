@@ -26,8 +26,8 @@ use crate::{
     wait, wait_async,
 };
 use crate::{
-    BuildError, BuildFault, BuildFaults, BuiltinDriver, ChainPrefix, ComposedAdapters, JobFaults,
-    Run, UpstreamOf, WithExecutor,
+    BuildError, BuildFault, BuildFaults, ChainPrefix, ComposedAdapters, JobFaults, Run,
+    StaticDriver, UpstreamOf, WithExecutor,
 };
 
 use test_double::Model;
@@ -467,9 +467,9 @@ impl Program for Batches {
     }
 }
 
-/// A driver written by hand that runs [`Batches`] as the crate's driver
+/// A driver written by hand that runs [`Batches`] as the static driver
 /// runs a static program: each batch to every shot, in order, waiting for
-/// each. Unlike the crate's driver, it panics on a refusal or a failure.
+/// each. Unlike the static driver, it panics on a refusal or a failure.
 struct ByHand;
 
 impl Driver<Batches> for ByHand {
@@ -515,7 +515,8 @@ impl Driver<Batches> for ByHand {
 ///
 /// # Type parameters
 ///
-/// - `T`: the driver ([`Driver`]): the crate's for [`ComposedJob::new`],
+/// - `T`: the driver ([`Driver`]): the static driver for
+///   [`ComposedJob::new`],
 ///   or the one given to [`ComposedJob::driven`].
 /// - `P`: the program ([`Program`]).
 /// - `L`: the adapters composed downstream of it by `>>`
@@ -527,15 +528,15 @@ pub(crate) struct ComposedJob<T, P, L> {
     adapters: L,
 }
 
-impl<P: Program> ComposedJob<BuiltinDriver, P, NoAdapter<P::Instruction>> {
-    /// `program`, to run `shots` as the crate's driver drives it. The same
-    /// job also runs as any other does, given to a chain of the crate's
-    /// driver: `(driver() >> executor)?.run(program, shots)`
+impl<P: Program> ComposedJob<StaticDriver, P, NoAdapter<P::Instruction>> {
+    /// `program`, to run `shots` as the static driver drives it. The same
+    /// job also runs as any other does, given to a chain of the static
+    /// driver: `(static_driver() >> executor)?.run(program, shots)`
     /// ([`Chain::run`](crate::Chain::run)), its faults then reported
     /// together with the shots' ([`JobFaults`](crate::JobFaults)).
     #[must_use]
     pub(crate) fn new(program: P, shots: ShotSet) -> Self {
-        Self::driven(BuiltinDriver, program, shots)
+        Self::driven(StaticDriver, program, shots)
     }
 }
 

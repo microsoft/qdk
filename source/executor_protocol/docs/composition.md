@@ -35,18 +35,17 @@ A driver, the adapters downstream of it and an executor are put together by
 - A **driver** (`Driver<P>`) heads the chain, and drives any program of form
   `P` given to it: the program is data (`Program`), and the driver sends its
   calls. In the chain being built it is in a **chain prefix**
-  (`ChainPrefix`): a driver, with the adapters composed below it so far. The crate's
-  driver, `driver()`, is a prefix with no adapter yet; `runtime.into_chain()`
-  makes one of any driver (the trait `DriverExt`, in scope), and a driver of
-  several program types names one of them,
-  `DriverExt::<P>::into_chain(runtime)`, only so that the call resolves;
-  the chain runs any program the driver drives in the instructions the chain
-  sends (the compiler checks it). A prefix with adapters below it is a
-  `ChainPrefix` still, not a `Driver<P>` (planned:
-  [Planned features](planned.md)). Composed with the executor, a prefix makes
-  a `Chain`, which runs the job given
-  to it ([A chain and its job](#a-chain-and-its-job)). The run's seed is the one the last executor is
-  built with ([Seeds](executors.md#seeds-not-generators)).
+  (`ChainPrefix`): a driver, with the adapters composed below it so far. The
+  static driver, `static_driver()`, is a prefix with no adapter yet;
+  `runtime.into_chain()` makes one of any driver (the trait `DriverExt`, in
+  scope), and a driver of several program types names one of them,
+  `DriverExt::<P>::into_chain(runtime)`, only so that the call resolves; the
+  chain runs any program the driver drives in the instructions the chain sends
+  (the compiler checks it). A prefix with adapters below it is a `ChainPrefix`
+  still, not a `Driver<P>` (planned: [Planned features](planned.md)). Composed
+  with the executor, a prefix makes a `Chain`, which runs the job given to it
+  ([A chain and its job](#a-chain-and-its-job)). The run's seed is the one the
+  last executor is built with ([Seeds](executors.md#seeds-not-generators)).
 - A **run** owns the chain, and runs nothing until it is waited for or awaited.
   Then, in `run.wait()`, or `run.await` for an asynchronous caller, the driver
   drives the program; the run closes the executor once the driver is done, and
@@ -56,14 +55,14 @@ A driver, the adapters downstream of it and an executor are put together by
 - A call on a shot the job did not name is refused before the executor sees
   it.
 
-From the [debugger guide](../tests/debugger.rs): the crate's driver, a
+From the [debugger guide](../tests/debugger.rs): the static driver, a
 paused debugger and the toy simulator, composed into a chain whose run waits on
 its own thread while this one steps the debugger through its handle:
 
 ```rust
 let shots = ShotSet::range(0..=1).expect("0..=1 is not empty");
 let debuggers = Debuggers::paused();
-let run = (driver() >> debuggers.clone() >> toy_simulator(9))
+let run = (static_driver() >> debuggers.clone() >> toy_simulator(9))
     .expect("the debugger changes nothing the toy checks")
     .run(flip_a_coin(), shots.clone())
     .expect("the program needs nothing");
@@ -77,11 +76,11 @@ simulator on a seed, `toy_simulator(seed)`, are helpers of the
 The rules of composition:
 
 - **Left is upstream, and the grouping does not matter.** Both
-  `(driver() >> a) >> executor` and `driver() >> (a >> executor)?` (the
-  executor `a >> executor` gives, unwrapped, below) build a chain with the
-  same run; so does any other grouping of `driver() >> a >> b >> executor`.
-  The prefix, with or without adapters, is a `ChainPrefix`, not yet a
-  `Driver<P>` itself (planned).
+  `(static_driver() >> a) >> executor` and `static_driver() >> (a >> executor)?`
+  (the executor `a >> executor` gives, unwrapped, below) build a chain with the
+  same run; so does any other grouping of
+  `static_driver() >> a >> b >> executor`. The prefix, with or without adapters,
+  is a `ChainPrefix`, not yet a `Driver<P>` itself (planned).
 - **The chain is built once, from the executor upstream, and every fault is
   reported at once**, the most upstream adapter's first, each named
   (`BuildFaults`), but for a part composed with the executor first, built on its
@@ -116,10 +115,10 @@ The rules of composition:
   instructions: an adapter must send the type that the part downstream of it
   accepts. Where it does not, with an executor on the right that has `>>`
   (one of the crate's, or one whose crate implements it),
-  `a >> executor` and `driver() >> a >> executor` fail with the compiler's
-  bare `no implementation for … >> …`, which does not say why; written with
-  `compose` for that step, `compose(a, executor)` or
-  `compose(driver() >> a, executor)`, the same pair fails with notes that
+  `a >> executor` and `static_driver() >> a >> executor` fail with the
+  compiler's bare `no implementation for … >> …`, which does not say why;
+  written with `compose` for that step, `compose(a, executor)` or
+  `compose(static_driver() >> a, executor)`, the same pair fails with notes that
   state the rule. Calls by opcode are checked against the set downstream, and
   copied into its numbering where they are numbered otherwise. What is not
   compatible is refused when composed.
@@ -140,9 +139,9 @@ clone of its `Debuggers`, which hands out the debugger's handle
 ### A chain and its job
 
 The job is the chain's input, not a component:
-`driver() >> adapters >> executor` builds and checks the chain
+`static_driver() >> adapters >> executor` builds and checks the chain
 (`BuildFaults`), and `chain.run(program, shots)` gives the run of one job. The
-crate's driver runs a `StaticProgram`, whose batches go each to every shot
+static driver runs a `StaticProgram`, whose batches go each to every shot
 of the job in one call, in order. A program of another form, such as one
 with a branch on a readout, has a driver of its own
 ([Writing a driver](../README.md#writing-a-driver)).
@@ -150,14 +149,14 @@ with a branch on a readout, has a driver of its own
 - **The job is checked when given, before any call**: its shots, its program's
   needs with what its driver adds ([below](#needs-combined)) and its program's
   calls as far as its driver checks them (`Driver::check`, which checks
-  nothing by default; the crate's driver refuses, in a program of calls by
+  nothing by default; the static driver refuses, in a program of calls by
   opcode, a call outside the program's set and a tag read twice), every
   fault together (`JobFaults`), but for shots named twice: of several, only
   the least is reported.
 - **A job calls only its own shots**: a call on another is refused before the
   executor sees it.
 - **The run gives the program's output with the executor's report** (for a
-  `StaticProgram`, its outcomes), waited for or awaited alike. The crate's
+  `StaticProgram`, its outcomes), waited for or awaited alike. The static
   driver stops a `StaticProgram` at the first batch that the chain refuses
   or that fails.
 - **A chain runs one job.** A function that builds the chain builds it again for
@@ -255,12 +254,12 @@ One simulator serves several users: each builds the chain it needs on an
 executor of its own, made from the toy simulator of the guide tests
 (`toy_simulator(seed)`, an executor with a state per shot):
 
-| User                                                              | Builds                                                                                            | Shown in                                                   |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| a caller with feedback, calling the executor directly on one shot | `coin_then_feedback(&mut toy_simulator(seed), j)`, which calls with `ShotSet::one(j)`             | the [debugger guide](../tests/debugger.rs)                 |
-| a static program, observed                                        | `(driver() >> profiler() >> debugger(log.clone()) >> simulator())?.run(program(), SHOTS)?.wait()` | the [observer guide](../tests/observers.rs)                |
-| a program of many shots, with debugging                           | `(driver() >> debuggers.clone() >> toy_simulator(seed))?.run(program, shots)?`                    | the [debugger guide](../tests/debugger.rs)                 |
-| a logical program                                                 | `(driver() >> RepetitionCode::default() >> toy_simulator(seed))?.run(program, shots)?.wait()`     | the [static instruction set guide](../tests/static_isa.rs) |
+| User                                                              | Builds                                                                                                   | Shown in                                                   |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| a caller with feedback, calling the executor directly on one shot | `coin_then_feedback(&mut toy_simulator(seed), j)`, which calls with `ShotSet::one(j)`                    | the [debugger guide](../tests/debugger.rs)                 |
+| a static program, observed                                        | `(static_driver() >> profiler() >> debugger(log.clone()) >> simulator())?.run(program(), SHOTS)?.wait()` | the [observer guide](../tests/observers.rs)                |
+| a program of many shots, with debugging                           | `(static_driver() >> debuggers.clone() >> toy_simulator(seed))?.run(program, shots)?`                    | the [debugger guide](../tests/debugger.rs)                 |
+| a logical program                                                 | `(static_driver() >> RepetitionCode::default() >> toy_simulator(seed))?.run(program, shots)?.wait()`     | the [static instruction set guide](../tests/static_isa.rs) |
 
 Another user, a program whose executor is on another machine, is planned,
 with no milestone yet: the link and its layers L1 and L0 are inside the

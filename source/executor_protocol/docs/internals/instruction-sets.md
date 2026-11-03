@@ -188,11 +188,10 @@ order:
   own set; two different sets are refused
   ([Needs, combined](../composition.md#needs-combined),
   `a_job_whose_program_and_driver_state_different_sets_is_refused`). Its
-  chain is headed by a driver, such as `driver()`, the program given with the
-  job, and the
-  chain checks the two sets' compatibility when the job is given to it
-  (`Chain::run`). A set the chain lacks is refused with every instruction that
-  does not fit
+  chain is headed by a driver, such as `static_driver()`, the program given with
+  the job, and the chain checks the two sets' compatibility when the job is
+  given to it (`Chain::run`). A set the chain lacks is refused with every
+  instruction that does not fit
   (`a_set_the_executor_lacks_is_refused_with_every_instruction_that_does_not_fit`),
   as are the program's other needs the chain lacks, whatever its set
   (`a_program_needing_what_the_executor_lacks_is_refused_whatever_its_set`).
@@ -219,7 +218,7 @@ order:
     (`a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal`),
     while a set its driver states numbers its calls
     (`a_set_stated_by_one_side_or_the_same_by_both_numbers_the_jobs_calls`);
-    the crate's driver still checks a static program's tags, and reports a
+    the static driver still checks a static program's tags, and reports a
     tag read twice with that unmet need
     (`the_tags_of_a_static_program_that_states_no_set_are_still_checked`).
     The renumbering costs at most about 1 ns per batch when calls reach

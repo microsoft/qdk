@@ -26,7 +26,7 @@ use crate::{
     InstructionBatchRef, InstructionCall, MakeState, Needs, NoAdapter, NoCheck, OnePerShot,
     OnePerShotAdapter, OnePerShotExecutor, Opcode, Outcome, Outcomes, Program, ReadoutFailure,
     Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, Value,
-    adapter_fn, compose, driver, executor_fn, reply_channel, wait, wait_async,
+    adapter_fn, compose, executor_fn, reply_channel, static_driver, wait, wait_async,
 };
 
 /// A job composed with adapters and an executor makes no shot until its
@@ -265,7 +265,7 @@ fn a_run_gives_the_programs_output_and_the_executors_report() {
 
 /// A device that loses shot 1's first qubit, so that its first readout has
 /// no value, under an observer made with `adapter_fn`, running a static
-/// program of two batches by the crate's driver: the run goes on to its
+/// program of two batches by the static driver: the run goes on to its
 /// end, and gives the missing readout with that shot's other readouts and
 /// the second batch's.
 #[test]
@@ -299,7 +299,7 @@ fn a_missing_value_does_not_end_the_run_and_the_shots_other_readouts_stand() {
          _: &mut Outcomes<'_>| below.send(input.instructions()),
     );
     let program = StaticProgram::new(Needs::default(), vec![vec![true, true], vec![true]]);
-    let (output, _) = (driver() >> observer >> device)
+    let (output, _) = (static_driver() >> observer >> device)
         .expect("the observer sends the device what it accepts")
         .run(program, [0, 1, 2])
         .expect("three shots, which the device resumes")

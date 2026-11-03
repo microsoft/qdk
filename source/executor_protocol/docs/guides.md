@@ -33,14 +33,14 @@ placement on a thread of its own included
 [`tests/simulator.rs`](../tests/simulator.rs) is what a user of a simulator
 writes. Its program, `flip_a_coin` (a `StaticProgram`), flips a coin on
 qubit 0 of each shot and reads it; with the shots it runs, it is a job,
-given to the chain of the crate's driver composed with the toy simulator
+given to the chain of the static driver composed with the toy simulator
 built with its seed.
 Waited for, the run gives the program's output, one outcome per shot, and the
 executor's report, here of the one batch sent:
 
 ```rust
 let (program, shots, seed) = (flip_a_coin(1), shots(), 7);
-let run = compose(driver(), toy_simulator(seed))?.run(program, shots)?;
+let run = compose(static_driver(), toy_simulator(seed))?.run(program, shots)?;
 let (output, report) = run.wait();
 ```
 
@@ -164,13 +164,13 @@ on the one below; over an executor that describes none, the chain is refused
 when it is built (`NoInstructionSetDownstream`), since what it sends could not
 be checked. [`tests/observers.rs`](../tests/observers.rs) writes two, each with
 `adapter_fn` and a state per shot, in a function of its own, and composes them
-with `>>` between the crate's driver and a simulator, the toy taking its
+with `>>` between the static driver and a simulator, the toy taking its
 instructions as calls. From its test of the two observers stacked, where
 `THE_JOB_FITS` states the run's precondition: its shots are distinct, and the
 toy meets the program's needs:
 
 ```rust
-let chain = driver() >> profiler() >> debugger(log.clone()) >> simulator();
+let chain = static_driver() >> profiler() >> debugger(log.clone()) >> simulator();
 let chain = chain.expect("the observers fit");
 // SHOTS is [2, 5, 6, 11]: the job's shots, not a plain range.
 let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
@@ -447,7 +447,7 @@ What the guide shows, each rule pinned by a test:
       .capabilities()
       .instruction_set
       .expect("the code describes the logical set");
-  let run = compose(driver(), code)
+  let run = compose(static_driver(), code)
       .expect("nothing between to refuse")
       .run(prepare_flip_and_read(set), ShotSet::one(0))
       .expect("the code accepts its own set");

@@ -41,8 +41,8 @@ use crate::{
 // and reports the executor as not of this trait, with none of `Adapter`'s
 // notes. Two cases reach it, even over one of this crate's executors: the
 // adapter before the executor is returned as a bare `impl Adapter` or
-// given as a generic `A: Adapter` (`driver() >> flip() >> toy` with
-// `fn flip() -> impl Adapter<..>`, or `driver() >> a >> toy` with
+// given as a generic `A: Adapter` (`static_driver() >> flip() >> toy` with
+// `fn flip() -> impl Adapter<..>`, or `static_driver() >> a >> toy` with
 // `a: A`), or it is written by hand for one executor's type only
 // (`impl Apply<Toy>`). A diagnostic attribute cannot pick its note by the
 // type on stable Rust, so both show in each case. A per-shot `adapter_fn`

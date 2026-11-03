@@ -4,7 +4,7 @@
 //! What a job runs ([`Program`]): data, its instructions, its output and
 //! its needs, which a driver drives ([`Driver`]). A program is adaptive by
 //! its content (a branch on a readout), which its driver reads; a
-//! [`StaticProgram`] has none, and the crate's driver runs it.
+//! [`StaticProgram`] has none, and the static driver runs it.
 
 #[cfg(doc)]
 use crate::{Chain, Driver, StaticProgram};
@@ -16,7 +16,7 @@ use crate::{Instruction, Needs};
 /// ([`Driver`]) drives it: it sends the calls, reads their outcomes and,
 /// for a program with a branch on a readout, chooses the next calls from
 /// them. A [`StaticProgram`] (fixed batches, run in order on every shot)
-/// decides nothing, and the crate's driver runs it; a program of another
+/// decides nothing, and the static driver runs it; a program of another
 /// form has a driver of its own.
 pub trait Program {
     /// The instructions its driver sends.

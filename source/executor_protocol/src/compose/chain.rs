@@ -57,9 +57,10 @@ use crate::{
 ///
 /// ```
 /// use executor_protocol::{
-///     BuildFaults, CallInput, Capabilities, Chain, Close, BuiltinDriver,
-///     Executor, ExecutorReport, InstructionBatch, Needs, OnePerShot, Outcome,
-///     Outcomes, StaticProgram, TypedInstruction, driver, executor_fn,
+///     BuildFaults, CallInput, Capabilities, Chain, Close, Executor,
+///     ExecutorReport, InstructionBatch, Needs, OnePerShot, Outcome, Outcomes,
+///     StaticDriver, StaticProgram, TypedInstruction, executor_fn,
+///     static_driver,
 /// };
 ///
 /// /// An instruction of a device of one bit per shot.
@@ -90,12 +91,12 @@ use crate::{
 ///     Ok(())
 /// }
 ///
-/// /// A chain of the crate's driver on the device, a bit per shot.
+/// /// A chain of the static driver on the device, a bit per shot.
 /// fn one_bit_chain(
 ///     seed: u64,
 /// ) -> Result<
 ///     Chain<
-///         BuiltinDriver,
+///         StaticDriver,
 ///         Op,
 ///         impl Executor<InstructionBatch<Op>>
 ///             + Close<Report = ExecutorReport<()>>,
@@ -106,7 +107,7 @@ use crate::{
 ///         executor_fn(Capabilities::default(), |_| Ok(false), run_bit)
 ///             .seed(seed)
 ///             .shots(OnePerShot);
-///     driver() >> executor
+///     static_driver() >> executor
 /// }
 ///
 /// let program = StaticProgram::new(

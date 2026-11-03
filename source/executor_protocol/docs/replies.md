@@ -298,10 +298,10 @@ threads of their own delivers
 each shot's when the shot has them. So, within a batch, a tag names one
 readout of each shot: two readouts of a shot under one tag could not be told
 apart. A later batch may use a tag again, for another readout, as a program
-that measures in a loop does (the crate's driver reads each tag of a
+that measures in a loop does (the static driver reads each tag of a
 `StaticProgram` of calls by opcode once over the whole program, and refuses
 one that uses a tag again:
-[The crate's driver and a static program](facilities.md#the-crates-driver-and-a-static-program)).
+[The static driver and a static program](facilities.md#the-static-driver-and-a-static-program)).
 
 **What is checked.** An executor that reports its readouts by tag calls
 `check_unique_tags` on every batch, before it runs anything. It takes each

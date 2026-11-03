@@ -1,26 +1,26 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A program of fixed batches ([`StaticProgram`]), and how the crate's
-//! driver ([`BuiltinDriver`]) runs it: each batch to every shot of the job,
+//! A program of fixed batches ([`StaticProgram`]), and how the static
+//! driver ([`StaticDriver`]) runs it: each batch to every shot of the job,
 //! in order, so that a static program is data, with no code of its own.
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt;
 
-use crate::{
-    BuiltinDriver, Driver, Executor, Instruction, InstructionBatch, InstructionBatchRef, Needs,
-    Program, Rejected, ShotOutcome, ShotSet, wait_async,
-};
 #[cfg(doc)]
-use crate::{Capabilities, Chain, driver};
+use crate::{Capabilities, Chain, static_driver};
+use crate::{
+    Driver, Executor, Instruction, InstructionBatch, InstructionBatchRef, Needs, Program, Rejected,
+    ShotOutcome, ShotSet, StaticDriver, wait_async,
+};
 
 /// A program of fixed batches of `I`s, run in order on every shot, and
 /// what it needs of the chain: a program that decides nothing on its
 /// outcomes, so that the same batches are sent whatever the shots read.
 ///
-/// Its needs are those it states. The crate's driver adds one to a program
+/// Its needs are those it states. The static driver adds one to a program
 /// with a call in a batch before its last, which continues each shot in a
 /// later call: `resumable_shots`, an executor that keeps each shot's state
 /// between calls ([`Capabilities::resumable_shots`]), so it is refused when
@@ -43,7 +43,7 @@ use crate::{Capabilities, Chain, driver};
 /// from its calls is planned.
 ///
 /// A program of no batches gets no need added to those it states (a
-/// program of calls by opcode states its set all the same, as the crate's
+/// program of calls by opcode states its set all the same, as the static
 /// driver adds none); the driver sends no call for it, and it gives no
 /// outcomes.
 ///
@@ -60,8 +60,8 @@ use crate::{Capabilities, Chain, driver};
 /// refused, and its outcomes under that tag are told apart only by their
 /// order. Its writer keeps its tags unique.
 ///
-/// It runs through the crate's driver, [`driver()`]:
-/// `(driver() >> executor)?.run(program, shots)`.
+/// It runs through the static driver, [`static_driver()`]:
+/// `(static_driver() >> executor)?.run(program, shots)`.
 #[derive(Clone, Debug)]
 pub struct StaticProgram<I> {
     needs: Needs,
@@ -86,7 +86,7 @@ impl<I: Instruction> Program for StaticProgram<I> {
     }
 }
 
-/// A [`StaticProgram`], run by the crate's driver.
+/// A [`StaticProgram`], run by the static driver.
 ///
 /// It sends each batch to every shot in one call, and waits for the call's
 /// reply to end before it sends the next. It awaits each reply, so a run
@@ -97,7 +97,7 @@ impl<I: Instruction> Program for StaticProgram<I> {
 /// and why ([`StaticProgramError`]), the outcomes of earlier batches
 /// dropped. For a program of no batches, the driver sends no call and gives
 /// no outcomes.
-impl<I: Instruction> Driver<StaticProgram<I>> for BuiltinDriver {
+impl<I: Instruction> Driver<StaticProgram<I>> for StaticDriver {
     /// `resumable_shots` when a batch before the program's last holds a
     /// call: the later batches, empty ones too, continue each shot where
     /// that call left it, so the executor must keep each shot's state
@@ -182,7 +182,7 @@ impl<I: Instruction> Driver<StaticProgram<I>> for BuiltinDriver {
     }
 }
 
-/// Why the crate's driver stopped a [`StaticProgram`] before its end: the
+/// Why the static driver stopped a [`StaticProgram`] before its end: the
 /// batch it stopped at, by its index in the program, refused or failed. A
 /// refusal stays typed, so that its caller can match it; a failure is its
 /// reply's text. A refusal at an instruction reads as a fault the driver's

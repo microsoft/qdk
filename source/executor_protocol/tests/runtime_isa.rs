@@ -39,7 +39,7 @@ use executor_protocol::{
     ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
     InstructionMismatch, InstructionSet, JobFaults, Need, Needs, Operand, OperandKind, Outcome,
     Pauli, Program, ReadoutFailure, Rejected, ShotId, ShotOutcome, ShotSet, StaticProgram,
-    StaticProgramError, Value, adapter_fn, compose, conformance, driver, wait,
+    StaticProgramError, Value, adapter_fn, compose, conformance, static_driver, wait,
 };
 
 use code::{Code, CodeFault, Encoding, GadgetCall, Slot};
@@ -469,7 +469,7 @@ fn values(outcomes: Result<Vec<ShotOutcome>, StaticProgramError>) -> Vec<Value> 
 fn a_program_is_taken_only_by_a_code_that_has_the_instructions_it_needs() {
     let composes = |program: InstructionSet| {
         let program = prepare_flip_and_read(Arc::new(program));
-        let chain = compose(driver(), composed(8)).expect("nothing between to refuse");
+        let chain = compose(static_driver(), composed(8)).expect("nothing between to refuse");
         chain.run(program, ShotSet::one(0))
     };
     let program = InstructionSet::new("program")
@@ -535,7 +535,7 @@ fn without_a_reset() -> Code {
 #[test]
 fn a_program_resetting_upstream_of_a_code_without_a_reset_is_refused_when_given_to_the_chain() {
     let run = |code| {
-        let chain = compose(driver(), Encoding::new(code));
+        let chain = compose(static_driver(), Encoding::new(code));
         let chain = compose(chain, device(8)).expect("the code runs on the device");
         chain.run(prepare_and_read(), ShotSet::one(0))
     };
@@ -572,7 +572,7 @@ fn a_program_in_another_order_has_its_own_instructions_run_on_the_code() {
         .with_action("__quantum__qis__m__body", [Block, Tag], measure())
         .with_action("prepare_z", [Block], reset());
     let program = prepare_flip_and_read(Arc::new(program_set));
-    let run = compose(driver(), composed(8))
+    let run = compose(static_driver(), composed(8))
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
         .expect("the code has the program's set");
@@ -590,7 +590,7 @@ fn a_program_builds_its_calls_by_name_with_the_codes_set() {
         .capabilities()
         .instruction_set
         .expect("the code describes the logical set");
-    let run = compose(driver(), code)
+    let run = compose(static_driver(), code)
         .expect("nothing between to refuse")
         .run(prepare_flip_and_read(set), ShotSet::one(0))
         .expect("the code accepts its own set");

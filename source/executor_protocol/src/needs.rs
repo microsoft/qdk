@@ -24,8 +24,8 @@ use crate::{Capabilities, InstructionMismatch, InstructionSet, OpcodeMap, Reject
 /// its job is given to the chain ([`Chain::run`](crate::Chain::run)). Its
 /// program states what its content needs
 /// ([`Program::needs`](crate::Program::needs)), and its driver what its way
-/// of sending adds ([`Driver::needs`](crate::Driver::needs)): the crate's
-/// driver ([`BuiltinDriver`](crate::BuiltinDriver)) adds `resumable_shots`
+/// of sending adds ([`Driver::needs`](crate::Driver::needs)): the static
+/// driver ([`StaticDriver`](crate::StaticDriver)) adds `resumable_shots`
 /// for a [`StaticProgram`](crate::StaticProgram) with calls before its last
 /// batch.
 ///

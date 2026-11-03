@@ -19,13 +19,13 @@ use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::tests::{declared, map_executor};
 use crate::{
     Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, Apply, Below, BuildError,
-    BuildFaults, BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix, Close, ComposedJob,
-    Describe, Driver, DriverExt, Executor, ExecutorLogic, ImmediateReply, InstructionBatch,
-    InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP,
-    MakeState, Need, Needs, NoAdapter, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
+    BuildFaults, CallInput, Capabilities, Chain, ChainPrefix, Close, ComposedJob, Describe, Driver,
+    DriverExt, Executor, ExecutorLogic, ImmediateReply, InstructionBatch, InstructionBatchRef,
+    InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP, MakeState, Need, Needs,
+    NoAdapter, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
     OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, Program, Rejected, RngId,
-    ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value,
-    adapter_fn, compose, driver, executor_fn, wait,
+    ShotContext, ShotId, ShotOutcome, ShotSet, StaticDriver, StaticProgram, TypedInstruction,
+    UnmetNeed, Value, adapter_fn, compose, executor_fn, static_driver, wait,
 };
 
 use OperandKind::{Block, Tag};
@@ -207,9 +207,7 @@ fn static_flip_and_toss() -> StaticProgram<InstructionCall> {
 
 /// The values of a static program of [`flip_and_toss`] in the bits'
 /// numbering, run on shots 0 and 1 by `chain`.
-fn run_flip_and_toss<E>(
-    chain: Chain<BuiltinDriver, InstructionCall, E>,
-) -> Vec<(ShotId, u32, Value)>
+fn run_flip_and_toss<E>(chain: Chain<StaticDriver, InstructionCall, E>) -> Vec<(ShotId, u32, Value)>
 where
     E: Executor<InstructionBatch<InstructionCall>> + Close,
 {
@@ -220,11 +218,12 @@ where
     values(&outcomes.expect("the bits neither refuse nor fail"))
 }
 
-/// `driver() >> a >> b >> executor` grouped in each of its five
+/// `static_driver() >> a >> b >> executor` grouped in each of its five
 /// ways makes a chain with the same run: a job's calls meet the adapters in
 /// the same order and give the same outcomes. Among them,
-/// `(driver() >> a) >> rest` and `driver() >> (adapters >> executor)?`;
-/// `driver() >> a` is a chain's prefix again.
+/// `(static_driver() >> a) >> rest` and
+/// `static_driver() >> (adapters >> executor)?`; `static_driver() >> a` is a
+/// chain's prefix again.
 #[test]
 fn the_grouping_of_a_drivers_chain_does_not_matter() {
     let logs: [Log; 5] = Default::default();
@@ -233,27 +232,29 @@ fn the_grouping_of_a_drivers_chain_does_not_matter() {
     let outputs = [
         {
             let (a, b) = ab(&logs[0]);
-            run_flip_and_toss(compose(driver() >> a >> b, bits()).expect("loggers fit"))
+            run_flip_and_toss(compose(static_driver() >> a >> b, bits()).expect("loggers fit"))
         },
         {
             let (a, b) = ab(&logs[1]);
-            run_flip_and_toss(compose(driver() >> compose(a, b), bits()).expect("loggers fit"))
+            run_flip_and_toss(
+                compose(static_driver() >> compose(a, b), bits()).expect("loggers fit"),
+            )
         },
         {
             let (a, b) = ab(&logs[2]);
             let executor = compose(compose(a, b), bits()).expect("loggers fit");
-            run_flip_and_toss(compose(driver(), executor).expect("loggers fit"))
+            run_flip_and_toss(compose(static_driver(), executor).expect("loggers fit"))
         },
         {
             let (a, b) = ab(&logs[3]);
             let executor =
                 compose(a, compose(b, bits()).expect("loggers fit")).expect("loggers fit");
-            run_flip_and_toss(compose(driver(), executor).expect("loggers fit"))
+            run_flip_and_toss(compose(static_driver(), executor).expect("loggers fit"))
         },
         {
             let (a, b) = ab(&logs[4]);
             let executor = compose(b, bits()).expect("loggers fit");
-            let prefix: ChainPrefix<BuiltinDriver, _> = driver() >> a;
+            let prefix: ChainPrefix<StaticDriver, _> = static_driver() >> a;
             run_flip_and_toss(compose(prefix, executor).expect("loggers fit"))
         },
     ];
@@ -264,10 +265,10 @@ fn the_grouping_of_a_drivers_chain_does_not_matter() {
     assert!(!entries(&logs[0]).is_empty(), "the job called the chain");
 }
 
-/// A user's runtime heads a chain as the crate's driver does,
+/// A user's runtime heads a chain as the static driver does,
 /// `runtime.into_chain() >> adapter >> executor`: its calls pass through
 /// the adapter below it, which with the executor is the one executor it is
-/// given, and the job gives what it gives under the crate's driver.
+/// given, and the job gives what it gives under the static driver.
 #[test]
 fn a_driver_written_by_hand_calls_through_the_adapters_below_it() {
     let by_hand = Log::default();
@@ -278,7 +279,7 @@ fn a_driver_written_by_hand_calls_through_the_adapters_below_it() {
         .expect("shots, needs met")
         .wait();
     let crates = Log::default();
-    let (expected, _) = (driver() >> logger("a", &crates) >> bits())
+    let (expected, _) = (static_driver() >> logger("a", &crates) >> bits())
         .expect("the logger fits")
         .run(static_flip_and_toss(), [0, 1])
         .expect("shots, needs met")
@@ -400,7 +401,7 @@ fn two_calls() -> StaticProgram<bool> {
 }
 
 /// The values of `chain`'s run of [`two_calls`] on shots 2 and 5.
-fn run_two_calls<E>(chain: Chain<BuiltinDriver, bool, E>) -> Vec<(ShotId, u32, Value)>
+fn run_two_calls<E>(chain: Chain<StaticDriver, bool, E>) -> Vec<(ShotId, u32, Value)>
 where
     E: Executor<InstructionBatch<bool>> + Close,
 {
@@ -416,7 +417,8 @@ where
 #[test]
 fn a_job_runs_through_a_chain_of_the_facilitys_components_written_with_shr() {
     let log = Log::default();
-    let chain = (driver() >> profiler(&log) >> negation(&log) >> readouts()).expect("bools fit");
+    let chain =
+        (static_driver() >> profiler(&log) >> negation(&log) >> readouts()).expect("bools fit");
     assert_eq!(run_two_calls(chain), TWO_CALLS_NEGATED);
     assert_eq!(
         entries(&log),
@@ -431,7 +433,7 @@ fn a_job_runs_through_a_chain_of_the_facilitys_components_written_with_shr() {
     );
 }
 
-/// `driver() >> profiler >> negation >> executor`, of the facility's
+/// `static_driver() >> profiler >> negation >> executor`, of the facility's
 /// components, each made by a function, grouped in each of its five ways
 /// with `>>` alone: the same chain, whose job's calls meet the adapters
 /// in the same order and give the same outcomes.
@@ -440,26 +442,26 @@ fn the_grouping_of_a_chain_of_the_facilitys_components_written_with_shr_does_not
     let logs: [Log; 5] = Default::default();
     let outputs = [
         run_two_calls(
-            (driver() >> profiler(&logs[0]) >> negation(&logs[0]) >> readouts())
+            (static_driver() >> profiler(&logs[0]) >> negation(&logs[0]) >> readouts())
                 .expect("bools fit"),
         ),
         run_two_calls(
-            (driver() >> (profiler(&logs[1]) >> negation(&logs[1])) >> readouts())
+            (static_driver() >> (profiler(&logs[1]) >> negation(&logs[1])) >> readouts())
                 .expect("bools fit"),
         ),
         run_two_calls(
-            (driver()
+            (static_driver()
                 >> (profiler(&logs[2]) >> negation(&logs[2]) >> readouts()).expect("bools fit"))
             .expect("bools fit"),
         ),
         run_two_calls(
-            (driver()
+            (static_driver()
                 >> (profiler(&logs[3]) >> (negation(&logs[3]) >> readouts()).expect("bools fit"))
                     .expect("bools fit"))
             .expect("bools fit"),
         ),
         run_two_calls(
-            (driver()
+            (static_driver()
                 >> profiler(&logs[4])
                 >> (negation(&logs[4]) >> readouts()).expect("bools fit"))
             .expect("bools fit"),
@@ -490,7 +492,8 @@ const TWO_CALLS_NEGATED: [(ShotId, u32, Value); 6] = [
 #[test]
 fn a_chain_of_components_made_from_a_reference_runs_on_another_thread() {
     let log = Log::default();
-    let chain = (driver() >> profiler(&log) >> negation(&log) >> readouts()).expect("bools fit");
+    let chain =
+        (static_driver() >> profiler(&log) >> negation(&log) >> readouts()).expect("bools fit");
     let outcomes = std::thread::spawn(move || run_two_calls(chain))
         .join()
         .expect("the run does not panic");
@@ -505,8 +508,9 @@ fn a_chain_of_components_made_from_a_reference_runs_on_another_thread() {
 #[test]
 fn a_chain_ending_at_an_executor_with_a_thread_per_shot_made_by_a_function_runs() {
     let log = Log::default();
-    let chain = (driver() >> profiler(&log) >> negation(&log) >> readouts_on_a_thread_per_shot())
-        .expect("bools fit");
+    let chain =
+        (static_driver() >> profiler(&log) >> negation(&log) >> readouts_on_a_thread_per_shot())
+            .expect("bools fit");
     let mut outcomes = run_two_calls(chain);
     outcomes.sort_by_key(|&(shot, tag, _)| (shot, tag));
     let mut expected = TWO_CALLS_NEGATED;
@@ -554,7 +558,7 @@ impl<E: Close> Close for CountsCalls<E> {
 /// The values of `chain`'s run of [`two_calls`] on shots 2 and 5, and its
 /// report.
 fn run_two_calls_with_report<E>(
-    chain: Chain<BuiltinDriver, bool, E>,
+    chain: Chain<StaticDriver, bool, E>,
 ) -> (Vec<(ShotId, u32, Value)>, E::Report)
 where
     E: Executor<InstructionBatch<bool>> + Close,
@@ -566,7 +570,7 @@ where
     )
 }
 
-/// `driver() >> profiler >> counter >> negation >> executor`, the
+/// `static_driver() >> profiler >> counter >> negation >> executor`, the
 /// counter a profiler written by hand between two of the facility's
 /// adapters, grouped in each of its fourteen ways: the same chain, whose
 /// job's calls meet the adapters in the same order and give the same
@@ -582,29 +586,39 @@ fn the_grouping_of_a_chain_mixing_adapters_written_by_hand_and_by_the_facility_d
     let c = || map_executor::<bool, _>(counts_calls);
     let n = |k: usize| negation(&logs[k]);
     let runs = [
-        run_two_calls_with_report(fits(driver() >> p(0) >> c() >> n(0) >> readouts())),
-        run_two_calls_with_report(fits(driver() >> p(1) >> c() >> fits(n(1) >> readouts()))),
-        run_two_calls_with_report(fits(driver() >> p(2) >> (c() >> n(2)) >> readouts())),
-        run_two_calls_with_report(fits(driver() >> p(3) >> fits(c() >> n(3) >> readouts()))),
+        run_two_calls_with_report(fits(static_driver() >> p(0) >> c() >> n(0) >> readouts())),
         run_two_calls_with_report(fits(
-            driver() >> p(4) >> fits(compose(c(), fits(n(4) >> readouts()))),
+            static_driver() >> p(1) >> c() >> fits(n(1) >> readouts()),
         )),
-        run_two_calls_with_report(fits(driver() >> (p(5) >> c()) >> n(5) >> readouts())),
-        run_two_calls_with_report(fits(driver() >> (p(6) >> c()) >> fits(n(6) >> readouts()))),
-        run_two_calls_with_report(fits(driver() >> (p(7) >> c() >> n(7)) >> readouts())),
-        run_two_calls_with_report(fits(driver() >> (p(8) >> (c() >> n(8))) >> readouts())),
-        run_two_calls_with_report(fits(driver() >> fits(p(9) >> c() >> n(9) >> readouts()))),
+        run_two_calls_with_report(fits(static_driver() >> p(2) >> (c() >> n(2)) >> readouts())),
         run_two_calls_with_report(fits(
-            driver() >> fits(p(10) >> c() >> fits(n(10) >> readouts())),
+            static_driver() >> p(3) >> fits(c() >> n(3) >> readouts()),
         )),
         run_two_calls_with_report(fits(
-            driver() >> fits(p(11) >> (c() >> n(11)) >> readouts()),
+            static_driver() >> p(4) >> fits(compose(c(), fits(n(4) >> readouts()))),
+        )),
+        run_two_calls_with_report(fits(static_driver() >> (p(5) >> c()) >> n(5) >> readouts())),
+        run_two_calls_with_report(fits(
+            static_driver() >> (p(6) >> c()) >> fits(n(6) >> readouts()),
+        )),
+        run_two_calls_with_report(fits(static_driver() >> (p(7) >> c() >> n(7)) >> readouts())),
+        run_two_calls_with_report(fits(
+            static_driver() >> (p(8) >> (c() >> n(8))) >> readouts(),
         )),
         run_two_calls_with_report(fits(
-            driver() >> fits(p(12) >> fits(c() >> n(12) >> readouts())),
+            static_driver() >> fits(p(9) >> c() >> n(9) >> readouts()),
         )),
         run_two_calls_with_report(fits(
-            driver() >> fits(p(13) >> fits(compose(c(), fits(n(13) >> readouts())))),
+            static_driver() >> fits(p(10) >> c() >> fits(n(10) >> readouts())),
+        )),
+        run_two_calls_with_report(fits(
+            static_driver() >> fits(p(11) >> (c() >> n(11)) >> readouts()),
+        )),
+        run_two_calls_with_report(fits(
+            static_driver() >> fits(p(12) >> fits(c() >> n(12) >> readouts())),
+        )),
+        run_two_calls_with_report(fits(
+            static_driver() >> fits(p(13) >> fits(compose(c(), fits(n(13) >> readouts())))),
         )),
     ];
     for (k, (run, log)) in runs.iter().zip(&logs).enumerate().skip(1) {
@@ -626,9 +640,9 @@ fn the_grouping_of_a_chain_mixing_adapters_written_by_hand_and_by_the_facility_d
 #[test]
 fn shr_takes_an_executor_composed_with_an_adapter_written_by_hand() {
     let counted = compose(map_executor::<bool, _>(counts_calls), readouts()).expect("bools fit");
-    let chain = (driver() >> counted).expect("bools fit");
+    let chain = (static_driver() >> counted).expect("bools fit");
     let (outcomes, (calls, _)) = run_two_calls_with_report(chain);
-    let alone = run_two_calls((driver() >> readouts()).expect("bools fit"));
+    let alone = run_two_calls((static_driver() >> readouts()).expect("bools fit"));
     assert_eq!(outcomes, alone);
     assert_eq!(calls, 2, "the job's two calls");
 }
@@ -666,9 +680,9 @@ fn counted_readouts() -> AdapterExecutor<
 /// the counter's.
 #[test]
 fn a_function_returns_an_adapter_written_by_hand_over_an_executor_for_shr() {
-    let chain = (driver() >> counted_readouts()).expect("bools fit");
+    let chain = (static_driver() >> counted_readouts()).expect("bools fit");
     let (outcomes, (calls, _)) = run_two_calls_with_report(chain);
-    let alone = run_two_calls((driver() >> readouts()).expect("bools fit"));
+    let alone = run_two_calls((static_driver() >> readouts()).expect("bools fit"));
     assert_eq!(outcomes, alone);
     assert_eq!(calls, 2, "the job's two calls");
 }
@@ -730,7 +744,7 @@ fn bits() -> AdapterFn<Pulse, bool, (), impl MakeState<()>, impl AdapterLogic<Pu
 /// one with one state: each shot reads the levels it prepared, in order.
 #[test]
 fn a_job_runs_through_lowerings_between_instruction_types_made_by_functions() {
-    let chain = (driver() >> pulses() >> bits() >> readouts()).expect("the lowerings fit");
+    let chain = (static_driver() >> pulses() >> bits() >> readouts()).expect("the lowerings fit");
     let program = StaticProgram::new(
         Needs::default(),
         vec![vec![Level::High, Level::Low], vec![Level::High]],
@@ -771,7 +785,7 @@ fn readouts_of_fair_coins() -> OnePerShotExecutor<
 /// bools it read.
 #[test]
 fn a_chain_ending_at_an_executor_that_reads_log_probabilities_made_by_a_function_reports_them() {
-    let chain = (driver() >> readouts_of_fair_coins()).expect("bools fit");
+    let chain = (static_driver() >> readouts_of_fair_coins()).expect("bools fit");
     let (outcomes, report) = chain.run(two_calls(), [2, 5]).expect("shots").wait();
     outcomes.expect("no component refuses or fails");
     let mut expected = LogP::default();
@@ -793,7 +807,7 @@ fn hidden_readouts() -> impl Executor<InstructionBatch<bool>> + Describe + Close
 fn an_adapter_made_by_a_function_composes_over_an_executor_of_hidden_type() {
     let log = Log::default();
     let below = compose(negation(&log), hidden_readouts()).expect("bools fit");
-    let chain = (driver() >> below).expect("bools fit");
+    let chain = (static_driver() >> below).expect("bools fit");
     assert_eq!(run_two_calls(chain), TWO_CALLS_NEGATED);
 }
 
@@ -825,7 +839,7 @@ fn tallied(
 #[test]
 fn an_adapter_whose_state_borrows_the_callers_data_runs_in_a_chain() {
     let tally = Mutex::new(0);
-    let chain = (driver() >> tallied(&tally) >> readouts()).expect("bools fit");
+    let chain = (static_driver() >> tallied(&tally) >> readouts()).expect("bools fit");
     run_two_calls(chain);
     assert_eq!(*tally.lock().expect("no test panics"), 2);
 }
@@ -857,7 +871,7 @@ fn a_chain_reports_the_same_faults_whatever_the_grouping() {
 }
 
 /// Two faulty codes, one that sends `h` and one that sends `t`, both of
-/// which the executor lacks, between the crate's driver and the
+/// which the executor lacks, between the static driver and the
 /// executor: the chain reports the same faults whether the codes are
 /// composed with the driver one by one or composed together first.
 #[test]
@@ -865,10 +879,10 @@ fn a_drivers_chain_reports_the_same_faults_whatever_the_grouping() {
     let sending = |mnemonic| move || Relabel::new(bits_set().with(mnemonic, [Block]), false);
     let (code_h, code_t) = (sending("h"), sending("t"));
     let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
-    let Err(one_by_one) = compose(driver() >> code_h() >> code_t(), bits()) else {
+    let Err(one_by_one) = compose(static_driver() >> code_h() >> code_t(), bits()) else {
         panic!("the two codes are faulty");
     };
-    let Err(together) = compose(driver() >> compose(code_h(), code_t()), bits()) else {
+    let Err(together) = compose(static_driver() >> compose(code_h(), code_t()), bits()) else {
         panic!("the two codes are faulty");
     };
     assert_eq!(one_by_one.0.len(), 2, "{one_by_one}");
@@ -1075,7 +1089,7 @@ fn the_faults_of_a_chain_read_as_one_message_in_their_order() {
     let downstream =
         map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
     let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
-    let Err(faults) = driver() >> upstream >> downstream >> bits else {
+    let Err(faults) = static_driver() >> upstream >> downstream >> bits else {
         panic!("both noise models are faulty");
     };
     let [upstream, downstream] = faults.0.as_slice() else {
@@ -1089,7 +1103,7 @@ fn the_faults_of_a_chain_read_as_one_message_in_their_order() {
     assert_eq!(faults.to_string(), expected);
 }
 
-/// A chain of the crate's driver, with a noise model that draws from
+/// A chain of the static driver, with a noise model that draws from
 /// the generator the bits draw from: it has no job yet, and is refused
 /// when it is built, with the adapter's fault, as a chain that starts at a
 /// driver is.
@@ -1097,7 +1111,7 @@ fn the_faults_of_a_chain_read_as_one_message_in_their_order() {
 fn a_chain_of_a_driver_reports_its_adapters_faults_when_built() {
     let noise = map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
     let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
-    let Err(BuildFaults(faults)) = compose(driver() >> noise, bits) else {
+    let Err(BuildFaults(faults)) = compose(static_driver() >> noise, bits) else {
         panic!("a noise model drawing from the bits' generator must be refused");
     };
     let errors: Vec<_> = faults.into_iter().map(|fault| fault.error).collect();
@@ -1338,7 +1352,7 @@ fn every_undeclared_action_of_a_chain_is_reported_at_once() {
         undeclared: &["x"],
         ..Bits::default()
     };
-    let Err(faults) = driver()
+    let Err(faults) = static_driver()
         >> Accepting::new(bits_set())
         >> between
         >> TestDoubleExecutor::with_model(downstream, 7)

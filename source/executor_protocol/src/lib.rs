@@ -20,11 +20,11 @@
 //!   form given to the chain. A program is data ([`Program`]: its
 //!   instructions, its output and its needs); the driver sends its calls,
 //!   reads their outcomes and, for a program with a branch on a readout,
-//!   chooses the next calls from them. The crate's driver,
-//!   [`driver()`](fn@driver), runs a [`StaticProgram`]: composed with an
-//!   executor, through adapters or not, it gives a [`Chain`], built and
-//!   checked, and a program and its shots are a job, the chain's input,
-//!   not one of its components: `chain.run(program, shots)` checks the job
+//!   chooses the next calls from them. The static driver,
+//!   [`static_driver()`](fn@static_driver), runs a [`StaticProgram`]: composed
+//!   with an executor, through adapters or not, it gives a [`Chain`], built and
+//!   checked, and a program and its shots are a job, the chain's input, not one
+//!   of its components: `chain.run(program, shots)` checks the job
 //!   ([`JobFaults`]) and gives its [`Run`], in which the driver drives the
 //!   program. While a chain is built, its driver and the adapters composed
 //!   below it so far are the chain's prefix ([`ChainPrefix`]).
@@ -86,9 +86,9 @@
 //! some make a part from your logic ([`executor_fn`](fn@executor_fn);
 //! [`adapter_fn`](fn@adapter_fn), and
 //! [`owning_adapter_fn`](fn@owning_adapter_fn) for a state that keeps its
-//! way below for its whole life; the crate's driver
-//! [`driver()`](fn@driver), and the [`StaticProgram`] it runs), others keep
-//! a rule for a part written by hand ([`ExecutorLifecycle`],
+//! way below for its whole life; the static driver
+//! [`static_driver()`](fn@static_driver), and the [`StaticProgram`] it runs),
+//! others keep a rule for a part written by hand ([`ExecutorLifecycle`],
 //! [`ShotReplies`], [`PlacedExecutor`], the replies [`ImmediateReply`] and
 //! [`reply_channel()`](reply_channel), and [`check_unique_tags`]).
 //!
@@ -136,7 +136,6 @@ pub use facilities::adapter_fn::{
     AdapterFn, AdapterFnExecutor, AdapterFnReply, AdapterLogic, NoStateReport, OnePerShotAdapter,
     OnePerShotAdapterExecutor, Owning, OwningAdapterLogic, adapter_fn, owning_adapter_fn,
 };
-pub use facilities::builtin_driver::{BuiltinDriver, driver};
 pub use facilities::executor_fn::{
     CallInput, ExecutorFn, ExecutorLogic, MakeState, NoCheck, OnePerShot, OnePerShotExecutor,
     OnePerShotPlacedExecutor, Outcome, Outcomes, ShotStrategy, executor_fn,
@@ -150,6 +149,7 @@ pub use facilities::replies::{
 };
 pub use facilities::shot_states::ShotReplies;
 pub(crate) use facilities::shot_states::ShotStates;
+pub use facilities::static_driver::{StaticDriver, static_driver};
 pub use facilities::static_program::{StaticProgram, StaticProgramError};
 pub use instruction_batch::{InstructionBatch, InstructionBatchRef};
 pub use instruction_set::action::{Action, Angle, Pauli};

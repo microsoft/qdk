@@ -3,7 +3,7 @@
 
 //! [Guide: Running a program](../docs/guides.md#running-a-program): what a
 //! user of a simulator writes. A simulator, built with its seed, is an
-//! executor; composed with the crate's driver, it gives a chain, and a
+//! executor; composed with the static driver, it gives a chain, and a
 //! program, with the shots it runs, is the chain's job: `chain.run`
 //! checks one against the other, and the run it gives runs nothing until it
 //! is waited for, then gives the program's output and the executor's report.
@@ -24,7 +24,7 @@ use std::error::Error;
 use executor_protocol::{
     Driver, DriverExt, Executor, InstructionBatch, InstructionBatchRef, JobFaults, Need, Needs,
     Program, Rejected, ShotContext, ShotOutcome, ShotSet, StaticProgram, Value, compose,
-    conformance, driver, wait, wait_async,
+    conformance, static_driver, wait, wait_async,
 };
 
 use readout_flip::{READOUT, ReadoutFlip, flips};
@@ -53,14 +53,14 @@ fn coins(seed: u64) -> Vec<Value> {
 /// The coins `shots` read, on the toy simulator built with `seed`.
 fn coins_of(shots: ShotSet, seed: u64) -> Vec<ShotOutcome> {
     let program = flip_a_coin(1);
-    let chain = compose(driver(), toy_simulator(seed)).expect("nothing between to refuse");
+    let chain = compose(static_driver(), toy_simulator(seed)).expect("nothing between to refuse");
     let run = chain.run(program, shots).expect("the toy has a qubit");
     run.wait()
         .0
         .expect("the toy neither refuses nor fails the batch")
 }
 
-/// A user composes the crate's driver with an executor built with its
+/// A user composes the static driver with an executor built with its
 /// seed, gives the chain the program and its shots, and waits for the run:
 /// it gives the program's output, here one outcome per shot, and the
 /// executor's report, here of the one batch sent.
@@ -68,7 +68,7 @@ fn coins_of(shots: ShotSet, seed: u64) -> Vec<ShotOutcome> {
 fn a_program_runs_on_an_executor_when_given_to_its_chain_and_waited_for()
 -> Result<(), Box<dyn Error>> {
     let (program, shots, seed) = (flip_a_coin(1), shots(), 7);
-    let run = compose(driver(), toy_simulator(seed))?.run(program, shots)?;
+    let run = compose(static_driver(), toy_simulator(seed))?.run(program, shots)?;
     let (output, report) = run.wait();
     let ran: Vec<u32> = output?.iter().map(|outcome| outcome.shot).collect();
     assert_eq!(ran, (0..=63).collect::<Vec<_>>());
@@ -126,7 +126,7 @@ fn a_noise_model_written_by_hand_draws_from_its_own_seeds_in_either_grouping() {
             read
         })
         .collect();
-    let left = (driver() >> ReadoutFlip::default() >> toy_simulator(7))
+    let left = (static_driver() >> ReadoutFlip::default() >> toy_simulator(7))
         .expect("the readout error passes the toy's instructions on")
         .run(program(), shots())
         .expect("the program needs a qubit")
@@ -135,7 +135,7 @@ fn a_noise_model_written_by_hand_draws_from_its_own_seeds_in_either_grouping() {
         .expect("the toy neither refuses nor fails the batch");
     let below = compose(ReadoutFlip::default(), toy_simulator(7))
         .expect("the readout error passes the toy's instructions on");
-    let right = compose(driver(), below)
+    let right = compose(static_driver(), below)
         .expect("nothing between to refuse")
         .run(program(), shots())
         .expect("the program needs a qubit")
@@ -356,7 +356,7 @@ fn a_batch_out_of_the_toys_range_is_refused_at_its_first_bad_instruction() {
 #[test]
 fn a_program_needing_more_than_the_executor_offers_is_refused_when_given_to_the_chain() {
     let program = flip_a_coin(QUBITS + 1);
-    let chain = compose(driver(), toy_simulator(7)).expect("nothing between to refuse");
+    let chain = compose(static_driver(), toy_simulator(7)).expect("nothing between to refuse");
     let Err(JobFaults(faults)) = chain.run(program, shots()) else {
         panic!("given to a chain of a toy of {QUBITS} qubits")
     };

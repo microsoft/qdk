@@ -39,8 +39,8 @@ use crate::{
     MakeState, Need, Needs, OnePerShot, OnePerShotAdapter, OnePerShotExecutor, Operand,
     OperandKind, Outcome, Outcomes, OwnThread, Rejected, Reply, ReplySender, ReplyStatus, RngId,
     ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, Value,
-    WithExecutor, adapter_fn, check_unique_tags, compose, conformance, driver, executor_fn,
-    reply_channel, wait,
+    WithExecutor, adapter_fn, check_unique_tags, compose, conformance, executor_fn, reply_channel,
+    static_driver, wait,
 };
 
 use OperandKind::{Block, Tag};
@@ -2049,7 +2049,7 @@ fn unmet_needs_of_a_job_beyond_the_scant_simulator<E>(executor: E) -> Vec<Need>
 where
     E: Executor<InstructionBatch<bool>> + Describe + Close,
 {
-    let chain = compose(driver(), executor).expect("bools fit");
+    let chain = compose(static_driver(), executor).expect("bools fit");
     let needs = Needs::default()
         .with_qubits(4)
         .with_resumable_shots(true)

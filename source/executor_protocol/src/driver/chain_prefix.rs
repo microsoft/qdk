@@ -6,15 +6,16 @@
 //! becomes one ([`DriverExt::into_chain`]).
 
 #[cfg(doc)]
-use crate::{BuiltinDriver, Chain, driver};
+use crate::{Chain, StaticDriver, static_driver};
 use crate::{Driver, Instruction, NoAdapter, Program};
 
 /// A chain's prefix: a driver, with the adapters composed downstream of it
 /// so far (none at first), as a chain is built left to right. Composed with
 /// an adapter, it gives a `ChainPrefix` with that adapter below the others;
 /// composed with an executor, it gives a [`Chain`], which runs the job given
-/// to it. The grouping does not matter: `(driver() >> a) >> executor` and
-/// `driver() >> (a >> executor)?` build chains with the same run.
+/// to it. The grouping does not matter:
+/// `(static_driver() >> a) >> executor` and
+/// `static_driver() >> (a >> executor)?` build chains with the same run.
 ///
 /// It is a newtype over the driver, because Rust's orphan rule lets a
 /// crate implement `>>` on its own types only, not on any type that
@@ -32,8 +33,8 @@ use crate::{Driver, Instruction, NoAdapter, Program};
 /// # Type parameters
 ///
 /// - `T`: the driver ([`Driver`]), given to
-///   [`into_chain`](DriverExt::into_chain); the crate's ([`BuiltinDriver`])
-///   from [`driver()`](fn@driver).
+///   [`into_chain`](DriverExt::into_chain); the static driver
+///   ([`StaticDriver`]) from [`static_driver()`](fn@static_driver).
 /// - `L`: the adapters composed downstream of it by `>>`
 ///   ([`ComposedAdapters`](crate::ComposedAdapters)). At first no adapter
 ///   (`NoAdapter<I>`), whose `I`, the instructions the driver sends, is
@@ -72,8 +73,8 @@ impl<T, L> ChainPrefix<T, L> {
 
 /// How a driver joins a chain: `runtime.into_chain() >> adapters >>
 /// executor` builds a [`Chain`] of a driver from any crate, as
-/// [`driver()`](fn@driver) does of the crate's own. Implemented for every
-/// [`Driver`].
+/// [`static_driver()`](fn@static_driver) does of the static driver.
+/// Implemented for every [`Driver`].
 ///
 /// A driver of several program types names one of them,
 /// `DriverExt::<P>::into_chain(runtime)`, only so that the call resolves:

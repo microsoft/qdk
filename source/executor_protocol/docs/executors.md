@@ -73,7 +73,7 @@ table (`Rejected::Unmet`).
 
 `Needs::default()` states nothing but the run's shots, held at once, that every
 run implies. A program states what its content needs; its driver adds only what
-its way of sending needs: the crate's driver adds `resumable_shots` for a
+its way of sending needs: the static driver adds `resumable_shots` for a
 `StaticProgram` with calls before its last batch, whose later batches continue
 its shots. The chain checks the two combined, so a driver cannot drop a need
 of the program: the larger number of qubits, each flag either states, and the

@@ -48,8 +48,8 @@ use executor_protocol::{
     Action, AdapterError, Angle, Below, BuildError, CallInput, Describe, Executor,
     InstructionBatch, InstructionBatchRef, InstructionMismatch, InstructionSet, JobFaults, Need,
     Needs, OnePerShot, Operand, OperandKind, Outcomes, Pauli, Rejected, ShotOutcome, ShotSet,
-    StaticProgram, StaticProgramError, Value, adapter_fn, compose, conformance, driver,
-    owning_adapter_fn, wait,
+    StaticProgram, StaticProgramError, Value, adapter_fn, compose, conformance, owning_adapter_fn,
+    static_driver, wait,
 };
 
 use code_runtime::{
@@ -155,7 +155,7 @@ fn a_logical_run_draws_each_shots_coins_from_its_physical_seed() {
     let seed = 11;
     let shots = ShotSet::range(0..=7).expect("0..=7 is not empty");
     let program = flip_a_logical_coin(Needs::default());
-    let run = (driver() >> RepetitionCode::default() >> toy_simulator(seed))
+    let run = (static_driver() >> RepetitionCode::default() >> toy_simulator(seed))
         .expect("the toy runs the code's gadgets")
         .run(program, shots.clone())
         .expect("the program needs nothing");
@@ -205,7 +205,7 @@ fn a_program_is_taken_only_by_a_code_that_has_the_instructions_it_needs() {
     let composes = |program: InstructionSet| {
         let needs = Needs::default().with_instruction_set(Some(Arc::new(program)));
         let program = flip_a_logical_coin(needs);
-        (driver() >> RepetitionCode::default() >> toy_simulator(0))
+        (static_driver() >> RepetitionCode::default() >> toy_simulator(0))
             .expect("the toy runs the code's gadgets")
             .run(program, ShotSet::one(0))
     };
@@ -428,17 +428,17 @@ fn the_code_as_a_logic_reads_what_its_adapter_reads() {
             .sends(gadget_instructions())
             .check(within(toy::QUBITS / 3))
     };
-    let (by_adapter, _) = (driver() >> RepetitionCode::default() >> toy_simulator(seed))
+    let (by_adapter, _) = (static_driver() >> RepetitionCode::default() >> toy_simulator(seed))
         .expect("the toy runs the code's gadgets")
         .run(toss_flip_read(), shots.clone())
         .expect("the chain keeps each shot between calls")
         .wait();
-    let (one_state, _) = (driver() >> code() >> toy_simulator(seed))
+    let (one_state, _) = (static_driver() >> code() >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read(), shots.clone())
         .expect("the chain keeps each shot between calls")
         .wait();
-    let (per_shot, _) = (driver() >> code().shots(OnePerShot) >> toy_simulator(seed))
+    let (per_shot, _) = (static_driver() >> code().shots(OnePerShot) >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read(), shots.clone())
         .expect("the chain keeps each shot between calls")
@@ -482,7 +482,7 @@ fn measure_in_rounds(
 fn the_code_as_a_logic_decodes_readouts_in_any_order() {
     let seed = 11;
     let shots = ShotSet::new(vec![6, 2, 9]).expect("distinct shots");
-    let (by_adapter, _) = (driver() >> RepetitionCode::default() >> toy_simulator(seed))
+    let (by_adapter, _) = (static_driver() >> RepetitionCode::default() >> toy_simulator(seed))
         .expect("the toy runs the code's gadgets")
         .run(toss_flip_read_thrice(), shots.clone())
         .expect("the chain keeps each shot between calls")
@@ -490,12 +490,14 @@ fn the_code_as_a_logic_decodes_readouts_in_any_order() {
     let code = adapter_fn(|_| Ok(()), lower_then_decode)
         .accepts(logical_set())
         .sends(gadget_instructions());
-    let (in_rounds, _) =
-        (driver() >> code >> adapter_fn(|_| Ok(()), measure_in_rounds) >> toy_simulator(seed))
-            .expect("the toy runs the logic's gadgets")
-            .run(toss_flip_read_thrice(), shots)
-            .expect("the chain keeps each shot between calls")
-            .wait();
+    let (in_rounds, _) = (static_driver()
+        >> code
+        >> adapter_fn(|_| Ok(()), measure_in_rounds)
+        >> toy_simulator(seed))
+    .expect("the toy runs the logic's gadgets")
+    .run(toss_flip_read_thrice(), shots)
+    .expect("the chain keeps each shot between calls")
+    .wait();
     assert_eq!(by_shot(in_rounds), by_shot(by_adapter));
 }
 
@@ -534,7 +536,7 @@ fn the_code_as_a_logic_reads_the_majority_of_votes_that_disagree() {
             .accepts(logical_set())
             .sends(gadget_instructions())
     };
-    let (noiseless, _) = (driver() >> code() >> toy_simulator(seed))
+    let (noiseless, _) = (static_driver() >> code() >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read(), shots.clone())
         .expect("the chain keeps each shot between calls")
@@ -545,12 +547,14 @@ fn the_code_as_a_logic_reads_the_majority_of_votes_that_disagree() {
         reads(Value::Zero) && reads(Value::One),
         "the blocks read both 0 and 1: {noiseless:?}"
     );
-    let (noisy, _) =
-        (driver() >> code() >> adapter_fn(|_| Ok(()), flip_first_votes) >> toy_simulator(seed))
-            .expect("the toy runs the logic's gadgets")
-            .run(toss_flip_read(), shots)
-            .expect("the chain keeps each shot between calls")
-            .wait();
+    let (noisy, _) = (static_driver()
+        >> code()
+        >> adapter_fn(|_| Ok(()), flip_first_votes)
+        >> toy_simulator(seed))
+    .expect("the toy runs the logic's gadgets")
+    .run(toss_flip_read(), shots)
+    .expect("the chain keeps each shot between calls")
+    .wait();
     assert_eq!(by_shot(noisy), noiseless);
 }
 
@@ -591,12 +595,12 @@ fn a_runtime_that_owns_its_backend_reads_what_the_code_as_a_logic_reads() {
         .sends(gadget_instructions())
         .check(within(toy::QUBITS / 3))
         .shots(OnePerShot);
-    let (lent, _) = (driver() >> as_a_logic >> toy_simulator(seed))
+    let (lent, _) = (static_driver() >> as_a_logic >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read_unflip_read(), shots.clone())
         .expect("the chain keeps each shot between calls")
         .wait();
-    let (owned, _) = (driver() >> as_a_runtime >> toy_simulator(seed))
+    let (owned, _) = (static_driver() >> as_a_runtime >> toy_simulator(seed))
         .expect("the toy runs the runtime's gadgets")
         .run(toss_flip_read_unflip_read(), shots)
         .expect("the chain keeps each shot between calls")

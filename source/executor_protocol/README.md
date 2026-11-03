@@ -185,7 +185,7 @@ bits and seeded coins:
 
 ```rust
 let log = DebugLog::default();
-let chain = driver() >> profiler() >> debugger(log.clone()) >> simulator();
+let chain = static_driver() >> profiler() >> debugger(log.clone()) >> simulator();
 let chain = chain.expect("the observers fit");
 // SHOTS is [2, 5, 6, 11]: the job's shots, not a plain range.
 let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
@@ -207,7 +207,7 @@ The chain, from the program down to the simulator:
 
 ```mermaid
 flowchart LR
-  P["program()<br/>two batches"] --> I["driver()<br/>drives the program"]
+  P["program()<br/>two batches"] --> I["static_driver()<br/>drives the program"]
   I --> F["profiler()<br/>counts instructions"]
   F --> D["debugger(log)<br/>logs each shot's calls"]
   D --> S["simulator()<br/>a state per shot"]
@@ -231,7 +231,7 @@ sequenceDiagram
   participant T as the test
   participant C as chain
   participant R as Run
-  participant I as driver()
+  participant I as static_driver()
   participant P as profiler()
   participant D as debugger(log)
   participant S as simulator()
@@ -305,11 +305,12 @@ by hand instead.
   its logic; with a state per shot, the shots' equal calls below go as
   one, but for those a shot kept before its run, which go alone at that
   run.
-- `driver()` ([`src/facilities/builtin_driver.rs`](src/facilities/builtin_driver.rs))
-  gives a chain's prefix holding the crate's driver, `BuiltinDriver`, which
-  runs a `StaticProgram`
-  ([`src/facilities/static_program.rs`](src/facilities/static_program.rs)),
-  a program of fixed batches.
+- `static_driver()`
+  ([`src/facilities/static_driver.rs`](src/facilities/static_driver.rs)) gives a
+  chain's prefix holding the static driver, `StaticDriver`, which runs a
+  `StaticProgram`
+  ([`src/facilities/static_program.rs`](src/facilities/static_program.rs)), a
+  program of fixed batches.
 
 **Keep a rule for a part you write by hand.**
 
@@ -336,7 +337,7 @@ What to write, by task, and where it is explained:
 
 | To                                                                                      | Write                                                                              | Section                                                                                                                                                                                |
 | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| run a program of fixed batches (`StaticProgram`)                                        | `driver() >> … >> executor`, `chain.run(program, shots)`                           | [Running a chain](#running-a-chain)                                                                                                                                                    |
+| run a program of fixed batches (`StaticProgram`)                                        | `static_driver() >> … >> executor`, `chain.run(program, shots)`                    | [Running a chain](#running-a-chain)                                                                                                                                                    |
 | run a program that branches on its readouts, or your own runtime (QIR, a circuit form)  | a program, `Program`, and its driver, `Driver<P>`, `runtime.into_chain()`          | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
 | plug in a device, or a simulator with a state per shot                                  | an executor: `executor_fn`                                                         | [Writing an executor](#writing-an-executor)                                                                                                                                            |
 | plug in a simulator whose shots share one state (an ensemble, such as an MPS simulator) | an executor written by hand, on `ExecutorLifecycle`                                | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)                                                                                         |
@@ -371,7 +372,7 @@ guide tests:
 
 ### Running a chain
 
-`driver()` runs a `StaticProgram`: what the program needs of the chain
+`static_driver()` runs a `StaticProgram`: what the program needs of the chain
 (`Needs`), and its batches, run in turn on every shot. A program that
 branches on its readouts needs a driver of its own
 ([Writing a driver](#writing-a-driver)). The guide's program is its two
@@ -394,11 +395,11 @@ fn program_of(batches: Vec<Vec<InstructionCall>>) -> StaticProgram<InstructionCa
 }
 ```
 
-The chain, `driver() >> simulator()` with no adapter between, is built,
+The chain, `static_driver() >> simulator()` with no adapter between, is built,
 given `program()` on the job's shots, then waited for:
 
 ```rust
-let chain = (driver() >> simulator()).expect("nothing between to refuse");
+let chain = (static_driver() >> simulator()).expect("nothing between to refuse");
 let (outcomes, report) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
 ```
 
@@ -535,8 +536,8 @@ The caller's entry point is the chain:
 in scope), then `chain.run(program, shots)`. A driver of several program
 types names one of them, `DriverExt::<P>::into_chain(runtime)`, only so
 that the call resolves; the chain runs any program the driver drives in the
-instructions the chain sends (the compiler checks it). The crate's driver,
-`BuiltinDriver`, runs a `StaticProgram`, and `driver()` makes it a chain's
+instructions the chain sends (the compiler checks it). The static driver,
+`StaticDriver`, runs a `StaticProgram`, and `static_driver()` makes it a chain's
 prefix. A driver with adapters below it is still a
 `ChainPrefix`, which composes the same way, but not yet a `Driver<P>`
 itself ([planned](docs/planned.md)).
@@ -831,7 +832,7 @@ pins it lists.
 | Document                                                                   | Contents                                                                                                                                                                                                                                       |
 | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [The protocol](docs/protocol.md)                                           | The protocol at work, in sequence diagrams: its parts and their files, a chain built and its job checked, a run, a driver of a program with a branch, refusals and failures, shots and seeds, outcomes and conditions, levels, what is planned |
-| [Facilities](docs/facilities.md)                                           | The crate's parts that keep the protocol for your logic: what each serves and guarantees, its files, and when to write the part by hand; a thread per shot, an adapter's call per shot, the driver, how a reply wakes each caller              |
+| [Facilities](docs/facilities.md)                                           | The crate's parts that keep the protocol for your logic: what each serves and guarantees, its files, and when to write the part by hand; a thread per shot, an adapter's call per shot, the static driver, how a reply wakes each caller       |
 | [Composition](docs/composition.md)                                         | Putting parts together: composing a run with `>>`, a chain and its job, what is checked and when, the conformance checks, chains for several users                                                                                             |
 | [Composition: the detailed rules](docs/internals/composition.md)           | For maintainers: what the crate does, levels, roles and laws, how adapters compose, the rules of composition with every boundary of calls by opcode and its cost, the executor form, a job's rules, the known limits                           |
 | [Adapters](docs/adapters.md)                                               | Writing an adapter: choosing a way, `adapter_fn` and what its logic may do, a state per shot, seeds, reports, `owning_adapter_fn`, an adapter written by hand, refusals and failures, the shot conditions it takes in and keeps                |

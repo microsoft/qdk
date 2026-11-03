@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 
 use executor_protocol::{
     Close, Describe, Executor, InstructionBatch, InstructionBatchRef, Needs, Rejected, Reply,
-    ReplyStatus, ShotOutcome, ShotSet, StaticProgram, Value, conformance, driver, wait,
+    ReplyStatus, ShotOutcome, ShotSet, StaticProgram, Value, conformance, static_driver, wait,
 };
 
 use debugger::debugger;
@@ -224,7 +224,7 @@ fn flip_a_coin() -> StaticProgram<Op> {
 fn a_debugger_composed_into_a_chain_hands_out_its_handle() {
     let shots = ShotSet::range(0..=1).expect("0..=1 is not empty");
     let debuggers = Debuggers::paused();
-    let run = (driver() >> debuggers.clone() >> toy_simulator(9))
+    let run = (static_driver() >> debuggers.clone() >> toy_simulator(9))
         .expect("the debugger changes nothing the toy checks")
         .run(flip_a_coin(), shots.clone())
         .expect("the program needs nothing");
@@ -242,7 +242,7 @@ fn a_debugger_composed_into_a_chain_hands_out_its_handle() {
     }
     let (with, _) = run_thread.join().expect("the run's thread did not panic");
     let with = with.expect("the toy neither refuses nor fails the batch");
-    let (without, _) = (driver() >> toy_simulator(9))
+    let (without, _) = (static_driver() >> toy_simulator(9))
         .expect("nothing between to refuse")
         .run(flip_a_coin(), shots)
         .expect("the program needs nothing")

@@ -19,7 +19,7 @@ use executor_protocol::{
     ComposedAdapters, Describe, Executor, ExecutorLifecycle, ImmediateReply, InstructionBatch,
     InstructionBatchRef, MakeState, Needs, OnePerShot, OnePerShotAdapter, Outcomes, Rejected,
     ShotId, ShotOutcome, StaticProgram, TypedInstruction, Value, WithExecutor, adapter_fn,
-    check_unique_tags, compose, driver,
+    check_unique_tags, compose, static_driver,
 };
 
 /// A bit per shot.
@@ -173,7 +173,7 @@ macro_rules! read_by {
     }};
 }
 
-/// A chain of the crate's driver, an adapter that flips first, one that
+/// A chain of the static driver, an adapter that flips first, one that
 /// flips after, and `Bits`, written with `>>` in each grouping that puts
 /// one of the four public left-hand types beside `Bits`: each reads what
 /// the same chain composed with `compose` reads: 1 on each shot, after
@@ -183,7 +183,7 @@ macro_rules! read_by {
 #[test]
 fn an_executor_written_by_hand_is_composed_with_shr_after_each_public_left_type() {
     let by_compose = read_by!(compose(
-        compose(compose(driver(), flip_first()), flip_after()),
+        compose(compose(static_driver(), flip_first()), flip_after()),
         Bits::default()
     ));
     let ones: Vec<_> = SHOTS
@@ -191,14 +191,19 @@ fn an_executor_written_by_hand_is_composed_with_shr_after_each_public_left_type(
         .map(|&shot| ShotOutcome::new(shot, 0, Value::One))
         .collect();
     assert_eq!(by_compose, ones, "three flips before the read");
-    let after_a_head = read_by!(driver() >> flip_first() >> flip_after() >> Bits::default());
+    let after_a_head = read_by!(static_driver() >> flip_first() >> flip_after() >> Bits::default());
     let built = "the adapters send what `Bits` takes";
-    let after_composed_adapters =
-        read_by!(driver() >> ((flip_first() >> flip_after()) >> Bits::default()).expect(built));
+    let after_composed_adapters = read_by!(
+        static_driver() >> ((flip_first() >> flip_after()) >> Bits::default()).expect(built)
+    );
     let below = (flip_after() >> Bits::default()).expect(built);
-    let after_one_per_shot = read_by!(driver() >> (flip_first() >> below).expect(built));
-    let after_an_adapter_fn = read_by!(driver() >> (flip_first() >> Bits::default()).expect(built));
-    let flip_first_alone = read_by!(compose(compose(driver(), flip_first()), Bits::default()));
+    let after_one_per_shot = read_by!(static_driver() >> (flip_first() >> below).expect(built));
+    let after_an_adapter_fn =
+        read_by!(static_driver() >> (flip_first() >> Bits::default()).expect(built));
+    let flip_first_alone = read_by!(compose(
+        compose(static_driver(), flip_first()),
+        Bits::default()
+    ));
     for (grouping, read) in [
         ("d >> a >> b >> e", after_a_head),
         ("d >> ((a >> b) >> e)?", after_composed_adapters),

@@ -13,7 +13,7 @@ what they belong to; the names in code are the crate's.
   outcomes and their conditions, the seeds, and composition; in `src/`,
   outside `src/facilities/` ([The protocol](protocol.md)).
 - **Facility**: a part of the crate that keeps the protocol's rules for an
-  implementer's logic, such as `executor_fn`, `adapter_fn`, the crate's
+  implementer's logic, such as `executor_fn`, `adapter_fn`, the static
   driver, `ExecutorLifecycle` and the replies; in `src/facilities/`
   ([Facilities](facilities.md)).
 - **Chain**: a driver, any number of adapters and an executor, joined by
@@ -33,19 +33,18 @@ what they belong to; the names in code are the crate's.
   batches and reading their outcomes, and the adapters and the executor
   below look to it like that single executor. The caller builds the chain,
   `runtime.into_chain() >> adapters >> executor`, then calls
-  `chain.run(program, shots)`. The crate's driver (`BuiltinDriver`, in the
-  prefix `driver()` gives) runs a static program
+  `chain.run(program, shots)`. The static driver (`StaticDriver`, in the
+  prefix `static_driver()` gives) runs a static program
   ([Composing a run](composition.md#composing-a-run)). A
   device's driver, the vendor's software below an executor, is not a
   `Driver`; and a caller that takes a reply is called a caller, not a
   driver.
 - **Chain prefix** (`ChainPrefix`): a driver, wrapped so that it composes
-  with `>>`, with the adapters composed below it so far. `driver()` is the
-  crate's driver as a prefix with no adapter; `runtime.into_chain()`
-  (`DriverExt`) makes one of any driver. A prefix with an adapter composed
-  below it is a prefix still, and with the executor it gives a
-  `Chain`. It is not itself a `Driver<P>`: that is planned
-  ([Planned features](planned.md)).
+  with `>>`, with the adapters composed below it so far. `static_driver()` is
+  the static driver as a prefix with no adapter; `runtime.into_chain()`
+  (`DriverExt`) makes one of any driver. A prefix with an adapter composed below
+  it is a prefix still, and with the executor it gives a `Chain`. It is not
+  itself a `Driver<P>`: that is planned ([Planned features](planned.md)).
 - **Executor** (`Executor<M>`): anything that runs one message type `M`, a
   batch of its instruction type (`InstructionBatch<I>`), on each shot the
   batch names. Offering `resumable_shots` promises that a later call continues a
@@ -113,7 +112,7 @@ what they belong to; the names in code are the crate's.
   program's own faults; of several shots named twice, only the least is reported
   ([A chain and its job](composition.md#a-chain-and-its-job)).
 - **Static program** (`StaticProgram`): a program of fixed batches, which
-  the crate's driver sends in order to every
+  the static driver sends in order to every
   shot of its job; it decides nothing on its outcomes, and a batch refused
   or failed stops it
   ([A chain and its job](composition.md#a-chain-and-its-job)).

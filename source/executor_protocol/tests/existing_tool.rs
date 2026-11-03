@@ -42,7 +42,7 @@ use std::sync::Arc;
 use executor_protocol::{
     Close, Describe, Executor, ExecutorReport, InstructionBatch, InstructionBatchRef,
     InstructionCall, InstructionSet, Needs, Operand, OperandKind, ReadoutFailure, Rejected,
-    ShotOutcome, ShotSet, StaticProgram, Value, compose, conformance, driver, wait,
+    ShotOutcome, ShotSet, StaticProgram, Value, compose, conformance, static_driver, wait,
 };
 
 use backend::{Bits, ExistingInterface, FixedReply, NAMES, Reading};
@@ -131,7 +131,7 @@ fn profile(
     shots: ShotSet,
 ) -> (Counts, Vec<ShotOutcome>) {
     let program = StaticProgram::new(needs, program);
-    let run = compose(driver(), profiling_executor(seed))
+    let run = compose(static_driver(), profiling_executor(seed))
         .expect("nothing between to refuse")
         .run(program, shots)
         .expect("the profiler meets the needs the tests' programs state");
@@ -266,7 +266,7 @@ fn a_programs_calls_run_on_the_bridge() {
         Needs::default().with_instruction_set(Some(set)),
         vec![batch],
     );
-    let run = compose(driver(), bridge)
+    let run = compose(static_driver(), bridge)
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
         .expect("the bridge describes the set the program's calls are of");
@@ -276,7 +276,7 @@ fn a_programs_calls_run_on_the_bridge() {
 }
 
 /// A program of one shot that flips qubit 0 in one batch and reads it in
-/// the next, so that the crate's driver states that it continues its shot:
+/// the next, so that the static driver states that it continues its shot:
 /// the bridge promises resumable shots, so the chain takes the job, and the
 /// second batch reads the flip of the first.
 #[test]
@@ -287,7 +287,7 @@ fn a_program_that_continues_its_shot_from_one_batch_to_the_next_runs_on_the_brid
         vec![call(&set, Op::Measure { qubit: 0, tag: 4 })],
     ];
     let program = StaticProgram::new(Needs::default().with_instruction_set(Some(set)), batches);
-    let run = compose(driver(), bridge)
+    let run = compose(static_driver(), bridge)
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
         .expect("the bridge keeps its shot from one call to the next");

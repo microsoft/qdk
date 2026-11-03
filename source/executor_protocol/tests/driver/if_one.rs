@@ -3,7 +3,7 @@
 
 //! A program with a branch on a readout ([`IfOne`]), as data, and the
 //! driver that runs it ([`IfOneDriver`]): what a user writes for a program
-//! form that the crate's driver does not run.
+//! form that the static driver does not run.
 
 use executor_protocol::{
     Driver, Executor, InstructionBatch, InstructionBatchRef, Needs, Program, ShotOutcome, ShotSet,

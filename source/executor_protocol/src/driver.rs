@@ -16,16 +16,16 @@
 //!   composed below it so far ([`ChainPrefix`]), and how a driver becomes
 //!   one ([`DriverExt`]).
 //!
-//! The crate's driver, which runs a [`StaticProgram`], is a facility
-//! ([`builtin_driver`](crate::facilities::builtin_driver): [`BuiltinDriver`],
-//! from [`driver()`](fn@crate::driver)).
+//! The static driver, which runs a [`StaticProgram`], is a facility
+//! ([`static_driver`](crate::facilities::static_driver): [`StaticDriver`],
+//! from [`static_driver()`](fn@crate::static_driver)).
 
 pub(crate) mod chain_prefix;
 
 use std::future::Future;
 
 #[cfg(doc)]
-use crate::{BuiltinDriver, Chain, ChainPrefix, DriverExt, Run, StaticProgram};
+use crate::{Chain, ChainPrefix, DriverExt, Run, StaticDriver, StaticProgram};
 use crate::{Executor, InstructionBatch, Needs, Program, Rejected, ShotSet};
 
 /// A driver of programs of type `P` ([`Program`]): what its way of sending
@@ -46,7 +46,7 @@ use crate::{Executor, InstructionBatch, Needs, Program, Rejected, ShotSet};
 ///
 /// The driver is apart from the program, so a crate may drive a program
 /// type of another crate whose data it can read (a [`StaticProgram`]'s
-/// batches are read by the crate's driver only), and one driver may drive
+/// batches are read by the static driver only), and one driver may drive
 /// several program types, one impl each. It takes itself by reference: a
 /// program does not use it up, so that a chain that runs many jobs, planned
 /// ([`Chain`]), can keep it.
@@ -54,8 +54,8 @@ use crate::{Executor, InstructionBatch, Needs, Program, Rejected, ShotSet};
     message = "`{Self}` does not drive a `{P}`",
     label = "not a driver of this program",
     note = "a chain runs the programs its driver drives: \
-            `(driver() >> executor)?.run(program, shots)` (docs/composition.md, \"Composing a run\")",
-    note = "the crate's driver, `driver()`, runs a `StaticProgram`; a program of another form \
+            `(static_driver() >> executor)?.run(program, shots)` (docs/composition.md, \"Composing a run\")",
+    note = "the static driver, `static_driver()`, runs a `StaticProgram`; a program of another form \
             needs a driver of its own, made a chain's prefix by `DriverExt::into_chain`",
     note = "a `StaticProgram<I>` runs where `I` is an `Instruction` and the chain's executor accepts \
             batches of `I`"
@@ -99,7 +99,7 @@ pub trait Driver<P: Program> {
     /// reply ends, so that its run, even awaited, holds its thread while
     /// each reply is pending; an asynchronous one awaits them
     /// ([`wait_async`](crate::wait_async)), so that its run awaited leaves
-    /// its thread to other tasks meanwhile, as the crate's driver does.
+    /// its thread to other tasks meanwhile, as the static driver does.
     /// Either runs on a [`Run`], waited for or awaited.
     fn drive<E>(
         &self,

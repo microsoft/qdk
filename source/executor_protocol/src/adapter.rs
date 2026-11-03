@@ -45,12 +45,12 @@ use crate::{
 // the executor, which reports the executor as not an `Adapter`, the rule
 // for two adapters being the one left to try: an adapter returned as a
 // bare `impl Adapter` or given as a generic `A: Adapter`
-// (`compose(a, toy)`, `compose(driver() >> a, toy)`), and one
+// (`compose(a, toy)`, `compose(static_driver() >> a, toy)`), and one
 // written by hand that applies to one executor's type only
 // (`impl Apply<Toy>`). The other two: adapters composed are passed where
 // an `Adapter` is expected (planned, `docs/planned.md`); and an executor
 // is put where an adapter is expected, after a part whose `>>` the
-// executor's crate did not implement (`driver() >> hand`,
+// executor's crate did not implement (`static_driver() >> hand`,
 // `flip() >> hand`, `hand` an executor of another crate or a generic one).
 // A per-shot `adapter_fn` whose sends are not `Clone + PartialEq` reaches
 // it too, after the error at `AdapterFn::shots` that names that bound.

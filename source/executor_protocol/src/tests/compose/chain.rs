@@ -11,11 +11,11 @@ use crate::tests::{
     resetting_bits_set, reversed_set, shots, values,
 };
 use crate::{
-    Action, BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix, Driver, DriverExt,
-    Executor, ExecutorFn, ExecutorLogic, Instruction, InstructionBatch, InstructionBatchRef,
-    InstructionCall, InstructionMismatch, InstructionSet, JobFaults, MakeState, Need, Needs,
-    NoAdapter, Opcode, Operand, Outcomes, Pauli, Program, Rejected, ShotId, ShotSet, StaticProgram,
-    Value, driver, executor_fn, wait_async,
+    Action, CallInput, Capabilities, Chain, ChainPrefix, Driver, DriverExt, Executor, ExecutorFn,
+    ExecutorLogic, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
+    InstructionMismatch, InstructionSet, JobFaults, MakeState, Need, Needs, NoAdapter, Opcode,
+    Operand, Outcomes, Pauli, Program, Rejected, ShotId, ShotSet, StaticDriver, StaticProgram,
+    Value, executor_fn, static_driver, wait_async,
 };
 
 /// [`flip_and_toss`] as a static program in `set`'s numbering, needing
@@ -43,16 +43,16 @@ fn unmet(rejected: &Rejected) -> Option<(Need, u64, u64)> {
     }
 }
 
-/// A chain of the crate's driver on the test double, which holds at
+/// A chain of the static driver on the test double, which holds at
 /// most `max_shots` shots at once when stated.
 fn double_chain(
     max_shots: Option<u64>,
-) -> Chain<BuiltinDriver, bool, TestDoubleExecutor<TestDoubleModel>> {
+) -> Chain<StaticDriver, bool, TestDoubleExecutor<TestDoubleModel>> {
     let model = TestDoubleModel {
         max_shots,
         ..TestDoubleModel::default()
     };
-    (driver() >> TestDoubleExecutor::with_model(model, 7))
+    (static_driver() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s")
 }
 
@@ -97,7 +97,7 @@ fn a_job_that_names_a_shot_twice_is_refused() {
 #[test]
 fn borrowed_shots_give_what_owned_shots_give() {
     let chain = || {
-        (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        (static_driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
             .expect("the bits run calls by opcode")
     };
     let job = || flip_and_toss_in(bits_set(), None);
@@ -144,7 +144,7 @@ fn a_job_that_names_several_shots_twice_reports_the_least() {
 /// fixed in one go.
 #[test]
 fn a_jobs_shot_faults_are_reported_with_its_programs_needs_and_calls() {
-    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (static_driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let mut program = flip_and_toss(&bits_set());
     program[1].push(InstructionCall::new(Opcode::new(3), [Operand::Block(0)]));
@@ -170,7 +170,7 @@ fn a_jobs_shot_faults_are_reported_with_its_programs_needs_and_calls() {
 /// order, joined by "; ", as a chain's build faults do.
 #[test]
 fn a_jobs_faults_read_as_one_message_in_their_order() {
-    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (static_driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let program = flip_and_toss_in(bits_set(), Some(3));
     let Err(faults) = chain.run(program, 0..0) else {
@@ -183,11 +183,11 @@ fn a_jobs_faults_read_as_one_message_in_their_order() {
 }
 
 /// A job whose program of calls by opcode states no set, run by the
-/// crate's driver, which adds none, on the bits: the refusal names the
+/// static driver, which adds none, on the bits: the refusal names the
 /// program and its driver, the two sides that may state the set.
 #[test]
 fn a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal() {
-    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (static_driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run calls by opcode");
     let program = StaticProgram::new(Needs::default(), flip_and_toss(&bits_set()));
     let Err(JobFaults(faults)) = chain.run(program, 0..1) else {
@@ -205,7 +205,7 @@ fn a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal() {
 }
 
 /// A job of four shots whose program of calls by opcode states no set and
-/// needs three qubits and the log probability, run by the crate's driver on
+/// needs three qubits and the log probability, run by the static driver on
 /// two bits that hold three shots at once and give no log probability: the
 /// undescribed set is reported in the instruction set's place, in the order
 /// of `Capabilities::admit`, after the qubits and the log probability and
@@ -216,7 +216,7 @@ fn an_undescribed_set_is_reported_in_the_instruction_sets_place() {
         max_shots: Some(3),
         ..Bits::default()
     };
-    let chain = (driver() >> TestDoubleExecutor::with_model(bits, 7))
+    let chain = (static_driver() >> TestDoubleExecutor::with_model(bits, 7))
         .expect("the bits run calls by opcode");
     let needs = Needs::default().with_qubits(3).with_log_probability(true);
     let program = StaticProgram::new(needs, flip_and_toss(&bits_set()));
@@ -266,7 +266,7 @@ fn a_jobs_run_gives_its_outcomes_with_the_executors_report() {
         log_probability: true,
         ..Bits::default()
     };
-    let chain = (driver() >> TestDoubleExecutor::with_model(bits, 7))
+    let chain = (static_driver() >> TestDoubleExecutor::with_model(bits, 7))
         .expect("the bits run calls by opcode");
     let (outcomes, report) = chain
         .run(flip_and_toss_in(bits_set(), None), [2, 5, 11])
@@ -291,7 +291,7 @@ fn a_jobs_run_gives_its_outcomes_with_the_executors_report() {
 #[test]
 fn a_replayable_chain_built_again_runs_a_shot_again_with_the_same_outcomes() {
     let chain = || {
-        (driver()
+        (static_driver()
             >> Relabel::new(reversed_set(), false)
             >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the chain runs the bits' set")
@@ -316,7 +316,7 @@ fn a_replayable_chain_built_again_runs_a_shot_again_with_the_same_outcomes() {
 #[test]
 fn a_job_is_renumbered_into_the_chains_set_by_its_programs_numbering() {
     let run = |set: InstructionSet| {
-        let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        let chain = (static_driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
             .expect("the bits run calls by opcode");
         let (outcomes, _) = chain
             .run(flip_and_toss_in(set, None), [2, 3])
@@ -379,7 +379,7 @@ fn a_job_that_calls_a_shot_not_its_own_is_refused() {
 #[test]
 fn a_job_awaited_gives_what_it_gives_waited_for() {
     let chain = || {
-        (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        (static_driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
             .expect("the bits run calls by opcode")
     };
     let job = || flip_and_toss_in(bits_set(), None);
@@ -391,7 +391,7 @@ fn a_job_awaited_gives_what_it_gives_waited_for() {
     );
 }
 
-/// `driver() >> adapter >> executor`, then the job: a static program
+/// `static_driver() >> adapter >> executor`, then the job: a static program
 /// run through an adapter that renumbers its calls on the bits gives the
 /// outcomes and the report that the same batches give on the same chain
 /// headed by a driver written by hand, which sends them in turn.
@@ -400,7 +400,7 @@ fn a_chain_runs_a_static_program_as_a_driver_written_by_hand_runs_its_batches() 
     let relabel = || Relabel::new(reversed_set(), false);
     let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
     let program = flip_and_toss_in(bits_set(), None);
-    let chain = (driver() >> relabel() >> bits()).expect("the chain runs the bits' set");
+    let chain = (static_driver() >> relabel() >> bits()).expect("the chain runs the bits' set");
     let (from_static, from_static_report) = chain
         .run(program, [2, 5, 6, 11])
         .expect("shots, needs met")
@@ -434,7 +434,7 @@ fn a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor() {
         .with_qubits(3)
         .with_log_probability(true);
     let program = StaticProgram::new(needs, flip_and_toss(&bits_set()));
-    let chain = (driver() >> relabel >> bits).expect("the chain runs the bits' set");
+    let chain = (static_driver() >> relabel >> bits).expect("the chain runs the bits' set");
     let Err(JobFaults(faults)) = chain.run(program, [2, 5]) else {
         panic!("three qubits and the log probability on two bits must be refused");
     };
@@ -454,7 +454,7 @@ fn a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor() {
     }
 }
 
-/// A runtime that runs a static program as the crate's driver does, but
+/// A runtime that runs a static program as the static driver does, but
 /// whose way of sending needs what it holds, whatever the program states.
 struct AddsNeeds(Needs);
 
@@ -464,7 +464,7 @@ impl<I: Instruction> Driver<StaticProgram<I>> for AddsNeeds {
     }
 
     fn check(&self, program: &StaticProgram<I>) -> Vec<Rejected> {
-        BuiltinDriver.check(program)
+        StaticDriver.check(program)
     }
 
     async fn drive<E>(
@@ -476,7 +476,7 @@ impl<I: Instruction> Driver<StaticProgram<I>> for AddsNeeds {
     where
         E: Executor<InstructionBatch<I>>,
     {
-        BuiltinDriver.drive(program, executor, shots).await
+        StaticDriver.drive(program, executor, shots).await
     }
 }
 
@@ -632,7 +632,7 @@ fn a_set_stated_by_one_side_or_the_same_by_both_numbers_the_jobs_calls() {
         values(&outcomes.expect("the bits neither refuse nor fail"))
     };
     let in_bits = {
-        let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        let chain = (static_driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
             .expect("the bits run calls by opcode");
         let (outcomes, _) = (chain.run(flip_and_toss_in(bits_set(), None), [2, 3]))
             .expect("the bits have every instruction of their set")

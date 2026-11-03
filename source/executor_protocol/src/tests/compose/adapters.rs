@@ -25,13 +25,13 @@ use crate::tests::{
 };
 use crate::tests::{PanicsOnClose, map_executor};
 use crate::{
-    Adapter, AdapterBoundary, AdapterError, AdapterSeeds, Apply, Below, BuildError, BuiltinDriver,
-    CallInput, Capabilities, Chain, Close, ComposedJob, Describe, Executor, ExecutorReport,
-    ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall, InstructionMismatch,
-    InstructionSet, JobFaults, Needs, OnePerShot, Opcode, Operand, OperandKind, Outcomes, Rejected,
-    Reply, ReplyStatus, RngId, RngIds, ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram,
-    TypedInstruction, Value, adapter_fn, compose, conformance, driver, executor_fn, shot_seed,
-    wait,
+    Adapter, AdapterBoundary, AdapterError, AdapterSeeds, Apply, Below, BuildError, CallInput,
+    Capabilities, Chain, Close, ComposedJob, Describe, Executor, ExecutorReport, ImmediateReply,
+    InstructionBatch, InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet,
+    JobFaults, Needs, OnePerShot, Opcode, Operand, OperandKind, Outcomes, Rejected, Reply,
+    ReplyStatus, RngId, RngIds, ShotContext, ShotId, ShotOutcome, ShotSet, StaticDriver,
+    StaticProgram, TypedInstruction, Value, adapter_fn, compose, conformance, executor_fn,
+    shot_seed, static_driver, wait,
 };
 
 use OperandKind::Block;
@@ -2003,7 +2003,7 @@ fn pass(
 
 /// The needs `chain` refuses, in order, for a job of one shot whose program
 /// needs `needs`; none when the job is given to it.
-fn unmet_needs<E>(chain: Chain<BuiltinDriver, bool, E>, needs: Needs) -> Vec<Need>
+fn unmet_needs<E>(chain: Chain<StaticDriver, bool, E>, needs: Needs) -> Vec<Need>
 where
     E: Executor<InstructionBatch<bool>> + Close,
 {
@@ -2044,11 +2044,11 @@ fn a_chain_of_two_adapters_offers_what_the_upstream_one_offers_over_the_downstre
     let noise = || adapter_fn(no_state, pass).drawing(RngId::named("noise"));
     let observer = || adapter_fn(no_state, pass);
     let noise_above = || {
-        (driver() >> noise() >> observer() >> simulator())
+        (static_driver() >> noise() >> observer() >> simulator())
             .expect("the simulator is given the run's seed")
     };
     let noise_below = || {
-        (driver() >> observer() >> noise() >> simulator())
+        (static_driver() >> observer() >> noise() >> simulator())
             .expect("the simulator is given the run's seed")
     };
     let replayed = Needs::default()
