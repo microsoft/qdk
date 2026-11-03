@@ -1,5 +1,16 @@
 # qodec_demo
 
+> **An example, not a library.** This branch shows the executor protocol
+> (`source/executor_protocol`) running the Qodec runtime's code layers as
+> adapters, end to end. Nothing here is meant to be used or maintained as is:
+> read it as a worked example of the protocol on a real case.
+> `source/qodec_runtime` is an unchanged copy of the Qodec runtime prototype
+> at commit `564b78cf4` of the `oscarpuente/qodec-runtime` branch, and
+> `source/qodec_lowerer` a copy of its lowerer at the same commit, without
+> the interactive prompt (and its `rustyline` dependency). The demo's own
+> code is `source/qodec_demo`. The questions it leaves open for the protocol
+> are in `docs/open-questions.md`.
+
 ## The problem
 
 The Qodec runtime (`qodec_runtime`) runs a program of logical instructions
