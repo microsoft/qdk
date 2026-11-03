@@ -36,11 +36,12 @@
 //!   needs, so the chain checks the set when given the job and passes the
 //!   calls as they are, since the program numbers the set as the profiler
 //!   does.
-//! - **QEP-like**: the profiler as QEP's ([`QepCounting`]), called
-//!   directly on one shot, with no protocol: it takes QEP's instruction
-//!   ([`QepInstruction`]), finds a gate's counter by matching its name
-//!   against QEP's instruction names, and gives its readouts in order,
-//!   untagged.
+//! - **QEP-like**: a version of QEP's counting profiler written for the
+//!   bench ([`QepCounting`]), called directly on one shot, with no
+//!   protocol, in batches of the same sizes as the other columns
+//!   ([`qep_drive`]): it takes QEP's instruction ([`QepInstruction`]),
+//!   finds a gate's counter by matching its name against QEP's instruction
+//!   names, and gives its readouts in order, untagged.
 //!
 //! Every column but QEP-like checks that each batch's readout tags are
 //! unique ([`check_unique_tags`]), as every executor that reports by tag
@@ -977,11 +978,11 @@ impl BatchResult {
     }
 }
 
-/// The counting profiler as QEP's (`SequentialCountingProfiler`): its
-/// counts by QEP's instruction ids, the names it does not know (QEP's
-/// `FxHashSet`; never written in the mix), the highest qubit, and its
-/// draws, from the bench's generator rather than QEP's thread's, so that
-/// its values can be compared.
+/// A version of QEP's counting profiler (`SequentialCountingProfiler`)
+/// written for the bench: its counts by QEP's instruction ids, the names it
+/// does not know (QEP's `FxHashSet`; never written in the mix), the highest
+/// qubit, and its draws, from the bench's generator rather than QEP's
+/// thread's, so that its values can be compared.
 struct QepCounting {
     counts: Vec<u64>,
     unexpected: BTreeSet<&'static str>,
@@ -1038,8 +1039,11 @@ impl QepCounting {
     }
 }
 
-/// Runs `program` on `profiler` in calls of `batch` instructions, as QEP's
-/// batcher calls it, and returns the readouts.
+/// Runs `program` on `profiler`, called directly, in calls of `batch`
+/// instructions, the batch sizes of the protocol's columns, so that the
+/// columns compare like for like (QEP's batcher instead sends a batch when
+/// it is full or at each `read_result`, `mz` or `mz_reset`), and returns
+/// the readouts.
 fn qep_drive(profiler: &mut QepCounting, program: &[QepInstruction], batch: usize) -> Vec<bool> {
     let mut readouts = Vec::new();
     for chunk in program.chunks(batch) {

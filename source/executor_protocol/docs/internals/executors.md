@@ -700,8 +700,9 @@ shot for the same user seed: each of those has a formula of its own.
 
 Each promise of [Executors](../executors.md), the [Glossary](../glossary.md) and
 the [guide walkthroughs](../guides.md) of a simulator and of an existing
-backend, and of the API docs of the executor types and of `Fold`, that the
-sections above do not pin, in each page's order, with the tests that pin it.
+backend, and of the API docs of the executor types, of `Fold` and of `RngId`,
+that the sections above do not pin, in each page's order, with the tests that
+pin it.
 
 From [Executors](../executors.md):
 
@@ -790,3 +791,9 @@ and its order are pinned in [Adapters: the detailed rules](adapters.md)):
 | Ordered maps fold value by value, and the empty map adds nothing, in any order | `maps_fold_value_by_value`, `the_empty_map_adds_nothing`, `maps_fold_in_any_order` |
 | An integer's fold that overflows panics, as `+` does in a debug build          | `an_integers_fold_that_overflows_panics`                                           |
 | Pairs fold part by part                                                        | `pairs_fold_part_by_part`                                                          |
+
+From the API docs of `RngId`, in `src/tests/seeds.rs`:
+
+| Promise                                                                                                                                                                                                                           | Tests                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `RngId::named` gives a name that folds to 0 the id 1, since 0 is the last executor's, so a chain does not refuse the component it names as drawing with the last executor's id, and its seed in a shot is not the last executor's | `a_name_folding_to_0_gets_id_1_not_the_last_executors` |

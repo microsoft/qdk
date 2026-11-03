@@ -372,8 +372,10 @@ guide tests:
 ### Running a chain
 
 `driver()` runs a `StaticProgram`: what the program needs of the chain
-(`Needs`), and its batches, run in turn on every shot. The guide's
-program is its two batches on two qubits of the toy's set
+(`Needs`), and its batches, run in turn on every shot. A program that
+branches on its readouts needs a driver of its own
+([Writing a driver](#writing-a-driver)). The guide's program is its two
+batches on two qubits of the toy's set
 ([`tests/observers.rs`](tests/observers.rs)):
 
 ```rust

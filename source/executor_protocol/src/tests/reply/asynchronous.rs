@@ -75,6 +75,27 @@ fn next<S: Stream + Unpin>(stream: &mut S, context: &mut Context<'_>) -> Poll<Op
     Pin::new(stream).poll_next(context)
 }
 
+/// Asserts that the next three polls of `events` give the error `reason`
+/// once, then the end, then the end again; `scene` names the case.
+fn assert_ends_once_with<S>(events: &mut S, context: &mut Context<'_>, reason: &str, scene: &str)
+where
+    S: Stream<Item = Result<Vec<u32>, String>> + Unpin,
+{
+    assert_eq!(
+        (
+            next(events, context),
+            next(events, context),
+            next(events, context)
+        ),
+        (
+            Poll::Ready(Some(Err(reason.to_owned()))),
+            Poll::Ready(None),
+            Poll::Ready(None)
+        ),
+        "{scene}"
+    );
+}
+
 /// The stream is pending while no event has come, and wakes its task when
 /// one does; each poll that finds events gives them as one item.
 #[test]
@@ -140,6 +161,71 @@ fn async_events_gives_a_cancellation_last_then_ends() {
         Poll::Ready(Some(Err(CANCELLATION.to_owned())))
     );
     assert_eq!(next(&mut events, &mut context), Poll::Ready(None));
+}
+
+/// A device stops after its last readout was streamed, or before any: the
+/// poll that finds the failure finds no events with it, and the caller,
+/// which logs each error until the stream ends, is given the failure once,
+/// then the end.
+#[test]
+fn async_events_gives_a_failure_found_with_no_events_once_then_ends() {
+    let (_, waker) = counting();
+    let mut context = Context::from_waker(&waker);
+    let mut at_once = async_events(ImmediateReply::<u32>::failed(Vec::new(), "stopped".into()));
+    assert_ends_once_with(
+        &mut at_once,
+        &mut context,
+        "stopped",
+        "a reply with no events",
+    );
+    let (sender, reply) = reply_channel();
+    let mut after_events = async_events(reply);
+    sender.push(3);
+    assert_eq!(
+        next(&mut after_events, &mut context),
+        Poll::Ready(Some(Ok(vec![3]))),
+        "the events before the failure come first"
+    );
+    sender.fail("stopped".into());
+    assert_ends_once_with(
+        &mut after_events,
+        &mut context,
+        "stopped",
+        "after a batch of events",
+    );
+}
+
+/// A placed executor dropped while a call is queued cancels the call, with
+/// no events since the caller's last poll, or none at all: the stream gives
+/// the cancellation once, then the end, as it does a failure.
+#[test]
+fn async_events_gives_a_cancellation_found_with_no_events_once_then_ends() {
+    let (_, waker) = counting();
+    let mut context = Context::from_waker(&waker);
+    let (sender, reply) = reply_channel::<u32>();
+    let mut at_once = async_events(reply);
+    sender.cancel();
+    assert_ends_once_with(
+        &mut at_once,
+        &mut context,
+        CANCELLATION,
+        "a reply with no events",
+    );
+    let (sender, reply) = reply_channel();
+    let mut after_events = async_events(reply);
+    sender.push(3);
+    assert_eq!(
+        next(&mut after_events, &mut context),
+        Poll::Ready(Some(Ok(vec![3]))),
+        "the events before the cancellation come first"
+    );
+    sender.cancel();
+    assert_ends_once_with(
+        &mut after_events,
+        &mut context,
+        CANCELLATION,
+        "after a batch of events",
+    );
 }
 
 /// A reply that ends with no events gives no empty item: the stream ends.

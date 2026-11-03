@@ -21,9 +21,10 @@ costs about 1.6 times the baseline on batches of one instruction (about
 7 ns per call), 1.25 times on batches of 10, and within a few percent
 from batches of 100 ([Results](#results)): a cost per call, which
 batching hides. An executor of calls of a set described at run time costs
-about 10 ns more per instruction, at every batch size. QEP's profiler,
-with no protocol, is slower than the baseline at every batch size, 1.3 to
-4.4 times, and faster than both executors of a set described at run time;
+about 10 ns more per instruction, at every batch size. A version of QEP's
+counting profiler written for the bench (QEP-like), called with no
+protocol, is slower than the baseline at every batch size, 1.3 to 4.4
+times, and faster than both executors of a set described at run time;
 the per-shot executor is faster than it from batches of 10. A batch of
 many shots, each on a placement of its own, costs its caller a time per
 shot that grows with the batch when it is woken by each shot that ends
@@ -61,10 +62,13 @@ The columns:
   and finds a call's readout through an `OpcodeTable`, called directly.
 - **run-time per-shot**: that profiler as the state of each shot of an
   executor made so, by a program that states the set in its needs.
-- **QEP-like**: the profiler as QEP's, called directly on one shot, with no
-  protocol: it takes QEP's instruction type, finds a gate's counter by
-  matching its name against QEP's instruction names, and gives its
-  readouts in order, untagged.
+- **QEP-like**: a version of QEP's counting profiler written for the
+  bench, called directly on one shot, with no protocol, in batches of the
+  same sizes as the other columns, so that they compare like for like
+  (QEP's batcher instead sends a batch when it is full or at each readout):
+  it takes QEP's instruction type, finds a gate's counter by matching its
+  name against QEP's instruction names, and gives its readouts in order,
+  untagged.
 
 Every column but QEP-like checks that each batch's readout tags are unique
 (`check_unique_tags`), as every executor that reports by tag must

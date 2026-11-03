@@ -85,6 +85,27 @@ fn rng_ids_and_their_seeds_are_fixed() {
     );
 }
 
+/// A component named `(BpV!`, whose name's hash folds to 0 (found by
+/// search), would otherwise have the last executor's id: a chain would
+/// refuse it as drawing with that id, and its seeds would be the last
+/// executor's. It gets the id 1 instead, so a chain takes it and its seed
+/// in a shot is not the last executor's.
+#[test]
+fn a_name_folding_to_0_gets_id_1_not_the_last_executors() {
+    let folds_to_0 = RngId::named("(BpV!");
+    assert_ne!(folds_to_0, RngId::LAST_EXECUTOR);
+    assert_eq!(
+        folds_to_0.to_string(),
+        "the random numbers with id 0x00000001"
+    );
+    assert!(
+        Capabilities::default().drawing(folds_to_0).is_ok(),
+        "only the last executor draws below it"
+    );
+    let ctx = ShotContext::last_executor(7, 3);
+    assert_ne!(ctx.rng_seed(folds_to_0), ctx.rng_seed(RngId::LAST_EXECUTOR));
+}
+
 /// A component that draws adds its id to those drawn with downstream of it,
 /// which hold the last executor's alone in a chain of one executor.
 #[test]
