@@ -37,15 +37,16 @@ mod profiler;
 mod toy;
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::task::Waker;
 
 use executor_protocol::{
     Below, CallInput, Capabilities, Close, Describe, Executor, ExecutorLogic, ExecutorReport,
-    ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall, MakeState, Needs,
-    OnePerShot, OnePerShotExecutor, OpcodeTable, Operand, Outcomes, Rejected, Reply, ReplyStatus,
-    ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, StaticProgramError, Value,
-    adapter_fn, check_unique_tags, compose, executor_fn, static_driver,
+    ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet,
+    MakeState, Needs, OnePerShot, OnePerShotExecutor, OpcodeTable, Operand, Outcomes, Rejected,
+    Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram,
+    StaticProgramError, Value, adapter_fn, check_unique_tags, compose, conformance, executor_fn,
+    static_driver,
 };
 
 use debugger::{CallResult, DebugLog, LoggedCall, debugger};
@@ -115,12 +116,19 @@ fn toy_ops() -> OpcodeTable<ToOp> {
     ops.expect("the toy runs each instruction of its set")
 }
 
-/// Refuses a batch of calls the toy cannot run, before any shot runs it,
-/// as the toy's own check does for its instructions: a call on a qubit the
-/// toy does not have, or a readout that repeats a tag. Each of the toy's
-/// blocks is a qubit, and each tag a readout.
+/// The toy's set, built once for [`check_calls`], a function pointer that
+/// cannot hold it.
+static TOY_SET: LazyLock<InstructionSet> = LazyLock::new(toy_set);
+
+/// Refuses a batch of calls the toy cannot run, before any shot runs it:
+/// a call outside the toy's set ([`TOY_SET`]), as an executor of calls by
+/// opcode checks itself, and, as the toy's own check does for its
+/// instructions, a call on a qubit the toy does not have, or a readout that
+/// repeats a tag. Each of the toy's blocks is a qubit, and each tag a
+/// readout.
 fn check_calls(input: &CallInput<'_, InstructionCall>) -> Result<(), Rejected> {
     let calls = input.instructions();
+    TOY_SET.check_batch(calls)?;
     let beyond = |operand: &Operand| matches!(operand, Operand::Block(q) if *q >= QUBITS);
     let on_a_missing_qubit = |call: &InstructionCall| call.operands.iter().any(beyond);
     if let Some(at) = calls.iter().position(on_a_missing_qubit) {
@@ -698,6 +706,18 @@ fn a_batch_the_simulators_check_refuses_is_refused_alike_under_each_observer() {
         alone,
         "under the debugger"
     );
+}
+
+/// A driver other than the static one may send the simulator any call:
+/// its check refuses one outside the toy's set at its index, as the
+/// conformance kit's check of a described set asks, before it runs any of
+/// the batch.
+#[test]
+fn the_simulator_refuses_calls_outside_the_toys_set() {
+    let set = toy_set();
+    let flip = set.call("x", vec![Operand::Block(0)]);
+    let flip = flip.expect("the toy's set flips a qubit");
+    conformance::refuses_calls_outside_its_set(&mut simulator(), &ShotSet::one(0), &set, &flip);
 }
 
 /// A program whose second batch holds two readouts of tag 1 is refused

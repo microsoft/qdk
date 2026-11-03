@@ -12,7 +12,7 @@ chain and its job are checked before any call, and a run closes its chain
 once and refuses a call on a shot its job did not name. Every part keeps
 the others: the facilities, the crate's own parts, keep them for an
 implementer's logic ([Facilities](facilities.md)), and the
-[conformance kit](../README.md#checking-a-part) checks a part written by
+[conformance kit](getting-started.md#6-check-your-parts) checks a part written by
 hand for most of them.
 
 This page draws the protocol at work, step by step, from the crate's tests;
@@ -165,7 +165,7 @@ checked and run, and the run's rules, are in
 A program is data; its driver sends its calls and reads their outcomes,
 and for a program with a branch on a readout, chooses the next calls, and
 the shots they go to, from those outcomes. `IfOneDriver`, the driver of
-the README's [Writing a driver](../README.md#writing-a-driver)
+[Writing a driver](getting-started.md#writing-a-driver)
 ([`tests/driver/if_one.rs`](../tests/driver/if_one.rs)), drives
 `toss_again_on_one()`, which tosses a coin on every shot of the job, then,
 on the shots whose coin showed 1, tosses a second coin and reads the first

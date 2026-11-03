@@ -92,7 +92,7 @@ what they belong to; the names in code are the crate's.
     needs (`Program::needs`, `Needs::instruction_set`), and its runtime
     states only what its way of sending adds (`Driver::needs`), both
     checked when the job is given (`Chain::run`)
-    ([Writing a driver](../README.md#writing-a-driver);
+    ([Writing a driver](getting-started.md#writing-a-driver);
     [How applications use it](instruction-sets.md#how-applications-use-it));
   - an **async runtime**, such as Tokio: what polls tasks
     ([An async task leaves its thread to other tasks](internals/replies.md#an-async-task-leaves-its-thread-to-other-tasks)).
@@ -104,7 +104,7 @@ what they belong to; the names in code are the crate's.
 - **Adaptive program**: a program whose content has a branch on a readout,
   so that its driver chooses the next calls, and the shots they go to, from
   the outcomes so far: a property of the program, not a trait
-  ([Writing a driver](../README.md#writing-a-driver)). A static program is
+  ([Writing a driver](getting-started.md#writing-a-driver)). A static program is
   one that decides nothing.
 - **Job**: what a `Chain` is given to run, `chain.run(program, shots)`: a
   program and its shots. It is checked before any call, every fault at once

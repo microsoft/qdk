@@ -267,7 +267,7 @@ reply is pending.
 circuit that a runtime interprets, or a program with a branch, whose
 driver chooses its next batch, and the shots it goes to, from the
 outcomes
-([Writing a driver](../README.md#writing-a-driver)).
+([Writing a driver](getting-started.md#writing-a-driver)).
 
 ## Keep a rule for a part
 
@@ -352,6 +352,6 @@ as made, whatever an earlier one left. Each panics, naming the rule
 broken, and a check on each shot names every shot that breaks it; an
 adapter is checked composed with an executor. The checks are listed in
 [Conformance checks](composition.md#conformance-checks), and how to enable
-them in [Checking a part](../README.md#checking-a-part). They live in
+them in [Check your parts](getting-started.md#6-check-your-parts). They live in
 [`src/conformance.rs`](../src/conformance.rs) and
 [`src/conformance/`](../src/conformance/).

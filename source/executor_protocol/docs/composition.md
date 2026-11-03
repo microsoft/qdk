@@ -55,6 +55,25 @@ A driver, the adapters downstream of it and an executor are put together by
 - A call on a shot the job did not name is refused before the executor sees
   it.
 
+When a driver implements `Driver<P>` for more than one `P`, as a driver of
+several program types does, or one generic over its program, such as one
+that implements `Driver<StaticProgram<I>>` for every instruction type `I`,
+`runtime.into_chain()` cannot tell which and fails to compile (E0283, type
+annotations needed); `DriverExt::<P>::into_chain(runtime)` names the
+program type. A driver generic over its program, from the
+[tests of a chain](../src/tests/compose/chain.rs), where `AddsNeeds(needs)`
+runs a static program as the static driver does, needing `needs` besides
+what the program states (its return type names `NoAdapter`, which only the
+crate can name: outside it, make the prefix where it is composed, without
+naming its type):
+
+```rust
+/// `AddsNeeds(needs)` as a chain's prefix, driving static programs of `I`s.
+fn adding<I: Instruction>(needs: Needs) -> ChainPrefix<AddsNeeds, NoAdapter<I>> {
+    DriverExt::<StaticProgram<I>>::into_chain(AddsNeeds(needs))
+}
+```
+
 From the [debugger guide](../tests/debugger.rs): the static driver, a
 paused debugger and the toy simulator, composed into a chain whose run waits on
 its own thread while this one steps the debugger through its handle:
@@ -144,7 +163,7 @@ The job is the chain's input, not a component:
 static driver runs a `StaticProgram`, whose batches go each to every shot
 of the job in one call, in order. A program of another form, such as one
 with a branch on a readout, has a driver of its own
-([Writing a driver](../README.md#writing-a-driver)).
+([Writing a driver](getting-started.md#writing-a-driver)).
 
 - **The job is checked when given, before any call**: its shots, its program's
   needs with what its driver adds ([below](#needs-combined)) and its program's

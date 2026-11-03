@@ -127,6 +127,8 @@ are planned, with no milestone yet:
 from the implementer's logic alone:
 
 - `promise` is what the executor offers (`Capabilities`), described as given.
+  At each call, a new shot past the shots it promises to hold at once
+  (`max_shots`) is refused (`ShotNotHeld`).
 - `make_state` makes the state a shot's calls run on (a simulator's qubits) from
   the shot's context (`ShotContext`), at the first call that needs it. Its `Err`
   refuses the call, and a later call tries again (placed whole, the executor
@@ -155,6 +157,12 @@ Methods shape the executor further:
   `ShotContext::last_executor(seed, j)`. Without it, a state that draws
   panics, which serves a logic that draws nothing.
 - `.shots(strategy)` and `.run_on(placement)`, in the next two sections.
+
+The other methods are those of `ExecutorFn`, so they come before these two,
+which make other types. Closed, the executor reports an
+`ExecutorReport { calls, log_p, states }`: the calls it accepted, the log
+probability that `.log_probability` reads of each state, and the reports of
+its states, folded.
 
 Without a shot strategy, the executor holds one state, for one shot, so a job
 of more shots is refused when given to the chain. A panic inside `call` reaches
@@ -229,8 +237,8 @@ made. So a function that makes a part for `>>` returns the type the
 facility gives, its closures named by role (`MakeState`, `ExecutorLogic`,
 `AdapterLogic`), as `simulator_recording` of the
 [observer guide](../tests/observers.rs) does
-([Writing an executor](../README.md#writing-an-executor) shows it whole,
-with `simulator()`, which calls it):
+([Write your executor](getting-started.md#3-write-your-executor) shows it
+whole):
 
 ```rust
 fn simulator_recording(
@@ -289,7 +297,7 @@ shot's state draws from it through its `ShotContext`; an adapter that draws
 upstream draws from the same seed under an id of its own ([Seeds, not
 generators](#seeds-not-generators)). A run of eight shots on the executor above,
 driven by the driver of a program with a branch on a readout
-([Writing a driver](../README.md#writing-a-driver)), from the
+([Writing a driver](getting-started.md#writing-a-driver)), from the
 [per-shot executor guide](../tests/per_shot_executor.rs):
 
 ```rust
@@ -303,7 +311,7 @@ let (outcomes, report) = (IfOneDriver.into_chain()
 ```
 
 The driver `IfOneDriver` is shown in
-[Writing a driver](../README.md#writing-a-driver); the program
+[Writing a driver](getting-started.md#writing-a-driver); the program
 `toss_again_on_one()` is the guide's own: the program of that name shown
 there, also needing log probability.
 

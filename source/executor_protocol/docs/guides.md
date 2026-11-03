@@ -14,7 +14,7 @@ one it writes. Read them in this order:
 | Task                                                         | Test file                    | What it builds                                                                                                                                      | Section                                                                                   |
 | ------------------------------------------------------------ | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | run a program on a simulator                                 | `tests/simulator.rs`         | a program run on the toy simulator: a job given to a chain, checked, then waited for                                                                | [Running a program](#running-a-program)                                                   |
-| run a program with a branch on a readout                     | `tests/driver.rs`            | a program with a branch on a readout, as data, and the driver that runs it at the head of a chain                                                   | [Writing a driver](../README.md#writing-a-driver)                                         |
+| run a program with a branch on a readout                     | `tests/driver.rs`            | a program with a branch on a readout, as data, and the driver that runs it at the head of a chain                                                   | [Writing a driver](getting-started.md#writing-a-driver)                                   |
 | bridge a backend written before the protocol                 | `tests/existing_tool.rs`     | a bridge for a backend written before the protocol, and a profiler                                                                                  | [An existing backend and a profiler](#an-existing-backend-and-a-profiler)                 |
 | write an executor, and place it on a thread                  | `tests/per_shot_executor.rs` | an executor with a state per shot: its logic alone, made an executor by `executor_fn`, driven by the driver of a program with a branch on a readout | [Making an executor](executors.md#making-an-executor-executor_fn)                         |
 | compose your own executor type with `>>`, in either grouping | `tests/executor_by_hand.rs`  | an executor written by hand in a crate of its own, and the `>>` its crate implements for each type that may be on its left                          | [An executor written by hand](executors.md#an-executor-written-by-hand-executorlifecycle) |
@@ -177,12 +177,12 @@ let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).w
 ```
 
 The program `program()` and the simulator `simulator()` are helpers of
-[`tests/observers.rs`](../tests/observers.rs), shown in the README's
-[Running a chain](../README.md#running-a-chain) and
-[Writing an executor](../README.md#writing-an-executor); the profiler
+[`tests/observers.rs`](../tests/observers.rs), shown in
+[Getting started](getting-started.md#a-program-of-fixed-batches) and
+[Write your executor](getting-started.md#3-write-your-executor); the profiler
 `profiler()` is in
 [`tests/observers/profiler.rs`](../tests/observers/profiler.rs), shown in
-[Writing an adapter](../README.md#writing-an-adapter), and the debugger
+[Add adapters](getting-started.md#4-add-adapters), and the debugger
 `debugger(log)`, with the `DebugLog` it fills (`log`), in
 [`tests/observers/debugger.rs`](../tests/observers/debugger.rs).
 

@@ -94,7 +94,8 @@
 //!
 //! The crate depends on `std` and `futures-core` (for [`AsyncEvents`]'s
 //! `Stream`) only, so that every part of qdk can use it. The crate's
-//! `README.md` introduces the protocol and the facilities, and
+//! `README.md` introduces the protocol and the facilities,
+//! `docs/getting-started.md` shows how to write each part, and
 //! `docs/protocol.md` and `docs/facilities.md` detail them.
 
 mod adapter;

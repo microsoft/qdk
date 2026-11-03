@@ -83,7 +83,7 @@ use crate::{
 /// ```
 ///
 /// The driver `IfOneDriver` (`tests/driver/if_one.rs`) is shown in the
-/// crate's `README.md`, "Writing a driver"; the program
+/// crate's `docs/getting-started.md`, "Writing a driver"; the program
 /// `toss_again_on_one()` is the guide's own: the program of that name
 /// shown there, also needing log probability.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

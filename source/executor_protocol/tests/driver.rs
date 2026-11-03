@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [Writing a driver](../README.md#writing-a-driver): a program with a
-//! branch on a readout, as data (`driver/if_one.rs`, `IfOne`), and the
-//! driver that runs it (`IfOneDriver`), at the head of a chain,
-//! `driver >> adapters >> executor`, here with no adapter. The program
+//! [Writing a driver](../docs/getting-started.md#writing-a-driver): a
+//! program with a branch on a readout, as data (`driver/if_one.rs`,
+//! `IfOne`), and the driver that runs it (`IfOneDriver`), at the head of a
+//! chain, `driver >> adapters >> executor`, here with no adapter. The program
 //! states what its instructions need; the driver adds what its way of
 //! sending needs (a shot continued in a later call), and the chain checks
 //! both. The executor is the toy simulator (`toy/simulator.rs`).
