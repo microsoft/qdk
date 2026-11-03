@@ -219,8 +219,8 @@ let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).w
   when it is an `adapter_fn`
   ([Adapters](internals/adapters.md#the-order-of-a-runs-readouts)); the debugger
   logs them in that order; a batch the simulator's check refuses whole is
-  refused alike under each observer, and so is a program that reads a tag twice,
-  when it is given to the chain.
+  refused alike under each observer, and so is a program whose calls read a
+  tag twice, when it is given to the chain.
 - **Grouping does not matter**: the two stacked give the same run and log
   grouped in each of the five ways `>>` allows, and each sees what it sees
   alone.

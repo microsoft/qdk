@@ -24,9 +24,9 @@ use crate::{
     AdapterError, AdapterLogic, Below, CallInput, Capabilities, Close, ComposedJob, Describe,
     Driver, DriverExt, Executor, ExecutorLogic, ExecutorReport, Instruction, InstructionBatch,
     InstructionBatchRef, InstructionCall, MakeState, Needs, NoAdapter, NoCheck, OnePerShot,
-    OnePerShotAdapter, OnePerShotExecutor, Opcode, Outcome, Outcomes, Program, Rejected, Reply,
-    ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose,
-    executor_fn, reply_channel, wait, wait_async,
+    OnePerShotAdapter, OnePerShotExecutor, Opcode, Outcome, Outcomes, Program, ReadoutFailure,
+    Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, Value,
+    adapter_fn, compose, driver, executor_fn, reply_channel, wait, wait_async,
 };
 
 /// A job composed with adapters and an executor makes no shot until its
@@ -261,6 +261,55 @@ fn a_run_gives_the_programs_output_and_the_executors_report() {
             ..ExecutorReport::default()
         }
     );
+}
+
+/// A device that loses shot 1's first qubit, so that its first readout has
+/// no value, under an observer made with `adapter_fn`, running a static
+/// program of two batches by the crate's driver: the run goes on to its
+/// end, and gives the missing readout with that shot's other readouts and
+/// the second batch's.
+#[test]
+fn a_missing_value_does_not_end_the_run_and_the_shots_other_readouts_stand() {
+    let reads = |shot: ShotId, tag: u32| {
+        if (shot, tag) == (1, 0) {
+            Value::Missing(ReadoutFailure::Loss)
+        } else {
+            Value::One
+        }
+    };
+    let device = executor_fn(
+        Capabilities::default().with_resumable_shots(true),
+        |context: ShotContext| Ok((context.shot(), 0)),
+        move |(shot, tag): &mut (ShotId, u32),
+              input: &CallInput<'_, bool>,
+              outcomes: &mut Outcomes<'_>| {
+            for _ in input.instructions().iter().filter(|&&read| read) {
+                outcomes.push(Outcome::new(*tag, reads(*shot, *tag)));
+                *tag += 1;
+            }
+            Ok(())
+        },
+    )
+    .shots(OnePerShot);
+    let observer = adapter_fn(
+        |_| Ok(()),
+        |(): &mut (),
+         input: &CallInput<'_, bool>,
+         below: &mut Below<'_, bool>,
+         _: &mut Outcomes<'_>| below.send(input.instructions()),
+    );
+    let program = StaticProgram::new(Needs::default(), vec![vec![true, true], vec![true]]);
+    let (output, _) = (driver() >> observer >> device)
+        .expect("the observer sends the device what it accepts")
+        .run(program, [0, 1, 2])
+        .expect("three shots, which the device resumes")
+        .wait();
+    let mut read = values(&output.expect("a missing value fails no batch"));
+    read.sort_unstable_by_key(|&(shot, tag, _)| (shot, tag));
+    let expected: Vec<_> = (0..3)
+        .flat_map(|shot| (0..3).map(move |tag| (shot, tag, reads(shot, tag))))
+        .collect();
+    assert_eq!(read, expected);
 }
 
 /// A chain composed with a probe that draws nothing and sends what it

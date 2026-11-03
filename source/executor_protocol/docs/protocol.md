@@ -111,8 +111,8 @@ possible execution: the events may already be in at the first poll, more
 than one poll may take them, and a reply may end `Failed` or `Cancelled`
 instead of `Done`. It leaves out two steps: each call passes through the
 run's filter of the job's shots (`HeldShots`) between the driver and the
-adapter's executor, and an `adapter_fn`'s send polls the reply below once,
-with a no-op waker, inside the call:
+adapter's executor, and an `adapter_fn` polls a send's reply below with a
+no-op waker inside the call, at the send and as the logic returns:
 
 ```mermaid
 sequenceDiagram

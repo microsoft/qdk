@@ -66,11 +66,12 @@ pub struct Needs {
     /// keeps a state per shot between calls. Combined, needed when the
     /// program or its driver states it, as each flag below.
     pub resumable_shots: bool,
-    /// The program prepares qubits again during the run, checked against
-    /// [`Capabilities::resets`]. Where the program states its
-    /// [`instruction_set`](Self::instruction_set), the reset among them must
-    /// also match one of the chain's set, which is the guarantee; this need
-    /// informs only where no set is described.
+    /// The job prepares qubits again during the run, checked against
+    /// [`Capabilities::resets`]. Where the job states an
+    /// [`instruction_set`](Self::instruction_set), in its program's needs
+    /// or its driver's, the reset among them must also match one of the
+    /// chain's set, which is the guarantee; this need informs only where
+    /// no set is described.
     pub resets: bool,
     /// Each shot replays: run again on the run's seed, alone or among other
     /// shots, in one call or split over several, it gives what it gave, since

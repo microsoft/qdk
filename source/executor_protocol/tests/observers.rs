@@ -691,9 +691,9 @@ fn a_batch_the_simulators_check_refuses_is_refused_alike_under_each_observer() {
     );
 }
 
-/// A program whose second batch reads tag 1 twice is refused when it is
-/// given to the chain, alike alone and under each observer: the static
-/// program's own check refuses it before any batch is sent, so the
+/// A program whose second batch holds two readouts of tag 1 is refused
+/// when it is given to the chain, alike alone and under each observer: the
+/// crate's driver's check refuses it before any batch is sent, so the
 /// simulator's check never sees it, and no observer changes the refusal.
 #[test]
 fn a_program_that_reads_a_tag_twice_is_refused_alike_under_each_observer() {
@@ -703,17 +703,17 @@ fn a_program_that_reads_a_tag_twice_is_refused_alike_under_each_observer() {
     let program = || program_of(vec![toss(), vec![read(0), read(1)]]);
     let chain = (driver() >> simulator()).expect("nothing between to refuse");
     let Err(alone) = chain.run(program(), SHOTS) else {
-        panic!("a static program refuses a tag read twice");
+        panic!("the crate's driver refuses a tag read twice");
     };
     let chain = (driver() >> profiler() >> simulator()).expect("the profiler fits");
     let Err(profiled) = chain.run(program(), SHOTS) else {
-        panic!("a static program refuses a tag read twice under the profiler");
+        panic!("the crate's driver refuses a tag read twice under the profiler");
     };
     assert_eq!(profiled, alone, "under the profiler");
     let log = DebugLog::default();
     let chain = (driver() >> debugger(log.clone()) >> simulator()).expect("the debugger fits");
     let Err(debugged) = chain.run(program(), SHOTS) else {
-        panic!("a static program refuses a tag read twice under the debugger");
+        panic!("the crate's driver refuses a tag read twice under the debugger");
     };
     assert_eq!(debugged, alone, "under the debugger");
     assert!(

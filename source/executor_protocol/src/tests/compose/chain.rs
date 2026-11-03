@@ -204,6 +204,36 @@ fn a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal() {
     );
 }
 
+/// A job whose program of calls by opcode states no set and needs three
+/// qubits, run by the crate's driver on the two bits: the undescribed set
+/// is reported with the qubits it lacks, after them, in the order of
+/// `Capabilities::admit`, so that both are fixed in one go.
+#[test]
+fn an_undescribed_set_is_reported_after_the_jobs_other_unmet_needs() {
+    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+    let needs = Needs::default().with_qubits(3);
+    let program = StaticProgram::new(needs, flip_and_toss(&bits_set()));
+    let Err(JobFaults(faults)) = chain.run(program, 0..1) else {
+        panic!("three qubits on two bits and no set stated must be refused");
+    };
+    let faults: Vec<_> = (faults.iter())
+        .map(|fault| match fault {
+            Rejected::Unmet(unmet) => (
+                unmet.need,
+                unmet.needed,
+                unmet.offered,
+                unmet.mismatches.len(),
+            ),
+            other => panic!("the job's faults are its unmet needs: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        faults,
+        [(Need::Qubits, 3, 2, 0), (Need::InstructionSet, 1, 0, 0)]
+    );
+}
+
 /// A job of four shots on an executor that holds three shots at once is
 /// refused when given to the chain, naming the shots it holds
 /// (`Need::Shots`).

@@ -274,11 +274,12 @@ by hand instead.
 - `executor_fn` ([`src/facilities/executor_fn.rs`](src/facilities/executor_fn.rs))
   makes an executor from a state and a logic that runs a call's
   instructions on it: a simulator, a device, a bridge to an existing tool.
-  It describes its promise (lowered to one shot without `.shots(..)`),
-  refuses a new shot past the shots it promises to hold, fails for good on
-  its logic's error, keeps a state per shot with `.shots(OnePerShot)`, and,
-  given the run's seed with `.seed(s)`, seeds each shot's state from it and
-  the shot. `.run_on(placement)`
+  It describes its promise (lowered to one shot without `.shots(..)`, with
+  `log_probability` only given `.log_probability(f)`), refuses a new shot
+  past the shots it promises to hold, fails for good on its logic's error,
+  keeps a state per shot with `.shots(OnePerShot)`, and, given the run's
+  seed with `.seed(s)`, seeds each shot's state from it and the shot.
+  `.run_on(placement)`
   ([`src/facilities/placed_executor.rs`](src/facilities/placed_executor.rs))
   runs it where a placement says: on a thread of its own, or each shot on
   its own.

@@ -141,15 +141,16 @@ with a branch on a readout, has a driver of its own
 - **The job is checked when given, before any call**: its shots, its program's
   needs with what its driver adds ([below](#needs-combined)) and its program's
   calls as far as its driver checks them (`Driver::check`, which checks
-  nothing by default; the crate's driver refuses a call outside the
-  program's set, and a tag read twice), every fault together (`JobFaults`),
-  but for shots named twice: of several, only the least is reported.
+  nothing by default; the crate's driver refuses, in a program of calls by
+  opcode, a call outside the program's set and a tag read twice), every
+  fault together (`JobFaults`), but for shots named twice: of several, only
+  the least is reported.
 - **A job calls only its own shots**: a call on another is refused before the
   executor sees it.
 - **The run gives the program's output with the executor's report** (for a
-  `StaticProgram`, its outcomes), waited for or awaited alike. A
-  `StaticProgram` stops at the first batch that the chain refuses or that
-  fails.
+  `StaticProgram`, its outcomes), waited for or awaited alike. The crate's
+  driver stops a `StaticProgram` at the first batch that the chain refuses
+  or that fails.
 - **A chain runs one job.** A function that builds the chain builds it again for
   the next job. A chain that runs many jobs is planned, with no milestone yet.
 
