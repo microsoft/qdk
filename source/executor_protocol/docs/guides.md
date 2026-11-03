@@ -44,6 +44,10 @@ let run = compose(driver(), toy_simulator(seed))?.run(program, shots)?;
 let (output, report) = run.wait();
 ```
 
+Its shots, `shots()`, are shots 0 to 63, a helper of the guide beside
+`flip_a_coin`; `toy_simulator(seed)` is the toy's, in
+[`tests/toy/simulator.rs`](../tests/toy/simulator.rs).
+
 What a user relies on, each shown by a test of
 [`tests/simulator.rs`](../tests/simulator.rs):
 
@@ -171,6 +175,16 @@ let chain = chain.expect("the observers fit");
 // SHOTS is [2, 5, 6, 11]: the job's shots, not a plain range.
 let (outcomes, (counts, _)) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
 ```
+
+The program `program()` and the simulator `simulator()` are helpers of
+[`tests/observers.rs`](../tests/observers.rs), shown in the README's
+[Running a chain](../README.md#running-a-chain) and
+[Writing an executor](../README.md#writing-an-executor); the profiler
+`profiler()` is in
+[`tests/observers/profiler.rs`](../tests/observers/profiler.rs), shown in
+[Writing an adapter](../README.md#writing-an-adapter), and the debugger
+`debugger(log)`, with the `DebugLog` it fills (`log`), in
+[`tests/observers/debugger.rs`](../tests/observers/debugger.rs).
 
 - **The profiler** counts the calls each shot sends below, by opcode, and sends
   them down as they are (`Below::send`). The run's report gives its counts,
@@ -359,6 +373,11 @@ let gadgets = [
 ];
 ```
 
+Here `gadget(mnemonic, readouts)` is a closure of `repetition3()` in that
+file, not the static guide's `gadget(instruction)` above: it makes the
+gadget of one call of `mnemonic` per qubit of the block, whose logical
+readouts are `readouts`, each the parity of the circuit readouts it lists.
+
 Both sets declare what each instruction does, as Qodec does, so the
 gadgets' Stim instructions (`R`, `M`, `X`) are matched to the device's
 (`reset`, `measure`, `x`) by action
@@ -433,6 +452,12 @@ What the guide shows, each rule pinned by a test:
       .run(prepare_flip_and_read(set), ShotSet::one(0))
       .expect("the code accepts its own set");
   ```
+
+  Here `code` is the fixture's code composed upstream of a device of eight
+  qubits (`composed(8)`), and `prepare_flip_and_read(set)` is a program that
+  prepares block 0, flips it and reads it, its calls built by name in `set`,
+  which it states as its needs; both are helpers of
+  [`tests/runtime_isa.rs`](../tests/runtime_isa.rs).
 
 - **A refusal names the logical call**: a call outside the logical set or on a
   block the code does not have is refused before anything goes down, and a

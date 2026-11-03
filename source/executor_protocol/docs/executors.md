@@ -302,8 +302,10 @@ let (outcomes, report) = (IfOneDriver.into_chain()
 .wait();
 ```
 
-The driver `IfOneDriver` and its program `toss_again_on_one()` are shown in
-[Writing a driver](../README.md#writing-a-driver).
+The driver `IfOneDriver` is shown in
+[Writing a driver](../README.md#writing-a-driver); the program
+`toss_again_on_one()` is the guide's own: the program of that name shown
+there, also needing log probability.
 
 ## Where an executor runs: `run_on`
 

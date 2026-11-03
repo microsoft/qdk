@@ -685,11 +685,11 @@ fn per_shot_run<I: Instruction, P: Profile<I>>(
     make: impl Fn(ShotId, u64) -> P,
 ) -> (Vec<ShotOutcome>, ExecutorReport<Tally>) {
     let state = move |context: ShotContext| Ok(make(context.shot(), context.seed()));
-    let program_fn = |profiler: &mut P, input: &CallInput<'_, I>, outcomes: &mut Outcomes<'_>| {
+    let logic = |profiler: &mut P, input: &CallInput<'_, I>, outcomes: &mut Outcomes<'_>| {
         profiler.run(input.instructions(), |outcome| outcomes.push(outcome));
         Ok(())
     };
-    let executor = executor_fn(capabilities, state, program_fn)
+    let executor = executor_fn(capabilities, state, logic)
         .check(check)
         .log_probability(|profiler: &P| profiler.counter().log_p)
         .state_report(|profiler: &P| profiler.counter().tally())

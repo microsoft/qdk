@@ -73,8 +73,8 @@ pub fn run_bond_limited(
 
 /// The executor, whose device is busy when shot `busy_at` first starts,
 /// and free afterwards: [`QUBITS`] qubits, at most [`MAX_SHOTS`] shots at
-/// once, resumable shots, replayable shots and resets, the toy's [`check`], and
-/// the log probability of each state's coins. Each shot's state draws from the
+/// once, resumable shots and replayable shots, the toy's [`check`], and the
+/// log probability of each state's coins. Each shot's state draws from the
 /// last executor's seed in the shot ([`ShotContext::seed`]), so a run gives it
 /// the run's seed and a state per shot:
 /// `bond_limited_executor(None).seed(seed).shots(OnePerShot)`. Its logic and

@@ -5,8 +5,8 @@
 //!
 //! First, a set's own operations, by the set's size: the check of a call
 //! ([`InstructionSet::check_batch`]), the lookup of a mnemonic, and the
-//! building of a call by mnemonic ([`InstructionSet::call`]), which a
-//! program or an adapter pays once.
+//! building of a call by mnemonic ([`InstructionSet::call`]), which
+//! whoever builds a program's calls, or an adapter, pays once.
 //!
 //! Then three executors of the same machine (one like the guides' toy:
 //! eight bits and a coin), doing the same work: one of a Rust instruction

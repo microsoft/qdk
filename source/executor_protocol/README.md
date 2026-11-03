@@ -1,7 +1,7 @@
 # `executor_protocol`
 
-The QDK runs quantum programs on several simulators, and places components
-between a program and the simulator that runs it: a
+The QDK runs quantum programs on several simulators, through a chain of
+components from the program to the simulator that runs it: a
 [runtime](docs/glossary.md#a-chain-and-its-parts) that walks an adaptive
 program and feeds measurements back, a noise model that inserts faults, an
 error-correcting code that lowers logical instructions to physical ones, a probe
@@ -11,7 +11,7 @@ reported and how a caller waits.
 
 This crate is that contract:
 
-- A **driver**, at the top of a chain, drives the program given to the chain:
+- A **driver**, at the top of the chain, drives the program given to the chain:
   a program is data (its instructions, what it gives and what it needs), and
   the driver makes its calls for the shots of the job.
 - An **executor**, at the end, runs the instructions: for instance, a simulator,
@@ -197,9 +197,10 @@ Each part is shown in [Getting started](#getting-started): `program()` in
 [Running a chain](#running-a-chain), `simulator()` in
 [Writing an executor](#writing-an-executor), `profiler()` in
 [Writing an adapter](#writing-an-adapter). The debugger, `debugger(log)`,
-which fills the `DebugLog` the test keeps, the shots `SHOTS`, the message
-`THE_JOB_FITS` and the expected counts `the_runs_counts()` are helpers of
-[`tests/observers.rs`](tests/observers.rs)
+which fills the `DebugLog` the test keeps, is in
+[`tests/observers/debugger.rs`](tests/observers/debugger.rs); the shots
+`SHOTS`, the message `THE_JOB_FITS` and the expected counts
+`the_runs_counts()` are helpers of [`tests/observers.rs`](tests/observers.rs)
 ([Observers](docs/guides.md#observers-a-profiler-and-a-debugger)).
 
 The chain, from the program down to the simulator:
@@ -360,11 +361,13 @@ guide tests:
   simulator on a seed, `toy_simulator(seed)`;
 - of [`tests/observers.rs`](tests/observers.rs): `batches()`,
   `the_toys_promise()`, `check_calls`, `toy_ops()`, `Received`, `Shot`,
-  the seed `SEED`, the shots `SHOTS`, the message `THE_JOB_FITS`, and the
-  profiler's `Counts`;
+  the seed `SEED`, the shots `SHOTS` and the message `THE_JOB_FITS`; and
+  the profiler's `Counts`, of
+  [`tests/observers/profiler.rs`](tests/observers/profiler.rs);
 - of [`tests/existing_tool.rs`](tests/existing_tool.rs): `on_shot_0`, a
-  batch on shot 0, and the profiling executor on a seed,
-  `profiling_executor(seed)`.
+  batch on shot 0; and the profiling executor on a seed,
+  `profiling_executor(seed)`, of
+  [`tests/existing_tool/profiler.rs`](tests/existing_tool/profiler.rs).
 
 ### Running a chain
 

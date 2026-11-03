@@ -138,9 +138,10 @@ take it.
 
 The choice stays the caller's only while no executor downstream waits inside
 its own `call`. The executor an adapter makes, when its work needs each of
-its inner reply's outcomes before it goes on (a program's walk, say), may
-call `wait` inside its `call` and return an `ImmediateReply`; an async caller
-upstream of it then holds its thread for the whole call.
+its inner reply's outcomes before it goes on (a debugger that logs each
+shot's call with what it read, say), may call `wait` inside its `call` and
+return an `ImmediateReply`; an async caller upstream of it then holds its
+thread for the whole call.
 
 **How finely events come is the executor's choice.** An executor that runs the
 batch inside `call` hands over every outcome at the first poll; one whose work

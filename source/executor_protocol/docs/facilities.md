@@ -9,10 +9,11 @@ code's lowering and decoding, a profiler's counts. They live in
 [`src/facilities/`](../src/facilities/), whose module documentation
 ([`src/facilities.rs`](../src/facilities.rs)) lists them in two groups,
 which this page follows: those that make a part from your logic, and those
-that keep a rule of the protocol for a part you write by hand. Two of the
-second group are described here with `executor_fn`: `.run_on`, since only
-an `executor_fn` is placed today, and `shot_states.rs`, which keeps the
-rules of an `executor_fn` with a state per shot (its `ShotStates` is
+that keep a rule of the protocol for a part you write by hand. Three
+modules of the second group are described here with `executor_fn`: the
+two of `.run_on` (`executor_placement.rs`, `placed_executor.rs`), since
+only an `executor_fn` is placed today, and `shot_states.rs`, which keeps
+the rules of an `executor_fn` with a state per shot (its `ShotStates` is
 internal to the crate). This page says what each serves, what it
 guarantees, where it lives, and when to write the part by hand
 instead; the topic pages it links hold the how-to.

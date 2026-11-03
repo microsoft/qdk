@@ -360,7 +360,10 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     /// A profiler that counts its shots' instructions, a state per shot, over
     /// an executor; its counts are folded over the shots, beside the executor's
     /// report. Excerpt of the crate's tests of an adapter with a state per
-    /// shot:
+    /// shot (`src/tests/facilities/adapter_fn/one_per_shot.rs`), whose helpers
+    /// there are the state `no_counts`, an empty `Tally` (its shot's
+    /// instructions counted by kind), and the logic `count_and_send`, which
+    /// counts the call's instructions and sends the call down:
     ///
     /// ```ignore
     /// let counting = adapter_fn(no_counts, count_and_send)

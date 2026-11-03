@@ -340,7 +340,11 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     /// A simulator whose states count their flips, and report them under their
     /// shot (`Flips`, whose fold adds them shot by shot), runs shots 0 and 1,
     /// then shot 1 again; closing folds each state's report once. Excerpt of
-    /// the crate's tests of a state per shot:
+    /// the crate's tests of a state per shot
+    /// (`src/tests/facilities/executor_fn/one_per_shot.rs`, where `run` calls
+    /// the executor on the shots and waits for the outcomes); the state
+    /// `Flipped`, its logic `count_flips`, its report `flips`, `Flips` and
+    /// `promise()` are helpers of `src/tests/facilities/executor_fn.rs`:
     ///
     /// ```ignore
     /// let mut executor = executor_fn(promise(), Flipped::new, count_flips)
@@ -394,7 +398,10 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     ///
     /// A simulator whose state is a value drawn from its shot's seed, given the
     /// run's seed, then a state per shot. Two lines of the crate's tests of
-    /// `executor_fn`:
+    /// `executor_fn` (`src/tests/facilities/executor_fn.rs`), whose helpers
+    /// there are the state `draw_value`, the logic `read_drawn_bits`, which
+    /// reads the value's bits, `promise()`, `SEED` and `run`, which calls the
+    /// executor with `ops` (16 reads) on shot 4 and waits for the outcomes:
     ///
     /// ```ignore
     /// let drawing = || executor_fn(promise(), draw_value, read_drawn_bits).seed(SEED);

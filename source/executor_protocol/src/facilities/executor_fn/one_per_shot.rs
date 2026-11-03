@@ -66,8 +66,11 @@ use crate::{
 /// .log_probability(|state| state.log_p)
 /// ```
 ///
-/// and a run of eight shots on it, from the per-shot executor guide
-/// (`tests/per_shot_executor.rs`):
+/// The toy's check, `check`, and its qubits, `QUBITS`, are helpers of
+/// `tests/toy/simulator.rs`; the state `BondLimitedState`, the bound
+/// `MAX_SHOTS` and the logic `run_bond_limited` are the guide's own, in
+/// `tests/per_shot_executor/bond_limited.rs`. A run of eight shots on it,
+/// from the per-shot executor guide (`tests/per_shot_executor.rs`):
 ///
 /// ```ignore
 /// let shots = ShotSet::range(0..=7).expect("not empty");
@@ -78,6 +81,11 @@ use crate::{
 /// .expect("the executor has resumable shots, log probability, 8 shots")
 /// .wait();
 /// ```
+///
+/// The driver `IfOneDriver` (`tests/driver/if_one.rs`) is shown in the
+/// crate's `README.md`, "Writing a driver"; the program
+/// `toss_again_on_one()` is the guide's own: the program of that name
+/// shown there, also needing log probability.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OnePerShot;
 

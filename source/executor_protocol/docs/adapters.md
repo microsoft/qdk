@@ -221,7 +221,10 @@ pub fn instantiated(
 }
 ```
 
-and made an adapter, one state per shot, with no change to it
+There, `CodePlan` is the code's plan, made once, whose `instantiate` makes
+a shot's runtime, `CodeRuntime`, over a backend it owns, and `Lower` makes
+the way below that backend; all three are in the same file. The runtime
+is made an adapter, one state per shot, with no change to it
 ([`tests/static_isa.rs`](../tests/static_isa.rs)):
 
 ```rust
