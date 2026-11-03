@@ -7,7 +7,7 @@
 
 #[cfg(doc)]
 use crate::{BuiltinDriver, Chain, driver};
-use crate::{Driver, Instruction, NoAdapter};
+use crate::{Driver, Instruction, NoAdapter, Program};
 
 /// A chain's prefix: a driver, with the adapters composed downstream of it
 /// so far (none at first), as a chain is built left to right. Composed with
@@ -89,7 +89,7 @@ impl<T, L> ChainPrefix<T, L> {
 ///
 /// let prefix = DriverExt::<()>::into_chain::<InstructionCall>(Interpreter);
 /// ```
-pub trait DriverExt<P>: Driver<P> + Sized {
+pub trait DriverExt<P: Program>: Driver<P> + Sized {
     /// This driver as a chain's prefix, sending `I`s, with no adapter
     /// yet. `I` is fixed by what it is composed with: the first adapter
     /// downstream of it, or the executor.
@@ -99,4 +99,4 @@ pub trait DriverExt<P>: Driver<P> + Sized {
     }
 }
 
-impl<T: Driver<P>, P> DriverExt<P> for T {}
+impl<T: Driver<P>, P: Program> DriverExt<P> for T {}

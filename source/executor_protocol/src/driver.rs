@@ -1,41 +1,38 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The driver ([`Driver`]): the component at the top of a chain, which runs
-//! any program of its form given to the chain, so that programs are data (a
-//! list of batches, a circuit, a QIR program) and one driver runs every
-//! program of its form. In a chain being built it is in the chain's prefix
-//! ([`ChainPrefix`]), with the adapters composed below it so far, which
-//! composes with adapters and an executor into a [`Chain`], built and
-//! checked, which runs the job given to it:
+//! The driver ([`Driver`]): the component at the top of a chain, which
+//! drives the programs of its form given to the chain: a program is data
+//! ([`Program`]: its instructions, its output and its needs), and the
+//! driver sends its calls, reads their outcomes and, for a program with a
+//! branch on a readout, chooses the next calls from them. In a chain being
+//! built it is in the chain's prefix ([`ChainPrefix`]), with the adapters
+//! composed below it so far, which composes with adapters and an executor
+//! into a [`Chain`], built and checked, which runs the job given to it:
 //! `chain.run(program, shots)`, a [`Run`] of the program as the driver
-//! drives it ([`DrivenProgram`]). A job is the chain's input, not one of its
-//! components.
+//! drives it. A job is the chain's input, not one of its components.
 //!
 //! - [`chain_prefix`]: a chain's prefix, a driver with the adapters
 //!   composed below it so far ([`ChainPrefix`]), and how a driver becomes
 //!   one ([`DriverExt`]).
 //! - [`builtin_driver`](crate::facilities::builtin_driver): the crate's
-//!   driver, which runs a [`StaticProgram`] and any [`AdaptiveProgram`]
-//!   ([`BuiltinDriver`], from [`driver()`](fn@crate::driver)).
-//! - [`driven_program`]: a program as its driver drives it, what a chain's
-//!   run runs ([`DrivenProgram`]).
+//!   driver, which runs a [`StaticProgram`] ([`BuiltinDriver`], from
+//!   [`driver()`](fn@crate::driver)).
 
 pub(crate) mod chain_prefix;
-pub(crate) mod driven_program;
 
 use std::future::Future;
 
 #[cfg(doc)]
-use crate::{
-    AdaptiveProgram, BuiltinDriver, Chain, ChainPrefix, DrivenProgram, DriverExt, Run,
-    StaticProgram,
-};
-use crate::{Executor, Instruction, InstructionBatch, Needs, Rejected, ShotSet};
+use crate::{BuiltinDriver, Chain, ChainPrefix, DriverExt, Run, StaticProgram};
+use crate::{Executor, InstructionBatch, Needs, Program, Rejected, ShotSet};
 
-/// A driver of programs of type `P`: what it needs of the chain to run a
-/// program, and how it drives any executor of its instructions through the
-/// program, as an [`AdaptiveProgram`] does on its own.
+/// A driver of programs of type `P` ([`Program`]): what its way of sending
+/// adds to the program's needs, the program's faults it can find before
+/// any call, and how it drives any executor of the program's instructions
+/// through the program, to the program's output. It sends the calls,
+/// reads their outcomes and, for a program with a branch on a readout,
+/// chooses the next calls from them; the program is data.
 ///
 /// A runtime that executes a program's control logic, such as a QIR
 /// runtime, is a driver: in [`drive`](Driver::drive) it makes its calls on
@@ -56,24 +53,21 @@ use crate::{Executor, Instruction, InstructionBatch, Needs, Rejected, ShotSet};
     label = "not a driver of this program",
     note = "a chain runs the programs its driver drives: \
             `(driver() >> executor)?.run(program, shots)` (docs/composition.md, \"Composing a run\")",
-    note = "the crate's driver, `driver()`, runs a `StaticProgram` and any `AdaptiveProgram`",
+    note = "the crate's driver, `driver()`, runs a `StaticProgram`; a program of another form \
+            needs a driver of its own, made a chain's prefix by `DriverExt::into_chain`",
     note = "a `StaticProgram<I>` runs where `I` is an `Instruction` and the chain's executor accepts \
             batches of `I`"
 )]
-pub trait Driver<P> {
-    /// The instructions it sends.
-    type Instruction: Instruction;
-    /// What it gives when it is done.
-    type Output;
-
-    /// What it needs of the chain to run `program`, checked when the
-    /// program is given to the chain ([`Chain::run`]). The default needs
-    /// nothing but the run's shots, held at once ([`Needs`]), and states no
-    /// instruction set: enough for typed instructions, while a driver that
-    /// sends calls by opcode ([`InstructionCall`](crate::InstructionCall))
-    /// also states their set, or a chain refuses its job. A driver whose
-    /// later calls continue a shot also states `resumable_shots`
-    /// ([`Needs::resumable_shots`]), which no call checks.
+pub trait Driver<P: Program> {
+    /// What its way of sending adds to the needs of `program`
+    /// ([`Program::needs`]), such as `resumable_shots`
+    /// ([`Needs::resumable_shots`]) for a driver whose later calls
+    /// continue a shot, which no call checks. The chain checks the two
+    /// combined when the program is given to it ([`Chain::run`]), so a
+    /// driver cannot drop a need of the program: the larger number of
+    /// qubits, each flag either states, and the instruction set either
+    /// states, refused as a fault of the job when both state one and the
+    /// two differ ([`Needs`]). The default adds nothing.
     #[must_use]
     fn needs(&self, program: &P) -> Needs {
         let _ = program;
@@ -91,15 +85,23 @@ pub trait Driver<P> {
         Vec::new()
     }
 
-    /// Drives `executor` through `program` on `shots` to the end, as
-    /// [`AdaptiveProgram::drive`] does: each call names the shots it runs
-    /// on, a part of `shots`.
+    /// Drives `executor` through `program` on `shots` to the end, and gives
+    /// the program's output: each call names the shots it runs on, a part
+    /// of `shots`; a call naming another shot is refused by the run
+    /// ([`Rejected::ShotNotHeld`]). It only calls `executor`: what the
+    /// chain offers was checked when the program was given to it, and the
+    /// run closes it once this future has ended.
+    ///
+    /// A synchronous driver writes it as an `async fn` that takes each
+    /// reply with [`wait`](crate::wait); an asynchronous one awaits them
+    /// ([`wait_async`](crate::wait_async)). Either runs on a [`Run`],
+    /// waited for or awaited.
     fn drive<E>(
         &self,
         program: P,
         executor: &mut E,
         shots: &ShotSet,
-    ) -> impl Future<Output = Self::Output>
+    ) -> impl Future<Output = P::Output>
     where
-        E: Executor<InstructionBatch<Self::Instruction>>;
+        E: Executor<InstructionBatch<P::Instruction>>;
 }

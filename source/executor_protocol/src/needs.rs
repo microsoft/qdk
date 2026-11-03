@@ -19,25 +19,31 @@ use std::sync::Arc;
 use crate::instruction_set::write_mismatches;
 use crate::{Capabilities, InstructionMismatch, InstructionSet, OpcodeMap, Rejected, ShotSet};
 
-/// What a job's program needs for its whole run, stated by an adaptive
-/// program ([`AdaptiveProgram::needs`](crate::AdaptiveProgram::needs)), or
-/// by its driver for a program of another form
-/// ([`Driver::needs`](crate::Driver::needs)), so that the chain can
+/// What a job needs of the chain for its whole run, so that the chain can
 /// refuse it before anything runs, rather than fail during the run: when
-/// its job is given to the chain ([`Chain::run`](crate::Chain::run)).
+/// its job is given to the chain ([`Chain::run`](crate::Chain::run)). Its
+/// program states what its content needs
+/// ([`Program::needs`](crate::Program::needs)), and its driver what its way
+/// of sending adds ([`Driver::needs`](crate::Driver::needs)): the crate's
+/// driver ([`BuiltinDriver`](crate::BuiltinDriver)) adds `resumable_shots`
+/// for a [`StaticProgram`](crate::StaticProgram) with calls before its last
+/// batch.
+///
+/// The chain checks the two combined, so a driver cannot drop a need of
+/// its program. Each field states its rule: the larger number of
+/// [`qubits`](Self::qubits), each flag either states, and the
+/// [`instruction_set`](Self::instruction_set) either states. When both
+/// state a set and the two differ, the job is refused, its calls being
+/// numbered by one set ([`UnmetNeed`], [`JobFaults`](crate::JobFaults)).
 ///
 /// The default states nothing but the run's shots, held at once, which
-/// every run implies. A driver may add needs it derives from the program
-/// ([`Driver::needs`](crate::Driver::needs)): the crate's driver
-/// ([`BuiltinDriver`](crate::BuiltinDriver)) adds `resumable_shots` for a
-/// [`StaticProgram`](crate::StaticProgram) with calls before its last
-/// batch. A program of calls by opcode
+/// every run implies. A program of calls by opcode
 /// ([`InstructionCall`](crate::InstructionCall)) also states their set
 /// ([`with_instruction_set`](Self::with_instruction_set)), which numbers
-/// them, or a chain refuses its job. Beyond that, a program states a need
-/// only when it wants it checked. New needs are added as fields whose
-/// default states nothing, hence `#[non_exhaustive]`: build one from the
-/// default and its `with_` methods.
+/// them, or a chain refuses its job. Beyond that, a program or a driver
+/// states a need only when it wants it checked. New needs are added as
+/// fields whose default states nothing, hence `#[non_exhaustive]`: build
+/// one from the default and its `with_` methods.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 #[expect(
@@ -50,12 +56,14 @@ pub struct Needs {
     /// number is compared, and no instruction allocates or releases a
     /// qubit (planned, `docs/planned.md`): a program whose qubits are
     /// allocated and released during a shot states each qubit id its calls
-    /// name, even when fewer are live at once.
+    /// name, even when fewer are live at once. Combined, the larger of the
+    /// program's and its driver's, or the one either states alone.
     pub qubits: Option<u32>,
     /// The program continues a shot in a later call, where an earlier call
     /// left it (to feed its outcomes forward, to read again, or only to go
     /// on), checked against [`Capabilities::resumable_shots`]: the executor
-    /// keeps a state per shot between calls.
+    /// keeps a state per shot between calls. Combined, needed when the
+    /// program or its driver states it, as each flag below.
     pub resumable_shots: bool,
     /// The program prepares qubits again during the run, checked against
     /// [`Capabilities::resets`]. Where the program states its
@@ -78,7 +86,9 @@ pub struct Needs {
     /// state the set that numbers its calls: a chain refuses `None` as an
     /// unmet [`Need::InstructionSet`] when its job is given to it
     /// ([`Chain::run`](crate::Chain::run); not yet
-    /// [`Capabilities::admit`]).
+    /// [`Capabilities::admit`]). Combined, the set the program or its
+    /// driver states; when both state one, the same set, or the job is
+    /// refused, and the program's is checked against the chain.
     pub instruction_set: Option<Arc<InstructionSet>>,
 }
 
@@ -124,6 +134,40 @@ impl Needs {
     pub fn with_instruction_set(mut self, instruction_set: Option<Arc<InstructionSet>>) -> Self {
         self.instruction_set = instruction_set;
         self
+    }
+
+    /// A program's needs (these) combined with what its driver, `driver`
+    /// by its type name, adds: the one rule of combining, for a chain's
+    /// job ([`Chain::run`](crate::Chain::run)), field by field as each
+    /// field's doc states. When both state an instruction set and the two
+    /// differ, it gives the fault, which names `driver`, with the needs
+    /// combined but the program's set kept, so that the program's calls are
+    /// still checked against the chain.
+    pub(crate) fn combined(self, added: Needs, driver: &str) -> (Needs, Option<UnmetNeed>) {
+        // Destructured whole, so that a new need gets a rule of its own.
+        let Needs {
+            qubits,
+            resumable_shots,
+            resets,
+            replayable,
+            log_probability,
+            instruction_set,
+        } = added;
+        let (instruction_set, conflict) = match (self.instruction_set, instruction_set) {
+            (Some(stated), Some(added)) if stated != added => {
+                (Some(stated), Some(UnmetNeed::different_sets(driver)))
+            }
+            (stated, added) => (stated.or(added), None),
+        };
+        let combined = Needs {
+            qubits: self.qubits.max(qubits),
+            resumable_shots: self.resumable_shots || resumable_shots,
+            resets: self.resets || resets,
+            replayable: self.replayable || replayable,
+            log_probability: self.log_probability || log_probability,
+            instruction_set,
+        };
+        (combined, conflict)
     }
 }
 
@@ -266,13 +310,17 @@ pub struct UnmetNeed {
     /// The component whose capabilities were checked, by its Rust type name.
     /// For a chain it is the most upstream component, whose type name
     /// includes those it wraps, so the caller can find the one that sets the
-    /// limit.
+    /// limit. For a job whose program and driver state different
+    /// instruction sets, it is the driver.
     pub component: String,
     /// The need it cannot honour.
     pub need: Need,
-    /// How much was needed (1 for a yes-or-no need).
+    /// How much was needed (1 for a yes-or-no need; 2 for a job whose
+    /// program and driver state different instruction sets, the two sets).
     pub needed: u64,
-    /// How much it offers (0 for a yes-or-no need it lacks).
+    /// How much it offers (0 for a yes-or-no need it lacks; 1 for a job
+    /// whose program and driver state different instruction sets, the one
+    /// set its calls are numbered by).
     pub offered: u64,
     /// For [`Need::InstructionSet`], each needed instruction it does not
     /// accept, in the order the caller declares them, so that the caller
@@ -326,6 +374,21 @@ impl UnmetNeed {
         }
     }
 
+    /// The fault of a job whose program and driver, `driver` by its type
+    /// name, state different instruction sets, when its job is given to a
+    /// chain ([`Needs::combined`]): its calls are numbered by one set. Of
+    /// [`Need::InstructionSet`], 2 needed and 1 offered, with no mismatch,
+    /// so that it reads apart from [`undescribed`](Self::undescribed).
+    fn different_sets(driver: &str) -> UnmetNeed {
+        UnmetNeed {
+            component: driver.to_owned(),
+            need: Need::InstructionSet,
+            needed: 2,
+            offered: 1,
+            mismatches: Vec::new(),
+        }
+    }
+
     /// Matches `needed` in `offered`, the set `component` accepts (`None`:
     /// it does not say), as [`InstructionSet::opcodes_in`] does: the one
     /// check of a need of instructions, for [`Capabilities::check_needs`].
@@ -368,6 +431,11 @@ impl fmt::Display for UnmetNeed {
             Need::LogProbability => {
                 write!(f, "{c} does not offer each shot's log probability at close")
             }
+            Need::InstructionSet if self.mismatches.is_empty() && needed == 2 => write!(
+                f,
+                "the program and its driver {c} state different instruction sets, but a \
+                 job's calls are numbered by one"
+            ),
             Need::InstructionSet if self.mismatches.is_empty() => write!(
                 f,
                 "the program or {c} states no instruction set, so {c} cannot check its calls \

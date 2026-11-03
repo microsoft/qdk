@@ -32,8 +32,9 @@ A driver, the adapters downstream of it and an executor are put together by
   upstream. It is made by `adapter_fn`, by `owning_adapter_fn` for a state
   that keeps its way below, or by hand (`Apply`)
   ([Adapters](adapters.md)).
-- A **driver** (`Driver<P>`) heads the chain, and runs any program of form
-  `P` given to it. In the chain being built it is in a **chain prefix**
+- A **driver** (`Driver<P>`) heads the chain, and drives any program of form
+  `P` given to it: the program is data (`Program`), and the driver sends its
+  calls. In the chain being built it is in a **chain prefix**
   (`ChainPrefix`): a driver, with the adapters composed below it so far. The crate's
   driver, `driver()`, is a prefix with no adapter yet; `runtime.into_chain()`
   makes one of any driver (the trait `DriverExt`, in scope), and a driver of
@@ -43,13 +44,12 @@ A driver, the adapters downstream of it and an executor are put together by
   `ChainPrefix` still, not a `Driver<P>` (planned:
   [Planned features](planned.md)). Composed with the executor, a prefix makes
   a `Chain`, which runs the job given
-  to it ([A chain and its job](#a-chain-and-its-job)), an adaptive program
-  (`AdaptiveProgram`) included. The run's seed is the one the last executor is
+  to it ([A chain and its job](#a-chain-and-its-job)). The run's seed is the one the last executor is
   built with ([Seeds](executors.md#seeds-not-generators)).
 - A **run** owns the chain, and runs nothing until it is waited for or awaited.
-  Then `run.wait()`, or `run.await` for an asynchronous caller, runs its
-  program, closes the executor once the program ends, and gives the program's
-  output and the executor's report. An awaited run, and a run stopped before its
+  Then, in `run.wait()`, or `run.await` for an asynchronous caller, the driver
+  drives the program; the run closes the executor once the driver is done, and
+  gives the program's output and the executor's report. An awaited run, and a run stopped before its
   program ends, have limits
   ([Known limits](internals/composition.md#known-limits)).
 - A call on a shot the job did not name is refused before the executor sees
@@ -64,7 +64,7 @@ let shots = ShotSet::range(0..=1).expect("0..=1 is not empty");
 let debuggers = Debuggers::paused();
 let run = (driver() >> debuggers.clone() >> toy_simulator(9))
     .expect("the debugger changes nothing the toy checks")
-    .run(FlipACoin, shots.clone())
+    .run(flip_a_coin(), shots.clone())
     .expect("the program needs nothing");
 let run_thread = thread::spawn(move || run.wait());
 ```
@@ -98,9 +98,9 @@ The rules of composition:
   };
   ```
 
-- **A job is checked when it is given to the chain**: every need of its program
-  that the chain lacks is reported, before anything runs
-  ([A chain and its job](#a-chain-and-its-job)).
+- **A job is checked when it is given to the chain**: every need of its program,
+  with what its driver adds, that the chain lacks is reported, before anything
+  runs ([A chain and its job](#a-chain-and-its-job)).
 - **Where an adapter's calls meet the executor downstream, the boundary is
   decided once, when the chain is built.** The compiler checks typed
   instructions: an adapter must send the type that the part downstream of it
@@ -133,12 +133,14 @@ The job is the chain's input, not a component:
 `driver() >> adapters >> executor` builds and checks the chain
 (`BuildFaults`), and `chain.run(program, shots)` gives the run of one job. The
 crate's driver runs a `StaticProgram`, whose batches go each to every shot
-of the job in one call, in order. It also runs any adaptive program
-(`AdaptiveProgram`), which it lets drive.
+of the job in one call, in order. A program of another form, such as one
+with a branch on a readout, has a driver of its own
+([Writing a driver](../README.md#writing-a-driver)).
 
 - **The job is checked when given, before any call**: its shots, its program's
-  needs and its program's calls, every fault together (`JobFaults`), but for
-  shots named twice: of several, only the least is reported.
+  needs with what its driver adds ([below](#needs-combined)) and its program's
+  calls, every fault together (`JobFaults`), but for shots named twice: of
+  several, only the least is reported.
 - **A job calls only its own shots**: a call on another is refused before the
   executor sees it.
 - **The run gives the outcomes with the chain's report**, waited for or awaited
@@ -149,6 +151,25 @@ of the job in one call, in order. It also runs any adaptive program
 
 Each rule's edges and every test are in
 [A chain and its job: the rules](internals/composition.md#a-chain-and-its-job-the-rules).
+
+#### Needs, combined
+
+A program states what its content needs (`Program::needs`); its driver
+states only what its way of sending adds (`Driver::needs`), such as
+`resumable_shots` for a driver whose later calls continue a shot. The chain
+checks the two combined, so a driver cannot drop a need of the program:
+
+| Need              | Combined                                                                        |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `qubits`          | the larger of the two, or the one stated                                        |
+| each flag         | stated by either (`resumable_shots`, `resets`, `replayable`, `log_probability`) |
+| `instruction_set` | the one stated; the same set when both state one                                |
+
+Two different sets stated by the program and its driver are a fault of the
+job, reported with its other faults, after its shots' and before its unmet
+needs: a `Rejected::Unmet` that names the driver and the need of an
+instruction set, whose message says that they state different sets. The
+program's set is then the one checked against the chain.
 
 ## What is checked, and when
 

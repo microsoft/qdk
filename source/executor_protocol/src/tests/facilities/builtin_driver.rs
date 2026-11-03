@@ -4,26 +4,28 @@
 use std::sync::Arc;
 
 use crate::tests::test_double::TestDoubleExecutor;
-use crate::tests::{Bits, ByHand, bits_set, block_on, flip_and_toss, shots};
-use crate::{AdaptiveProgram, Close, Needs, ShotId, driver};
+use crate::tests::{Bits, bits_set, block_on, flip_and_toss, shots};
+use crate::{BuiltinDriver, Close, Driver, Needs, ShotId, StaticProgram, driver};
 
-/// An adaptive program, given to a chain of the crate's driver as any job
-/// is, its shots a slice: the driver lets it drive, so it gives the
-/// outcomes and the report that it gives driving the same executor itself.
+/// A static program, given to a chain of the crate's driver as any job
+/// is, its shots a slice: the run gives the outcomes and the report that
+/// the crate's driver gives driving the same executor directly.
 #[test]
-fn an_adaptive_program_given_to_a_chain_runs_as_it_runs_driving_the_executor_itself() {
+fn a_static_program_given_to_a_chain_runs_as_the_driver_runs_it_on_the_executor_directly() {
     let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
-    let by_hand = || ByHand {
-        needs: Needs::default().with_instruction_set(Some(Arc::new(bits_set()))),
-        batches: flip_and_toss(&bits_set()),
+    let program = || {
+        StaticProgram::new(
+            Needs::default().with_instruction_set(Some(Arc::new(bits_set()))),
+            flip_and_toss(&bits_set()),
+        )
     };
     let ids: Vec<ShotId> = vec![2, 5, 6, 11];
     let chain = (driver() >> bits()).expect("the chain runs the bits' set");
     let given = chain
-        .run(by_hand(), ids.as_slice())
+        .run(program(), ids.as_slice())
         .expect("shots, needs met")
         .wait();
     let mut executor = bits();
-    let output = block_on(by_hand().drive(&mut executor, &shots(&ids)));
+    let output = block_on(BuiltinDriver.drive(program(), &mut executor, &shots(&ids)));
     assert_eq!(given, (output, executor.close()));
 }

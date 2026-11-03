@@ -9,11 +9,11 @@ use crate::conformance;
 use crate::tests::declared;
 use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::{
-    AdaptiveProgram, BuildError, BuildFaults, CallInput, Capabilities, Close, ComposedJob,
-    Describe, Executor, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
+    BuildError, BuildFaults, CallInput, Capabilities, Close, ComposedJob, Describe, Driver,
+    Executor, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
     InstructionMismatch, InstructionSet, Need, Needs, Opcode, Operand, OperandKind, Outcomes,
-    Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, UnmetNeed, Value, check_unique_tags,
-    compose, executor_fn, wait,
+    Program, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, UnmetNeed, Value,
+    check_unique_tags, compose, executor_fn, wait,
 };
 
 use OperandKind::{Block, Tag};
@@ -115,8 +115,9 @@ impl Close for ToyState {
     fn close(&mut self) {}
 }
 
-/// A program of calls by opcode, built with the set it needs: it runs each
-/// of its batches on its shots in turn, and gives the values of each batch.
+/// A program of calls by opcode, built with the set it needs: batches,
+/// each run on every shot of its job, in turn ([`EachInTurn`]), giving the
+/// values of each batch.
 struct Batches {
     needs: Needs,
     batches: Vec<Vec<InstructionCall>>,
@@ -132,21 +133,27 @@ impl Batches {
     }
 }
 
-impl AdaptiveProgram for Batches {
+impl Program for Batches {
     type Instruction = InstructionCall;
     type Output = Vec<Vec<Value>>;
 
     fn needs(&self) -> Needs {
         self.needs.clone()
     }
+}
 
+/// A driver of [`Batches`]: it sends each batch to every shot of its job,
+/// in turn, waiting for each.
+struct EachInTurn;
+
+impl Driver<Batches> for EachInTurn {
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
-        self,
+        &self,
+        program: Batches,
         executor: &mut E,
         shots: &ShotSet,
-    ) -> Self::Output {
-        self.batches
-            .iter()
+    ) -> Vec<Vec<Value>> {
+        (program.batches.iter())
             .map(|batch| {
                 let reply = executor
                     .call(InstructionBatchRef {
@@ -165,7 +172,7 @@ impl AdaptiveProgram for Batches {
 /// What `program` gives on the toy's shots `shots`.
 fn run(program: Batches, toy: Toy, shots: ShotSet) -> Vec<Vec<Value>> {
     let (output, _) = compose(
-        ComposedJob::new(program, shots),
+        ComposedJob::driven(EachInTurn, program, shots),
         TestDoubleExecutor::with_model(toy, 7),
     )
     .expect("the toy accepts the program's set")
@@ -180,7 +187,7 @@ fn refused(needs: Needs) -> BuildFaults {
         batches: Vec::new(),
     };
     let composed = compose(
-        ComposedJob::new(program, ShotSet::one(1)),
+        ComposedJob::driven(EachInTurn, program, ShotSet::one(1)),
         TestDoubleExecutor::with_model(Toy::new(), 7),
     );
     let Err(faults) = composed else {
@@ -299,30 +306,36 @@ fn each_call_runs_only_its_own_batch() {
     assert_eq!(values[1], [Value::One]);
 }
 
-/// A program that checks that the executor it drives refuses calls outside
-/// `set`, built with it ([`conformance::refuses_calls_outside_its_set`]).
-struct CallsOutside {
+/// A program of calls by opcode in `set`, built with it, whose calls its
+/// driver writes.
+struct OfSet {
     set: InstructionSet,
 }
 
-impl AdaptiveProgram for CallsOutside {
+impl Program for OfSet {
     type Instruction = InstructionCall;
     type Output = ();
 
     fn needs(&self) -> Needs {
         needing(&self.set)
     }
+}
 
+/// A driver that checks that the executor it drives refuses calls outside
+/// its program's set ([`conformance::refuses_calls_outside_its_set`]).
+struct CallsOutside;
+
+impl Driver<OfSet> for CallsOutside {
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
-        self,
+        &self,
+        program: OfSet,
         executor: &mut E,
         _: &ShotSet,
     ) {
-        let x = self
-            .set
+        let x = (program.set)
             .call("x", [Operand::Block(0)])
             .expect("`x` takes a block");
-        conformance::refuses_calls_outside_its_set(executor, &ShotSet::one(1), &self.set, &x);
+        conformance::refuses_calls_outside_its_set(executor, &ShotSet::one(1), &program.set, &x);
     }
 }
 
@@ -334,34 +347,42 @@ impl AdaptiveProgram for CallsOutside {
 fn a_call_outside_the_programs_set_is_refused() {
     let set = declared(InstructionSet::new("x alone").with("x", [Block]));
     compose(
-        ComposedJob::new(CallsOutside { set }, ShotSet::one(1)),
+        ComposedJob::driven(CallsOutside, OfSet { set }, ShotSet::one(1)),
         TestDoubleExecutor::with_model(Toy::new(), 7),
     )
     .expect("the toy accepts the program's set")
     .wait();
 }
 
-/// A program of calls by opcode, built with `set`, that sends each of its
-/// batches and gives how each was refused, if it was.
-struct Refusals {
+/// A program of calls by opcode, built with `set`: batches, each sent to
+/// see whether it is refused ([`SendsEach`]), giving how each was refused,
+/// if it was.
+struct Probes {
     set: InstructionSet,
     batches: Vec<Vec<InstructionCall>>,
 }
 
-impl AdaptiveProgram for Refusals {
+impl Program for Probes {
     type Instruction = InstructionCall;
     type Output = Vec<Option<Rejected>>;
 
     fn needs(&self) -> Needs {
         needing(&self.set)
     }
+}
 
+/// A driver of [`Probes`]: it sends each batch to every shot of its job,
+/// and keeps how each was refused.
+struct SendsEach;
+
+impl Driver<Probes> for SendsEach {
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
-        self,
+        &self,
+        program: Probes,
         executor: &mut E,
         shots: &ShotSet,
-    ) -> Self::Output {
-        (self.batches.iter())
+    ) -> Vec<Option<Rejected>> {
+        (program.batches.iter())
             .map(|batch| {
                 let answer = executor.call(InstructionBatchRef {
                     shots,
@@ -396,7 +417,7 @@ fn a_renumbered_batch_is_refused_at_its_first_call_outside() {
         vec![x.clone(), x, lacked],
     ];
     let (refusals, _) = compose(
-        ComposedJob::new(Refusals { set, batches }, ShotSet::one(1)),
+        ComposedJob::driven(SendsEach, Probes { set, batches }, ShotSet::one(1)),
         TestDoubleExecutor::with_model(Toy::new(), 7),
     )
     .expect("the toy accepts the program's set")
@@ -446,8 +467,9 @@ fn a_renumbered_batch_is_refused_where_a_batch_in_the_chains_numbering_is() {
             InstructionCall::new(outside, [Operand::Block(0)]),
         ];
         let (refusals, _) = compose(
-            ComposedJob::new(
-                Refusals {
+            ComposedJob::driven(
+                SendsEach,
+                Probes {
                     set,
                     batches: vec![batch],
                 },
@@ -520,7 +542,7 @@ fn a_renumbered_batch_is_refused_at_its_call_before_an_earlier_failure() {
     ];
     let shots = ShotSet::range(1..=2).expect("shots 1 and 2");
     let (refusals, _) = compose(
-        ComposedJob::new(Refusals { set, batches }, shots),
+        ComposedJob::driven(SendsEach, Probes { set, batches }, shots),
         TestDoubleExecutor::with_model(ToyFailingAtShot2(Toy::new()), 7),
     )
     .expect("the toy accepts the program's set")
@@ -553,7 +575,7 @@ fn a_renumbered_batch_is_refused_at_its_call_before_a_closed_executor_is() {
     let _ = toy.close();
     let batches = vec![vec![x.clone(), lacked], vec![x]];
     let (refusals, _) = compose(
-        ComposedJob::new(Refusals { set, batches }, ShotSet::one(1)),
+        ComposedJob::driven(SendsEach, Probes { set, batches }, ShotSet::one(1)),
         toy,
     )
     .expect("the toy accepts the program's set")
@@ -585,8 +607,9 @@ fn a_renumbered_batch_outside_the_set_only_by_its_operands_reaches_the_executor(
     let mut toy = TestDoubleExecutor::with_model(Toy::new(), 7);
     let _ = toy.close();
     let (refusals, _) = compose(
-        ComposedJob::new(
-            Refusals {
+        ComposedJob::driven(
+            SendsEach,
+            Probes {
                 set,
                 batches: vec![vec![on_a_real]],
             },
@@ -639,7 +662,7 @@ fn a_renumbered_batch_is_refused_at_its_call_before_the_executors_shot_not_held(
     let lacked = InstructionCall::new(Opcode::new(1), [Operand::Block(0)]);
     let batches = vec![vec![x.clone(), lacked], vec![x]];
     let (refusals, _) = compose(
-        ComposedJob::new(Refusals { set, batches }, ShotSet::one(1)),
+        ComposedJob::driven(SendsEach, Probes { set, batches }, ShotSet::one(1)),
         executor,
     )
     .expect("the executor accepts the program's set")
@@ -656,27 +679,35 @@ fn a_renumbered_batch_is_refused_at_its_call_before_the_executors_shot_not_held(
     );
 }
 
-/// A program that calls each batch on its own shots, which may be outside
-/// the run's, and gives what each call refused.
-struct RefusalsOnShots {
+/// A program of calls by opcode, built with `set`: batches, each on shots
+/// of its own, which may be outside the job's ([`SendsEachOnItsShots`]),
+/// giving what each call refused.
+struct ProbesOnShots {
     set: InstructionSet,
     batches: Vec<(ShotSet, Vec<InstructionCall>)>,
 }
 
-impl AdaptiveProgram for RefusalsOnShots {
+impl Program for ProbesOnShots {
     type Instruction = InstructionCall;
     type Output = Vec<Option<Rejected>>;
 
     fn needs(&self) -> Needs {
         needing(&self.set)
     }
+}
 
+/// A driver of [`ProbesOnShots`]: it sends each batch to its own shots,
+/// whatever the job's, and keeps how each was refused.
+struct SendsEachOnItsShots;
+
+impl Driver<ProbesOnShots> for SendsEachOnItsShots {
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
-        self,
+        &self,
+        program: ProbesOnShots,
         executor: &mut E,
         _: &ShotSet,
-    ) -> Self::Output {
-        (self.batches.iter())
+    ) -> Vec<Option<Rejected>> {
+        (program.batches.iter())
             .map(|(shots, batch)| {
                 let answer = executor.call(InstructionBatchRef {
                     shots,
@@ -703,7 +734,11 @@ fn a_batch_on_a_shot_the_job_does_not_hold_is_refused_before_the_renumbering() {
     let batch = vec![x, lacked];
     let batches = vec![(ShotSet::one(1), batch.clone()), (ShotSet::one(2), batch)];
     let (refusals, _) = compose(
-        ComposedJob::new(RefusalsOnShots { set, batches }, ShotSet::one(1)),
+        ComposedJob::driven(
+            SendsEachOnItsShots,
+            ProbesOnShots { set, batches },
+            ShotSet::one(1),
+        ),
         TestDoubleExecutor::with_model(Toy::new(), 7),
     )
     .expect("the toy accepts the program's set")

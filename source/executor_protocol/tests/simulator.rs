@@ -22,8 +22,9 @@ mod toy;
 use std::error::Error;
 
 use executor_protocol::{
-    AdaptiveProgram, Executor, InstructionBatch, InstructionBatchRef, JobFaults, Need, Needs,
-    Rejected, ShotContext, ShotOutcome, ShotSet, Value, compose, conformance, driver, wait,
+    Driver, DriverExt, Executor, InstructionBatch, InstructionBatchRef, JobFaults, Need, Needs,
+    Program, Rejected, ShotContext, ShotOutcome, ShotSet, StaticProgram, Value, compose,
+    conformance, driver, wait, wait_async,
 };
 
 use readout_flip::{READOUT, ReadoutFlip, flips};
@@ -31,34 +32,9 @@ use toy::{Op, QUBITS, toy_simulator};
 
 /// A program that flips a coin on qubit 0 of each of its shots, in one
 /// batch, and reads it; it needs `qubits` qubits.
-struct FlipACoin {
-    qubits: u32,
-}
-
-impl AdaptiveProgram for FlipACoin {
-    type Instruction = Op;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self) -> Needs {
-        Needs::default().with_qubits(self.qubits)
-    }
-
-    async fn drive<E: Executor<InstructionBatch<Op>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let batch = [Op::Coin(0), Op::Measure { qubit: 0, tag: 0 }];
-        let reply = executor
-            .call(InstructionBatchRef {
-                shots,
-                instructions: &batch,
-            })
-            .expect("the toy takes a coin and a measurement");
-        let mut outcomes = Vec::new();
-        wait(reply, &mut outcomes).expect("the toy never fails a batch");
-        outcomes
-    }
+fn flip_a_coin(qubits: u32) -> StaticProgram<Op> {
+    let batch = vec![Op::Coin(0), Op::Measure { qubit: 0, tag: 0 }];
+    StaticProgram::new(Needs::default().with_qubits(qubits), vec![batch])
 }
 
 /// Shots 0 to 63: enough coins that two seeds almost never draw the same.
@@ -76,10 +52,12 @@ fn coins(seed: u64) -> Vec<Value> {
 
 /// The coins `shots` read, on the toy simulator built with `seed`.
 fn coins_of(shots: ShotSet, seed: u64) -> Vec<ShotOutcome> {
-    let program = FlipACoin { qubits: 1 };
+    let program = flip_a_coin(1);
     let chain = compose(driver(), toy_simulator(seed)).expect("nothing between to refuse");
     let run = chain.run(program, shots).expect("the toy has a qubit");
-    run.wait().0
+    run.wait()
+        .0
+        .expect("the toy neither refuses nor fails the batch")
 }
 
 /// A user composes the crate's driver with an executor built with its
@@ -89,10 +67,10 @@ fn coins_of(shots: ShotSet, seed: u64) -> Vec<ShotOutcome> {
 #[test]
 fn a_program_runs_on_an_executor_when_given_to_its_chain_and_waited_for()
 -> Result<(), Box<dyn Error>> {
-    let (program, shots, seed) = (FlipACoin { qubits: 1 }, shots(), 7);
+    let (program, shots, seed) = (flip_a_coin(1), shots(), 7);
     let run = compose(driver(), toy_simulator(seed))?.run(program, shots)?;
     let (output, report) = run.wait();
-    let ran: Vec<u32> = output.iter().map(|outcome| outcome.shot).collect();
+    let ran: Vec<u32> = output?.iter().map(|outcome| outcome.shot).collect();
     assert_eq!(ran, (0..=63).collect::<Vec<_>>());
     assert_eq!(report.calls, 1);
     Ok(())
@@ -133,7 +111,7 @@ fn a_shots_outcomes_do_not_depend_on_the_shots_run_beside_it() {
 /// seed, as `compose` gives it.
 #[test]
 fn a_noise_model_written_by_hand_draws_from_its_own_seeds_in_either_grouping() {
-    let program = || FlipACoin { qubits: 1 };
+    let program = || flip_a_coin(1);
     let coins = coins_of(shots(), 7);
     let expected: Vec<ShotOutcome> = coins
         .iter()
@@ -153,7 +131,8 @@ fn a_noise_model_written_by_hand_draws_from_its_own_seeds_in_either_grouping() {
         .run(program(), shots())
         .expect("the program needs a qubit")
         .wait()
-        .0;
+        .0
+        .expect("the toy neither refuses nor fails the batch");
     let below = compose(ReadoutFlip::default(), toy_simulator(7))
         .expect("the readout error passes the toy's instructions on");
     let right = compose(driver(), below)
@@ -161,41 +140,58 @@ fn a_noise_model_written_by_hand_draws_from_its_own_seeds_in_either_grouping() {
         .run(program(), shots())
         .expect("the program needs a qubit")
         .wait()
-        .0;
+        .0
+        .expect("the toy neither refuses nor fails the batch");
     for (grouping, outcomes) in [("left", left), ("right", right)] {
         assert_eq!(outcomes, expected, "grouped {grouping}");
     }
 }
 
-/// A program that reads a coin, sends a batch that flips it and then
-/// names a qubit the toy does not have, and reads the coin again: it gives
-/// the first readouts, whether the second batch was refused, and the
-/// readouts after it.
-struct FlipThenOutOfRange;
+/// A program of batches, each sent to every shot in turn, whatever the
+/// earlier ones gave: it gives each batch's readouts, or its refusal.
+struct Batches(Vec<Vec<Op>>);
 
-impl AdaptiveProgram for FlipThenOutOfRange {
+impl Program for Batches {
     type Instruction = Op;
-    type Output = (Vec<ShotOutcome>, bool, Vec<ShotOutcome>);
+    type Output = Vec<Result<Vec<ShotOutcome>, Rejected>>;
+}
 
-    async fn drive<E: Executor<InstructionBatch<Op>>>(
-        self,
+/// The driver of [`Batches`]: it sends each batch, and goes on after a
+/// refusal.
+struct SendsEach;
+
+impl Driver<Batches> for SendsEach {
+    /// Each batch after the first continues the shots where the earlier
+    /// ones left them.
+    fn needs(&self, _: &Batches) -> Needs {
+        Needs::default().with_resumable_shots(true)
+    }
+
+    async fn drive<E>(
+        &self,
+        program: Batches,
         executor: &mut E,
         shots: &ShotSet,
-    ) -> Self::Output {
-        let mut read = |batch: &[Op]| {
+    ) -> Vec<Result<Vec<ShotOutcome>, Rejected>>
+    where
+        E: Executor<InstructionBatch<Op>>,
+    {
+        let mut read = Vec::new();
+        for batch in &program.0 {
             let reply = executor.call(InstructionBatchRef {
                 shots,
                 instructions: batch,
-            })?;
-            let mut outcomes = Vec::new();
-            wait(reply, &mut outcomes).expect("the toy never fails a batch");
-            Ok::<_, Rejected>(outcomes)
-        };
-        let before = read(&[Op::Coin(0), Op::Measure { qubit: 0, tag: 0 }])
-            .expect("the toy takes a coin and a measurement");
-        let refused = read(&[Op::X(0), Op::X(QUBITS)]).is_err();
-        let after = read(&[Op::Measure { qubit: 0, tag: 0 }]).expect("the toy reads qubit 0");
-        (before, refused, after)
+            });
+            read.push(match reply {
+                Ok(reply) => {
+                    let (outcomes, end) = wait_async(reply).await;
+                    end.expect("the toy never fails a batch");
+                    Ok(outcomes)
+                }
+                Err(rejected) => Err(rejected),
+            });
+        }
+        read
     }
 }
 
@@ -204,13 +200,21 @@ impl AdaptiveProgram for FlipThenOutOfRange {
 /// by the batch's first instruction.
 #[test]
 fn a_refused_batch_changes_no_shot() {
-    let run = compose(driver(), toy_simulator(7))
+    let program = Batches(vec![
+        vec![Op::Coin(0), Op::Measure { qubit: 0, tag: 0 }],
+        vec![Op::X(0), Op::X(QUBITS)],
+        vec![Op::Measure { qubit: 0, tag: 0 }],
+    ]);
+    let run = compose(SendsEach.into_chain(), toy_simulator(7))
         .expect("nothing between to refuse")
-        .run(FlipThenOutOfRange, shots())
-        .expect("the program needs nothing");
-    let ((before, refused, after), _) = run.wait();
-    assert!(refused, "qubit {QUBITS} is out of the toy's range");
-    assert_eq!(after, before);
+        .run(program, shots())
+        .expect("the toy has resumable shots");
+    let [before, flip, after]: [_; 3] = (run.wait().0.try_into()).expect("a reply per batch");
+    assert!(flip.is_err(), "qubit {QUBITS} is out of the toy's range");
+    assert_eq!(
+        after.expect("the toy reads qubit 0"),
+        before.expect("the toy takes a coin and a measurement")
+    );
 }
 
 /// A batch naming a qubit the toy does not have is refused, and the toy
@@ -351,7 +355,7 @@ fn a_batch_out_of_the_toys_range_is_refused_at_its_first_bad_instruction() {
 /// offers, before any shot runs.
 #[test]
 fn a_program_needing_more_than_the_executor_offers_is_refused_when_given_to_the_chain() {
-    let program = FlipACoin { qubits: QUBITS + 1 };
+    let program = flip_a_coin(QUBITS + 1);
     let chain = compose(driver(), toy_simulator(7)).expect("nothing between to refuse");
     let Err(JobFaults(faults)) = chain.run(program, shots()) else {
         panic!("given to a chain of a toy of {QUBITS} qubits")

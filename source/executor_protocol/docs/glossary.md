@@ -23,16 +23,19 @@ what they belong to; the names in code are the crate's.
   Its prefix composed with the executor, the built chain is a `Chain`, which
   runs the job given to it, `chain.run(program, shots)`
   ([A chain and its job](composition.md#a-chain-and-its-job)).
-- **Driver** (`Driver<P>`): the top of a chain, which runs any program of
-  form `P` given to the chain, `chain.run(program, shots)`. A runtime that
+- **Driver** (`Driver<P>`): the top of a chain, which drives any program
+  of form `P` given to the chain, `chain.run(program, shots)`: it sends the
+  program's calls, reads their outcomes and, for a program with a branch on
+  a readout, chooses the next calls from them; it adds to the program's
+  needs only what its way of sending needs (`Driver::needs`). A runtime that
   executes a program's control logic, such as a QIR runtime, is one: in
   `drive` it makes its calls on the one executor it is given, sending
   batches and reading their outcomes, and the adapters and the executor
   below look to it like that single executor. The caller builds the chain,
   `runtime.into_chain() >> adapters >> executor`, then calls
   `chain.run(program, shots)`. The crate's driver (`BuiltinDriver`, in the
-  prefix `driver()` gives) runs a static program, and lets an adaptive
-  program drive ([Composing a run](composition.md#composing-a-run)). A
+  prefix `driver()` gives) runs a static program
+  ([Composing a run](composition.md#composing-a-run)). A
   device's driver, the vendor's software below an executor, is not a
   `Driver`; and a caller that takes a reply is called a caller, not a
   driver.
@@ -93,26 +96,30 @@ what they belong to; the names in code are the crate's.
     [How applications use it](instruction-sets.md#how-applications-use-it));
   - an **async runtime**, such as Tokio: what polls tasks
     ([An async task leaves its thread to other tasks](internals/replies.md#an-async-task-leaves-its-thread-to-other-tasks)).
-- **Adaptive program** (`AdaptiveProgram`): a program that drives the
-  executor itself: it sends each batch and can choose the next from the
-  outcomes so far. A static program, given to a driver, is one that decides
-  nothing. An adaptive program is consumed by its run. The crate's
-  driver lets it drive; a chain runs any job's program as one, the program
-  as its driver drives it (`DrivenProgram`)
-  ([A chain and its job](composition.md#a-chain-and-its-job)).
+- **Program** (`Program`): what a job gives a chain to run, data: the
+  instructions its driver sends (`Program::Instruction`), what the run gives
+  when it is done (`Program::Output`), and what its content needs of the
+  chain (`Program::needs`). Its driver drives it; a program is consumed by
+  its run ([A chain and its job](composition.md#a-chain-and-its-job)).
+- **Adaptive program**: a program whose content has a branch on a readout,
+  so that its driver chooses the next calls, and the shots they go to, from
+  the outcomes so far: a property of the program, not a trait
+  ([Writing a driver](../README.md#writing-a-driver)). A static program is
+  one that decides nothing.
 - **Job**: what a `Chain` is given to run, `chain.run(program, shots)`: a
   program and its shots. It is checked before any call, every fault at once
   (`JobFaults`): its shots, its needs against what the chain offers, and the
   program's own faults; of several shots named twice, only the least is reported
   ([A chain and its job](composition.md#a-chain-and-its-job)).
-- **Static program** (`StaticProgram`): a program of fixed batches, data
-  with no code of its own, which the crate's driver sends in order to every
+- **Static program** (`StaticProgram`): a program of fixed batches, which
+  the crate's driver sends in order to every
   shot of its job; it decides nothing on its outcomes, and a batch refused
   or failed stops it
   ([A chain and its job](composition.md#a-chain-and-its-job)).
 - **Run** (`Run`): a `Chain` given a job. It owns the chain and
-  runs nothing until it is waited for; then it runs the program, passes its
-  calls on and closes the executor, once, when its program ends; a run
+  runs nothing until it is waited for; then its driver drives the program,
+  the run passes the calls on and closes the executor, once, when the
+  driver is done; a run
   dropped or unwound before then, and a `Chain` dropped without a job or
   whose job is refused, do not close it
   ([A run](protocol.md#a-run),
@@ -195,9 +202,9 @@ what they belong to; the names in code are the crate's.
   `state_report` and `log_probability` read only the shot's state and what they
   captured when built, both orders give the same outcomes and report, and a
   failed call reports no state made for it in either. Drivers have no axes
-  spelled as methods yet: a job's needs are stated by an adaptive program
-  (`AdaptiveProgram::needs`), or by its driver for a program of another form
-  (`Driver::needs`). The seed is not an axis, since no part offers it: it is
+  spelled as methods yet: a job's needs are those its program states
+  (`Program::needs`), combined with those its driver adds (`Driver::needs`).
+  The seed is not an axis, since no part offers it: it is
   the run's ([Seed](#shots-and-states)).
 
 - **Wrapper**: an executor that wraps another of the same message, or is made of

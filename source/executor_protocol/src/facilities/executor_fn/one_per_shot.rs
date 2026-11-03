@@ -68,12 +68,12 @@ use crate::{
 ///
 /// ```ignore
 /// let shots = ShotSet::range(0..=7).expect("not empty");
-/// let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-/// let (outcomes, _) = (driver() >> executor)
-///     .expect("nothing between to refuse")
-///     .run(TossAgainOnOne, shots)
-///     .expect("the executor has resumable shots, log probability, 8 shots")
-///     .wait();
+/// let (outcomes, report) = (IfOneDriver.into_chain()
+///     >> bond_limited_executor(None).seed(3).shots(OnePerShot))
+/// .expect("nothing between to refuse")
+/// .run(toss_again_on_one(), shots)
+/// .expect("the executor has resumable shots, log probability, 8 shots")
+/// .wait();
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OnePerShot;

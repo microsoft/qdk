@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::task::Waker;
 
 use super::{
-    Accepting, DecodeCalls, DescribedWorkers, Log, Program, Workers, bits_without_coin, entries,
-    logger, missing_coin,
+    Accepting, DecodeCalls, DescribedWorkers, Log, Workers, bits_without_coin, entries,
+    flip_and_toss_batches, flip_and_toss_job, logger, missing_coin,
 };
 use crate::Need;
 use crate::tests::facilities::executor_fn::{
@@ -20,8 +20,8 @@ use crate::tests::facilities::executor_fn::{
 use crate::tests::test_double::TestDoubleModel;
 use crate::tests::test_double::{Model, Seen, TestDoubleExecutor, run};
 use crate::tests::{
-    Bits, BitsState, EVERY_BIT, Relabel, StatesItsOfferFromScratch, bits_set, call, declaring,
-    flip_and_toss, reversed_set, run_and_close, shots, undeclaring, values,
+    Bits, BitsState, ByHand, EVERY_BIT, Relabel, StatesItsOfferFromScratch, bits_set, call,
+    declaring, flip_and_toss, reversed_set, run_and_close, shots, undeclaring, values,
 };
 use crate::tests::{PanicsOnClose, map_executor};
 use crate::{
@@ -321,9 +321,9 @@ impl<E: Close> Close for CountedInstructions<E> {
 /// alone.
 #[test]
 fn a_run_reports_what_the_executor_of_an_adapter_written_by_hand_reports() {
-    let program = || Program::flip_and_toss(bits_set());
+    let program = || flip_and_toss_batches(bits_set());
     let instructions: usize = flip_and_toss(&bits_set()).iter().map(Vec::len).sum();
-    let job = || ComposedJob::new(program(), shots(&[0, 3]));
+    let job = || ComposedJob::driven(ByHand, program(), shots(&[0, 3]));
     let doubles = || TestDoubleExecutor::with_model(Bits::default(), 7);
     let (_, alone) = (job() >> doubles())
         .expect("the bits run the program")
@@ -764,7 +764,7 @@ fn a_refusal_downstream_for_the_calls_fault_leaves_an_adapter_open() {
 /// without the adapter.
 #[test]
 fn the_executor_downstream_of_an_adapter_counts_the_calls_made_without_it() {
-    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 3]));
+    let job = || flip_and_toss_job(bits_set(), &[0, 3]);
     let doubles = || TestDoubleExecutor::with_model(Bits::default(), 7);
     let (_, alone) = (job() >> doubles())
         .expect("the bits run the program")
@@ -1058,9 +1058,9 @@ impl<E: Close> Close for ReadoutFlips<E> {
 fn an_adapter_written_by_hand_replays_its_draws_from_the_runs_seed() {
     let flip_and_read = flip_and_toss(&bits_set())[0].clone();
     let run_from = |seed: u64, readout_error: bool| {
-        let mut program = Program::flip_and_toss(bits_set());
+        let mut program = flip_and_toss_batches(bits_set());
         program.batches = vec![flip_and_read.clone(); 3];
-        let job = ComposedJob::new(program, shots(&[0, 1, 2, 3, 4, 5, 6, 7]));
+        let job = ComposedJob::driven(ByHand, program, shots(&[0, 1, 2, 3, 4, 5, 6, 7]));
         let bits = TestDoubleExecutor::with_model(Bits::default(), seed);
         let (outcomes, _) = if readout_error {
             (job >> ReadoutFlip::default() >> bits)
@@ -1091,9 +1091,10 @@ fn an_adapter_written_by_hand_replays_its_draws_from_the_runs_seed() {
 fn an_adapter_written_by_hand_draws_otherwise_than_the_last_executor() {
     let toss = flip_and_toss(&bits_set())[1].clone();
     let run = |readout_error: bool| {
-        let mut program = Program::flip_and_toss(bits_set());
+        let mut program = flip_and_toss_batches(bits_set());
         program.batches = vec![toss.clone()];
-        let job = ComposedJob::new(
+        let job = ComposedJob::driven(
+            ByHand,
             program,
             ShotSet::range(0..=63).expect("the range holds shots"),
         );
@@ -1125,10 +1126,10 @@ fn a_run_reports_the_last_executors_log_probability_through_its_adapters() {
         log_probability: true,
         ..Bits::default()
     };
-    let mut program = Program::flip_and_toss(bits_set());
+    let mut program = flip_and_toss_batches(bits_set());
     program.needs = program.needs.with_log_probability(true);
     let log = Log::default();
-    let (_, report) = (ComposedJob::new(program, shots(&[0, 3]))
+    let (_, report) = (ComposedJob::driven(ByHand, program, shots(&[0, 3]))
         >> logger("debugger", &log)
         >> TestDoubleExecutor::with_model(downstream, 7))
     .expect("the chain states log probabilities")
@@ -1149,9 +1150,9 @@ fn a_program_needing_log_probability_is_refused_upstream_of_an_adapter_that_draw
         log_probability: true,
         ..Bits::default()
     };
-    let mut program = Program::flip_and_toss(bits_set());
+    let mut program = flip_and_toss_batches(bits_set());
     program.needs = program.needs.with_log_probability(true);
-    let refused = (ComposedJob::new(program, shots(&[0]))
+    let refused = (ComposedJob::driven(ByHand, program, shots(&[0]))
         >> Noise::default()
         >> TestDoubleExecutor::with_model(downstream, 7))
     .err();
@@ -1202,9 +1203,9 @@ fn a_program_needing_log_probability_is_refused_upstream_of_an_adapter_that_draw
         log_probability: true,
         ..Bits::default()
     };
-    let mut program = Program::flip_and_toss(bits_set());
+    let mut program = flip_and_toss_batches(bits_set());
     program.needs = program.needs.with_log_probability(true);
-    let refused = (ComposedJob::new(program, shots(&[0]))
+    let refused = (ComposedJob::driven(ByHand, program, shots(&[0]))
         >> NoiseOffersDownstreamsWhole
         >> TestDoubleExecutor::with_model(downstream, 7))
     .err();
@@ -1244,9 +1245,9 @@ fn a_program_needing_log_probability_is_refused_through_an_adapter_offering_it_a
         log_probability: true,
         ..Bits::default()
     };
-    let mut program = Program::flip_and_toss(bits_set());
+    let mut program = flip_and_toss_batches(bits_set());
     program.needs = program.needs.with_log_probability(true);
-    let refused = (ComposedJob::new(program, shots(&[0]))
+    let refused = (ComposedJob::driven(ByHand, program, shots(&[0]))
         >> ClaimsLogProbability
         >> Noise::default()
         >> TestDoubleExecutor::with_model(downstream, 7))
@@ -1303,8 +1304,8 @@ fn a_run_through_an_adapter_that_draws_reports_no_log_probability() {
         log_probability: true,
         ..Bits::default()
     };
-    let program = Program::flip_and_toss(bits_set());
-    let (_, report) = (ComposedJob::new(program, shots(&[0]))
+    let program = flip_and_toss_batches(bits_set());
+    let (_, report) = (ComposedJob::driven(ByHand, program, shots(&[0]))
         >> Noise::default()
         >> TestDoubleExecutor::with_model(downstream, 7))
     .expect("the program needs no log probability")
@@ -1318,7 +1319,7 @@ fn a_run_through_an_adapter_that_draws_reports_no_log_probability() {
 #[test]
 fn a_run_through_an_adapter_reports_the_calls_its_executor_alone_reports() {
     let log = Log::default();
-    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 1, 2, 3]));
+    let job = || flip_and_toss_job(bits_set(), &[0, 1, 2, 3]);
     let (_, alone) = (job() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run the program")
         .wait();
@@ -1334,7 +1335,7 @@ fn a_run_through_an_adapter_reports_the_calls_its_executor_alone_reports() {
 /// alone, each shot's draws its own.
 #[test]
 fn a_drawing_adapter_leaves_the_last_executors_draws_as_they_are() {
-    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 3]));
+    let job = || flip_and_toss_job(bits_set(), &[0, 3]);
     let (alone, _) = (job() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("the bits run the program")
         .wait();
@@ -1480,12 +1481,12 @@ fn an_adapter_upstream_of_a_component_with_no_instruction_set_is_refused_when_bu
 /// refused, as the program's need of an instruction set unmet.
 #[test]
 fn a_job_stating_an_empty_set_over_shots_describing_none_is_refused_when_composed() {
-    let mut program = Program::flip_and_toss(bits_set());
+    let mut program = flip_and_toss_batches(bits_set());
     let empty = InstructionSet::new("empty");
     program.needs = program.needs.with_instruction_set(Some(Arc::new(empty)));
     let unstated = Bits::default().capabilities().with_instruction_set(None);
     let executor = TestDoubleExecutor::with_model(Described(Bits::default(), unstated), 7);
-    let Err(faults) = ComposedJob::new(program, shots(&[0])) >> executor else {
+    let Err(faults) = ComposedJob::driven(ByHand, program, shots(&[0])) >> executor else {
         panic!("nothing downstream of the program describes a set");
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
@@ -1588,12 +1589,12 @@ fn a_code_stating_its_offer_whole_from_downstreams_offers_the_set_it_accepts() {
         .with("coin", [Block])
         .with("measure", [Block, OperandKind::Tag]);
     let flip_first = declaring(flip_first, EVERY_BIT);
-    let mut program = Program::flip_and_toss(flip_first.clone());
+    let mut program = flip_and_toss_batches(flip_first.clone());
     program.batches.truncate(1);
     let code = TranslatesOffersDownstreamsWhole {
         accepts: Arc::new(flip_first),
     };
-    let (outcomes, _) = (ComposedJob::new(program, shots(&[0, 1, 2, 3, 4, 5, 6, 7]))
+    let (outcomes, _) = (ComposedJob::driven(ByHand, program, shots(&[0, 1, 2, 3, 4, 5, 6, 7]))
         >> code
         >> TestDoubleExecutor::with_model(Bits::default(), 7))
     .expect("the bits run what the code sends")

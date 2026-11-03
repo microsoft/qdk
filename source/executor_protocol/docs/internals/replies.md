@@ -218,10 +218,10 @@ same file).
 Each thread has one such parker, which `wait` and `relay` share, so
 neither may be called from inside a `poll_events`: the nested wait could
 take the outer one's wake. `Run::wait` parks on a parker of its own: the
-job's program, run on the thread, may itself call `wait` (an adapter's
+job's driver, run on the thread, may itself call `wait` (an adapter's
 logic does, inside its `call`), and those parks must not take a wake
-meant for the program (test
-`a_run_waited_for_keeps_the_wakes_that_come_while_its_program_waits`,
+meant for the driver (test
+`a_run_waited_for_keeps_the_wakes_that_come_while_its_driver_waits`,
 `src/tests/compose/run.rs`).
 
 Parking saves the waiting thread's CPU, and may add latency to each call

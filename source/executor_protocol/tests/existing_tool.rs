@@ -40,14 +40,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use executor_protocol::{
-    AdaptiveProgram, Close, Describe, Executor, ExecutorReport, Instruction, InstructionBatch,
-    InstructionBatchRef, InstructionCall, InstructionSet, Needs, Operand, OperandKind,
-    ReadoutFailure, Rejected, ShotOutcome, ShotSet, Value, compose, conformance, driver, wait,
+    Close, Describe, Executor, ExecutorReport, InstructionBatch, InstructionBatchRef,
+    InstructionCall, InstructionSet, Needs, Operand, OperandKind, ReadoutFailure, Rejected,
+    ShotOutcome, ShotSet, StaticProgram, Value, compose, conformance, driver, wait,
 };
 
 use backend::{Bits, ExistingInterface, FixedReply, NAMES, Reading};
 use bridge::backend_bridge;
-use profiler::{Counts, toy_profiler};
+use profiler::{Counts, profiling_executor};
 use toy::{Op, action};
 
 /// The toy's instructions the backend names: all but `coin`.
@@ -122,40 +122,6 @@ fn run_bridged(backend: impl ExistingInterface, ops: &[Op]) -> Vec<(u32, Value)>
     outcomes.iter().map(|o| (o.tag, o.value)).collect()
 }
 
-/// A program: its batches, sent in order to every shot, each once the
-/// reply to the one before it ended, and what it needs of the chain.
-struct Program<I> {
-    batches: Vec<Vec<I>>,
-    needs: Needs,
-}
-
-impl<I: Instruction> AdaptiveProgram for Program<I> {
-    type Instruction = I;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self) -> Needs {
-        self.needs.clone()
-    }
-
-    async fn drive<E: Executor<InstructionBatch<I>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let mut outcomes = Vec::new();
-        for batch in &self.batches {
-            let reply = executor
-                .call(InstructionBatchRef {
-                    shots,
-                    instructions: batch,
-                })
-                .expect("the tests' programs send only what the executor runs");
-            wait(reply, &mut outcomes).expect("the tests' programs fail no batch");
-        }
-        outcomes
-    }
-}
-
 /// The counts of `program` and its outcomes, on `shots` of the profiler
 /// whose shots draw from `seed`, the program needing what `needs` states.
 fn profile(
@@ -164,15 +130,13 @@ fn profile(
     seed: u64,
     shots: ShotSet,
 ) -> (Counts, Vec<ShotOutcome>) {
-    let program = Program {
-        batches: program,
-        needs,
-    };
-    let run = compose(driver(), toy_profiler(seed))
+    let program = StaticProgram::new(needs, program);
+    let run = compose(driver(), profiling_executor(seed))
         .expect("nothing between to refuse")
         .run(program, shots)
         .expect("the profiler meets the needs the tests' programs state");
     let (output, report) = run.wait();
+    let output = output.expect("the tests' programs send only what the profiler runs");
     (report.states, output)
 }
 
@@ -294,42 +258,41 @@ fn the_bridge_accepts_calls_after_a_refusal() {
 #[test]
 fn a_program_runs_its_calls_on_the_bridge() {
     let (bridge, set) = bridged(Bits::new(2, []));
-    let program = Program {
-        batches: vec![vec![
-            call(&set, Op::X(0)),
-            call(&set, Op::Measure { qubit: 0, tag: 4 }),
-        ]],
-        needs: Needs::default().with_instruction_set(Some(set)),
-    };
+    let batch = vec![
+        call(&set, Op::X(0)),
+        call(&set, Op::Measure { qubit: 0, tag: 4 }),
+    ];
+    let program = StaticProgram::new(
+        Needs::default().with_instruction_set(Some(set)),
+        vec![batch],
+    );
     let run = compose(driver(), bridge)
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
         .expect("the bridge describes the set the program's calls are of");
     let (outcomes, _) = run.wait();
+    let outcomes = outcomes.expect("the bridge neither refuses nor fails a batch");
     assert_eq!(outcomes, [ShotOutcome::new(0, 4, Value::One)]);
 }
 
 /// A program of one shot that flips qubit 0 in one batch and reads it in
-/// the next, stating that it continues its shot: the bridge promises
-/// resumable shots, so the chain takes the job, and the second batch reads
-/// the flip of the first.
+/// the next, so that the crate's driver states that it continues its shot:
+/// the bridge promises resumable shots, so the chain takes the job, and the
+/// second batch reads the flip of the first.
 #[test]
 fn a_program_that_continues_its_shot_from_one_batch_to_the_next_runs_on_the_bridge() {
     let (bridge, set) = bridged(Bits::new(2, []));
-    let program = Program {
-        batches: vec![
-            vec![call(&set, Op::X(0))],
-            vec![call(&set, Op::Measure { qubit: 0, tag: 4 })],
-        ],
-        needs: Needs::default()
-            .with_instruction_set(Some(set))
-            .with_resumable_shots(true),
-    };
+    let batches = vec![
+        vec![call(&set, Op::X(0))],
+        vec![call(&set, Op::Measure { qubit: 0, tag: 4 })],
+    ];
+    let program = StaticProgram::new(Needs::default().with_instruction_set(Some(set)), batches);
     let run = compose(driver(), bridge)
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
         .expect("the bridge keeps its shot from one call to the next");
     let (outcomes, _) = run.wait();
+    let outcomes = outcomes.expect("the bridge neither refuses nor fails a batch");
     assert_eq!(outcomes, [ShotOutcome::new(0, 4, Value::One)]);
 }
 
@@ -500,7 +463,7 @@ fn a_profile_of_many_shots_is_the_sum_of_their_counts() {
 /// nothing when it closes again.
 #[test]
 fn a_profile_is_reported_once() {
-    let mut profiler = toy_profiler(0);
+    let mut profiler = profiling_executor(0);
     let (_, end) = reply(&mut profiler, &[Op::X(0)]);
     end.expect("the profiler fails no batch");
     conformance::reports_once(&mut profiler);
@@ -528,7 +491,7 @@ fn profiles_fold_in_any_order() {
 fn the_profiler_accepts_calls_after_a_refusal() {
     let read = |qubit| Op::Measure { qubit, tag: 0 };
     conformance::accepts_calls_after_a_refusal::<InstructionBatch<Op>, _>(
-        &mut toy_profiler(0),
+        &mut profiling_executor(0),
         on_shot_0(&[read(0), read(1)]),
         on_shot_0(&[read(0)]),
     );
@@ -547,7 +510,7 @@ fn sixteen_readouts(first_tag: u32) -> Vec<Op> {
 #[test]
 fn the_profiler_gives_each_shot_alone_what_it_gives_among_others() {
     conformance::gives_each_shot_alone_what_it_gives_among_others(
-        || toy_profiler(7),
+        || profiling_executor(7),
         &ShotSet::range(0..=3).expect("0..=3 is not empty"),
         &[&sixteen_readouts(0)],
     );
@@ -559,7 +522,7 @@ fn the_profiler_gives_each_shot_alone_what_it_gives_among_others() {
 #[test]
 fn the_profiler_continues_a_shots_draws_from_one_call_to_the_next() {
     conformance::continues_a_shot_from_one_call_to_the_next(
-        || toy_profiler(7),
+        || profiling_executor(7),
         &ShotSet::range(0..=1).expect("0..=1 is not empty"),
         &sixteen_readouts(0),
         &sixteen_readouts(16),
@@ -572,7 +535,7 @@ fn the_profiler_continues_a_shots_draws_from_one_call_to_the_next() {
 #[test]
 fn the_profiler_changes_no_shot_a_call_does_not_name() {
     conformance::changes_no_shot_a_call_does_not_name(
-        || toy_profiler(7),
+        || profiling_executor(7),
         &ShotSet::range(0..=3).expect("0..=3 is not empty"),
         &sixteen_readouts(0),
         &sixteen_readouts(16),
@@ -586,7 +549,7 @@ fn the_profiler_changes_no_shot_a_call_does_not_name() {
 #[test]
 fn the_profiler_starts_its_shots_as_made_whatever_an_earlier_one_left() {
     conformance::starts_its_shots_as_made_whatever_an_earlier_executor_left(
-        || toy_profiler(7),
+        || profiling_executor(7),
         &ShotSet::range(0..=3).expect("0..=3 is not empty"),
         &sixteen_readouts(0),
         &sixteen_readouts(16),
@@ -605,7 +568,7 @@ fn each_executor_refuses_a_tag_repeated_within_a_batch() {
         Op::Measure { qubit: 1, tag: 0 },
     );
     let shots = ShotSet::one(3);
-    let mut profiler = toy_profiler(0);
+    let mut profiler = profiling_executor(0);
     conformance::refuses_a_tag_repeated_within_a_batch(&mut profiler, &shots, &a, &b, &a_again);
     let x = Op::X(1);
     conformance::refuses_a_repeated_tag_at_the_index_of_its_instruction(
@@ -632,7 +595,7 @@ fn each_executor_refuses_a_tag_repeated_within_a_batch() {
 fn each_executor_rejects_calls_once_closed() {
     let shots = ShotSet::one(0);
     let ops = [Op::X(0)];
-    let mut profiler = toy_profiler(0);
+    let mut profiler = profiling_executor(0);
     let batch = InstructionBatchRef {
         shots: &shots,
         instructions: &ops,

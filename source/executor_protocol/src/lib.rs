@@ -16,17 +16,18 @@
 //! Driver >> Adapter >> ... >> Executor
 //! ```
 //!
-//! - A driver heads the chain ([`Driver`]) and runs any program of its form
-//!   given to the chain, so that programs are data. The crate's driver,
-//!   [`driver()`](fn@driver), runs a [`StaticProgram`] or any
-//!   [`AdaptiveProgram`]: composed with an executor, through adapters or
-//!   not, it gives a [`Chain`], built and checked, and a program and its
-//!   shots are a job, the chain's input, not one of its components:
-//!   `chain.run(program, shots)` checks the job ([`JobFaults`]) and gives
-//!   its [`Run`], which runs the program as the driver drives it
-//!   ([`DrivenProgram`]). While a chain is built, its driver and the
-//!   adapters composed below it so far are the chain's prefix
-//!   ([`ChainPrefix`]).
+//! - A driver heads the chain ([`Driver`]) and drives any program of its
+//!   form given to the chain. A program is data ([`Program`]: its
+//!   instructions, its output and its needs); the driver sends its calls,
+//!   reads their outcomes and, for a program with a branch on a readout,
+//!   chooses the next calls from them. The crate's driver,
+//!   [`driver()`](fn@driver), runs a [`StaticProgram`]: composed with an
+//!   executor, through adapters or not, it gives a [`Chain`], built and
+//!   checked, and a program and its shots are a job, the chain's input,
+//!   not one of its components: `chain.run(program, shots)` checks the job
+//!   ([`JobFaults`]) and gives its [`Run`], in which the driver drives the
+//!   program. While a chain is built, its driver and the adapters composed
+//!   below it so far are the chain's prefix ([`ChainPrefix`]).
 //! - The executor at the end of the chain ([`Executor`]) is an executor of
 //!   [`InstructionBatch`]es, each a list of instructions run on some of the
 //!   run's shots, whose states carry over from one batch to the next. It is
@@ -49,9 +50,9 @@
 //! job's needs are checked against what the chain offers when it is given
 //! to the chain, every fault reported together before anything runs
 //! ([`JobFaults`]). A [`Run`] runs nothing until
-//! waited for ([`Run::wait`]) or awaited: it then runs its program and
-//! closes the executor once the program ends, giving the program's output
-//! and the executor's report.
+//! waited for ([`Run::wait`]) or awaited: its driver then drives its
+//! program, and it closes the executor once the driver is done, giving the
+//! program's output and the executor's report.
 //!
 //! An executor may run work synchronously before returning. An executor's
 //! refusal means that no work started; a rejection of class
@@ -97,7 +98,6 @@
 //! `docs/protocol.md` and `docs/facilities.md` detail them.
 
 mod adapter;
-mod adaptive_program;
 mod capabilities;
 mod compose;
 #[cfg(any(test, feature = "conformance"))]
@@ -109,6 +109,7 @@ mod instruction_batch;
 mod instruction_set;
 mod message;
 mod needs;
+mod program;
 mod rejected;
 mod reply;
 mod seeds;
@@ -119,7 +120,6 @@ mod wire_codes;
 
 pub use adapter::boundary::AdapterBoundary;
 pub use adapter::{Adapter, Apply};
-pub use adaptive_program::AdaptiveProgram;
 pub use capabilities::{Capabilities, Describe};
 pub use compose::adapters::{AdapterExecutor, ComposedAdapters};
 pub(crate) use compose::adapters::{Adapters, NoAdapter, UpstreamOf};
@@ -129,7 +129,6 @@ pub use compose::run::Run;
 pub use compose::{Compose, WithExecutor, compose};
 pub use driver::Driver;
 pub use driver::chain_prefix::{ChainPrefix, DriverExt};
-pub use driver::driven_program::DrivenProgram;
 pub use executor::Executor;
 pub use executor::report::{Close, ExecutorReport, Fold, LogP};
 pub use facilities::adapter_fn::below::{AdapterError, Below, BelowHandle};
@@ -162,6 +161,7 @@ pub use instruction_set::{
 };
 pub use message::Message;
 pub use needs::{Need, Needs, UnmetNeed};
+pub use program::Program;
 pub use rejected::{CallId, Rejected, RetryClass};
 pub use reply::asynchronous::{AsyncEvents, WaitAsync, async_events, wait_async};
 pub use reply::blocking::wait;

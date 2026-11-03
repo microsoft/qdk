@@ -35,11 +35,11 @@ mod toy;
 use std::sync::{Arc, Mutex};
 
 use executor_protocol::{
-    Action, AdaptiveProgram, BuildError, BuildFaults, Capabilities, Close, Describe, Executor,
+    Action, BuildError, BuildFaults, Capabilities, Close, Describe, Driver, DriverExt, Executor,
     ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
     InstructionMismatch, InstructionSet, JobFaults, Need, Needs, Operand, OperandKind, Outcome,
-    Pauli, ReadoutFailure, Rejected, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose,
-    conformance, driver, wait,
+    Pauli, Program, ReadoutFailure, Rejected, ShotId, ShotOutcome, ShotSet, StaticProgram,
+    StaticProgramError, Value, adapter_fn, compose, conformance, driver, wait,
 };
 
 use code::{Code, CodeFault, Encoding, GadgetCall, Slot};
@@ -107,26 +107,6 @@ fn run(
     )
     .expect("the shot downstream never fails a batch");
     outcomes
-}
-
-/// The values of `batch`'s outcomes on `executor`, for `shots`, which
-/// accepts the batch and whose device never fails one.
-fn values(
-    executor: &mut impl Executor<InstructionBatch<InstructionCall>>,
-    shots: &ShotSet,
-    batch: &[InstructionCall],
-) -> Vec<Value> {
-    let reply = executor.call(InstructionBatchRef {
-        shots,
-        instructions: batch,
-    });
-    let mut outcomes: Vec<ShotOutcome> = Vec::new();
-    wait(
-        reply.expect("the executor accepts the batch"),
-        &mut outcomes,
-    )
-    .expect("the device never fails a batch");
-    outcomes.iter().map(|outcome| outcome.value).collect()
 }
 
 /// The batches the recorder of [`recorded`] saw go down, shared with the
@@ -461,33 +441,25 @@ fn the_code_describes_the_logical_set() {
 }
 
 /// A program that prepares block 0, flips it and reads it, with calls built
-/// by name in the set it states as its needs.
-struct PrepareFlipAndRead(Arc<InstructionSet>);
+/// by name in `set`, which it states as its needs.
+fn prepare_flip_and_read(set: Arc<InstructionSet>) -> StaticProgram<InstructionCall> {
+    let batch = [
+        set.call("prepare_z", [Operand::Block(0)]),
+        set.call("__quantum__qis__x__body", [Operand::Block(0)]),
+        set.call(
+            "__quantum__qis__m__body",
+            [Operand::Block(0), Operand::Tag(0)],
+        ),
+    ]
+    .map(|call| call.expect("a call of the program's set"));
+    let needs = Needs::default().with_instruction_set(Some(set));
+    StaticProgram::new(needs, vec![batch.to_vec()])
+}
 
-impl AdaptiveProgram for PrepareFlipAndRead {
-    type Instruction = InstructionCall;
-    type Output = Vec<Value>;
-
-    fn needs(&self) -> Needs {
-        Needs::default().with_instruction_set(Some(Arc::clone(&self.0)))
-    }
-
-    async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<Value> {
-        let batch = [
-            self.0.call("prepare_z", [Operand::Block(0)]),
-            self.0.call("__quantum__qis__x__body", [Operand::Block(0)]),
-            self.0.call(
-                "__quantum__qis__m__body",
-                [Operand::Block(0), Operand::Tag(0)],
-            ),
-        ]
-        .map(|call| call.expect("a call of the program's set"));
-        values(executor, shots, &batch)
-    }
+/// The values a run of a program read.
+fn values(outcomes: Result<Vec<ShotOutcome>, StaticProgramError>) -> Vec<Value> {
+    let outcomes = outcomes.expect("the chain neither refuses nor fails the batch");
+    outcomes.iter().map(|outcome| outcome.value).collect()
 }
 
 /// A program that states the instructions it will send is taken by a chain
@@ -496,7 +468,7 @@ impl AdaptiveProgram for PrepareFlipAndRead {
 #[test]
 fn a_program_is_taken_only_by_a_code_that_has_the_instructions_it_needs() {
     let composes = |program: InstructionSet| {
-        let program = PrepareFlipAndRead(Arc::new(program));
+        let program = prepare_flip_and_read(Arc::new(program));
         let chain = compose(driver(), composed(8)).expect("nothing between to refuse");
         chain.run(program, ShotSet::one(0))
     };
@@ -522,53 +494,22 @@ fn a_program_is_taken_only_by_a_code_that_has_the_instructions_it_needs() {
 
 /// A program that prepares block 0 and reads it, in the set it states,
 /// whose `prepare_z` is a reset; it states that it resets.
-struct PrepareAndRead(Arc<InstructionSet>);
-
-impl PrepareAndRead {
-    fn new() -> Self {
-        let set = InstructionSet::new("program")
-            .with_action("prepare_z", [Block], reset())
-            .with_action("__quantum__qis__m__body", [Block, Tag], measure());
-        Self(Arc::new(set))
-    }
-}
-
-impl AdaptiveProgram for PrepareAndRead {
-    type Instruction = InstructionCall;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self) -> Needs {
-        let needs = Needs::default().with_resets(true);
-        needs.with_instruction_set(Some(Arc::clone(&self.0)))
-    }
-
-    async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let call = |mnemonic, operands: Vec<Operand>| {
-            (self.0.call(mnemonic, operands)).expect("a call of the program's set")
-        };
-        let batch = [
-            call("prepare_z", vec![Operand::Block(0)]),
-            call(
-                "__quantum__qis__m__body",
-                vec![Operand::Block(0), Operand::Tag(0)],
-            ),
-        ];
-        let reply = executor.call(InstructionBatchRef {
-            shots,
-            instructions: &batch,
-        });
-        let mut outcomes = Vec::new();
-        wait(
-            reply.expect("the chain accepts the program's set"),
-            &mut outcomes,
-        )
-        .expect("the device never fails a batch");
-        outcomes
-    }
+fn prepare_and_read() -> StaticProgram<InstructionCall> {
+    let set = InstructionSet::new("program")
+        .with_action("prepare_z", [Block], reset())
+        .with_action("__quantum__qis__m__body", [Block, Tag], measure());
+    let call = |mnemonic, operands: Vec<Operand>| {
+        (set.call(mnemonic, operands)).expect("a call of the program's set")
+    };
+    let batch = vec![
+        call("prepare_z", vec![Operand::Block(0)]),
+        call(
+            "__quantum__qis__m__body",
+            vec![Operand::Block(0), Operand::Tag(0)],
+        ),
+    ];
+    let needs = Needs::default().with_resets(true);
+    StaticProgram::new(needs.with_instruction_set(Some(Arc::new(set))), vec![batch])
 }
 
 /// The fixture's code with a logical set of `m` and `x` only, and their
@@ -596,9 +537,10 @@ fn a_program_resetting_upstream_of_a_code_without_a_reset_is_refused_when_given_
     let run = |code| {
         let chain = compose(driver(), Encoding::new(code));
         let chain = compose(chain, device(8)).expect("the code runs on the device");
-        chain.run(PrepareAndRead::new(), ShotSet::one(0))
+        chain.run(prepare_and_read(), ShotSet::one(0))
     };
-    (run(repetition3()).expect("the fixture's code has `prepare_z`")).wait();
+    let (read, _) = (run(repetition3()).expect("the fixture's code has `prepare_z`")).wait();
+    read.expect("the code and the device neither refuse nor fail the batch");
     let offered = code_upstream_of(without_a_reset(), device(8))
         .expect("the code without a reset runs on the device")
         .capabilities();
@@ -629,13 +571,13 @@ fn a_program_in_another_order_runs_its_own_instructions_on_the_code() {
         .with_action("__quantum__qis__x__body", [Block], pauli(Pauli::x(0)))
         .with_action("__quantum__qis__m__body", [Block, Tag], measure())
         .with_action("prepare_z", [Block], reset());
-    let program = PrepareFlipAndRead(Arc::new(program_set));
+    let program = prepare_flip_and_read(Arc::new(program_set));
     let run = compose(driver(), composed(8))
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
         .expect("the code has the program's set");
     let (output, _) = run.wait();
-    assert_eq!(output, [Value::One]);
+    assert_eq!(values(output), [Value::One]);
 }
 
 /// A program that cannot afford a copy of each batch builds its calls by
@@ -650,35 +592,44 @@ fn a_program_builds_its_calls_by_name_with_the_codes_set() {
         .expect("the code describes the logical set");
     let run = compose(driver(), code)
         .expect("nothing between to refuse")
-        .run(PrepareFlipAndRead(set), ShotSet::one(0))
+        .run(prepare_flip_and_read(set), ShotSet::one(0))
         .expect("the code accepts its own set");
     let (output, _) = run.wait();
-    assert_eq!(output, [Value::One]);
+    assert_eq!(values(output), [Value::One]);
 }
 
-/// A program in its own numbering that runs the conformance kit's check
-/// of a described set on the executor it drives.
-struct CallsOutside(Arc<InstructionSet>);
+/// A program of calls by opcode in its own numbering, its `set`, whose
+/// calls its driver writes.
+struct OfSet(Arc<InstructionSet>);
 
-impl AdaptiveProgram for CallsOutside {
+impl Program for OfSet {
     type Instruction = InstructionCall;
     type Output = ();
 
     fn needs(&self) -> Needs {
         Needs::default().with_instruction_set(Some(Arc::clone(&self.0)))
     }
+}
 
+/// A driver that runs the conformance kit's check of a described set on
+/// the executor it drives, in its program's set.
+struct CallsOutside;
+
+impl Driver<OfSet> for CallsOutside {
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
-        self,
+        &self,
+        program: OfSet,
         executor: &mut E,
         shots: &ShotSet,
     ) {
-        let x = self.0.call("__quantum__qis__x__body", [Operand::Block(0)]);
+        let x = program
+            .0
+            .call("__quantum__qis__x__body", [Operand::Block(0)]);
         let &shot = shots.iter().next().expect("a run has a shot");
         conformance::refuses_calls_outside_its_set(
             executor,
             &ShotSet::one(shot),
-            &self.0,
+            &program.0,
             &x.expect("`x` takes a block"),
         );
     }
@@ -694,8 +645,8 @@ fn the_code_in_a_programs_numbering_refuses_calls_outside_the_programs_set() {
     let program_set = InstructionSet::new("program");
     let program_set =
         program_set.with_action("__quantum__qis__x__body", [Block], pauli(Pauli::x(0)));
-    let program = CallsOutside(Arc::new(program_set));
-    compose(driver(), composed(8))
+    let program = OfSet(Arc::new(program_set));
+    compose(CallsOutside.into_chain(), composed(8))
         .expect("nothing between to refuse")
         .run(program, ShotSet::one(0))
         .expect("the code has the program's instructions")

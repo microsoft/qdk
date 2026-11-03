@@ -11,8 +11,9 @@ reported and how a caller waits.
 
 This crate is that contract:
 
-- A **driver**, at the top of a chain, runs any program given to the chain and
-  makes the calls for the shots of the job.
+- A **driver**, at the top of a chain, drives the program given to the chain:
+  a program is data (its instructions, what it gives and what it needs), and
+  the driver makes its calls for the shots of the job.
 - An **executor**, at the end, runs the instructions: for instance, a simulator,
   or (planned) a quantum device behind its service. Called with a message, it
   answers with a reply.
@@ -34,9 +35,9 @@ Some concrete problems it addresses, as examples:
 
 - **Adaptive programs, shot by shot.** A program whose measurements decide what
   runs next (an iterative phase estimation, for example) takes a different
-  path in each shot. Each shot keeps its own state, and a caller reads a
-  batch's outcomes before it sends the next batch
-  ([example](tests/per_shot_executor.rs)).
+  path in each shot. Each shot keeps its own state, and the driver reads a
+  batch's outcomes before it sends the next batch, to the shots that take
+  that path ([example](tests/driver.rs)).
 - **The same outcomes however the shots are split.** Each shot draws its
   randomness from the run's seed and its own id
   ([Seeds](docs/executors.md#seeds-not-generators)), so, on an executor that
@@ -50,7 +51,8 @@ Some concrete problems it addresses, as examples:
   [repetition code and a noise logic](tests/static_isa.rs), and a
   [code given as data](tests/runtime_isa.rs).
 - **Failing before running.** A component describes what it offers
-  (`Capabilities`), and a program declares what it needs (`Needs`). A
+  (`Capabilities`), and a program declares what it needs (`Needs`), with
+  what its driver's way of sending adds. A
   chain whose parts do not fit is refused
   when it is built, and a job whose program needs what the chain lacks is
   refused before any call. A chain's refusal names each component at fault,
@@ -94,16 +96,19 @@ program and its shots. A user writes three steps:
 2. `chain.run(program, shots)`, which
    [checks the job](docs/composition.md#a-chain-and-its-job) against the chain
    before any call and gives a **run**;
-3. `run.wait()`, or `.await`, which runs the program on the chain, closes the
-   chain once the program ends, and gives the program's output (for a
-   `StaticProgram`, its outcomes) and the chain's report. Nothing runs
-   before.
+3. `run.wait()`, or `.await`, in which the driver drives the program on the
+   chain; the run closes the chain once the driver is done, and gives the
+   program's output (for a `StaticProgram`, its outcomes) and the chain's
+   report. Nothing runs before.
 
 In the [example](#an-example) below, the second and third lines build the
-chain (step 1), and the fifth does steps 2 and 3 in one expression. A program
-that chooses its next batch from the outcomes is an adaptive program
-([`src/adaptive_program.rs`](src/adaptive_program.rs)), which drives the
-chain's executor itself.
+chain (step 1), and the fifth does steps 2 and 3 in one expression. A
+program is data ([`src/program.rs`](src/program.rs)): its instructions,
+what it gives when it is done (its output) and what it needs. The driver
+drives it: it sends the calls and reads their outcomes, and, for a program
+with a branch on a readout, chooses its next calls, and the shots they go
+to, from those outcomes. So every chain is `driver >> adapters >> executor`,
+given a program.
 
 **One message.** Every link of a running chain carries the same message, an
 `InstructionBatch` ([`src/instruction_batch.rs`](src/instruction_batch.rs)):
@@ -143,7 +148,9 @@ ending it.
 
 **What a part offers, and a program needs.** A part describes what it offers
 (`Capabilities`, [`src/capabilities.rs`](src/capabilities.rs)), and a
-program what it needs (`Needs`, [`src/needs.rs`](src/needs.rs)). Each shot
+program what it needs (`Needs`, [`src/needs.rs`](src/needs.rs)); its driver
+adds what its way of sending needs, and the chain checks the two combined.
+Each shot
 draws from seeds fixed by the run's seed, its id and the component that draws
 ([`src/seeds.rs`](src/seeds.rs)).
 
@@ -285,7 +292,7 @@ by hand instead.
 - `driver()` ([`src/facilities/builtin_driver.rs`](src/facilities/builtin_driver.rs))
   is the crate's driver: it runs a `StaticProgram`
   ([`src/facilities/static_program.rs`](src/facilities/static_program.rs)),
-  a program of fixed batches, and lets any adaptive program drive.
+  a program of fixed batches.
 
 **Keep a rule for a part you write by hand.**
 
@@ -313,8 +320,7 @@ What to write, by task, and where it is explained:
 | To                                                                                      | Write                                                                              | Section                                                                                                                                                                                |
 | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | run a program                                                                           | `driver() >> … >> executor`, `chain.run(program, shots)`                           | [Running a chain](#running-a-chain)                                                                                                                                                    |
-| run a program that drives the executor itself, choosing its next batch                  | an adaptive program: `AdaptiveProgram`, given to `chain.run(program, shots)`       | [Writing an adaptive program](#writing-an-adaptive-program)                                                                                                                            |
-| run your own runtime or interpreter (QIR, a circuit form)                               | a driver: `Driver<P>`, `runtime.into_chain()`                                      | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
+| run a program that branches on its readouts, or your own runtime (QIR, a circuit form)  | a program, `Program`, and its driver, `Driver<P>`, `runtime.into_chain()`          | [Writing a driver](#writing-a-driver)                                                                                                                                                  |
 | plug in a device, or a simulator with a state per shot                                  | an executor: `executor_fn`                                                         | [Writing an executor](#writing-an-executor)                                                                                                                                            |
 | plug in a simulator whose shots share one state (an ensemble, such as an MPS simulator) | an executor written by hand, on `ExecutorLifecycle`                                | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle)                                                                                         |
 | compose your own executor type with `>>`, in either grouping                            | its `>>` for each type that may be on its left, through `Compose<_, WithExecutor>` | [An executor written by hand](docs/executors.md#an-executor-written-by-hand-executorlifecycle); guide: [`tests/executor_by_hand.rs`](tests/executor_by_hand.rs)                        |
@@ -327,24 +333,15 @@ What to write, by task, and where it is explained:
 
 The excerpts below are from the
 [guide tests](docs/guides.md#building-on-the-protocol-the-guide-tests), on
-a toy of classical bits and seeded fair coins, but for the driver's, from
-the crate's own tests. The names an excerpt uses but does not define
-(`toy_set()`, `the_toys_promise()`, `check_calls`, `Counts`, `COIN`,
-`bond_limited_executor`, `on_shot_0`, `logger`, …) are helpers of the
-test file the excerpt links; for the driver's, `bits_set()`, `Bits` and
-`TestDoubleExecutor` are helpers of the crate's tests
-([`src/tests.rs`](src/tests.rs),
-[`src/tests/test_double.rs`](src/tests/test_double.rs)).
+a toy of classical bits and seeded fair coins. The names an excerpt uses
+but does not define (`toy_set()`, `the_toys_promise()`, `check_calls`,
+`Counts`, `Op`, `toy_simulator`, `on_shot_0`, …) are helpers of the test
+file the excerpt links.
 
 ### Running a chain
 
-Building a chain gives a `Chain`, or every fault of the parts built
-together (`BuildFaults`), and `chain.run` a `Run`, or every fault of the
-job (`JobFaults`), both
-[before any call](docs/composition.md#what-is-checked-and-when); a chain
-runs one job ([A chain and its job](docs/composition.md#a-chain-and-its-job)).
 `driver()` runs a `StaticProgram`: what the program needs of the chain
-(`Needs`), and its batches
+(`Needs`), and its batches, run in turn on every shot
 ([`tests/observers.rs`](tests/observers.rs)):
 
 ```rust
@@ -356,141 +353,150 @@ fn program_of(batches: Vec<Vec<InstructionCall>>) -> StaticProgram<InstructionCa
 }
 ```
 
-### Writing an adaptive program
-
-A program that drives the executor itself, sending each batch and choosing
-the next from the outcomes so far, implements `AdaptiveProgram`: what it
-needs, and `drive`, which calls the executor it is given, each call on a
-part of the shots
-([the interfaces](#the-interfaces-for-a-part-written-by-hand)). This one
-tosses a coin on every shot, then again on the shots whose coin showed 1
-([`tests/per_shot_executor.rs`](tests/per_shot_executor.rs)):
+The chain, `driver() >> simulator()` with no adapter between, is built,
+given the program on the job's shots, then waited for:
 
 ```rust
-struct TossAgainOnOne;
-
-impl AdaptiveProgram for TossAgainOnOne {
-    type Instruction = Op;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self) -> Needs {
-        Needs::default()
-            .with_qubits(2)
-            .with_resumable_shots(true)
-            .with_log_probability(true)
-    }
-
-    async fn drive<E: Executor<InstructionBatch<Op>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let mut outcomes = Vec::new();
-        let first = executor.call(InstructionBatchRef {
-            shots,
-            instructions: &COIN,
-        });
-        wait(first.expect("the executor takes a coin"), &mut outcomes).expect("one coin fits");
-        let ones = shots.subset(|j| {
-            outcomes
-                .iter()
-                .any(|o| o.shot == j && o.value == Value::One)
-        });
-        if let Some(ones) = ones {
-            let second = [Op::Coin(1), Op::Measure { qubit: 0, tag: 1 }];
-            let reply = executor.call(InstructionBatchRef {
-                shots: &ones,
-                instructions: &second,
-            });
-            wait(reply.expect("the executor takes a coin"), &mut outcomes).expect("one coin fits");
-        }
-        outcomes
-    }
-}
+let chain = (driver() >> simulator()).expect("the program's calls fit the toy");
+let (outcomes, report) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
 ```
 
-Given to `chain.run`, it runs as any job: the chain's `driver()` lets
-it drive:
-
-```rust
-let shots = ShotSet::range(0..=7).expect("not empty");
-let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-let (outcomes, _) = (driver() >> executor)
-    .expect("nothing between to refuse")
-    .run(TossAgainOnOne, shots)
-    .expect("the executor has resumable shots, log probability, 8 shots")
-    .wait();
-```
+Building a chain gives a `Chain`, or every fault of the parts built
+together (`BuildFaults`), and `chain.run` a `Run`, or every fault of the
+job (`JobFaults`), both
+[before any call](docs/composition.md#what-is-checked-and-when); a chain
+runs one job ([A chain and its job](docs/composition.md#a-chain-and-its-job)).
 
 ### Writing a driver
 
-A runtime that executes a program's control logic, such as a QIR runtime
-or an interpreter of a circuit form, is a driver: it implements
-`Driver<P>` for its form of program `P`
-([the interfaces](#the-interfaces-for-a-part-written-by-hand)). It states
-what a program needs (`needs`) and the faults it finds in it before any
-call (`check`), and in `drive` it runs the program, making its calls on
-the one executor it is given: the adapters and the executor below look
-to it like that single executor. The driver is written once and runs any
+A program that branches on its readouts, or a program form such as QIR or
+a circuit, is run by a driver of its form. The program is data: it
+implements `Program`, its instructions, its output and what its content
+needs. The driver implements `Driver<P>` for it
+([the interfaces](#the-interfaces-for-a-part-written-by-hand)): what its
+way of sending adds to the program's needs (`needs`), the faults it finds
+in the program before any call (`check`), and `drive`, in which it runs
+the program, making its calls on the one executor it is given: the
+adapters and the executor below look to it like that single executor.
+The chain checks the program's needs and the driver's combined, so a
+driver cannot drop the program's. A driver is written once and runs any
 program of its form; a chain runs one job (running many jobs on one chain
-is [planned](docs/planned.md)). This one sends a program's batches in turn,
-each to every shot of the job, and gives their outcomes
-([`src/tests/compose.rs`](src/tests/compose.rs)):
+is [planned](docs/planned.md)). This program branches on a readout: a
+batch on every shot, then another on the shots whose readout is 1
+([`tests/driver/if_one.rs`](tests/driver/if_one.rs)):
 
 ```rust
-struct InTurn;
+pub struct IfOne {
+    /// What its instructions need: its qubits, and anything else.
+    pub needs: Needs,
+    /// The batch every shot runs.
+    pub first: Vec<Op>,
+    /// The readout of `first` the branch reads.
+    pub tag: u32,
+    /// The batch the shots whose readout `tag` is 1 run next.
+    pub then: Vec<Op>,
+}
 
-impl Driver<Program> for InTurn {
-    type Instruction = InstructionCall;
-    type Output = Vec<ShotOutcome>;
+impl Program for IfOne {
+    type Instruction = Op;
+    /// The readouts of both batches, or why a call was refused or failed.
+    type Output = Result<Vec<ShotOutcome>, String>;
 
-    fn needs(&self, program: &Program) -> Needs {
-        program.needs.clone()
-    }
-
-    async fn drive<E>(&self, program: Program, executor: &mut E, shots: &ShotSet) -> Self::Output
-    where
-        E: Executor<InstructionBatch<InstructionCall>>,
-    {
-        let mut outcomes = Vec::new();
-        for batch in &program.batches {
-            let reply = executor
-                .call(InstructionBatchRef {
-                    shots,
-                    instructions: batch,
-                })
-                .expect("the program's batches are valid");
-            let (events, end) = wait_async(reply).await;
-            end.expect("the shots do not fail");
-            outcomes.extend(events);
-        }
-        outcomes
+    fn needs(&self) -> Needs {
+        self.needs.clone()
     }
 }
 ```
 
-It heads a chain as the crate's driver does, its calls passing through
-the adapters below it:
+Its driver sends the first batch to every shot, reads each shot's
+readout, and sends the second batch to the shots that read 1. Those
+continue where the first batch left them, so the driver adds
+`resumable_shots` to the program's needs:
 
 ```rust
-let by_hand = Log::default();
-let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
-let (outcomes, _) = (InTurn.into_chain() >> logger("a", &by_hand) >> bits())
-    .expect("the logger fits")
-    .run(Program::flip_and_toss(bits_set()), [0, 1])
-    .expect("shots, needs met")
+pub struct IfOneDriver;
+
+impl Driver<IfOne> for IfOneDriver {
+    /// `then` continues the shots `first` ran, so the executor keeps each
+    /// shot's state between calls, whatever the program states.
+    fn needs(&self, _: &IfOne) -> Needs {
+        Needs::default().with_resumable_shots(true)
+    }
+
+    async fn drive<E>(
+        &self,
+        program: IfOne,
+        executor: &mut E,
+        shots: &ShotSet,
+    ) -> Result<Vec<ShotOutcome>, String>
+    where
+        E: Executor<InstructionBatch<Op>>,
+    {
+        let first = InstructionBatchRef {
+            shots,
+            instructions: &program.first,
+        };
+        let reply = executor.call(first).map_err(|r| r.to_string())?;
+        let (mut outcomes, end) = wait_async(reply).await;
+        end?;
+        let read_one = |j| {
+            (outcomes.iter()).any(|o| o.shot == j && o.tag == program.tag && o.value == Value::One)
+        };
+        let Some(ones) = shots.subset(read_one) else {
+            return Ok(outcomes);
+        };
+        let then = InstructionBatchRef {
+            shots: &ones,
+            instructions: &program.then,
+        };
+        let reply = executor.call(then).map_err(|r| r.to_string())?;
+        let (then_read, end) = wait_async(reply).await;
+        outcomes.extend(then_read);
+        end.map(|()| outcomes)
+    }
+}
+```
+
+A program tosses a coin, then tosses again on the shots that read 1; it
+states its qubits ([`tests/driver.rs`](tests/driver.rs)):
+
+```rust
+fn toss_again_on_one() -> IfOne {
+    IfOne {
+        needs: Needs::default().with_qubits(2),
+        first: vec![Op::Coin(0), Op::Measure { qubit: 0, tag: 0 }],
+        tag: 0,
+        then: vec![Op::Coin(1), Op::Measure { qubit: 0, tag: 1 }],
+    }
+}
+```
+
+The driver heads the chain, `driver >> adapters >> executor`, here with
+no adapter, and the chain runs the program on eight shots of the toy's
+simulator:
+
+```rust
+let shots = ShotSet::range(0..=7).expect("not empty");
+let chain = (IfOneDriver.into_chain() >> toy_simulator(3)).expect("nothing between to refuse");
+let (outcomes, _) = chain
+    .run(toss_again_on_one(), shots)
+    .expect("the toy has the qubits and resumable shots")
     .wait();
 ```
+
+On an executor that does not keep a shot between calls, the job is
+refused before any call, for the need the driver adds, though the program
+states none.
 
 The caller's entry point is the chain:
 `runtime.into_chain() >> adapters >> executor` (with the trait `DriverExt`
 in scope), then `chain.run(program, shots)`. A driver of several program
 types names one of them, `DriverExt::<P>::into_chain(runtime)`, only so
 that the call resolves; the chain runs any program the driver drives. The
-crate's driver, `BuiltinDriver`, runs static and adaptive programs, and
-`driver()` makes it a chain's prefix. A driver with adapters below it is
-still a `ChainPrefix`, which composes the same way, but not yet a
-`Driver<P>` itself ([planned](docs/planned.md)).
+crate's driver, `BuiltinDriver`, runs a `StaticProgram`, and `driver()`
+makes it a chain's prefix. A driver with adapters below it is still a
+`ChainPrefix`, which composes the same way, but not yet a `Driver<P>`
+itself ([planned](docs/planned.md)).
 
 ### Writing an executor
 
@@ -530,20 +536,10 @@ fn simulator_recording(
 }
 ```
 
-Parts are joined by `compose(a, b)`; `a >> b` is the same, implemented on
-the crate's own types: an adapter on the right, or an executor a facility
-made. So a function that makes a part for `>>` returns the type the
-facility gives, its closures named by role (`MakeState`, `ExecutorLogic`,
-`AdapterLogic`), as here; one that takes a reference adds `+ use<>` to
-each `impl` (`MakeState`'s API docs), and one that returns an executor
-placed per shot (`.run_on(..).shots(OnePerShot)`) names its logic
-`impl ExecutorLogic<I, S> + Clone`, as each shot's placement gets a copy
-(`ExecutorLogic`'s API docs). A bare `impl Executor` composes only with
-`compose`, and a bare `impl Adapter` does not compose
-([Composing a run](docs/composition.md#composing-a-run)). The check here,
-a function pointer, has the type `NoCheck<I>`, the default of that type
-parameter, so the return type leaves it out. Its arguments and options,
-for instructions `I` and a state `S`:
+A function that makes a part for `>>` returns the type the facility gives,
+its closures named by role, as here
+([Naming a made part's type](docs/executors.md#naming-a-made-parts-type)).
+Its arguments and options, for instructions `I` and a state `S`:
 
 | Argument or option    | Type                                                                        | When it acts                                                                                                                                                                                                                                                                                                                                               |
 | --------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -659,14 +655,15 @@ Each check panics, naming the rule broken, when the part does not keep it;
 an adapter is checked composed with an executor
 ([`tests/runtime_isa.rs`](tests/runtime_isa.rs)). The check that a refusal
 for the call's own fault leaves an executor usable, run on the existing-tool
-guide's profiler, an executor made with `executor_fn`, whose check refuses
-the first batch, as it reads two qubits under one tag
+guide's profiling executor, made with `executor_fn`, which counts the
+instructions its shots run; its check refuses the first batch, as it reads
+two qubits under one tag
 ([`tests/existing_tool.rs`](tests/existing_tool.rs)):
 
 ```rust
 let read = |qubit| Op::Measure { qubit, tag: 0 };
 conformance::accepts_calls_after_a_refusal::<InstructionBatch<Op>, _>(
-    &mut toy_profiler(0),
+    &mut profiling_executor(0),
     on_shot_0(&[read(0), read(1)]),
     on_shot_0(&[read(0)]),
 );
@@ -677,24 +674,19 @@ conformance::accepts_calls_after_a_refusal::<InstructionBatch<Op>, _>(
 ### The interfaces, for a part written by hand
 
 These traits, and the data they exchange: a facility implements the traits for
-the parts it makes, a part written by hand implements them itself, a program
-that drives the executor itself implements `AdaptiveProgram`, and a driver of
-programs of form `P`, `Driver<P>`. Condensed from `src/`: doc comments and
+the parts it makes, a part written by hand implements them itself, a program,
+data, implements `Program`, and a driver of programs of form `P`,
+`Driver<P>`. Condensed from `src/`: doc comments and
 attributes trimmed but for `#[non_exhaustive]`, a default's body shown as
 `{ ... }`, short items on one line:
 
 ```rust
-pub trait AdaptiveProgram {
+pub trait Program {
     type Instruction: Instruction;
     type Output;
     fn needs(&self) -> Needs { ... }
-    fn drive<E>(self, executor: &mut E, shots: &ShotSet) -> impl Future<Output = Self::Output>
-    where
-        E: Executor<InstructionBatch<Self::Instruction>>;
 }
-pub trait Driver<P> {
-    type Instruction: Instruction;
-    type Output;
+pub trait Driver<P: Program> {
     fn needs(&self, program: &P) -> Needs { ... }
     fn check(&self, program: &P) -> Vec<Rejected> { ... }
     fn drive<E>(
@@ -702,9 +694,9 @@ pub trait Driver<P> {
         program: P,
         executor: &mut E,
         shots: &ShotSet,
-    ) -> impl Future<Output = Self::Output>
+    ) -> impl Future<Output = P::Output>
     where
-        E: Executor<InstructionBatch<Self::Instruction>>;
+        E: Executor<InstructionBatch<P::Instruction>>;
 }
 pub trait Executor<M: Message> {
     type Reply: Reply<Item = M::Event>;
@@ -774,22 +766,22 @@ listed beside each promise in the detailed rules, in `docs/internals/`;
 the last section of each of those pages names the user pages whose other
 pins it lists.
 
-| Document                                                                   | Contents                                                                                                                                                                                                                          |
-| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [The protocol](docs/protocol.md)                                           | The protocol at work, in sequence diagrams: its parts and their files, a chain built and its job checked, a run, an adaptive program, refusals and failures, shots and seeds, outcomes and conditions, levels, what is planned    |
-| [Facilities](docs/facilities.md)                                           | The crate's parts that keep the protocol for your logic: what each serves and guarantees, its files, and when to write the part by hand; a thread per shot, an adapter's call per shot, the driver, how a reply wakes each caller |
-| [Composition](docs/composition.md)                                         | Putting parts together: composing a run with `>>`, a chain and its job, what is checked and when, the conformance checks, chains for several users                                                                                |
-| [Composition: the detailed rules](docs/internals/composition.md)           | For maintainers: what the crate does, levels, roles and laws, how adapters compose, the rules of composition with every boundary of calls by opcode and its cost, the executor form, a job's rules, the known limits              |
-| [Adapters](docs/adapters.md)                                               | Writing an adapter: choosing a way, `adapter_fn` and what its logic may do, a state per shot, seeds, reports, `owning_adapter_fn`, an adapter written by hand, refusals and failures, the shot conditions it takes in and keeps   |
-| [Adapters: the detailed rules](docs/internals/adapters.md)                 | For maintainers: the order of a run's readouts, failures in detail, drops over a placed executor, the merging of a state per shot's sends, the conformance kit, the owning way below, what a state depends on                     |
-| [Executors](docs/executors.md)                                             | Writing an executor: capabilities and needs, `executor_fn`, how it holds its shots and where it runs, an executor's life, an executor written by hand, seeds                                                                      |
-| [Executors: the detailed rules](docs/internals/executors.md)               | For maintainers: adding a capability, the rules of `executor_fn`, a state per shot and a placed executor, the order of `.shots` and `.run_on`, close and failure, the ensemble executor, the seeds' derivation                    |
-| [Instruction sets](docs/instruction-sets.md)                               | Describing and matching instructions: a static set, a run-time set, what an instruction does, compatibility, the three checks, and how applications use them                                                                      |
-| [Instruction sets: the detailed rules](docs/internals/instruction-sets.md) | For maintainers: calls and replies that allocate nothing, when two actions are the same, compatibility in full with renumbering and its costs, the three checks with their errors and the conformance check of calls              |
-| [Replies](docs/replies.md)                                                 | Taking and making replies: the execution models, one `Reply` and four ways to take it, `ImmediateReply` and `IncrementalReply`, how a reply ends, the waking model, readout tags, shot conditions                                 |
-| [Replies: the detailed rules](docs/internals/replies.md)                   | For maintainers: the order of a reply's events, both replies and their ends in detail, the waking cycle step by step, `wait`'s park, several calls in flight, async tasks, the tests' runtimes, readout tags, shot conditions     |
-| [Rejections and retries](docs/rejections.md)                               | What a rejection says, retry classes, and the planned at-most-once resend over a link                                                                                                                                             |
-| [Guide walkthroughs](docs/guides.md)                                       | The guide tests explained, with sequence diagrams of the repetition code's call and of the debugger's step                                                                                                                        |
-| [Performance](docs/performance.md)                                         | What the protocol adds to an executor's own work, by batch size; shots on placements of their own; what shot conditions cost                                                                                                      |
-| [Planned features](docs/planned.md)                                        | What will be added, each with a case that needs it and what to do until then                                                                                                                                                      |
-| [Glossary](docs/glossary.md)                                               | The terms of these pages, each in a sentence or two, with the section that details it                                                                                                                                             |
+| Document                                                                   | Contents                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [The protocol](docs/protocol.md)                                           | The protocol at work, in sequence diagrams: its parts and their files, a chain built and its job checked, a run, a driver of a program with a branch, refusals and failures, shots and seeds, outcomes and conditions, levels, what is planned |
+| [Facilities](docs/facilities.md)                                           | The crate's parts that keep the protocol for your logic: what each serves and guarantees, its files, and when to write the part by hand; a thread per shot, an adapter's call per shot, the driver, how a reply wakes each caller              |
+| [Composition](docs/composition.md)                                         | Putting parts together: composing a run with `>>`, a chain and its job, what is checked and when, the conformance checks, chains for several users                                                                                             |
+| [Composition: the detailed rules](docs/internals/composition.md)           | For maintainers: what the crate does, levels, roles and laws, how adapters compose, the rules of composition with every boundary of calls by opcode and its cost, the executor form, a job's rules, the known limits                           |
+| [Adapters](docs/adapters.md)                                               | Writing an adapter: choosing a way, `adapter_fn` and what its logic may do, a state per shot, seeds, reports, `owning_adapter_fn`, an adapter written by hand, refusals and failures, the shot conditions it takes in and keeps                |
+| [Adapters: the detailed rules](docs/internals/adapters.md)                 | For maintainers: the order of a run's readouts, failures in detail, drops over a placed executor, the merging of a state per shot's sends, the conformance kit, the owning way below, what a state depends on                                  |
+| [Executors](docs/executors.md)                                             | Writing an executor: capabilities and needs, `executor_fn`, how it holds its shots and where it runs, an executor's life, an executor written by hand, seeds                                                                                   |
+| [Executors: the detailed rules](docs/internals/executors.md)               | For maintainers: adding a capability, the rules of `executor_fn`, a state per shot and a placed executor, the order of `.shots` and `.run_on`, close and failure, the ensemble executor, the seeds' derivation                                 |
+| [Instruction sets](docs/instruction-sets.md)                               | Describing and matching instructions: a static set, a run-time set, what an instruction does, compatibility, the three checks, and how applications use them                                                                                   |
+| [Instruction sets: the detailed rules](docs/internals/instruction-sets.md) | For maintainers: calls and replies that allocate nothing, when two actions are the same, compatibility in full with renumbering and its costs, the three checks with their errors and the conformance check of calls                           |
+| [Replies](docs/replies.md)                                                 | Taking and making replies: the execution models, one `Reply` and four ways to take it, `ImmediateReply` and `IncrementalReply`, how a reply ends, the waking model, readout tags, shot conditions                                              |
+| [Replies: the detailed rules](docs/internals/replies.md)                   | For maintainers: the order of a reply's events, both replies and their ends in detail, the waking cycle step by step, `wait`'s park, several calls in flight, async tasks, the tests' runtimes, readout tags, shot conditions                  |
+| [Rejections and retries](docs/rejections.md)                               | What a rejection says, retry classes, and the planned at-most-once resend over a link                                                                                                                                                          |
+| [Guide walkthroughs](docs/guides.md)                                       | The guide tests explained, with sequence diagrams of the repetition code's call and of the debugger's step                                                                                                                                     |
+| [Performance](docs/performance.md)                                         | What the protocol adds to an executor's own work, by batch size; shots on placements of their own; what shot conditions cost                                                                                                                   |
+| [Planned features](docs/planned.md)                                        | What will be added, each with a case that needs it and what to do until then                                                                                                                                                                   |
+| [Glossary](docs/glossary.md)                                               | The terms of these pages, each in a sentence or two, with the section that details it                                                                                                                                                          |

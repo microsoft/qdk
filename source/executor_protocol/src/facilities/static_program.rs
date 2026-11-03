@@ -11,7 +11,7 @@ use std::fmt;
 
 use crate::{
     BuiltinDriver, Driver, Executor, Instruction, InstructionBatch, InstructionBatchRef, Needs,
-    Rejected, ShotOutcome, ShotSet, wait_async,
+    Program, Rejected, ShotOutcome, ShotSet, wait_async,
 };
 #[cfg(doc)]
 use crate::{Capabilities, Chain, driver};
@@ -20,11 +20,12 @@ use crate::{Capabilities, Chain, driver};
 /// what it needs of the chain: a program that decides nothing on its
 /// outcomes, so that it sends the same batches whatever the shots read.
 ///
-/// A program whose calls are all in its last batch adds no need. One with
-/// a call in a batch before its last continues each shot in a later call,
-/// so it needs `resumable_shots`, an executor that keeps each shot's state
-/// between calls ([`Capabilities::resumable_shots`]), and is refused when it is
-/// given to a chain whose executor does not offer it ([`Chain::run`]). An
+/// Its needs are those it states. The crate's driver adds one to a program
+/// with a call in a batch before its last, which continues each shot in a
+/// later call: `resumable_shots`, an executor that keeps each shot's state
+/// between calls ([`Capabilities::resumable_shots`]), so it is refused when
+/// it is given to a chain whose executor does not offer it ([`Chain::run`]).
+/// A program whose calls are all in its last batch gets no need added. An
 /// empty batch is a call like any other, sent to every shot, so a program
 /// of calls then an empty last batch needs `resumable_shots` too.
 ///
@@ -41,14 +42,15 @@ use crate::{Capabilities, Chain, driver};
 /// that a chain too small for it refuses it before it runs. Deriving them
 /// from its calls is planned.
 ///
-/// A program of no batches adds no need to those it states (a program of
-/// calls by opcode states its set all the same), sends no call and gives
-/// no outcomes.
+/// A program of no batches gets no need added to those it states (a
+/// program of calls by opcode states its set all the same), sends no call
+/// and gives no outcomes.
 ///
 /// Its outcomes are one list, told apart by shot and tag, so each tag
-/// names one readout in the whole program, not only within its batch (an
-/// adaptive program's later batch may use a tag again, docs/replies.md,
-/// "Readout tags"; a static program's may not). A program of calls by
+/// names one readout in the whole program, not only within its batch (a
+/// driver that reads each reply's outcomes as they come may send a tag
+/// again in a later batch, docs/replies.md, "Readout tags"; a static
+/// program's batches may not). A program of calls by
 /// opcode that repeats a tag is refused when it is given to a chain, at
 /// the repeat.
 ///
@@ -73,6 +75,16 @@ impl<I> StaticProgram<I> {
     }
 }
 
+impl<I: Instruction> Program for StaticProgram<I> {
+    type Instruction = I;
+    type Output = Result<Vec<ShotOutcome>, StaticProgramError>;
+
+    /// The needs it was made with ([`StaticProgram::new`]).
+    fn needs(&self) -> Needs {
+        self.needs.clone()
+    }
+}
+
 /// A [`StaticProgram`], run by the crate's driver.
 ///
 /// It sends each batch to every shot in one call, and waits for the call's
@@ -84,23 +96,15 @@ impl<I> StaticProgram<I> {
 /// and why ([`StaticProgramError`]), the outcomes of earlier batches
 /// dropped. A program of no batches sends no call and gives no outcomes.
 impl<I: Instruction> Driver<StaticProgram<I>> for BuiltinDriver {
-    type Instruction = I;
-    type Output = Result<Vec<ShotOutcome>, StaticProgramError>;
-
-    /// The needs the program states, and `resumable_shots` when a batch before
-    /// its last holds a call: the later batches, empty ones too, continue
-    /// each shot where that call left it, so the executor must keep each
-    /// shot's state between calls ([`Capabilities::resumable_shots`]), whether
-    /// or not the shot was read. A program whose calls are all in its last
-    /// batch (its earlier batches empty, if any) adds no need, nor does a
-    /// program of no batches.
+    /// `resumable_shots` when a batch before the program's last holds a
+    /// call: the later batches, empty ones too, continue each shot where
+    /// that call left it, so the executor must keep each shot's state
+    /// between calls ([`Capabilities::resumable_shots`]), whether or not the
+    /// shot was read. For a program whose calls are all in its last batch
+    /// (its earlier batches empty, if any), or of no batches, it adds
+    /// nothing. The chain checks it with the needs the program states.
     fn needs(&self, program: &StaticProgram<I>) -> Needs {
-        let needs = program.needs.clone();
-        if calls_before_its_last_batch(&program.batches) {
-            needs.with_resumable_shots(true)
-        } else {
-            needs
-        }
+        Needs::default().with_resumable_shots(calls_before_its_last_batch(&program.batches))
     }
 
     /// Every call by opcode outside the set the program states, and every
@@ -156,7 +160,7 @@ impl<I: Instruction> Driver<StaticProgram<I>> for BuiltinDriver {
         program: StaticProgram<I>,
         executor: &mut E,
         shots: &ShotSet,
-    ) -> Self::Output
+    ) -> <StaticProgram<I> as Program>::Output
     where
         E: Executor<InstructionBatch<I>>,
     {

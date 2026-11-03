@@ -11,12 +11,12 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::{
-    AdaptiveProgram, Capabilities, Close, DrivenProgram, Driver, Executor, Instruction,
-    InstructionBatch, IntoShotSet, Rejected, Run,
-};
 #[cfg(doc)]
-use crate::{BuildFaults, ChainPrefix, ShotSet, UnmetNeed};
+use crate::{BuildFaults, ChainPrefix, Needs, ShotSet, UnmetNeed};
+use crate::{
+    Capabilities, Close, Driver, Executor, Instruction, InstructionBatch, IntoShotSet, Program,
+    Rejected, Run,
+};
 
 /// A driver composed with an executor, through adapters or not: the
 /// chain, built and checked ([`ChainPrefix`] `>>`
@@ -149,12 +149,13 @@ where
     ///
     /// The job is checked here, before any call, and every fault is
     /// reported together: its shots must be a set ([`ShotSet`]), the
-    /// program's needs ([`Driver::needs`]) must be met by what the chain
-    /// offers, its shots counted against the shots the executor holds at
-    /// once when they are a set (shots that are not are reported as such,
-    /// not counted), and the driver must find no fault in the program
-    /// ([`Driver::check`]). Calls by opcode reach the executor
-    /// renumbered where the program's set numbers its instructions
+    /// program's needs ([`Program::needs`]) combined with what its driver
+    /// adds ([`Driver::needs`]; the rule of each need is on [`Needs`]) must
+    /// be met by what the chain offers, its shots counted against the shots
+    /// the executor holds at once when they are a set (shots that are not
+    /// are reported as such, not counted), and the driver must find no
+    /// fault in the program ([`Driver::check`]). Calls by opcode reach the
+    /// executor renumbered where the job's set numbers its instructions
     /// otherwise.
     ///
     /// # Errors
@@ -162,31 +163,34 @@ where
     /// [`JobFaults`], with nothing sent: every fault of the job, its
     /// shots' first (one at most, as [`ShotSet::new`] reports it:
     /// [`Rejected::NoShots`], or [`Rejected::RepeatedShot`] for the least
-    /// shot named twice), then each unmet need ([`Rejected::Unmet`]), then
-    /// the program's.
+    /// shot named twice), then the program and its driver stating
+    /// different instruction sets, then each unmet need
+    /// ([`Rejected::Unmet`]), then the program's faults, as its driver finds
+    /// them. Where the sets differ, the program's is checked against the
+    /// chain.
     ///
     /// Known issue: a job that names several shots twice reports only the
     /// least of them, so the next is found on the next run.
     /// [`IntoShotSet`], as [`ShotSet::new`], gives one fault, and changing
     /// either to give them all changes its public signature.
-    pub fn run<P>(
-        self,
-        program: P,
-        shots: impl IntoShotSet,
-    ) -> Result<Run<DrivenProgram<T, P>, E>, JobFaults>
+    pub fn run<P>(self, program: P, shots: impl IntoShotSet) -> Result<Run<T, P, E>, JobFaults>
     where
-        T: Driver<P, Instruction = I>,
+        P: Program<Instruction = I>,
+        T: Driver<P>,
     {
         let mut faults = Vec::new();
         let shots = shots
             .into_shot_set()
             .map_err(|rejected| faults.push(rejected))
             .ok();
-        let program = DrivenProgram::new(self.driver, program);
+        let (needs, different_sets) = program
+            .needs()
+            .combined(self.driver.needs(&program), type_name::<T>());
+        faults.extend(different_sets.map(Rejected::Unmet));
         let checked = self.offered.check_needs(
             type_name::<E>(),
             shots.as_ref().map(|shots| shots.as_slice().len()),
-            &program.needs(),
+            &needs,
             I::BY_OPCODE,
         );
         let renumbering = match checked {
@@ -196,11 +200,11 @@ where
                 None
             }
         };
-        faults.extend(program.check());
+        faults.extend(self.driver.check(&program));
         match shots {
             Some(shots) if faults.is_empty() => {
                 let executor = I::downstream(self.executor, renumbering.as_ref());
-                Ok(Run::new(program, shots, executor))
+                Ok(Run::new(self.driver, program, shots, executor))
             }
             _ => Err(JobFaults(faults)),
         }
@@ -208,7 +212,8 @@ where
 }
 
 /// Every fault of a job given to a [`Chain`] ([`Chain::run`]), its shots'
-/// first (one at most: no shots, or the least shot named twice), then each
+/// first (one at most: no shots, or the least shot named twice), then the
+/// program and its driver stating different instruction sets, then each
 /// unmet need, then the program's ([`Driver::check`]), so that whoever
 /// gives the job can fix them all at once. Nothing was sent. It reads as
 /// one message: each fault's text, in their order, joined by `"; "`, as
@@ -216,7 +221,10 @@ where
 ///
 /// Each unmet need is a [`Rejected::Unmet`], an [`UnmetNeed`] naming the
 /// chain's executor, adapters included, in the order
-/// [`Capabilities::admit`] checks them.
+/// [`Capabilities::admit`] checks them. Different sets are a
+/// [`Rejected::Unmet`] too, of
+/// [`Need::InstructionSet`](crate::Need::InstructionSet), whose
+/// [`UnmetNeed`] names the driver, 2 needed and 1 offered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobFaults(pub Vec<Rejected>);
 

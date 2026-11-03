@@ -6,12 +6,15 @@ use std::sync::Arc;
 
 use crate::tests::test_double::{TestDoubleExecutor, TestDoubleModel};
 use crate::tests::{
-    Bits, ByHand, Count, Relabel, bits_set, block_on, flip_and_toss, reversed_set, shots, values,
+    Batches, Bits, ByHand, Count, Relabel, bits_set, block_on, flip_and_toss, resetting_bits_set,
+    reversed_set, shots, values,
 };
 use crate::{
-    BuiltinDriver, Chain, Driver, DriverExt, Executor, InstructionBatch, InstructionBatchRef,
-    InstructionCall, InstructionSet, JobFaults, Need, Needs, Opcode, Operand, Rejected, ShotId,
-    ShotSet, StaticProgram, Value, driver, wait_async,
+    BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix, Driver, DriverExt, Executor,
+    ExecutorFn, ExecutorLogic, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
+    InstructionMismatch, InstructionSet, JobFaults, MakeState, Need, Needs, NoAdapter, Opcode,
+    Operand, Outcomes, Program, Rejected, ShotId, ShotSet, StaticProgram, Value, driver,
+    executor_fn, wait_async,
 };
 
 /// [`flip_and_toss`] as a static program in `set`'s numbering, needing
@@ -67,10 +70,6 @@ fn a_job_of_no_shots_is_refused() {
 /// naming that shot, whether its shots are written as a `Vec` or an array,
 /// owned or borrowed, or as a slice.
 #[test]
-#[expect(
-    clippy::needless_borrows_for_generic_args,
-    reason = "the borrowed array is a form under test"
-)]
 fn a_job_that_names_a_shot_twice_is_refused() {
     let named_twice = JobFaults(vec![Rejected::RepeatedShot(3)]);
     let ids: [ShotId; 3] = [3, 5, 3];
@@ -95,10 +94,6 @@ fn a_job_that_names_a_shot_twice_is_refused() {
 /// borrowed, they give the outcomes that the same shots give owned, in
 /// the caller's order.
 #[test]
-#[expect(
-    clippy::needless_borrows_for_generic_args,
-    reason = "the borrowed array is the form under test"
-)]
 fn borrowed_shots_give_what_owned_shots_give() {
     let chain = || {
         (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
@@ -294,14 +289,20 @@ fn a_job_is_renumbered_into_the_chains_set_by_its_programs_numbering() {
     );
 }
 
+/// A program of one read of every shot of its job, with no content: its
+/// driver sends the read. It gives whether the call was taken.
+struct OneRead;
+
+impl Program for OneRead {
+    type Instruction = bool;
+    type Output = Result<(), Rejected>;
+}
+
 /// A driver that reads shot 0 whatever the job's shots: a bug.
 struct ReadsShotZero;
 
-impl Driver<()> for ReadsShotZero {
-    type Instruction = bool;
-    type Output = Result<(), Rejected>;
-
-    async fn drive<E>(&self, (): (), executor: &mut E, _: &ShotSet) -> Self::Output
+impl Driver<OneRead> for ReadsShotZero {
+    async fn drive<E>(&self, _: OneRead, executor: &mut E, _: &ShotSet) -> Result<(), Rejected>
     where
         E: Executor<InstructionBatch<bool>>,
     {
@@ -323,7 +324,7 @@ fn a_job_that_calls_a_shot_not_its_own_is_refused() {
     let made = Rc::clone(&model.made);
     let chain = (ReadsShotZero.into_chain() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
-    let (output, _) = chain.run((), [1]).expect("a shot").wait();
+    let (output, _) = chain.run(OneRead, [1]).expect("a shot").wait();
     assert_eq!(output, Err(Rejected::ShotNotHeld(0)));
     assert_eq!(made.get(), 0, "the job reached shot 0");
 }
@@ -347,10 +348,10 @@ fn a_job_awaited_gives_what_it_gives_waited_for() {
 
 /// `driver() >> adapter >> executor`, then the job: a static program
 /// run through an adapter that renumbers its calls on the bits gives the
-/// outcomes and the report that the same program written as an adaptive
-/// program gives on the same chain.
+/// outcomes and the report that the same batches give on the same chain
+/// headed by a driver written by hand, which sends them in turn.
 #[test]
-fn a_chain_runs_a_job_as_its_program_written_as_an_adaptive_program_runs() {
+fn a_chain_runs_a_static_program_as_a_driver_written_by_hand_runs_its_batches() {
     let relabel = || Relabel::new(reversed_set(), false);
     let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
     let program = flip_and_toss_in(bits_set(), None);
@@ -359,13 +360,13 @@ fn a_chain_runs_a_job_as_its_program_written_as_an_adaptive_program_runs() {
         .run(program, [2, 5, 6, 11])
         .expect("shots, needs met")
         .wait();
-    let by_hand = ByHand {
+    let batches = Batches {
         needs: Needs::default().with_instruction_set(Some(Arc::new(bits_set()))),
         batches: flip_and_toss(&bits_set()),
     };
-    let (by_hand, by_hand_report) = (driver() >> relabel() >> bits())
+    let (by_hand, by_hand_report) = (ByHand.into_chain() >> relabel() >> bits())
         .expect("the chain runs the bits' set")
-        .run(by_hand, [2, 5, 6, 11])
+        .run(batches, [2, 5, 6, 11])
         .expect("shots, needs met")
         .wait();
     assert_eq!(
@@ -406,4 +407,221 @@ fn a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor() {
             "{component}"
         );
     }
+}
+
+/// A runtime that runs a static program as the crate's driver does, but
+/// whose way of sending needs what it holds, whatever the program states.
+struct AddsNeeds(Needs);
+
+impl<I: Instruction> Driver<StaticProgram<I>> for AddsNeeds {
+    fn needs(&self, _: &StaticProgram<I>) -> Needs {
+        self.0.clone()
+    }
+
+    fn check(&self, program: &StaticProgram<I>) -> Vec<Rejected> {
+        BuiltinDriver.check(program)
+    }
+
+    async fn drive<E>(
+        &self,
+        program: StaticProgram<I>,
+        executor: &mut E,
+        shots: &ShotSet,
+    ) -> <StaticProgram<I> as Program>::Output
+    where
+        E: Executor<InstructionBatch<I>>,
+    {
+        BuiltinDriver.drive(program, executor, shots).await
+    }
+}
+
+/// `AddsNeeds(needs)` as a chain's prefix, driving static programs of `I`s.
+fn adding<I: Instruction>(needs: Needs) -> ChainPrefix<AddsNeeds, NoAdapter<I>> {
+    DriverExt::<StaticProgram<I>>::into_chain(AddsNeeds(needs))
+}
+
+/// A sampler of `bool`s that offers none of the needs a flag states.
+fn offering_nothing() -> ExecutorFn<bool, (), impl MakeState<()>, impl ExecutorLogic<bool, ()>> {
+    executor_fn(
+        Capabilities::default(),
+        |_| Ok(()),
+        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+    )
+}
+
+/// Each need a flag states, alone, with the need it is reported as.
+fn each_flag() -> [(Needs, Need); 4] {
+    let none = Needs::default();
+    [
+        (
+            none.clone().with_resumable_shots(true),
+            Need::ResumableShots,
+        ),
+        (none.clone().with_resets(true), Need::Resets),
+        (none.clone().with_replayable(true), Need::Replayable),
+        (none.with_log_probability(true), Need::LogProbability),
+    ]
+}
+
+/// A runtime that adds a need to a program of one read stating none, on a
+/// sampler that offers none: the job is refused for that need, as if the
+/// program stated it, whichever flag it is.
+#[test]
+fn each_need_a_driver_adds_is_checked_with_its_programs() {
+    for (added, need) in each_flag() {
+        let chain =
+            (adding(added) >> offering_nothing()).expect("the sampler takes any batch of `bool`s");
+        let Err(JobFaults(faults)) = chain.run(one_read(), [4]) else {
+            panic!("{need:?}, added by the driver, must be refused");
+        };
+        let faults: Vec<_> = faults.iter().map(unmet).collect();
+        assert_eq!(faults, [Some((need, 1, 0))], "{need:?}");
+    }
+}
+
+/// A program of one read that states a need, driven by a runtime that adds
+/// none, on a sampler that offers none: the job is refused for the
+/// program's need, since a driver cannot drop one, whichever flag it is.
+#[test]
+fn each_need_a_program_states_is_checked_whatever_its_driver_adds() {
+    for (stated, need) in each_flag() {
+        let chain = (adding(Needs::default()) >> offering_nothing())
+            .expect("the sampler takes any batch of `bool`s");
+        let program = StaticProgram::new(stated, vec![vec![true]]);
+        let Err(JobFaults(faults)) = chain.run(program, [4]) else {
+            panic!("{need:?}, stated by the program, must be refused");
+        };
+        let faults: Vec<_> = faults.iter().map(unmet).collect();
+        assert_eq!(faults, [Some((need, 1, 0))], "{need:?}");
+    }
+}
+
+/// A job on the two bits whose program and driver state qubits, one side
+/// three, the other one or none, in either order: it is refused for the
+/// three, the larger, wherever it is stated.
+#[test]
+fn a_job_needs_the_larger_qubits_its_program_and_driver_state() {
+    let cases = [
+        (Some(3), Some(1)),
+        (Some(1), Some(3)),
+        (Some(3), None),
+        (None, Some(3)),
+    ];
+    for (stated, added) in cases {
+        let chain = (adding(Needs {
+            qubits: added,
+            ..Needs::default()
+        }) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+        let Err(JobFaults(faults)) = chain.run(flip_and_toss_in(bits_set(), stated), [2]) else {
+            panic!("three qubits on two bits must be refused: {stated:?}, {added:?}");
+        };
+        let faults: Vec<_> = faults.iter().map(unmet).collect();
+        assert_eq!(
+            faults,
+            [Some((Need::Qubits, 3, 2))],
+            "program {stated:?}, driver {added:?}"
+        );
+    }
+}
+
+/// A job whose calls are in the reversed set's numbering, that set stated
+/// by its program, by its driver, or by both: it runs on the bits, and
+/// gives what the job gives in the bits' numbering, so a set stated on one
+/// side, or the same on both, is the job's.
+#[test]
+fn a_set_stated_by_one_side_or_the_same_by_both_numbers_the_jobs_calls() {
+    let reversed = || Some(Arc::new(reversed_set()));
+    let run = |stated: Option<Arc<InstructionSet>>, added: Option<Arc<InstructionSet>>| {
+        let chain = (adding(Needs::default().with_instruction_set(added))
+            >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+        let program = StaticProgram::new(
+            Needs::default().with_instruction_set(stated),
+            flip_and_toss(&reversed_set()),
+        );
+        let (outcomes, _) = chain
+            .run(program, [2, 3])
+            .expect("the bits have every instruction of the reversed set")
+            .wait();
+        values(&outcomes.expect("the bits neither refuse nor fail"))
+    };
+    let in_bits = {
+        let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+            .expect("the bits run calls by opcode");
+        let (outcomes, _) = (chain.run(flip_and_toss_in(bits_set(), None), [2, 3]))
+            .expect("the bits have every instruction of their set")
+            .wait();
+        values(&outcomes.expect("the bits neither refuse nor fail"))
+    };
+    let sides = [
+        ("program", reversed(), None),
+        ("driver", None, reversed()),
+        ("both", reversed(), reversed()),
+    ];
+    for (stated_by, stated, added) in sides {
+        assert_eq!(run(stated, added), in_bits, "stated by the {stated_by}");
+    }
+}
+
+/// A job of no shots, three qubits on the two bits, whose program states
+/// the bits' set and whose driver states the reversed set: the different
+/// sets are one fault of the job, naming the driver, reported after the
+/// shots' fault and before the unmet needs, so that all are fixed in one
+/// go.
+#[test]
+fn a_job_whose_program_and_driver_state_different_sets_is_refused() {
+    let added = Needs::default().with_instruction_set(Some(Arc::new(reversed_set())));
+    let chain = (adding(added) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+    let Err(JobFaults(faults)) = chain.run(flip_and_toss_in(bits_set(), Some(3)), 0..0) else {
+        panic!("no shots, different sets and three qubits must be refused");
+    };
+    let [shots, Rejected::Unmet(sets), qubits] = faults.as_slice() else {
+        panic!("the shots, the sets, then the qubits: {faults:?}");
+    };
+    assert_eq!(shots, &Rejected::NoShots);
+    assert_eq!(
+        (sets.need, sets.needed, sets.offered, sets.mismatches.len()),
+        (Need::InstructionSet, 2, 1, 0),
+        "{sets}"
+    );
+    assert!(sets.component.contains("AddsNeeds"), "{sets}");
+    assert!(
+        sets.to_string()
+            .contains("state different instruction sets"),
+        "{sets}"
+    );
+    assert_eq!(unmet(qubits), Some((Need::Qubits, 3, 2)), "{faults:?}");
+}
+
+/// A job whose program states a set with a reset, which the bits lack, and
+/// whose driver states the bits' set: besides the different sets, the
+/// program's set is checked against the chain, which reports the reset it
+/// lacks, since the job's calls are numbered by the program's set.
+#[test]
+fn where_the_sets_differ_the_programs_is_checked_against_the_chain() {
+    let added = Needs::default().with_instruction_set(Some(Arc::new(bits_set())));
+    let chain = (adding(added) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+    let program = flip_and_toss_in(resetting_bits_set(), None);
+    let Err(JobFaults(faults)) = chain.run(program, [2]) else {
+        panic!("different sets and a reset the bits lack must be refused");
+    };
+    let [Rejected::Unmet(sets), Rejected::Unmet(reset)] = faults.as_slice() else {
+        panic!("the sets, then the program's set: {faults:?}");
+    };
+    assert_eq!(
+        (sets.need, sets.needed),
+        (Need::InstructionSet, 2),
+        "{sets}"
+    );
+    assert_eq!(reset.need, Need::InstructionSet, "{reset}");
+    assert_eq!(
+        reset.mismatches,
+        [InstructionMismatch::Missing {
+            mnemonic: "reset".to_owned()
+        }],
+        "{reset}"
+    );
 }

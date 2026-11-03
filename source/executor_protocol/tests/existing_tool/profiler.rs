@@ -32,7 +32,7 @@ pub type Counts = BTreeMap<&'static str, u64>;
 /// reads the same bits alone or among others: it promises replayable
 /// shots. Its report holds the counts of every shot that ran, folded
 /// ([`ExecutorReport::states`]).
-pub fn toy_profiler(
+pub fn profiling_executor(
     seed: u64,
 ) -> impl Executor<InstructionBatch<Op>> + Describe + Close<Report = ExecutorReport<Counts>> {
     let promise = Capabilities::default()

@@ -45,10 +45,11 @@ use std::f64::consts::FRAC_PI_4;
 use std::sync::Arc;
 
 use executor_protocol::{
-    Action, AdapterError, AdaptiveProgram, Angle, Below, BuildError, CallInput, Describe, Executor,
+    Action, AdapterError, Angle, Below, BuildError, CallInput, Describe, Executor,
     InstructionBatch, InstructionBatchRef, InstructionMismatch, InstructionSet, JobFaults, Need,
     Needs, OnePerShot, Operand, OperandKind, Outcomes, Pauli, Rejected, ShotOutcome, ShotSet,
-    Value, adapter_fn, compose, conformance, driver, owning_adapter_fn, wait,
+    StaticProgram, StaticProgramError, Value, adapter_fn, compose, conformance, driver,
+    owning_adapter_fn, wait,
 };
 
 use code_runtime::{
@@ -142,33 +143,9 @@ fn each_logical_instruction_goes_down_as_its_gadget() {
 
 /// A program that flips a logical coin on block 1 and reads it, and states
 /// `needs`.
-struct FlipALogicalCoin {
-    needs: Needs,
-}
-
-impl AdaptiveProgram for FlipALogicalCoin {
-    type Instruction = Logical;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self) -> Needs {
-        self.needs.clone()
-    }
-
-    async fn drive<E: Executor<InstructionBatch<Logical>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let batch = [Logical::Coin(1), Logical::MeasureZ { block: 1, tag: 0 }];
-        let reply = executor.call(InstructionBatchRef {
-            shots,
-            instructions: &batch,
-        });
-        let mut outcomes = Vec::new();
-        wait(reply.expect("the code runs the batch"), &mut outcomes)
-            .expect("the toy never fails a batch");
-        outcomes
-    }
+fn flip_a_logical_coin(needs: Needs) -> StaticProgram<Logical> {
+    let batch = vec![Logical::Coin(1), Logical::MeasureZ { block: 1, tag: 0 }];
+    StaticProgram::new(needs, vec![batch])
 }
 
 /// The code passes on the shots' seeds: shot `j` of a logical run draws
@@ -177,14 +154,13 @@ impl AdaptiveProgram for FlipALogicalCoin {
 fn a_logical_run_draws_each_shots_coins_from_its_physical_seed() {
     let seed = 11;
     let shots = ShotSet::range(0..=7).expect("0..=7 is not empty");
-    let program = FlipALogicalCoin {
-        needs: Needs::default(),
-    };
+    let program = flip_a_logical_coin(Needs::default());
     let run = (driver() >> RepetitionCode::default() >> toy_simulator(seed))
         .expect("the toy runs the code's gadgets")
         .run(program, shots.clone())
         .expect("the program needs nothing");
     let (output, _) = run.wait();
+    let output = output.expect("the code and the toy neither refuse nor fail the batch");
 
     for (&j, outcome) in shots.iter().zip(&output) {
         assert_eq!(outcome.shot, j);
@@ -228,7 +204,7 @@ fn the_code_is_built_only_against_an_executor_that_runs_its_gadgets() {
 fn a_program_is_taken_only_by_a_code_that_has_the_instructions_it_needs() {
     let composes = |program: InstructionSet| {
         let needs = Needs::default().with_instruction_set(Some(Arc::new(program)));
-        let program = FlipALogicalCoin { needs };
+        let program = flip_a_logical_coin(needs);
         (driver() >> RepetitionCode::default() >> toy_simulator(0))
             .expect("the toy runs the code's gadgets")
             .run(program, ShotSet::one(0))
@@ -385,72 +361,54 @@ fn the_toy_and_the_code_refuse_a_tag_repeated_within_a_batch() {
     );
 }
 
-/// A static program of logical batches, run in order on every shot.
-struct LogicalBatches(Vec<Vec<Logical>>);
-
-impl AdaptiveProgram for LogicalBatches {
-    type Instruction = Logical;
-    type Output = Vec<ShotOutcome>;
-
-    async fn drive<E: Executor<InstructionBatch<Logical>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let mut outcomes = Vec::new();
-        for batch in &self.0 {
-            let reply = executor.call(InstructionBatchRef {
-                shots,
-                instructions: batch,
-            });
-            wait(reply.expect("the code runs the batch"), &mut outcomes)
-                .expect("the toy never fails a batch");
-        }
-        outcomes
-    }
-}
-
 /// A program that tosses a logical coin on block 0 and flips block 1, then
 /// reads block 1 under tag 1 before block 0 under tag 0.
-fn toss_flip_read() -> LogicalBatches {
-    LogicalBatches(vec![
+fn toss_flip_read() -> StaticProgram<Logical> {
+    StaticProgram::new(Needs::default(), toss_flip_read_batches())
+}
+
+/// The batches of [`toss_flip_read`].
+fn toss_flip_read_batches() -> Vec<Vec<Logical>> {
+    vec![
         vec![Logical::Coin(0), Logical::X(1)],
         vec![
             Logical::MeasureZ { block: 1, tag: 1 },
             Logical::MeasureZ { block: 0, tag: 0 },
         ],
-    ])
+    ]
 }
 
 /// [`toss_flip_read`], then block 1 read again under tag 2, in the same
 /// batch: the logical tags are read 1, 0, 2, in an order neither
 /// ascending nor descending.
-fn toss_flip_read_thrice() -> LogicalBatches {
-    let LogicalBatches(mut batches) = toss_flip_read();
+fn toss_flip_read_thrice() -> StaticProgram<Logical> {
+    let mut batches = toss_flip_read_batches();
     let reads = batches
         .last_mut()
         .expect("toss_flip_read ends with its reads");
     reads.push(Logical::MeasureZ { block: 1, tag: 2 });
-    LogicalBatches(batches)
+    StaticProgram::new(Needs::default(), batches)
 }
 
 /// A program that tosses a logical coin on block 0 and flips block 1, then
 /// reads block 0 under tag 0 and flips block 1 back in one batch, then
 /// reads block 1 under tag 1: a runtime that feeds a readout forward
 /// flushes twice in the second batch, a run then a send.
-fn toss_flip_read_unflip_read() -> LogicalBatches {
-    LogicalBatches(vec![
+fn toss_flip_read_unflip_read() -> StaticProgram<Logical> {
+    let batches = vec![
         vec![Logical::Coin(0), Logical::X(1)],
         vec![Logical::MeasureZ { block: 0, tag: 0 }, Logical::X(1)],
         vec![Logical::MeasureZ { block: 1, tag: 1 }],
-    ])
+    ];
+    StaticProgram::new(Needs::default(), batches)
 }
 
 /// `outcomes` by shot, each shot's in the order the chain gave them: the
 /// order of the shots depends on how the chain's adapters split them, but
 /// each shot's order is compared, since a code gives its logical outcomes
 /// in the order it decodes them.
-fn by_shot(mut outcomes: Vec<ShotOutcome>) -> Vec<ShotOutcome> {
+fn by_shot(outcomes: Result<Vec<ShotOutcome>, StaticProgramError>) -> Vec<ShotOutcome> {
+    let mut outcomes = outcomes.expect("the code and the toy neither refuse nor fail a batch");
     outcomes.sort_by_key(|outcome| outcome.shot);
     outcomes
 }
@@ -472,17 +430,17 @@ fn the_code_as_a_logic_reads_what_its_adapter_reads() {
     let (by_adapter, _) = (driver() >> RepetitionCode::default() >> toy_simulator(seed))
         .expect("the toy runs the code's gadgets")
         .run(toss_flip_read(), shots.clone())
-        .expect("the program needs nothing")
+        .expect("the chain keeps each shot between calls")
         .wait();
     let (one_state, _) = (driver() >> code() >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read(), shots.clone())
-        .expect("the program needs nothing")
+        .expect("the chain keeps each shot between calls")
         .wait();
     let (per_shot, _) = (driver() >> code().shots(OnePerShot) >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read(), shots.clone())
-        .expect("the program needs nothing")
+        .expect("the chain keeps each shot between calls")
         .wait();
     let by_adapter = by_shot(by_adapter);
     assert_eq!(by_adapter.len(), 10, "two readouts per shot");
@@ -526,7 +484,7 @@ fn the_code_as_a_logic_decodes_readouts_in_any_order() {
     let (by_adapter, _) = (driver() >> RepetitionCode::default() >> toy_simulator(seed))
         .expect("the toy runs the code's gadgets")
         .run(toss_flip_read_thrice(), shots.clone())
-        .expect("the program needs nothing")
+        .expect("the chain keeps each shot between calls")
         .wait();
     let code = adapter_fn(|_| Ok(()), lower_then_decode)
         .accepts(logical_set())
@@ -535,7 +493,7 @@ fn the_code_as_a_logic_decodes_readouts_in_any_order() {
         (driver() >> code >> adapter_fn(|_| Ok(()), measure_in_rounds) >> toy_simulator(seed))
             .expect("the toy runs the logic's gadgets")
             .run(toss_flip_read_thrice(), shots)
-            .expect("the program needs nothing")
+            .expect("the chain keeps each shot between calls")
             .wait();
     assert_eq!(by_shot(in_rounds), by_shot(by_adapter));
 }
@@ -578,8 +536,9 @@ fn the_code_as_a_logic_reads_the_majority_of_votes_that_disagree() {
     let (noiseless, _) = (driver() >> code() >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read(), shots.clone())
-        .expect("the program needs nothing")
+        .expect("the chain keeps each shot between calls")
         .wait();
+    let noiseless = by_shot(noiseless);
     let reads = |value| noiseless.iter().any(|o| o.value == value);
     assert!(
         reads(Value::Zero) && reads(Value::One),
@@ -589,9 +548,9 @@ fn the_code_as_a_logic_reads_the_majority_of_votes_that_disagree() {
         (driver() >> code() >> adapter_fn(|_| Ok(()), flip_first_votes) >> toy_simulator(seed))
             .expect("the toy runs the logic's gadgets")
             .run(toss_flip_read(), shots)
-            .expect("the program needs nothing")
+            .expect("the chain keeps each shot between calls")
             .wait();
-    assert_eq!(by_shot(noisy), by_shot(noiseless));
+    assert_eq!(by_shot(noisy), noiseless);
 }
 
 /// The code as a logic refuses a call on a block beyond its own at the
@@ -634,12 +593,12 @@ fn a_runtime_that_owns_its_backend_reads_what_the_code_as_a_logic_reads() {
     let (lent, _) = (driver() >> as_a_logic >> toy_simulator(seed))
         .expect("the toy runs the logic's gadgets")
         .run(toss_flip_read_unflip_read(), shots.clone())
-        .expect("the program needs nothing")
+        .expect("the chain keeps each shot between calls")
         .wait();
     let (owned, _) = (driver() >> as_a_runtime >> toy_simulator(seed))
         .expect("the toy runs the runtime's gadgets")
         .run(toss_flip_read_unflip_read(), shots)
-        .expect("the program needs nothing")
+        .expect("the chain keeps each shot between calls")
         .wait();
     let lent = by_shot(lent);
     assert_eq!(lent.len(), 10, "two readouts per shot");

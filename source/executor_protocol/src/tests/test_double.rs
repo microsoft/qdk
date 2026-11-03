@@ -173,7 +173,7 @@ macro_rules! compose_by_shr {
     };
 }
 
-compose_by_shr!(P, L; ComposedJob<P, L>);
+compose_by_shr!(T, P, L; ComposedJob<T, P, L>);
 compose_by_shr!(T, L; ChainPrefix<T, L>);
 compose_by_shr!(X, Y; ComposedAdapters<X, Y>);
 compose_by_shr!(I; NoAdapter<I>);

@@ -18,16 +18,16 @@ use std::time::{Duration, Instant};
 
 use crate::compose::WithAdapter;
 use crate::{
-    Action, Adapter, AdapterBoundary, Adapters, AdaptiveProgram, Angle, Apply, Capabilities, Close,
-    Compose, Describe, Executor, ExecutorLifecycle, Fold, ImmediateReply, IncrementalReply,
+    Action, Adapter, AdapterBoundary, Adapters, Angle, Apply, Capabilities, Close, Compose,
+    Describe, Driver, Executor, ExecutorLifecycle, Fold, ImmediateReply, IncrementalReply,
     Instruction, InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, Message,
-    Needs, NoAdapter, Operand, OperandKind, Pauli, Rejected, Reply, ReplyStatus, RngId,
+    Needs, NoAdapter, Operand, OperandKind, Pauli, Program, Rejected, Reply, ReplyStatus, RngId,
     ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, reply_channel, shot_seed,
     wait, wait_async,
 };
 use crate::{
-    BuildError, BuildFault, BuildFaults, BuiltinDriver, ChainPrefix, ComposedAdapters,
-    DrivenProgram, JobFaults, Run, UpstreamOf, WithExecutor,
+    BuildError, BuildFault, BuildFaults, BuiltinDriver, ChainPrefix, ComposedAdapters, JobFaults,
+    Run, UpstreamOf, WithExecutor,
 };
 
 use test_double::Model;
@@ -451,27 +451,38 @@ fn flip_and_toss(set: &InstructionSet) -> Vec<Vec<InstructionCall>> {
     ]
 }
 
-/// A static program written as an adaptive program by hand: each batch to every
-/// shot, in order, waiting for each.
-struct ByHand {
+/// Batches of calls by opcode, in order, and what they need: the data of
+/// a static program, for a driver written by hand ([`ByHand`]).
+struct Batches {
     needs: Needs,
     batches: Vec<Vec<InstructionCall>>,
 }
 
-impl AdaptiveProgram for ByHand {
+impl Program for Batches {
     type Instruction = InstructionCall;
     type Output = Vec<ShotOutcome>;
 
     fn needs(&self) -> Needs {
         self.needs.clone()
     }
+}
 
-    async fn drive<E>(self, executor: &mut E, shots: &ShotSet) -> Vec<ShotOutcome>
+/// The crate's driver of a static program, written by hand: each batch to
+/// every shot, in order, waiting for each.
+struct ByHand;
+
+impl Driver<Batches> for ByHand {
+    async fn drive<E>(
+        &self,
+        program: Batches,
+        executor: &mut E,
+        shots: &ShotSet,
+    ) -> Vec<ShotOutcome>
     where
         E: Executor<InstructionBatch<InstructionCall>>,
     {
         let mut outcomes = Vec::new();
-        for instructions in &self.batches {
+        for instructions in &program.batches {
             let reply = executor
                 .call(InstructionBatchRef {
                     shots,
@@ -486,11 +497,12 @@ impl AdaptiveProgram for ByHand {
     }
 }
 
-/// A job composed as a chain's prefix is, for the crate's tests: a program,
-/// the shots it runs, and the adapters composed downstream of it (none at
-/// first). Composed with an executor, it gives the [`Run`](crate::Run) of
-/// the chain of the crate's driver on its adapters and that executor, its
-/// job's faults reported as [`BuildFaults`](crate::BuildFaults).
+/// A job composed as a chain's prefix is, for the crate's tests: a driver,
+/// a program, the shots it runs, and the adapters composed downstream of
+/// it (none at first). Composed with an executor, it gives the
+/// [`Run`](crate::Run) of the chain of its driver on its adapters and that
+/// executor, its job's faults reported as
+/// [`BuildFaults`](crate::BuildFaults).
 ///
 /// It takes no seed: the run's seed is given to the last executor when it
 /// is built ([`ExecutorFn::seed`](crate::ExecutorFn::seed)), and reaches
@@ -502,24 +514,38 @@ impl AdaptiveProgram for ByHand {
 ///
 /// # Type parameters
 ///
-/// - `P`: the program ([`AdaptiveProgram`]), given to [`ComposedJob::new`].
+/// - `T`: the driver ([`Driver`]): the crate's for [`ComposedJob::new`],
+///   or the one given to [`ComposedJob::driven`].
+/// - `P`: the program ([`Program`]).
 /// - `L`: the adapters composed downstream of it by `>>`
 ///   ([`ComposedAdapters`](crate::ComposedAdapters)); none at first.
-pub(crate) struct ComposedJob<P, L> {
+pub(crate) struct ComposedJob<T, P, L> {
+    driver: T,
     program: P,
     shots: ShotSet,
     adapters: L,
 }
 
-impl<P: AdaptiveProgram> ComposedJob<P, NoAdapter<P::Instruction>> {
-    /// `program`, to run `shots`. The same job also runs as any other
-    /// does, given to a chain of the crate's driver:
-    /// `(driver() >> executor)?.run(program, shots)`
+impl<P: Program> ComposedJob<BuiltinDriver, P, NoAdapter<P::Instruction>> {
+    /// `program`, to run `shots` as the crate's driver drives it. The same
+    /// job also runs as any other does, given to a chain of the crate's
+    /// driver: `(driver() >> executor)?.run(program, shots)`
     /// ([`Chain::run`](crate::Chain::run)), its faults then reported
     /// together with the shots' ([`JobFaults`](crate::JobFaults)).
     #[must_use]
     pub(crate) fn new(program: P, shots: ShotSet) -> Self {
+        Self::driven(BuiltinDriver, program, shots)
+    }
+}
+
+impl<T, P: Program> ComposedJob<T, P, NoAdapter<P::Instruction>> {
+    /// `program`, to run `shots` as `driver` drives it, as given to a
+    /// chain of `driver`: `(driver.into_chain() >> executor)?.run(program,
+    /// shots)`.
+    #[must_use]
+    pub(crate) fn driven(driver: T, program: P, shots: ShotSet) -> Self {
         Self {
+            driver,
             program,
             shots,
             adapters: NoAdapter::default(),
@@ -527,50 +553,52 @@ impl<P: AdaptiveProgram> ComposedJob<P, NoAdapter<P::Instruction>> {
     }
 }
 
-impl<P, L> ComposedJob<P, L> {
+impl<T, P, L> ComposedJob<T, P, L> {
     /// This job, with its adapters replaced by `f` of them.
-    pub(crate) fn map_adapters<M>(self, f: impl FnOnce(L) -> M) -> ComposedJob<P, M> {
+    pub(crate) fn map_adapters<M>(self, f: impl FnOnce(L) -> M) -> ComposedJob<T, P, M> {
         ComposedJob {
+            driver: self.driver,
             program: self.program,
             shots: self.shots,
             adapters: f(self.adapters),
         }
     }
 
-    /// The program, the shots and the adapters.
-    pub(crate) fn into_parts(self) -> (P, ShotSet, L) {
-        (self.program, self.shots, self.adapters)
+    /// The driver, the program, the shots and the adapters.
+    pub(crate) fn into_parts(self) -> (T, P, ShotSet, L) {
+        (self.driver, self.program, self.shots, self.adapters)
     }
 }
 
 /// Job, adapter: the job, with `y` downstream of its adapters.
-impl<P: AdaptiveProgram, L: Adapters, Y: Adapters<Accepts = L::Sends>> Compose<Y, WithAdapter>
-    for ComposedJob<P, L>
+impl<T, P: Program, L: Adapters, Y: Adapters<Accepts = L::Sends>> Compose<Y, WithAdapter>
+    for ComposedJob<T, P, L>
 {
-    type Output = ComposedJob<P, ComposedAdapters<L, Y>>;
+    type Output = ComposedJob<T, P, ComposedAdapters<L, Y>>;
 
     fn compose(self, y: Y) -> Self::Output {
         self.map_adapters(|adapters| ComposedAdapters::new(adapters, y))
     }
 }
 
-/// Job, executor: the chain of the crate's driver on the job's adapters
+/// Job, executor: the chain of the job's driver on the job's adapters
 /// upstream of `executor`, given the job's program and shots as its job,
 /// so that the needs and the renumbering are the chain's
 /// ([`Chain::run`]). The adapters' faults are returned alone, as the
-/// chain's are returned before any job is given; otherwise the program's
+/// chain's are returned before any job is given; otherwise the job's
 /// unmet needs, each as [`BuildError::Unmet`].
-impl<P, L, E> Compose<E, WithExecutor> for ComposedJob<P, L>
+impl<T, P, L, E> Compose<E, WithExecutor> for ComposedJob<T, P, L>
 where
-    P: AdaptiveProgram,
+    T: Driver<P>,
+    P: Program,
     L: UpstreamOf<E, Accepts = P::Instruction>,
     L::Output: Executor<InstructionBatch<P::Instruction>> + Close,
 {
-    type Output = Result<Run<DrivenProgram<BuiltinDriver, P>, L::Output>, BuildFaults>;
+    type Output = Result<Run<T, P, L::Output>, BuildFaults>;
 
     fn compose(self, executor: E) -> Self::Output {
-        let (program, shots, adapters) = self.into_parts();
-        let chain = ChainPrefix::<_, NoAdapter<P::Instruction>>::new(BuiltinDriver)
+        let (driver, program, shots, adapters) = self.into_parts();
+        let chain = ChainPrefix::<_, NoAdapter<P::Instruction>>::new(driver)
             .map_adapters(|_| adapters)
             .compose(executor)?;
         chain.run(program, shots).map_err(|JobFaults(faults)| {
@@ -580,8 +608,8 @@ where
                     error: BuildError::Unmet(unmet),
                 },
                 other => unreachable!(
-                    "a job's shots are a set, and the crate's driver finds no fault \
-                     in an adaptive program, so only needs fail: {other}"
+                    "a composed job's shots are a set, and its driver finds no fault in \
+                     its program, so only needs fail: {other}"
                 ),
             });
             BuildFaults(unmet.collect())
@@ -589,7 +617,7 @@ where
     }
 }
 
-crate::compose::operator::compose_by_shr!(P, L; ComposedJob<P, L>);
+crate::compose::operator::compose_by_shr!(T, P, L; ComposedJob<T, P, L>);
 
 /// Makes shots of two bits, which toss their coins from the last executor's
 /// seed of the shot, and record where the last batch they ran was held.
@@ -1094,7 +1122,6 @@ fn run_and_close<E: Executor<InstructionBatch<InstructionCall>> + Close>(
 }
 
 mod adapter;
-mod adaptive_program;
 mod capabilities;
 mod compose;
 mod conformance;
@@ -1103,6 +1130,7 @@ mod executor;
 mod facilities;
 mod instruction_set;
 mod needs;
+mod program;
 mod rejected;
 mod reply;
 mod seeds;

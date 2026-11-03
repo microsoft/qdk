@@ -51,11 +51,11 @@ use std::task::Waker;
 use std::time::Instant;
 
 use executor_protocol::{
-    Action, Adapter, AdapterBoundary, AdapterError, AdaptiveProgram, Apply, Below, BelowHandle,
-    CallInput, Capabilities, Close, Describe, Executor, ImmediateReply, InstructionBatch,
+    Action, Adapter, AdapterBoundary, AdapterError, Apply, Below, BelowHandle, CallInput,
+    Capabilities, Close, Describe, Driver, DriverExt, Executor, ImmediateReply, InstructionBatch,
     InstructionBatchRef, InstructionCall, InstructionSet, Needs, OnePerShot, Opcode, OpcodeMap,
-    OpcodeTable, Operand, OperandKind, Outcomes, Pauli, Rejected, Reply, ShotContext, ShotId,
-    ShotOutcome, ShotSet, adapter_fn, compose, driver, owning_adapter_fn, wait,
+    OpcodeTable, Operand, OperandKind, Outcomes, Pauli, Program, Rejected, Reply, ShotContext,
+    ShotId, ShotOutcome, ShotSet, adapter_fn, compose, owning_adapter_fn, wait,
 };
 
 /// The calls of each batch.
@@ -772,7 +772,8 @@ fn renumbering() {
     let bare = |size| Timed::new(&in_toy, size, None).on(&mut toy_executor(), &shots);
     let ran = |calls, set: &InstructionSet, size| {
         let program = Timed::new(calls, size, Some(set));
-        let chain = compose(driver(), toy_executor()).expect("nothing between to refuse");
+        let chain =
+            compose(Timing.into_chain(), toy_executor()).expect("nothing between to refuse");
         let run = chain.run(program, shots.clone());
         run.expect("the toy accepts the program's set").wait().0
     };
@@ -807,10 +808,9 @@ fn renumbering() {
     }
 }
 
-/// An adaptive program that times its calls: it sends `calls` once, whole,
-/// which makes the executor's shot, then times them in batches of `size`
-/// ([`per_call`]); it gives the first batch's outcomes and the time. It
-/// states the set its calls are of, if any, in its needs.
+/// A program whose calls its driver times ([`Timing`]): `calls`, sent in
+/// batches of `size`. It states the set its calls are of, if any, in its
+/// needs.
 struct Timed<'a> {
     calls: &'a [InstructionCall],
     size: usize,
@@ -823,7 +823,8 @@ impl<'a> Timed<'a> {
         Self { calls, size, set }
     }
 
-    /// The first batch's outcomes and the time, on `executor`.
+    /// Its calls sent once, whole, on `executor`, then timed in batches of
+    /// its size ([`per_call`]): the first's outcomes and the time.
     fn on<E>(&self, executor: &mut E, shots: &ShotSet) -> (Vec<ShotOutcome>, f64)
     where
         E: Executor<InstructionBatch<InstructionCall>>,
@@ -838,20 +839,28 @@ impl<'a> Timed<'a> {
     }
 }
 
-impl AdaptiveProgram for Timed<'_> {
+impl Program for Timed<'_> {
     type Instruction = InstructionCall;
+    /// The first batch's outcomes and the time.
     type Output = (Vec<ShotOutcome>, f64);
 
     fn needs(&self) -> Needs {
         Needs::default().with_instruction_set(self.set.clone())
     }
+}
 
+/// The driver of a [`Timed`] program: it runs it ([`Timed::on`]) on the
+/// chain's executor.
+struct Timing;
+
+impl<'a> Driver<Timed<'a>> for Timing {
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
-        self,
+        &self,
+        program: Timed<'a>,
         executor: &mut E,
         shots: &ShotSet,
     ) -> (Vec<ShotOutcome>, f64) {
-        self.on(executor, shots)
+        program.on(executor, shots)
     }
 }
 

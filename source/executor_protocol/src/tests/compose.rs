@@ -11,21 +11,21 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::{
-    Bits, Count, EVERY_BIT, Relabel, SharedState, Worker, bits_set, block_on, declaring, ends_soon,
-    flip_and_toss, reversed_set, run_and_close, shots, undeclaring, values,
+    Batches, Bits, ByHand, Count, EVERY_BIT, Relabel, SharedState, Worker, bits_set, block_on,
+    declaring, ends_soon, flip_and_toss, reversed_set, run_and_close, shots, undeclaring, values,
 };
 use crate::tests::map_executor;
 use crate::tests::test_double::TestDoubleModel;
 use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::{
-    Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, AdaptiveProgram, Apply,
-    Below, BuildError, BuildFaults, BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix,
-    Close, ComposedJob, Describe, Driver, DriverExt, Executor, ExecutorLogic, InstructionBatch,
-    InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP,
-    MakeState, Need, Needs, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
-    OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, Rejected, RngId,
-    ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value,
-    adapter_fn, compose, driver, executor_fn, wait, wait_async,
+    Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, Apply, Below, BuildError,
+    BuildFaults, BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix, Close, ComposedJob,
+    Describe, Driver, DriverExt, Executor, ExecutorLogic, InstructionBatch, InstructionBatchRef,
+    InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP, MakeState, Need, Needs,
+    NoAdapter, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
+    OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, Program, Rejected, RngId,
+    ShotContext, ShotId, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value, adapter_fn,
+    compose, driver, executor_fn, wait,
 };
 
 use OperandKind::{Block, Tag};
@@ -91,49 +91,22 @@ impl<E: Close> Close for Logged<E> {
     }
 }
 
-/// A program that sends each of its batches to every shot, in turn, and
-/// gives their outcomes.
-struct Program {
-    batches: Vec<Vec<InstructionCall>>,
-    needs: Needs,
-}
-
-impl Program {
-    /// [`flip_and_toss`] in `set`'s numbering, needing `set`.
-    fn flip_and_toss(set: InstructionSet) -> Self {
-        Self {
-            batches: flip_and_toss(&set),
-            needs: Needs::default().with_instruction_set(Some(Arc::new(set))),
-        }
+/// [`flip_and_toss`] in `set`'s numbering, needing `set`, as the batches
+/// of the driver written by hand ([`ByHand`]).
+fn flip_and_toss_batches(set: InstructionSet) -> Batches {
+    Batches {
+        batches: flip_and_toss(&set),
+        needs: Needs::default().with_instruction_set(Some(Arc::new(set))),
     }
 }
 
-impl AdaptiveProgram for Program {
-    type Instruction = InstructionCall;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self) -> Needs {
-        self.needs.clone()
-    }
-
-    async fn drive<E>(self, executor: &mut E, shots: &ShotSet) -> Vec<ShotOutcome>
-    where
-        E: Executor<InstructionBatch<InstructionCall>>,
-    {
-        let mut outcomes = Vec::new();
-        for batch in &self.batches {
-            let reply = executor
-                .call(InstructionBatchRef {
-                    shots,
-                    instructions: batch,
-                })
-                .expect("the program's batches are valid");
-            let (events, end) = wait_async(reply).await;
-            end.expect("the shots do not fail");
-            outcomes.extend(events);
-        }
-        outcomes
-    }
+/// The job of [`flip_and_toss_batches`] in `set`'s numbering on the shots
+/// `ids`, driven by [`ByHand`].
+fn flip_and_toss_job(
+    set: InstructionSet,
+    ids: &[ShotId],
+) -> ComposedJob<ByHand, Batches, NoAdapter<InstructionCall>> {
+    ComposedJob::driven(ByHand, flip_and_toss_batches(set), shots(ids))
 }
 
 fn logger(name: &'static str, log: &Log) -> Logger {
@@ -189,7 +162,7 @@ fn composition_is_associative() {
 #[test]
 fn the_grouping_of_a_jobs_chain_does_not_matter() {
     let logs = [Log::default(), Log::default(), Log::default()];
-    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 1]));
+    let job = || flip_and_toss_job(bits_set(), &[0, 1]);
     let one_by_one = compose(
         compose(compose(job(), logger("a", &logs[0])), logger("b", &logs[0])),
         TestDoubleExecutor::with_model(Bits::default(), 7),
@@ -222,6 +195,16 @@ fn the_grouping_of_a_jobs_chain_does_not_matter() {
     assert!(!entries(&logs[0]).is_empty(), "the run called the chain");
 }
 
+/// [`flip_and_toss`] in the bits' numbering, as a static program.
+fn static_flip_and_toss() -> StaticProgram<InstructionCall> {
+    let set = bits_set();
+    let batches = flip_and_toss(&set);
+    StaticProgram::new(
+        Needs::default().with_instruction_set(Some(Arc::new(set))),
+        batches,
+    )
+}
+
 /// The values of a static program of [`flip_and_toss`] in the bits'
 /// numbering, run on shots 0 and 1 by `chain`.
 fn run_flip_and_toss<E>(
@@ -230,11 +213,8 @@ fn run_flip_and_toss<E>(
 where
     E: Executor<InstructionBatch<InstructionCall>> + Close,
 {
-    let set = bits_set();
-    let batches = flip_and_toss(&set);
-    let needs = Needs::default().with_instruction_set(Some(Arc::new(set)));
     let (outcomes, _) = chain
-        .run(StaticProgram::new(needs, batches), [0, 1])
+        .run(static_flip_and_toss(), [0, 1])
         .expect("shots, needs met")
         .wait();
     values(&outcomes.expect("the bits neither refuse nor fail"))
@@ -284,39 +264,6 @@ fn the_grouping_of_a_drivers_chain_does_not_matter() {
     assert!(!entries(&logs[0]).is_empty(), "the job called the chain");
 }
 
-/// A driver written by hand, as a runtime is: it sends a [`Program`]'s
-/// batches in turn, each to every shot of the job, and gives their
-/// outcomes.
-struct InTurn;
-
-impl Driver<Program> for InTurn {
-    type Instruction = InstructionCall;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self, program: &Program) -> Needs {
-        program.needs.clone()
-    }
-
-    async fn drive<E>(&self, program: Program, executor: &mut E, shots: &ShotSet) -> Self::Output
-    where
-        E: Executor<InstructionBatch<InstructionCall>>,
-    {
-        let mut outcomes = Vec::new();
-        for batch in &program.batches {
-            let reply = executor
-                .call(InstructionBatchRef {
-                    shots,
-                    instructions: batch,
-                })
-                .expect("the program's batches are valid");
-            let (events, end) = wait_async(reply).await;
-            end.expect("the shots do not fail");
-            outcomes.extend(events);
-        }
-        outcomes
-    }
-}
-
 /// A user's runtime heads a chain as the crate's driver does,
 /// `runtime.into_chain() >> adapter >> executor`: its calls pass through
 /// the adapter below it, which with the executor is the one executor it is
@@ -325,18 +272,18 @@ impl Driver<Program> for InTurn {
 fn a_driver_written_by_hand_calls_through_the_adapters_below_it() {
     let by_hand = Log::default();
     let bits = || TestDoubleExecutor::with_model(Bits::default(), 7);
-    let (outcomes, _) = (InTurn.into_chain() >> logger("a", &by_hand) >> bits())
+    let (outcomes, _) = (ByHand.into_chain() >> logger("a", &by_hand) >> bits())
         .expect("the logger fits")
-        .run(Program::flip_and_toss(bits_set()), [0, 1])
+        .run(flip_and_toss_batches(bits_set()), [0, 1])
         .expect("shots, needs met")
         .wait();
     let crates = Log::default();
     let (expected, _) = (driver() >> logger("a", &crates) >> bits())
         .expect("the logger fits")
-        .run(Program::flip_and_toss(bits_set()), [0, 1])
+        .run(static_flip_and_toss(), [0, 1])
         .expect("shots, needs met")
         .wait();
-    assert_eq!(outcomes, expected);
+    assert_eq!(Ok(outcomes), expected);
     assert_eq!(entries(&by_hand), entries(&crates));
     assert!(!entries(&by_hand).is_empty(), "the job called the chain");
 }
@@ -999,15 +946,21 @@ fn a_refusal_for_no_run_seed_names_the_adapter_and_says_how_to_seed() {
     assert!(message.contains(".seed("), "{message}");
 }
 
-/// A program of `bool`s that takes each reply with [`wait`], as a
-/// synchronous program does.
-struct Waits;
+/// A program of three reads of `bool`s, which gives how many outcomes they
+/// gave.
+struct ThreeReads;
 
-impl AdaptiveProgram for Waits {
+impl Program for ThreeReads {
     type Instruction = bool;
     type Output = usize;
+}
 
-    async fn drive<E>(self, executor: &mut E, shots: &ShotSet) -> usize
+/// A driver of [`ThreeReads`] that takes each reply with [`wait`], as a
+/// synchronous driver does.
+struct Waits;
+
+impl Driver<ThreeReads> for Waits {
+    async fn drive<E>(&self, _: ThreeReads, executor: &mut E, shots: &ShotSet) -> usize
     where
         E: Executor<InstructionBatch<bool>>,
     {
@@ -1050,15 +1003,15 @@ impl Model for Workers {
 /// refused then, before anything runs, the program named.
 #[test]
 fn a_job_whose_needs_the_chain_lacks_is_refused_when_composed() {
-    let mut program = Program::flip_and_toss(bits_set());
+    let mut program = flip_and_toss_batches(bits_set());
     program.needs = program.needs.with_qubits(3);
-    let Err(faults) = ComposedJob::new(program, shots(&[0]))
+    let Err(faults) = ComposedJob::driven(ByHand, program, shots(&[0]))
         >> TestDoubleExecutor::with_model(Bits::default(), 7)
     else {
         panic!("three qubits on two bits must be refused");
     };
     assert_eq!(faults.0.len(), 1, "{faults}");
-    assert!(faults.0[0].component.ends_with("Program"), "{faults}");
+    assert!(faults.0[0].component.ends_with("Batches"), "{faults}");
     let BuildError::Unmet(unmet) = &faults.0[0].error else {
         panic!("the qubits are unmet: {faults}");
     };
@@ -1070,9 +1023,9 @@ fn a_job_whose_needs_the_chain_lacks_is_refused_when_composed() {
 /// `Capabilities::admit`, when the program is given to the chain.
 #[test]
 fn every_need_of_a_program_that_the_chain_lacks_is_reported() {
-    let mut program = Program::flip_and_toss(bits_set());
+    let mut program = flip_and_toss_batches(bits_set());
     program.needs = program.needs.with_qubits(3).with_log_probability(true);
-    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+    let chain = (ByHand.into_chain() >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("nothing between to refuse");
     let Err(JobFaults(faults)) = chain.run(program, [0]) else {
         panic!("three qubits and the log probability on two bits must be refused");
@@ -1097,8 +1050,8 @@ fn a_job_of_more_shots_than_the_executor_holds_is_refused_when_composed() {
         ..TestDoubleModel::default()
     };
     let made = Rc::clone(&doubles.made);
-    let Err(faults) =
-        ComposedJob::new(Waits, shots(&[0, 1, 2])) >> TestDoubleExecutor::with_model(doubles, 7)
+    let Err(faults) = ComposedJob::driven(Waits, ThreeReads, shots(&[0, 1, 2]))
+        >> TestDoubleExecutor::with_model(doubles, 7)
     else {
         panic!("three shots on two at once must be refused");
     };
@@ -1222,7 +1175,7 @@ impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for Accept
 /// flip flips the bit.
 #[test]
 fn a_program_in_another_order_runs_its_own_instructions_through_the_chain() {
-    let job = ComposedJob::new(Program::flip_and_toss(reversed_set()), shots(&[0]));
+    let job = flip_and_toss_job(reversed_set(), &[0]);
     let (outcomes, _) =
         (job >> Accepting::new(bits_set()) >> TestDoubleExecutor::with_model(Bits::default(), 7))
             .expect("the bits run what it accepts")
@@ -1237,7 +1190,7 @@ fn a_program_in_another_order_runs_its_own_instructions_through_the_chain() {
 #[test]
 fn a_job_and_an_executor_sharing_a_set_without_actions_are_composed() {
     let vendors = undeclaring(bits_set(), EVERY_BIT);
-    let job = ComposedJob::new(Program::flip_and_toss(vendors), shots(&[0]));
+    let job = flip_and_toss_job(vendors, &[0]);
     let downstream = Bits {
         undeclared: EVERY_BIT,
         ..Bits::default()
@@ -1295,7 +1248,7 @@ fn every_undeclared_action_of_a_chain_is_reported_at_once() {
 #[test]
 fn a_passing_adapter_of_calls_by_opcode_stating_no_set_accepts_the_set_downstream() {
     let passing = map_executor::<InstructionCall, _>(|below| below);
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let job = flip_and_toss_job(bits_set(), &[0]);
     let downstream = Bits {
         undeclared: &["coin"],
         ..Bits::default()
@@ -1324,7 +1277,7 @@ fn a_passing_adapter_of_calls_by_opcode_stating_no_set_accepts_the_set_downstrea
 fn a_passing_adapter_offers_the_set_downstream_under_its_name() {
     let passing = map_executor::<InstructionCall, _>(|below| below);
     let vendors = undeclaring(bits_set(), EVERY_BIT);
-    let job = ComposedJob::new(Program::flip_and_toss(vendors), shots(&[0]));
+    let job = flip_and_toss_job(vendors, &[0]);
     let downstream = Bits {
         undeclared: EVERY_BIT,
         ..Bits::default()
@@ -1340,11 +1293,11 @@ fn a_passing_adapter_offers_the_set_downstream_under_its_name() {
 /// program's need of an instruction set unmet.
 #[test]
 fn a_job_of_calls_by_opcode_that_states_no_set_is_refused_when_composed() {
-    let program = Program {
+    let program = Batches {
         batches: flip_and_toss(&bits_set()),
         needs: Needs::default(),
     };
-    let job = ComposedJob::new(program, shots(&[0]));
+    let job = ComposedJob::driven(ByHand, program, shots(&[0]));
     let Err(faults) = job >> TestDoubleExecutor::with_model(Bits::default(), 7) else {
         panic!("the program states no set");
     };
@@ -1363,7 +1316,7 @@ fn a_job_of_calls_by_opcode_that_states_no_set_is_refused_when_composed() {
 fn a_typed_chain_that_describes_no_set_is_composed() {
     let passing = map_executor::<bool, _>(|below| below);
     let outcomes = ends_soon(|| {
-        let job = ComposedJob::new(Waits, shots(&[0, 1]));
+        let job = ComposedJob::driven(Waits, ThreeReads, shots(&[0, 1]));
         let (outcomes, _) = (job >> passing >> TestDoubleExecutor::with_model(Workers, 7))
             .expect("a typed boundary needs no set")
             .wait();
@@ -1445,7 +1398,7 @@ impl<E: Close> Close for DecodedCalls<E> {
 #[test]
 fn a_decoder_of_calls_by_opcode_over_no_set_is_composed() {
     let outcomes = ends_soon(|| {
-        let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+        let job = flip_and_toss_job(bits_set(), &[0]);
         let (outcomes, _) = (job
             >> DecodeCalls::accepting(bits_set())
             >> TestDoubleExecutor::with_model(Workers, 7))
@@ -1462,7 +1415,7 @@ fn a_decoder_of_calls_by_opcode_over_no_set_is_composed() {
 #[test]
 fn a_job_whose_calls_a_decoder_does_not_accept_is_refused_when_composed() {
     let decoder = DecodeCalls::accepting(bits_without_coin());
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let job = flip_and_toss_job(bits_set(), &[0]);
     let Err(faults) = job >> decoder >> TestDoubleExecutor::with_model(Workers, 7) else {
         panic!("the decoder accepts no coin");
     };
@@ -1479,11 +1432,11 @@ fn a_job_whose_calls_a_decoder_does_not_accept_is_refused_when_composed() {
 /// is refused, before anything runs.
 #[test]
 fn a_job_whose_calls_a_decoder_does_not_accept_is_refused() {
-    let chain = (driver()
+    let chain = (ByHand.into_chain()
         >> DecodeCalls::accepting(bits_without_coin())
         >> TestDoubleExecutor::with_model(Workers, 7))
     .expect("the decoder's downstream boundary is typed");
-    let Err(JobFaults(faults)) = chain.run(Program::flip_and_toss(bits_set()), [0]) else {
+    let Err(JobFaults(faults)) = chain.run(flip_and_toss_batches(bits_set()), [0]) else {
         panic!("the decoder accepts no coin");
     };
     let [Rejected::Unmet(unmet)] = &faults[..] else {
@@ -1536,7 +1489,7 @@ fn a_decoder_stating_no_set_accepts_the_set_downstream() {
         sends: None,
         accepts: None,
     };
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let job = flip_and_toss_job(bits_set(), &[0]);
     let Err(faults) =
         job >> decoder >> TestDoubleExecutor::with_model(DescribedWorkers(bits_without_coin()), 7)
     else {
@@ -1559,7 +1512,7 @@ fn a_job_over_a_decoder_and_workers_stating_no_set_is_refused_when_composed() {
         sends: None,
         accepts: None,
     };
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let job = flip_and_toss_job(bits_set(), &[0]);
     let Err(faults) = job >> decoder >> TestDoubleExecutor::with_model(Workers, 7) else {
         panic!("nothing downstream of the program describes a set");
     };
@@ -1578,10 +1531,10 @@ fn a_job_over_a_decoder_and_workers_stating_no_set_is_refused_when_composed() {
 fn a_job_composes_with_any_executor() {
     let (seed, ids) = (13, [2, 6]);
     let alone = {
-        let program = Program::flip_and_toss(bits_set());
-        block_on(program.drive(&mut SharedState::new(seed), &shots(&ids)))
+        let program = flip_and_toss_batches(bits_set());
+        block_on(ByHand.drive(program, &mut SharedState::new(seed), &shots(&ids)))
     };
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&ids));
+    let job = flip_and_toss_job(bits_set(), &ids);
     let (outcomes, report) = compose(job, SharedState::new(seed))
         .expect("no adapter, no fault")
         .wait();
@@ -1596,7 +1549,7 @@ fn a_job_composes_with_any_executor() {
 #[test]
 fn a_passing_adapter_over_an_ensemble_changes_nothing() {
     let (seed, ids) = (13, [2, 6]);
-    let job = || ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&ids));
+    let job = || flip_and_toss_job(bits_set(), &ids);
     let ensemble = || counts_calls(SharedState::new(seed));
     let (alone, alone_report) = compose(job(), ensemble())
         .expect("no adapter, no fault")

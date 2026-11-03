@@ -4,18 +4,23 @@
 use crate::tests::test_double::{TestDoubleExecutor, TestDoubleModel};
 use crate::{
     CallInput, Capabilities, Describe, Driver, DriverExt, Executor, InstructionBatch,
-    InstructionBatchRef, Outcomes, Rejected, ShotSet, executor_fn, wait_async,
+    InstructionBatchRef, Outcomes, Program, Rejected, ShotSet, executor_fn, wait_async,
 };
 
-/// A driver that reads every shot of its job once, and keeps the
-/// default needs.
-struct ReadsOnce;
+/// A program of reads, with no content: its driver chooses how often it
+/// reads each shot. It gives whether each call was taken.
+struct Reads;
 
-impl Driver<()> for ReadsOnce {
+impl Program for Reads {
     type Instruction = bool;
     type Output = Result<(), Rejected>;
+}
 
-    async fn drive<E>(&self, (): (), executor: &mut E, shots: &ShotSet) -> Self::Output
+/// A driver that reads every shot of its job once, and adds no need.
+struct ReadsOnce;
+
+impl Driver<Reads> for ReadsOnce {
+    async fn drive<E>(&self, _: Reads, executor: &mut E, shots: &ShotSet) -> Result<(), Rejected>
     where
         E: Executor<InstructionBatch<bool>>,
     {
@@ -40,7 +45,7 @@ fn a_drivers_default_needs_ask_no_resumable_shots() {
     let chain = (ReadsOnce.into_chain() >> TestDoubleExecutor::with_model(model, 7))
         .expect("the double takes any batch of `bool`s");
     let (output, _) = chain
-        .run((), [4, 9])
+        .run(Reads, [4, 9])
         .expect("the default needs ask no resumable shots")
         .wait();
     assert_eq!(output, Ok(()));
@@ -57,25 +62,43 @@ fn a_driver_of_one_program_type_joins_a_chain_by_into_chain() {
     );
     let chain =
         (ReadsOnce.into_chain() >> simulator).expect("the simulator takes any batch of `bool`s");
-    let (output, _) = chain.run((), [4]).expect("one shot, held").wait();
+    let (output, _) = chain.run(Reads, [4]).expect("one shot, held").wait();
     assert_eq!(output, Ok(()));
 }
 
-/// A runtime that drives two program forms: a circuit, its instructions
-/// sent in one call, and a single instruction.
-struct TwoForms;
+/// A circuit: its instructions, sent in one call.
+struct Circuit(Vec<bool>);
 
-impl Driver<Vec<bool>> for TwoForms {
+impl Program for Circuit {
     type Instruction = bool;
     type Output = Result<(), Rejected>;
+}
 
-    async fn drive<E>(&self, circuit: Vec<bool>, executor: &mut E, shots: &ShotSet) -> Self::Output
+/// A single instruction.
+struct Single(bool);
+
+impl Program for Single {
+    type Instruction = bool;
+    type Output = Result<(), Rejected>;
+}
+
+/// A runtime that drives two program forms: a [`Circuit`] and a
+/// [`Single`] instruction.
+struct TwoForms;
+
+impl Driver<Circuit> for TwoForms {
+    async fn drive<E>(
+        &self,
+        circuit: Circuit,
+        executor: &mut E,
+        shots: &ShotSet,
+    ) -> Result<(), Rejected>
     where
         E: Executor<InstructionBatch<bool>>,
     {
         let reply = executor.call(InstructionBatchRef {
             shots,
-            instructions: &circuit,
+            instructions: &circuit.0,
         })?;
         wait_async(reply)
             .await
@@ -85,15 +108,17 @@ impl Driver<Vec<bool>> for TwoForms {
     }
 }
 
-impl Driver<bool> for TwoForms {
-    type Instruction = bool;
-    type Output = Result<(), Rejected>;
-
-    async fn drive<E>(&self, instruction: bool, executor: &mut E, shots: &ShotSet) -> Self::Output
+impl Driver<Single> for TwoForms {
+    async fn drive<E>(
+        &self,
+        single: Single,
+        executor: &mut E,
+        shots: &ShotSet,
+    ) -> Result<(), Rejected>
     where
         E: Executor<InstructionBatch<bool>>,
     {
-        self.drive(vec![instruction], executor, shots).await
+        self.drive(Circuit(vec![single.0]), executor, shots).await
     }
 }
 
@@ -108,26 +133,26 @@ fn a_driver_of_several_program_types_joins_a_chain_naming_one() {
             |_| Ok(()),
             |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
         );
-        (DriverExt::<Vec<bool>>::into_chain(TwoForms) >> simulator)
+        (DriverExt::<Circuit>::into_chain(TwoForms) >> simulator)
             .expect("the simulator takes any batch of `bool`s")
     };
     let (circuit, _) = chain()
-        .run(vec![true, false], [4])
+        .run(Circuit(vec![true, false]), [4])
         .expect("one shot, held")
         .wait();
-    let (instruction, _) = chain().run(true, [4]).expect("one shot, held").wait();
+    let (instruction, _) = chain()
+        .run(Single(true), [4])
+        .expect("one shot, held")
+        .wait();
     assert_eq!((circuit, instruction), (Ok(()), Ok(())));
 }
 
 /// A driver that reads every shot of its job, then reads each again in a
-/// second call, continuing it, and keeps the default needs.
+/// second call, continuing it, and adds no need.
 struct ReadsTwice;
 
-impl Driver<()> for ReadsTwice {
-    type Instruction = bool;
-    type Output = Result<(), Rejected>;
-
-    async fn drive<E>(&self, (): (), executor: &mut E, shots: &ShotSet) -> Self::Output
+impl Driver<Reads> for ReadsTwice {
+    async fn drive<E>(&self, _: Reads, executor: &mut E, shots: &ShotSet) -> Result<(), Rejected>
     where
         E: Executor<InstructionBatch<bool>>,
     {
@@ -163,7 +188,7 @@ fn resumable_shots_a_driver_does_not_state_are_checked_by_no_call() {
     let chain =
         (ReadsTwice.into_chain() >> simulator).expect("the simulator takes any batch of `bool`s");
     let (output, _) = chain
-        .run((), [4])
+        .run(Reads, [4])
         .expect("the driver states no resumable shots")
         .wait();
     assert_eq!(output, Ok(()));

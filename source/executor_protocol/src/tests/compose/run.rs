@@ -4,26 +4,29 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::future::{IntoFuture, poll_fn};
+use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::thread;
 use std::time::Duration;
 
-use super::{Log, Program, Waits, Workers, entries, logger};
+use super::{
+    Log, ThreeReads, Waits, Workers, entries, flip_and_toss_batches, flip_and_toss_job, logger,
+};
 use crate::tests::map_executor;
 use crate::tests::test_double::{self, Model, TestDoubleExecutor, TestDoubleModel};
 use crate::tests::{
-    Bits, BitsState, Count, YieldNow, bits_set, block_on, ends_soon, flip_and_toss, run_tasks,
-    shots, values,
+    Batches, Bits, BitsState, ByHand, Count, YieldNow, bits_set, block_on, ends_soon,
+    flip_and_toss, run_tasks, shots, values,
 };
 use crate::{
-    AdapterError, AdapterLogic, AdaptiveProgram, Below, CallInput, Capabilities, Close,
-    ComposedJob, Describe, Executor, ExecutorLogic, ExecutorReport, InstructionBatch,
+    AdapterError, AdapterLogic, Below, CallInput, Capabilities, Close, ComposedJob, Describe,
+    Driver, DriverExt, Executor, ExecutorLogic, ExecutorReport, Instruction, InstructionBatch,
     InstructionBatchRef, InstructionCall, MakeState, Needs, NoAdapter, NoCheck, OnePerShot,
-    OnePerShotAdapter, OnePerShotExecutor, Opcode, Outcome, Outcomes, Rejected, Reply, ReplyStatus,
-    ShotContext, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose, driver, executor_fn,
-    reply_channel, wait, wait_async,
+    OnePerShotAdapter, OnePerShotExecutor, Opcode, Outcome, Outcomes, Program, Rejected, Reply,
+    ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose,
+    executor_fn, reply_channel, wait, wait_async,
 };
 
 /// A job composed with adapters and an executor makes no shot until its
@@ -35,7 +38,7 @@ fn a_run_runs_nothing_until_it_is_waited_for() {
         let seen = Arc::clone(&seen);
         map_executor::<InstructionCall, _>(move |executor| Recorded { executor, seen })
     };
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let job = flip_and_toss_job(bits_set(), &[0]);
     let run = (job
         >> logger("debugger", &log)
         >> recording
@@ -129,7 +132,7 @@ fn seen(seen: &Mutex<Vec<Seen>>) -> Vec<Seen> {
 #[test]
 fn a_run_turned_into_a_future_runs_nothing_until_polled() {
     let (executor, record) = Recorded::new(TestDoubleExecutor::with_model(Bits::default(), 7));
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let job = flip_and_toss_job(bits_set(), &[0]);
     let run = compose(job, executor).expect("no adapter, no fault");
     let future = run.into_future();
     assert_eq!(seen(&record), [], "a call or a close before the poll");
@@ -146,7 +149,7 @@ fn a_run_turned_into_a_future_runs_nothing_until_polled() {
 #[test]
 fn a_run_closes_its_executor_once_after_the_programs_last_call() {
     let (executor, record) = Recorded::new(TestDoubleExecutor::with_model(Bits::default(), 7));
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 1]));
+    let job = flip_and_toss_job(bits_set(), &[0, 1]);
     compose(job, executor).expect("no adapter, no fault").wait();
     assert_eq!(seen(&record), [Seen::Call, Seen::Call, Seen::Close]);
 }
@@ -156,29 +159,52 @@ fn a_run_closes_its_executor_once_after_the_programs_last_call() {
 #[test]
 fn a_run_whose_program_never_calls_still_closes_its_executor() {
     let (executor, record) = Recorded::new(TestDoubleExecutor::with_model(Bits::default(), 7));
-    let idle = Program {
+    let idle = Batches {
         batches: Vec::new(),
-        ..Program::flip_and_toss(bits_set())
+        ..flip_and_toss_batches(bits_set())
     };
-    compose(ComposedJob::new(idle, shots(&[0, 1])), executor)
+    compose(ComposedJob::driven(ByHand, idle, shots(&[0, 1])), executor)
         .expect("no adapter, no fault")
         .wait();
     assert_eq!(seen(&record), [Seen::Close]);
 }
 
-/// A program of `bool`s that reads twice on its shots, each read to its
-/// end, and gives how each call went: refused, or how its reply ended.
+/// A program of `I`s, giving an `O`, written in its driver: it has no
+/// content, and its driver makes its calls. The drivers below each make
+/// fixed calls, some on shots not the job's, to show how a run takes them.
+struct WrittenInItsDriver<I, O>(PhantomData<fn() -> (I, O)>);
+
+impl<I: Instruction, O> Program for WrittenInItsDriver<I, O> {
+    type Instruction = I;
+    type Output = O;
+}
+
+/// The job of the program written in `driver` ([`WrittenInItsDriver`]),
+/// on `shots`.
+fn job_of<T, I, O>(
+    driver: T,
+    shots: ShotSet,
+) -> ComposedJob<T, WrittenInItsDriver<I, O>, NoAdapter<I>>
+where
+    T: Driver<WrittenInItsDriver<I, O>>,
+    I: Instruction,
+{
+    ComposedJob::driven(driver, WrittenInItsDriver(PhantomData), shots)
+}
+
+/// A driver of `bool`s that reads twice on its job's shots, each read to
+/// its end, and gives how each call went: refused, or how its reply ended.
 struct ReadsTwice;
 
-impl AdaptiveProgram for ReadsTwice {
-    type Instruction = bool;
-    type Output = [Result<Result<(), String>, Rejected>; 2];
+type TwoReads = [Result<Result<(), String>, Rejected>; 2];
 
+impl Driver<WrittenInItsDriver<bool, TwoReads>> for ReadsTwice {
     async fn drive<E: Executor<InstructionBatch<bool>>>(
-        self,
+        &self,
+        _: WrittenInItsDriver<bool, TwoReads>,
         executor: &mut E,
         own: &ShotSet,
-    ) -> Self::Output {
+    ) -> TwoReads {
         [(); 2].map(|()| test_double::run(executor, own, &[true]).map(|(_, end)| end))
     }
 }
@@ -193,7 +219,7 @@ fn a_run_closes_its_executor_once_after_a_call_failed() {
         ..TestDoubleModel::default()
     };
     let (executor, record) = Recorded::new(TestDoubleExecutor::with_model(model, 7));
-    let ([first, second], _) = compose(ComposedJob::new(ReadsTwice, shots(&[0, 1])), executor)
+    let ([first, second], _) = compose(job_of(ReadsTwice, shots(&[0, 1])), executor)
         .expect("no adapter, no fault")
         .wait();
     first
@@ -210,7 +236,7 @@ fn a_run_closes_its_executor_once_after_a_call_failed() {
 fn a_run_through_an_adapter_closes_the_last_executor_once_after_the_programs_last_call() {
     let (executor, record) = Recorded::new(TestDoubleExecutor::with_model(Bits::default(), 7));
     let log = Log::default();
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0]));
+    let job = flip_and_toss_job(bits_set(), &[0]);
     compose(job >> logger("debugger", &log), executor)
         .expect("a debugger fits any executor")
         .wait();
@@ -221,7 +247,7 @@ fn a_run_through_an_adapter_closes_the_last_executor_once_after_the_programs_las
 /// executor gave when the run closed it, each shot's report folded.
 #[test]
 fn a_run_gives_the_programs_output_and_the_executors_report() {
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 1, 2]));
+    let job = flip_and_toss_job(bits_set(), &[0, 1, 2]);
     let (outcomes, report) = (job >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("no adapter, no fault")
         .wait();
@@ -237,19 +263,19 @@ fn a_run_gives_the_programs_output_and_the_executors_report() {
 }
 
 /// A chain composed with a probe that draws nothing and sends what it
-/// accepts (a logger) gives the outcomes that its program gives driving the
+/// accepts (a logger) gives the outcomes that its driver gives driving the
 /// executor alone, built with the same seed, on the same shots, coins
 /// included.
 #[test]
 fn a_run_draws_what_its_executor_alone_draws() {
     let (seed, ids) = (11, [0, 4, 9]);
     let alone = {
-        let program = Program::flip_and_toss(bits_set());
+        let program = flip_and_toss_batches(bits_set());
         let mut executor = TestDoubleExecutor::with_model(Bits::default(), seed);
-        block_on(program.drive(&mut executor, &shots(&ids)))
+        block_on(ByHand.drive(program, &mut executor, &shots(&ids)))
     };
     let log = Log::default();
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&ids));
+    let job = flip_and_toss_job(bits_set(), &ids);
     let (outcomes, _) =
         (job >> logger("debugger", &log) >> TestDoubleExecutor::with_model(Bits::default(), seed))
             .expect("a logger fits")
@@ -289,8 +315,8 @@ fn a_shot_run_alone_gives_what_it_gives_among_others() {
         )
         .seed(11)
         .shots(OnePerShot);
-        let program = Program::flip_and_toss(bits_set());
-        let (outcomes, _) = (driver() >> simulator)
+        let program = flip_and_toss_batches(bits_set());
+        let (outcomes, _) = (ByHand.into_chain() >> simulator)
             .expect("no adapter, no fault")
             .run(program, shots(ids))
             .expect("the simulator runs the bits' set")
@@ -327,9 +353,10 @@ fn send_as_is(
     below.send(input.instructions())
 }
 
-/// The run's driver, on shots that are not a range.
-fn job() -> ComposedJob<Program, NoAdapter<InstructionCall>> {
-    ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[2, 5, 6, 11]))
+/// The run's job: [`flip_and_toss`] as [`ByHand`] drives it, on shots
+/// that are not a range.
+fn job() -> ComposedJob<ByHand, Batches, NoAdapter<InstructionCall>> {
+    flip_and_toss_job(bits_set(), &[2, 5, 6, 11])
 }
 
 /// The run's simulator, made with `executor_fn`, a state per shot.
@@ -586,22 +613,20 @@ impl<E: Close> Close for SeesShots<E> {
     }
 }
 
-/// A program of the bits' set that flips and reads on its shots, then
-/// tosses and reads on `then`, some of them.
+/// A driver that flips and reads, in the bits' set, on its job's shots,
+/// then tosses and reads on `then`, some of them.
 struct OnItsShotsThenSome {
     then: ShotSet,
 }
 
-impl AdaptiveProgram for OnItsShotsThenSome {
-    type Instruction = InstructionCall;
-    type Output = ();
-
-    fn needs(&self) -> Needs {
+impl Driver<WrittenInItsDriver<InstructionCall, ()>> for OnItsShotsThenSome {
+    fn needs(&self, _: &WrittenInItsDriver<InstructionCall, ()>) -> Needs {
         Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
-        self,
+        &self,
+        _: WrittenInItsDriver<InstructionCall, ()>,
         executor: &mut E,
         own: &ShotSet,
     ) {
@@ -626,7 +651,7 @@ impl AdaptiveProgram for OnItsShotsThenSome {
 fn the_shots_a_job_names_reach_the_last_executor_through_every_adapter() {
     let job = || {
         let then = shots(&[4, 9]);
-        ComposedJob::new(OnItsShotsThenSome { then }, shots(&[9, 1, 4]))
+        job_of(OnItsShotsThenSome { then }, shots(&[9, 1, 4]))
     };
     let executor = || SeesShots::new(TestDoubleExecutor::with_model(Bits::default(), 7));
     let passing = || map_executor::<InstructionCall, _>(|below| below);
@@ -656,7 +681,7 @@ fn the_shots_a_job_names_reach_the_last_executor_through_every_adapter() {
 #[test]
 fn a_run_awaited_gives_what_it_gives_waited_for() {
     let run = || {
-        let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 1]));
+        let job = flip_and_toss_job(bits_set(), &[0, 1]);
         (job >> TestDoubleExecutor::with_model(Bits::default(), 7)).expect("no adapter, no fault")
     };
     let awaited = block_on(async { run().await });
@@ -677,22 +702,21 @@ fn an_awaited_runs_future_is_not_send() {
     }
     impl<T> NotSend<()> for T {}
     impl<T: Send> NotSend<u8> for T {}
-    let job = ComposedJob::new(Program::flip_and_toss(bits_set()), shots(&[0, 1]));
+    let job = flip_and_toss_job(bits_set(), &[0, 1]);
     let run =
         (job >> TestDoubleExecutor::with_model(Bits::default(), 7)).expect("no adapter, no fault");
     assert_send(&run);
     NotSend::checked(&run.into_future());
 }
 
-/// A program of `bool`s that reads once on its shots and awaits the reply.
+/// A driver of `bool`s that reads once on its job's shots and awaits the
+/// reply.
 struct AwaitsARead;
 
-impl AdaptiveProgram for AwaitsARead {
-    type Instruction = bool;
-    type Output = Vec<ShotOutcome>;
-
+impl Driver<WrittenInItsDriver<bool, Vec<ShotOutcome>>> for AwaitsARead {
     async fn drive<E: Executor<InstructionBatch<bool>>>(
-        self,
+        &self,
+        _: WrittenInItsDriver<bool, Vec<ShotOutcome>>,
         executor: &mut E,
         own: &ShotSet,
     ) -> Vec<ShotOutcome> {
@@ -708,21 +732,20 @@ impl AdaptiveProgram for AwaitsARead {
 }
 
 /// A run awaited on a runtime of one thread leaves the thread to the other
-/// tasks while its program awaits a reply: the run's read ends only when
+/// tasks while its driver awaits a reply: the run's read ends only when
 /// another task, on the same thread, ends it. Run on a thread of its own,
 /// so that a run that blocked its thread fails the test instead of hanging
 /// it.
 #[test]
-fn a_run_awaited_leaves_its_thread_to_other_tasks_while_its_program_awaits() {
+fn a_run_awaited_leaves_its_thread_to_other_tasks_while_its_driver_awaits() {
     let log = ends_soon(|| {
         let model = TestDoubleModel {
             deferred: vec![0],
             ..TestDoubleModel::default()
         };
         let deferred = Rc::clone(&model.seen);
-        let run = (ComposedJob::new(AwaitsARead, shots(&[0]))
-            >> TestDoubleExecutor::with_model(model, 7))
-        .expect("no adapter, no fault");
+        let run = (job_of(AwaitsARead, shots(&[0])) >> TestDoubleExecutor::with_model(model, 7))
+            .expect("no adapter, no fault");
         let log = RefCell::new(Vec::new());
         let awaits = async {
             let (outcomes, _) = run.await;
@@ -748,12 +771,12 @@ fn a_run_awaited_leaves_its_thread_to_other_tasks_while_its_program_awaits() {
     assert_eq!(log, ["read ended", "run gave 1"]);
 }
 
-/// A synchronous program, which parks its thread in `wait` for replies that
+/// A synchronous driver, which parks its thread in `wait` for replies that
 /// end on other threads, runs to its end when its run is waited for.
 #[test]
-fn a_run_waited_for_runs_a_program_that_waits_for_replies_from_other_threads() {
+fn a_run_waited_for_runs_a_driver_that_waits_for_replies_from_other_threads() {
     let outcomes = ends_soon(|| {
-        let job = ComposedJob::new(Waits, shots(&[0, 1]));
+        let job = ComposedJob::driven(Waits, ThreeReads, shots(&[0, 1]));
         let (output, _) = (job >> TestDoubleExecutor::with_model(Workers, 7))
             .expect("no adapter, no fault")
             .wait();
@@ -762,17 +785,15 @@ fn a_run_waited_for_runs_a_program_that_waits_for_replies_from_other_threads() {
     assert_eq!(outcomes, 6, "one outcome per shot and batch");
 }
 
-/// A program that awaits one reply and, before it is polled again, takes
-/// another with [`wait`]: the first reply ends while `wait` parks.
+/// A driver that awaits one reply and, before it is polled again, takes
+/// another with [`wait`]: the first reply ends while `wait` parks. It
+/// gives the first reply's status, polled at the end.
 struct WaitsBetweenAwaits;
 
-impl AdaptiveProgram for WaitsBetweenAwaits {
-    type Instruction = bool;
-    /// The first reply's status, polled at the end.
-    type Output = ReplyStatus;
-
+impl Driver<WrittenInItsDriver<bool, ReplyStatus>> for WaitsBetweenAwaits {
     async fn drive<E: Executor<InstructionBatch<bool>>>(
-        self,
+        &self,
+        _: WrittenInItsDriver<bool, ReplyStatus>,
         _: &mut E,
         _: &ShotSet,
     ) -> ReplyStatus {
@@ -788,7 +809,7 @@ impl AdaptiveProgram for WaitsBetweenAwaits {
         });
         wait(second, &mut outcomes).expect("the second reply ends");
         // Pending until the first reply's wake, which came while `wait`
-        // parked, has the program polled again.
+        // parked, has the driver polled again.
         let mut woken = false;
         poll_fn(|_| {
             if woken {
@@ -803,13 +824,13 @@ impl AdaptiveProgram for WaitsBetweenAwaits {
     }
 }
 
-/// A run's own parking loses none of its program's wakes to the program's
-/// `wait`: a wake that comes while the program parks in `wait` has the
-/// program polled again once `wait` returns.
+/// A run's own parking loses none of its driver's wakes to the driver's
+/// `wait`: a wake that comes while the driver parks in `wait` has the
+/// driver polled again once `wait` returns.
 #[test]
-fn a_run_waited_for_keeps_the_wakes_that_come_while_its_program_waits() {
+fn a_run_waited_for_keeps_the_wakes_that_come_while_its_driver_waits() {
     let first = ends_soon(|| {
-        let job = ComposedJob::new(WaitsBetweenAwaits, shots(&[0]));
+        let job = job_of(WaitsBetweenAwaits, shots(&[0]));
         let (output, _) = (job >> TestDoubleExecutor::with_model(Workers, 7))
             .expect("no adapter, no fault")
             .wait();
@@ -818,19 +839,21 @@ fn a_run_waited_for_keeps_the_wakes_that_come_while_its_program_waits() {
     assert_eq!(first, ReplyStatus::Done, "the first reply ended");
 }
 
-/// A program of the bits' set that calls shots 1 to 4 at once, whatever
-/// shots it is given.
+/// A driver that calls shots 1 to 4 at once, in the bits' set, whatever
+/// its job's shots.
 struct CallsShotsOneToFour;
 
-impl AdaptiveProgram for CallsShotsOneToFour {
-    type Instruction = InstructionCall;
-    type Output = Result<(), Rejected>;
-
-    fn needs(&self) -> Needs {
+impl Driver<WrittenInItsDriver<InstructionCall, Result<(), Rejected>>> for CallsShotsOneToFour {
+    fn needs(&self, _: &WrittenInItsDriver<InstructionCall, Result<(), Rejected>>) -> Needs {
         Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
-    async fn drive<E>(self, executor: &mut E, _: &ShotSet) -> Result<(), Rejected>
+    async fn drive<E>(
+        &self,
+        _: WrittenInItsDriver<InstructionCall, Result<(), Rejected>>,
+        executor: &mut E,
+        _: &ShotSet,
+    ) -> Result<(), Rejected>
     where
         E: Executor<InstructionBatch<InstructionCall>>,
     {
@@ -846,7 +869,7 @@ impl AdaptiveProgram for CallsShotsOneToFour {
 /// executor sees the call: the executor ran no batch and made no shot.
 #[test]
 fn a_call_on_a_shot_outside_the_jobs_is_refused_before_the_executor_sees_it() {
-    let job = ComposedJob::new(CallsShotsOneToFour, shots(&[1, 3]));
+    let job = job_of(CallsShotsOneToFour, shots(&[1, 3]));
     let (refused, report) = (job >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("no adapter, no fault")
         .wait();
@@ -859,26 +882,28 @@ fn a_call_on_a_shot_outside_the_jobs_is_refused_before_the_executor_sees_it() {
 /// shots.
 #[test]
 fn a_call_on_shots_outside_the_jobs_is_refused_naming_the_first() {
-    let job = ComposedJob::new(CallsShotsOneToFour, shots(&[1, 3]));
+    let job = job_of(CallsShotsOneToFour, shots(&[1, 3]));
     let (refused, _) = (job >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("no adapter, no fault")
         .wait();
     assert_eq!(refused, Err(Rejected::ShotNotHeld(2)));
 }
 
-/// A program of the bits' set that calls each of its sets of shots in turn,
-/// whatever shots it is given, and gives each call's result.
+/// A driver that calls each of its sets of shots in turn, in the bits'
+/// set, whatever its job's shots, and gives each call's result.
 struct CallsEach(Vec<ShotSet>);
 
-impl AdaptiveProgram for CallsEach {
-    type Instruction = InstructionCall;
-    type Output = Vec<Result<(), Rejected>>;
-
-    fn needs(&self) -> Needs {
+impl Driver<WrittenInItsDriver<InstructionCall, Vec<Result<(), Rejected>>>> for CallsEach {
+    fn needs(&self, _: &WrittenInItsDriver<InstructionCall, Vec<Result<(), Rejected>>>) -> Needs {
         Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
-    async fn drive<E>(self, executor: &mut E, _: &ShotSet) -> Vec<Result<(), Rejected>>
+    async fn drive<E>(
+        &self,
+        _: WrittenInItsDriver<InstructionCall, Vec<Result<(), Rejected>>>,
+        executor: &mut E,
+        _: &ShotSet,
+    ) -> Vec<Result<(), Rejected>>
     where
         E: Executor<InstructionBatch<InstructionCall>>,
     {
@@ -902,7 +927,7 @@ impl AdaptiveProgram for CallsEach {
 #[test]
 fn a_job_whose_shots_are_out_of_order_runs_calls_on_them_in_any_order() {
     let calls = CallsEach(vec![shots(&[4]), shots(&[4, 9]), shots(&[1, 9, 4])]);
-    let job = ComposedJob::new(calls, shots(&[9, 1, 4]));
+    let job = job_of(calls, shots(&[9, 1, 4]));
     let (ran, _) = (job >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("no adapter, no fault")
         .wait();
@@ -914,26 +939,30 @@ fn a_job_whose_shots_are_out_of_order_runs_calls_on_them_in_any_order() {
 /// though shot 2 is the least.
 #[test]
 fn a_call_outside_a_job_whose_shots_are_out_of_order_is_refused_naming_the_first() {
-    let job = ComposedJob::new(CallsEach(vec![shots(&[4, 7, 2])]), shots(&[9, 1, 4]));
+    let job = job_of(CallsEach(vec![shots(&[4, 7, 2])]), shots(&[9, 1, 4]));
     let (refused, _) = (job >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("no adapter, no fault")
         .wait();
     assert_eq!(refused, [Err(Rejected::ShotNotHeld(7))]);
 }
 
-/// A program of the bits' set that calls shot 0, then shot 3, each alone,
+/// A driver that calls shot 0, then shot 3, each alone, in the bits' set,
 /// and gives both calls' results.
 struct CallsShotZeroThenShotThree;
 
-impl AdaptiveProgram for CallsShotZeroThenShotThree {
-    type Instruction = InstructionCall;
-    type Output = [Result<(), Rejected>; 2];
+type TwoCalls = [Result<(), Rejected>; 2];
 
-    fn needs(&self) -> Needs {
+impl Driver<WrittenInItsDriver<InstructionCall, TwoCalls>> for CallsShotZeroThenShotThree {
+    fn needs(&self, _: &WrittenInItsDriver<InstructionCall, TwoCalls>) -> Needs {
         Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
-    async fn drive<E>(self, executor: &mut E, _: &ShotSet) -> [Result<(), Rejected>; 2]
+    async fn drive<E>(
+        &self,
+        _: WrittenInItsDriver<InstructionCall, TwoCalls>,
+        executor: &mut E,
+        _: &ShotSet,
+    ) -> TwoCalls
     where
         E: Executor<InstructionBatch<InstructionCall>>,
     {
@@ -951,7 +980,7 @@ impl AdaptiveProgram for CallsShotZeroThenShotThree {
 /// them, then shot 3, just above, is refused each time, naming the shot.
 #[test]
 fn a_call_on_a_shot_just_outside_a_jobs_range_is_refused() {
-    let job = ComposedJob::new(
+    let job = job_of(
         CallsShotZeroThenShotThree,
         ShotSet::range(1..=2).expect("1..=2 is not empty"),
     );
@@ -964,19 +993,23 @@ fn a_call_on_a_shot_just_outside_a_jobs_range_is_refused() {
     );
 }
 
-/// A program of the bits' set that calls shots 1 to 3 at once, then its
-/// own shots.
+/// A driver that calls shots 1 to 3 at once, in the bits' set, then its
+/// job's own shots.
 struct CallsShotsOneToThreeThenItsOwn;
 
-impl AdaptiveProgram for CallsShotsOneToThreeThenItsOwn {
-    type Instruction = InstructionCall;
-    type Output = Result<(), Rejected>;
-
-    fn needs(&self) -> Needs {
+impl Driver<WrittenInItsDriver<InstructionCall, Result<(), Rejected>>>
+    for CallsShotsOneToThreeThenItsOwn
+{
+    fn needs(&self, _: &WrittenInItsDriver<InstructionCall, Result<(), Rejected>>) -> Needs {
         Needs::default().with_instruction_set(Some(Arc::new(bits_set())))
     }
 
-    async fn drive<E>(self, executor: &mut E, own: &ShotSet) -> Result<(), Rejected>
+    async fn drive<E>(
+        &self,
+        _: WrittenInItsDriver<InstructionCall, Result<(), Rejected>>,
+        executor: &mut E,
+        own: &ShotSet,
+    ) -> Result<(), Rejected>
     where
         E: Executor<InstructionBatch<InstructionCall>>,
     {
@@ -998,26 +1031,24 @@ impl AdaptiveProgram for CallsShotsOneToThreeThenItsOwn {
 }
 
 /// A call refused for a shot outside the job's leaves the executor
-/// usable: the program's next call, on its own shots, runs.
+/// usable: the driver's next call, on its job's shots, runs.
 #[test]
 fn a_call_refused_for_a_shot_outside_the_jobs_leaves_the_executor_usable() {
-    let job = ComposedJob::new(CallsShotsOneToThreeThenItsOwn, shots(&[1, 3]));
+    let job = job_of(CallsShotsOneToThreeThenItsOwn, shots(&[1, 3]));
     let (own, _) = (job >> TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("no adapter, no fault")
         .wait();
     assert_eq!(own, Ok(()));
 }
 
-/// A program of `bool`s that reads on its shots, then on shot `.0`, and
-/// gives that call's result.
+/// A driver of `bool`s that reads on its job's shots, then on shot `.0`,
+/// and gives that call's result.
 struct ReadsThenCalls(ShotId);
 
-impl AdaptiveProgram for ReadsThenCalls {
-    type Instruction = bool;
-    type Output = Result<(), Rejected>;
-
+impl Driver<WrittenInItsDriver<bool, Result<(), Rejected>>> for ReadsThenCalls {
     async fn drive<E: Executor<InstructionBatch<bool>>>(
-        self,
+        &self,
+        _: WrittenInItsDriver<bool, Result<(), Rejected>>,
         executor: &mut E,
         own: &ShotSet,
     ) -> Result<(), Rejected> {
@@ -1058,7 +1089,7 @@ fn a_run_of_one_shot_on_a_one_state_executor_refuses_a_call_on_another() {
             Ok(())
         },
     );
-    let job = ComposedJob::new(ReadsThenCalls(6), ShotSet::one(5));
+    let job = job_of(ReadsThenCalls(6), ShotSet::one(5));
     let (refused, _) = (job >> device)
         .expect("one shot fits the one shot it holds")
         .wait();
@@ -1066,19 +1097,19 @@ fn a_run_of_one_shot_on_a_one_state_executor_refuses_a_call_on_another() {
     assert_eq!(made.get(), 1, "only shot 5's state is made");
 }
 
-/// A program of `bool`s that reads on its shots, to the read's end, then
-/// on shot `.0`, and gives how the read ended and that call's result.
+/// A driver of `bool`s that reads on its job's shots, to the read's end,
+/// then on shot `.0`, and gives how the read ended and that call's result.
 struct ReadsToItsEndThenCalls(ShotId);
 
-impl AdaptiveProgram for ReadsToItsEndThenCalls {
-    type Instruction = bool;
-    type Output = (Result<Result<(), String>, Rejected>, Result<(), Rejected>);
+type ReadThenCall = (Result<Result<(), String>, Rejected>, Result<(), Rejected>);
 
+impl Driver<WrittenInItsDriver<bool, ReadThenCall>> for ReadsToItsEndThenCalls {
     async fn drive<E: Executor<InstructionBatch<bool>>>(
-        self,
+        &self,
+        _: WrittenInItsDriver<bool, ReadThenCall>,
         executor: &mut E,
         own: &ShotSet,
-    ) -> Self::Output {
+    ) -> ReadThenCall {
         let read = test_double::run(executor, own, &[true]).map(|(_, end)| end);
         let other = InstructionBatchRef {
             shots: &ShotSet::one(self.0),
@@ -1097,7 +1128,7 @@ fn a_call_on_a_shot_outside_the_jobs_is_refused_before_an_earlier_failure() {
         failing: Some(1),
         ..TestDoubleModel::default()
     };
-    let job = ComposedJob::new(ReadsToItsEndThenCalls(2), ShotSet::one(1));
+    let job = job_of(ReadsToItsEndThenCalls(2), ShotSet::one(1));
     let ((read, other), _) = (job >> TestDoubleExecutor::with_model(failing, 7))
         .expect("no adapter, no fault")
         .wait();

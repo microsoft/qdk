@@ -4,12 +4,15 @@
 //! An executor of many shots, a state per shot, modelled on the per-shot
 //! MPS executor: its logic alone (`per_shot_executor/bond_limited.rs`),
 //! made an executor by `executor_fn`, given the run's seed by `.seed(seed)`
-//! and a state per shot by `.shots(OnePerShot)`, driven by a program with
-//! feedback. Walked through in
+//! and a state per shot by `.shots(OnePerShot)`, running a program with a
+//! branch on a readout (`driver/if_one.rs`) under its driver. Walked
+//! through in
 //! [Making an executor](../docs/executors.md#making-an-executor-executor_fn).
 
 #[path = "per_shot_executor/bond_limited.rs"]
 mod bond_limited;
+#[path = "driver/if_one.rs"]
+mod if_one;
 #[allow(
     dead_code,
     reason = "these tests run the toy's state, not its simulator"
@@ -20,12 +23,13 @@ mod toy;
 use std::collections::BTreeMap;
 
 use executor_protocol::{
-    AdaptiveProgram, Capabilities, Close, Describe, Executor, InstructionBatch,
-    InstructionBatchRef, Needs, OnePerShot, OwnThread, Rejected, ShotContext, ShotId, ShotOutcome,
-    ShotSet, Value, conformance, driver, executor_fn, wait,
+    Capabilities, Close, Describe, DriverExt, Executor, InstructionBatch, InstructionBatchRef,
+    Needs, OnePerShot, OwnThread, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
+    conformance, executor_fn, wait,
 };
 
 use bond_limited::{MAX_BOND, MAX_SHOTS, bond_limited_executor};
+use if_one::{IfOne, IfOneDriver};
 use toy::{Op, QUBITS, ToyState};
 
 const COIN: [Op; 2] = [Op::Coin(0), Op::Measure { qubit: 0, tag: 0 }];
@@ -51,46 +55,15 @@ fn run(
     outcomes
 }
 
-/// A program with feedback: toss a coin on every shot, then, on the shots
-/// whose coin showed 1, toss a second coin and read the first again.
-struct TossAgainOnOne;
-
-impl AdaptiveProgram for TossAgainOnOne {
-    type Instruction = Op;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self) -> Needs {
-        Needs::default()
-            .with_qubits(2)
-            .with_resumable_shots(true)
-            .with_log_probability(true)
-    }
-
-    async fn drive<E: Executor<InstructionBatch<Op>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let mut outcomes = Vec::new();
-        let first = executor.call(InstructionBatchRef {
-            shots,
-            instructions: &COIN,
-        });
-        wait(first.expect("the executor takes a coin"), &mut outcomes).expect("one coin fits");
-        let ones = shots.subset(|j| {
-            outcomes
-                .iter()
-                .any(|o| o.shot == j && o.value == Value::One)
-        });
-        if let Some(ones) = ones {
-            let second = [Op::Coin(1), Op::Measure { qubit: 0, tag: 1 }];
-            let reply = executor.call(InstructionBatchRef {
-                shots: &ones,
-                instructions: &second,
-            });
-            wait(reply.expect("the executor takes a coin"), &mut outcomes).expect("one coin fits");
-        }
-        outcomes
+/// Toss a coin on every shot; on the shots whose coin showed 1, toss a
+/// second coin and read the first again: a program with a branch on a
+/// readout, whose shots draw one coin or two.
+fn toss_again_on_one() -> IfOne {
+    IfOne {
+        needs: Needs::default().with_qubits(2).with_log_probability(true),
+        first: COIN.to_vec(),
+        tag: 0,
+        then: vec![Op::Coin(1), Op::Measure { qubit: 0, tag: 1 }],
     }
 }
 
@@ -103,36 +76,18 @@ fn first_coins(outcomes: &[ShotOutcome]) -> BTreeMap<ShotId, Value> {
         .collect()
 }
 
-/// A program reads the first coin again on the shots whose coin showed 1:
-/// only those shots run the second batch, on the state their first left.
-#[test]
-fn a_program_with_feedback_runs_its_next_batch_on_the_shots_it_chose() {
-    let shots = ShotSet::range(0..=7).expect("not empty");
-    let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-    let (outcomes, _) = (driver() >> executor)
-        .expect("nothing between to refuse")
-        .run(TossAgainOnOne, shots)
-        .expect("the executor has resumable shots, log probability, 8 shots")
-        .wait();
-    let ones: Vec<_> = (first_coins(&outcomes).into_iter())
-        .filter_map(|(j, value)| (value == Value::One).then_some(j))
-        .collect();
-    assert!(!ones.is_empty() && ones.len() < 8, "both sides: {ones:?}");
-    let again: Vec<_> = outcomes.iter().filter(|o| o.tag == 1).collect();
-    assert_eq!(again.iter().map(|o| o.shot).collect::<Vec<_>>(), ones);
-    assert!(again.iter().all(|o| o.value == Value::One), "{again:?}");
-}
-
 /// The report of a run gives each shot the log probability of its own
 /// coins: ln ½ for a shot that tossed one, ln ¼ for one that tossed two.
 #[test]
 fn a_run_reports_each_shots_log_probability() {
     let shots = ShotSet::range(0..=7).expect("not empty");
-    let (outcomes, report) = (driver() >> bond_limited_executor(None).seed(3).shots(OnePerShot))
-        .expect("nothing between to refuse")
-        .run(TossAgainOnOne, shots)
-        .expect("the executor has resumable shots, log probability, 8 shots")
-        .wait();
+    let (outcomes, report) = (IfOneDriver.into_chain()
+        >> bond_limited_executor(None).seed(3).shots(OnePerShot))
+    .expect("nothing between to refuse")
+    .run(toss_again_on_one(), shots)
+    .expect("the executor has resumable shots, log probability, 8 shots")
+    .wait();
+    let outcomes = outcomes.expect("the executor neither refuses nor fails a call");
     let firsts = first_coins(&outcomes);
     assert!(
         [Value::Zero, Value::One]
@@ -153,31 +108,32 @@ fn a_run_reports_each_shots_log_probability() {
 #[test]
 fn a_run_gives_the_same_outcomes_and_report_wherever_the_shots_states_run() {
     let shots = ShotSet::range(0..=7).expect("not empty");
-    let sorted = |(mut outcomes, report): (Vec<ShotOutcome>, _)| {
+    let sorted = |(outcomes, report): (Result<Vec<ShotOutcome>, String>, _)| {
+        let mut outcomes = outcomes.expect("the executor neither refuses nor fails a call");
         outcomes.sort_by_key(|o| (o.shot, o.tag));
         (outcomes, report)
     };
-    let here = (driver() >> bond_limited_executor(None).seed(3).shots(OnePerShot))
+    let here = (IfOneDriver.into_chain() >> bond_limited_executor(None).seed(3).shots(OnePerShot))
         .expect("nothing between to refuse")
-        .run(TossAgainOnOne, shots.clone())
+        .run(toss_again_on_one(), shots.clone())
         .expect("the executor has resumable shots, log probability, 8 shots")
         .wait();
-    let one_thread = (driver()
+    let one_thread = (IfOneDriver.into_chain()
         >> bond_limited_executor(None)
             .seed(3)
             .shots(OnePerShot)
             .run_on(OwnThread))
     .expect("nothing between to refuse")
-    .run(TossAgainOnOne, shots.clone())
+    .run(toss_again_on_one(), shots.clone())
     .expect("placed, the executor still holds 8 shots at once")
     .wait();
-    let a_thread_each = (driver()
+    let a_thread_each = (IfOneDriver.into_chain()
         >> bond_limited_executor(None)
             .seed(3)
             .run_on(OwnThread)
             .shots(OnePerShot))
     .expect("nothing between to refuse")
-    .run(TossAgainOnOne, shots)
+    .run(toss_again_on_one(), shots)
     .expect("placed per shot, the executor still holds 8 shots at once")
     .wait();
     let here = sorted(here);

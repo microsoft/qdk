@@ -169,12 +169,12 @@ takes `InstructionBatch<Logical>` down to the toy's physical
 A component has one of three roles, and the last executor is the executor
 at the end of the chain:
 
-| Role              | Is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Here                                                                                                                                                                                       |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **driver**        | not an executor: a `Driver<P>`, the chain's top, which runs any program of its form given to the chain: it names the shots, sends instructions and reads the outcomes. An adaptive program is a program `BuiltinDriver` lets drive, not a driver                                                                                                                                                                                                                                                    | `BuiltinDriver` (`driver()`); `InTurn`, a driver written by hand, in `src/tests/compose.rs`; `FlipALogicalCoin` in `tests/static_isa.rs` is an adaptive program `BuiltinDriver` lets drive |
-| **adapter**       | not an executor: a map from an executor to an executor. It maps the executor downstream of it, once, to the executor upstream, which calls it on the shots it is called on, possibly with another instruction type                                                                                                                                                                                                                                                                                  | `RepetitionCode` puts a `Repetition3` upstream, which sends `Op` for `Logical` (a lowering); `Debuggers` a `Debugger`, which sends what it accepts (a probe)                               |
-| **executor**      | an `Executor<M>`: it runs each shot named; offering `resumable_shots`, it promises that a later call continues a shot from the state its earlier calls left                                                                                                                                                                                                                                                                                                                                         | the guide's `toy_simulator`, made with `executor_fn` and `OnePerShot`; adapters composed with an executor                                                                                  |
-| **last executor** | not a type: the executor at the end of a chain, which calls nothing. Its capabilities (`Describe`) and its report (`Close`) originate there, and every adapter passes them on: the capabilities changed where it changes them, the report as it is, unless the adapter is given a `state_report`, which adds its own report beside the one below, its own first (`an_adapter_given_no_state_report_adds_no_pair_to_the_report`, `a_one_state_adapters_report_is_its_state_beside_the_report_below`) | the guide's `toy_simulator`                                                                                                                                                                |
+| Role              | Is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Here                                                                                                                                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **driver**        | not an executor: a `Driver<P>`, the chain's top, which drives any program of its form given to the chain: it names the shots, sends instructions and reads the outcomes. A program is data the driver drives, not a driver                                                                                                                                                                                                                                                                          | `BuiltinDriver` (`driver()`), which drives a `StaticProgram`; `ByHand`, a driver written by hand, in `src/tests.rs`; `IfOneDriver`, which drives a program with a branch on a readout, in `tests/driver/if_one.rs` |
+| **adapter**       | not an executor: a map from an executor to an executor. It maps the executor downstream of it, once, to the executor upstream, which calls it on the shots it is called on, possibly with another instruction type                                                                                                                                                                                                                                                                                  | `RepetitionCode` puts a `Repetition3` upstream, which sends `Op` for `Logical` (a lowering); `Debuggers` a `Debugger`, which sends what it accepts (a probe)                                                       |
+| **executor**      | an `Executor<M>`: it runs each shot named; offering `resumable_shots`, it promises that a later call continues a shot from the state its earlier calls left                                                                                                                                                                                                                                                                                                                                         | the guide's `toy_simulator`, made with `executor_fn` and `OnePerShot`; adapters composed with an executor                                                                                                          |
+| **last executor** | not a type: the executor at the end of a chain, which calls nothing. Its capabilities (`Describe`) and its report (`Close`) originate there, and every adapter passes them on: the capabilities changed where it changes them, the report as it is, unless the adapter is given a `state_report`, which adds its own report beside the one below, its own first (`an_adapter_given_no_state_report_adds_no_pair_to_the_report`, `a_one_state_adapters_report_is_its_state_beside_the_report_below`) | the guide's `toy_simulator`                                                                                                                                                                                        |
 
 Three laws make the parts interchangeable; the second holds on a replayable
 executor only. The first two are equalities between two builds, so their
@@ -201,8 +201,8 @@ let run = |ids: &[ShotId]| {
     )
     .seed(11)
     .shots(OnePerShot);
-    let program = Program::flip_and_toss(bits_set());
-    let (outcomes, _) = (driver() >> simulator)
+    let program = flip_and_toss_batches(bits_set());
+    let (outcomes, _) = (ByHand.into_chain() >> simulator)
         .expect("no adapter, no fault")
         .run(program, shots(ids))
         .expect("the simulator runs the bits' set")
@@ -348,9 +348,9 @@ The parts of a run, as
   prefix with adapters is a `ChainPrefix` still, not a `Driver<P>` (planned).
   Composed with the
   executor, a prefix makes a `Chain`, which runs the job given to it
-  ([A chain and its job](../composition.md#a-chain-and-its-job)), an
-  adaptive program (`AdaptiveProgram`) included
-  (`an_adaptive_program_given_to_a_chain_runs_as_it_runs_driving_the_executor_itself`).
+  ([A chain and its job](../composition.md#a-chain-and-its-job)), a
+  static program on `driver()` included
+  (`a_static_program_given_to_a_chain_runs_as_the_driver_runs_it_on_the_executor_directly`).
   The run's seed is the one the last executor is built with
   ([Seeds](../executors.md#seeds-not-generators)).
 - A **run** is what a chain given a job gives, and it owns the chain: its
@@ -368,9 +368,9 @@ The parts of a run, as
   (`a_run_gives_the_programs_output_and_the_executors_report`). A call on a
   shot the job did not name is refused before the executor sees it
   (`a_call_on_a_shot_outside_the_jobs_is_refused_before_the_executor_sees_it`).
-  A program may take replies with `wait` inside its run: the run's own
+  A driver may take replies with `wait` inside its run: the run's own
   parking loses none of its wakes
-  (`a_run_waited_for_keeps_the_wakes_that_come_while_its_program_waits`).
+  (`a_run_waited_for_keeps_the_wakes_that_come_while_its_driver_waits`).
 
 ## The rules of composition
 
@@ -545,11 +545,11 @@ Two other ways serve callers that need them:
 
 ## A chain and its job: the rules
 
-An adaptive program (`AdaptiveProgram`), given to a chain, runs as it runs
-driving the chain's executor itself
-(`an_adaptive_program_given_to_a_chain_runs_as_it_runs_driving_the_executor_itself`),
-and a static program as the same program written as an `AdaptiveProgram`
-(`a_chain_runs_a_job_as_its_program_written_as_an_adaptive_program_runs`). The
+A static program, given to a chain, runs as `BuiltinDriver` runs it on the
+chain's executor directly
+(`a_static_program_given_to_a_chain_runs_as_the_driver_runs_it_on_the_executor_directly`),
+and as a driver written by hand runs its batches
+(`a_chain_runs_a_static_program_as_a_driver_written_by_hand_runs_its_batches`). The
 rules of a job given to a chain
 ([A chain and its job](../composition.md#a-chain-and-its-job)):
 
@@ -559,18 +559,33 @@ rules of a job given to a chain
   `a_job_that_names_a_shot_twice_is_refused`), no more than the executor
   holds at once
   (`a_job_of_more_shots_than_the_executor_holds_is_refused`); the
-  program's needs must be met by what the chain offers, each unmet need
-  reported in the order `Capabilities::admit` checks them, naming the
-  chain's executor
+  program's needs, combined with those its driver adds
+  ([Needs, combined](../composition.md#needs-combined)), must be met by
+  what the chain offers, each unmet need reported in the order
+  `Capabilities::admit` checks them, naming the chain's executor
   (`a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor`,
-  `a_static_programs_needs_are_checked_when_given_to_a_chain`); and the
+  `a_static_programs_needs_are_checked_when_given_to_a_chain`). Each need
+  either side states is checked
+  (`each_need_a_program_states_is_checked_whatever_its_driver_adds`,
+  `each_need_a_driver_adds_is_checked_with_its_programs`,
+  `a_job_is_refused_for_the_need_its_driver_adds`), the larger qubit count
+  of the two
+  (`a_job_needs_the_larger_qubits_its_program_and_driver_state`), and the
+  set one side states, or both alike, numbers the job's calls
+  (`a_set_stated_by_one_side_or_the_same_by_both_numbers_the_jobs_calls`);
+  two different sets are refused as `Unmet(InstructionSet)` naming the
+  driver (`a_job_whose_program_and_driver_state_different_sets_is_refused`),
+  the program's then checked against the chain
+  (`where_the_sets_differ_the_programs_is_checked_against_the_chain`); and the
   driver must find no fault in the program, such as a call outside its
   set (`a_call_outside_the_programs_set_is_refused`), or a tag a static
   program of calls by opcode reads twice, whether it states a set or not
   (`a_static_program_that_reads_a_tag_again_in_a_later_batch_is_refused`,
   `the_tags_of_a_static_program_that_states_no_set_are_still_checked`).
-  The shots' fault comes first, then each unmet need, then the program's
-  (`a_jobs_shot_faults_are_reported_with_its_programs_needs_and_calls`).
+  The shots' fault comes first, then the sets' conflict, then each unmet
+  need, then the program's
+  (`a_jobs_shot_faults_are_reported_with_its_programs_needs_and_calls`,
+  `a_job_whose_program_and_driver_state_different_sets_is_refused`).
   Known issue: of shots named twice, only the least is reported
   (`a_job_that_names_several_shots_twice_reports_the_least`).
 - **A job calls only its own shots**: a call on another is refused before
@@ -794,19 +809,22 @@ state.
 
 Each promise of [Composition](../composition.md), [Planned
 features](../planned.md), [Rejections and retries](../rejections.md), [The
-protocol](../protocol.md), [Facilities](../facilities.md) and the API
+protocol](../protocol.md), the README's [Writing a
+driver](../../README.md#writing-a-driver), [Facilities](../facilities.md) and the API
 docs of `AdapterExecutor` and of `conformance` that the sections above do not
 pin, in each page's order, with the tests that pin it.
 
 From [Composition](../composition.md):
 
-| Promise                                                                                                  | Tests                                                                                                                                                                                                                               |
-| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A run turned into a future runs nothing until it is polled                                               | `a_run_turned_into_a_future_runs_nothing_until_polled` (`src/tests/compose/run.rs`)                                                                                                                                                 |
-| The crate's driver sends a `StaticProgram`'s batches each to every shot of the job in one call, in order | `a_static_program_gives_every_shots_outcomes_batch_after_batch` (`src/tests/facilities/static_program.rs`), `below_the_debugger_each_shots_batch_is_a_call_of_its_own` (`tests/observers.rs`; its run alone makes a call per batch) |
-| A set of shots names at least one shot, and each shot once                                               | `a_shot_set_names_at_least_one_shot`, `a_shot_set_names_each_shot_once` (`src/tests/shot_set.rs`)                                                                                                                                   |
-| Observers stacked in one chain each see what they see alone                                              | `stacked_observers_each_see_what_they_see_alone` (`tests/observers.rs`)                                                                                                                                                             |
-| Through two adapters, a job's needs are checked against what the upstream one offers, in either order    | `a_chain_of_two_adapters_offers_what_the_upstream_one_offers_over_the_downstream_one` (`src/tests/compose/adapters.rs`)                                                                                                             |
+| Promise                                                                                                                                                                    | Tests                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A run turned into a future runs nothing until it is polled                                                                                                                 | `a_run_turned_into_a_future_runs_nothing_until_polled` (`src/tests/compose/run.rs`)                                                                                                                                                                                                                                                                               |
+| The crate's driver sends a `StaticProgram`'s batches each to every shot of the job in one call, in order                                                                   | `a_static_program_gives_every_shots_outcomes_batch_after_batch` (`src/tests/facilities/static_program.rs`), `below_the_debugger_each_shots_batch_is_a_call_of_its_own` (`tests/observers.rs`; its run alone makes a call per batch)                                                                                                                               |
+| A set of shots names at least one shot, and each shot once                                                                                                                 | `a_shot_set_names_at_least_one_shot`, `a_shot_set_names_each_shot_once` (`src/tests/shot_set.rs`)                                                                                                                                                                                                                                                                 |
+| Observers stacked in one chain each see what they see alone                                                                                                                | `stacked_observers_each_see_what_they_see_alone` (`tests/observers.rs`)                                                                                                                                                                                                                                                                                           |
+| Through two adapters, a job's needs are checked against what the upstream one offers, in either order                                                                      | `a_chain_of_two_adapters_offers_what_the_upstream_one_offers_over_the_downstream_one` (`src/tests/compose/adapters.rs`)                                                                                                                                                                                                                                           |
+| A job's needs are its program's combined with those its driver adds: the larger qubit count, each flag either side states, and the set one side states or both state alike | `each_need_a_program_states_is_checked_whatever_its_driver_adds`, `each_need_a_driver_adds_is_checked_with_its_programs`, `a_job_needs_the_larger_qubits_its_program_and_driver_state`, `a_set_stated_by_one_side_or_the_same_by_both_numbers_the_jobs_calls` (`src/tests/compose/chain.rs`), `a_job_is_refused_for_the_need_its_driver_adds` (`tests/driver.rs`) |
+| A program and a driver that state different sets are refused as `Unmet(InstructionSet)`, naming the driver, and the program's set is checked against the chain             | `a_job_whose_program_and_driver_state_different_sets_is_refused`, `where_the_sets_differ_the_programs_is_checked_against_the_chain` (`src/tests/compose/chain.rs`)                                                                                                                                                                                                |
 
 From [Planned features](../planned.md):
 
@@ -835,7 +853,7 @@ From [The protocol](../protocol.md):
 | A call on a shot outside the job is refused (`ShotNotHeld`) before the executor sees it                                                                                                                                                | `a_call_on_a_shot_outside_the_jobs_is_refused_before_the_executor_sees_it` (`src/tests/compose/run.rs`)                                                                                                                                                                                                                                                                    |
 | An adapter's reply passes the caller's waker down at each poll, so a push below wakes the caller                                                                                                                                       | `after_a_failure_below_on_its_own_thread_the_chain_refuses_every_later_call` (`src/tests/facilities/adapter_fn.rs`, `src/tests/facilities/adapter_fn/one_per_shot.rs`)                                                                                                                                                                                                     |
 | Closed, an adapter's executor closes the one below and gives its report up, beside its own                                                                                                                                             | `closing_drops_the_state_and_its_way_below_before_closing_below` (`src/tests/facilities/adapter_fn/owning.rs`), `a_one_state_adapters_report_is_its_state_beside_the_report_below` (`src/tests/facilities/adapter_fn.rs`)                                                                                                                                                  |
-| The crate's driver lets an adaptive program drive the chain's executor                                                                                                                                                                 | `an_adaptive_program_given_to_a_chain_runs_as_it_runs_driving_the_executor_itself` (`src/tests/facilities/builtin_driver.rs`)                                                                                                                                                                                                                                              |
+| The crate's driver runs a static program given to a chain on the chain's executor directly                                                                                                                                             | `a_static_program_given_to_a_chain_runs_as_the_driver_runs_it_on_the_executor_directly` (`src/tests/facilities/builtin_driver.rs`)                                                                                                                                                                                                                                         |
 | A call changes no shot it does not name, and a shot called alone on a replayable executor gives what it gives among others                                                                                                             | `placed_after_one_per_shot_a_call_changes_no_shot_it_does_not_name` (`src/tests/facilities/placed_executor.rs`), `placed_after_one_per_shot_each_shot_alone_gives_what_it_gives_among_others` (`src/tests/facilities/placed_executor.rs`)                                                                                                                                  |
 | Every refusal has a retry class, which a reason not known keeps                                                                                                                                                                        | `every_known_reason_has_its_retry_class` (`src/tests/rejected.rs`), `an_unrecognized_reason_keeps_the_far_ends_class_and_text` (`src/tests/rejected.rs`)                                                                                                                                                                                                                   |
 | A refusal for the call's own fault leaves the executor open: its next call is served                                                                                                                                                   | `a_call_refused_for_a_shot_outside_the_jobs_leaves_the_executor_usable` (`src/tests/compose/run.rs`), `a_refused_call_leaves_it_usable` (`src/tests/facilities/executor_fn.rs`, `src/tests/facilities/executor_fn/one_per_shot.rs`, `src/tests/facilities/executor_fn/one_per_shot/placed.rs`)                                                                             |
@@ -857,6 +875,15 @@ From [The protocol](../protocol.md):
 
 A chain runs one job: `Chain::run` takes the chain by value, so a second
 job does not compile.
+
+From the README's [Writing a driver](../../README.md#writing-a-driver), in
+`tests/driver.rs`:
+
+| Promise                                                                                                                                                 | Tests                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| A driver runs a program's branch on the shots whose readout is one, each continuing where its first batch left it                                       | `a_driver_runs_a_branch_on_the_shots_whose_readout_is_one` (`tests/driver.rs`)                  |
+| On an executor that does not keep a shot between calls, the job is refused before any call for the need the driver adds, though the program states none | `a_job_is_refused_for_the_need_its_driver_adds` (`tests/driver.rs`)                             |
+| The chain checks the program's needs combined with the driver's, so a driver cannot drop the program's                                                  | `each_need_a_program_states_is_checked_whatever_its_driver_adds` (`src/tests/compose/chain.rs`) |
 
 From [Facilities](../facilities.md):
 

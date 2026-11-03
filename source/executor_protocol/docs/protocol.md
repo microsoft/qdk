@@ -23,20 +23,20 @@ do: a solid arrow is a call, a dashed arrow what it returns, an open arrow
 
 ## The parts, and where they are
 
-| Part                                                                                                                                                                                                                                    | Files                                                                                                                                                                                |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| a **driver** (`Driver<P>`) heads a chain and runs any program of its form; while the chain is built, the driver and the adapters composed below it so far are its prefix (`ChainPrefix`), not itself a `Driver` ([planned](planned.md)) | [`driver.rs`](../src/driver.rs), [`driver/chain_prefix.rs`](../src/driver/chain_prefix.rs), [`driver/driven_program.rs`](../src/driver/driven_program.rs)                            |
-| an **adaptive program** (`AdaptiveProgram`) drives the executor itself, choosing each batch from the outcomes so far                                                                                                                    | [`adaptive_program.rs`](../src/adaptive_program.rs)                                                                                                                                  |
-| an **executor** (`Executor<M>`) runs the calls, describes what it offers (`Describe`) and reports once closed (`Close`, `Fold`)                                                                                                         | [`executor.rs`](../src/executor.rs), [`executor/report.rs`](../src/executor/report.rs), [`capabilities.rs`](../src/capabilities.rs)                                                  |
-| an **adapter** (`Adapter`, `Apply`) maps the executor below it, once, to the executor above it                                                                                                                                          | [`adapter.rs`](../src/adapter.rs), [`adapter/boundary.rs`](../src/adapter/boundary.rs)                                                                                               |
-| the **message** (`Message`, `InstructionBatch`) and its shots (`ShotSet`)                                                                                                                                                               | [`message.rs`](../src/message.rs), [`instruction_batch.rs`](../src/instruction_batch.rs), [`shot_set.rs`](../src/shot_set.rs)                                                        |
-| the **instructions**, typed (`TypedInstruction`) or by opcode (`InstructionCall`), and their description (`InstructionSet`)                                                                                                             | [`instruction_set.rs`](../src/instruction_set.rs), [`instruction_set/`](../src/instruction_set/) (`action.rs`, `call.rs`, `instruction.rs`, `renumbered.rs`)                         |
-| the **reply** (`Reply`, `ReplyStatus`), and the ways to take one (`wait`, `wait_async`, `async_events`)                                                                                                                                 | [`reply.rs`](../src/reply.rs), [`reply/blocking.rs`](../src/reply/blocking.rs), [`reply/asynchronous.rs`](../src/reply/asynchronous.rs), [`reply/parker.rs`](../src/reply/parker.rs) |
-| the **outcomes** (`ShotOutcome`, `Value`, `ReadoutFailure`) and the shot's **conditions** (`ShotConditions`)                                                                                                                            | [`shot_outcome.rs`](../src/shot_outcome.rs), [`shot_conditions.rs`](../src/shot_conditions.rs)                                                                                       |
-| the **refusals** (`Rejected`, `RetryClass`), and the codes that will carry them over a link                                                                                                                                             | [`rejected.rs`](../src/rejected.rs), [`wire_codes.rs`](../src/wire_codes.rs)                                                                                                         |
-| what a part **offers** (`Capabilities`) and a program **needs** (`Needs`)                                                                                                                                                               | [`capabilities.rs`](../src/capabilities.rs), [`needs.rs`](../src/needs.rs)                                                                                                           |
-| the **seeds** (`ShotContext`, `RngId`, `shot_seed`)                                                                                                                                                                                     | [`seeds.rs`](../src/seeds.rs)                                                                                                                                                        |
-| **composition** (`compose`, `>>`), the **chain** (`Chain`), its faults (`BuildFaults`, `JobFaults`) and the **run** (`Run`)                                                                                                             | [`compose.rs`](../src/compose.rs), [`compose/`](../src/compose/) (`adapters.rs`, `build_faults.rs`, `chain.rs`, `operator.rs`, `run.rs`)                                             |
+| Part                                                                                                                                                                                                                                                                                         | Files                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| a **driver** (`Driver<P>`) heads a chain and drives any program of its form, adding to its needs what its way of sending needs; while the chain is built, the driver and the adapters composed below it so far are its prefix (`ChainPrefix`), not itself a `Driver` ([planned](planned.md)) | [`driver.rs`](../src/driver.rs), [`driver/chain_prefix.rs`](../src/driver/chain_prefix.rs)                                                                                           |
+| a **program** (`Program`) is data: its instructions, its output and what its content needs; its driver drives it                                                                                                                                                                             | [`program.rs`](../src/program.rs)                                                                                                                                                    |
+| an **executor** (`Executor<M>`) runs the calls, describes what it offers (`Describe`) and reports once closed (`Close`, `Fold`)                                                                                                                                                              | [`executor.rs`](../src/executor.rs), [`executor/report.rs`](../src/executor/report.rs), [`capabilities.rs`](../src/capabilities.rs)                                                  |
+| an **adapter** (`Adapter`, `Apply`) maps the executor below it, once, to the executor above it                                                                                                                                                                                               | [`adapter.rs`](../src/adapter.rs), [`adapter/boundary.rs`](../src/adapter/boundary.rs)                                                                                               |
+| the **message** (`Message`, `InstructionBatch`) and its shots (`ShotSet`)                                                                                                                                                                                                                    | [`message.rs`](../src/message.rs), [`instruction_batch.rs`](../src/instruction_batch.rs), [`shot_set.rs`](../src/shot_set.rs)                                                        |
+| the **instructions**, typed (`TypedInstruction`) or by opcode (`InstructionCall`), and their description (`InstructionSet`)                                                                                                                                                                  | [`instruction_set.rs`](../src/instruction_set.rs), [`instruction_set/`](../src/instruction_set/) (`action.rs`, `call.rs`, `instruction.rs`, `renumbered.rs`)                         |
+| the **reply** (`Reply`, `ReplyStatus`), and the ways to take one (`wait`, `wait_async`, `async_events`)                                                                                                                                                                                      | [`reply.rs`](../src/reply.rs), [`reply/blocking.rs`](../src/reply/blocking.rs), [`reply/asynchronous.rs`](../src/reply/asynchronous.rs), [`reply/parker.rs`](../src/reply/parker.rs) |
+| the **outcomes** (`ShotOutcome`, `Value`, `ReadoutFailure`) and the shot's **conditions** (`ShotConditions`)                                                                                                                                                                                 | [`shot_outcome.rs`](../src/shot_outcome.rs), [`shot_conditions.rs`](../src/shot_conditions.rs)                                                                                       |
+| the **refusals** (`Rejected`, `RetryClass`), and the codes that will carry them over a link                                                                                                                                                                                                  | [`rejected.rs`](../src/rejected.rs), [`wire_codes.rs`](../src/wire_codes.rs)                                                                                                         |
+| what a part **offers** (`Capabilities`) and a program **needs** (`Needs`)                                                                                                                                                                                                                    | [`capabilities.rs`](../src/capabilities.rs), [`needs.rs`](../src/needs.rs)                                                                                                           |
+| the **seeds** (`ShotContext`, `RngId`, `shot_seed`)                                                                                                                                                                                                                                          | [`seeds.rs`](../src/seeds.rs)                                                                                                                                                        |
+| **composition** (`compose`, `>>`), the **chain** (`Chain`), its faults (`BuildFaults`, `JobFaults`) and the **run** (`Run`)                                                                                                                                                                  | [`compose.rs`](../src/compose.rs), [`compose/`](../src/compose/) (`adapters.rs`, `build_faults.rs`, `chain.rs`, `operator.rs`, `run.rs`)                                             |
 
 [`lib.rs`](../src/lib.rs) states the protocol in its crate documentation and
 re-exports every public item.
@@ -44,12 +44,12 @@ re-exports every public item.
 ## A chain is built, then its job is checked
 
 A component says what it offers (`Describe::capabilities`). A job's needs (a
-`Needs`) are stated by an adaptive program (`AdaptiveProgram::needs`), or by
-its driver for a program of another form (`Driver::needs`). `compose`, or
-`>>`, builds the chain from the executor upstream, each adapter once against
-what is below it; when a job is given to the chain, its shots, each need of
-its program and the driver's check of the program are checked against what
-the chain offers. The program runs only once the run is waited for:
+`Needs`) are those its program states (`Program::needs`), combined with those
+its driver's way of sending adds (`Driver::needs`). `compose`, or `>>`, builds
+the chain from the executor upstream, each adapter once against what is below
+it; when a job is given to the chain, its shots, each need, combined, and the
+driver's check of the program are checked against what the chain offers. The
+driver drives the program only once the run is waited for:
 
 ```mermaid
 sequenceDiagram
@@ -69,7 +69,7 @@ sequenceDiagram
     P-->>C: Err(BuildFaults): every fault, upstream first
   end
   C->>H: run(program, shots)
-  H->>H: check the shots, each need of the program, and the driver's check of it
+  H->>H: check the shots, the needs of the program and its driver, combined, and the driver's check
   alt no fault
     H-->>C: Ok(Run): nothing has run
   else
@@ -87,15 +87,15 @@ a need compares with what is offered, in
 ## A run
 
 A **run** is a chain given a job: a program and its shots. It runs nothing
-until it is waited for (`Run::wait`) or awaited; it then runs the program
-on the chain and closes the chain once the program ends, and gives the
-program's output and the chain's report. A user writes three steps:
+until it is waited for (`Run::wait`) or awaited; its driver then drives the
+program on the chain, and the run closes the chain once the driver is done,
+and gives the program's output and the chain's report. A user writes three steps:
 
 1. the chain;
 2. `chain.run(program, shots)`, which checks the job and gives the run;
 3. `run.wait()`, or `.await`.
 
-The run owns the chain, and restricts its program to the job's shots: a
+The run owns the chain, and restricts its driver's calls to the job's shots: a
 call on another shot is refused (`Rejected::ShotNotHeld`) before the
 executor sees it. A chain runs one job: a function that builds the chain
 builds it again for the next one.
@@ -159,47 +159,46 @@ adapter, and its decoding on the way up, is in
 checked and run, and the run's rules, are in
 [A chain and its job](composition.md#a-chain-and-its-job).
 
-## An adaptive program drives the executor itself
+## A driver drives a program with a branch on a readout
 
-A program that chooses each batch from the outcomes so far implements
-`AdaptiveProgram`; the crate's driver lets it drive. `TossAgainOnOne`
-([`tests/per_shot_executor.rs`](../tests/per_shot_executor.rs), and the
-README's [Writing an adaptive program](../README.md#writing-an-adaptive-program))
-tosses a coin on every shot of the job, then again on the shots whose coin
-showed 1, on an executor that keeps each shot's state from one call to the
-next (`resumable_shots`):
+A program is data; its driver sends its calls and reads their outcomes,
+and for a program with a branch on a readout, chooses the next calls, and
+the shots they go to, from those outcomes. `IfOneDriver`, the driver of
+the README's [Writing a driver](../README.md#writing-a-driver)
+([`tests/driver/if_one.rs`](../tests/driver/if_one.rs)), drives
+`toss_again_on_one()`, which tosses a coin on every shot of the job, then
+again on the shots whose coin showed 1, on an executor that keeps each
+shot's state from one call to the next (`resumable_shots`, which the
+driver adds to the program's needs):
 
 ```mermaid
 sequenceDiagram
   participant T as the test
   participant R as Run
-  participant D as driver()
-  participant P as TossAgainOnOne
+  participant D as IfOneDriver
   participant E as executor, a state per shot
   T->>R: wait()
-  R->>D: drive(TossAgainOnOne, executor, shots 0 to 7)
-  D->>P: drive(executor, shots 0 to 7)
-  P->>E: call(a coin, on shots 0 to 7)
-  E-->>P: Ok(reply)
-  Note over P: waits for the reply: each shot's coin
+  R->>D: drive(toss_again_on_one(), executor, shots 0 to 7)
+  D->>E: call(a coin, on shots 0 to 7)
+  E-->>D: Ok(reply)
+  Note over D: waits for the reply: each shot's coin
   opt some coins showed 1
-    Note over P: the shots whose coin showed 1, a subset of the job's
-    P->>E: call(a second coin, on those shots)
+    Note over D: the shots whose coin showed 1, a subset of the job's
+    D->>E: call(a second coin, on those shots)
     Note over E: continues each of those shots from its first call
-    E-->>P: Ok(reply)
-    Note over P: waits for the reply
+    E-->>D: Ok(reply)
+    Note over D: waits for the reply
   end
-  P-->>D: every outcome
-  D-->>R: the program's output
+  D-->>R: the program's output: every outcome
   R->>E: close()
   E-->>R: the executor's report
   R-->>T: (outcomes, report)
 ```
 
 A call changes no shot it does not name, and a call on a shot that is not
-the job's is refused before the executor sees it. A program with feedback
-may also drive one shot at a time: a shot called alone on a replayable
-executor gives what it gives among others
+the job's is refused before the executor sees it. A driver of a program
+with a branch may also drive one shot at a time: a shot called alone on a
+replayable executor gives what it gives among others
 ([Chains for several users](composition.md#chains-for-several-users)).
 
 ## A refusal, a failure, a cancelled call

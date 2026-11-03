@@ -22,8 +22,8 @@
 //!   type, called directly: the baseline.
 //! - **typed per-shot**: that profiler as the state of each shot of an
 //!   executor made with [`executor_fn`] under [`OnePerShot`], run on one
-//!   shot by a run ([`compose`] of the crate's [`driver()`] with the
-//!   executor, given the program as a job, then
+//!   shot by a run ([`compose`] of the program's driver, [`InChunks`],
+//!   with the executor, given the program as a job, then
 //!   [`Run::wait`](executor_protocol::Run::wait); [`per_shot_run`]): the
 //!   executor makes the shot's state at its first call, and is closed at
 //!   the end.
@@ -66,11 +66,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use executor_protocol::{
-    Action, AdaptiveProgram, Angle, CallInput, Capabilities, Close, Executor, ExecutorReport, Fold,
-    ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
+    Action, Angle, CallInput, Capabilities, Close, Driver, DriverExt, Executor, ExecutorReport,
+    Fold, ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
     InstructionSet, Needs, OnePerShot, OpcodeTable, Operand, OperandKind, Outcome, Outcomes, Pauli,
     Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
-    check_unique_tags, compose, driver, executor_fn, wait,
+    check_unique_tags, compose, executor_fn, wait,
 };
 
 /// The instructions of the mix.
@@ -695,7 +695,8 @@ fn per_shot_run<I: Instruction, P: Profile<I>>(
         .state_report(|profiler: &P| profiler.counter().tally())
         .seed(SEED)
         .shots(OnePerShot);
-    let chain = compose(driver(), executor).expect("nothing between to refuse");
+    let chain = compose(DriverExt::<Chunked<'_, I>>::into_chain(InChunks), executor)
+        .expect("nothing between to refuse");
     let run = chain.run(program, ShotSet::one(SHOT));
     run.expect("the program's needs fit the profiler").wait()
 }
@@ -710,36 +711,48 @@ fn typed_run(program: &[Gate], batch: usize) -> (Vec<ShotOutcome>, ExecutorRepor
     };
     per_shot_run(
         program,
-        Capabilities::default(),
+        Capabilities::default().with_resumable_shots(true),
         |input| check_gates(input.instructions()),
         TypedCounting::new,
     )
 }
 
-/// An adaptive program: `program`, sent to the run's shots in calls of
-/// `batch` instructions, each called and then waited for; it needs
-/// `needs`.
+/// A program: `program`, sent to the run's shots in calls of `batch`
+/// instructions by its driver ([`InChunks`]); it needs `needs`.
 struct Chunked<'a, I> {
     program: &'a [I],
     batch: usize,
     needs: Needs,
 }
 
-impl<I: Instruction> AdaptiveProgram for Chunked<'_, I> {
+impl<I: Instruction> executor_protocol::Program for Chunked<'_, I> {
     type Instruction = I;
     type Output = Vec<ShotOutcome>;
 
     fn needs(&self) -> Needs {
         self.needs.clone()
     }
+}
+
+/// The driver of a [`Chunked`] program: it calls each chunk, then waits
+/// for it.
+struct InChunks;
+
+impl<'a, I: Instruction> Driver<Chunked<'a, I>> for InChunks {
+    /// `resumable_shots` when there is more than one chunk: each later one
+    /// continues the shot.
+    fn needs(&self, program: &Chunked<'a, I>) -> Needs {
+        Needs::default().with_resumable_shots(program.program.len() > program.batch)
+    }
 
     async fn drive<E: Executor<InstructionBatch<I>>>(
-        self,
+        &self,
+        program: Chunked<'a, I>,
         executor: &mut E,
         shots: &ShotSet,
     ) -> Vec<ShotOutcome> {
         let mut outcomes = Vec::new();
-        for batch in self.program.chunks(self.batch) {
+        for batch in program.program.chunks(program.batch) {
             let batch = black_box(batch);
             let reply = (executor.call(InstructionBatchRef {
                 shots,
@@ -863,8 +876,8 @@ impl Close for RuntimeCounting {
 }
 
 /// The run of `program`, calls of `set`, on shot [`SHOT`] of an executor of
-/// [`RuntimeCounting`]s, by an adaptive program that states `set` in its
-/// needs, in calls of `batch` instructions ([`per_shot_run`]).
+/// [`RuntimeCounting`]s, by a program that states `set` in its needs, in
+/// calls of `batch` instructions ([`per_shot_run`]).
 fn runtime_run(
     set: &Arc<RuntimeSet>,
     program: &[InstructionCall],
@@ -875,7 +888,9 @@ fn runtime_run(
         batch,
         needs: Needs::default().with_instruction_set(Some(Arc::clone(&set.set))),
     };
-    let capabilities = Capabilities::default().with_instruction_set(Some(Arc::clone(&set.set)));
+    let capabilities = Capabilities::default()
+        .with_resumable_shots(true)
+        .with_instruction_set(Some(Arc::clone(&set.set)));
     let check_set = Arc::clone(set);
     let set = Arc::clone(set);
     per_shot_run(

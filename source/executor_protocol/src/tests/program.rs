@@ -6,9 +6,9 @@ use std::sync::Arc;
 use crate::tests::declared;
 use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::{
-    AdaptiveProgram, Capabilities, Close, ComposedJob, Describe, Executor, ImmediateReply,
-    InstructionBatch, InstructionBatchRef, InstructionSet, Needs, OperandKind, Rejected,
-    ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, compose, wait,
+    Capabilities, Close, ComposedJob, Describe, Executor, ImmediateReply, InstructionBatch,
+    InstructionBatchRef, InstructionSet, Needs, OperandKind, Rejected, ShotContext, ShotId,
+    ShotOutcome, ShotSet, StaticProgram, TypedInstruction, Value, compose,
 };
 
 /// A typed instruction: each names itself by its variant.
@@ -78,33 +78,8 @@ impl Close for OneBitState {
 }
 
 /// A typed program that resets, flips and reads its bit, needing `needs`.
-struct ResetFlipRead {
-    needs: Needs,
-}
-
-impl AdaptiveProgram for ResetFlipRead {
-    type Instruction = Op;
-    type Output = Vec<ShotOutcome>;
-
-    fn needs(&self) -> Needs {
-        self.needs.clone()
-    }
-
-    async fn drive<E: Executor<InstructionBatch<Op>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let reply = executor
-            .call(InstructionBatchRef {
-                shots,
-                instructions: &[Op::Reset, Op::X, Op::Measure],
-            })
-            .expect("the batch is valid");
-        let mut outcomes = Vec::new();
-        wait(reply, &mut outcomes).expect("the shot ends well");
-        outcomes
-    }
+fn reset_flip_read(needs: Needs) -> StaticProgram<Op> {
+    StaticProgram::new(needs, vec![vec![Op::Reset, Op::X, Op::Measure]])
 }
 
 /// A typed program states its set in another order than the executor's,
@@ -118,15 +93,14 @@ fn a_typed_program_in_another_order_runs_its_instructions_as_they_are() {
             .with("reset", [])
             .with("measure", [OperandKind::Tag]),
     );
-    let program = ResetFlipRead {
-        needs: Needs::default().with_instruction_set(Some(Arc::new(set))),
-    };
+    let program = reset_flip_read(Needs::default().with_instruction_set(Some(Arc::new(set))));
     let (outcomes, _) = compose(
         ComposedJob::new(program, ShotSet::one(1)),
         TestDoubleExecutor::with_model(OneBit, 7),
     )
     .expect("the executor accepts the program's set")
     .wait();
+    let outcomes = outcomes.expect("the bit neither refuses nor fails");
     assert_eq!(outcomes[0].value, Value::One);
 }
 
@@ -153,14 +127,13 @@ impl Model for Undescribed {
 /// an instruction the executor does not run is refused at run time.
 #[test]
 fn a_typed_job_and_an_executor_that_describe_no_set_compose() {
-    let program = ResetFlipRead {
-        needs: Needs::default(),
-    };
+    let program = reset_flip_read(Needs::default());
     let (outcomes, _) = compose(
         ComposedJob::new(program, ShotSet::one(1)),
         TestDoubleExecutor::with_model(Undescribed, 7),
     )
     .expect("a typed boundary needs no description")
     .wait();
+    let outcomes = outcomes.expect("the bit neither refuses nor fails");
     assert_eq!(outcomes[0].value, Value::One);
 }

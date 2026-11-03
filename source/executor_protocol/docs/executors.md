@@ -5,18 +5,18 @@
 An implementer writes its own logic, the physics or a device's calls, and
 the crate makes it an executor that keeps the protocol's rules. This page
 gives what an executor offers and a program needs, the facility that makes
-an executor (`executor_fn`), how it holds its shots' states (`.shots`),
+an executor (`executor_fn`) and how to name the type it makes, how it holds
+its shots' states (`.shots`),
 where it runs (`.run_on`), an executor's life, an executor written by hand
 (`ExecutorLifecycle`), and how shots are seeded.
 
 ## Capabilities and needs
 
 A component says what it offers (`Describe::capabilities`), and a job's needs (a
-`Needs`) are stated by an adaptive program (`AdaptiveProgram::needs`), or by its
-driver for a program of another form (`Driver::needs`), as the crate's driver
-states a `StaticProgram`'s. `compose` builds the chain from the executor
-upstream; when a job is given to the chain, each need of its program is checked
-against what the chain offers, before anything runs, as
+`Needs`) are those its program states (`Program::needs`), combined with those
+its driver's way of sending adds (`Driver::needs`). `compose` builds the chain
+from the executor upstream; when a job is given to the chain, each need is
+checked against what the chain offers, before anything runs, as
 [A chain is built, then its job is checked](protocol.md#a-chain-is-built-then-its-job-is-checked)
 draws.
 
@@ -72,20 +72,25 @@ caller that holds an executor checks its needs itself with
 table (`Rejected::Unmet`).
 
 `Needs::default()` states nothing but the run's shots, held at once, that every
-run implies. A driver may add needs it derives from the program: the crate's
-driver adds `resumable_shots` for a `StaticProgram` with calls before its last
-batch, whose later batches continue its shots. A program of `InstructionCall`s
+run implies. A program states what its content needs; its driver adds only what
+its way of sending needs: the crate's driver adds `resumable_shots` for a
+`StaticProgram` with calls before its last batch, whose later batches continue
+its shots. The chain checks the two combined, so a driver cannot drop a need
+of the program: the larger number of qubits, each flag either states, and the
+instruction set either states; two different sets are a fault of the job
+([Needs, combined](composition.md#needs-combined)). A program of `InstructionCall`s
 must state its set, which numbers its calls ([Instruction
 sets](internals/instruction-sets.md#compatibility-the-rules)): a chain refuses
 the job of one that does not, as its need of an instruction set unmet;
 `Capabilities::admit` does not yet, a known gap, since it does not know the
 caller's instruction type. A program states a need only when it wants it
-checked. From the [tests of `compose`](../src/tests/compose.rs):
+checked. From the [tests of `compose`](../src/tests/compose.rs), whose
+`ByHand` is a driver that sends a program's batches in turn:
 
 ```rust
-let mut program = Program::flip_and_toss(bits_set());
+let mut program = flip_and_toss_batches(bits_set());
 program.needs = program.needs.with_qubits(3).with_log_probability(true);
-let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+let chain = (ByHand.into_chain() >> TestDoubleExecutor::with_model(Bits::default(), 7))
     .expect("nothing between to refuse");
 let Err(JobFaults(faults)) = chain.run(program, [0]) else {
     panic!("three qubits and the log probability on two bits must be refused");
@@ -203,6 +208,37 @@ Op::Measure { qubit, tag } => {
 }
 ```
 
+## Naming a made part's type
+
+Parts are joined by `compose(a, b)`; `a >> b` is the same, implemented on
+the crate's own types: an adapter on the right, or an executor a facility
+made. So a function that makes a part for `>>` returns the type the
+facility gives, its closures named by role (`MakeState`, `ExecutorLogic`,
+`AdapterLogic`), as `simulator_recording` of the
+[observer guide](../tests/observers.rs) does
+([Writing an executor](../README.md#writing-an-executor)):
+
+```rust
+fn simulator_recording(
+    received: Received,
+) -> OnePerShotExecutor<
+    InstructionCall,
+    Shot,
+    impl MakeState<Shot>,
+    impl ExecutorLogic<InstructionCall, Shot>,
+> {
+```
+
+One that takes a reference adds `+ use<>` to each `impl` (`MakeState`'s
+API docs), and one that returns an executor placed per shot
+(`.run_on(..).shots(OnePerShot)`) names its logic
+`impl ExecutorLogic<I, S> + Clone`, as each shot's placement gets a copy
+(`ExecutorLogic`'s API docs). A bare `impl Executor` composes only with
+`compose`, and a bare `impl Adapter` does not compose
+([Composing a run](composition.md#composing-a-run)). The check of
+`simulator_recording`, a function pointer, has the type `NoCheck<I>`, the
+default of that type parameter, so the return type leaves it out.
+
 ## How an executor holds its shots
 
 How the shots of a run share work is a choice with different costs and
@@ -238,16 +274,17 @@ The seed is the run's, given with `.seed(seed)` before the strategy, and each
 shot's state draws from it through its `ShotContext`; an adapter that draws
 upstream draws from the same seed under an id of its own ([Seeds, not
 generators](#seeds-not-generators)). A run of eight shots on the executor above,
-from the [per-shot executor guide](../tests/per_shot_executor.rs):
+driven by the driver of a program with a branch on a readout
+([Writing a driver](../README.md#writing-a-driver)), from the
+[per-shot executor guide](../tests/per_shot_executor.rs):
 
 ```rust
-let shots = ShotSet::range(0..=7).expect("not empty");
-let executor = bond_limited_executor(None).seed(3).shots(OnePerShot);
-let (outcomes, _) = (driver() >> executor)
-    .expect("nothing between to refuse")
-    .run(TossAgainOnOne, shots)
-    .expect("the executor has resumable shots, log probability, 8 shots")
-    .wait();
+let (outcomes, report) = (IfOneDriver.into_chain()
+    >> bond_limited_executor(None).seed(3).shots(OnePerShot))
+.expect("nothing between to refuse")
+.run(toss_again_on_one(), shots)
+.expect("the executor has resumable shots, log probability, 8 shots")
+.wait();
 ```
 
 ## Where an executor runs: `run_on`

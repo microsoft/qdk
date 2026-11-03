@@ -32,8 +32,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use executor_protocol::{
-    AdaptiveProgram, Close, Describe, Executor, InstructionBatch, InstructionBatchRef, Rejected,
-    Reply, ReplyStatus, ShotOutcome, ShotSet, Value, conformance, driver, wait,
+    Close, Describe, Executor, InstructionBatch, InstructionBatchRef, Needs, Rejected, Reply,
+    ReplyStatus, ShotOutcome, ShotSet, StaticProgram, Value, conformance, driver, wait,
 };
 
 use debugger::debugger;
@@ -211,28 +211,9 @@ fn a_batch_held_at_close_fails_its_reply_when_stepped() {
 
 /// A program that flips a coin on every shot of its run, in one batch,
 /// and reads it.
-struct FlipACoin;
-
-impl AdaptiveProgram for FlipACoin {
-    type Instruction = Op;
-    type Output = Vec<ShotOutcome>;
-
-    async fn drive<E: Executor<InstructionBatch<Op>>>(
-        self,
-        executor: &mut E,
-        shots: &ShotSet,
-    ) -> Vec<ShotOutcome> {
-        let batch = [Op::Coin(0), Op::Measure { qubit: 0, tag: 0 }];
-        let reply = executor
-            .call(InstructionBatchRef {
-                shots,
-                instructions: &batch,
-            })
-            .expect("the toy takes a coin and a measurement");
-        let mut outcomes = Vec::new();
-        wait(reply, &mut outcomes).expect("the toy never fails a batch");
-        outcomes
-    }
+fn flip_a_coin() -> StaticProgram<Op> {
+    let batch = vec![Op::Coin(0), Op::Measure { qubit: 0, tag: 0 }];
+    StaticProgram::new(Needs::default(), vec![batch])
 }
 
 /// Composed into a chain, the adapter puts a paused debugger on the
@@ -245,7 +226,7 @@ fn a_debugger_composed_into_a_chain_hands_out_its_handle() {
     let debuggers = Debuggers::paused();
     let run = (driver() >> debuggers.clone() >> toy_simulator(9))
         .expect("the debugger changes nothing the toy checks")
-        .run(FlipACoin, shots.clone())
+        .run(flip_a_coin(), shots.clone())
         .expect("the program needs nothing");
     let run_thread = thread::spawn(move || run.wait());
 
@@ -260,10 +241,12 @@ fn a_debugger_composed_into_a_chain_hands_out_its_handle() {
         thread::sleep(Duration::from_millis(1));
     }
     let (with, _) = run_thread.join().expect("the run's thread did not panic");
+    let with = with.expect("the toy neither refuses nor fails the batch");
     let (without, _) = (driver() >> toy_simulator(9))
         .expect("nothing between to refuse")
-        .run(FlipACoin, shots)
+        .run(flip_a_coin(), shots)
         .expect("the program needs nothing")
         .wait();
+    let without = without.expect("the toy neither refuses nor fails the batch");
     assert_eq!(with, without);
 }

@@ -72,7 +72,7 @@ macro_rules! compose_executor_by_shr {
     // states.
     ([$($right_generics:ident),*] $right:ty where $($bounds:tt)*) => {
         #[cfg(test)]
-        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; P0, L0; ComposedJob<P0, L0>);
+        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; T0, P0, L0; ComposedJob<T0, P0, L0>);
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; T0, L0; ChainPrefix<T0, L0>);
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; X0, Y0; ComposedAdapters<X0, Y0>);
         compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; I0; NoAdapter<I0>);
