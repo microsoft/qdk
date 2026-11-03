@@ -318,8 +318,8 @@ extends:
             dependsOn: VSCode
             pool:
               name: "Azure-Pipelines-DevTools-EO"
-              image: "ubuntu-latest"
-              os: linux
+              demands:
+                - ImageOverride -equals ubuntu-latest
             timeoutInMinutes: 90
             templateContext:
               # Validation jobs are allowed to use looser network isolation policies
