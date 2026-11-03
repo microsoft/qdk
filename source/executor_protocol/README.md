@@ -37,37 +37,26 @@ Some concrete problems it addresses, as examples:
   path in each shot. Each shot keeps its own state, and a caller reads a
   batch's outcomes before it sends the next batch
   ([example](tests/per_shot_executor.rs)).
-- **The same outcomes however the shots are split.** Each shot draws, in each
-  component of the chain that draws, from a seed derived from the run's seed,
-  the shot's id (its `ShotId`) and the component's id; the run's seed is the
-  one the last executor is built with, and an adapter that draws is given it
-  when the chain is built, or the chain is refused
-  ([Seeds](docs/executors.md#seeds-not-generators)). On an
-  executor that keeps each shot's state apart
+- **The same outcomes however the shots are split.** Each shot draws its
+  randomness from the run's seed and its own id
+  ([Seeds](docs/executors.md#seeds-not-generators)), so, on an executor that
+  keeps shots apart
   ([replayable](docs/executors.md#how-an-executor-holds-its-shots)), a shot
-  run alone gives what it gives among others, so the shots can be split
+  gives the same outcomes alone or among others, and the shots can be split
   across runs, in parallel.
 - **Components added without changing the simulator.** A noise model, a code's
   lowering and decoding, a profiler or a debugger is an adapter: a
   [profiler and a debugger](tests/observers.rs), a
   [repetition code and a noise logic](tests/static_isa.rs), and a
-  [code given as data](tests/runtime_isa.rs). A
-  resource probe is planned, with no milestone yet: an adapter
-  that counts what a run uses, for example the resource estimator's counts
-  (`source/resource_estimator`) of a program run before and after a noise
-  model.
+  [code given as data](tests/runtime_isa.rs).
 - **Failing before running.** A component describes what it offers
   (`Capabilities`), and a program declares what it needs (`Needs`). A
   chain whose parts do not fit is refused
   when it is built, and a job whose program needs what the chain lacks is
   refused before any call. A chain's refusal names each component at fault,
   and a job's names the fault of its shots, each unmet need and each fault
-  the driver finds in its program; every fault of the parts built together,
-  or of the job, is
-  [reported at once](docs/composition.md#what-is-checked-and-when), but for
-  a job's shots named twice: only the least is reported. Found during a
-  run, a mismatch would cost the work done so far, or give outcomes that
-  silently mean something else.
+  the driver finds in its program
+  ([what is checked and when](docs/composition.md#what-is-checked-and-when)).
 - **Any caller.**
   [One reply](docs/replies.md#replies-one-reply-four-ways-to-take-it)
   serves a blocking caller, a caller that does its own work between polls,
