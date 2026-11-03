@@ -179,6 +179,11 @@ extends:
                   targetPath: $(System.DefaultWorkingDirectory)/target/vscode
                   artifactName: VSIX
                   condition: succeeded()
+                - output: pipelineArtifact
+                  displayName: "Upload VSCode Test Bundle"
+                  targetPath: $(System.DefaultWorkingDirectory)/target/vscode-tests
+                  artifactName: VSCodeTests
+                  condition: succeeded()
             steps:
               # common init steps
               - task: RustInstaller@1
@@ -215,11 +220,30 @@ extends:
                 displayName: Install Prereqs for VSCode Extension
 
               # build steps
-              # we use xvfb-run to provide a virtual framebuffer for the VS Code tester,
-              # which requires a display to run
               - script: |
-                  xvfb-run -a python build.py --wasm --npm --vscode --integration-tests --no-check-prereqs
+                  python build.py --wasm --npm --vscode --no-integration-tests --no-check-prereqs
                 displayName: Build VSCode Extension
+
+              - bash: |
+                  set -euo pipefail
+                  node source/vscode/test/buildTests.mjs
+                  mkdir -p target/vscode-tests
+                  tar -czf target/vscode-tests/tests.tar.gz \
+                    --exclude=.npmrc \
+                    package.json \
+                    package-lock.json \
+                    source/npm/qsharp/package.json \
+                    source/playground/package.json \
+                    source/vscode/*.json \
+                    source/vscode/ai \
+                    source/vscode/out \
+                    source/vscode/resources \
+                    source/vscode/syntaxes \
+                    source/vscode/wasm \
+                    source/vscode/test/runTests.mjs \
+                    source/vscode/test/out \
+                    source/vscode/test/suites
+                displayName: Prepare VSCode Test Bundle
 
               - script: |
                   vsce package --pre-release
@@ -289,6 +313,49 @@ extends:
                   vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE
                 condition: succeeded()
                 displayName: Confirming signature verification before publishing
+
+          - job: "VSCode_Integration_Tests"
+            dependsOn: VSCode
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "ubuntu-latest"
+              os: linux
+            timeoutInMinutes: 90
+            templateContext:
+              # Validation jobs are allowed to use looser network isolation policies
+              type: validationJob
+            steps:
+              - checkout: none
+
+              - task: UseNode@1
+                inputs:
+                  version: "22.x"
+
+              - task: DownloadPipelineArtifact@2
+                inputs:
+                  buildType: current
+                  artifactName: VSCodeTests
+                  targetPath: $(Pipeline.Workspace)/vscode-tests
+
+              - bash: |
+                  set -euo pipefail
+                  mkdir -p "$(System.DefaultWorkingDirectory)"
+                  tar -xzf "$(Pipeline.Workspace)/vscode-tests/tests.tar.gz" -C "$(System.DefaultWorkingDirectory)"
+                displayName: Extract VSCode Test Bundle
+                workingDirectory: $(Pipeline.Workspace)
+
+              - template: /.ado/templates/create-authenticated-npmrc.yml@self
+
+              - script: |
+                  npm ci --include=dev --ignore-scripts --no-audit --no-fund
+                displayName: Restore VSCode Test Dependencies
+
+              - bash: |
+                  set -euo pipefail
+                  npm exec --no playwright install chromium
+                  xvfb-run -a npm --ignore-scripts test
+                displayName: Run VSCode Integration Tests
+                workingDirectory: $(System.DefaultWorkingDirectory)/source/vscode
 
           - job: "Platform_Agnostic_Python"
             pool:
@@ -496,6 +563,9 @@ extends:
                           fi
                           python build.py --qdk --qdk-wheel "${wheels[0]}" --no-check-prereqs --integration-tests
                         displayName: Check and test Linux wheel on host
+                        env:
+                          # Without this, the pyright wrapper checks github for updates (unnecessary and violates network isolation)
+                          PYRIGHT_PYTHON_IGNORE_WARNINGS: "1"
 
                   # Windows arm64
                   # Skip checking because that would force npm install, which won't work properly until UseNode supports arm64
@@ -510,6 +580,9 @@ extends:
                       python build.py --qdk --no-check-prereqs --integration-tests
                     displayName: Build Platform-Dependent Py Packages (Other)
                     condition: and(succeeded(), ne(variables['Agent.OS'], 'Linux'), not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))))
+                    env:
+                      # Without this, the pyright wrapper checks github for updates (unnecessary and violates network isolation)
+                      PYRIGHT_PYTHON_IGNORE_WARNINGS: "1"
 
                   - script: |
                       dir target\wheels\*
