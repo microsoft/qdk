@@ -18,12 +18,12 @@ executor took one call per batch.
 **In short:** an executor of a Rust instruction type, called directly, is
 the baseline. The per-shot executor (`executor_fn` under `OnePerShot`)
 costs about 1.6 times the baseline on batches of one instruction (about
-7 ns per call), 1.25 times on batches of 10, and within a few percent
+7 ns per call), 1.3 times on batches of 10, and within a few percent
 from batches of 100 ([Results](#results)): a cost per call, which
 batching hides. An executor of calls of a set described at run time costs
 about 10 ns more per instruction, at every batch size. A version of QEP's
 counting profiler written for the bench (QEP-like), called with no
-protocol, is slower than the baseline at every batch size, 1.3 to 4.4
+protocol, is slower than the baseline at every batch size, 1.3 to 4.3
 times, and faster than both executors of a set described at run time;
 the per-shot executor is faster than it from batches of 10. A batch of
 many shots, each on a placement of its own, costs its caller a time per
@@ -37,16 +37,16 @@ is faster):
 
 | batch  | typed | typed per-shot | run-time      | run-time per-shot | QEP-like      |
 | :----- | ----: | :------------- | :------------ | :---------------- | :------------ |
-| 1      | 12.03 | 19.31 (1.57×)  | 21.20 (1.67×) | 30.94 (2.51×)     | 15.41 (1.27×) |
-| 10     |  3.07 | 3.85 (1.25×)   | 14.68 (4.68×) | 14.94 (4.87×)     | 11.02 (3.59×) |
-| 100    |  3.58 | 3.47 (0.97×)   | 14.14 (3.85×) | 14.19 (3.99×)     | 10.04 (2.82×) |
-| 10 000 |  2.23 | 2.29 (1.02×)   | 12.71 (5.61×) | 12.80 (5.69×)     | 9.87 (4.36×)  |
+| 1      | 11.61 | 19.08 (1.65×)  | 20.63 (1.72×) | 31.34 (2.64×)     | 14.75 (1.27×) |
+| 10     |  2.85 | 3.71 (1.29×)   | 14.05 (4.82×) | 15.71 (5.38×)     | 11.04 (3.85×) |
+| 100    |  3.48 | 3.50 (1.01×)   | 14.62 (4.17×) | 13.96 (4.06×)     | 9.94 (2.86×)  |
+| 10 000 |  2.32 | 2.30 (1.01×)   | 13.04 (5.69×) | 12.90 (5.55×)     | 9.95 (4.28×)  |
 
 Method: `taskset -c 4 cargo bench -p executor_protocol --bench
 protocol_overhead`, on one core of a Qualcomm Oryon machine under Linux
-(WSL), while no build ran; each cell is the fastest of 7 runs, and the
-median of 5 runs of the bench, taken separately for the times and for the
-ratios. The numbers vary by machine and with its load: compare the columns
+(WSL), the machine otherwise idle; each cell is the fastest of 7 runs,
+and the median of 5 runs of the bench, taken separately for the times and
+for the ratios. The numbers vary by machine and with its load: compare the columns
 of one run, not runs on different machines, and read single cells as
 approximate.
 
@@ -93,7 +93,7 @@ call over the batch.
 - **A call** costs the typed profiler about 10 ns more per batch of one
   instruction than per instruction of a batch of 10 000: the call, its
   reply and the wait for it. Batching spreads it over the batch.
-- **The per-shot executor**, driven by a run, costs about 7 to 8 ns more
+- **The per-shot executor**, driven by a run, costs about 7 to 9 ns more
   per call than the baseline, on batches of 1 and 10 instructions: the
   run that drives it, the executor's lifecycle, the lookup of the shot's
   state, and the reply that gathers the shot's outcomes; the bench does
@@ -126,32 +126,33 @@ Nanoseconds per shot, and the ratio to the first column:
 
 | shots | polled once | polled per shot | one placement |
 | ----: | ----------: | --------------: | ------------: |
-|     1 |       1 000 |   1 000 (1.00×) |   900 (0.90×) |
-|    16 |         581 |     738 (1.26×) |    69 (0.12×) |
-|   256 |         531 |   3 590 (6.20×) |  12.9 (0.02×) |
-| 1 024 |         449 |  10 312 (23.0×) |   7.5 (0.02×) |
+|     1 |         900 |     900 (1.00×) |   700 (0.78×) |
+|    16 |         519 |     644 (1.24×) |    63 (0.12×) |
+|   256 |         471 |   2 868 (6.09×) |  11.3 (0.02×) |
+| 1 024 |         452 |  10 366 (22.9×) |   7.6 (0.02×) |
 
 - **polled once**: the bench runs every shot's job, then polls the reply
   once.
 - **polled per shot**: the same executor, its reply polled after each
   shot's job, as a caller woken by each shot that ends: each poll costs
-  about 19 ns per shot still pending at 1 024 shots, and 24 ns at 256,
-  n/2 of them on average.
+  about 19 ns per shot still pending, at 256 and at 1 024 shots, n/2 of
+  them on average.
 - **one placement**: `.shots(OnePerShot).run_on(place)`, every shot
   in the one job, its reply polled once.
 
 Method: `taskset -c 11 cargo bench -p executor_protocol --bench
 shot_replies_wake`, on one core of a Qualcomm Oryon machine under Linux
-(WSL), while no build ran; each cell is the fastest of 7 runs, and the
-median of 3 runs of the bench, taken separately for the times and for the
-ratios. The runs varied: on the same day, a polled-once cell was up to
-about 17 % from its median (447 to 524 ns at 1 024 shots), so read single
-cells as approximate. A batch of one shot is near the timer's resolution.
+(WSL), the machine otherwise idle; each cell is the fastest of 7 runs,
+and the median of 3 runs of the bench, taken separately for the times and
+for the ratios. The three runs agreed within about 5 % past one shot; on
+a machine under load, a polled-once cell varied by up to about 17 %
+between runs, so read single cells as approximate. A batch of one shot is
+near the timer's resolution.
 
 Two costs show. The wakes cost O(n²) per batch: a known issue, open,
 whose fix polls only the shots with news (a waker per shot, or a queue of
 the shots woken). And a shot on a placement of its own costs about 440 to
-520 ns more than one in a shared job, for its own job, its reply and the
+460 ns more than one in a shared job, for its own job, its reply and the
 copy of the batch; only an executor that places its shots apart pays it.
 
 ## Shot conditions
@@ -200,10 +201,10 @@ figure is the median of three runs of the bench:
 
 | shots, batch | bare | bare, every shot | adapter | adapter, shot 0 | adapter, every shot |
 | :----------- | ---: | :--------------- | ------: | :-------------- | :------------------ |
-| 1, 1         | 30.7 | 31.4 (1.02×)     |     114 | 135 (1.18×)     | 132 (1.16×)         |
-| 1, 100       |  2.2 | 2.2 (1.00×)      |     3.4 | 4.0 (1.19×)     | 4.0 (1.16×)         |
-| 10, 1        |  7.9 | 8.4 (1.07×)      |    16.4 | 20.7 (1.26×)    | 28.4 (1.71×)        |
-| 10, 100      |  1.5 | 1.5 (0.99×)      |     1.7 | 2.1 (1.21×)     | 2.3 (1.35×)         |
+| 1, 1         | 30.7 | 30.6 (1.00×)     |     108 | 132 (1.21×)     | 132 (1.21×)         |
+| 1, 100       |  2.2 | 2.2 (1.00×)      |     3.4 | 3.8 (1.15×)     | 3.9 (1.14×)         |
+| 10, 1        |  8.0 | 8.4 (1.06×)      |    16.5 | 20.1 (1.22×)    | 29.0 (1.76×)        |
+| 10, 100      |  1.5 | 1.5 (1.00×)      |     1.7 | 2.1 (1.21×)     | 2.3 (1.34×)         |
 
 An executor alone pays almost nothing to raise them: the logic's
 `raise_conditions` marks the outcomes it wrote in the call. An adapter pays,
