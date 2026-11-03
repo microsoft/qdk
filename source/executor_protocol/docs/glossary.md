@@ -8,6 +8,14 @@ what they belong to; the names in code are the crate's.
 
 ## A chain and its parts
 
+- **Protocol**: what every part of a chain keeps, whoever wrote it: the
+  traits of the parts, the one message, the reply, the refusals, the
+  outcomes and their conditions, the seeds, and composition; in `src/`,
+  outside `src/facilities/` ([The protocol](protocol.md)).
+- **Facility**: a part of the crate that keeps the protocol's rules for an
+  implementer's logic, such as `executor_fn`, `adapter_fn`, the crate's
+  driver, `ExecutorLifecycle` and the replies; in `src/facilities/`
+  ([Facilities](facilities.md)).
 - **Chain**: a driver, any number of adapters and an executor, joined by
   `compose` (written `>>`); each part knows only the message of the one
   downstream
@@ -28,10 +36,9 @@ what they belong to; the names in code are the crate's.
   device's driver, the vendor's software below an executor, is not a
   `Driver`; and a caller that takes a reply is called a caller, not a
   driver.
-- **Chain prefix** (`ChainPrefix`): every element of a chain being built
-  but its last, the executor: a driver, wrapped so that it composes with
-  `>>`, with the adapters composed below it so far. `driver()` is the
-  crate's driver as a prefix with no adapter; `driver.into_chain()`
+- **Chain prefix** (`ChainPrefix`): a driver, wrapped so that it composes
+  with `>>`, with the adapters composed below it so far. `driver()` is the
+  crate's driver as a prefix with no adapter; `runtime.into_chain()`
   (`DriverExt`) makes one of any driver. A prefix with an adapter composed
   below it is a prefix still, and with the executor it gives a
   `Chain`. It is not itself a `Driver<P>`: that is planned
@@ -108,7 +115,8 @@ what they belong to; the names in code are the crate's.
   calls on and closes the executor, once, when its program ends; a run
   dropped or unwound before then, and a `Chain` dropped without a job or
   whose job is refused, do not close it
-  ([An executor's whole life](executors.md#an-executors-whole-life),
+  ([A run](protocol.md#a-run),
+  [An executor's whole life](executors.md#an-executors-whole-life),
   [Known limits](internals/composition.md#a-run-closes-its-executor-only-when-its-program-ends)).
 - **Compose** (`compose`, `>>`): puts the parts together, builds the chain
   from the executor upstream and checks it before anything runs, every
@@ -125,7 +133,7 @@ what they belong to; the names in code are the crate's.
 - **Level**: how abstract the instructions are, logical or physical. An
   adapter that lowers instructions goes down a level and sends the same
   message
-  ([Levels, roles and laws](internals/composition.md#levels-roles-and-laws)).
+  ([One message, and levels](protocol.md#one-message-and-levels)).
 - **Capabilities and needs** (`Capabilities`, `Needs`): what a component offers
   (`Describe`) and what a job's program needs; a chain given a job checks one
   against the other (`Chain::run`), and an unmet need names the component
@@ -133,7 +141,8 @@ what they belong to; the names in code are the crate's.
 - **Conformance kit** (the `conformance` feature and module): checks of the
   rules the compiler cannot check, such as those of `call`, `close` and
   `fold`, which an implementer runs in its own tests
-  ([Conformance checks](composition.md#conformance-checks)).
+  ([Conformance checks](composition.md#conformance-checks);
+  [The conformance kit](facilities.md#the-conformance-kit)).
 
 ## A part's axes
 
@@ -276,7 +285,8 @@ what they belong to; the names in code are the crate's.
   `IncrementalReply`, filled through its `ReplySender`, for work that runs
   elsewhere; composition wraps replies in its own, so a caller stays
   generic over `Reply`
-  ([Replies](replies.md#replies-one-reply-four-ways-to-take-it)).
+  ([Replies](replies.md#replies-one-reply-four-ways-to-take-it);
+  [the crate's replies](facilities.md#replies-and-how-they-wake-their-caller)).
 - **Outcome** (`ShotOutcome`): an event of a reply, a value under its shot
   and the tag the batch gave its readout, marked with the shot's conditions
   so far. An executor that reports by tag
@@ -297,7 +307,9 @@ what they belong to; the names in code are the crate's.
 - **Wake**: a reply wakes its waiting caller when it can make progress; an
   `IncrementalReply` wakes it at most once per sleep, however many events
   arrive
-  ([The waking model](replies.md#the-waking-model)).
+  ([The waking model](replies.md#the-waking-model); drawn for each
+  caller in
+  [Facilities](facilities.md#replies-and-how-they-wake-their-caller)).
 
 ## Instructions
 
@@ -339,7 +351,9 @@ what they belong to; the names in code are the crate's.
 - **Rejection** (`Rejected`): a call refused; the reason says why, and its
   retry class says whether the work may have run
   ([What a rejection says](rejections.md#what-a-rejection-says)).
-- **Retry class** (`RetryClass`): `Never` (correct the message) and `Later`
+- **Retry class** (`RetryClass`): `Never` (do not send it unchanged: change
+  the message, send it to another executor, after `Closed` or
+  `EarlierFailure`, or change what is asked, after `Unmet`) and `Later`
   (send it again later) say that nothing ran; `Resend` says that no verdict
   came over a link, so the work may have run
   ([What a rejection says](rejections.md#what-a-rejection-says)).

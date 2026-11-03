@@ -16,7 +16,9 @@
 //!   an [`ExecutorLogic`] ([`ExecutorFn`]), with one state or a state per
 //!   shot.
 //! - [`adapter_fn`](mod@adapter_fn): makes an adapter from a state and an
-//!   [`AdapterLogic`] ([`AdapterFn`]), with one state or a state per shot.
+//!   [`AdapterLogic`] ([`AdapterFn`]), with one state or a state per shot;
+//!   [`owning_adapter_fn`](fn@crate::owning_adapter_fn) makes one from a
+//!   state that keeps its way below for its whole life.
 //! - [`builtin_driver`]: the crate's driver, which runs a [`StaticProgram`]
 //!   and any [`AdaptiveProgram`] ([`BuiltinDriver`], from
 //!   [`driver()`](fn@crate::driver)).

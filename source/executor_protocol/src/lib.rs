@@ -10,7 +10,7 @@
 //! returns the reply, or a typed [`Rejected`] when it refuses the call.
 //! A chain is three kinds of components, composed; the roles, in order
 //! (in code, the driver is first made a chain's prefix,
-//! `driver.into_chain() >> …`, [`DriverExt`]):
+//! `runtime.into_chain() >> …`, [`DriverExt`]):
 //!
 //! ```text
 //! Driver >> Adapter >> ... >> Executor
@@ -41,9 +41,6 @@
 //!   which may hold state ([`Adapter`], [`Apply`]): composed with an
 //!   executor, it gives an executor, whose calls pass through it, possibly
 //!   as another instruction type. An adapter is not an executor.
-//!   [`adapter_fn`](fn@adapter_fn) makes one from a state and a logic, and
-//!   [`owning_adapter_fn`](fn@owning_adapter_fn) one whose state keeps its
-//!   way below for its whole life.
 //!
 //! [`compose`](fn@crate::compose), or `>>`, puts them together. Each adapter
 //! is built once against what is downstream of it, every fault of the parts
@@ -85,8 +82,10 @@
 //! at run time is an [`InstructionBatch`] of [`InstructionCall`]s.
 //!
 //! The above is the protocol. The crate's facilities implement it for you:
-//! some make a part from your logic ([`executor_fn`](fn@executor_fn),
-//! [`adapter_fn`](fn@adapter_fn), the crate's driver
+//! some make a part from your logic ([`executor_fn`](fn@executor_fn);
+//! [`adapter_fn`](fn@adapter_fn), and
+//! [`owning_adapter_fn`](fn@owning_adapter_fn) for a state that keeps its
+//! way below for its whole life; the crate's driver
 //! [`driver()`](fn@driver), and the [`StaticProgram`] it runs), others keep
 //! a rule for a part written by hand ([`ExecutorLifecycle`],
 //! [`ShotReplies`], [`PlacedExecutor`], the replies [`ImmediateReply`] and
@@ -94,7 +93,8 @@
 //!
 //! The crate depends on `std` and `futures-core` (for [`AsyncEvents`]'s
 //! `Stream`) only, so that every part of qdk can use it. The crate's
-//! `README.md` explains the model and its choices.
+//! `README.md` introduces the protocol and the facilities, and
+//! `docs/protocol.md` and `docs/facilities.md` detail them.
 
 mod adapter;
 mod adaptive_program;

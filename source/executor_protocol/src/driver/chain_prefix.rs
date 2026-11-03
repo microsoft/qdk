@@ -9,9 +9,8 @@
 use crate::{BuiltinDriver, Chain, driver};
 use crate::{Driver, Instruction, NoAdapter};
 
-/// A chain's prefix: every element of a chain being built but its last,
-/// the executor. That is a driver, with the adapters composed downstream
-/// of it so far (none at first). Composed with an adapter, it gives a
+/// A chain's prefix: a driver, with the adapters composed downstream of it
+/// so far (none at first), as a chain is built left to right. Composed with an adapter, it gives a
 /// `ChainPrefix` with that adapter below the others; composed with an
 /// executor, it gives a [`Chain`], which runs the job given to it. The
 /// grouping does not matter: `(driver() >> a) >> executor` and
@@ -76,9 +75,10 @@ impl<T, L> ChainPrefix<T, L> {
 /// [`driver()`](fn@driver) does of the crate's own. Implemented for every
 /// [`Driver`].
 ///
-/// A driver of several program types names one it drives,
-/// `DriverExt::<P>::into_chain(runtime)`, since the call alone does not
-/// say which impl it means.
+/// A driver of several program types names one of them,
+/// `DriverExt::<P>::into_chain(runtime)`, only so that the call resolves:
+/// the call alone does not say which impl it means. The chain runs any
+/// program the driver drives.
 ///
 /// A type that drives no program has no `into_chain`:
 ///

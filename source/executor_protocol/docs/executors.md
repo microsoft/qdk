@@ -16,33 +16,9 @@ A component says what it offers (`Describe::capabilities`), and a job's needs (a
 driver for a program of another form (`Driver::needs`), as the crate's driver
 states a `StaticProgram`'s. `compose` builds the chain from the executor
 upstream; when a job is given to the chain, each need of its program is checked
-against what the chain offers, before anything runs:
-
-```mermaid
-sequenceDiagram
-  participant C as caller
-  participant P as compose
-  participant E as executor
-  participant A as each adapter, from the executor upstream
-  participant H as chain
-  C->>P: driver() >> adapters >> executor
-  P->>E: capabilities()
-  E-->>P: Capabilities
-  P->>A: build(boundary)
-  A-->>P: what it offers upstream, and its own faults
-  alt no fault
-    P-->>C: Ok(chain): nothing has run
-  else
-    P-->>C: Err(BuildFaults): every fault, upstream first
-  end
-  C->>H: run(program, shots)
-  H->>H: check each need of the program against what the chain offers
-  alt every need met, no fault
-    H-->>C: Ok(Run): nothing has run
-  else
-    H-->>C: Err(JobFaults): every fault
-  end
-```
+against what the chain offers, before anything runs, as
+[A chain is built, then its job is checked](protocol.md#a-chain-is-built-then-its-job-is-checked)
+draws.
 
 Each need is a number, compared with what is offered: a need is met when
 $\text{needed} \le \text{offered}$, with $\text{true} = 1$ and

@@ -4,7 +4,8 @@
 
 A driver, adapters and an executor are put together into a chain, and a
 run runs a program on it; the parts and the run are introduced in the README
-([The model](../README.md#the-model-a-chain-and-its-run)). This page is
+([The protocol](../README.md#the-protocol), and in detail
+[A run](protocol.md#a-run)). This page is
 about putting them together: composing a run with `compose` or `>>`, a
 chain and its job, what is checked and when, the conformance checks an
 implementer runs on its executors, and chains for several users.
@@ -33,12 +34,12 @@ A driver, the adapters downstream of it and an executor are put together by
   ([Adapters](adapters.md)).
 - A **driver** (`Driver<P>`) heads the chain, and runs any program of form
   `P` given to it. In the chain being built it is in a **chain prefix**
-  (`ChainPrefix`): every element of the chain but its last, the executor;
-  that is the driver with the adapters composed below it so far. The crate's
+  (`ChainPrefix`): a driver, with the adapters composed below it so far. The crate's
   driver, `driver()`, is a prefix with no adapter yet; `runtime.into_chain()`
   makes one of any driver (the trait `DriverExt`, in scope), and a driver of
-  several program types names the one it drives,
-  `DriverExt::<P>::into_chain(runtime)`. A prefix with adapters below it is a
+  several program types names one of them,
+  `DriverExt::<P>::into_chain(runtime)`, only so that the call resolves;
+  the chain runs any program the driver drives. A prefix with adapters below it is a
   `ChainPrefix` still, not a `Driver<P>` (planned:
   [Planned features](planned.md)). Composed with the executor, a prefix makes
   a `Chain`, which runs the job given

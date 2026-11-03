@@ -97,23 +97,26 @@ impl Driver<bool> for TwoForms {
     }
 }
 
-/// A runtime of two program forms joins a chain by naming the form it
-/// drives, `DriverExt::<P>::into_chain(runtime)`, and the chain runs a
-/// program of that form.
+/// A runtime of two program forms joins a chain naming one of them,
+/// `DriverExt::<P>::into_chain(runtime)`, only so that the call resolves:
+/// the chain runs a program of either form.
 #[test]
 fn a_driver_of_several_program_types_joins_a_chain_naming_one() {
-    let simulator = executor_fn(
-        Capabilities::default(),
-        |_| Ok(()),
-        |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
-    );
-    let chain = (DriverExt::<Vec<bool>>::into_chain(TwoForms) >> simulator)
-        .expect("the simulator takes any batch of `bool`s");
-    let (output, _) = chain
+    let chain = || {
+        let simulator = executor_fn(
+            Capabilities::default(),
+            |_| Ok(()),
+            |(): &mut (), _: &CallInput<'_, bool>, _: &mut Outcomes<'_>| Ok(()),
+        );
+        (DriverExt::<Vec<bool>>::into_chain(TwoForms) >> simulator)
+            .expect("the simulator takes any batch of `bool`s")
+    };
+    let (circuit, _) = chain()
         .run(vec![true, false], [4])
         .expect("one shot, held")
         .wait();
-    assert_eq!(output, Ok(()));
+    let (instruction, _) = chain().run(true, [4]).expect("one shot, held").wait();
+    assert_eq!((circuit, instruction), (Ok(()), Ok(())));
 }
 
 /// A driver that reads every shot of its job, then reads each again in a

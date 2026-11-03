@@ -26,7 +26,8 @@ replies](../src/tests/reply/asynchronous.rs).
 ### Reading the sequence diagrams
 
 Sequence diagrams here, in its
-[detailed rules](internals/replies.md), in [Executors](executors.md), in
+[detailed rules](internals/replies.md), in [The protocol](protocol.md), in
+[Facilities](facilities.md), in [Executors](executors.md), in
 [Rejections and retries](rejections.md#a-lost-verdict-planned-layers-l1-and-l0)
 and in the [guide walkthroughs](guides.md), show the calls behind these
 models. A solid arrow is a call; a dashed arrow is what it returns; an open

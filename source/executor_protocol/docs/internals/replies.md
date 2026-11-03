@@ -181,37 +181,20 @@ and drop run its own code. A reply that gathers the replies of parts (a
 `shot_states` executor's, an `adapter_fn`'s) hands its caller's waker to
 each part's poll, so that any part wakes the caller.
 
-```mermaid
-sequenceDiagram
-  participant D as caller
-  participant I as IncrementalReply
-  participant C as ReplySender (worker's handle)
-  participant W as worker
-  D->>I: poll_events(out, waker)
-  I-->>D: the events so far, Pending (the waker is kept)
-  alt wait
-    Note over D: parks its thread
-  else poll_events with Waker::noop()
-    Note over D: does its own work
-  else an async task
-    Note over D: returns Pending to its runtime, which runs other tasks
-  end
-  W->>C: push(event 1)
-  C--)D: waker.wake(), once (the noop waker does nothing)
-  W->>C: push(event 2), done()
-  Note over C: no waker is kept, so no wake: the events wait in the reply
-  D->>I: poll_events(out, waker)
-  I-->>D: events 1 and 2, Done
-```
+The cycle, drawn for a blocking caller, a polling caller, an async task
+and a stream on one `IncrementalReply`, is in
+[Replies, and how they wake their caller](../facilities.md#replies-and-how-they-wake-their-caller).
 
 The noop row is the one caller that polls in a loop: it gives up being
 woken, so it polls when its own work allows. That is its choice, as
 parking is `wait`'s: neither is imposed by the reply. The crate polls so
-in a few places, once each, where a later poll with a real waker takes
-the reply up: an `adapter_fn` polls its sends below, a `shot_states`
+in a few places: an `adapter_fn` polls each send below as it makes it,
+and each one still pending again before each `run` and at the call's end; a `shot_states`
 executor polls each part as it calls it (so that a batch that failed
-inside `call` fails the executor even if no one polls), and the
-conformance kit polls once a reply it should not have got.
+inside `call` fails the executor even if no one polls); and the
+conformance kit polls a reply it should not have got. In the first two,
+the caller later polls the reply with a real waker; the conformance check
+panics right after its poll.
 
 ## `wait` parks, and a wake before the park is not lost
 
