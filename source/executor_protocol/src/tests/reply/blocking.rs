@@ -8,9 +8,9 @@ use std::thread;
 use std::time::Duration;
 
 use crate::reply::CANCELLATION;
-use crate::{Executor, ImmediateReply, IncrementalReply, Reply, ReplyStatus, reply_channel, wait};
+use crate::{ImmediateReply, IncrementalReply, Reply, ReplyStatus, reply_channel, wait};
 
-use super::super::{Worker, counted, ends_soon, on_shot_0, outcome};
+use super::super::{counted, ends_soon};
 
 /// What a test double's two ends share: the events pushed so far, whether
 /// the run ended, and the waker of the last pending poll.
@@ -113,36 +113,37 @@ fn spin_wait<R: Reply>(mut reply: R, out: &mut Vec<R::Item>) -> Result<(), Strin
     }
 }
 
+/// A reply that ends with no event `after` from now, on a thread of its
+/// own: its sender wakes the caller at most once, at the end, so the count
+/// of a parked caller's polls does not depend on when its thread runs.
+fn ends_after(after: Duration) -> IncrementalReply<u32> {
+    let (sender, reply) = reply_channel();
+    thread::spawn(move || {
+        thread::sleep(after);
+        sender.done();
+    });
+    reply
+}
+
 /// `wait` parks until it is woken instead of spinning: a call that ends 30 ms
-/// later is polled twice (three times if a woken flag left over from an
-/// earlier wait wakes the thread early), against more when it spins.
+/// later is polled twice (once if it ended before the first poll), against
+/// more when it spins.
 #[test]
 fn wait_parks_until_woken_instead_of_spinning() {
-    let mut worker = Worker(Duration::from_millis(30));
-    let (reply, polls) = counted(
-        worker
-            .call(on_shot_0(&[]))
-            .expect("a `Worker` accepts every batch"),
-    );
-    let mut out = Vec::new();
-    assert_eq!(wait(reply, &mut out), Ok(()));
-    assert_eq!(out, [outcome(0, 0)]);
+    let (reply, polls) = counted(ends_after(Duration::from_millis(30)));
+    assert_eq!(wait(reply, &mut Vec::new()), Ok(()));
     let parked = polls.load(Ordering::SeqCst);
-    assert!((2..=3).contains(&parked), "{parked} polls");
+    assert!((1..=2).contains(&parked), "{parked} polls");
 
-    let (reply, polls) = counted(
-        worker
-            .call(on_shot_0(&[]))
-            .expect("a `Worker` accepts every batch"),
-    );
-    assert_eq!(spin_wait(reply, &mut out), Ok(()));
+    let (reply, polls) = counted(ends_after(Duration::from_millis(30)));
+    assert_eq!(spin_wait(reply, &mut Vec::new()), Ok(()));
     let spun = polls.load(Ordering::SeqCst);
     // The control only shows that the count tells spinning from parking. A
     // spinning caller yields between polls, so how often it polls depends on
     // the machine's load: hundreds of times in 30 ms when idle, 10 to 12 on
-    // two cores shared with the rest of the suite; more than parking's three
+    // two cores shared with the rest of the suite; more than parking's two
     // in every run measured.
-    assert!(spun > 3, "{spun} polls when spinning");
+    assert!(spun > 2, "{spun} polls when spinning");
 }
 
 /// A reply that wakes its waker during its first poll, then is done.
@@ -250,7 +251,9 @@ impl Reply for HandsOverItsThread {
 
 /// An unpark that comes with no wake (another part of the program unparks
 /// the thread, or the park returns spuriously) costs `wait` no poll: it
-/// parks again until the reply wakes it.
+/// parks again until the reply wakes it. Here two unparks come before the
+/// reply's one wake, its end, so `wait` polls twice: once pending, once
+/// at the end.
 #[test]
 fn an_unpark_without_a_wake_costs_wait_no_poll() {
     let polls = ends_soon(|| {
@@ -262,17 +265,14 @@ fn an_unpark_without_a_wake_costs_wait_no_poll() {
             thread::sleep(Duration::from_millis(30));
             waiting.unpark();
             thread::sleep(Duration::from_millis(30));
-            sender.push(1);
-            sender.done();
+            sender.done(); // the reply's one wake
         });
         let (reply, polls) = counted(HandsOverItsThread {
             reply,
             to: Some(to),
         });
-        let mut out = Vec::new();
-        assert_eq!(wait(reply, &mut out), Ok(()));
+        assert_eq!(wait(reply, &mut Vec::new()), Ok(()));
         assert!(bystander.join().is_ok());
-        assert_eq!(out, [1]);
         polls.load(Ordering::SeqCst)
     });
     assert_eq!(polls, 2, "the unparks with no wake were not polls");
