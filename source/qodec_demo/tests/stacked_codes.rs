@@ -6,18 +6,24 @@
 mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
 
-use executor_protocol::{ExecutorReport, Needs, Operand, ShotId, ShotOutcome, static_driver};
+use executor_protocol::{
+    AdapterError, Below, CallInput, ExecutorReport, InstructionCall, Needs, OnePerShot, Operand,
+    Outcomes, Rejected, ShotContext, ShotId, ShotOutcome, adapter_fn, shot_seed, static_driver,
+};
 use qodec::Qodec;
+use qodec_demo::boundary::status;
 use qodec_demo::coin::CoinBackend;
 use qodec_demo::coin::coin_device;
 use qodec_demo::profiler::Profile;
 use qodec_demo::program::Program;
-use qodec_demo::qodec_layer::{QodecLayer, Statuses};
+use qodec_demo::qodec_layer::QodecLayer;
 use qodec_demo::recorder::{Sent, recorder};
-use qodec_demo::stack::{StackRan, on_the_stack};
+use qodec_demo::stack::{StackRan, on_the_stack, on_the_stack_over};
 use qodec_runtime::Status;
 
+use common::devices::{Script, ScriptedBackend, scripted_device};
 use common::{
     CODE_SHOTS, SEED, bottom, c4c6, c4c6_program, c422, c422_program, each_status, shot_set, sorted,
 };
@@ -32,27 +38,22 @@ fn on_the_stack_of(qodec: &Qodec, program: &Program, shots: &[ShotId]) -> StackR
     on_the_stack(qodec, program, &shot_set(shots), SEED).expect("the Qodec stack's run")
 }
 
-/// What a run of c422's chain gave: its outcomes, its layer's statuses, and
-/// what the coins ran.
-fn c422_on_the_chain() -> (Vec<ShotOutcome>, Statuses, ExecutorReport<Profile>) {
+/// What a run of c422's chain gave: its outcomes, and what the coins ran.
+fn c422_on_the_chain() -> (Vec<ShotOutcome>, ExecutorReport<Profile>) {
     let qodec = c422();
     let layer = QodecLayer::new(&qodec, 0).expect("c422 plans");
     let coins = coin_device(bottom(&qodec).set.clone(), SEED);
     let chain = (static_driver() >> layer.adapter() >> coins).expect("every boundary matches");
     let program = c422_program(&qodec).to_static(Needs::default());
-    let (outcomes, (statuses, report)) = chain
+    let (outcomes, report) = chain
         .run(program, shot_set(&shots()))
         .expect("the job fits the chain")
         .wait();
-    (outcomes.expect("the run succeeds"), statuses, report)
+    (outcomes.expect("the run succeeds"), report)
 }
 
-/// What a run of c4c6's chain gave: its outcomes, each layer's statuses
-/// (the top's, then the middle's), and what the coins ran.
-type C4c6Ran = (
-    Vec<ShotOutcome>,
-    (Statuses, (Statuses, ExecutorReport<Profile>)),
-);
+/// What a run of c4c6's chain gave: its outcomes, and what the coins ran.
+type C4c6Ran = (Vec<ShotOutcome>, ExecutorReport<Profile>);
 
 /// c4c6's chain on `shots`, its two layers grouped as
 /// `(static_driver() >> top >> middle) >> coins`.
@@ -95,16 +96,22 @@ fn c422_sends_the_qodec_stacks_bottom_instructions() {
     assert_eq!(report.states, expected.ran());
 }
 
-/// One layer: the layer reports the statuses of the Qodec runtime's own
-/// stack. Nothing lies below the layer but the coins, so no status is lost.
+/// One layer: each result's status, as the conditions its outcomes carry,
+/// is the Qodec runtime's own stack's.
 #[test]
-fn c422_reports_the_qodec_stacks_statuses() {
+fn c422_gives_the_qodec_stacks_statuses() {
     let qodec = c422();
     let expected = on_the_stack_of(&qodec, &c422_program(&qodec), &shots());
-    let (_, statuses, _) = c422_on_the_chain();
+    let (outcomes, _) = c422_on_the_chain();
 
-    assert!(!expected.statuses.is_empty(), "the program reads");
-    assert_eq!(each_status(statuses), expected.statuses);
+    assert!(
+        (expected.statuses.iter()).any(|(.., s)| *s != Status::default()),
+        "precondition: the stack raises a status"
+    );
+    assert_eq!(
+        each_status(&outcomes, &expected.statuses),
+        expected.statuses
+    );
 }
 
 /// Two layers stacked: the chain gives, shot by shot, the outcomes of the
@@ -125,7 +132,7 @@ fn c4c6_gives_the_qodec_stacks_outcomes() {
 fn c4c6_sends_the_qodec_stacks_bottom_instructions() {
     let qodec = c4c6();
     let expected = on_the_stack_of(&qodec, &c4c6_program(&qodec), &shots());
-    let (_, (_, (_, report))) = c4c6_on_the_chain(&shots());
+    let (_, report) = c4c6_on_the_chain(&shots());
 
     assert!(expected.ran().instructions() > 0, "the stack ran");
     assert_eq!(report.states, expected.ran());
@@ -144,7 +151,7 @@ fn c4c6_runs_the_qodec_stacks_bottom_batches_in_order() {
     let coins = coin_device(bottom(&qodec).set.clone(), SEED);
     let chain = (static_driver() >> top.adapter() >> middle.adapter() >> recorder() >> coins)
         .expect("every boundary matches");
-    let (outcomes, (_, (_, (sent, _)))): (_, (Statuses, (Statuses, (Sent, _)))) = chain
+    let (outcomes, (sent, _)): (_, (Sent, _)) = chain
         .run(program.to_static(Needs::default()), shot_set(&shots()))
         .expect("the job fits the chain")
         .wait();
@@ -173,60 +180,178 @@ fn a_shot_of_c4c6_gives_the_same_outcomes_alone() {
 /// shot, a shot's in the order of its results.
 type EachStatus = Vec<(ShotId, u32, Status)>;
 
-/// Each top result's status, as the chain's top layer reports it and as
-/// the stack gives it.
-fn top_statuses() -> (EachStatus, EachStatus) {
-    let qodec = c4c6();
-    let stack = on_the_stack_of(&qodec, &c4c6_program(&qodec), &shots());
-    let (_, (top, _)) = c4c6_on_the_chain(&shots());
-    (each_status(top), stack.statuses)
+/// What c4c6's chain over `$device` gave each top result, as the conditions
+/// its outcomes carry, and what the Qodec runtime's own stack gave it, over
+/// `$backend_of` each shot. A macro, since the device's type cannot be
+/// named in a function's bounds.
+macro_rules! c4c6_statuses_over {
+    ($device:expr, $backend_of:expr) => {{
+        let qodec = c4c6();
+        let program = c4c6_program(&qodec);
+        let stack = on_the_stack_over(&qodec, &program, &shot_set(&shots()), $backend_of)
+            .expect("the Qodec stack's run");
+        let top = QodecLayer::new(&qodec, 0).expect("c4c6 plans");
+        let middle = QodecLayer::new(&qodec, 1).expect("c4c6 plans");
+        let chain = (static_driver() >> top.adapter() >> middle.adapter() >> $device)
+            .expect("every boundary matches");
+        let (outcomes, _) = chain
+            .run(program.to_static(Needs::default()), shot_set(&shots()))
+            .expect("the job fits the chain")
+            .wait();
+        let outcomes = outcomes.expect("the run succeeds");
+        (each_status(&outcomes, &stack.statuses), stack.statuses)
+    }};
 }
 
-/// Two layers stacked, where the statuses part (QD5): the top
-/// layer reports the stack's statuses, but for `unresolved`, which the
-/// stack's top runtime takes from the runtime below it (each shot's
-/// `measure_z_all`, tag 1), and the chain's top layer, given no status
-/// from below, leaves clear.
+/// c4c6's top statuses over the coins of [`SEED`]
+/// (`c4c6_statuses_over!`).
+fn top_statuses() -> (EachStatus, EachStatus) {
+    let below = bottom(&c4c6());
+    let coins = coin_device(Arc::clone(&below.set), SEED);
+    c4c6_statuses_over!(coins, |shot| {
+        CoinBackend::new(shot_seed(SEED, shot), Arc::clone(&below))
+    })
+}
+
+/// Two layers stacked: each top result's status is the stack's, the
+/// `unresolved` the middle runtime raises included (each shot's
+/// `measure_z_all`, tag 1): the middle layer marks its outcomes with it,
+/// and the top layer's adapter adds it to the conditions of the outcomes
+/// it gives, as the stack's top runtime takes it from the runtime below
+/// into its results.
 #[test]
-fn c4c6_top_statuses_lack_the_status_from_below() {
+fn c4c6_top_statuses_equal_the_qodec_stacks() {
     let (chain, stack) = top_statuses();
 
-    let resolved = |mut status: Status| {
-        status.unresolved = false;
-        status
-    };
-    let unresolved = |statuses: &EachStatus| -> Vec<_> {
-        (statuses.iter())
-            .filter(|(.., s)| s.unresolved)
-            .map(|&(shot, tag, _)| (shot, tag))
-            .collect()
-    };
+    let unresolved = (stack.iter())
+        .filter(|(.., s)| s.unresolved)
+        .map(|&(shot, tag, _)| (shot, tag));
     assert_eq!(
-        unresolved(&stack),
+        unresolved.collect::<Vec<_>>(),
         shots().into_iter().map(|j| (j, 1)).collect::<Vec<_>>(),
         "precondition: the stack's top takes `unresolved` from below, at \
          each shot's tag 1"
     );
-    assert_eq!(unresolved(&chain), []);
-    let all_resolved = |s: EachStatus| -> Vec<_> {
-        (s.into_iter())
-            .map(|(shot, tag, st)| (shot, tag, resolved(st)))
-            .collect()
-    };
-    assert_eq!(all_resolved(chain), all_resolved(stack));
+    assert_eq!(chain, stack);
 }
 
-/// Two layers stacked: the status the top layer lacks is in the middle
-/// layer's report, beside the top's (QD5, (a) today): the middle
-/// runtime's results are unresolved, on every shot.
+/// Two layers stacked, over a device that reads every bit 0 but loses
+/// each shot's first readout: the loss comes up as a value with none
+/// (`Value::Missing`), which the top runtime takes as an unresolved bit,
+/// so the chain gives the stack's statuses, result by result.
 #[test]
-fn c4c6_middle_statuses_are_in_the_middle_layers_report() {
-    let (_, (_, (middle, _))) = c4c6_on_the_chain(&shots());
+fn a_lost_readout_reaches_c4c6s_top_as_a_value() {
+    let below = bottom(&c4c6());
+    let lose_the_first: Script = |_, n| (n != 0).then_some(false);
+    let device = scripted_device(Arc::clone(&below.set), SEED, lose_the_first);
+    let (chain, stack) = c4c6_statuses_over!(device, |shot| {
+        ScriptedBackend::new(shot_seed(SEED, shot), Arc::clone(&below), lose_the_first)
+    });
+
+    let unresolved = Status {
+        unresolved: true,
+        ..Status::default()
+    };
+    assert_eq!(
+        stack,
+        (shots().into_iter())
+            .flat_map(|shot| [(shot, 0, unresolved), (shot, 1, unresolved)])
+            .collect::<Vec<_>>(),
+        "precondition: the stack's top results are unresolved, and only that"
+    );
+    assert_eq!(chain, stack);
+}
+
+/// What an observer between c4c6's two layers saw of each shot: for each
+/// instruction of the top layer's calls below that reads, in order, the
+/// tag of its first readout, and the status that the outcome under that
+/// tag, in the reply to its call, carries, if the reply has one.
+type SeenBelowTheTop = BTreeMap<ShotId, Vec<(u32, Option<Status>)>>;
+
+/// c4c6's chain on the program `to_program` makes of c4c6, with an
+/// observer between its two layers that runs each call of the top layer
+/// below, shot by shot, and keeps what it saw ([`SeenBelowTheTop`]).
+fn seen_below_the_top(to_program: impl FnOnce(&Qodec) -> Program) -> SeenBelowTheTop {
+    let qodec = c4c6();
+    let top = QodecLayer::new(&qodec, 0).expect("c4c6 plans");
+    let middle = QodecLayer::new(&qodec, 1).expect("c4c6 plans");
+    let set = Arc::clone(top.sent());
+    let seen = Arc::new(Mutex::new(SeenBelowTheTop::new()));
+    let log = Arc::clone(&seen);
+    let observe = move |shot: &mut ShotId,
+                        input: &CallInput<'_, InstructionCall>,
+                        below: &mut Below<'_, InstructionCall>,
+                        outcomes: &mut Outcomes<'_>| {
+        let read = below.run(input.instructions())?;
+        let mut log = log.lock().expect("no panic holds the log");
+        let of_shot = log.entry(*shot).or_default();
+        for call in input.instructions() {
+            if set.layouts[call.opcode.index()].readouts == 0 {
+                continue;
+            }
+            let first = (call.operands.iter())
+                .find_map(|o| match *o {
+                    Operand::Tag(t) => Some(t),
+                    _ => None,
+                })
+                .expect("a call that reads names its tags");
+            let on_it = read.iter().find(|o| o.tag == first);
+            of_shot.push((first, on_it.map(|o| status(o.conditions))));
+        }
+        outcomes.extend(read);
+        Ok::<_, AdapterError>(())
+    };
+    let observer =
+        adapter_fn(|c: ShotContext| Ok::<_, Rejected>(c.shot()), observe).shots(OnePerShot);
+    let coins = coin_device(bottom(&qodec).set.clone(), SEED);
+    let chain = (static_driver() >> top.adapter() >> observer >> middle.adapter() >> coins)
+        .expect("every boundary matches");
+    let program = to_program(&qodec).to_static(Needs::default());
+    let (outcomes, _) = chain
+        .run(program, shot_set(&shots()))
+        .expect("the job fits the chain")
+        .wait();
+    outcomes.expect("the run succeeds");
+    let seen = seen.lock().expect("no panic holds the log");
+    seen.clone()
+}
+
+/// Two layers stacked: each result the middle layer gives a shot, one per
+/// middle instruction that reads, has its status on the outcomes of its
+/// reply, though the top layer numbers its readouts below from 0 in each
+/// batch, so that a shot's later calls reuse its earlier calls' tags.
+#[test]
+fn the_middle_layer_gives_a_status_per_result_of_each_shot() {
+    let seen = seen_below_the_top(c4c6_program);
+
+    assert_eq!(
+        seen.keys().copied().collect::<Vec<_>>(),
+        shots(),
+        "precondition: every shot reads below the top"
+    );
+    for (shot, results) in seen {
+        let tags: BTreeSet<_> = results.iter().map(|(tag, _)| tag).collect();
+        assert!(
+            tags.len() < results.len(),
+            "precondition: shot {shot}'s calls to the middle layer reuse tags"
+        );
+        let missing: Vec<_> = (results.iter().enumerate())
+            .filter(|(_, (_, status))| status.is_none())
+            .collect();
+        assert_eq!(missing, [], "shot {shot}");
+    }
+}
+
+/// Two layers stacked: the middle layer marks each shot's outcomes
+/// `unresolved`, the status its runtime raises on every shot of c4c6.
+#[test]
+fn c4c6_middle_raises_unresolved_on_every_shot() {
+    let seen = seen_below_the_top(c4c6_program);
 
     for shot in shots() {
-        let of_shot = middle.0.get(&shot).expect("the shot ran");
+        let of_shot = seen.get(&shot).expect("the shot ran");
         assert!(
-            of_shot.iter().any(|(_, status)| status.unresolved),
+            (of_shot.iter()).any(|(_, status)| status.is_some_and(|s| s.unresolved)),
             "shot {shot}: {of_shot:?}"
         );
     }
@@ -235,28 +360,21 @@ fn c4c6_middle_statuses_are_in_the_middle_layers_report() {
 /// Whether each result of the middle layer is unresolved, by shot and in
 /// order, on c4c6's chain run on the program of `lines`.
 fn middle_unresolved(lines: &[&str]) -> BTreeMap<ShotId, Vec<bool>> {
-    let qodec = c4c6();
-    let top = QodecLayer::new(&qodec, 0).expect("c4c6 plans");
-    let middle = QodecLayer::new(&qodec, 1).expect("c4c6 plans");
-    let coins = coin_device(bottom(&qodec).set.clone(), SEED);
-    let chain = (static_driver() >> top.adapter() >> middle.adapter() >> coins)
-        .expect("every boundary matches");
-    let program = Program::parse(&qodec, lines).to_static(Needs::default());
-    let (outcomes, (_, (statuses, _))): (_, (Statuses, (Statuses, _))) = chain
-        .run(program, shot_set(&shots()))
-        .expect("the job fits the chain")
-        .wait();
-    outcomes.expect("the run succeeds");
-    (statuses.0.into_iter())
-        .map(|(shot, each)| (shot, each.iter().map(|(_, s)| s.unresolved).collect()))
+    (seen_below_the_top(|qodec| Program::parse(qodec, lines)).into_iter())
+        .map(|(shot, each)| {
+            let unresolved = (each.iter())
+                .map(|(_, s)| s.expect("each middle result has its status").unresolved)
+                .collect();
+            (shot, unresolved)
+        })
         .collect()
 }
 
 /// Two layers stacked, c4c6's program run in three lengths: the middle
 /// runtime raises `unresolved` on each shot during the idles, a call that
-/// gives the driver no readout, not at `measure_z_all`; from the idles' first
-/// result on, every result carries it, the measure's included, since a
-/// status is sticky.
+/// gives the driver no readout, not at `measure_z_all`; from the idles'
+/// first result on, every result carries it, the measure's included, since
+/// a status is sticky.
 #[test]
 fn c4c6_middle_raises_unresolved_in_the_idles_and_every_later_result_carries_it() {
     let idles = ["idle 0"; 10].join("; ");
@@ -283,52 +401,4 @@ fn c4c6_middle_raises_unresolved_in_the_idles_and_every_later_result_carries_it(
         let expected: Vec<bool> = (0..all.len()).map(|i| i >= prepare.len()).collect();
         assert_eq!(*all, expected, "shot {shot}");
     }
-}
-
-/// Two layers stacked: the middle layer reports a status for each result
-/// of the calls it is sent, in their order, with the tag of the result's
-/// first readout, though the top layer numbers its readouts below from 0
-/// in each batch, so that later calls reuse earlier calls' tags.
-#[test]
-fn c4c6_middle_report_keeps_every_upper_results_status() {
-    let qodec = c4c6();
-    let top = QodecLayer::new(&qodec, 0).expect("c4c6 plans");
-    let middle = QodecLayer::new(&qodec, 1).expect("c4c6 plans");
-    let coins = coin_device(bottom(&qodec).set.clone(), SEED);
-    let chain = (static_driver() >> top.adapter() >> recorder() >> middle.adapter() >> coins)
-        .expect("every boundary matches");
-    let program = c4c6_program(&qodec).to_static(Needs::default());
-    let (outcomes, (_, (sent, (statuses, _)))): (_, (Statuses, (Sent, (Statuses, _)))) = chain
-        .run(program, shot_set(&shots()))
-        .expect("the job fits the chain")
-        .wait();
-    outcomes.expect("the run succeeds");
-
-    for shot in shots() {
-        let first_tags: Vec<u32> = (sent.0[&shot].iter().flatten())
-            .filter_map(|call| {
-                call.operands.iter().find_map(|operand| match *operand {
-                    Operand::Tag(tag) => Some(tag),
-                    _ => None,
-                })
-            })
-            .collect();
-        let distinct: BTreeSet<_> = first_tags.iter().collect();
-        assert!(
-            distinct.len() < first_tags.len(),
-            "precondition: shot {shot}'s calls to the middle layer reuse tags"
-        );
-        let reported: Vec<u32> = statuses.0[&shot].iter().map(|&(tag, _)| tag).collect();
-        assert_eq!(reported, first_tags, "shot {shot}");
-    }
-}
-
-/// FINDING (QD5): what the stack gives, which the chain cannot until a
-/// lower status has a way up the chain: QD5 (b), a status on each
-/// outcome, planned.
-#[test]
-#[ignore = "finding QD5: a lower layer's status has no way up the chain"]
-fn c4c6_top_statuses_equal_the_qodec_stacks() {
-    let (chain, stack) = top_statuses();
-    assert_eq!(chain, stack);
 }

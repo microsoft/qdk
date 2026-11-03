@@ -35,8 +35,8 @@
 //! (`source/qodec_lowerer/examples`).
 //!
 //! The ids QD1 to QD6, Q65 and Q67 to Q69 in the docs name design
-//! questions, each open but for QD5's carrier, decided in principle and
-//! planned: the README's "Open questions" lists them.
+//! questions, each open but for QD5's carrier, which is built (the
+//! protocol's `ShotConditions`): the README's "Open questions" lists them.
 
 pub mod answers_later;
 pub mod answers_on_yield;

@@ -1,8 +1,10 @@
 //! Devices that misbehave on cue, below a chain: coins that fail at a
 //! chosen shot and batch, coins whose batches wait at a gate until the
 //! test opens it, a wrapper that counts an executor's closes and
-//! drops, and can open such a gate as it is closed, and a wrapper that
-//! refuses one call of an executor ([`RefusesCall`]).
+//! drops, and can open such a gate as it is closed, a wrapper that
+//! refuses one call of an executor ([`RefusesCall`]), and coins that lose
+//! chosen readouts ([`scripted_device`]), also as the Qodec runtime's
+//! bottom backend ([`ScriptedBackend`]).
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -16,7 +18,9 @@ use executor_protocol::{
     OnePerShotExecutor, OnePerShotPlacedExecutor, Operand, Outcome, Outcomes, OwnThread,
     PlacementJob, Rejected, ShotContext, ShotId, executor_fn,
 };
+use qodec_demo::boundary::{Boundary, Ins, value};
 use qodec_demo::coin::coin;
+use qodec_runtime::{Backend, BasicReadout, BatchResult, Bit, OwnedParam, Readout, Status};
 
 /// A gate a shot's batch waits at until the test opens it, counting the
 /// batches that arrived at it.
@@ -420,5 +424,106 @@ impl<E: Close> Close for RefusesCall<E> {
 
     fn close(&mut self) -> E::Report {
         self.executor.close()
+    }
+}
+
+/// How a scripted device answers a shot's `n`-th readout, given the
+/// shot's seed (`shot_seed(seed, j)`): a bit, or none (a lost readout).
+pub type Script = fn(seed: u64, n: u64) -> Bit;
+
+/// One shot of a scripted device: its seed, and how many readouts it made.
+#[derive(Debug)]
+pub struct ScriptedShot {
+    seed: u64,
+    drawn: u64,
+    script: Script,
+}
+
+impl ScriptedShot {
+    /// The shot's next readout, as the script says.
+    fn draw(&mut self) -> Bit {
+        let n = self.drawn;
+        self.drawn += 1;
+        (self.script)(self.seed, n)
+    }
+}
+
+/// A device of `set` that answers each readout as `script` says, a state
+/// per shot, answering within its call. A readout with no bit comes up as
+/// `Value::Missing`.
+pub fn scripted_device(
+    set: Arc<InstructionSet>,
+    seed: u64,
+    script: Script,
+) -> OnePerShotExecutor<
+    InstructionCall,
+    ScriptedShot,
+    impl MakeState<ScriptedShot>,
+    impl ExecutorLogic<InstructionCall, ScriptedShot>,
+> {
+    let make = move |shot: ShotContext| {
+        Ok(ScriptedShot {
+            seed: shot.seed(),
+            drawn: 0,
+            script,
+        })
+    };
+    let answer = |shot: &mut ScriptedShot,
+                  input: &CallInput<'_, InstructionCall>,
+                  outcomes: &mut Outcomes<'_>| {
+        for call in input.instructions() {
+            for operand in call.operands.iter() {
+                if let Operand::Tag(tag) = *operand {
+                    outcomes.push(Outcome::new(tag, value(shot.draw())));
+                }
+            }
+        }
+        Ok(())
+    };
+    executor_fn(promise(set), make, answer)
+        .seed(seed)
+        .shots(OnePerShot)
+}
+
+/// [`scripted_device`]'s shot as the Qodec runtime's bottom backend, as
+/// `CoinBackend` is `coin_device`'s.
+pub struct ScriptedBackend {
+    shot: ScriptedShot,
+    bottom: Arc<Boundary>,
+}
+
+impl ScriptedBackend {
+    /// The shot whose seed is `seed` (`shot_seed(seed, j)`), each
+    /// instruction's readouts read from `bottom`, answered by `script`.
+    pub fn new(seed: u64, bottom: Arc<Boundary>, script: Script) -> Self {
+        Self {
+            shot: ScriptedShot {
+                seed,
+                drawn: 0,
+                script,
+            },
+            bottom,
+        }
+    }
+}
+
+impl Backend<usize, OwnedParam, BasicReadout> for ScriptedBackend {
+    type Error = std::convert::Infallible;
+
+    fn execute_batch(
+        &mut self,
+        instructions: &[Ins],
+    ) -> Result<BatchResult<BasicReadout>, Self::Error> {
+        let mut results = smallvec::SmallVec::new();
+        for ins in instructions {
+            let layout = &self.bottom.layouts[ins.instruction_id];
+            if layout.readouts == 0 {
+                continue;
+            }
+            let bits: Vec<_> = (0..layout.readouts).map(|_| self.shot.draw()).collect();
+            let (outs, flags) = bits.split_at(layout.observes);
+            results.push(BasicReadout::new(outs, flags, Status::default()));
+        }
+        Ok(BatchResult { results })
     }
 }

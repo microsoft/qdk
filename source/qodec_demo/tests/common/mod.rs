@@ -10,14 +10,14 @@
 pub mod devices;
 pub mod waiting;
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use executor_protocol::{ShotId, ShotOutcome, ShotSet, Value};
 use qodec::Qodec;
-use qodec_demo::boundary::Boundary;
+use qodec_demo::boundary::{Boundary, status};
 use qodec_demo::program::Program;
-use qodec_demo::qodec_layer::Statuses;
 use qodec_runtime::Status;
 
 /// The seed of every run, from which each shot's seed is drawn.
@@ -144,12 +144,35 @@ pub fn sorted(mut outcomes: Vec<ShotOutcome>) -> Vec<(ShotId, u32, Value)> {
     outcomes.iter().map(|o| (o.shot, o.tag, o.value)).collect()
 }
 
-/// Each result's status in `statuses`, shot by shot, a shot's in the order
-/// of its results: the form of the Qodec runtime's own stack's
-/// (`StackRan::statuses`).
-pub fn each_status(statuses: Statuses) -> Vec<(ShotId, u32, Status)> {
-    (statuses.0.into_iter())
-        .flat_map(|(shot, each)| each.into_iter().map(move |(tag, s)| (shot, tag, s)))
+/// `outcomes` by shot and tag, each with its conditions.
+pub fn sorted_with_conditions(mut outcomes: Vec<ShotOutcome>) -> Vec<ShotOutcome> {
+    outcomes.sort_by_key(|o| (o.shot, o.tag));
+    outcomes
+}
+
+/// Each result's status in `outcomes`, at the shot and tag of each result
+/// of `stack` (`StackRan::statuses`), in its order: the conditions the
+/// outcome there carries, in the form of the Qodec runtime's own stack's.
+///
+/// # Panics
+///
+/// When `outcomes` has no outcome at one of those shots and tags.
+pub fn each_status(
+    outcomes: &[ShotOutcome],
+    stack: &[(ShotId, u32, Status)],
+) -> Vec<(ShotId, u32, Status)> {
+    let by_tag: BTreeMap<_, _> = (outcomes.iter())
+        .map(|o| ((o.shot, o.tag), status(o.conditions)))
+        .collect();
+    (stack.iter())
+        .map(|&(shot, tag, _)| {
+            let status = by_tag.get(&(shot, tag));
+            (
+                shot,
+                tag,
+                *status.expect("the chain reads every tag the stack reads"),
+            )
+        })
         .collect()
 }
 

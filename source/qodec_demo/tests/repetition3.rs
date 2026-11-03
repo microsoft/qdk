@@ -9,24 +9,23 @@ use executor_protocol::{
     Close, Executor, ExecutorReport, InstructionBatchRef, Needs, Operand, OperandKind,
     ReadoutFailure, ShotId, ShotOutcome, ShotSet, Value, shot_seed, static_driver, wait,
 };
-use qodec_demo::boundary::Boundary;
+use qodec_demo::boundary::{self, Boundary};
 use qodec_demo::coin::coin_device;
 use qodec_demo::noisy_bits::{NoisyBitsBackend, simulator};
 use qodec_demo::program::Program;
-use qodec_demo::qodec_layer::{QodecLayer, Statuses};
+use qodec_demo::qodec_layer::QodecLayer;
 use qodec_demo::stack::{StackRan, on_the_stack, on_the_stack_over};
 use qodec_runtime::Status;
 
 use common::{
     DRAWS_FLIP, FLIP, SEED, SHOTS, each_status, repetition3, repetition3_program, shot_set, sorted,
-    stim_rz,
+    sorted_with_conditions, stim_rz,
 };
 
 /// What a run of the chain gave.
 struct Ran {
+    /// Each logical readout, marked with its result's status.
     outcomes: Vec<ShotOutcome>,
-    /// The layer's: each logical readout's status.
-    statuses: Statuses,
     /// The simulator's: each shot's log probability.
     report: ExecutorReport<()>,
 }
@@ -39,13 +38,12 @@ fn on_the_chain(shots: &[ShotId], flip: f64) -> Ran {
     let simulator = simulator(stim_rz().set, SEED, flip);
     let chain = (static_driver() >> layer.adapter() >> simulator).expect("every boundary matches");
     let program = repetition3_program(&qodec).to_static(Needs::default());
-    let (outcomes, (statuses, report)) = chain
+    let (outcomes, report) = chain
         .run(program, shot_set(shots))
         .expect("the job fits the chain")
         .wait();
     Ran {
         outcomes: outcomes.expect("the run succeeds"),
-        statuses,
         report,
     }
 }
@@ -101,13 +99,13 @@ fn a_number_written_as_an_integer_runs_as_its_real_spelling() {
         let simulator = simulator(stim_rz().set, SEED, DRAWS_FLIP);
         let chain =
             (static_driver() >> layer.adapter() >> simulator).expect("every boundary matches");
-        let (outcomes, (statuses, report)): (_, (Statuses, ExecutorReport<()>)) = chain
+        let (outcomes, report): (_, ExecutorReport<()>) = chain
             .run(program.to_static(Needs::default()), shot_set(&SHOTS))
             .expect("the job fits the chain")
             .wait();
         let log_p = SHOTS.map(|shot| report.log_p.get(shot));
-        let outcomes = outcomes.map(sorted).map_err(|e| format!("{e:?}"));
-        (outcomes, statuses, log_p)
+        let outcomes = (outcomes.map(sorted_with_conditions)).map_err(|e| format!("{e:?}"));
+        (outcomes, log_p)
     };
     let real = run("1.0");
     assert!(real.0.is_ok(), "precondition: theta=1.0 runs: {:?}", real.0);
@@ -161,16 +159,16 @@ fn the_chain_gives_the_qodec_stacks_outcomes() {
     assert_eq!(sorted(outcomes), sorted(expected.outcomes));
 }
 
-/// The layer reports, shot by shot, the statuses of the Qodec runtime's own
-/// stack: what its decoder made of the same physical readouts, here noisy
-/// enough that the statuses are not all alike. With one layer, no status
-/// below is lost (QD5).
+/// The chain marks each logical readout, shot by shot, with the status the
+/// Qodec runtime's own stack gives its result: what its decoder made of
+/// the same physical readouts, here noisy enough that the statuses are not
+/// all alike.
 #[test]
-fn the_layer_reports_the_qodec_stacks_statuses() {
-    let Ran { statuses, .. } = on_the_chain(&SHOTS, DRAWS_FLIP);
+fn the_chain_gives_the_qodec_stacks_statuses() {
+    let Ran { outcomes, .. } = on_the_chain(&SHOTS, DRAWS_FLIP);
     let expected = on_the_stack_at(DRAWS_FLIP).statuses;
 
-    let reported = each_status(statuses);
+    let reported = each_status(&outcomes, &expected);
     assert!(
         reported.iter().any(|s| s.2 != reported[0].2),
         "the shots' statuses differ: {reported:?}"
@@ -179,10 +177,10 @@ fn the_layer_reports_the_qodec_stacks_statuses() {
 }
 
 /// A program that reads under tag 41 twice, in two calls, as a caller may
-/// reuse a tag once its readout came up: the layer reports both results'
-/// statuses, in order, as the Qodec runtime's own stack gives them. Its
-/// coins draw from a seed under which the second result is inconsistent
-/// and the first is not, so the order shows.
+/// reuse a tag once its readout came up: each call's reply marks its
+/// readout with its result's status, as the Qodec runtime's own stack
+/// gives it. Its coins draw from a seed under which the second result is
+/// inconsistent and the first is not, so the order shows.
 #[test]
 fn reused_readout_tags_keep_every_results_status() {
     const SEED_OF_DIFFERING_STATUSES: u64 = 0;
@@ -218,6 +216,7 @@ fn reused_readout_tags_keep_every_results_status() {
     let layer = QodecLayer::new(&qodec, 0).expect("repetition3 plans");
     let mut chain = (layer.adapter() >> coin_device(stim_rz().set, SEED_OF_DIFFERING_STATUSES))
         .expect("every boundary matches");
+    let mut statuses = Vec::new();
     for instructions in &program.batches {
         let reply = chain
             .call(InstructionBatchRef {
@@ -225,11 +224,13 @@ fn reused_readout_tags_keep_every_results_status() {
                 instructions,
             })
             .expect("precondition: the layer accepts a call that reuses an earlier call's tag");
-        wait(reply, &mut Vec::new()).expect("precondition: the call runs");
+        let mut read = Vec::new();
+        wait(reply, &mut read).expect("precondition: the call runs");
+        statuses.extend((read.iter()).map(|o| (o.shot, o.tag, boundary::status(o.conditions))));
     }
-    let (statuses, _): (Statuses, _) = chain.close();
+    chain.close();
 
-    assert_eq!(each_status(statuses), expected.statuses);
+    assert_eq!(statuses, expected.statuses);
 }
 
 /// The chain's report gives each shot the log probability of its bits'
@@ -263,8 +264,7 @@ fn a_shot_gives_the_same_run_alone() {
     let of_6 = |ran: &Ran| {
         let outcomes = ran.outcomes.iter().filter(|o| o.shot == 6).copied();
         (
-            sorted(outcomes.collect()),
-            ran.statuses.0.get(&6).cloned(),
+            sorted_with_conditions(outcomes.collect()),
             ran.report.log_p.get(6),
         )
     };
@@ -292,11 +292,11 @@ fn status(inconsistent: bool, unresolved: bool) -> Status {
 /// `statuses` and the log probabilities `log_p`, the latter within 1e-12.
 fn assert_gives(ran: Ran, values: [Value; 4], statuses: [Status; 4], log_p: [f64; 4]) {
     let expected: Vec<_> = SHOTS.iter().zip(values).map(|(&s, v)| (s, 0, v)).collect();
-    assert_eq!(sorted(ran.outcomes), expected);
+    assert_eq!(sorted(ran.outcomes.clone()), expected);
     let expected: Vec<_> = (SHOTS.iter().zip(statuses))
         .map(|(&s, st)| (s, 0, st))
         .collect();
-    assert_eq!(each_status(ran.statuses), expected);
+    assert_eq!(each_status(&ran.outcomes, &expected), expected);
     for (shot, expected) in SHOTS.into_iter().zip(log_p) {
         let log_p = ran.report.log_p.get(shot).expect("the bits know it");
         assert!((log_p - expected).abs() < 1e-12, "shot {shot}: {log_p}");

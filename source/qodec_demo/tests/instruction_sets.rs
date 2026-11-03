@@ -26,12 +26,12 @@ use qodec::{Parameter, ParameterKind};
 use qodec_demo::boundary::{Boundary, Ins, opcode};
 use qodec_demo::coin::{coin, coin_device};
 use qodec_demo::profiler::Profile;
-use qodec_demo::qodec_layer::{QodecLayer, Statuses};
+use qodec_demo::qodec_layer::QodecLayer;
 use qodec_runtime::OwnedParam;
 
 use common::{
     SEED, SHOTS, bottom, c4c6, c4c6_program, qodec_stim_rz, repetition3, repetition3_program,
-    shot_set, sorted,
+    shot_set, sorted_with_conditions,
 };
 
 /// `stim+rz` under its own name, numbered otherwise: two instructions the
@@ -51,7 +51,7 @@ fn stim_rz_numbered_otherwise() -> Arc<InstructionSet> {
 }
 
 /// What repetition3 gave on the chain over `executor`: the outcomes by
-/// shot, the layer's statuses, and the executor's report.
+/// shot, each marked with its result's status, and the executor's report.
 macro_rules! repetition3_over {
     ($executor:expr) => {{
         let qodec = repetition3();
@@ -59,13 +59,12 @@ macro_rules! repetition3_over {
         let chain =
             (static_driver() >> layer.adapter() >> $executor).expect("every boundary matches");
         let program = repetition3_program(&qodec).to_static(Needs::default());
-        let (outcomes, (statuses, report)) = chain
+        let (outcomes, report) = chain
             .run(program, shot_set(&SHOTS))
             .expect("the job fits the chain")
             .wait();
         (
-            sorted(outcomes.expect("the run succeeds")),
-            statuses,
+            sorted_with_conditions(outcomes.expect("the run succeeds")),
             report,
         )
     }};
@@ -98,16 +97,12 @@ fn the_layer_runs_over_a_set_that_numbers_its_instructions_otherwise() {
         "the sets number R apart"
     );
 
-    let (outcomes, statuses, report): (_, Statuses, ExecutorReport<Profile>) =
+    let (outcomes, report): (_, ExecutorReport<Profile>) =
         repetition3_over!(coin_device(Arc::clone(&own), SEED));
-    let (renumbered, renumbered_statuses, renumbered_report): (
-        _,
-        Statuses,
-        ExecutorReport<Profile>,
-    ) = repetition3_over!(coin_device(Arc::clone(&otherwise), SEED));
+    let (renumbered, renumbered_report): (_, ExecutorReport<Profile>) =
+        repetition3_over!(coin_device(Arc::clone(&otherwise), SEED));
 
     assert_eq!(renumbered, outcomes);
-    assert_eq!(renumbered_statuses, statuses);
     assert_eq!(
         by_mnemonic(&renumbered_report.states, &otherwise),
         by_mnemonic(&report.states, &own)
@@ -183,8 +178,8 @@ fn coins_given_in_reverse(
         .shots(OnePerShot)
 }
 
-/// c4c6's two layers over `executor`: the outcomes by shot, and each
-/// layer's statuses.
+/// c4c6's two layers over `executor`: the outcomes by shot, each marked
+/// with its result's status.
 macro_rules! c4c6_over {
     ($qodec:expr, $executor:expr) => {{
         let qodec = $qodec;
@@ -193,11 +188,11 @@ macro_rules! c4c6_over {
         let chain = (static_driver() >> top.adapter() >> middle.adapter() >> $executor)
             .expect("every boundary matches");
         let program = c4c6_program(qodec).to_static(Needs::default());
-        let (outcomes, (top, (middle, _))): (_, (Statuses, (Statuses, _))) = chain
+        let (outcomes, _) = chain
             .run(program, shot_set(&SHOTS))
             .expect("the job fits the chain")
             .wait();
-        (sorted(outcomes.expect("the run succeeds")), top, middle)
+        sorted_with_conditions(outcomes.expect("the run succeeds"))
     }};
 }
 

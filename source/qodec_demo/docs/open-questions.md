@@ -28,7 +28,7 @@ waits for each result (`Backend::execute_batch`,
 `qodec_runtime/src/backend.rs:22`; the flush that makes the call,
 `qodec_runtime/src/layer_runtime.rs:846`). That is mode (c) of QD1. The
 layer's way below, `Lower`, runs a batch that reads through
-`BelowHandle::run` (`src/qodec_layer.rs:473`), which waits "parking the
+`BelowHandle::run` (`src/qodec_layer.rs:453`), which waits "parking the
 thread that called the adapter until the reply below ends" (the
 protocol's `src/facilities/adapter_fn/below.rs:189`). The two other modes are (a) a
 resumable runtime and (b) an `async` one. The runtime's decoder already
@@ -450,7 +450,7 @@ the protocol's `src/facilities/adapter_fn.rs:66`). An adapter written by
 hand can already state both when built (`AdapterBoundary::offered_upstream`
 and `fault`, the protocol's `src/adapter/boundary.rs:124` and `:135`).
 Meanwhile the layer refuses, at each call, a call on a block beyond what
-fits below (`QodecLayer::within`, `src/qodec_layer.rs:196`): sound, but
+fits below (`QodecLayer::within`, `src/qodec_layer.rs:195`): sound, but
 not complete, since it goes by the blocks' numbers where the runtime
 counts the blocks held at once.
 
@@ -542,7 +542,7 @@ sequenceDiagram
 only the runtime counts), checked when the job is given: it needs a way
 for an instruction to name its qubits (deriving a static program's
 qubits from its calls is planned, the protocol's
-`src/driver/static_program.rs:41`) and the runtime's count of the
+`docs/planned.md`) and the runtime's count of the
 program's blocks.
 
 | Option                                    | What changes                                                         | Cost / risk                                                                                                                                         | On the case                                                                                   | Source                                                                     | Prior art                                                                                         |
@@ -562,16 +562,26 @@ whether the layer offers a bound (a) or clears it (b).
 
 ## QD5: a status, a condition and a failure from below
 
+**Status.** The status side is decided and built: solution (b) below.
+The protocol's `ShotOutcome` and `Outcome` carry `ShotConditions`, and
+its adapter facility merges them as (b) states. The layer marks each
+result's outcomes with its runtime's status (`serve`, `src/qodec_layer.rs`),
+and the acceptance test, `c4c6_top_statuses_equal_the_qodec_stacks`,
+passes ([The chain gives the stack's
+statuses](findings.md#the-chain-gives-the-stacks-statuses)). The rest of
+this section is the question as it was raised, before the conditions;
+the failure side stays open.
+
 **Context.** A Qodec result carries a `Status` of three flags
 (`rejected`, `inconsistent`, `unresolved`), sticky and merged by OR. In
 the runtime's own stack a layer merges the status of each result below
 into its own (`self.status |= r.status()`,
-`qodec_runtime/src/layer_runtime.rs:869`). A `ShotOutcome` holds a
-shot, a tag and a value only (the protocol's `src/shot_outcome.rs:60`), so
-the layer passes up no status: its way below writes each result with a
-clear status (`src/qodec_layer.rs:495`), and each layer's own statuses go in
-its report, read at close (`Statuses`, `src/qodec_layer.rs:395`).
-Failures already pass up: an error of the runtime fails the call and
+`qodec_runtime/src/layer_runtime.rs:869`). A `ShotOutcome` held a shot, a
+tag and a value only, so the layer passed up no status: its way below
+writes each result with a clear status, as it still does
+(`Status::default()` in `Lower`, `src/qodec_layer.rs:476`), and each
+layer's own statuses went in its report, read at close (a `Statuses`
+type, now removed). Failures already pass up: an error of the runtime fails the call and
 the adapter, and a device that fails mid-run fails the run, naming its
 reason (`tests/device_failures.rs`,
 `a_device_failing_mid_run_fails_the_run_naming_its_reason`).
@@ -582,13 +592,14 @@ gives the driver no readout, and raises `unresolved`; every later result of
 the middle carries it, those of the top's `measure_z_all` included,
 since a status is sticky
 (`c4c6_middle_raises_unresolved_in_the_idles_and_every_later_result_carries_it`).
-The stack's top result (tag 1) carries it; the chain's does not
-(`tests/stacked_codes.rs`,
-`c4c6_top_statuses_lack_the_status_from_below`). The ignored test:
+The stack's top result (tag 1) carries it; the chain's did not. The
+test that was ignored until (b), in `tests/stacked_codes.rs`, now with a
+precondition that the stack's top gives `unresolved` at each shot's tag 1:
 
 ```rust
 fn c4c6_top_statuses_equal_the_qodec_stacks() {
     let (chain, stack) = top_statuses();
+    // …
     assert_eq!(chain, stack);
 }
 ```
@@ -617,9 +628,8 @@ sequenceDiagram
     Note over D: the stack gives tag 1 unresolved. The chain gives it clear
 ```
 
-The status is not lost: it is in the middle layer's report
-(`c4c6_middle_statuses_are_in_the_middle_layers_report`), but at close,
-too late for the layer above, which merges it during the run. Its cost
+The status was not lost: it was in the middle layer's report, but at
+close, too late for the layer above, which merges it during the run. Its cost
 was measured in an experiment outside this crate, c4c6 under bit flips
 on 1,000,000 shots: at p = 0.01 the chain's top gives 234 silent errors
 (a wrong value with a clear status) per million against the stack's 1,
@@ -629,13 +639,13 @@ layer's report and the middle layer's, merged by OR at close, give each
 shot the stack's status (its results' statuses merged by OR).
 
 Two related questions are part of the failure side: an adapter's logic
-can fail a call but not refuse it (`FRICTION` at `src/qodec_layer.rs:357`),
+can fail a call but not refuse it (`FRICTION` at `src/qodec_layer.rs:353`),
 so an error of the runtime that ran nothing fails the adapter; and a
 send cancelled below fails the adapter (Q68).
 
 **Solutions.**
 
-(a) today: the status stops at the layer that raised it, in its report
+(a) before: the status stops at the layer that raised it, in its report
 (the diagram above).
 
 (b) a field on each outcome: `ShotOutcome` and `Outcome` carry
@@ -684,16 +694,16 @@ sequenceDiagram
     Note over D: the static driver lists every call's items together, so which result the status belongs to is lost
 ```
 
-|                                        | (a) today                                              | (b) a field on each outcome                                                                                                                                 | (c) an item beside the outcomes                                                         |
+|                                        | (a) before                                             | (b) a field on each outcome                                                                                                                                 | (c) an item beside the outcomes                                                         |
 | -------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | c4c6's top statuses equal the stack's  | no                                                     | yes, as is                                                                                                                                                  | yes, with an opt-out of the forwarding, and a driver that keeps each call's items apart |
-| Code in a code layer                   | 13 lines (`Statuses`, README table)                    | 2 lines                                                                                                                                                     | 6 lines, plus the opt-out                                                               |
+| Code in a code layer                   | 13 lines (`Statuses`, then the README table)           | 2 lines (built: 1, README table)                                                                                                                            | 6 lines, plus the opt-out                                                               |
 | A condition in a call with no readouts | in the report, on the shot's next result of that layer | reaches no caller in that call; marks the shot's outcomes in later calls of the same adapter, as the stack's sticky status reaches the shot's later results | reaches the caller                                                                      |
 | Which result a status belongs to       | each result, in order, at close                        | each result of the call carries it, and each later one of the shot (sticky), the stack's own rule                                                           | per reply, lost past the static driver                                                  |
 | Breaks the protocol's users            | no                                                     | the literals of `ShotOutcome` and `Outcome`                                                                                                                 | every reply that is a list of `ShotOutcome`                                             |
-| Source                                 | the tests above                                        | measured on an experiment branch                                                                                                                            | measured on an experiment branch                                                        |
+| Source                                 | the tests above                                        | measured on an experiment branch; built, the tests above                                                                                                    | measured on an experiment branch                                                        |
 
-**Suggestion.** (b) is decided in principle and planned, not built: a
+**Decision.** (b), built in the protocol and used by this layer: a
 status on each outcome, merged by OR and sticky per shot, so that each
 result of a call carries the conditions the shot has raised so far,
 which is the stack's own rule (`self.status |= r.status()`,
@@ -701,8 +711,7 @@ which is the stack's own rule (`self.status |= r.status()`,
 `self.status | d.status`, `:198`). A condition raised in a call with no
 readouts reaches no caller in that call, as in the Qodec stack; it marks
 the shot's outcomes in later calls of the same adapter, as c4c6's
-`unresolved`, raised in the idles, reaches the stack's tag 1. The
-ignored `c4c6_top_statuses_equal_the_qodec_stacks` is its acceptance
-test. Until it is built, the reports carry the statuses, (a). The
-failure side needs no new carrier; whether a logic can refuse a call,
+`unresolved`, raised in the idles, reaches the stack's tag 1.
+`c4c6_top_statuses_equal_the_qodec_stacks` is its acceptance test, and
+passes. The failure side needs no new carrier; whether a logic can refuse a call,
 and Q68, stay open apart from this question.

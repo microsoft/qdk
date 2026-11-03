@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 use executor_protocol::{InstructionCall, Needs, Operand, static_driver};
 use qodec_demo::call_counter::{Calls, call_counter};
 use qodec_demo::coin::coin_device;
-use qodec_demo::qodec_layer::{QodecLayer, Statuses};
+use qodec_demo::qodec_layer::QodecLayer;
 use qodec_demo::recorder::{Sent, recorder};
 use qodec_demo::stack::on_the_stack;
 
@@ -62,7 +62,7 @@ fn below_c4c6_every_bottom_batch_goes_below_on_its_shot_alone() {
     let coins = coin_device(bottom(&qodec).set.clone(), SEED);
     let chain = (static_driver() >> top.adapter() >> middle.adapter() >> call_counter() >> coins)
         .expect("every boundary matches");
-    let (outcomes, (_, (_, (calls, _)))): (_, (Statuses, (Statuses, (Calls, _)))) = chain
+    let (outcomes, (calls, _)): (_, (Calls, _)) = chain
         .run(program.to_static(Needs::default()), shot_set(&shots))
         .expect("the job fits the chain")
         .wait();
@@ -93,7 +93,7 @@ fn below_a_layer_only_an_upper_call_whose_lowering_reads_nothing_goes_below_on_i
     let coins = coin_device(bottom(&qodec).set.clone(), SEED);
     let chain = (static_driver() >> layer.adapter() >> call_counter() >> coins)
         .expect("every boundary matches");
-    let (outcomes, (_, (calls, _))): (_, (Statuses, (Calls, _))) = chain
+    let (outcomes, (calls, _)): (_, (Calls, _)) = chain
         .run(program.to_static(Needs::default()), shot_set(&shots))
         .expect("the job fits the chain")
         .wait();
@@ -127,7 +127,7 @@ fn below_repetition3_no_upper_call_sends_a_batch_beside_a_read() {
     let coins = coin_device(bottom(&qodec).set.clone(), SEED);
     let chain = (static_driver() >> layer.adapter() >> call_counter() >> coins)
         .expect("every boundary matches");
-    let (outcomes, (_, (calls, _))): (_, (Statuses, (Calls, _))) = chain
+    let (outcomes, (calls, _)): (_, (Calls, _)) = chain
         .run(program.to_static(Needs::default()), shot_set(&shots))
         .expect("the job fits the chain")
         .wait();
@@ -151,7 +151,7 @@ fn the_call_counter_sends_each_call_below_as_it_is() {
     let chain =
         (static_driver() >> layer.adapter() >> recorder() >> call_counter() >> recorder() >> coins)
             .expect("every boundary matches");
-    let (outcomes, (_, (over, (_, (under, _))))) = chain
+    let (outcomes, (over, (_, (under, _)))) = chain
         .run(program.to_static(Needs::default()), shot_set(&shots))
         .expect("the job fits the chain")
         .wait();
@@ -179,7 +179,7 @@ fn the_recorder_sends_each_call_below_as_it_is() {
     let layer = QodecLayer::new(&qodec, 0).expect("c422 plans");
     let chain = (static_driver() >> layer.adapter() >> recorder() >> recorder() >> coins)
         .expect("every boundary matches");
-    let (outcomes, (_, (over, (under, _)))) = chain
+    let (outcomes, (over, (under, _))) = chain
         .run(program.to_static(Needs::default()), shot_set(&shots))
         .expect("the job fits the chain")
         .wait();

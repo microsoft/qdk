@@ -39,14 +39,14 @@ use qodec_demo::coin::{coin_device, coin_device_on_threads};
 use qodec_demo::noisy_bits::simulator;
 use qodec_demo::profiler::{Profile, profiler};
 use qodec_demo::program::Program;
-use qodec_demo::qodec_layer::{QodecLayer, Statuses};
+use qodec_demo::qodec_layer::QodecLayer;
 use qodec_demo::recorder::{Sent, recorder};
 use qodec_demo::stack::on_the_stack;
 
 use common::waiting::bounded;
 use common::{
     CODE_SHOTS, FLIP, SEED, SHOTS, bottom, c4c6, c4c6_program, repetition3, repetition3_program,
-    shot_set, sorted, stim_rz,
+    shot_set, sorted, sorted_with_conditions, stim_rz,
 };
 
 /// The primary chain on c4c6, over `$device`: both layers, then the
@@ -60,7 +60,7 @@ macro_rules! primary_chain {
             .expect("every boundary matches");
         let program = c4c6_program(qodec).to_static(Needs::default());
         let shots: Vec<_> = CODE_SHOTS.collect();
-        let (outcomes, (_, (_, (profile, _)))): (_, (Statuses, (Statuses, (Profile, _)))) = chain
+        let (outcomes, (profile, _)): (_, (Profile, _)) = chain
             .run(program, shot_set(&shots))
             .expect("the job fits the chain")
             .wait();
@@ -69,32 +69,27 @@ macro_rules! primary_chain {
     }};
 }
 
-/// Repetition3 over the noisy bits answering later: its outcomes, its
-/// layer's statuses and the bits' report, and the shots in flight below
-/// the layer.
-fn repetition3_answering_later() -> (
-    Vec<ShotOutcome>,
-    Statuses,
-    ExecutorReport<()>,
-    Arc<InFlight>,
-) {
+/// Repetition3 over the noisy bits answering later: its outcomes, each
+/// marked with its result's status, the bits' report, and the shots in
+/// flight below the layer.
+fn repetition3_answering_later() -> (Vec<ShotOutcome>, ExecutorReport<()>, Arc<InFlight>) {
     let qodec = repetition3();
     let layer = QodecLayer::new(&qodec, 0).expect("repetition3 plans");
     let in_flight = Arc::new(InFlight::default());
     let bits = AnswersLater::new(simulator(stim_rz().set, SEED, FLIP), Arc::clone(&in_flight));
     let chain = (static_driver() >> layer.adapter() >> bits).expect("every boundary matches");
     let program = repetition3_program(&qodec).to_static(Needs::default());
-    let (outcomes, (statuses, report)) = chain
+    let (outcomes, report) = chain
         .run(program, shot_set(&SHOTS))
         .expect("the job fits the chain")
         .wait();
     let outcomes = outcomes.expect("the run succeeds");
-    (outcomes, statuses, report, in_flight)
+    (outcomes, report, in_flight)
 }
 
 /// Repetition3's run is the same whether the bits answer within their call
-/// or later: the outcomes, the layer's statuses and each shot's log
-/// probability.
+/// or later: the outcomes, each marked with its result's status, and each
+/// shot's log probability.
 #[test]
 fn repetition3_gives_the_same_run_over_a_backend_that_answers_later() {
     let qodec = repetition3();
@@ -102,14 +97,16 @@ fn repetition3_gives_the_same_run_over_a_backend_that_answers_later() {
     let chain = (static_driver() >> layer.adapter() >> simulator(stim_rz().set, SEED, FLIP))
         .expect("every boundary matches");
     let program = repetition3_program(&qodec).to_static(Needs::default());
-    let (within, (within_statuses, within_report)) = chain
+    let (within, within_report) = chain
         .run(program, shot_set(&SHOTS))
         .expect("the job fits the chain")
         .wait();
-    let (later, later_statuses, later_report, _) = repetition3_answering_later();
+    let (later, later_report, _) = repetition3_answering_later();
 
-    assert_eq!(sorted(later), sorted(within.expect("the run succeeds")));
-    assert_eq!(later_statuses, within_statuses);
+    assert_eq!(
+        sorted_with_conditions(later),
+        sorted_with_conditions(within.expect("the run succeeds"))
+    );
     assert_eq!(later_report.log_p, within_report.log_p);
 }
 
@@ -173,7 +170,7 @@ fn over_a_backend_that_answers_later_each_shot_runs_the_stacks_batches_in_order(
     );
     let chain = (static_driver() >> top.adapter() >> middle.adapter() >> recorder() >> coins)
         .expect("every boundary matches");
-    let (outcomes, (_, (_, (sent, _)))): (_, (Statuses, (Statuses, (Sent, _)))) = chain
+    let (outcomes, (sent, _)): (_, (Sent, _)) = chain
         .run(program.to_static(Needs::default()), shot_set(&shots))
         .expect("the job fits the chain")
         .wait();
@@ -324,7 +321,7 @@ fn a_program_holding_all_its_calls_runs_the_stacks_batches_in_order() {
         >> recorder()
         >> coins)
         .expect("every boundary matches");
-    let (outcomes, (_, (_, (sent, _)))): (_, (Statuses, (Statuses, (Sent, _)))) = chain
+    let (outcomes, (sent, _)): (_, (Sent, _)) = chain
         .run(AllCallsFirst(program), shot_set(&shots))
         .expect("the job fits the chain")
         .wait();
@@ -487,7 +484,7 @@ fn c4c6_calls_here() -> (Vec<(ShotId, u32, Value)>, Calls) {
         .expect("every boundary matches");
     let program = c4c6_program(&qodec).to_static(Needs::default());
     let shots: Vec<_> = CODE_SHOTS.collect();
-    let (outcomes, (_, (_, (calls, _)))): (_, (Statuses, (Statuses, (Calls, _)))) = chain
+    let (outcomes, (calls, _)): (_, (Calls, _)) = chain
         .run(program, shot_set(&shots))
         .expect("the job fits the chain")
         .wait();

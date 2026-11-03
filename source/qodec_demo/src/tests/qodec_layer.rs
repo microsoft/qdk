@@ -509,7 +509,7 @@ fn a_runtime_error_that_ran_nothing_fails_the_call_and_every_later_call() {
     let counted = UncheckedDriver.into_chain() >> layer().adapter() >> call_counter();
     let chain = (counted >> coin_device(bottom.clone(), 0x5EED)).expect("every boundary matches");
     let shot = ShotSet::new(vec![0]).expect("one shot");
-    let (ended, (_, (Calls(calls), _))) = (chain.run(Unchecked(program.clone()), shot))
+    let (ended, (Calls(calls), _)) = (chain.run(Unchecked(program.clone()), shot))
         .expect("the job fits the chain")
         .wait();
     assert_eq!(calls, 0, "precondition: the runtime sends nothing below");

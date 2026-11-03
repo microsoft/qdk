@@ -86,20 +86,19 @@ fn chain(case: &Case, shots: &ShotSet, profiled: bool) -> (Vec<ShotOutcome>, u64
         }};
     }
     match (case.layers, profiled) {
-        (1, false) => go!(static_driver() >> layer(0) >> coins(), |(_, r)| r
+        (1, false) => go!(static_driver() >> layer(0) >> coins(), |r| r
             .states
             .instructions()),
         (1, true) => go!(
             static_driver() >> layer(0) >> profiler() >> coins(),
-            |(_, (_, r))| r.states.instructions()
+            |(_, r)| r.states.instructions()
         ),
-        (2, false) => go!(
-            static_driver() >> layer(0) >> layer(1) >> coins(),
-            |(_, (_, r))| r.states.instructions()
-        ),
+        (2, false) => go!(static_driver() >> layer(0) >> layer(1) >> coins(), |r| r
+            .states
+            .instructions()),
         (2, true) => go!(
             static_driver() >> layer(0) >> layer(1) >> profiler() >> coins(),
-            |(_, (_, (_, r)))| r.states.instructions()
+            |(_, r)| r.states.instructions()
         ),
         (layers, _) => panic!("{}: {layers} layers", case.name),
     }

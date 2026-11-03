@@ -27,7 +27,7 @@ use qodec_demo::coin::coin_device;
 use qodec_demo::noisy_bits::{CX, M, R, ROTATE_Z, simulator};
 use qodec_demo::profiler::{Profile, profiler};
 use qodec_demo::program::Program;
-use qodec_demo::qodec_layer::{QodecLayer, Statuses};
+use qodec_demo::qodec_layer::QodecLayer;
 use qodec_demo::recorder::{Sent, recorder};
 use qodec_demo::stack::on_the_stack;
 
@@ -72,11 +72,11 @@ fn repetition3_profiled_below() -> (Vec<ShotOutcome>, Profile) {
     let chain = (static_driver() >> layer.adapter() >> profiler() >> simulator)
         .expect("every boundary matches");
     let program = repetition3_program(&qodec).to_static(Needs::default());
-    let (outcomes, report): (_, (Statuses, (Profile, ExecutorReport<()>))) = chain
+    let (outcomes, report): (_, (Profile, ExecutorReport<()>)) = chain
         .run(program, shot_set(&SHOTS))
         .expect("the job fits the chain")
         .wait();
-    (outcomes.expect("the run succeeds"), report.1.0)
+    (outcomes.expect("the run succeeds"), report.0)
 }
 
 /// Repetition3 with the profiler above the layer: its outcomes, the
@@ -91,7 +91,7 @@ fn repetition3_profiled_above() -> (Vec<ShotOutcome>, Profile, [Opcode; 4]) {
     let chain = (static_driver() >> profiler() >> layer.adapter() >> simulator)
         .expect("every boundary matches");
     let program = repetition3_program(&qodec).to_static(Needs::default());
-    let (outcomes, report): (_, (Profile, (Statuses, ExecutorReport<()>))) = chain
+    let (outcomes, report): (_, (Profile, ExecutorReport<()>)) = chain
         .run(program, shot_set(&SHOTS))
         .expect("the job fits the chain")
         .wait();
@@ -164,9 +164,8 @@ macro_rules! c422_below {
 /// profiler between them as without it.
 #[test]
 fn the_profiler_sends_each_call_below_as_it_is() {
-    let (_, (_, (calls, (sent, _)))): (Statuses, (Profile, (Calls, (Sent, _)))) =
-        c422_below!(profiler());
-    let (_, (without_calls, (without_sent, _))): (Statuses, (Calls, (Sent, _))) = c422_below!();
+    let (_, (calls, (sent, _))): (Profile, (Calls, (Sent, _))) = c422_below!(profiler());
+    let (without_calls, (without_sent, _)): (Calls, (Sent, _)) = c422_below!();
 
     assert!(without_calls.0 > 0, "the device was called");
     assert_eq!((calls, sent), (without_calls, without_sent));
@@ -219,7 +218,7 @@ fn below_two_layers_the_profiler_counts_the_runtimes_bottom_batches() {
         .expect("every boundary matches");
     let program = c4c6_one_batch_program(&qodec).to_static(Needs::default());
     let shots: Vec<_> = CODE_SHOTS.collect();
-    let (outcomes, (_, (_, (profile, _)))): (_, (Statuses, (Statuses, (Profile, _)))) = chain
+    let (outcomes, (profile, _)): (_, (Profile, _)) = chain
         .run(program, shot_set(&shots))
         .expect("the job fits the chain")
         .wait();
@@ -254,7 +253,7 @@ fn below_two_layers_the_profiler_counts_the_stacks_bottom_instructions() {
     let program = c4c6_program(&qodec);
     let top = QodecLayer::new(&qodec, 0).expect("c4c6 plans");
     let middle = QodecLayer::new(&qodec, 1).expect("c4c6 plans");
-    let (_, (_, (profile, _))): (Statuses, (Statuses, (Profile, _))) =
+    let (profile, _): (Profile, _) =
         report_of!(qodec, program, top.adapter() => middle.adapter() => profiler());
 
     assert_eq!(profile, stacks_bottom_profile(&qodec, &program));
@@ -298,8 +297,7 @@ fn below_c422s_layer_the_profiler_counts_the_stacks_bottom_instructions() {
     let qodec = c422();
     let program = c422_program(&qodec);
     let layer = QodecLayer::new(&qodec, 0).expect("c422 plans");
-    let (_, (profile, _)): (Statuses, (Profile, _)) =
-        report_of!(qodec, program, layer.adapter() => profiler());
+    let (profile, _): (Profile, _) = report_of!(qodec, program, layer.adapter() => profiler());
 
     assert_eq!(profile, stacks_bottom_profile(&qodec, &program));
 }
@@ -311,8 +309,7 @@ fn above_c422s_layer_the_profiler_counts_the_programs_instructions() {
     let qodec = c422();
     let program = c422_program(&qodec);
     let layer = QodecLayer::new(&qodec, 0).expect("c422 plans");
-    let (profile, _): (Profile, (Statuses, _)) =
-        report_of!(qodec, program, profiler() => layer.adapter());
+    let (profile, _): (Profile, _) = report_of!(qodec, program, profiler() => layer.adapter());
 
     assert_eq!(profile, programs_profile(&program));
 }
@@ -326,7 +323,7 @@ fn above_two_layers_the_profiler_counts_the_programs_instructions() {
     let program = c4c6_program(&qodec);
     let top = QodecLayer::new(&qodec, 0).expect("c4c6 plans");
     let middle = QodecLayer::new(&qodec, 1).expect("c4c6 plans");
-    let (profile, _): (Profile, (Statuses, (Statuses, _))) =
+    let (profile, _): (Profile, _) =
         report_of!(qodec, program, profiler() => top.adapter() => middle.adapter());
 
     assert_eq!(profile, programs_profile(&program));
@@ -342,7 +339,7 @@ fn two_profilers_in_one_chain_each_count_their_own_places_instructions() {
     let program = c4c6_program(&qodec);
     let top = QodecLayer::new(&qodec, 0).expect("c4c6 plans");
     let middle = QodecLayer::new(&qodec, 1).expect("c4c6 plans");
-    let (above, (_, (_, (below, _)))): (Profile, (Statuses, (Statuses, (Profile, _)))) = report_of!(
+    let (above, (below, _)): (Profile, (Profile, _)) = report_of!(
         qodec, program, profiler() => top.adapter() => middle.adapter() => profiler()
     );
 
@@ -463,7 +460,7 @@ fn the_profilers_totals_do_not_depend_on_how_the_calls_below_qodec_are_grouped()
     let coins = coin_device(bottom(&qodec).set.clone(), SEED);
     let chain = (static_driver() >> top.adapter() >> middle.adapter() >> profiler() >> coins)
         .expect("every boundary matches");
-    let (_, (_, (_, (by_the_layers, _)))): (_, (Statuses, (Statuses, (Profile, _)))) = chain
+    let (_, (by_the_layers, _)): (_, (Profile, _)) = chain
         .run(program.to_static(Needs::default()), shot_set(&shots))
         .expect("the job fits the chain")
         .wait();

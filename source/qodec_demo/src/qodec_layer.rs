@@ -64,15 +64,14 @@
 //! ([`QodecLayer::within`], QD4), and the assembly of the adapter from its
 //! parts.
 
-use std::collections::BTreeMap;
 use std::fmt;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use executor_protocol::{
-    AdapterError, AdapterFn, BelowHandle, CallInput, Fold, InstructionCall, OnePerShot,
+    AdapterError, AdapterFn, BelowHandle, CallInput, InstructionCall, OnePerShot,
     OnePerShotAdapter, Operand, Outcome, Outcomes, Owning, OwningAdapterLogic, Rejected,
-    ShotContext, ShotId, ShotOutcome, check_unique_tags, owning_adapter_fn,
+    ShotContext, ShotOutcome, check_unique_tags, owning_adapter_fn,
 };
 use qodec::Qodec;
 use qodec_runtime::{
@@ -81,7 +80,7 @@ use qodec_runtime::{
 };
 use smallvec::SmallVec;
 
-use crate::boundary::{Boundary, Ins, bit, opcode, value};
+use crate::boundary::{Boundary, Ins, bit, conditions, opcode, value};
 
 /// Layer `k` of a qodec, ready to be made an adapter
 /// ([`QodecLayer::adapter`]).
@@ -225,8 +224,11 @@ impl QodecLayer {
     /// the lower one. It refuses a call its set does not take, such as one
     /// on operands its instruction does not take, one that repeats a tag,
     /// and one on a block beyond [`QodecLayer::within`], before anything
-    /// runs. It reports each upper result's status
-    /// ([`Statuses`]), beside the report below.
+    /// runs. It marks each upper result's outcomes with the result's
+    /// status, as conditions, and the facility adds the conditions of the
+    /// outcomes the shot read below so far: the Qodec stack's statuses
+    /// (`c4c6_top_statuses_equal_the_qodec_stacks`), with no code in the
+    /// layer for those from below.
     ///
     /// It fails the call and the adapter on any error of the runtime: one
     /// that poisons it, and one that does not, which ran nothing, since an
@@ -246,7 +248,6 @@ impl QodecLayer {
         >,
         Owning<impl OwningAdapterLogic<InstructionCall, QodecShot>>,
         impl FnMut(&CallInput<'_, InstructionCall>) -> Result<(), Rejected>,
-        impl FnMut(&QodecShot) -> Statuses,
     > {
         self.one_state().shots(OnePerShot)
     }
@@ -271,7 +272,6 @@ impl QodecLayer {
         >,
         Owning<impl OwningAdapterLogic<InstructionCall, QodecShot>>,
         impl FnMut(&CallInput<'_, InstructionCall>) -> Result<(), Rejected>,
-        impl FnMut(&QodecShot) -> Statuses,
     > {
         let Self {
             plan,
@@ -284,7 +284,7 @@ impl QodecLayer {
         let checked = Arc::clone(&accepts);
         // [FACILITY:per-shot state] made at the shot's first call, over
         // the way below it owns (`owning_adapter_fn`, `.shots(OnePerShot)`).
-        let make = move |shot: ShotContext, below| {
+        let make = move |_: ShotContext, below| {
             let lower = Lower {
                 below,
                 sends: Arc::clone(&sends),
@@ -292,11 +292,9 @@ impl QodecLayer {
                 slots: Vec::new(),
             };
             Ok(QodecShot {
-                shot: shot.shot(),
                 accepts: Arc::clone(&accepts),
                 // [QODEC] the layer's state for one shot.
                 runtime: LayerRuntime::new(Rc::clone(&plan), &*decoder, lower),
-                statuses: Vec::new(),
             })
         };
         // [FACILITY:lifecycle] admitting a call, failing every later call
@@ -305,9 +303,6 @@ impl QodecLayer {
             .accepts(accepted)
             .sends(sent)
             .check(move |input| check(&checked, blocks, input.instructions()))
-            .state_report(|shot: &QodecShot| {
-                Statuses(BTreeMap::from([(shot.shot, shot.statuses.clone())]))
-            })
     }
 }
 
@@ -345,16 +340,13 @@ fn check(
 
 /// The layer on one shot.
 pub struct QodecShot {
-    shot: ShotId,
     accepts: Arc<Boundary>,
     runtime: LayerRuntime<usize, OwnedParam, BasicReadout, Lower>,
-    /// Each result's status, in order, by the tag of its first readout.
-    statuses: Vec<(u32, Status)>,
 }
 
 /// The logic of a shot: the call's instructions through the runtime, each
-/// result's bits written under the tags of the call it answers, and its
-/// status logged.
+/// result's bits written under the tags of the call it answers, marked
+/// with its status.
 ///
 /// # Errors
 ///
@@ -381,34 +373,15 @@ fn serve(
     for tags in tags.iter().filter(|t| !t.is_empty()) {
         let r = results.next().ok_or("fewer results than calls that read")?;
         let bits = r.outcomes().iter().chain(r.flags()).copied();
+        // [GLUE] the result's status, as conditions; the adapter adds
+        // those of the outcomes the shot read below so far.
+        let conditions = conditions(r.status());
         outcomes.extend(
-            tags.iter()
-                .zip(bits)
-                .map(|(&tag, b)| Outcome::new(tag, value(b))),
+            (tags.iter().zip(bits))
+                .map(|(&tag, b)| Outcome::new(tag, value(b)).with_conditions(conditions)),
         );
-        shot.statuses.push((tags[0], r.status()));
     }
     Ok(())
-}
-
-/// Each upper result's status, by shot: a shot's in the order of its
-/// results, each with the tag of its first readout. A tag a later call
-/// reuses keeps each result's status
-/// (`reused_readout_tags_keep_every_results_status`).
-///
-/// FRICTION (QD5): a `ShotOutcome` has no room for the Qodec runtime's
-/// `Status`, so it goes in the layer's report, read at close; and a lower
-/// layer's status does not reach the layer above as it does in the Qodec
-/// runtime's stack, which merges it into the upper results.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Statuses(pub BTreeMap<ShotId, Vec<(u32, Status)>>);
-
-impl Fold for Statuses {
-    /// Each shot's statuses are its state's alone, so the shots of two
-    /// reports differ.
-    fn fold(&mut self, other: Self) {
-        self.0.extend(other.0);
-    }
 }
 
 /// The backend below a layer: the way below one shot's state owns.
@@ -474,6 +447,9 @@ impl Backend<usize, OwnedParam, BasicReadout> for Lower {
                 results: SmallVec::new(),
             });
         }
+        // [FACILITY:conditions] the conditions of the outcomes read below
+        // are the adapter's to carry up: it marks with them the outcomes
+        // `serve` writes for the shot, in this call and later ones.
         let read = self.below.run(&self.calls).map_err(LowerError::Below)?;
         // [PLUMBING:map up] outcomes by tag, to results in order.
         self.slots.clear();
@@ -496,7 +472,6 @@ impl Backend<usize, OwnedParam, BasicReadout> for Lower {
                 let tag = u32::try_from(at + k).expect("fewer than 2^32 readouts");
                 bits.push(slot.ok_or(LowerError::Missing(tag))?);
             }
-            // FRICTION (QD5): the status below is lost; see `Statuses`.
             let (outs, flags) = bits.split_at(layout.observes);
             results.push(BasicReadout::new(outs, flags, Status::default()));
             at += layout.readouts;

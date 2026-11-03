@@ -22,34 +22,32 @@ use std::future::{Future, IntoFuture, poll_fn};
 use std::pin::Pin;
 
 use executor_protocol::{
-    ExecutorPlacement, ExecutorReport, Needs, OwnThread, PlacementJob, ShotId, Value, static_driver,
+    ExecutorPlacement, ExecutorReport, Needs, OwnThread, PlacementJob, ShotOutcome, static_driver,
 };
 use qodec_demo::coin::coin_device;
 use qodec_demo::noisy_bits::simulator;
 use qodec_demo::profiler::{Profile, profiler};
-use qodec_demo::qodec_layer::{QodecLayer, Statuses};
+use qodec_demo::qodec_layer::QodecLayer;
 
 use common::devices::Gate;
 use common::waiting::{bounded, join_all};
 use common::{
     CODE_SHOTS, DRAWS_FLIP, SEED, SHOTS, bottom, c4c6, c4c6_program, c422, c422_program,
-    repetition3, repetition3_program, shot_set, sorted, stim_rz,
+    repetition3, repetition3_program, shot_set, sorted_with_conditions, stim_rz,
 };
 
 /// What a run of c4c6's profiled chain gave: its outcomes, by shot and
-/// tag; each layer's statuses, the top's then the middle's; the
-/// profiler's totals; and what the coins ran.
+/// tag, each marked with its result's status; the profiler's totals; and
+/// what the coins ran.
 #[derive(Debug, PartialEq)]
 struct Ran {
-    outcomes: Vec<(ShotId, u32, Value)>,
-    top: Statuses,
-    middle: Statuses,
+    outcomes: Vec<ShotOutcome>,
     profile: Profile,
     device: ExecutorReport<Profile>,
 }
 
-/// The report of c4c6's profiled chain, layers first.
-type Report = (Statuses, (Statuses, (Profile, ExecutorReport<Profile>)));
+/// The report of c4c6's profiled chain.
+type Report = (Profile, ExecutorReport<Profile>);
 
 impl Ran {
     fn new(
@@ -57,14 +55,12 @@ impl Ran {
             Vec<executor_protocol::ShotOutcome>,
             executor_protocol::StaticProgramError,
         >,
-        (top, (middle, (profile, device))): Report,
+        (profile, device): Report,
     ) -> Self {
-        let outcomes = sorted(outcomes.expect("the run succeeds"));
+        let outcomes = sorted_with_conditions(outcomes.expect("the run succeeds"));
         assert!(!outcomes.is_empty(), "the program reads");
         Self {
             outcomes,
-            top,
-            middle,
             profile,
             device,
         }
@@ -175,12 +171,13 @@ fn c4c6_gives_the_same_run_awaited_as_waited() {
     assert_eq!(awaited, expected);
 }
 
-/// What a run gave: its outcomes, by shot and tag, and its top layer's
-/// statuses, which differ between the simulator's draws at `DRAWS_FLIP`.
-type OutcomesAndStatuses = (Vec<(ShotId, u32, Value)>, Statuses);
+/// What a run gave: its outcomes, by shot and tag, each marked with its
+/// result's status, which differ between the simulator's draws at
+/// `DRAWS_FLIP`.
+type MarkedOutcomes = Vec<ShotOutcome>;
 
-/// A run's future, its output mapped to [`OutcomesAndStatuses`].
-type Running = Pin<Box<dyn Future<Output = OutcomesAndStatuses>>>;
+/// A run's future, its output mapped to [`MarkedOutcomes`].
+type Running = Pin<Box<dyn Future<Output = MarkedOutcomes>>>;
 
 /// A thread of its own, on which each job waits at `gate` first: a placed
 /// executor answers no call until the test opens it.
@@ -219,8 +216,8 @@ fn runs(gate: &Gate) -> Vec<Running> {
                 .run($program(&qodec).to_static(Needs::default()), shot_set($shots))
                 .expect("the job fits the chain");
             Box::pin(async move {
-                let (outcomes, (statuses, _)) = run.into_future().await;
-                (sorted(outcomes.expect("the run succeeds")), statuses)
+                let (outcomes, _) = run.into_future().await;
+                sorted_with_conditions(outcomes.expect("the run succeeds"))
             }) as Running
         }};
     }
@@ -280,10 +277,7 @@ fn runs_awaited_together_on_one_thread_each_give_what_they_give_alone() {
             .collect();
         (together, alone)
     });
-    assert!(
-        alone.iter().all(|(o, _)| !o.is_empty()),
-        "every program reads"
-    );
-    assert_ne!(alone[2].1, alone[3].1, "the two seeds draw differently");
+    assert!(alone.iter().all(|o| !o.is_empty()), "every program reads");
+    assert_ne!(alone[2], alone[3], "the two seeds draw differently");
     assert_eq!(together, alone);
 }

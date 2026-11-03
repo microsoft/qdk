@@ -66,7 +66,7 @@ let chain = (static_driver() >> top.adapter() >> middle.adapter() >> profiler() 
     .expect("every boundary matches");
 let program = c4c6_one_batch_program(&qodec).to_static(Needs::default());
 let shots: Vec<_> = CODE_SHOTS.collect();
-let (outcomes, (_, (_, (profile, _)))): (_, (Statuses, (Statuses, (Profile, _)))) = chain
+let (outcomes, (profile, _)): (_, (Profile, _)) = chain
     .run(program, shot_set(&shots))
     .expect("the job fits the chain")
     .wait();
@@ -204,8 +204,13 @@ Q65 and Q67 to Q69 name the [open questions](#open-questions).
 
 - [The chain gives the stack's
   outcomes](docs/findings.md#the-chain-gives-the-stacks-outcomes) on
-  repetition3, c422 and c4c6, c4c6's bottom batches in the stack's order,
-  and a layer's report keeps every upper result's status.
+  repetition3, c422 and c4c6, and c4c6's bottom batches in the stack's
+  order.
+- [The chain gives the stack's
+  statuses](docs/findings.md#the-chain-gives-the-stacks-statuses): each
+  outcome carries its result's status as the shot's conditions, the
+  status from below included, with no code in the layer for it (QD5,
+  built).
 - [Composition and
   determinism](docs/findings.md#composition-and-determinism): `>>` is
   associative, a run awaited gives the same run as waited, and runs
@@ -265,23 +270,23 @@ renumbers. Its check of one shot a call is gone: a state per shot serves
 one shot by construction.
 
 What is left for a runtime's authors to write, in code lines (neither blank
-nor comment) of `src/qodec_layer.rs`, 283 in all, and `src/boundary.rs`, 150:
+nor comment) of `src/qodec_layer.rs`, 265 in all, and `src/boundary.rs`, 172:
 
 | What                                                                        | Lines |
 | --------------------------------------------------------------------------- | ----- |
 | `[QODEC]`: the runtime's plan, decoder, state and call                      | 14    |
-| `[GLUE]`: the layer's conversions, besides `boundary.rs`                    | 13    |
+| `[GLUE]`: the layer's conversions, besides `boundary.rs`                    | 12    |
 | The layer's policy on the blocks below (`within`, QD4)                      | 32    |
 | `[PLUMBING:map up]`: outcomes by tag to results in order, both ways         | 34    |
 | `[PLUMBING:checks]`: the set and unique tags, at each call                  | 15    |
 | `[PLUMBING:errors]`: `LowerError`                                           | 15    |
-| The statuses' carrier (`Statuses`, finding QD5)                             | 13    |
+| The status: each result's, on its outcomes (QD5)                            | 1     |
 | `[FACILITY:per-shot state]`: making a shot's state over its way below       | 12    |
 | `[FACILITY:call and wait]`: sending or running a batch below                | 7     |
 | `[FACILITY:lifecycle]`: admitting, failing and closing                      | 0     |
 | `[FACILITY:numbering]`: the numbering below                                 | 0     |
-| Assembly: the types, the builder, two spelled adapter types (30), accessors | 109   |
-| Imports, and the unit tests' module                                         | 19    |
+| Assembly: the types, the builder, two spelled adapter types (28), accessors | 105   |
+| Imports, and the unit tests' module                                         | 18    |
 
 The builder's refusal of the bottom layer (6 lines), and its report of
 every fault the build finds in one refusal (9 lines), are in the assembly.
@@ -291,14 +296,14 @@ took about 73 of them: the per-shot bridge (`Apply`, 21); the numbering
 and the adapter's build, but for its need of resumable shots and its offers,
 which the facility does not take (a finding below) (30); the lifecycle
 (admit, fail on a poisoned runtime, close: 14); and the call and wait (8).
-That leaves about 168; this layer's 283 are about 115 more. Using the
+That leaves about 168; this layer's 265 are about 97 more. Using the
 facility takes 19 (the two non-zero `[FACILITY]` rows above, 12 + 7). The
 prototype has no policy on the blocks below (32) and does not spell the
-facility's adapter types (30: one state and a state per shot); it stops at
+facility's adapter types (28: one state and a state per shot); it stops at
 the first of the plan, the decoder and the sets that fails, where this
 layer reports every fault (9); and it indexes past the bottom layer, which
-this layer refuses (6). With the 19, that comes to 96 of the 115. The
-other 19 or so are what the subtraction leaves, not a count: the other
+this layer refuses (6). With the 19, that comes to 94 of the 97. The
+other 3 or so are what the subtraction leaves, not a count: the other
 rows of the table, which the prototype has too, differ from its code by
 about that much in all.
 
@@ -309,11 +314,6 @@ Each finding is pinned by an ignored test that states what should hold.
 and [docs/open-questions.md](docs/open-questions.md) the questions they
 raise.
 
-- [The status from below is
-  lost](docs/findings.md#the-status-from-below-is-lost)
-  ([QD5](docs/open-questions.md#qd5-a-status-a-condition-and-a-failure-from-below)):
-  a `ShotOutcome` has no room for a status, so c4c6's top results lack the
-  middle's `unresolved`.
 - [The layer cannot leave a backend that answers later
   free](docs/findings.md#the-layer-cannot-leave-a-backend-that-answers-later-free)
   ([QD1](docs/open-questions.md#qd1-calling-below-more-than-once-in-a-call)):
@@ -344,7 +344,7 @@ Other frictions are marked `FRICTION` in the code:
 ## Open questions
 
 The design questions the demo's docs cite, each open but for QD5's
-carrier, decided in principle and planned, not built. QD1–QD5 are written
+carrier, which is built (the protocol's `ShotConditions`). QD1–QD5 are written
 out, with the cases that raise them and the ways out, in
 [docs/open-questions.md](docs/open-questions.md):
 
@@ -361,7 +361,8 @@ out, with the cases that raise them and the ways out, in
   above, and what it needs below
   ([QD4](docs/open-questions.md#qd4-what-a-layer-states-when-the-chain-is-built)).
 - **QD5**: how a status from below, a recoverable condition, and a failure
-  reach the layer above
+  reach the layer above; the status and the condition ride on each
+  outcome, as the shot's conditions (built), and the failure side is open
   ([QD5](docs/open-questions.md#qd5-a-status-a-condition-and-a-failure-from-below)).
 - **QD6**: the facility's names, and whether `>>` stays associative.
 - **Q65**: what the layer's blocking (QD1, mode (c)) costs an async

@@ -27,19 +27,41 @@ In [`tests/repetition3.rs`](../tests/repetition3.rs) and
 The bottom instructions are the stack's too, batch by batch and in order
 (`c4c6_runs_the_qodec_stacks_bottom_batches_in_order`).
 
-A layer's report keeps every upper result's status, in order, as the
-stack gives them, also when a later call reuses a readout tag
-(`c422_reports_the_qodec_stacks_statuses`;
-`reused_readout_tags_keep_every_results_status`, in
-`tests/repetition3.rs`); c4c6's middle layer reports, in order, one
-status for each instruction the top layer sends it that reads
-(`c4c6_middle_report_keeps_every_upper_results_status`).
+### The chain gives the stack's statuses
+
+Each layer marks each result's outcomes with its runtime's status, as
+the shot's conditions (`ShotConditions`), and the adapter facility adds,
+with no code in the layer, the conditions of the outcomes the shot read
+below so far. Each outcome then carries the status the stack gives its
+result: a shot's conditions are sticky, as a runtime's status is within a
+shot, and the stack's top runtime takes the status from the runtime
+below into its results. In c4c6 the middle raises `unresolved` during the
+idles, and every later result carries it
+(`c4c6_middle_raises_unresolved_in_the_idles_and_every_later_result_carries_it`).
+
+- repetition3 (`the_chain_gives_the_qodec_stacks_statuses`, in
+  `tests/repetition3.rs`), also when a later call reuses a readout tag:
+  each call's reply carries its own result's status
+  (`reused_readout_tags_keep_every_results_status`);
+- c422, one layer (`c422_gives_the_qodec_stacks_statuses`);
+- c4c6, two layers: the top results carry the `unresolved` the middle
+  layer raises (`c4c6_top_statuses_equal_the_qodec_stacks`), and a lost
+  bottom readout comes up as a `Value::Missing`, which the top runtime
+  takes as an unresolved bit
+  (`a_lost_readout_reaches_c4c6s_top_as_a_value`).
+
+Below the top layer, an observer sees the middle layer mark each shot's
+outcomes `unresolved` (`c4c6_middle_raises_unresolved_on_every_shot`),
+and each of a shot's results keeps its status on its own reply, though
+the top layer reuses its tags below in each batch
+(`the_middle_layer_gives_a_status_per_result_of_each_shot`). These are
+in [`tests/stacked_codes.rs`](../tests/stacked_codes.rs).
 
 ### Composition and determinism
 
 In [`tests/determinism.rs`](../tests/determinism.rs). With the same seed,
-c4c6's profiled chain gives the same outcomes, statuses, profiler totals
-and device report in each of these cases.
+c4c6's profiled chain gives the same outcomes, each with its conditions,
+profiler totals and device report in each of these cases.
 
 - `>>` is associative: the two layers composed first, or the layers and
   the profiler, or the profiler and the coins as one executor, give the
@@ -49,7 +71,8 @@ and device report in each of these cases.
 - The run awaited gives the same run as waited
   (`c4c6_gives_the_same_run_awaited_as_waited`).
 - Runs of c4c6, c422 and repetition3 (two seeds), awaited together on
-  one thread, each give the outcomes and top statuses they give alone
+  one thread, each give the outcomes, with their conditions, they give
+  alone
   (`runs_awaited_together_on_one_thread_each_give_what_they_give_alone`).
 - A shot gives the same outcomes alone as among others
   (`a_shot_of_c4c6_gives_the_same_outcomes_alone`, in
@@ -366,25 +389,6 @@ votes, still writes its own reply, and `adapter_fn` and
 
 Each finding states what it shows, the tests that pin how the demo
 behaves today, and the ignored test that states what should hold.
-
-### The status from below is lost
-
-[QD5](open-questions.md#qd5-a-status-a-condition-and-a-failure-from-below),
-in [`tests/stacked_codes.rs`](../tests/stacked_codes.rs).
-
-- In the stack, a lower layer's status merges into later upper results.
-  In c4c6 the middle raises `unresolved` during the idles, and every
-  later result carries it
-  (`c4c6_middle_raises_unresolved_in_the_idles_and_every_later_result_carries_it`).
-- In a chain, a `ShotOutcome` has no room for a status. Each layer's
-  statuses therefore go in its own report (`Statuses`:
-  `c422_reports_the_qodec_stacks_statuses`,
-  `c4c6_middle_statuses_are_in_the_middle_layers_report`), and c4c6's
-  top results lack `unresolved`
-  (`c4c6_top_statuses_lack_the_status_from_below`).
-
-Ignored: `c4c6_top_statuses_equal_the_qodec_stacks`, the chain's top
-statuses equal to the stack's.
 
 ### The layer cannot leave a backend that answers later free
 

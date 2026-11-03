@@ -256,14 +256,14 @@ macro_rules! layered {
                 program,
                 $shots,
                 $wait,
-                |(_, (_, (calls, _)))| calls
+                |(_, (calls, _))| calls
             ),
             2 => go!(
                 static_driver() >> layer(0) >> layer(1) >> profiler() >> call_counter() >> $device,
                 program,
                 $shots,
                 $wait,
-                |(_, (_, (_, (calls, _))))| calls
+                |(_, (calls, _))| calls
             ),
             layers => panic!("{}: {layers} layers", case.name),
         }

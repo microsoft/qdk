@@ -16,11 +16,11 @@
 use std::sync::Arc;
 
 use executor_protocol::{
-    InstructionCall, InstructionSet, Opcode, Operand, OperandKind, ReadoutFailure, ShotId,
-    ShotOutcome, Value,
+    InstructionCall, InstructionSet, Opcode, Operand, OperandKind, ReadoutFailure, ShotConditions,
+    ShotId, ShotOutcome, Value,
 };
 use qodec::ParameterKind;
-use qodec_runtime::{BackendInstruction, Bit, OwnedParam};
+use qodec_runtime::{BackendInstruction, Bit, OwnedParam, Status};
 use smallvec::SmallVec;
 
 /// The Qodec runtime's instruction, by index in its ISA.
@@ -221,6 +221,34 @@ pub fn bit(value: Value) -> Bit {
         Value::Zero => Some(false),
         Value::One => Some(true),
         Value::Missing(_) => None,
+    }
+}
+
+/// The Qodec runtime's status as the protocol's conditions: field for
+/// field, since both name the same three conditions.
+#[must_use]
+pub fn conditions(status: Status) -> ShotConditions {
+    let mut conditions = ShotConditions::NONE;
+    if status.rejected {
+        conditions |= ShotConditions::REJECTED;
+    }
+    if status.inconsistent {
+        conditions |= ShotConditions::INCONSISTENT;
+    }
+    if status.unresolved {
+        conditions |= ShotConditions::UNRESOLVED;
+    }
+    conditions
+}
+
+/// The protocol's conditions as the Qodec runtime's status: the inverse of
+/// [`conditions`].
+#[must_use]
+pub fn status(conditions: ShotConditions) -> Status {
+    Status {
+        rejected: conditions.contains(ShotConditions::REJECTED),
+        inconsistent: conditions.contains(ShotConditions::INCONSISTENT),
+        unresolved: conditions.contains(ShotConditions::UNRESOLVED),
     }
 }
 

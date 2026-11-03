@@ -67,7 +67,7 @@ fn on_the_bits(
     let bits = simulator(stim_rz().set, SEED, 0.0);
     let chain =
         (static_driver() >> layer.adapter() >> recorder() >> bits).expect("every boundary matches");
-    let (outcomes, (_, (sent, _))) = chain
+    let (outcomes, (sent, _)) = chain
         .run(program.to_static(needs), shot_set(&SHOTS))
         .expect("the job fits the chain")
         .wait();

@@ -176,7 +176,7 @@ macro_rules! measured {
                 let chain =
                     (static_driver() >> layer(0) >> call_counter() >> recorder() >> $device)
                         .expect("every boundary matches");
-                let (outcomes, (_, (calls, (sent, _)))) = chain
+                let (outcomes, (calls, (sent, _))) = chain
                     .run(program, $shots.clone())
                     .expect("the job fits the chain")
                     .wait();
@@ -190,7 +190,7 @@ macro_rules! measured {
                     >> recorder()
                     >> $device)
                     .expect("every boundary matches");
-                let (outcomes, (_, (_, (calls, (sent, _))))) = chain
+                let (outcomes, (calls, (sent, _))) = chain
                     .run(program, $shots.clone())
                     .expect("the job fits the chain")
                     .wait();
