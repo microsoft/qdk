@@ -117,12 +117,14 @@ pub struct ExecutorFn<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)>
 /// makes, and which offers what `promise` states, changed as below
 /// ([`ExecutorFn`]).
 ///
-/// - `promise` is what the executor offers ([`Describe`]), changed in two
+/// - `promise` is what the executor offers ([`Describe`]), changed in three
 ///   ways only: it offers [`log_probability`](Capabilities::log_probability)
 ///   exactly when [`ExecutorFn::log_probability`] gives it how to read a
-///   state's, whatever `promise` says; and without a shot strategy
+///   state's, whatever `promise` says; without a shot strategy
 ///   ([`ExecutorFn::shots`]), it lowers [`max_shots`](Capabilities::max_shots)
-///   to at most one.
+///   to at most one; and it carries the run's seed given with
+///   [`ExecutorFn::seed`], none without it, whatever `promise` carries,
+///   which an adapter that draws above it reads when the chain is built.
 /// - `make_state` makes the state a shot's calls run on, the executor's
 ///   working state (a simulator's qubits), from the context of the shot it
 ///   is made for, lazily, at the first call that needs it
@@ -560,7 +562,8 @@ where
 impl<I, S, M, P, C, L, R> Describe for ExecutorFn<I, S, M, P, C, L, R> {
     /// The promise, lowered to one shot, with `log_probability` exactly when
     /// it is given how to read a state's log probability
-    /// ([`ExecutorFn::log_probability`]), whatever the promise says.
+    /// ([`ExecutorFn::log_probability`]), whatever the promise says, and
+    /// the run's seed it is given ([`ExecutorFn::seed`]), none without it.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             max_shots: Some(self.promise.max_shots.map_or(1, |max| max.min(1))),

@@ -78,7 +78,8 @@ impl<T, L> ChainPrefix<T, L> {
 /// A driver of several program types names one of them,
 /// `DriverExt::<P>::into_chain(runtime)`, only so that the call resolves:
 /// the call alone does not say which impl it means. The chain runs any
-/// program the driver drives.
+/// program the driver drives in the instructions the chain sends (a bound
+/// of [`Chain::run`] the compiler checks).
 ///
 /// A type that drives no program has no `into_chain`:
 ///

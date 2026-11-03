@@ -40,7 +40,8 @@ A driver, the adapters downstream of it and an executor are put together by
   makes one of any driver (the trait `DriverExt`, in scope), and a driver of
   several program types names one of them,
   `DriverExt::<P>::into_chain(runtime)`, only so that the call resolves;
-  the chain runs any program the driver drives. A prefix with adapters below it is a
+  the chain runs any program the driver drives in the instructions the chain
+  sends (the compiler checks it). A prefix with adapters below it is a
   `ChainPrefix` still, not a `Driver<P>` (planned:
   [Planned features](planned.md)). Composed with the executor, a prefix makes
   a `Chain`, which runs the job given
@@ -139,8 +140,10 @@ with a branch on a readout, has a driver of its own
 
 - **The job is checked when given, before any call**: its shots, its program's
   needs with what its driver adds ([below](#needs-combined)) and its program's
-  calls, every fault together (`JobFaults`), but for shots named twice: of
-  several, only the least is reported.
+  calls as far as its driver checks them (`Driver::check`, which checks
+  nothing by default; the crate's driver refuses a call outside the
+  program's set, and a tag read twice), every fault together (`JobFaults`),
+  but for shots named twice: of several, only the least is reported.
 - **A job calls only its own shots**: a call on another is refused before the
   executor sees it.
 - **The run gives the program's output with the executor's report** (for a

@@ -78,14 +78,21 @@ steps:
 `executor_fn(promise, make_state, logic)` makes an executor (`ExecutorFn`)
 from the implementer's logic alone:
 
-- `promise` is what the executor offers (`Describe`), changed in two ways
+- `promise` is what the executor offers (`Describe`), changed in three ways
   only. It offers `log_probability` exactly when `.log_probability` (below)
   gives it how to read a state's, whatever `promise` says
-  (`log_probability_is_promised_only_when_a_function_gives_it`); and without
-  a shot strategy, it lowers `max_shots` to at most one (below). The rest is
-  offered as given, under `OnePerShot` too
-  (`describes_the_promise_as_given`), and wherever it is
-  placed (`a_placed_executor_promises_what_the_executor_it_places_does`).
+  (`log_probability_is_promised_only_when_a_function_gives_it`); without
+  a shot strategy, it lowers `max_shots` to at most one (below); and it
+  carries the run's seed given with `.seed(s)`, none without it, whatever
+  `promise` carries
+  (`an_executor_given_no_seed_gives_none_whatever_its_promise_carries`, in
+  `src/tests/facilities/executor_fn.rs`), which an adapter that draws above
+  it reads when the chain is built
+  (`an_adapter_reads_when_built_the_runs_seed_the_last_executor_is_given`,
+  in `src/tests/adapter/boundary.rs`; `.seed`, below). The rest is offered
+  as given, under `OnePerShot` too
+  (`describes_the_promise_as_given`), and wherever it is placed
+  (`a_placed_executor_promises_what_the_executor_it_places_does`).
 - `make_state` makes the state a shot's calls run on, the executor's
   working state (a simulator's qubits), from the context (`ShotContext`)
   of the shot it is made for, lazily, at the first call that needs it. An

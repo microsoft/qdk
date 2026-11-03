@@ -248,7 +248,7 @@ impl<X: UpstreamOf<E>, E> Compose<E, WithExecutor> for X {
     type Output = Result<X::Output, BuildFaults>;
 
     fn compose(self, executor: E) -> Self::Output {
-        self.upstream_of(executor, |_| Vec::new())
+        self.upstream_of(executor, |_| ())
     }
 }
 
@@ -275,7 +275,6 @@ impl<T, L: UpstreamOf<E>, E> Compose<E, WithExecutor> for ChainPrefix<T, L> {
         let mut offered = None;
         let executor = adapters.upstream_of(executor, |capabilities| {
             offered = Some(capabilities.clone());
-            Vec::new()
         })?;
         let offered = offered.expect("adapters give what the chain offers to what is upstream");
         Ok(Chain::new(driver, executor, offered))

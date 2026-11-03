@@ -29,10 +29,10 @@ pub type CallId = u64;
 /// a link, and the work may have run ([`Rejected::NoReply`], or an
 /// [`Rejected::Unrecognized`] reason that the far end classed so). Matching
 /// the class rather than the reason is what lets a caller act on a reason it
-/// does not know. A reason of another class is given before any work started
-/// (by the executor, or by [`ShotSet::new`](crate::ShotSet::new) when the
-/// message is built), so a caller can match it and decide what to do. A run
-/// that started and could not finish is not a rejection: its reply ends with
+/// does not know. A reason of another class is given before any work
+/// started, as each source of a refusal documents, so a caller can match it
+/// and decide what to do. A run that started and could not finish is not a
+/// rejection: its reply ends with
 /// [`ReplyStatus::Failed`](crate::ReplyStatus::Failed).
 ///
 /// Each reason has a fixed code ([`reason_code`](crate::reason_code)), so

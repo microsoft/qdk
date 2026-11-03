@@ -117,12 +117,11 @@ what they belong to; the names in code are the crate's.
   shot of its job; it decides nothing on its outcomes, and a batch refused
   or failed stops it
   ([A chain and its job](composition.md#a-chain-and-its-job)).
-- **Run** (`Run`): a `Chain` given a job. It owns the chain and
-  runs nothing until it is waited for; then its driver drives the program,
-  the run passes the calls on and closes the executor, once, when the
-  driver is done; a run
-  dropped or unwound before then, and a `Chain` dropped without a job or
-  whose job is refused, do not close it
+- **Run** (`Run`): a `Chain` given a job. It owns the chain and runs
+  nothing until it is waited for or awaited; then its driver drives the
+  program, the run passes the calls on and closes the executor, once, when
+  the driver is done; a run dropped or unwound before then, and a `Chain`
+  dropped without a job or whose job is refused, do not close it
   ([A run](protocol.md#a-run),
   [An executor's whole life](executors.md#an-executors-whole-life),
   [Known limits](internals/composition.md#a-run-closes-its-executor-only-when-its-driver-ends)).

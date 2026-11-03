@@ -115,24 +115,21 @@ pub trait UpstreamOf<E>: Adapters {
 
     /// These adapters upstream of `executor`, built against it starting at
     /// the executor and going upstream. `upstream` is given what the chain
-    /// offers, and returns the faults of what composes upstream of it,
-    /// reported first (a chain's prefix reports none: a job's needs
-    /// are checked when the job is given to the chain).
+    /// offers to what composes upstream of it (a chain's prefix keeps it,
+    /// to check a job's needs when the job is given to the chain).
     ///
     /// # Errors
     ///
-    /// [`BuildFaults`]: every fault, `upstream`'s first, then each
-    /// adapter's that cannot be built against what is downstream of it,
-    /// the most upstream adapter's first.
+    /// [`BuildFaults`]: each adapter's fault that cannot be built against
+    /// what is downstream of it, the most upstream adapter's first.
     fn upstream_of(
         self,
         executor: E,
-        upstream: impl FnOnce(&Capabilities) -> Vec<BuildFault>,
+        upstream: impl FnOnce(&Capabilities),
     ) -> Result<Self::Output, BuildFaults>;
 }
 
-/// Adapters upstream of an executor, if neither they nor what composes
-/// upstream of them (`upstream`) has a fault.
+/// Adapters upstream of an executor, if none of them has a fault.
 impl<X, E> UpstreamOf<E> for X
 where
     X: Adapters,
@@ -144,16 +141,15 @@ where
     fn upstream_of(
         self,
         executor: E,
-        upstream: impl FnOnce(&Capabilities) -> Vec<BuildFault>,
+        upstream: impl FnOnce(&Capabilities),
     ) -> Result<Self::Output, BuildFaults> {
         let mut faults = Vec::new();
         let (built, offered) = self.build_each(executor.capabilities(), &mut faults);
-        let mut every = upstream(&offered);
-        every.append(&mut faults);
-        if every.is_empty() {
+        upstream(&offered);
+        if faults.is_empty() {
             Ok(built.put_upstream_of(executor))
         } else {
-            Err(BuildFaults(every))
+            Err(BuildFaults(faults))
         }
     }
 }

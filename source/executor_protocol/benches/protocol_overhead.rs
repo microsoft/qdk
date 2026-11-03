@@ -22,8 +22,8 @@
 //!   type, called directly: the baseline.
 //! - **typed per-shot**: that profiler as the state of each shot of an
 //!   executor made with [`executor_fn`] under [`OnePerShot`], run on one
-//!   shot by a run ([`compose`] of the program's driver, [`InChunks`],
-//!   with the executor, given the program as a job, then
+//!   shot by a run ([`compose`] of the driver [`InChunks`] with the
+//!   executor, given the program as a job, then
 //!   [`Run::wait`](executor_protocol::Run::wait); [`per_shot_run`]): the
 //!   executor makes the shot's state at its first call, and is closed at
 //!   the end.

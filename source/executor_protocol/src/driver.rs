@@ -95,9 +95,12 @@ pub trait Driver<P: Program> {
     /// run closes it once this future has ended.
     ///
     /// A synchronous driver writes it as an `async fn` that takes each
-    /// reply with [`wait`](crate::wait); an asynchronous one awaits them
-    /// ([`wait_async`](crate::wait_async)). Either runs on a [`Run`],
-    /// waited for or awaited.
+    /// reply with [`wait`](crate::wait), which parks the thread until the
+    /// reply ends, so that its run, even awaited, holds its thread while
+    /// each reply is pending; an asynchronous one awaits them
+    /// ([`wait_async`](crate::wait_async)), so that its run awaited leaves
+    /// its thread to other tasks meanwhile, as the crate's driver does.
+    /// Either runs on a [`Run`], waited for or awaited.
     fn drive<E>(
         &self,
         program: P,

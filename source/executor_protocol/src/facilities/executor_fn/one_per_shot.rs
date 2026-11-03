@@ -324,7 +324,8 @@ where
 impl<I, S, M, P, C, L, R> Describe for OnePerShotExecutor<I, S, M, P, C, L, R> {
     /// The promise as given, but with `log_probability` exactly when it is
     /// given how to read a state's log probability
-    /// ([`ExecutorFn::log_probability`]), whatever the promise says.
+    /// ([`ExecutorFn::log_probability`]), whatever the promise says, and
+    /// the run's seed it is given ([`ExecutorFn::seed`]), none without it.
     fn capabilities(&self) -> Capabilities {
         described(&self.promise, self.log_probability.as_ref(), self.seed)
     }

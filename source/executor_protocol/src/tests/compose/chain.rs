@@ -11,11 +11,11 @@ use crate::tests::{
     resetting_bits_set, reversed_set, shots, values,
 };
 use crate::{
-    BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix, Driver, DriverExt, Executor,
-    ExecutorFn, ExecutorLogic, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionMismatch, InstructionSet, JobFaults, MakeState, Need, Needs, NoAdapter, Opcode,
-    Operand, Outcomes, Program, Rejected, ShotId, ShotSet, StaticProgram, Value, driver,
-    executor_fn, wait_async,
+    Action, BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix, Driver, DriverExt,
+    Executor, ExecutorFn, ExecutorLogic, Instruction, InstructionBatch, InstructionBatchRef,
+    InstructionCall, InstructionMismatch, InstructionSet, JobFaults, MakeState, Need, Needs,
+    NoAdapter, Opcode, Operand, Outcomes, Pauli, Program, Rejected, ShotId, ShotSet, StaticProgram,
+    Value, driver, executor_fn, wait_async,
 };
 
 /// [`flip_and_toss`] as a static program in `set`'s numbering, needing
@@ -695,6 +695,118 @@ fn sets_of_one_name_in_another_order_are_different_sets() {
         "{sets}"
     );
     assert!(sets.component.contains("AddsNeeds"), "{sets}");
+}
+
+/// A runtime that numbers its calls by the reversed set, and also needs
+/// three qubits and resets, driving a program in the bits' set on the two
+/// bits, which reset nothing: the different sets, the qubits and the resets
+/// are all reported, so that a conflict of sets hides none of the needs the
+/// driver adds.
+#[test]
+fn different_sets_do_not_hide_the_needs_the_driver_adds() {
+    let added = Needs::default()
+        .with_instruction_set(Some(Arc::new(reversed_set())))
+        .with_qubits(3)
+        .with_resets(true);
+    let chain = (adding(added) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+        .expect("the bits run calls by opcode");
+    let Err(JobFaults(faults)) = chain.run(flip_and_toss_in(bits_set(), None), [2]) else {
+        panic!("different sets, three qubits and resets must be refused");
+    };
+    let faults: Vec<_> = faults.iter().map(unmet).collect();
+    assert_eq!(
+        faults,
+        [
+            Some((Need::InstructionSet, 2, 1)),
+            Some((Need::Qubits, 3, 2)),
+            Some((Need::Resets, 1, 0)),
+        ]
+    );
+}
+
+/// A program in the bits' set, or one stating an empty set and making no
+/// call, driven by a runtime that states the bits' set with a reset
+/// appended: the program's set numbers its calls as the driver's would,
+/// yet the two are different sets, refused as such, naming the driver.
+#[test]
+fn a_programs_set_that_the_drivers_extends_is_a_different_set() {
+    let extended = InstructionSet::new("bits")
+        .with("coin", [Block])
+        .with("x", [Block])
+        .with("measure", [Block, Tag])
+        .with("reset", [Block]);
+    let extended = declaring(extended, &["coin", "x", "measure", "reset"]);
+    let empty = Needs::default().with_instruction_set(Some(Arc::new(InstructionSet::new("bits"))));
+    let programs = [
+        ("the bits' set", flip_and_toss_in(bits_set(), None)),
+        ("an empty set", StaticProgram::new(empty, vec![vec![]])),
+    ];
+    for (stated, program) in programs {
+        let added = Needs::default().with_instruction_set(Some(Arc::new(extended.clone())));
+        let chain = (adding(added) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+            .expect("the bits run calls by opcode");
+        let Err(JobFaults(faults)) = chain.run(program, [2]) else {
+            panic!("{stated}, extended by the driver's, must be refused");
+        };
+        let [Rejected::Unmet(sets)] = faults.as_slice() else {
+            panic!("{stated}: one fault, the sets: {faults:?}");
+        };
+        assert_eq!(
+            (sets.need, sets.needed, sets.offered),
+            (Need::InstructionSet, 2, 1),
+            "{stated}: {sets}"
+        );
+        assert!(sets.component.contains("AddsNeeds"), "{stated}: {sets}");
+    }
+}
+
+/// A program in the bits' set, driven by a runtime whose set numbers every
+/// call alike but differs otherwise: under another name, with the read
+/// taking a block alone, or leaving the flip's action undeclared. Each is
+/// a different set, refused as such, since a set is the same only when it
+/// is the same in every part, not only in its numbering.
+#[test]
+fn sets_that_number_calls_alike_but_differ_otherwise_are_different_sets() {
+    let renamed = InstructionSet::new("bits, renamed")
+        .with("coin", [Block])
+        .with("x", [Block])
+        .with("measure", [Block, Tag]);
+    let read_without_tag = Action::new([1], []).observe([Pauli::z(0)]);
+    let other_operands = InstructionSet::new("bits")
+        .with("coin", [Block])
+        .with("x", [Block])
+        .with_action("measure", vec![Block], read_without_tag);
+    let undeclared_flip = InstructionSet::new("bits")
+        .with("coin", [Block])
+        .with("x", [Block])
+        .with("measure", [Block, Tag]);
+    let sets = [
+        ("another name", declaring(renamed, EVERY_BIT)),
+        (
+            "another operand kind",
+            declaring(other_operands, &["coin", "x"]),
+        ),
+        (
+            "another action",
+            declaring(undeclared_flip, &["coin", "measure"]),
+        ),
+    ];
+    for (differing, set) in sets {
+        let added = Needs::default().with_instruction_set(Some(Arc::new(set)));
+        let chain = (adding(added) >> TestDoubleExecutor::with_model(Bits::default(), 7))
+            .expect("the bits run calls by opcode");
+        let Err(JobFaults(faults)) = chain.run(flip_and_toss_in(bits_set(), None), [2]) else {
+            panic!("a set of {differing} must be refused");
+        };
+        let [Rejected::Unmet(sets)] = faults.as_slice() else {
+            panic!("{differing}: one fault, the sets: {faults:?}");
+        };
+        assert_eq!(
+            (sets.need, sets.needed, sets.offered),
+            (Need::InstructionSet, 2, 1),
+            "{differing}: {sets}"
+        );
+    }
 }
 
 /// A job whose program states a set with a reset, which the bits lack, and

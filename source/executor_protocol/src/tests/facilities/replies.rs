@@ -420,3 +420,20 @@ fn a_mapped_reply_converts_each_event_and_keeps_the_end() {
     assert_eq!(wait(doubled, &mut out), Err("lost".into()));
     assert_eq!(out, [2, 4]);
 }
+
+/// A caller polls a mapped reply while the device's reply it wraps is
+/// still running, then the device pushes a readout: the caller is woken,
+/// since the mapped reply passed the caller's waker to the reply it wraps.
+#[test]
+fn a_mapped_reply_passes_its_callers_waker_to_the_reply_it_wraps() {
+    let (sender, device) = reply_channel::<u32>();
+    let mut doubled = MappedReply::new(device, |x: u32| x * 2);
+    let (count, waker) = counting();
+    assert_eq!(
+        doubled.poll_events(&mut Vec::new(), &waker),
+        ReplyStatus::Pending,
+        "the device's reply is running"
+    );
+    sender.push(1);
+    assert_eq!(wakes(&count), 1, "the push wakes the caller");
+}
