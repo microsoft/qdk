@@ -217,7 +217,7 @@ fn each_shot_draws_from_the_last_executors_seed() {
         "the shots drew different coins: {values:?}"
     );
     for (&j, outcome) in all.iter().zip(&outcomes) {
-        let last_executor_seed = ShotContext::new(seed, j).seed();
+        let last_executor_seed = ShotContext::last_executor(seed, j).seed();
         let mut alone = executor_fn(
             Capabilities::default(),
             |_| Ok(ToyState::new(last_executor_seed)),

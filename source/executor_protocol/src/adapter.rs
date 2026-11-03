@@ -23,7 +23,7 @@ pub(crate) mod boundary;
 use std::sync::Arc;
 
 use crate::{
-    AdapterBoundary, Close, ComponentId, Executor, Instruction, InstructionBatch, InstructionSet,
+    AdapterBoundary, Close, Executor, Instruction, InstructionBatch, InstructionSet, RngId,
 };
 #[cfg(doc)]
 use crate::{
@@ -130,7 +130,7 @@ pub trait Adapter {
     /// one-to-one; across shots, and against other components' seeds, they are
     /// distinct only as 64-bit hashes, not by construction.
     #[must_use]
-    fn draws(&self) -> Option<ComponentId> {
+    fn draws(&self) -> Option<RngId> {
         None
     }
 

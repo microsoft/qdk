@@ -20,8 +20,8 @@ use crate::OwnThread;
 use crate::facilities::executor_lifecycle::failing_on_panic;
 use crate::facilities::teardown::{DroppedOneByOne, HeldPart, HeldStates};
 use crate::{
-    Capabilities, Close, Describe, Executor, ExecutorLifecycle, ExecutorReport, Fold,
-    ImmediateReply, InstructionBatch, InstructionBatchRef, PlacedExecutor, Placement, Rejected,
+    Capabilities, Close, Describe, Executor, ExecutorLifecycle, ExecutorPlacement, ExecutorReport,
+    Fold, ImmediateReply, InstructionBatch, InstructionBatchRef, PlacedExecutor, Rejected,
     ShotConditions, ShotContext, ShotId, ShotOutcome, Value,
 };
 
@@ -372,7 +372,7 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     }
 
     /// This executor, whose states draw from the run's seed `seed`: shot `j`'s
-    /// state is made from `ShotContext::new(seed, j)`, whose
+    /// state is made from `ShotContext::last_executor(seed, j)`, whose
     /// [`seed`](ShotContext::seed) depends only on `seed` and `j`, so that a
     /// shot draws the same values whatever the other shots of the run, and
     /// whatever the shot form: one state, [`OnePerShot`], placed either way. It
@@ -437,7 +437,7 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     /// continues this executor's refusals: placed after close or a failure,
     /// it refuses the next call inside `call`, since a wrapper never forgets
     /// a refusal.
-    pub fn run_on<T: Placement>(self, placement: T) -> PlacedExecutor<Self, T> {
+    pub fn run_on<T: ExecutorPlacement>(self, placement: T) -> PlacedExecutor<Self, T> {
         let lifecycle = self.lifecycle.continued();
         PlacedExecutor::new(self, placement, lifecycle, Self::free_raising)
     }

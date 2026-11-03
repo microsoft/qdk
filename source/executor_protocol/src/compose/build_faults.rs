@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::instruction_set::write_mismatches;
 #[cfg(doc)]
 use crate::{Adapter, Rejected};
-use crate::{ComponentId, InstructionMismatch, UnmetNeed};
+use crate::{InstructionMismatch, RngId, UnmetNeed};
 
 /// A component of a chain that cannot be built against what is downstream
 /// of it, and why.
@@ -69,7 +69,7 @@ pub enum BuildError {
     /// A component downstream already draws with this id, so the two would draw
     /// the same numbers in every shot: one of them must be given another id
     /// ([`AdapterFn::drawing`](crate::AdapterFn::drawing)).
-    RngInUse(ComponentId),
+    RngInUse(RngId),
     /// An adapter draws with this id ([`Adapter::draws`]), and no run's seed
     /// reaches it: the last executor below is given none
     /// ([`ExecutorFn::seed`](crate::ExecutorFn::seed)). Refused when built
@@ -82,7 +82,7 @@ pub enum BuildError {
     /// one up today. An executor written by hand cannot state one yet
     /// (planned), so an adapter that draws is refused over it: for example
     /// a noise model over the user's own simulator.
-    NoRunSeed(ComponentId),
+    NoRunSeed(RngId),
     /// An adapter sends instructions that the downstream executor does not
     /// accept: each of them, in the order the adapter declares them.
     Instructions(Vec<InstructionMismatch>),
@@ -140,7 +140,7 @@ impl fmt::Display for BuildError {
                 f,
                 "{id} are already drawn from downstream: two components would share them; \
                  give one of them another id, for example with \
-                 adapter_fn(..).drawing(ComponentId::named(name))"
+                 adapter_fn(..).drawing(RngId::named(name))"
             ),
             BuildError::NoRunSeed(id) => write!(
                 f,

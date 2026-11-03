@@ -2,13 +2,13 @@
 // Licensed under the MIT License.
 
 //! Seeds: each shot's seed ([`shot_seed`]), and the seeds of the components
-//! that draw random numbers in a shot ([`ShotContext`], [`ComponentId`]),
+//! that draw random numbers in a shot ([`ShotContext`], [`RngId`]),
 //! which a chain checks are distinct when it is built ([`RngIds`]).
 //!
 //! A chain has one seed, the run's: the one its last executor is given
 //! ([`ExecutorFn::seed`](crate::ExecutorFn::seed)), which draws with
-//! [`ComponentId::LAST_EXECUTOR`]. It reaches every adapter above that
-//! draws, each under an id of its own ([`ComponentId::named`]): an
+//! [`RngId::LAST_EXECUTOR`]. It reaches every adapter above that
+//! draws, each under an id of its own ([`RngId::named`]): an
 //! [`adapter_fn`](fn@crate::adapter_fn) given
 //! [`AdapterFn::drawing`](crate::AdapterFn::drawing), and an adapter
 //! written by hand, which is given its seeds, bound to its id, when built
@@ -67,15 +67,15 @@ const fn splitmix(mut z: u64) -> u64 {
 /// Ids are stable names, not positions in the chain, so that adding a
 /// component does not change the draws of the others. The last executor's
 /// id is fixed; any other is a hash of a name the builder chooses
-/// ([`ComponentId::named`]). It is 32 bits so that a (shot, component) pair
+/// ([`RngId::named`]). It is 32 bits so that a (shot, component) pair
 /// fits one `u64`, which keeps [`ShotContext::rng_seed`] one-to-one; the
 /// price is that two of k names share an id with probability about
 /// k²/2³³ (the birthday bound for a 32-bit hash), which a chain refuses
 /// when it is built ([`BuildError::RngInUse`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ComponentId(u32);
+pub struct RngId(u32);
 
-impl ComponentId {
+impl RngId {
     /// The last executor's: its seed in shot `j` is [`shot_seed`]`(seed, j)`.
     pub const LAST_EXECUTOR: Self = Self(0);
 
@@ -109,12 +109,12 @@ impl ComponentId {
     }
 }
 
-impl fmt::Display for ComponentId {
+impl fmt::Display for RngId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if *self == Self::LAST_EXECUTOR {
             write!(f, "the last executor's random numbers")
         } else {
-            write!(f, "the random numbers of component {:#010x}", self.0)
+            write!(f, "the random numbers with id {:#010x}", self.0)
         }
     }
 }
@@ -139,9 +139,9 @@ impl fmt::Display for ComponentId {
 ///
 /// An [`executor_fn`](fn@crate::executor_fn) given the run's seed
 /// ([`ExecutorFn::seed`](crate::ExecutorFn::seed)) makes shot `j`'s state
-/// from `ShotContext::new(seed, j)`, whatever its shot form. Given none, it
-/// makes it from a context that names the shot only, and drawing from that
-/// panics. A state made before
+/// from `ShotContext::last_executor(seed, j)`, whatever its shot form.
+/// Given none, it makes it from a context that names the shot only, and
+/// drawing from that panics. A state made before
 /// [`ExecutorFn::shots`](crate::ExecutorFn::shots) and carried over keeps
 /// the context it was made with. An
 /// [`adapter_fn`](fn@crate::adapter_fn) that draws
@@ -156,10 +156,10 @@ pub struct ShotContext {
     /// `None` where no run's seed reaches the component.
     seed: Option<u64>,
     shot: ShotId,
-    /// The component whose seed [`ShotContext::seed`] is: the last
-    /// executor, or an adapter that draws; `None` for an adapter that draws
-    /// nothing, which is then given no seed.
-    component: Option<ComponentId>,
+    /// The id the component draws under, whose seed [`ShotContext::seed`]
+    /// is: the last executor's, or an adapter's that draws; `None` for an
+    /// adapter that draws nothing, which is then given no seed.
+    rng_id: Option<RngId>,
 }
 
 impl ShotContext {
@@ -167,15 +167,12 @@ impl ShotContext {
     /// its [`seed`](Self::seed) is the last executor's,
     /// [`shot_seed`]`(seed, shot)`. An adapter that draws takes its own
     /// context from [`AdapterSeeds::shot`], whose `seed` is the adapter's.
-    //
-    // Design question, held for the user (blocks neither): a name that says
-    // whose context it is.
     #[must_use]
-    pub const fn new(seed: u64, shot: ShotId) -> Self {
+    pub const fn last_executor(seed: u64, shot: ShotId) -> Self {
         Self {
             seed: Some(seed),
             shot,
-            component: Some(ComponentId::LAST_EXECUTOR),
+            rng_id: Some(RngId::LAST_EXECUTOR),
         }
     }
 
@@ -186,7 +183,7 @@ impl ShotContext {
         Self {
             seed,
             shot,
-            component: Some(ComponentId::LAST_EXECUTOR),
+            rng_id: Some(RngId::LAST_EXECUTOR),
         }
     }
 
@@ -194,7 +191,7 @@ impl ShotContext {
     /// `drawing` sees it: the context every form of `adapter_fn` makes its
     /// states from. An adapter that draws nothing (`None`) is given no seed.
     pub(crate) const fn of_adapter(
-        drawing: Option<ComponentId>,
+        drawing: Option<RngId>,
         seed: Option<u64>,
         shot: ShotId,
     ) -> Self {
@@ -202,19 +199,19 @@ impl ShotContext {
             Some(id) => Self {
                 seed,
                 shot,
-                component: Some(id),
+                rng_id: Some(id),
             },
             None => Self {
                 seed: None,
                 shot,
-                component: None,
+                rng_id: None,
             },
         }
     }
 
     /// The component's seed in this shot: [`ShotContext::rng_seed`] of its
     /// id. The last executor's is [`shot_seed`]`(run_seed, j)`, its id being
-    /// [`ComponentId::LAST_EXECUTOR`]. What a state seeds its random
+    /// [`RngId::LAST_EXECUTOR`]. What a state seeds its random
     /// numbers with.
     ///
     /// # Panics
@@ -223,7 +220,7 @@ impl ShotContext {
     /// [`ShotContext::run_seed`].
     #[must_use]
     pub const fn seed(&self) -> u64 {
-        match self.component {
+        match self.rng_id {
             Some(id) => self.rng_seed(id),
             None => self.run_seed(),
         }
@@ -253,7 +250,7 @@ impl ShotContext {
     /// call is refused with, on both placements.
     #[must_use]
     pub const fn run_seed(&self) -> u64 {
-        match (self.seed, self.component) {
+        match (self.seed, self.rng_id) {
             (Some(seed), _) => seed,
             (None, Some(_)) => panic!(
                 "no run's seed reaches this state: an executor_fn whose states draw \
@@ -282,7 +279,7 @@ impl ShotContext {
     ///   `c · 2³² + j` is one-to-one over 32-bit shots and ids, and the rest
     ///   is a bijection of `u64`.
     /// - Not guaranteed: seeds of different runs may meet, as for
-    ///   [`shot_seed`], and two names may share an id ([`ComponentId`]).
+    ///   [`shot_seed`], and two names may share an id ([`RngId`]).
     ///
     /// A component draws from its own [`seed`](Self::seed); another's id is
     /// for tests' expected values.
@@ -292,7 +289,7 @@ impl ShotContext {
     /// When no run's seed reaches the component, as
     /// [`ShotContext::run_seed`].
     #[must_use]
-    pub const fn rng_seed(&self, c: ComponentId) -> u64 {
+    pub const fn rng_seed(&self, c: RngId) -> u64 {
         splitmix(splitmix(self.run_seed()) ^ ((c.0 as u64) << 32 | self.shot as u64))
     }
 }
@@ -305,22 +302,22 @@ impl ShotContext {
 ///
 /// Needed so that the adapter draws from its own seeds, under the id it states
 /// once, in `draws`: with the run's seed alone it would make each shot's
-/// context with [`ShotContext::new`], whose `seed` is the last executor's, and
-/// its draws would then repeat the executor's: a readout error of ½ over fair
-/// coins, drawing as the coins do, flips exactly the coins that come up One,
-/// and every readout reads Zero. The seeds bind the id, so the adapter's shot
+/// context with [`ShotContext::last_executor`], whose `seed` is the last
+/// executor's, and its draws would then repeat the executor's: a readout
+/// error of ½ over fair coins, drawing as the coins do, flips exactly the
+/// coins that come up One, and every readout reads Zero. The seeds bind the id, so the adapter's shot
 /// `j` draws from the `seed` of [`AdapterSeeds::shot`], its own, the one an
 /// [`adapter_fn`](fn@crate::adapter_fn) drawing with that id has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AdapterSeeds {
     run_seed: u64,
-    id: ComponentId,
+    id: RngId,
 }
 
 impl AdapterSeeds {
     /// The seeds of the adapter that draws with `id`, in a run with seed
     /// `run_seed`.
-    pub(crate) const fn new(run_seed: u64, id: ComponentId) -> Self {
+    pub(crate) const fn new(run_seed: u64, id: RngId) -> Self {
         Self { run_seed, id }
     }
 
@@ -338,18 +335,18 @@ impl AdapterSeeds {
 /// ([`Capabilities::rng_ids`](crate::Capabilities::rng_ids)): what a
 /// component that draws checks its own id against when it is built.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RngIds(Vec<ComponentId>);
+pub struct RngIds(Vec<RngId>);
 
 impl RngIds {
     /// The last executor's: its own id only.
     #[must_use]
     pub fn last_executor() -> Self {
-        Self(vec![ComponentId::LAST_EXECUTOR])
+        Self(vec![RngId::LAST_EXECUTOR])
     }
 
     /// Whether one of these components draws with `id`.
     #[must_use]
-    pub fn contains(&self, id: ComponentId) -> bool {
+    pub fn contains(&self, id: RngId) -> bool {
         self.0.contains(&id)
     }
 
@@ -359,7 +356,7 @@ impl RngIds {
     ///
     /// [`BuildError::RngInUse`] when a component downstream already draws with
     /// `id`: the two would draw the same numbers.
-    pub fn with(mut self, id: ComponentId) -> Result<Self, BuildError> {
+    pub fn with(mut self, id: RngId) -> Result<Self, BuildError> {
         if self.contains(id) {
             return Err(BuildError::RngInUse(id));
         }
@@ -369,7 +366,7 @@ impl RngIds {
 
     /// The ids: the last executor's first, then upstream from it.
     #[must_use]
-    pub fn as_slice(&self) -> &[ComponentId] {
+    pub fn as_slice(&self) -> &[RngId] {
         &self.0
     }
 }

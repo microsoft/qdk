@@ -26,12 +26,12 @@ use crate::tests::{
 use crate::tests::{PanicsOnClose, map_executor};
 use crate::{
     Adapter, AdapterBoundary, AdapterError, AdapterSeeds, Apply, Below, BuildError, BuiltinDriver,
-    CallInput, Capabilities, Chain, Close, ComponentId, ComposedJob, Describe, Executor,
-    ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionMismatch, InstructionSet, JobFaults, Needs, OnePerShot, Opcode, Operand,
-    OperandKind, Outcomes, Rejected, Reply, ReplyStatus, RngIds, ShotContext, ShotId, ShotOutcome,
-    ShotSet, StaticProgram, TypedInstruction, Value, adapter_fn, compose, conformance, driver,
-    executor_fn, shot_seed, wait,
+    CallInput, Capabilities, Chain, Close, ComposedJob, Describe, Executor, ExecutorReport,
+    ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall, InstructionMismatch,
+    InstructionSet, JobFaults, Needs, OnePerShot, Opcode, Operand, OperandKind, Outcomes, Rejected,
+    Reply, ReplyStatus, RngId, RngIds, ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram,
+    TypedInstruction, Value, adapter_fn, compose, conformance, driver, executor_fn, shot_seed,
+    wait,
 };
 
 use OperandKind::Block;
@@ -784,8 +784,7 @@ fn the_executor_downstream_of_an_adapter_counts_the_calls_made_without_it() {
 #[test]
 fn a_chain_reports_every_fault_at_once_upstream_first() {
     let sends_h = bits_set().with("h", [Block]);
-    let noise =
-        map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
+    let noise = map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
     let Err(faults) = compose(
         compose(Relabel::new(sends_h, false), noise),
         TestDoubleExecutor::with_model(Bits::default(), 7),
@@ -801,7 +800,7 @@ fn a_chain_reports_every_fault_at_once_upstream_first() {
     assert!(faults.0[1].component.contains("MapExecutor"), "{faults}");
     assert_eq!(
         faults.0[1].error,
-        BuildError::RngInUse(ComponentId::LAST_EXECUTOR)
+        BuildError::RngInUse(RngId::LAST_EXECUTOR)
     );
 }
 
@@ -810,7 +809,7 @@ fn a_chain_reports_every_fault_at_once_upstream_first() {
 /// draws with it already.
 #[test]
 fn adapters_drawing_with_the_same_id_are_refused() {
-    let id = ComponentId::named("readout");
+    let id = RngId::named("readout");
     let noise = || map_executor::<InstructionCall, _>(|below| below).drawing(id);
     compose(noise(), TestDoubleExecutor::with_model(Bits::default(), 7))
         .expect("one noise model fits");
@@ -831,7 +830,7 @@ fn adapters_drawing_with_the_same_id_are_refused() {
 /// adapter are kept whatever it offers.
 #[test]
 fn adapters_drawing_with_the_same_id_are_refused_through_one_that_states_its_offer_whole() {
-    let id = ComponentId::named("readout");
+    let id = RngId::named("readout");
     let upstream = map_executor::<InstructionCall, _>(|below| below).drawing(id);
     let downstream = map_executor::<InstructionCall, _>(|below| below).drawing(id);
     let Err(faults) = compose(
@@ -855,13 +854,13 @@ fn an_adapter_writing_other_ids_into_its_offer_offers_those_below_and_its_own() 
         type Accepts = InstructionCall;
         type Sends = InstructionCall;
 
-        fn draws(&self) -> Option<ComponentId> {
+        fn draws(&self) -> Option<RngId> {
             Some(NOISE)
         }
 
         fn build(self, boundary: &mut AdapterBoundary<'_>) -> Self {
             boundary.offered_upstream().rng_ids = (RngIds::last_executor())
-                .with(ComponentId::named("crosstalk"))
+                .with(RngId::named("crosstalk"))
                 .expect("the offer holds only the last executor's id");
             self
         }
@@ -873,15 +872,15 @@ fn an_adapter_writing_other_ids_into_its_offer_offers_those_below_and_its_own() 
             downstream
         }
     }
-    const NOISE: ComponentId = ComponentId::named("noise");
+    const NOISE: RngId = RngId::named("noise");
     let chain = compose(
-        compose(WritesOtherIds, ReadoutError::default()),
+        compose(WritesOtherIds, ReadoutFlip::default()),
         TestDoubleExecutor::with_model(Bits::default(), 7),
     )
     .expect("each component draws with an id of its own");
     assert_eq!(
         chain.capabilities().rng_ids.as_slice(),
-        [ComponentId::LAST_EXECUTOR, READOUT, NOISE]
+        [RngId::LAST_EXECUTOR, READOUT, NOISE]
     );
 }
 
@@ -899,8 +898,8 @@ impl Adapter for Noise {
     type Accepts = InstructionCall;
     type Sends = InstructionCall;
 
-    fn draws(&self) -> Option<ComponentId> {
-        Some(ComponentId::named("noise"))
+    fn draws(&self) -> Option<RngId> {
+        Some(RngId::named("noise"))
     }
 
     fn build(self, boundary: &mut AdapterBoundary<'_>) -> Self {
@@ -960,23 +959,23 @@ impl<E: Close> Close for Noisy<E> {
     }
 }
 
-/// The id [`ReadoutError`] draws with.
-const READOUT: ComponentId = ComponentId::named("readout error");
+/// The id [`ReadoutFlip`] draws with.
+const READOUT: RngId = RngId::named("readout error");
 
 /// A readout error written by hand: each readout of shot `j` is flipped
 /// when the next draw of the shot's stream is odd, a stream seeded from the
 /// seed of `seeds.shot(j)`, `seeds` its own, which it keeps when built
 /// ([`AdapterBoundary::drawing_seeds`]).
 #[derive(Default)]
-struct ReadoutError {
+struct ReadoutFlip {
     seeds: Option<AdapterSeeds>,
 }
 
-impl Adapter for ReadoutError {
+impl Adapter for ReadoutFlip {
     type Accepts = InstructionCall;
     type Sends = InstructionCall;
 
-    fn draws(&self) -> Option<ComponentId> {
+    fn draws(&self) -> Option<RngId> {
         Some(READOUT)
     }
 
@@ -987,11 +986,11 @@ impl Adapter for ReadoutError {
     }
 }
 
-impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for ReadoutError {
-    type Output = ReadoutErrors<E>;
+impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for ReadoutFlip {
+    type Output = ReadoutFlips<E>;
 
-    fn apply(self, downstream: E) -> ReadoutErrors<E> {
-        ReadoutErrors {
+    fn apply(self, downstream: E) -> ReadoutFlips<E> {
+        ReadoutFlips {
             seeds: self
                 .seeds
                 .expect("a chain built has seeds for an adapter that draws"),
@@ -1001,8 +1000,8 @@ impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for Readou
     }
 }
 
-/// The executor of a [`ReadoutError`].
-struct ReadoutErrors<E> {
+/// The executor of a [`ReadoutFlip`].
+struct ReadoutFlips<E> {
     seeds: AdapterSeeds,
     /// Each shot's stream, as its draws left it.
     streams: BTreeMap<ShotId, u64>,
@@ -1010,7 +1009,7 @@ struct ReadoutErrors<E> {
 }
 
 impl<E: Executor<InstructionBatch<InstructionCall>>> Executor<InstructionBatch<InstructionCall>>
-    for ReadoutErrors<E>
+    for ReadoutFlips<E>
 {
     type Reply = ImmediateReply<ShotOutcome>;
 
@@ -1041,7 +1040,7 @@ impl<E: Executor<InstructionBatch<InstructionCall>>> Executor<InstructionBatch<I
     }
 }
 
-impl<E: Close> Close for ReadoutErrors<E> {
+impl<E: Close> Close for ReadoutFlips<E> {
     type Report = E::Report;
 
     fn close(&mut self) -> E::Report {
@@ -1063,7 +1062,7 @@ fn an_adapter_written_by_hand_replays_its_draws_from_the_runs_seed() {
         let job = ComposedJob::new(program, shots(&[0, 1, 2, 3, 4, 5, 6, 7]));
         let bits = TestDoubleExecutor::with_model(Bits::default(), seed);
         let (outcomes, _) = if readout_error {
-            (job >> ReadoutError::default() >> bits)
+            (job >> ReadoutFlip::default() >> bits)
                 .expect("the readout error draws with its own id")
                 .wait()
         } else {
@@ -1099,7 +1098,7 @@ fn an_adapter_written_by_hand_draws_otherwise_than_the_last_executor() {
         );
         let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
         let (outcomes, _) = if readout_error {
-            (job >> ReadoutError::default() >> bits)
+            (job >> ReadoutFlip::default() >> bits)
                 .expect("the readout error draws with its own id")
                 .wait()
         } else {
@@ -1171,8 +1170,8 @@ impl Adapter for NoiseOffersDownstreamsWhole {
     type Accepts = InstructionCall;
     type Sends = InstructionCall;
 
-    fn draws(&self) -> Option<ComponentId> {
-        Some(ComponentId::named("noise"))
+    fn draws(&self) -> Option<RngId> {
+        Some(RngId::named("noise"))
     }
 
     fn build(self, boundary: &mut AdapterBoundary<'_>) -> Self {
@@ -2019,7 +2018,7 @@ fn a_chain_of_two_adapters_offers_what_the_upstream_one_offers_over_the_downstre
         .seed(7)
         .shots(OnePerShot)
     };
-    let noise = || adapter_fn(no_state, pass).drawing(ComponentId::named("noise"));
+    let noise = || adapter_fn(no_state, pass).drawing(RngId::named("noise"));
     let observer = || adapter_fn(no_state, pass);
     let noise_above = || {
         (driver() >> noise() >> observer() >> simulator())

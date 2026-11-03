@@ -20,12 +20,12 @@ use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::{
     Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, AdaptiveProgram, Apply,
     Below, BuildError, BuildFaults, BuiltinDriver, CallInput, Capabilities, Chain, ChainPrefix,
-    Close, ComponentId, ComposedJob, Describe, Driver, DriverExt, Executor, ExecutorLogic,
-    InstructionBatch, InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet,
-    JobFaults, LogP, MakeState, Need, Needs, NoCheck, OnePerShot, OnePerShotAdapter,
-    OnePerShotExecutor, OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread,
-    Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction,
-    UnmetNeed, Value, adapter_fn, compose, driver, executor_fn, wait, wait_async,
+    Close, ComposedJob, Describe, Driver, DriverExt, Executor, ExecutorLogic, InstructionBatch,
+    InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP,
+    MakeState, Need, Needs, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
+    OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, Rejected, RngId,
+    ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, UnmetNeed, Value,
+    adapter_fn, compose, driver, executor_fn, wait, wait_async,
 };
 
 use OperandKind::{Block, Tag};
@@ -892,8 +892,7 @@ fn an_adapter_whose_state_borrows_the_callers_data_runs_in_a_chain() {
 fn a_chain_reports_the_same_faults_whatever_the_grouping() {
     let sending = |mnemonic| move || Relabel::new(bits_set().with(mnemonic, [Block]), false);
     let (code_h, code_t) = (sending("h"), sending("t"));
-    let noise =
-        || map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
+    let noise = || map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
     let Err(grouped_left) = compose(
         compose(compose(code_h(), noise()), code_t()),
         TestDoubleExecutor::with_model(Bits::default(), 7),
@@ -957,8 +956,7 @@ impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E> for Counts
 #[test]
 fn a_part_composed_with_the_executor_first_reports_its_faults_before_upstream_is_built() {
     let builds = Arc::new(AtomicUsize::new(0));
-    let noise =
-        map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
+    let noise = map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
     let build = || {
         let part = compose(noise, TestDoubleExecutor::with_model(Bits::default(), 7))?;
         compose(CountsBuilds(Arc::clone(&builds)), part)
@@ -969,7 +967,7 @@ fn a_part_composed_with_the_executor_first_reports_its_faults_before_upstream_is
     assert_eq!(faults.0.len(), 1, "{faults}");
     assert_eq!(
         faults.0[0].error,
-        BuildError::RngInUse(ComponentId::LAST_EXECUTOR)
+        BuildError::RngInUse(RngId::LAST_EXECUTOR)
     );
     assert_eq!(builds.load(Ordering::SeqCst), 0, "the adapter was built");
 }
@@ -979,7 +977,7 @@ fn a_part_composed_with_the_executor_first_reports_its_faults_before_upstream_is
 /// its id.
 #[test]
 fn a_reused_id_says_which_why_and_how_to_change_it() {
-    let noise = ComponentId::named("noise");
+    let noise = RngId::named("noise");
     let message = BuildError::RngInUse(noise).to_string();
     assert!(message.contains(&noise.to_string()), "{message}");
     assert!(
@@ -995,7 +993,7 @@ fn a_reused_id_says_which_why_and_how_to_change_it() {
 /// to give the run's seed, `.seed(..)` on the last executor.
 #[test]
 fn a_refusal_for_no_run_seed_names_the_adapter_and_says_how_to_seed() {
-    let noise = ComponentId::named("noise");
+    let noise = RngId::named("noise");
     let message = BuildError::NoRunSeed(noise).to_string();
     assert!(message.contains(&noise.to_string()), "{message}");
     assert!(message.contains(".seed("), "{message}");
@@ -1120,10 +1118,9 @@ fn a_job_of_more_shots_than_the_executor_holds_is_refused_when_composed() {
 /// each as its component and its error, joined by "; ".
 #[test]
 fn the_faults_of_a_chain_read_as_one_message_in_their_order() {
-    let upstream =
-        map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
+    let upstream = map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
     let downstream =
-        map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
+        map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
     let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
     let Err(faults) = driver() >> upstream >> downstream >> bits else {
         panic!("both noise models are faulty");
@@ -1145,14 +1142,13 @@ fn the_faults_of_a_chain_read_as_one_message_in_their_order() {
 /// driver is.
 #[test]
 fn a_chain_of_a_driver_reports_its_adapters_faults_when_built() {
-    let noise =
-        map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
+    let noise = map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
     let bits = TestDoubleExecutor::with_model(Bits::default(), 7);
     let Err(BuildFaults(faults)) = compose(driver() >> noise, bits) else {
         panic!("a noise model drawing from the bits' generator must be refused");
     };
     let errors: Vec<_> = faults.into_iter().map(|fault| fault.error).collect();
-    assert_eq!(errors, [BuildError::RngInUse(ComponentId::LAST_EXECUTOR)]);
+    assert_eq!(errors, [BuildError::RngInUse(RngId::LAST_EXECUTOR)]);
 }
 
 /// Two faults of an adapter's own, of the same text, are two faults: an
@@ -1170,10 +1166,7 @@ fn two_adapter_faults_of_the_same_text_are_not_equal() {
 #[test]
 fn two_build_errors_of_the_same_kind_stating_different_faults_are_not_equal() {
     let rng = BuildError::RngInUse;
-    assert_ne!(
-        rng(ComponentId::LAST_EXECUTOR),
-        rng(ComponentId::named("noise"))
-    );
+    assert_ne!(rng(RngId::LAST_EXECUTOR), rng(RngId::named("noise")));
     let missing = |mnemonic: &str| {
         BuildError::Instructions(vec![InstructionMismatch::Missing {
             mnemonic: mnemonic.to_owned(),

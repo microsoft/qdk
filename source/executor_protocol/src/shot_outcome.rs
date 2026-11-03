@@ -127,7 +127,7 @@ pub enum Value {
     One,
     /// The readout has no value, for the reason given; it does not end the
     /// run, so the shot's other readouts stand.
-    Error(ErrorKind),
+    Error(ReadoutFailure),
 }
 
 impl From<bool> for Value {
@@ -138,9 +138,9 @@ impl From<bool> for Value {
 
 /// Why a readout has no value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ErrorKind {
+pub enum ReadoutFailure {
     /// The qubit was lost (for example, an atom left its trap).
     Loss,
-    /// Any other reason; the kind carries no detail.
+    /// Any other reason, with no detail.
     Other,
 }

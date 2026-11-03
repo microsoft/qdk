@@ -33,11 +33,11 @@ use crate::tests::{
     values,
 };
 use crate::{
-    AdapterError, AdapterFn, Below, BuildError, CallInput, Capabilities, Close, ComponentId,
-    Compose, Describe, Executor, ExecutorFn, ExecutorLogic, Fold, ImmediateReply, IncrementalReply,
-    InstructionBatch, InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet,
-    JobFaults, MakeState, Need, Needs, OnePerShot, OnePerShotAdapter, OnePerShotExecutor, Operand,
-    OperandKind, Outcome, Outcomes, OwnThread, Rejected, Reply, ReplySender, ReplyStatus,
+    AdapterError, AdapterFn, Below, BuildError, CallInput, Capabilities, Close, Compose, Describe,
+    Executor, ExecutorFn, ExecutorLogic, Fold, ImmediateReply, IncrementalReply, InstructionBatch,
+    InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, JobFaults,
+    MakeState, Need, Needs, OnePerShot, OnePerShotAdapter, OnePerShotExecutor, Operand,
+    OperandKind, Outcome, Outcomes, OwnThread, Rejected, Reply, ReplySender, ReplyStatus, RngId,
     ShotContext, ShotId, ShotOutcome, ShotSet, StaticProgram, TypedInstruction, Value,
     WithExecutor, adapter_fn, check_unique_tags, compose, conformance, driver, executor_fn,
     reply_channel, wait,
@@ -1875,7 +1875,7 @@ fn a_closed_adapter_refuses_a_call_before_its_check_runs() {
 #[test]
 fn a_drawing_adapters_state_seeds_from_the_first_shot_it_serves() {
     const SEED: u64 = 0x5EED;
-    let noise_id = ComponentId::named("noise");
+    let noise_id = RngId::named("noise");
     let seeds = Rc::new(RefCell::new(Vec::new()));
     let noise = {
         let seeds = Rc::clone(&seeds);
@@ -1903,7 +1903,7 @@ fn a_drawing_adapters_state_seeds_from_the_first_shot_it_serves() {
         "the first call runs",
     );
     step(&mut executor, &shots(&[2]), &[true], "the second call runs");
-    let first = ShotContext::new(SEED, 5).rng_seed(noise_id);
+    let first = ShotContext::last_executor(SEED, 5).rng_seed(noise_id);
     assert_eq!(*seeds.borrow(), [first]);
 }
 
@@ -1925,7 +1925,7 @@ fn a_drawing_adapter_is_not_replayable() {
         simulator.capabilities().replayable,
         "the simulator replays its shots"
     );
-    let noise = adapter_fn(no_state, pass).drawing(ComponentId::named("noise"));
+    let noise = adapter_fn(no_state, pass).drawing(RngId::named("noise"));
     let executor = (noise >> simulator).expect("bools fit");
     assert!(!executor.capabilities().replayable);
 }
@@ -1950,7 +1950,7 @@ fn a_drawing_adapter_passes_resumable_shots_up() {
         simulator.capabilities().resumable_shots,
         "the simulator keeps each shot's state across calls"
     );
-    let noise = adapter_fn(no_state, pass).drawing(ComponentId::named("noise"));
+    let noise = adapter_fn(no_state, pass).drawing(RngId::named("noise"));
     let executor = (noise >> simulator).expect("bools fit");
     assert!(executor.capabilities().resumable_shots);
 }
@@ -1973,7 +1973,7 @@ fn a_one_state_adapters_draw_is_shared_by_the_shots_of_a_call() {
             below.send(&[!lost])
         },
     )
-    .drawing(ComponentId::named("noise"));
+    .drawing(RngId::named("noise"));
     let simulator = executor_fn(
         Capabilities::default().with_qubits(4),
         |_| Ok(()),
@@ -2007,7 +2007,7 @@ fn ample_simulator()
         .with_replayable(true)
         .with_resets(true)
         .with_instruction_set(Some(Arc::new(bits_set())))
-        .drawing(ComponentId::named("readout"))
+        .drawing(RngId::named("readout"))
         .expect("the simulator draws with no other id");
     executor_fn(
         promise,
@@ -2079,7 +2079,7 @@ fn it_offers_what_the_executor_below_offers() {
     let ample = ample_simulator().capabilities();
     let observer = (adapter_fn(no_state, pass) >> ample_simulator()).expect("bools fit");
     assert_eq!(observer.capabilities(), ample);
-    let noise = ComponentId::named("noise");
+    let noise = RngId::named("noise");
     let drawing = (adapter_fn(no_state, pass).drawing(noise) >> ample_simulator())
         .expect("the simulator is given the run's seed");
     let mut expected = ample
@@ -2099,7 +2099,7 @@ fn it_offers_what_the_executor_below_offers() {
 /// adapter.
 #[test]
 fn it_offers_nothing_the_executor_below_does_not() {
-    let noise = ComponentId::named("noise");
+    let noise = RngId::named("noise");
     for (qubits, max_shots) in [(Some(3), Some(2)), (None, None)] {
         let scant = || scant_simulator(qubits, max_shots);
         let offered = scant().capabilities();
@@ -2187,7 +2187,7 @@ pub(in crate::tests) fn each_capability_alone() -> [Capabilities; 4] {
 /// replayable shots), with `noise` added to the ids drawn with.
 #[test]
 fn it_passes_each_capability_up_on_its_own() {
-    let noise = ComponentId::named("noise");
+    let noise = RngId::named("noise");
     for lone in each_capability_alone() {
         let observer =
             compose(adapter_fn(no_state, pass), Offering(lone.clone())).expect("bools fit");
@@ -2225,7 +2225,7 @@ fn a_rewriter_offers_the_set_it_accepts() {
 /// and each read reaches the bits as the instruction it names.
 #[test]
 fn its_options_given_in_any_order_make_the_same_adapter() {
-    let noise = ComponentId::named("noise");
+    let noise = RngId::named("noise");
     let usual = adapter_fn(no_state, lower)
         .accepts(flip_first_set())
         .sends(reversed_set())

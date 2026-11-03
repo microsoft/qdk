@@ -164,8 +164,8 @@ Methods shape the executor further:
 - `.state_report(report)` reads what a state tracked across its calls (a peak, a
   count) when the executor closes, folded into the executor's report.
 - `.seed(seed)` gives the executor the run's seed: shot `j`'s state is made from
-  `ShotContext::new(seed, j)`. Without it, a state that draws panics, which
-  serves a logic that draws nothing.
+  `ShotContext::last_executor(seed, j)`. Without it, a state that draws
+  panics, which serves a logic that draws nothing.
 - `.shots(strategy)` and `.run_on(placement)`, in the next two sections.
 
 Without a shot strategy, the executor holds one state, for one shot, so a job
@@ -425,7 +425,7 @@ is written with `>>` all along, grouped either way, its crate implements
 ## Seeds, not generators
 
 Each shot draws from a seed of its own, fixed by the run's seed `s`, the shot
-`j` and the id of the component that draws (`ComponentId`; the last executor's
+`j` and the id of the component that draws (`RngId`; the last executor's
 is 0). No two shots of a run share a seed, nor two components of a shot. A seed
 depends only on `(s, j, c)`, not on the other shots of the run or on which other
 components draw.
@@ -433,7 +433,7 @@ components draw.
 The run's seed reaches each component that draws:
 
 - an executor is built with it (`.seed(s)`), and gives shot `j`'s state
-  `ShotContext::new(s, j)`;
+  `ShotContext::last_executor(s, j)`;
 - an adapter that draws is given it when it is built against what is
   downstream of it, bound to the id it draws with
   (`AdapterBoundary::drawing_seeds`), and draws for shot `j` from

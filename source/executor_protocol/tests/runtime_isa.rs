@@ -35,11 +35,11 @@ mod toy;
 use std::sync::{Arc, Mutex};
 
 use executor_protocol::{
-    Action, AdaptiveProgram, BuildError, BuildFaults, Capabilities, Close, Describe, ErrorKind,
-    Executor, ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef,
-    InstructionCall, InstructionMismatch, InstructionSet, JobFaults, Need, Needs, Operand,
-    OperandKind, Outcome, Pauli, Rejected, ShotId, ShotOutcome, ShotSet, Value, adapter_fn,
-    compose, conformance, driver, wait,
+    Action, AdaptiveProgram, BuildError, BuildFaults, Capabilities, Close, Describe, Executor,
+    ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
+    InstructionMismatch, InstructionSet, JobFaults, Need, Needs, Operand, OperandKind, Outcome,
+    Pauli, ReadoutFailure, Rejected, ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose,
+    conformance, driver, wait,
 };
 
 use code::{Code, CodeFault, Encoding, GadgetCall, Slot};
@@ -338,7 +338,7 @@ fn m_on_block_0() -> [InstructionCall; 1] {
 /// the other bits.
 #[test]
 fn a_circuit_readout_with_no_value_leaves_its_logical_readout_without_one() {
-    let lost = Value::Error(ErrorKind::Loss);
+    let lost = Value::Error(ReadoutFailure::Loss);
     let composed = code_upstream_of(
         m_as_parity_of_three(),
         answers([lost, Value::One, Value::Zero]),

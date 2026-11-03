@@ -356,8 +356,9 @@ impl<S> ShotStates<S> {
     /// failed call, in the order of their shots' first calls, and frees the
     /// others unread (`discard`: a placed state is dropped on its placement,
     /// and waited for), so that what they hold (a device, GPU memory) is free
-    /// when `close` returns, as [`Placement`](crate::Placement)'s doc tells
-    /// callers to rely on: neither `log_p` nor `close` runs on a state made for
+    /// when `close` returns, as
+    /// [`ExecutorPlacement`](crate::ExecutorPlacement)'s doc tells callers to
+    /// rely on: neither `log_p` nor `close` runs on a state made for
     /// a failed call, so that every form of an executor reads the same states.
     /// When a state's `wait_for_calls`, `log_p`, `close` or `discard` panics,
     /// or the report's `Default` (a state's report's, the implementer's code),
@@ -366,14 +367,14 @@ impl<S> ShotStates<S> {
     /// unreported (`discard`), before it leaves rather than as it unwinds: a
     /// state whose drop panics too (a placed state whose placement panics at
     /// every hand-off, its drop's included, against
-    /// [`Placement`](crate::Placement)'s rule) would otherwise abort the
-    /// process. Such a drop's panic is left to the panic hook, which reports
-    /// it, so that the first panic is the one raised. A placed state's drop
-    /// runs on its placement (`discard` waits for it there): the executor it
-    /// places absorbs a panic of that drop there, after the panic hook reported
-    /// it, so `discard` returns and `close` goes on; where `discard` drops a
-    /// state here, its drop's panic leaves `close` as the first panic. The
-    /// states closed are dropped last, each in a catch of its own, and the
+    /// [`ExecutorPlacement`](crate::ExecutorPlacement)'s rule) would otherwise
+    /// abort the process. Such a drop's panic is left to the panic hook, which
+    /// reports it, so that the first panic is the one raised. A placed state's
+    /// drop runs on its placement (`discard` waits for it there): the executor
+    /// it places absorbs a panic of that drop there, after the panic hook
+    /// reported it, so `discard` returns and `close` goes on; where `discard`
+    /// drops a state here, its drop's panic leaves `close` as the first panic.
+    /// The states closed are dropped last, each in a catch of its own, and the
     /// first drop's panic then leaves `close`, once all are dropped.
     pub(crate) fn close(
         &mut self,

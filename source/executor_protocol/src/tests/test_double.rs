@@ -60,9 +60,9 @@ pub(in crate::tests) trait Model: Describe {
 
 /// An executor whose shots each run on their own state, as its model `M`
 /// says ([`Model`]): shot `j`'s state is made at the shot's first call,
-/// from the shot's seeds ([`ShotContext::new`]`(seed, j)`, with the seed
-/// the executor was built with), and kept for its later calls; nothing is
-/// shared between shots.
+/// from the shot's seeds ([`ShotContext::last_executor`]`(seed, j)`, with
+/// the seed the executor was built with), and kept for its later calls;
+/// nothing is shared between shots.
 ///
 /// It is the simplest executor, and the one for programs with feedback: a
 /// shot's measurements steer its own state only. Each shot draws only
@@ -82,9 +82,9 @@ pub(in crate::tests) struct TestDoubleExecutor<M: Model> {
 
 impl<M: Model> TestDoubleExecutor<M> {
     /// An executor whose shot `j` draws from the seeds of
-    /// [`ShotContext::new`]`(seed, j)`, its shots run by `model`: `seed` is
-    /// the run's seed, which it passes up to the adapters composed with it,
-    /// as [`ExecutorFn::seed`](crate::ExecutorFn::seed) does.
+    /// [`ShotContext::last_executor`]`(seed, j)`, its shots run by `model`:
+    /// `seed` is the run's seed, which it passes up to the adapters composed
+    /// with it, as [`ExecutorFn::seed`](crate::ExecutorFn::seed) does.
     #[must_use]
     pub(in crate::tests) fn with_model(model: M, seed: u64) -> Self {
         let mut capabilities = model.capabilities();
@@ -131,7 +131,7 @@ impl<M: Model> Executor<InstructionBatch<M::Instruction>> for TestDoubleExecutor
             |batch| model.check(batch),
             |j| {
                 model
-                    .state(&ShotContext::new(seed, j))
+                    .state(&ShotContext::last_executor(seed, j))
                     .map_err(|reason| Rejected::Unavailable(format!("shot {j}: {reason}")))
             },
             drop,

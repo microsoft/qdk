@@ -20,9 +20,9 @@ use crate::facilities::executor_lifecycle::failing_on_panic;
 use crate::facilities::teardown::{DroppedOneByOne, HeldPart, HeldStates};
 use crate::shot_set::ShotIndex;
 use crate::{
-    Capabilities, Close, Describe, Executor, ExecutorLifecycle, ExecutorReport, Fold,
-    ImmediateReply, InstructionBatch, InstructionBatchRef, NoCheck, PlacedExecutor, Placement,
-    Rejected, ShotContext, ShotId, ShotOutcome,
+    Capabilities, Close, Describe, Executor, ExecutorLifecycle, ExecutorPlacement, ExecutorReport,
+    Fold, ImmediateReply, InstructionBatch, InstructionBatchRef, NoCheck, PlacedExecutor, Rejected,
+    ShotContext, ShotId, ShotOutcome,
 };
 
 /// The shot strategy of a state per shot: shot `j`'s state, when this
@@ -186,7 +186,7 @@ impl<I, S, M, P, C, L, R> OnePerShotExecutor<I, S, M, P, C, L, R> {
     /// This executor, run where `placement` says ([`PlacedExecutor`]):
     /// every shot's state on the one placement, such as a thread of its
     /// own ([`OwnThread`](crate::OwnThread)).
-    pub fn run_on<T: Placement>(self, placement: T) -> PlacedExecutor<Self, T> {
+    pub fn run_on<T: ExecutorPlacement>(self, placement: T) -> PlacedExecutor<Self, T> {
         let lifecycle = self.lifecycle.continued();
         PlacedExecutor::new(self, placement, lifecycle, Self::free_raising)
     }

@@ -11,8 +11,8 @@ use std::iter;
 #[cfg(doc)]
 use crate::Reply;
 use crate::{
-    ErrorKind, Executor, InstructionBatch, InstructionBatchRef, Rejected, ShotConditions, ShotId,
-    ShotOutcome, ShotSet, Value, wait,
+    Executor, InstructionBatch, InstructionBatchRef, ReadoutFailure, Rejected, ShotConditions,
+    ShotId, ShotOutcome, ShotSet, Value, wait,
 };
 
 /// Checks `holds` on each shot of `shots`, and panics once when it fails
@@ -155,11 +155,12 @@ pub(super) fn outcomes_of_call<I, E: Executor<InstructionBatch<I>>>(
 /// The outcome that the readout checks' buffer holds before each reply's
 /// events: one that no executor gives for a caller's shots, of the last
 /// shot and the last tag, with no value.
-const HELD: ShotOutcome = ShotOutcome::new(ShotId::MAX, u32::MAX, Value::Error(ErrorKind::Other));
+const HELD: ShotOutcome =
+    ShotOutcome::new(ShotId::MAX, u32::MAX, Value::Error(ReadoutFailure::Other));
 
 /// An outcome of `shot` that the readout checks' buffer holds before each
 /// reply's events, as a caller holds those of the shot's earlier calls:
 /// of the last tag, with no value and no condition.
 const fn held_of(shot: ShotId) -> ShotOutcome {
-    ShotOutcome::new(shot, u32::MAX, Value::Error(ErrorKind::Other))
+    ShotOutcome::new(shot, u32::MAX, Value::Error(ReadoutFailure::Other))
 }

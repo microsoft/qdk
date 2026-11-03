@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ErrorKind, Need, Rejected, RetryClass, ShotConditions, UnmetNeed, Value, conditions_code,
+    Need, ReadoutFailure, Rejected, RetryClass, ShotConditions, UnmetNeed, Value, conditions_code,
     conditions_of, need_code, need_of, reason_code, retry_code, retry_of, value_code, value_of,
 };
 
@@ -85,8 +85,8 @@ fn value_codes_are_fixed_and_decode_back() {
     let values = [
         (Value::Zero, 0),
         (Value::One, 1),
-        (Value::Error(ErrorKind::Loss), 2),
-        (Value::Error(ErrorKind::Other), 3),
+        (Value::Error(ReadoutFailure::Loss), 2),
+        (Value::Error(ReadoutFailure::Other), 3),
     ];
     for (value, code) in values {
         assert_eq!(value_code(value), code);

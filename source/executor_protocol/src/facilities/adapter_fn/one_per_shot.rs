@@ -22,9 +22,9 @@ use crate::facilities::panics::absorb_each;
 use crate::facilities::teardown::{DroppedOneByOne, HeldStates};
 use crate::shot_set::ShotIndex;
 use crate::{
-    Adapter, CallInput, Capabilities, Close, ComponentId, Describe, Executor, ExecutorLifecycle,
-    Fold, ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionSet,
-    LifecycleBoundReply, NoCheck, Outcomes, Rejected, Reply, ShotId, ShotOutcome, ShotSet,
+    Adapter, CallInput, Capabilities, Close, Describe, Executor, ExecutorLifecycle, Fold,
+    ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionSet,
+    LifecycleBoundReply, NoCheck, Outcomes, Rejected, Reply, RngId, ShotId, ShotOutcome, ShotSet,
 };
 #[cfg(doc)]
 use crate::{Below, OnePerShot, ReplyStatus};
@@ -168,7 +168,7 @@ impl<I: Instruction, O: Instruction, S, M, L, C, R> Adapter
         Adapter::accepts(&self.adapter)
     }
 
-    fn draws(&self) -> Option<ComponentId> {
+    fn draws(&self) -> Option<RngId> {
         self.adapter.draws()
     }
 }

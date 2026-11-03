@@ -19,11 +19,11 @@ use std::time::{Duration, Instant};
 use crate::compose::WithAdapter;
 use crate::{
     Action, Adapter, AdapterBoundary, Adapters, AdaptiveProgram, Angle, Apply, Capabilities, Close,
-    ComponentId, Compose, Describe, Executor, ExecutorLifecycle, Fold, ImmediateReply,
-    IncrementalReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionSet, Message, Needs, NoAdapter, Operand, OperandKind, Pauli, Rejected, Reply,
-    ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, reply_channel,
-    shot_seed, wait, wait_async,
+    Compose, Describe, Executor, ExecutorLifecycle, Fold, ImmediateReply, IncrementalReply,
+    Instruction, InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, Message,
+    Needs, NoAdapter, Operand, OperandKind, Pauli, Rejected, Reply, ReplyStatus, RngId,
+    ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, reply_channel, shot_seed,
+    wait, wait_async,
 };
 use crate::{
     BuildError, BuildFault, BuildFaults, BuiltinDriver, ChainPrefix, ComposedAdapters,
@@ -723,7 +723,7 @@ impl SharedState {
         Self {
             state: Some(
                 Bits::default()
-                    .state(&ShotContext::new(seed, 0))
+                    .state(&ShotContext::last_executor(seed, 0))
                     .expect("bits always make a state"),
             ),
             lifecycle: ExecutorLifecycle::default(),
@@ -952,7 +952,7 @@ impl<E: Executor<InstructionBatch<InstructionCall>> + Close> Apply<E>
 /// reports, so it states none. Made by [`map_executor`].
 struct MapExecutor<I, F> {
     map: F,
-    draws: Option<ComponentId>,
+    draws: Option<RngId>,
     instructions: PhantomData<fn() -> I>,
 }
 
@@ -969,7 +969,7 @@ fn map_executor<I, F>(map: F) -> MapExecutor<I, F> {
 impl<I, F> MapExecutor<I, F> {
     /// This adapter, drawing random numbers with `id`
     /// ([`Adapter::draws`]).
-    fn drawing(mut self, id: ComponentId) -> Self {
+    fn drawing(mut self, id: RngId) -> Self {
         self.draws = Some(id);
         self
     }
@@ -979,7 +979,7 @@ impl<I: Instruction, F> Adapter for MapExecutor<I, F> {
     type Accepts = I;
     type Sends = I;
 
-    fn draws(&self) -> Option<ComponentId> {
+    fn draws(&self) -> Option<RngId> {
         self.draws
     }
 

@@ -14,8 +14,8 @@ use crate::facilities::executor_fn::{
 use crate::facilities::executor_lifecycle::PartsFailure;
 use crate::facilities::teardown::HeldPart;
 use crate::{
-    Capabilities, Close, Describe, Executor, ExecutorLifecycle, ExecutorReport, Fold,
-    IncrementalReply, InstructionBatch, InstructionBatchRef, PlacedExecutor, Placement, Rejected,
+    Capabilities, Close, Describe, Executor, ExecutorLifecycle, ExecutorPlacement, ExecutorReport,
+    Fold, IncrementalReply, InstructionBatch, InstructionBatchRef, PlacedExecutor, Rejected,
     ShotContext, ShotId, ShotOutcome, ShotReplies, ShotStates,
 };
 
@@ -25,7 +25,7 @@ where
     P: Clone,
     L: Clone,
     R: Clone,
-    T: Placement + Clone,
+    T: ExecutorPlacement + Clone,
 {
     type Executor = OnePerShotPlacedExecutor<I, S, M, P, T, C, L, R>;
 
@@ -129,7 +129,7 @@ where
 ///   The executor's own closures (the state closure, the check, and the
 ///   closures it copies for each shot) are dropped on the thread that drops
 ///   it, and `drop` does not wait for the shots, as no placed executor's
-///   drop waits for its placement ([`Placement`]): they may be dropped
+///   drop waits for its placement ([`ExecutorPlacement`]): they may be dropped
 ///   before a shot's state, so a state whose drop reaches its device
 ///   through them may not find it there; `close` waits, and frees every
 ///   state first. A state held from before it was placed, and not called
@@ -186,8 +186,8 @@ where
 ///
 /// - `I`, `S`, `M`, `P`, `C`, `L`, `R`: as [`ExecutorFn`]'s, from the
 ///   executor it was made from.
-/// - `T`: the placement ([`Placement`]) given to [`ExecutorFn::run_on`];
-///   each shot's state runs on a copy of it.
+/// - `T`: the placement ([`ExecutorPlacement`]) given to
+///   [`ExecutorFn::run_on`]; each shot's state runs on a copy of it.
 pub struct OnePerShotPlacedExecutor<I, S, M, P, T, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)> {
     /// The run's seed, if the executor was given one.
     seed: Option<u64>,
@@ -274,7 +274,7 @@ where
     C: FnMut(&CallInput<'_, I>) -> Result<(), Rejected>,
     L: Clone + Send + 'static,
     R: Clone + Send + 'static,
-    T: Placement + Clone,
+    T: ExecutorPlacement + Clone,
 {
     /// The replies of the shots' placements, merged.
     type Reply = ShotReplies<IncrementalReply<ShotOutcome>>;
@@ -370,7 +370,7 @@ where
     L: FnMut(&S) -> f64 + Send + 'static,
     R: FnMut(&S) -> Q + Send + 'static,
     Q: Fold + Send,
-    T: Placement,
+    T: ExecutorPlacement,
 {
     type Report = ExecutorReport<Q>;
 
@@ -391,8 +391,8 @@ where
     /// ([`PlacedExecutor`]'s `close`): the shots not closed yet are then
     /// dropped before the panic leaves `close`, not as it unwinds, so that a
     /// placement that panics too as their drops hand it a job (against
-    /// [`Placement`]'s rule) does not abort the process, and the first panic is
-    /// the one raised. When a report closure (`log_probability`'s or
+    /// [`ExecutorPlacement`]'s rule) does not abort the process, and the first
+    /// panic is the one raised. When a report closure (`log_probability`'s or
     /// `state_report`'s), or the drop of a state it reports, panics on a shot's
     /// placement: that panic is raised again here, its payload unchanged, as
     /// when not placed (the type's doc), once the shots not closed yet were

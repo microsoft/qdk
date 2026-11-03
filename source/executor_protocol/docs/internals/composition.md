@@ -83,7 +83,7 @@ section states the protocol's rules that the other pages build on.
   by hand keeps the rules of failure and close with `ExecutorLifecycle`.
 - **Seeds**: shot `j` draws, in each component that draws, from a seed fixed
   by the run's seed, `j` and the component's id (`ShotContext`,
-  `shot_seed`, `ComponentId`): the run's seed is the one the last executor
+  `shot_seed`, `RngId`): the run's seed is the one the last executor
   is built with, which gives it to its states, and an adapter that draws is
   given it when the chain is built
   ([Seeds](../executors.md#seeds-not-generators)). Seed derivation does not
@@ -428,7 +428,7 @@ The parts of a run, as
   ```rust
   let sends_h = bits_set().with("h", [Block]);
   let noise =
-      map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
+      map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
   let Err(faults) = compose(
       compose(Relabel::new(sends_h, false), noise),
       TestDoubleExecutor::with_model(Bits::default(), 7),

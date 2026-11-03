@@ -11,10 +11,10 @@
 //! The executor here is the toy simulator (`toy/simulator.rs`), and the
 //! program flips a coin on each shot and reads it, so a test sees which
 //! seed each shot drew from. A noise model written by hand, a readout
-//! error (`simulator/readout_error.rs`), draws from seeds of its own.
+//! error (`simulator/readout_flip.rs`), draws from seeds of its own.
 
-#[path = "simulator/readout_error.rs"]
-mod readout_error;
+#[path = "simulator/readout_flip.rs"]
+mod readout_flip;
 #[allow(dead_code, reason = "this guide uses only the toy's executor")]
 #[path = "toy/simulator.rs"]
 mod toy;
@@ -26,7 +26,7 @@ use executor_protocol::{
     Rejected, ShotContext, ShotOutcome, ShotSet, Value, compose, conformance, driver, wait,
 };
 
-use readout_error::{READOUT, ReadoutError, flips};
+use readout_flip::{READOUT, ReadoutFlip, flips};
 use toy::{Op, QUBITS, toy_simulator};
 
 /// A program that flips a coin on qubit 0 of each of its shots, in one
@@ -138,7 +138,7 @@ fn a_noise_model_written_by_hand_draws_from_its_own_seeds_in_either_grouping() {
     let expected: Vec<ShotOutcome> = coins
         .iter()
         .map(|coin| {
-            let seed = ShotContext::new(7, coin.shot).rng_seed(READOUT);
+            let seed = ShotContext::last_executor(7, coin.shot).rng_seed(READOUT);
             let mut read = *coin;
             read.value = match (coin.value, flips(seed, 0)) {
                 (Value::Zero, true) => Value::One,
@@ -148,13 +148,13 @@ fn a_noise_model_written_by_hand_draws_from_its_own_seeds_in_either_grouping() {
             read
         })
         .collect();
-    let left = (driver() >> ReadoutError::default() >> toy_simulator(7))
+    let left = (driver() >> ReadoutFlip::default() >> toy_simulator(7))
         .expect("the readout error passes the toy's instructions on")
         .run(program(), shots())
         .expect("the program needs a qubit")
         .wait()
         .0;
-    let below = compose(ReadoutError::default(), toy_simulator(7))
+    let below = compose(ReadoutFlip::default(), toy_simulator(7))
         .expect("the readout error passes the toy's instructions on");
     let right = compose(driver(), below)
         .expect("nothing between to refuse")

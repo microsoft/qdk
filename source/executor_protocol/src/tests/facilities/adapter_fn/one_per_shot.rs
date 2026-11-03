@@ -25,12 +25,11 @@ use crate::tests::{
     Bits, PanicsOnClose, bits_set, ends_soon, flip_and_toss, reversed_set, shots, values,
 };
 use crate::{
-    AdapterError, AdapterLogic, Below, BuildError, CallInput, Capabilities, Close, ComponentId,
-    Describe, Executor, ExecutorFn, ExecutorLogic, IncrementalReply, InstructionBatch,
-    InstructionBatchRef, InstructionCall, MakeState, Need, OnePerShot, OnePerShotAdapter,
-    OnePerShotExecutor, Outcome, Outcomes, OwnThread, Rejected, Reply, ReplyStatus, ShotContext,
-    ShotId, ShotOutcome, ShotSet, Value, adapter_fn, compose, conformance, executor_fn,
-    reply_channel, wait,
+    AdapterError, AdapterLogic, Below, BuildError, CallInput, Capabilities, Close, Describe,
+    Executor, ExecutorFn, ExecutorLogic, IncrementalReply, InstructionBatch, InstructionBatchRef,
+    InstructionCall, MakeState, Need, OnePerShot, OnePerShotAdapter, OnePerShotExecutor, Outcome,
+    Outcomes, OwnThread, Rejected, Reply, ReplyStatus, RngId, ShotContext, ShotId, ShotOutcome,
+    ShotSet, Value, adapter_fn, compose, conformance, executor_fn, reply_channel, wait,
 };
 
 /// The shots of the target chain's run: not a range.
@@ -454,10 +453,10 @@ fn a_readout_written_for_a_shot_the_state_does_not_serve_panics() {
 const SEED: u64 = 0x5EED;
 
 /// The id a noise adapter draws with.
-const NOISE: ComponentId = ComponentId::named("noise");
+const NOISE: RngId = RngId::named("noise");
 
 /// The id a second noise adapter draws with, a readout error's.
-const READOUT: ComponentId = ComponentId::named("readout");
+const READOUT: RngId = RngId::named("readout");
 
 /// A simulator of bools made with `executor_fn`, one state, that reads
 /// nothing, for the tests of what reaches an adapter above it: unseeded,
@@ -497,12 +496,12 @@ fn a_drawing_adapters_states_seed_from_their_shot_bound_to_its_id() {
     let mut executor = (noise >> simulator()).expect("bools fit");
     step(&mut executor, &shots(&SHOTS), &[true], "the call runs");
     let expected: Vec<_> = (SHOTS.iter())
-        .map(|&j| (j, ShotContext::new(SEED, j).rng_seed(NOISE)))
+        .map(|&j| (j, ShotContext::last_executor(SEED, j).rng_seed(NOISE)))
         .collect();
     assert_eq!(*seeds.borrow(), expected);
     assert_ne!(
         expected[0].1,
-        ShotContext::new(SEED, 2).seed(),
+        ShotContext::last_executor(SEED, 2).seed(),
         "not the simulator's"
     );
 }
@@ -858,7 +857,7 @@ fn a_change_of_the_runs_seed_changes_a_drawing_adapters_draws() {
 #[test]
 fn two_drawing_adapters_seed_from_the_one_seed_each_with_its_own_id() {
     let seeds = Rc::new(RefCell::new(Vec::new()));
-    let recording = |id: ComponentId| {
+    let recording = |id: RngId| {
         let seeds = Rc::clone(&seeds);
         adapter_fn(
             move |context: ShotContext| {
@@ -882,7 +881,7 @@ fn two_drawing_adapters_seed_from_the_one_seed_each_with_its_own_id() {
         .flat_map(|id| {
             SHOTS
                 .iter()
-                .map(move |&j| (id, j, ShotContext::new(SEED, j).rng_seed(id)))
+                .map(move |&j| (id, j, ShotContext::last_executor(SEED, j).rng_seed(id)))
         })
         .collect();
     expected.sort_unstable();
@@ -963,13 +962,13 @@ fn an_adapter_drawing_with_no_run_seed_below_is_refused() {
 #[test]
 fn an_adapter_drawing_with_an_id_in_use_below_is_refused() {
     let noise = adapter_fn(drawing, pass)
-        .drawing(ComponentId::LAST_EXECUTOR)
+        .drawing(RngId::LAST_EXECUTOR)
         .shots(OnePerShot);
     let Err(faults) = noise >> simulator() else {
         panic!("the id is in use below")
     };
     let errors: Vec<_> = faults.0.into_iter().map(|fault| fault.error).collect();
-    assert_eq!(errors, [BuildError::RngInUse(ComponentId::LAST_EXECUTOR)]);
+    assert_eq!(errors, [BuildError::RngInUse(RngId::LAST_EXECUTOR)]);
 }
 
 /// `noise >> (observer >> (noise >> simulator))`: a noise adapter whose

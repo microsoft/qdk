@@ -30,10 +30,10 @@ use crate::facilities::panics::{Panic, caught, raise};
 use crate::facilities::teardown::{DroppedOneByOne, HeldPart, HeldStates};
 use crate::reply::CANCELLATION;
 use crate::{
-    Adapter, AdapterBoundary, AdapterError, Below, CallInput, Capabilities, Close, ComponentId,
-    Describe, Executor, ExecutorLifecycle, Fold, ImmediateReply, Instruction, InstructionBatch,
+    Adapter, AdapterBoundary, AdapterError, Below, CallInput, Capabilities, Close, Describe,
+    Executor, ExecutorLifecycle, Fold, ImmediateReply, Instruction, InstructionBatch,
     InstructionBatchRef, InstructionSet, LifecycleBoundReply, MakeState, NoCheck, OnePerShot,
-    Outcomes, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, wait,
+    Outcomes, Rejected, Reply, ReplyStatus, RngId, ShotContext, ShotId, ShotOutcome, ShotSet, wait,
 };
 use below::Route;
 use conditions::{ConditionsSoFar, Marks, Raised};
@@ -96,7 +96,7 @@ pub struct AdapterFn<I, O, S, M, L, C = NoCheck<I>, R = NoStateReport> {
     state_report: HeldPart<R>,
     accepts: Option<Arc<InstructionSet>>,
     sends: Option<Arc<InstructionSet>>,
-    drawing: Option<ComponentId>,
+    drawing: Option<RngId>,
     instructions: PhantomData<fn(&I, &S) -> O>,
 }
 
@@ -430,7 +430,7 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     // its own report (`state_report`) goes beside it, and changes nothing
     // there.
     #[must_use]
-    pub fn drawing(mut self, id: ComponentId) -> Self {
+    pub fn drawing(mut self, id: RngId) -> Self {
         self.drawing = Some(id);
         self
     }
@@ -538,7 +538,7 @@ impl<I: Instruction, O: Instruction, S, M, L, C, R> Adapter for AdapterFn<I, O, 
         self.accepts.clone()
     }
 
-    fn draws(&self) -> Option<ComponentId> {
+    fn draws(&self) -> Option<RngId> {
         self.drawing
     }
 

@@ -123,9 +123,9 @@ use crate::{Message, Rejected, Reply};
 ///
 /// If it draws random numbers, it takes the run's seed when it is built, and
 /// shot `j`'s components draw from the seeds of
-/// [`ShotContext::new`]`(seed, j)`, each under its own id (an adapter's
-/// from [`AdapterSeeds::shot`](crate::AdapterSeeds::shot)), so one number
-/// replays the whole run; hardware takes none. Only an
+/// [`ShotContext::last_executor`]`(seed, j)`, each under its own id (an
+/// adapter's from [`AdapterSeeds::shot`](crate::AdapterSeeds::shot)), so one
+/// number replays the whole run; hardware takes none. Only an
 /// [`executor_fn`](fn@crate::executor_fn) passes that seed up to the
 /// adapters above it today ([`ExecutorFn::seed`](crate::ExecutorFn::seed));
 /// one written by hand cannot state it yet (planned), so an adapter that

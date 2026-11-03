@@ -184,7 +184,7 @@ check, as under `OnePerShot`
 
 `.seed(seed)` gives the executor the run's seed when it is built, in
 every form: shot
-`j`'s state is made from `ShotContext::new(seed, j)`, so that it draws
+`j`'s state is made from `ShotContext::last_executor(seed, j)`, so that it draws
 from its shot's seed
 (`a_state_given_the_runs_seed_draws_from_its_shots_seed`), the same
 values whatever the other shots of the run and whatever the shot form
@@ -212,8 +212,8 @@ the run is planned to take the seed with the job
 pinned in `src/tests/facilities/executor_fn/one_per_shot.rs`:
 
 - Shot `j`'s state is made at the shot's first call, from
-  `ShotContext::new(seed, j)`, so that it draws the same values whatever the
-  other shots of the run
+  `ShotContext::last_executor(seed, j)`, so that it draws the same values
+  whatever the other shots of the run
   (`a_shots_state_is_made_at_its_first_call_from_the_runs_seed_and_the_shot`),
   and kept for the shot's later calls until the executor closes
   (`a_later_call_continues_each_shot_from_its_state`).
@@ -258,7 +258,7 @@ closure that runs each job where it chooses, such as a thread pool
 (`a_placement_is_handed_one_job_which_runs_every_call_queued_in_order`).
 A placement that serves the far end of a link, `Remote(link)`, is planned,
 with no milestone yet: the compiler's error for a value that is not a
-placement names it (`Placement`'s diagnostic, which no test pins).
+placement names it (`ExecutorPlacement`'s diagnostic, which no test pins).
 Two more placements are planned, with no milestone yet, as a prototype of
 this crate did them:
 
@@ -308,8 +308,8 @@ The rules, pinned in `src/tests/facilities/placed_executor.rs`:
   blocks its thread until a job ran the close, a placement must not defer
   a job to run later on the thread that closes (a one-thread runtime's
   spawn, under the task that closes), or `close` waits for ever; a job run
-  inline has run before `close` waits (`Placement`'s doc, which no test
-  pins).
+  inline has run before `close` waits (`ExecutorPlacement`'s doc, which no
+  test pins).
 - `close` waits for the calls queued, then closes the executor it places
   and returns its report
   (`closing_waits_for_the_calls_queued_then_gives_the_placed_executors_report`),
@@ -610,7 +610,7 @@ sequenceDiagram
 
 ## Seeds: the derivation
 
-Shot `j` draws, in component `c` (a 32-bit `ComponentId`; the last
+Shot `j` draws, in component `c` (a 32-bit `RngId`; the last
 executor's is 0) built with seed `s`, from the seed
 
 $$
@@ -631,7 +631,7 @@ with a constant, is a bijection of `u64`, and $2^{32}c+j$ is one-to-one over
 
 Each component that draws is given the run's `s`. An executor is built
 with it (`.seed(s)`, `ExecutorFn::seed`) and gives shot `j`'s state
-`ShotContext::new(s, j)`
+`ShotContext::last_executor(s, j)`
 (`a_shots_state_is_made_at_its_first_call_from_the_runs_seed_and_the_shot`).
 An adapter that draws is given the same `s` when it is built against what
 is downstream of it, bound to the id it draws with
@@ -730,7 +730,7 @@ profiler](../guides.md#an-existing-backend-and-a-profiler), in
 
 | Promise                                                                                                            | Tests                                                                                                                                       |
 | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| A lost qubit is read as `Value::Error(ErrorKind::Loss)`, and the batch goes on                                     | `a_lost_qubit_is_read_as_a_loss_and_the_batch_goes_on`                                                                                      |
+| A lost qubit is read as `Value::Error(ReadoutFailure::Loss)`, and the batch goes on                                | `a_lost_qubit_is_read_as_a_loss_and_the_batch_goes_on`                                                                                      |
 | The profiler's random bits replay from the run's seed                                                              | `a_profiles_draws_replay_from_the_runs_seed`                                                                                                |
 | The profiler's counts are a report folded over shots                                                               | `a_profile_of_many_shots_is_the_sum_of_their_counts`                                                                                        |
 | The bridge is refused when built, with every mnemonic the backend does not name                                    | `the_bridge_is_refused_at_build_with_each_instruction_the_backend_does_not_name`                                                            |

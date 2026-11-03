@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! An executor run where a [`Placement`] says ([`PlacedExecutor`]), made by
-//! `.run_on(place)` ([`ExecutorFn::run_on`],
+//! An executor run where an [`ExecutorPlacement`] says ([`PlacedExecutor`]),
+//! made by `.run_on(place)` ([`ExecutorFn::run_on`],
 //! [`OnePerShotExecutor::run_on`]); given a state per shot after it, each
 //! shot runs on a placement of its own ([`PlacedExecutor::shots`]).
 //!
@@ -20,19 +20,20 @@ use call_queue::{BatchCopy, CallQueue, Drain, Queue, QueuedCall, Request, Shared
 use crate::facilities::executor_lifecycle::{PartsFailure, failing_on_panic};
 use crate::facilities::teardown::HeldPart;
 use crate::{
-    Capabilities, Close, Describe, Executor, ExecutorLifecycle, IncrementalReply, InstructionBatch,
-    InstructionBatchRef, Placement, Rejected, ShotOutcome, ShotStrategy, reply_channel,
+    Capabilities, Close, Describe, Executor, ExecutorLifecycle, ExecutorPlacement,
+    IncrementalReply, InstructionBatch, InstructionBatchRef, Rejected, ShotOutcome, ShotStrategy,
+    reply_channel,
 };
 #[cfg(doc)]
 use crate::{
     ExecutorFn, OnePerShot, OnePerShotExecutor, OnePerShotPlacedExecutor, OwnThread, ReplyStatus,
 };
 
-/// An executor run where a [`Placement`] says, made by `.run_on(place)`: its
-/// calls are queued and run, in order, in the jobs it hands its placement, one
-/// job at a time. A call returns at once when the placement schedules the job
-/// to run elsewhere, and after its work when the placement runs the job inline
-/// (`|job: PlacementJob| job()`).
+/// An executor run where an [`ExecutorPlacement`] says, made by
+/// `.run_on(place)`: its calls are queued and run, in order, in the jobs it
+/// hands its placement, one job at a time. A call returns at once when the
+/// placement schedules the job to run elsewhere, and after its work when the
+/// placement runs the job inline (`|job: PlacementJob| job()`).
 ///
 /// - Its reply is an [`IncrementalReply`]: the events come as the
 ///   executor it places hands them over on its thread, which wakes the
@@ -285,7 +286,7 @@ impl<E, P> PlacedExecutor<E, P> {
     /// Drops it as `drop` does, then waits until the executor it places,
     /// with the states it holds, was dropped on its placement: for a shot
     /// strategy whose `close` frees every state before it returns, as
-    /// [`Placement`]'s doc tells callers to rely on. Before its first
+    /// [`ExecutorPlacement`]'s doc tells callers to rely on. Before its first
     /// call, the executor it places is freed here; once its placement
     /// stopped, no job runs any more: the wait ends at once, and it takes
     /// that executor from the queue and frees it here, as `close` does,
@@ -348,7 +349,7 @@ impl<E, P> PlacedExecutor<E, P> {
     }
 }
 
-impl<E: Send + 'static, P: Placement> PlacedExecutor<E, P> {
+impl<E: Send + 'static, P: ExecutorPlacement> PlacedExecutor<E, P> {
     /// The executor that holds its shots' states as `strategy` says, each
     /// on a placement of its own: `.run_on(OwnThread).shots(OnePerShot)`
     /// runs each shot on a thread of its own, where
@@ -424,7 +425,7 @@ impl<I, E, P> Executor<InstructionBatch<I>> for PlacedExecutor<E, P>
 where
     I: Clone + Send + 'static,
     E: Executor<InstructionBatch<I>> + Send + 'static,
-    P: Placement,
+    P: ExecutorPlacement,
 {
     /// The events come from the executor's thread.
     type Reply = IncrementalReply<ShotOutcome>;
@@ -449,7 +450,7 @@ where
     }
 }
 
-impl<E: Send + 'static, P: Placement> PlacedExecutor<E, P> {
+impl<E: Send + 'static, P: ExecutorPlacement> PlacedExecutor<E, P> {
     /// Serves `batch`: the steps of `call`, which runs them failing the
     /// executor should they panic ([`failing_on_panic`]).
     fn serve<I>(
@@ -504,7 +505,7 @@ impl<E, P> Close for PlacedExecutor<E, P>
 where
     E: Close + Send + 'static,
     E::Report: Send,
-    P: Placement,
+    P: ExecutorPlacement,
 {
     type Report = E::Report;
 

@@ -24,9 +24,9 @@ use crate::tests::facilities::placed_executor::{
 };
 use crate::tests::{PATIENT, block_on, ends_soon};
 use crate::{
-    CallInput, Capabilities, Close, Describe, Executor, ExecutorReport, InstructionBatch,
-    InstructionBatchRef, LogP, OnePerShot, Outcome, Outcomes, OwnThread, Placement, PlacementJob,
-    Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
+    CallInput, Capabilities, Close, Describe, Executor, ExecutorPlacement, ExecutorReport,
+    InstructionBatch, InstructionBatchRef, LogP, OnePerShot, Outcome, Outcomes, OwnThread,
+    PlacementJob, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, Value,
     check_unique_tags, conformance, executor_fn, wait, wait_async,
 };
 
@@ -137,8 +137,8 @@ fn each_shots_state_is_made_on_the_callers_thread_from_the_runs_seed_and_the_sho
     assert_eq!(
         *made.lock().expect("no test thread panics holding it"),
         [
-            (caller, ShotContext::new(SEED, 2)),
-            (caller, ShotContext::new(SEED, 5))
+            (caller, ShotContext::last_executor(SEED, 2)),
+            (caller, ShotContext::last_executor(SEED, 5))
         ],
         "made once per shot, at its first call"
     );
@@ -968,7 +968,7 @@ fn calls_in_flight_on_other_shots_end_at_an_earlier_failure() {
 /// The tests' device on `placement`, per shot, whose check and state
 /// closure count their runs in `checked` and `made`.
 fn counting(
-    placement: impl Placement + Clone,
+    placement: impl ExecutorPlacement + Clone,
     checked: &Arc<AtomicUsize>,
     made: &Arc<AtomicUsize>,
 ) -> impl Executor<InstructionBatch<Op>> {
@@ -1201,7 +1201,7 @@ fn a_call_on_other_shots_ends_done_while_the_failing_reply_is_unpolled() {
 #[derive(Clone, Default)]
 struct ThreadsRunOut(Arc<AtomicUsize>);
 
-impl Placement for ThreadsRunOut {
+impl ExecutorPlacement for ThreadsRunOut {
     fn start(self) -> Box<dyn FnMut(PlacementJob) + Send> {
         let started = self.0.fetch_add(1, Ordering::Relaxed);
         assert!(started == 0, "the system cannot make a thread");
@@ -1322,7 +1322,7 @@ fn a_panic_making_a_shots_report_at_close_reaches_the_closer() {
 
 /// A pool that runs each job as it is handed, inline, until it shuts
 /// down; from then on it panics at each job it is handed, including those
-/// of a shot's drop, against `Placement`'s rule.
+/// of a shot's drop, against `ExecutorPlacement`'s rule.
 fn shutting(shut: &Arc<AtomicBool>) -> impl FnMut(PlacementJob) + Send + Clone + 'static {
     let shut = Arc::clone(shut);
     move |job: PlacementJob| {

@@ -9,7 +9,7 @@ use std::error::Error;
 
 #[cfg(doc)]
 use crate::{Adapter, Apply, BuildError, ShotContext};
-use crate::{AdapterSeeds, Capabilities, ComponentId, OpcodeMap};
+use crate::{AdapterSeeds, Capabilities, OpcodeMap, RngId};
 
 /// Where an adapter meets what is downstream of it, as
 /// [`compose`](fn@crate::compose) builds it ([`Adapter::build`]): what
@@ -24,7 +24,7 @@ use crate::{AdapterSeeds, Capabilities, ComponentId, OpcodeMap};
 pub struct AdapterBoundary<'a> {
     downstream: &'a Capabilities,
     /// The id the adapter draws with ([`Adapter::draws`]).
-    drawing: Option<ComponentId>,
+    drawing: Option<RngId>,
     /// Where the set the adapter sends is in downstream's; `None` when it
     /// sends none of its own, or it does not fit.
     numbering: Option<&'a OpcodeMap>,
@@ -40,7 +40,7 @@ impl<'a> AdapterBoundary<'a> {
     /// it.
     pub(crate) fn new(
         downstream: &'a Capabilities,
-        drawing: Option<ComponentId>,
+        drawing: Option<RngId>,
         numbering: Option<&'a OpcodeMap>,
         offered: Capabilities,
     ) -> Self {

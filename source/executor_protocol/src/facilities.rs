@@ -30,10 +30,11 @@
 //! - [`shot_states`]: keeps the rules of an executor that runs each shot on
 //!   a state of its own, and the reply to a batch run on them
 //!   ([`ShotReplies`]).
-//! - [`placement`]: where an executor runs ([`Placement`]): on a thread of
-//!   its own ([`OwnThread`]), or wherever a closure puts its work.
-//! - [`placed_executor`]: runs an executor where a [`Placement`] puts its
-//!   work ([`PlacedExecutor`], made by `.run_on(place)`).
+//! - [`executor_placement`]: where an executor runs
+//!   ([`ExecutorPlacement`]): on a thread of its own ([`OwnThread`]), or
+//!   wherever a closure puts its work.
+//! - [`placed_executor`]: runs an executor where an [`ExecutorPlacement`]
+//!   puts its work ([`PlacedExecutor`], made by `.run_on(place)`).
 //! - [`readout_tags`]: checks that within a batch a tag names one readout
 //!   of each shot ([`check_unique_tags`]).
 //! - [`replies`]: makes an executor's reply: whole inside the call
@@ -51,9 +52,9 @@ pub(crate) mod adapter_fn;
 pub(crate) mod builtin_driver;
 pub(crate) mod executor_fn;
 pub(crate) mod executor_lifecycle;
+pub(crate) mod executor_placement;
 pub(crate) mod panics;
 pub(crate) mod placed_executor;
-pub(crate) mod placement;
 pub(crate) mod readout_tags;
 pub(crate) mod replies;
 pub(crate) mod shot_states;
@@ -63,6 +64,6 @@ pub(crate) mod teardown;
 #[cfg(doc)]
 use crate::{
     AdapterFn, AdapterLogic, AdaptiveProgram, BuiltinDriver, ExecutorFn, ExecutorLifecycle,
-    ExecutorLogic, ImmediateReply, MappedReply, OwnThread, PlacedExecutor, Placement, ShotReplies,
-    StaticProgram, check_unique_tags, relay, reply_channel,
+    ExecutorLogic, ExecutorPlacement, ImmediateReply, MappedReply, OwnThread, PlacedExecutor,
+    ShotReplies, StaticProgram, check_unique_tags, relay, reply_channel,
 };

@@ -15,10 +15,11 @@ use crate::tests::facilities::executor_fn::{
 use crate::tests::{Count, PATIENT, block_on, ends_soon, outcome, signalling};
 use crate::{
     CallInput, Capabilities, Close, Describe, Executor, ExecutorFn, ExecutorLifecycle,
-    ExecutorReport, Fold, ImmediateReply, IncrementalReply, InstructionBatch, InstructionBatchRef,
-    LogP, MakeState, NoCheck, OnePerShot, Outcome, Outcomes, OwnThread, PlacedExecutor, Placement,
-    PlacementJob, Rejected, Reply, ReplySender, ReplyStatus, ShotContext, ShotId, ShotOutcome,
-    ShotSet, TypedInstruction, Value, conformance, executor_fn, reply_channel, wait, wait_async,
+    ExecutorPlacement, ExecutorReport, Fold, ImmediateReply, IncrementalReply, InstructionBatch,
+    InstructionBatchRef, LogP, MakeState, NoCheck, OnePerShot, Outcome, Outcomes, OwnThread,
+    PlacedExecutor, PlacementJob, Rejected, Reply, ReplySender, ReplyStatus, ShotContext, ShotId,
+    ShotOutcome, ShotSet, TypedInstruction, Value, conformance, executor_fn, reply_channel, wait,
+    wait_async,
 };
 
 /// An instruction of the tests' one-bit device.
@@ -944,7 +945,7 @@ fn fragile_device() -> FragileDevice {
 
 /// The reply of a call of `instructions` on shot 0 of `executor`.
 fn queued(
-    executor: &mut PlacedExecutor<FragileDevice, impl Placement>,
+    executor: &mut PlacedExecutor<FragileDevice, impl ExecutorPlacement>,
     instructions: &[Fragile],
 ) -> IncrementalReply<ShotOutcome> {
     executor
@@ -1551,7 +1552,7 @@ fn after_its_placement_panics_it_refuses_every_later_call_as_never_run() {
 /// make a thread.
 struct CannotMakeAThread;
 
-impl Placement for CannotMakeAThread {
+impl ExecutorPlacement for CannotMakeAThread {
     fn start(self) -> Box<dyn FnMut(PlacementJob) + Send> {
         panic!("the system cannot make a thread")
     }

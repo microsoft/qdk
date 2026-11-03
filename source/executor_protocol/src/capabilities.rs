@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 #[cfg(doc)]
 use crate::{AdapterBoundary, Rejected};
-use crate::{BuildError, ComponentId, InstructionSet, OpcodeMap, RngIds};
+use crate::{BuildError, InstructionSet, OpcodeMap, RngId, RngIds};
 
 /// What an executor offers, so that a chain can check that a caller's needs
 /// fit it before anything runs, instead of failing, or not, during the run.
@@ -246,7 +246,7 @@ impl Capabilities {
     ///
     /// [`BuildError::RngInUse`] when a component downstream already draws with
     /// `id`.
-    pub fn drawing(mut self, id: ComponentId) -> Result<Self, BuildError> {
+    pub fn drawing(mut self, id: RngId) -> Result<Self, BuildError> {
         self.rng_ids = self.rng_ids.with(id)?;
         Ok(self)
     }

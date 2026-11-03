@@ -765,7 +765,7 @@ impl Executor<InstructionBatch<InstructionCall>> for StatelessBits {
         let mut outcomes = Vec::new();
         for &shot in batch.shots {
             let mut bits = Bits::default()
-                .state(&ShotContext::new(self.seed, shot))
+                .state(&ShotContext::last_executor(self.seed, shot))
                 .expect("bits always make a state");
             outcomes.extend(
                 (bits.run(batch.instructions)?)

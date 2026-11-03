@@ -15,9 +15,9 @@ use crate::tests::{
 };
 use crate::{
     Adapter, AdapterBoundary, AdapterSeeds, Apply, Below, BuildError, CallInput, Capabilities,
-    Close, ComponentId, Describe, Executor, ExecutorFn, ExecutorLogic, InstructionBatch,
-    InstructionCall, InstructionSet, MakeState, OnePerShot, Outcomes, ShotContext, Value,
-    adapter_fn, compose, executor_fn,
+    Close, Describe, Executor, ExecutorFn, ExecutorLogic, InstructionBatch, InstructionCall,
+    InstructionSet, MakeState, OnePerShot, Outcomes, RngId, ShotContext, Value, adapter_fn,
+    compose, executor_fn,
 };
 
 /// A code whose blocks are three qubits, a fault of its own against the two
@@ -55,8 +55,7 @@ fn an_adapters_own_faults_are_reported_with_the_chains() {
             downstream
         }
     }
-    let noise =
-        || map_executor::<InstructionCall, _>(|below| below).drawing(ComponentId::LAST_EXECUTOR);
+    let noise = || map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
     let Err(faults) = compose(
         compose(Code { block_size: 3 }, noise()),
         TestDoubleExecutor::with_model(Bits::default(), 7),
@@ -71,7 +70,7 @@ fn an_adapters_own_faults_are_reported_with_the_chains() {
     assert_eq!(own.downcast_ref::<NoBlock>().map(|f| f.qubits), Some(2));
     assert_eq!(
         faults.0[1].error,
-        BuildError::RngInUse(ComponentId::LAST_EXECUTOR)
+        BuildError::RngInUse(RngId::LAST_EXECUTOR)
     );
     let fits = compose(
         Code { block_size: 2 },
@@ -176,19 +175,19 @@ fn an_adapter_that_can_send_in_the_downstream_numbering_does() {
 }
 
 /// The id the noise models of these tests draw with.
-const NOISE: ComponentId = ComponentId::named("noise");
+const NOISE: RngId = RngId::named("noise");
 
 /// An adapter written by hand, drawing with `draws` if any, which keeps
 /// the seeds it is given when built ([`AdapterBoundary::drawing_seeds`]),
 /// each recorded in `read`.
 struct KeepsItsSeeds {
-    draws: Option<ComponentId>,
+    draws: Option<RngId>,
     read: Rc<RefCell<Vec<Option<AdapterSeeds>>>>,
 }
 
 impl KeepsItsSeeds {
     /// One drawing with `draws` if any, recording in `read`.
-    fn new(draws: Option<ComponentId>, read: &Rc<RefCell<Vec<Option<AdapterSeeds>>>>) -> Self {
+    fn new(draws: Option<RngId>, read: &Rc<RefCell<Vec<Option<AdapterSeeds>>>>) -> Self {
         Self {
             draws,
             read: Rc::clone(read),
@@ -207,7 +206,7 @@ impl Adapter for KeepsItsSeeds {
     type Accepts = InstructionCall;
     type Sends = InstructionCall;
 
-    fn draws(&self) -> Option<ComponentId> {
+    fn draws(&self) -> Option<RngId> {
         self.draws
     }
 
@@ -253,7 +252,7 @@ fn an_adapter_reads_when_built_the_runs_seed_the_last_executor_is_given() {
                 below: &mut Below<'_, InstructionCall>,
                 _: &mut Outcomes<'_>| below.send(input.instructions());
     let observer = || adapter_fn(|_: ShotContext| Ok(()), pass);
-    let between = ComponentId::named("between");
+    let between = RngId::named("between");
     let drawing = || observer().drawing(between);
     let fits = "the noise model draws with its own id";
     let built = "the executor is given the run's seed";
@@ -388,7 +387,7 @@ fn an_adapter_that_draws_reads_no_log_probability_in_its_offer_when_built() {
         type Accepts = InstructionCall;
         type Sends = InstructionCall;
 
-        fn draws(&self) -> Option<ComponentId> {
+        fn draws(&self) -> Option<RngId> {
             Some(NOISE)
         }
 
@@ -430,7 +429,7 @@ fn a_drawing_adapter_written_by_hand_offers_each_capability_below_but_the_log_pr
         type Accepts = bool;
         type Sends = bool;
 
-        fn draws(&self) -> Option<ComponentId> {
+        fn draws(&self) -> Option<RngId> {
             Some(NOISE)
         }
     }

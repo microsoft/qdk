@@ -143,8 +143,8 @@ pub use facilities::executor_fn::{
     OnePerShotPlacedExecutor, Outcome, Outcomes, ShotStrategy, executor_fn,
 };
 pub use facilities::executor_lifecycle::{ExecutorLifecycle, LifecycleBoundReply};
+pub use facilities::executor_placement::{ExecutorPlacement, OwnThread, PlacementJob};
 pub use facilities::placed_executor::PlacedExecutor;
-pub use facilities::placement::{OwnThread, Placement, PlacementJob};
 pub use facilities::readout_tags::check_unique_tags;
 pub use facilities::replies::{
     ImmediateReply, IncrementalReply, MappedReply, ReplySender, relay, reply_channel,
@@ -166,9 +166,9 @@ pub use rejected::{CallId, Rejected, RetryClass};
 pub use reply::asynchronous::{AsyncEvents, WaitAsync, async_events, wait_async};
 pub use reply::blocking::wait;
 pub use reply::{Reply, ReplyStatus};
-pub use seeds::{AdapterSeeds, ComponentId, RngIds, ShotContext, shot_seed};
+pub use seeds::{AdapterSeeds, RngId, RngIds, ShotContext, shot_seed};
 pub use shot_conditions::ShotConditions;
-pub use shot_outcome::{ErrorKind, ShotOutcome, Value};
+pub use shot_outcome::{ReadoutFailure, ShotOutcome, Value};
 pub use shot_set::{IntoShotSet, ShotId, ShotSet};
 #[cfg(test)]
 pub(crate) use tests::ComposedJob;

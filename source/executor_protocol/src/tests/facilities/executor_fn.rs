@@ -15,9 +15,9 @@ use std::thread::{self, ThreadId};
 use std::time::Duration;
 
 use crate::{
-    Below, BuildError, CallInput, Capabilities, Close, ComponentId, Describe, Executor, ExecutorFn,
+    Below, BuildError, CallInput, Capabilities, Close, Describe, Executor, ExecutorFn,
     ExecutorReport, Fold, InstructionBatch, InstructionBatchRef, OnePerShot, Outcome, Outcomes,
-    OwnThread, PlacementJob, Rejected, Reply, ReplyStatus, ShotContext, ShotId, ShotOutcome,
+    OwnThread, PlacementJob, Rejected, Reply, ReplyStatus, RngId, ShotContext, ShotId, ShotOutcome,
     ShotSet, TypedInstruction, Value, adapter_fn, check_unique_tags, compose, conformance,
     executor_fn, shot_seed, wait,
 };
@@ -1007,7 +1007,7 @@ fn without_the_runs_seed_a_state_has_none_to_draw_from() {
 /// copy carried.
 #[test]
 fn an_executor_given_no_seed_gives_none_whatever_its_promise_carries() {
-    const NOISE: ComponentId = ComponentId::named("noise");
+    const NOISE: RngId = RngId::named("noise");
     let seeded = executor_fn(promise(), Bit::new, run_bit)
         .seed(7)
         .capabilities();

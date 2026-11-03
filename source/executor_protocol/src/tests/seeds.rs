@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::{BuildError, Capabilities, ComponentId, ShotContext, ShotId, shot_seed};
+use crate::{BuildError, Capabilities, RngId, ShotContext, ShotId, shot_seed};
 
 /// Two shots of a run never share a seed.
 #[test]
@@ -41,9 +41,9 @@ fn shot_seeds_are_fixed() {
 #[test]
 fn the_last_executors_seed_is_the_shots_seed() {
     for (seed, j) in [(0, 0), (7, 3), (u64::MAX, ShotId::MAX)] {
-        let ctx = ShotContext::new(seed, j);
+        let ctx = ShotContext::last_executor(seed, j);
         assert_eq!(
-            (ctx.seed(), ctx.rng_seed(ComponentId::LAST_EXECUTOR)),
+            (ctx.seed(), ctx.rng_seed(RngId::LAST_EXECUTOR)),
             (shot_seed(seed, j), shot_seed(seed, j)),
             "seed {seed}, shot {j}"
         );
@@ -54,15 +54,15 @@ fn the_last_executors_seed_is_the_shots_seed() {
 #[test]
 fn each_component_of_a_shot_has_its_own_seed() {
     let ids = [
-        ComponentId::LAST_EXECUTOR,
-        ComponentId::named("a"),
-        ComponentId::named("b"),
-        ComponentId::named("readout"),
+        RngId::LAST_EXECUTOR,
+        RngId::named("a"),
+        RngId::named("b"),
+        RngId::named("readout"),
     ];
     let mut seen = BTreeSet::new();
     for seed in [0, 7] {
         for j in 0..64 {
-            let ctx = ShotContext::new(seed, j);
+            let ctx = ShotContext::last_executor(seed, j);
             for id in ids {
                 assert!(seen.insert((seed, ctx.rng_seed(id))), "{id} of shot {j}");
             }
@@ -73,12 +73,12 @@ fn each_component_of_a_shot_has_its_own_seed() {
 /// A component's id, and so its seed in a shot, is fixed: it is a hash of
 /// its name, and the last executor's is 0. Known answers.
 #[test]
-fn component_ids_and_their_seeds_are_fixed() {
-    assert_eq!(ComponentId::LAST_EXECUTOR.get(), 0);
-    assert_eq!(ComponentId::named("readout").get(), 0xb192_6246);
-    assert_eq!(ComponentId::named("").get(), 0x4fd0_bfc1);
+fn rng_ids_and_their_seeds_are_fixed() {
+    assert_eq!(RngId::LAST_EXECUTOR.get(), 0);
+    assert_eq!(RngId::named("readout").get(), 0xb192_6246);
+    assert_eq!(RngId::named("").get(), 0x4fd0_bfc1);
     assert_eq!(
-        ShotContext::new(7, 3).rng_seed(ComponentId::named("readout")),
+        ShotContext::last_executor(7, 3).rng_seed(RngId::named("readout")),
         0xf798_a1e2_8cb5_77d2
     );
 }
@@ -87,14 +87,11 @@ fn component_ids_and_their_seeds_are_fixed() {
 /// first, then each component upstream of it, in turn.
 #[test]
 fn a_chain_records_the_ids_it_draws_with_from_the_last_executor_upstream() {
-    let noise = ComponentId::named("noise");
+    let noise = RngId::named("noise");
     let offered = Capabilities::default()
         .drawing(noise)
         .expect("nothing draws with `noise` yet");
-    assert_eq!(
-        offered.rng_ids.as_slice(),
-        [ComponentId::LAST_EXECUTOR, noise]
-    );
+    assert_eq!(offered.rng_ids.as_slice(), [RngId::LAST_EXECUTOR, noise]);
     assert!(offered.rng_ids.contains(noise));
 }
 
@@ -102,15 +99,15 @@ fn a_chain_records_the_ids_it_draws_with_from_the_last_executor_upstream() {
 /// with its id, the last executor's included, since the two would draw the
 /// same numbers.
 #[test]
-fn a_component_id_is_drawn_from_once_per_chain() {
-    let noise = ComponentId::named("noise");
+fn an_rng_id_is_drawn_from_once_per_chain() {
+    let noise = RngId::named("noise");
     let offered = Capabilities::default()
         .drawing(noise)
         .expect("nothing draws with `noise` yet");
     assert_eq!(offered.drawing(noise), Err(BuildError::RngInUse(noise)));
     assert_eq!(
-        Capabilities::default().drawing(ComponentId::LAST_EXECUTOR),
-        Err(BuildError::RngInUse(ComponentId::LAST_EXECUTOR))
+        Capabilities::default().drawing(RngId::LAST_EXECUTOR),
+        Err(BuildError::RngInUse(RngId::LAST_EXECUTOR))
     );
 }
 
@@ -120,11 +117,11 @@ fn a_component_id_is_drawn_from_once_per_chain() {
 #[test]
 fn an_id_is_written_as_the_random_numbers_it_names() {
     assert_eq!(
-        ComponentId::LAST_EXECUTOR.to_string(),
+        RngId::LAST_EXECUTOR.to_string(),
         "the last executor's random numbers"
     );
     assert_eq!(
-        ComponentId::named("readout").to_string(),
-        "the random numbers of component 0xb1926246"
+        RngId::named("readout").to_string(),
+        "the random numbers with id 0xb1926246"
     );
 }

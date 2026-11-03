@@ -40,9 +40,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use executor_protocol::{
-    AdaptiveProgram, Close, Describe, ErrorKind, Executor, ExecutorReport, Instruction,
-    InstructionBatch, InstructionBatchRef, InstructionCall, InstructionSet, Needs, Operand,
-    OperandKind, Rejected, ShotOutcome, ShotSet, Value, compose, conformance, driver, wait,
+    AdaptiveProgram, Close, Describe, Executor, ExecutorReport, Instruction, InstructionBatch,
+    InstructionBatchRef, InstructionCall, InstructionSet, Needs, Operand, OperandKind,
+    ReadoutFailure, Rejected, ShotOutcome, ShotSet, Value, compose, conformance, driver, wait,
 };
 
 use backend::{Bits, ExistingInterface, FixedReply, NAMES, Reading};
@@ -187,7 +187,7 @@ fn a_lost_qubit_is_read_as_a_loss_and_the_batch_goes_on() {
     ];
     assert_eq!(
         run_bridged(Bits::new(2, [1]), &ops),
-        [(0, Value::Error(ErrorKind::Loss)), (1, Value::One)]
+        [(0, Value::Error(ReadoutFailure::Loss)), (1, Value::One)]
     );
 }
 

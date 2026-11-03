@@ -18,7 +18,7 @@
 //! reason to [`Rejected::Unrecognized`], keeping the far end's retry class and
 //! text.
 
-use crate::{ErrorKind, Need, Rejected, RetryClass, ShotConditions, Value};
+use crate::{Need, ReadoutFailure, Rejected, RetryClass, ShotConditions, Value};
 
 /// The code of `rejected`'s reason. [`Rejected::Unrecognized`] has 255: it is
 /// relayed as it came, with no reason of this end.
@@ -99,8 +99,8 @@ pub fn value_code(value: Value) -> u8 {
     match value {
         Value::Zero => 0,
         Value::One => 1,
-        Value::Error(ErrorKind::Loss) => 2,
-        Value::Error(ErrorKind::Other) => 3,
+        Value::Error(ReadoutFailure::Loss) => 2,
+        Value::Error(ReadoutFailure::Other) => 3,
     }
 }
 
@@ -111,8 +111,8 @@ pub fn value_of(code: u8) -> Option<Value> {
     Some(match code {
         0 => Value::Zero,
         1 => Value::One,
-        2 => Value::Error(ErrorKind::Loss),
-        3 => Value::Error(ErrorKind::Other),
+        2 => Value::Error(ReadoutFailure::Loss),
+        3 => Value::Error(ReadoutFailure::Other),
         _ => return None,
     })
 }

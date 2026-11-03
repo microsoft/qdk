@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Where an executor runs ([`Placement`]): on a thread of its own
+//! Where an executor runs ([`ExecutorPlacement`]): on a thread of its own
 //! ([`OwnThread`]), or wherever a closure puts its work ([`PlacementJob`]).
 
 use std::sync::mpsc;
@@ -62,11 +62,11 @@ pub type PlacementJob = Box<dyn FnOnce() + Send>;
 /// executor, not only those `executor_fn` makes, or a state that is not
 /// `Send` (`docs/executors.md`, §Where an executor runs).
 #[diagnostic::on_unimplemented(
-    message = "`{Self}` is not a placement",
+    message = "`{Self}` is not an executor placement",
     note = "a placement is `OwnThread`, or a closure `FnMut(PlacementJob)`; \
             `Remote(link)` is planned, not built"
 )]
-pub trait Placement {
+pub trait ExecutorPlacement {
     /// Starts this placement for one executor, at its first call: what
     /// runs the executor's jobs from then on. The executor hands it one
     /// job at a time.
@@ -95,7 +95,7 @@ pub trait Placement {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct OwnThread;
 
-impl Placement for OwnThread {
+impl ExecutorPlacement for OwnThread {
     /// # Panics
     ///
     /// When the system cannot make a thread, as [`thread::spawn`].
@@ -114,7 +114,7 @@ impl Placement for OwnThread {
     }
 }
 
-impl<F: FnMut(PlacementJob) + Send + 'static> Placement for F {
+impl<F: FnMut(PlacementJob) + Send + 'static> ExecutorPlacement for F {
     fn start(self) -> Box<dyn FnMut(PlacementJob) + Send> {
         Box::new(self)
     }

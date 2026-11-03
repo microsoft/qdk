@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use executor_protocol::{
-    CallInput, Capabilities, Close, Describe, ErrorKind, Executor, ExecutorReport,
-    InstructionBatch, InstructionCall, InstructionSet, Operand, Outcome, Value, check_unique_tags,
+    CallInput, Capabilities, Close, Describe, Executor, ExecutorReport, InstructionBatch,
+    InstructionCall, InstructionSet, Operand, Outcome, ReadoutFailure, Value, check_unique_tags,
     executor_fn,
 };
 
@@ -103,7 +103,7 @@ impl From<Reading> for Value {
         match reading {
             Reading::Zero => Value::Zero,
             Reading::One => Value::One,
-            Reading::Lost => Value::Error(ErrorKind::Loss),
+            Reading::Lost => Value::Error(ReadoutFailure::Loss),
         }
     }
 }

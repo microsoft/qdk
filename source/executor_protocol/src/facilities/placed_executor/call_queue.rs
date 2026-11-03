@@ -19,7 +19,7 @@ use crate::{
     ShotSet, relay,
 };
 #[cfg(doc)]
-use crate::{PlacedExecutor, Placement};
+use crate::{ExecutorPlacement, PlacedExecutor};
 
 /// What runs a queued call on the executor, its batch copied in.
 type RunCall<E> = Box<dyn FnOnce(QueuedCall, &mut E) + Send>;

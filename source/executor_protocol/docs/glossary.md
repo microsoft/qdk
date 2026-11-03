@@ -67,7 +67,7 @@ what they belong to; the names in code are the crate's.
   chain, names the component checked (`UnmetNeed`), by a type name that
   includes those it wraps, so that the caller finds the one that falls
   short; each component that draws does so under an id of its own
-  (`ComponentId`), so that adding one changes no other's draws
+  (`RngId`), so that adding one changes no other's draws
   ([Levels, roles and laws](internals/composition.md#levels-roles-and-laws)).
 - **Runtime**, three senses, each named by whose it is:
   - a **code's runtime**: what runs a code's gadgets and decodes their
@@ -223,7 +223,7 @@ what they belong to; the names in code are the crate's.
   ([How an executor holds its shots](executors.md#how-an-executor-holds-its-shots)).
 - **Seed**: shot `j` draws, in each component of the chain that draws, from
   a seed fixed by the run's seed, `j` and the component's id
-  (`ComponentId`). The seed is the run's, not a part's: the last executor
+  (`RngId`). The seed is the run's, not a part's: the last executor
   is given it (`.seed(s)`, on an `executor_fn`, when it is built) and
   gives it to its states; an adapter that draws upstream is given the same
   `s` when it is built, bound to its own id
@@ -245,9 +245,9 @@ what they belong to; the names in code are the crate's.
   tracked. It runs once per state, when the executor closes, to build the
   report
   ([Making an executor](executors.md#making-an-executor-executor_fn)).
-- **Placement** (`Placement`): where a placed executor's work runs: on a
-  thread of its own (`OwnThread`), or in the jobs (`PlacementJob`) that a
-  closure runs where it chooses, such as a thread pool
+- **Executor placement** (`ExecutorPlacement`): where a placed executor's
+  work runs: on a thread of its own (`OwnThread`), or in the jobs
+  (`PlacementJob`) that a closure runs where it chooses, such as a thread pool
   ([Where an executor runs](executors.md#where-an-executor-runs-run_on)).
 - **Placed executor** (`PlacedExecutor`): an executor wrapped by
   `.run_on(placement)`. Its calls are queued, and return at once when the
