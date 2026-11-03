@@ -74,7 +74,7 @@ fn bit(context: ShotContext) -> Result<Bit, Rejected> {
 /// Runs a batch on a shot's bit: each `Read` gives the bit.
 #[expect(
     clippy::unnecessary_wraps,
-    reason = "the program of executor_fn returns a Result"
+    reason = "the logic of executor_fn returns a Result"
 )]
 fn read(
     bit: &mut Bit,

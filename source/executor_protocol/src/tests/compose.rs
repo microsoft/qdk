@@ -1295,8 +1295,7 @@ impl Model for Undescribed {
 }
 
 /// A typed program that states no set composes with an executor that
-/// describes none: the compiler checks that both run the same type, and
-/// an instruction the executor does not run is refused at run time.
+/// describes none: the compiler checks that both run the same type.
 #[test]
 fn a_typed_job_and_an_executor_that_describe_no_set_compose() {
     let program = reset_flip_read(Needs::default());

@@ -319,8 +319,23 @@ pub fn readouts(batch: &[Op]) -> impl Iterator<Item = (usize, u32)> {
 }
 ```
 
-and calls `check_unique_tags(readouts(batch))?` with its other checks. An
-adapter that maps each of its tags to distinct tags downstream, and sends a
+and its check, which refuses an instruction on a qubit it does not have
+first, gives them to `check_unique_tags`:
+
+```rust
+pub fn check(input: &CallInput<'_, Op>) -> Result<(), Rejected> {
+    let batch = input.instructions();
+    if let Some(at) = batch.iter().position(|op| op.qubits().any(|q| q >= QUBITS)) {
+        return Err(Rejected::Instruction {
+            at,
+            reason: format!("the toy has {QUBITS} qubits"),
+        });
+    }
+    check_unique_tags(readouts(batch))
+}
+```
+
+An adapter that maps each of its tags to distinct tags downstream, and sends a
 call's instructions down in one batch (the static guide's repetition code:
 logical tag `t` becomes physical tags `3t`, `3t + 1`, `3t + 2`, and a call's
 gadgets go down as one physical batch), needs no check of its own: the

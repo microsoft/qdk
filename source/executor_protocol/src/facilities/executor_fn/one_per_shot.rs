@@ -40,10 +40,13 @@ use crate::{
 /// An executor of a simulator with a bounded state per shot; its
 /// implementer writes only its state, its logic and how to read its log
 /// probability. The state draws from its shot's seed. Excerpt
-/// of `bond_limited_executor`, in the guide test
-/// `tests/per_shot_executor/bond_limited.rs`, which compiles it:
+/// of `bond_limited_executor(busy_at)`, in the guide test
+/// `tests/per_shot_executor/bond_limited.rs`, which compiles it; `busy_at`
+/// names a shot whose first state is refused, its device busy (`None`,
+/// no shot):
 ///
 /// ```ignore
+/// let mut busy = busy_at;
 /// let promise = Capabilities::default()
 ///     .with_qubits(QUBITS)
 ///     .with_resumable_shots(true)

@@ -8,7 +8,8 @@ use crate::{
 };
 
 /// A program of reads, with no content: its driver chooses how often it
-/// reads each shot. It gives whether each call was taken.
+/// reads each shot. It gives the first refusal of its driver's calls, if
+/// any.
 struct Reads;
 
 impl Program for Reads {

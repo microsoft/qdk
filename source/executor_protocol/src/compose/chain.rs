@@ -73,7 +73,7 @@ use crate::{
 ///
 /// impl TypedInstruction for Op {}
 ///
-/// /// The program of the device: flips and reads a shot's bit.
+/// /// The device's logic: flips and reads a shot's bit.
 /// fn run_bit(
 ///     bit: &mut bool,
 ///     input: &CallInput<'_, Op>,

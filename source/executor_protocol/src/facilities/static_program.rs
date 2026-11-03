@@ -95,7 +95,8 @@ impl<I: Instruction> Program for StaticProgram<I> {
 /// the order its reply delivers them. At the first batch the chain refuses
 /// or that fails, it stops and sends no later batch: it gives that batch
 /// and why ([`StaticProgramError`]), the outcomes of earlier batches
-/// dropped. A program of no batches sends no call and gives no outcomes.
+/// dropped. For a program of no batches, the driver sends no call and gives
+/// no outcomes.
 impl<I: Instruction> Driver<StaticProgram<I>> for BuiltinDriver {
     /// `resumable_shots` when a batch before the program's last holds a
     /// call: the later batches, empty ones too, continue each shot where

@@ -73,7 +73,8 @@ pub fn toy_set() -> InstructionSet {
 }
 ```
 
-Each instruction declares what it does, its `Action` (below), so that a
+Each instruction declares what it does, its `Action` (below; the toy's
+`action(mnemonic)`, beside `toy_set`, gives each), so that a
 set of another name, which names or numbers it otherwise, is matched to it.
 A set's name is its identity: sets of one name are matched by mnemonic
 ([compatibility](#compatibility)), so name a set for its source (`qep`,
@@ -149,6 +150,8 @@ fn stim() -> InstructionSet {
         .with_action("X", [Block], x())
 }
 ```
+
+The tests write `reset()`, `measure()` and `x()` as they write `cx()`.
 
 Two actions are the same when they are written the same, up to the order of a
 Pauli's factors and of a Clifford's images; steps in another order differ. The

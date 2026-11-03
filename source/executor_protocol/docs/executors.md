@@ -106,6 +106,12 @@ let needs: Vec<Option<Need>> = faults
 assert_eq!(needs, [Some(Need::Qubits), Some(Need::LogProbability)]);
 ```
 
+The program `flip_and_toss_batches(set)`, which flips a bit and tosses
+another in `set`'s numbering, needing `set`, is a helper of those tests;
+the set of two bits `bits_set()`, the driver `ByHand` and the executor
+`TestDoubleExecutor`, here on the bits of `Bits`, are doubles of the
+crate's tests ([`src/tests.rs`](../src/tests.rs)).
+
 A property the table lacks is added to the protocol in five steps
 ([Adding a capability](internals/executors.md#adding-a-capability)). Two
 are planned, with no milestone yet:
@@ -166,10 +172,13 @@ rules](internals/executors.md#making-an-executor-the-rules).
 
 An executor of a simulator with a bounded state per shot; its implementer writes
 only its state, its logic and how to read its log probability. From
-`bond_limited_executor`
-([`tests/per_shot_executor/bond_limited.rs`](../tests/per_shot_executor/bond_limited.rs)):
+`bond_limited_executor(busy_at)`
+([`tests/per_shot_executor/bond_limited.rs`](../tests/per_shot_executor/bond_limited.rs)),
+where `busy_at` names a shot whose first state is refused, its device busy
+(`None`, no shot):
 
 ```rust
+let mut busy = busy_at;
 let promise = Capabilities::default()
     .with_qubits(QUBITS)
     .with_resumable_shots(true)
@@ -189,7 +198,10 @@ executor_fn(
 .log_probability(|state| state.log_p)
 ```
 
-Its logic, `run_bond_limited`, is given the shot's state, the call's
+The toy's check, `check`, and its qubits, `QUBITS`, are helpers of
+[`tests/toy/simulator.rs`](../tests/toy/simulator.rs); the state
+`BondLimitedState` and the bound `MAX_SHOTS` are the guide's own. Its
+logic, `run_bond_limited`, is given the shot's state, the call's
 instructions and the reply's outcomes:
 
 ```rust
@@ -217,7 +229,8 @@ made. So a function that makes a part for `>>` returns the type the
 facility gives, its closures named by role (`MakeState`, `ExecutorLogic`,
 `AdapterLogic`), as `simulator_recording` of the
 [observer guide](../tests/observers.rs) does
-([Writing an executor](../README.md#writing-an-executor)):
+([Writing an executor](../README.md#writing-an-executor) shows it whole,
+with `simulator()`, which calls it):
 
 ```rust
 fn simulator_recording(
@@ -280,6 +293,7 @@ driven by the driver of a program with a branch on a readout
 [per-shot executor guide](../tests/per_shot_executor.rs):
 
 ```rust
+let shots = ShotSet::range(0..=7).expect("not empty");
 let (outcomes, report) = (IfOneDriver.into_chain()
     >> bond_limited_executor(None).seed(3).shots(OnePerShot))
 .expect("nothing between to refuse")
@@ -287,6 +301,9 @@ let (outcomes, report) = (IfOneDriver.into_chain()
 .expect("the executor has resumable shots, log probability, 8 shots")
 .wait();
 ```
+
+The driver `IfOneDriver` and its program `toss_again_on_one()` are shown in
+[Writing a driver](../README.md#writing-a-driver).
 
 ## Where an executor runs: `run_on`
 
@@ -334,6 +351,11 @@ shot](../src/tests/facilities/executor_fn/one_per_shot/placed.rs):
 let mut on_one_thread = recording(&threads).shots(OnePerShot).run_on(OwnThread);
 let mut per_shot = recording(&threads).run_on(OwnThread).shots(OnePerShot);
 ```
+
+`recording(&threads)` is a helper of the
+[tests of a placed executor](../src/tests/facilities/placed_executor.rs):
+an `executor_fn` on a bit, whose logic records in `threads` the thread it
+runs on.
 
 ```mermaid
 flowchart LR

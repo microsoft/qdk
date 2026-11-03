@@ -106,6 +106,20 @@ pub fn lower_then_decode(
 }
 ```
 
+It is made an adapter that accepts the code's logical set and sends its
+gadgets' ([`tests/static_isa.rs`](../tests/static_isa.rs)):
+
+```rust
+let code = adapter_fn(|_| Ok(()), lower_then_decode)
+    .accepts(logical_set())
+    .sends(gadget_instructions());
+```
+
+The guide's `gadget(instruction)` lowers a logical instruction to the toy's
+([A static ISA](guides.md#a-static-isa-a-repetition-code) shows it), and
+`majorities`, `logical_set()` and `gadget_instructions()` are helpers of
+its files ([`tests/static_isa/`](../tests/static_isa/)).
+
 Unless its states draw, it offers what is below it, each shot's log probability,
 resumable shots and replayable shots included. Should they draw, it still passes
 resumable shots up, but offers no log probability, nor, with one state,
@@ -217,6 +231,14 @@ let as_a_runtime = owning_adapter_fn(instantiated(CodePlan::default()), through_
     .check(within(toy::QUBITS / 3))
     .shots(OnePerShot);
 ```
+
+Its logic, `through_the_runtime`, runs each call on the shot's runtime and
+writes each result under its logical readout's tag
+([`tests/static_isa/code_runtime.rs`](../tests/static_isa/code_runtime.rs));
+`within(blocks)` is the check of a code of `blocks` blocks, which refuses
+an instruction on a block beyond them
+([`tests/static_isa/repetition_fn.rs`](../tests/static_isa/repetition_fn.rs)),
+and the sets are those of the logic above.
 
 The way below reaches below only while its state's logic serves a call,
 on that call's thread, and not inside the owning logic of another chain

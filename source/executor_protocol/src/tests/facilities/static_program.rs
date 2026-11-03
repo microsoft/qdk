@@ -420,7 +420,11 @@ fn a_static_program_of_no_batches_adds_no_need_and_gives_no_outcomes() {
         .expect("a program of no batches needs no resumable shots")
         .wait();
     assert_eq!(outcomes, Ok(vec![]));
-    assert_eq!(received.get(), 0, "a program of no batches sends no call");
+    assert_eq!(
+        received.get(),
+        0,
+        "the driver sends no call for a program of no batches"
+    );
 }
 
 /// A program that flips bit 0 and reads it in one batch: no call continues

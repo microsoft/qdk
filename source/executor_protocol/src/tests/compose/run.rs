@@ -333,7 +333,7 @@ fn a_run_draws_what_its_executor_alone_draws() {
     assert_eq!(values(&outcomes), values(&alone));
 }
 
-/// The program of a simulator of [`Bits`] made with `executor_fn`: runs
+/// The logic of a simulator of [`Bits`] made with `executor_fn`: runs
 /// the batch on the shot's bits.
 fn run_bits(
     bits: &mut BitsState,

@@ -70,6 +70,10 @@ let run = (driver() >> debuggers.clone() >> toy_simulator(9))
 let run_thread = thread::spawn(move || run.wait());
 ```
 
+The program `flip_a_coin()`, the debuggers `Debuggers` and the toy's
+simulator on a seed, `toy_simulator(seed)`, are helpers of the
+[debugger guide](../tests/debugger.rs).
+
 The rules of composition:
 
 - **Left is upstream, and the grouping does not matter.** Both
@@ -98,6 +102,11 @@ The rules of composition:
       panic!("both adapters are faulty");
   };
   ```
+
+  The set of two bits `bits_set()`, the adapters `Relabel` and
+  `map_executor`, and the executor `TestDoubleExecutor`, here on the bits
+  of `Bits`, are doubles of the crate's tests
+  ([`src/tests.rs`](../src/tests.rs)).
 
 - **A job is checked when it is given to the chain**: every need of its program,
   with what its driver adds, that the chain lacks is reported, before anything

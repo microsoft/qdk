@@ -398,7 +398,7 @@ impl<I, S, M, P, C, L, R> ExecutorFn<I, S, M, P, C, L, R> {
     ///
     /// ```ignore
     /// let drawing = || executor_fn(promise(), draw_value, read_drawn_bits).seed(SEED);
-    /// run(&mut drawing().shots(OnePerShot), 4, &ops),
+    /// run(&mut drawing().shots(OnePerShot), 4, &ops)
     /// ```
     #[must_use]
     pub fn seed(mut self, seed: u64) -> Self {

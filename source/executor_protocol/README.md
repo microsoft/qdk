@@ -193,6 +193,15 @@ outcomes.expect("the stacked run succeeds");
 assert_eq!(counts, the_runs_counts());
 ```
 
+Each part is shown in [Getting started](#getting-started): `program()` in
+[Running a chain](#running-a-chain), `simulator()` in
+[Writing an executor](#writing-an-executor), `profiler()` in
+[Writing an adapter](#writing-an-adapter). The debugger, `debugger(log)`,
+which fills the `DebugLog` the test keeps, the shots `SHOTS`, the message
+`THE_JOB_FITS` and the expected counts `the_runs_counts()` are helpers of
+[`tests/observers.rs`](tests/observers.rs)
+([Observers](docs/guides.md#observers-a-profiler-and-a-debugger)).
+
 The chain, from the program down to the simulator:
 
 ```mermaid
@@ -340,10 +349,22 @@ What to write, by task, and where it is explained:
 
 The excerpts below are from the
 [guide tests](docs/guides.md#building-on-the-protocol-the-guide-tests), on
-a toy of classical bits and seeded fair coins. The names an excerpt uses
-but does not define (`toy_set()`, `batches()`, `the_toys_promise()`,
-`check_calls`, `Counts`, `Op`, `toy_simulator`, `on_shot_0`, …) are
-helpers of the test file the excerpt links.
+a toy of classical bits and seeded fair coins. The example's simulator,
+`simulator()`, is shown in [Writing an executor](#writing-an-executor).
+The other names an excerpt uses but does not define are helpers of the
+guide tests:
+
+- of the toy, which the guide tests share
+  ([`tests/toy/simulator.rs`](tests/toy/simulator.rs)): its set
+  `toy_set()`, its instructions `Op`, a shot's state `ToyState`, and its
+  simulator on a seed, `toy_simulator(seed)`;
+- of [`tests/observers.rs`](tests/observers.rs): `batches()`,
+  `the_toys_promise()`, `check_calls`, `toy_ops()`, `Received`, `Shot`,
+  the seed `SEED`, the shots `SHOTS`, the message `THE_JOB_FITS`, and the
+  profiler's `Counts`;
+- of [`tests/existing_tool.rs`](tests/existing_tool.rs): `on_shot_0`, a
+  batch on shot 0, and the profiling executor on a seed,
+  `profiling_executor(seed)`.
 
 ### Running a chain
 
@@ -520,12 +541,20 @@ itself ([planned](docs/planned.md)).
 `executor_fn(promise, make_state, logic)` makes an executor from what it
 promises, how a shot's state is made, and the logic that runs a call on it
 ([Executors](docs/executors.md#making-an-executor-executor_fn)). The
-simulator of the [example](#an-example)
-([`tests/observers.rs`](tests/observers.rs)) runs the toy with a state per
-shot, and records what each shot receives, for the test's checks;
-`toy_ops()` maps each opcode of the toy's set to the toy's `Op`:
+simulator of the [example](#an-example), `simulator()`
+([`tests/observers.rs`](tests/observers.rs)), runs the toy with a state
+per shot; `simulator_recording`, which it calls, also records what each
+shot receives, for the test's checks. `toy_ops()` maps each opcode of the
+toy's set to the toy's `Op`:
 
 ```rust
+/// The simulator below the observers, recording what it receives into
+/// `received`, a handle the test keeps a clone of: the toy, taking its
+/// instructions as calls of its set, by opcode, checked first
+/// ([`check_calls`]), a state per shot, its shots' coins drawn from
+/// [`SEED`]. Its check, a function pointer, has the type
+/// `NoCheck<InstructionCall>`, the default of that type parameter, so the
+/// return type leaves it out.
 fn simulator_recording(
     received: Received,
 ) -> OnePerShotExecutor<
@@ -550,6 +579,17 @@ fn simulator_recording(
         .check(check)
         .seed(SEED)
         .shots(OnePerShot)
+}
+
+/// The simulator below the observers, as [`simulator_recording`], its
+/// record dropped.
+fn simulator() -> OnePerShotExecutor<
+    InstructionCall,
+    Shot,
+    impl MakeState<Shot>,
+    impl ExecutorLogic<InstructionCall, Shot>,
+> {
+    simulator_recording(Received::default())
 }
 ```
 
@@ -672,9 +712,9 @@ Each check panics, naming the rule broken, when the part does not keep it;
 an adapter is checked composed with an executor
 ([`tests/runtime_isa.rs`](tests/runtime_isa.rs)). The check that a refusal
 for the call's own fault leaves an executor usable, run on the existing-tool
-guide's profiling executor, made with `executor_fn`, which counts the
-instructions its shots run; its check refuses the first batch, as it reads
-two qubits under one tag
+guide's profiling executor, `profiling_executor(seed)`, here on seed 0,
+made with `executor_fn`, which counts the instructions its shots run; its
+check refuses the first batch, as it reads two qubits under one tag
 ([`tests/existing_tool.rs`](tests/existing_tool.rs)):
 
 ```rust

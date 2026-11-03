@@ -142,8 +142,9 @@ what they belong to; the names in code are the crate's.
   message
   ([One message, and levels](protocol.md#one-message-and-levels)).
 - **Capabilities and needs** (`Capabilities`, `Needs`): what a component offers
-  (`Describe`) and what a job's program needs; a chain given a job checks one
-  against the other (`Chain::run`), and an unmet need names the component
+  (`Describe`) and what a job's program needs, with what its driver adds; a
+  chain given a job checks one against the other (`Chain::run`), and an unmet
+  need names the component
   (`UnmetNeed`) ([Capabilities and needs](executors.md#capabilities-and-needs)).
 - **Conformance kit** (the `conformance` feature and module): checks of the
   rules the compiler cannot check, such as those of `call`, `close` and
