@@ -196,7 +196,7 @@ their reads in lockstep (Q67), and with it a hook for the reply below
 ## QD2: shots that need different calls below
 
 **Context.** A call is one list of instructions on a set of shots (the
-protocol's `README.md`, "One message, and levels"). The layer keeps a
+protocol's `docs/protocol.md`, "One message, and levels"). The layer keeps a
 runtime per shot (`.shots(OnePerShot)`), and the adapter facility merges
 the shots' equal sends into one call but runs a batch that reads on its
 shot alone (`Below::run`, the protocol's `src/facilities/adapter_fn/below.rs:207`;
@@ -333,7 +333,7 @@ is built after this PR, and before or after serving the shots together
 ## QD3: a shot's calls in order, with several in flight
 
 **Context.** The protocol runs a batch's instructions "after the batches
-before them" (the protocol's `README.md`, "One message, and levels"),
+before them" (the protocol's `docs/protocol.md`, "One message, and levels"),
 and a caller may keep several calls in flight (its `docs/replies.md`,
 "Several calls in flight"). Below the layer, the facility keeps a shot's
 calls in order: a shot's sends go below before its run (the protocol's
