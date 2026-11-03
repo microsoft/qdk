@@ -2245,7 +2245,10 @@ fn its_options_given_in_any_order_make_the_same_adapter() {
     .expect("the bits have every instruction it sends");
     let offered = reordered.capabilities();
     assert_eq!(offered.instruction_set.as_deref(), Some(&flip_first_set()));
-    assert!(offered.rng_ids.contains(noise), "{offered:?}");
+    assert!(
+        offered.rng_ids.clone().with(noise).is_err(),
+        "{offered:?} draws with `noise`"
+    );
     assert_eq!(offered, usual.capabilities());
     let mut bare = TestDoubleExecutor::with_model(Bits::default(), 7);
     let two = shots(&[0, 1]);

@@ -1,25 +1,40 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Seeds: each shot's seed ([`shot_seed`]), and the seeds of the components
-//! that draw random numbers in a shot ([`ShotContext`], [`RngId`]),
-//! which a chain checks are distinct when it is built ([`RngIds`]).
+//! Seeds, so that one run's seed replays a whole chain's random numbers:
 //!
-//! A chain has one seed, the run's: the one its last executor is given
-//! ([`ExecutorFn::seed`](crate::ExecutorFn::seed)), which draws with
-//! [`RngId::LAST_EXECUTOR`]. It reaches every adapter above that
-//! draws, each under an id of its own ([`RngId::named`]): an
-//! [`adapter_fn`](fn@crate::adapter_fn) given
-//! [`AdapterFn::drawing`](crate::AdapterFn::drawing), and an adapter
-//! written by hand, which is given its seeds, bound to its id, when built
-//! ([`AdapterSeeds`]); so the one seed replays the whole chain. For example
-//! a noise model (planned: the simulators' Pauli noise, `NoiseConfig` in
-//! `source/simulators`, as an adapter upstream of any simulator given the
-//! run's seed, [`ExecutorFn::seed`](crate::ExecutorFn::seed);
-//! `an_adapter_drawing_with_no_run_seed_below_is_refused`). The ids
-//! drawn with ([`RngIds`]) are checked distinct when the chain is built,
-//! and an adapter that draws is refused where no run's seed reaches it
-//! ([`BuildError::NoRunSeed`]).
+//! - One seed replays the whole chain: the run's seed, given to the last
+//!   executor ([`ExecutorFn::seed`](crate::ExecutorFn::seed)), reaches
+//!   every adapter above it that draws, and an adapter that draws is
+//!   refused where no run's seed reaches it ([`BuildError::NoRunSeed`]).
+//! - An adapter added to the chain shifts no other component's draws: each
+//!   component draws in each shot from a seed of its own, selected by its
+//!   id, not by its place in the chain, and a chain is refused where two
+//!   components draw with one id ([`BuildError::RngInUse`]).
+//! - Any split of the shots draws alike: a component's seed in a shot
+//!   depends only on the run's seed, the shot and the component's id, not
+//!   on the other shots of a call or on the executor or process that runs
+//!   it. A component that draws each shot from that shot's seeds therefore
+//!   draws it alike however the shots are split; an
+//!   [`adapter_fn`](fn@crate::adapter_fn) with one state does not, and
+//!   offers no `replayable` upstream.
+//!
+//! The parts:
+//!
+//! - [`shot_seed`]: shot `j`'s seed, which the last executor draws from.
+//! - [`RngId`]: the id a component draws under, which selects its seed;
+//!   the last executor's is [`RngId::LAST_EXECUTOR`], any other's a hash of
+//!   a name ([`RngId::named`]).
+//! - [`ShotContext`]: shot `j` as one component sees it, which a state is
+//!   made from and draws from.
+//! - [`AdapterSeeds`]: the seeds an adapter written by hand that draws is
+//!   given when built, bound to its id.
+//! - [`RngIds`]: the ids drawn with at or downstream of a component, which
+//!   a component that draws is checked against when built.
+//!
+//! The adapter that draws these serve is a noise model (planned: the
+//! simulators' Pauli noise, `NoiseConfig` in `source/simulators`, as an
+//! adapter upstream of any simulator given the run's seed).
 
 use std::fmt;
 
@@ -101,12 +116,6 @@ impl RngId {
         let folded = (hash ^ (hash >> 32)) as u32;
         Self(if folded == 0 { 1 } else { folded })
     }
-
-    /// The id as a number.
-    #[must_use]
-    pub const fn get(self) -> u32 {
-        self.0
-    }
 }
 
 impl fmt::Display for RngId {
@@ -137,20 +146,10 @@ impl fmt::Display for RngId {
 /// `StdRng::seed_from_u64(shot.seed())`, which is what a method returning a
 /// generator would do.
 ///
-/// An [`executor_fn`](fn@crate::executor_fn) given the run's seed
-/// ([`ExecutorFn::seed`](crate::ExecutorFn::seed)) makes shot `j`'s state
-/// from `ShotContext::last_executor(seed, j)`, whatever its shot form.
-/// Given none, it makes it from a context that names the shot only, and
-/// drawing from that panics. A state made before
-/// [`ExecutorFn::shots`](crate::ExecutorFn::shots) and carried over keeps
-/// the context it was made with. An
-/// [`adapter_fn`](fn@crate::adapter_fn) that draws
-/// ([`AdapterFn::drawing`](crate::AdapterFn::drawing)) makes its states
-/// from the same context, bound to the id it draws with, so that its
-/// `seed` is its own, the run's seed being the one given to the executor
-/// below it; one that draws nothing is given no seed. An adapter written
-/// by hand that draws takes shot `j`'s context from the seeds it is given
-/// when built, [`AdapterSeeds::shot`], bound to its id the same way.
+/// How the facilities make it is at
+/// [`ExecutorFn::seed`](crate::ExecutorFn::seed) and
+/// [`AdapterFn::drawing`](crate::AdapterFn::drawing), and how an adapter
+/// written by hand takes it at [`AdapterSeeds`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ShotContext {
     /// `None` where no run's seed reaches the component.
@@ -169,11 +168,7 @@ impl ShotContext {
     /// context from [`AdapterSeeds::shot`], whose `seed` is the adapter's.
     #[must_use]
     pub const fn last_executor(seed: u64, shot: ShotId) -> Self {
-        Self {
-            seed: Some(seed),
-            shot,
-            rng_id: Some(RngId::LAST_EXECUTOR),
-        }
+        Self::in_run(Some(seed), shot)
     }
 
     /// Shot `shot` of a run with seed `seed`, or, when `seed` is `None`,
@@ -344,12 +339,6 @@ impl RngIds {
         Self(vec![RngId::LAST_EXECUTOR])
     }
 
-    /// Whether one of these components draws with `id`.
-    #[must_use]
-    pub fn contains(&self, id: RngId) -> bool {
-        self.0.contains(&id)
-    }
-
     /// These and `id`, for a component that draws with `id` upstream of them.
     ///
     /// # Errors
@@ -357,23 +346,10 @@ impl RngIds {
     /// [`BuildError::RngInUse`] when a component downstream already draws with
     /// `id`: the two would draw the same numbers.
     pub fn with(mut self, id: RngId) -> Result<Self, BuildError> {
-        if self.contains(id) {
+        if self.0.contains(&id) {
             return Err(BuildError::RngInUse(id));
         }
         self.0.push(id);
         Ok(self)
-    }
-
-    /// The ids: the last executor's first, then upstream from it.
-    #[must_use]
-    pub fn as_slice(&self) -> &[RngId] {
-        &self.0
-    }
-}
-
-impl Default for RngIds {
-    /// The last executor's.
-    fn default() -> Self {
-        Self::last_executor()
     }
 }

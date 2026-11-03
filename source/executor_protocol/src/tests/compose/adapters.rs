@@ -878,10 +878,11 @@ fn an_adapter_writing_other_ids_into_its_offer_offers_those_below_and_its_own() 
         TestDoubleExecutor::with_model(Bits::default(), 7),
     )
     .expect("each component draws with an id of its own");
-    assert_eq!(
-        chain.capabilities().rng_ids.as_slice(),
-        [RngId::LAST_EXECUTOR, READOUT, NOISE]
-    );
+    let below_then_own = RngIds::last_executor()
+        .with(READOUT)
+        .and_then(|ids| ids.with(NOISE))
+        .expect("the three ids are distinct");
+    assert_eq!(chain.capabilities().rng_ids, below_then_own);
 }
 
 /// A noise model that, before each batch, draws for each of its shots

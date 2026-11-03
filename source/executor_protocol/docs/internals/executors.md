@@ -676,7 +676,7 @@ backend chosen for each target, so a wasm build of every crate that uses
 this one would have to choose one. And `rand` does not promise to keep
 `StdRng`'s algorithm across versions, so a shot's draws would change with
 `rand`'s version, where its seeds do not. Nothing is lost: a component
-that wants a generator writes `StdRng::seed_from_u64(ctx.rng_seed(c))`
+that wants a generator writes `StdRng::seed_from_u64(ctx.seed())`
 itself. These seeds are not those that qdk's `run` or `run_qir` give each
 shot for the same user seed: each of those has a formula of its own.
 

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::{BuildError, Capabilities, RngId, ShotContext, ShotId, shot_seed};
+use crate::{BuildError, Capabilities, RngId, RngIds, ShotContext, ShotId, shot_seed};
 
 /// Two shots of a run never share a seed.
 #[test]
@@ -71,28 +71,34 @@ fn each_component_of_a_shot_has_its_own_seed() {
 }
 
 /// A component's id, and so its seed in a shot, is fixed: it is a hash of
-/// its name, and the last executor's is 0. Known answers.
+/// its name. Known answers, from an independent implementation of FNV-1a and
+/// `SplitMix64`.
 #[test]
 fn rng_ids_and_their_seeds_are_fixed() {
-    assert_eq!(RngId::LAST_EXECUTOR.get(), 0);
-    assert_eq!(RngId::named("readout").get(), 0xb192_6246);
-    assert_eq!(RngId::named("").get(), 0x4fd0_bfc1);
+    let ctx = ShotContext::last_executor(7, 3);
     assert_eq!(
-        ShotContext::last_executor(7, 3).rng_seed(RngId::named("readout")),
-        0xf798_a1e2_8cb5_77d2
+        [
+            ctx.rng_seed(RngId::named("readout")),
+            ctx.rng_seed(RngId::named("")),
+        ],
+        [0xf798_a1e2_8cb5_77d2, 0xe760_2ebc_7c07_2703]
     );
 }
 
-/// A chain records the ids its components draw with: the last executor's
-/// first, then each component upstream of it, in turn.
+/// A component that draws adds its id to those drawn with downstream of it,
+/// which hold the last executor's alone in a chain of one executor.
 #[test]
-fn a_chain_records_the_ids_it_draws_with_from_the_last_executor_upstream() {
+fn a_component_that_draws_adds_its_id_to_those_downstream() {
     let noise = RngId::named("noise");
     let offered = Capabilities::default()
         .drawing(noise)
         .expect("nothing draws with `noise` yet");
-    assert_eq!(offered.rng_ids.as_slice(), [RngId::LAST_EXECUTOR, noise]);
-    assert!(offered.rng_ids.contains(noise));
+    assert_eq!(
+        offered.rng_ids,
+        RngIds::last_executor()
+            .with(noise)
+            .expect("the last executor does not draw with `noise`")
+    );
 }
 
 /// A component that draws is refused when built against one that already draws

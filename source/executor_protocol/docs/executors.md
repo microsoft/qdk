@@ -443,7 +443,7 @@ So one seed fixes the whole chain's draws. An adapter that draws with no run's
 seed below is refused when composed.
 
 `ShotContext` gives seeds, not generators: a component that wants a
-generator writes `StdRng::seed_from_u64(ctx.rng_seed(c))` itself. These
+generator writes `StdRng::seed_from_u64(ctx.seed())` itself. These
 seeds are not those that qdk's `run` or `run_qir` give each shot for the
 same user seed. The formula, what it does not separate, and why the crate
 gives no generator, are in
