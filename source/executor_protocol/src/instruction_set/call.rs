@@ -17,7 +17,14 @@ use std::fmt;
 use crate::{InstructionSet, OperandKind};
 
 /// One operand of an [`InstructionCall`].
+///
+/// A variant may be added for each planned [`OperandKind`] (a `bit`
+/// parameter, a run-time input, and a variadic block operand; the crate's
+/// `docs/instruction-sets.md`, "How applications use it", and
+/// `docs/planned.md`), hence `#[non_exhaustive]`: a match outside this
+/// crate has an arm for the operands it does not know.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Operand {
     /// The address of a block.
     Block(u32),

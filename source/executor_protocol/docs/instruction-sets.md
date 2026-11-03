@@ -330,7 +330,7 @@ rz.gadget.yaml:
    qubit of the call's one block, or a circuit readout). Also missing: a
    constant argument of a gadget's call (as `M(0.01) 0`), an `OperandKind`
    for a `bit` parameter (a run-time input) and for a variadic block
-   operand.
+   operand (planned: [Planned features](planned.md)).
 5. **Readouts and decoding.** A logical readout is the parity of the circuit
    readouts its gadget names, and one of them without a value leaves it without
    one. Still missing: a logical readout that is a parity plus a constant bit,

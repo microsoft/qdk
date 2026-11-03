@@ -69,7 +69,14 @@ use crate::{Action, CallDisplay, InstructionCall, Opcode, Operand, Rejected};
 use crate::{Instruction, Renumbering};
 
 /// The kind of one operand of an instruction.
+///
+/// Kinds are added as Qodec's instruction sets need them (planned: a `bit`
+/// parameter, a run-time input, and a variadic block operand; the crate's
+/// `docs/instruction-sets.md`, "How applications use it", and
+/// `docs/planned.md`), hence `#[non_exhaustive]`: a match outside this
+/// crate has an arm for the kinds it does not know.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum OperandKind {
     /// The address of a block the instruction acts on: a qubit in a physical
     /// set, a block of a code in a logical one.
