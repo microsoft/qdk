@@ -338,6 +338,62 @@ fn a_failed_call_reports_no_state_made_for_it_in_every_order() {
     assert_eq!((report.log_p, report.states), expected, "placed per shot");
 }
 
+/// A device that counts its flips, placed per shot, runs shot 2, then a
+/// call on fresh shots 0 and 1 that stops on shot 0; the caller closes it
+/// without polling that call's reply, before shot 0's job has run (a
+/// holding placement makes the order certain). `close` waits for every
+/// shot's calls before it reads any state, not only for the first
+/// shot's, so the failure, known only once shot 0's call ran, still
+/// decides: the report holds shot 2's state alone.
+#[test]
+fn close_waits_for_every_shots_calls_before_it_reads_a_state() {
+    use DrawingOp::Flip;
+    /// Long enough for a close that did not wait for shot 0's calls to
+    /// hand the job that closes shot 2's state.
+    const A_WHILE: Duration = Duration::from_millis(100);
+    let (placement, jobs) = holding();
+    let mut per_shot = executor_fn(Capabilities::default(), Flipped::new, stop_on_shots_0_and_3)
+        .log_probability(|state: &Flipped| f64::from(state.flips))
+        .state_report(flips)
+        .run_on(placement)
+        .shots(OnePerShot);
+    let shot_2 = ShotSet::one(2);
+    let reply = per_shot
+        .call(InstructionBatchRef {
+            shots: &shot_2,
+            instructions: &[Flip],
+        })
+        .expect("an open executor queues a call");
+    (jobs.try_recv().expect("shot 2's call hands a job"))();
+    ended(reply).1.expect("shot 2 does not stop");
+    let fresh = ShotSet::new(vec![0, 1]).expect("two shots");
+    let _unpolled = per_shot
+        .call(InstructionBatchRef {
+            shots: &fresh,
+            instructions: &[Flip],
+        })
+        .expect("an open executor queues a call");
+    let shot_0 = jobs.try_recv().expect("shot 0's call hands a job");
+    (jobs.try_recv().expect("shot 1's call hands a job"))();
+    let closing = thread::spawn(move || per_shot.close());
+    (jobs
+        .recv_timeout(PATIENT)
+        .expect("close waits for shot 2's calls"))();
+    // Waiting for shot 0's calls, behind the job held here, the close
+    // hands no job until that job runs.
+    if let Ok(job) = jobs.recv_timeout(A_WHILE) {
+        job();
+    }
+    shot_0();
+    while let Ok(job) = jobs.recv_timeout(PATIENT) {
+        job();
+    }
+    let report = ends_soon(move || closing.join().expect("the close does not panic"));
+    let mut log_p = LogP::default();
+    log_p.add(2, 1.0);
+    assert_eq!((report.log_p, report.states), (log_p, Flips::of([(2, 1)])));
+}
+
 /// The shots whose state a report closure read, each under the closure's
 /// name: `"log_p"` for the log probability's, `"report"` for the state's
 /// report's.

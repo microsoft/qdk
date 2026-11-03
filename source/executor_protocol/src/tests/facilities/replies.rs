@@ -150,6 +150,28 @@ fn a_reply_sender_wakes_its_caller_once_per_pending_poll() {
     assert_eq!(wakes(&count), 2);
 }
 
+/// A worker that hands its events over in batches (as `relay` does, one
+/// batch per poll below) wakes a caller whose poll found nothing once, at
+/// the first batch; the batches after it, until the caller polls again,
+/// wait in the reply without a wake.
+#[test]
+fn batches_of_events_wake_their_caller_once_per_pending_poll() {
+    let (count, waker) = counting();
+    let (sender, mut reply) = reply_channel();
+    let mut out = Vec::new();
+    assert_eq!(reply.poll_events(&mut out, &waker), ReplyStatus::Pending);
+    sender.append(&mut vec![1]);
+    assert_eq!(wakes(&count), 1);
+    sender.append(&mut vec![2]);
+    sender.extend([3]);
+    assert_eq!(wakes(&count), 1, "not polled since the last wake");
+    assert_eq!(reply.poll_events(&mut out, &waker), ReplyStatus::Pending);
+    sender.extend([4]);
+    assert_eq!(wakes(&count), 2);
+    sender.extend([5]);
+    assert_eq!(wakes(&count), 2, "not polled since the last wake");
+}
+
 /// A poll with a new waker replaces the one kept before: a caller that moved
 /// (another task, another thread) is the one woken, and the old one is not.
 #[test]
@@ -419,6 +441,21 @@ fn a_mapped_reply_converts_each_event_and_keeps_the_end() {
     );
     assert_eq!(wait(doubled, &mut out), Err("lost".into()));
     assert_eq!(out, [2, 4]);
+}
+
+/// A caller that gathers the readouts of several calls in one buffer polls
+/// a mapped reply into it: the converted events go after those it held,
+/// which stay as they were.
+#[test]
+fn a_mapped_reply_appends_its_events_to_those_the_caller_holds() {
+    let mut out = vec![7];
+    let mut doubled = MappedReply::new(ImmediateReply::done(vec![1, 2]), |x: u32| x * 2);
+    assert_eq!(
+        doubled.poll_events(&mut out, Waker::noop()),
+        ReplyStatus::Done,
+        "the wrapped reply was made whole"
+    );
+    assert_eq!(out, [7, 2, 4]);
 }
 
 /// A caller polls a mapped reply while the device's reply it wraps is

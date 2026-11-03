@@ -3,8 +3,8 @@
 
 //! Checks of the rules that the type system cannot enforce, for
 //! implementers to run in their own tests: the compiler checks that a type
-//! has `call`, `close` and `fold`, and that a call is an
-//! [`InstructionCall`], not that they keep the rules that callers rely on.
+//! has `call`, `close` and `fold`, and that a call is of the executor's
+//! instruction type, not that they keep the rules that callers rely on.
 //! They check the rules of [`Executor`] (a refusal for the call's own
 //! fault leaves the executor usable, a failure is final, and ends the
 //! later calls still in flight once it is recorded as the executor's: the
@@ -62,7 +62,7 @@
 // wrappers are tested (`.run_on(..)` and `.shots(..)`).
 
 #[cfg(doc)]
-use crate::{Close, Executor, Fold, InstructionCall, Reply};
+use crate::{Close, Executor, Fold, Reply};
 
 mod instruction_sets;
 mod lifecycle;

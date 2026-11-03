@@ -59,6 +59,19 @@ fn an_instruction_that_repeats_a_tag_among_its_own_readouts_is_refused() {
     );
 }
 
+/// A program measures qubit 0 under tag 4 at instruction 1, then qubit 1
+/// under the same tag two instructions later: the refusal names
+/// instruction 1, whose readout the tag already names.
+#[test]
+fn a_refusal_names_the_earlier_instruction_that_read_the_tag() {
+    let Err(Rejected::Instruction { at, reason }) = check_unique_tags([(1, 4), (2, 6), (3, 4)])
+    else {
+        panic!("a repeated tag is refused as `Instruction`");
+    };
+    assert_eq!(at, 3);
+    assert!(reason.contains("the readout of instruction 1"), "{reason}");
+}
+
 /// A batch with no readout, or with one, repeats no tag.
 #[test]
 fn a_batch_of_at_most_one_readout_is_accepted() {

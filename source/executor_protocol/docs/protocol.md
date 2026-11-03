@@ -110,9 +110,10 @@ below and gives its report up, beside its own if it keeps one. It is one
 possible execution: the events may already be in at the first poll, more
 than one poll may take them, and a reply may end `Failed` or `Cancelled`
 instead of `Done`. It leaves out two steps: each call passes through the
-run's filter of the job's shots (`HeldShots`) between the driver and the
-adapter's executor, and an `adapter_fn` polls a send's reply below with a
-no-op waker inside the call, at the send and as the logic returns:
+run's filter of the job's shots, between the driver and the adapter's
+executor, and an `adapter_fn` polls a send's reply below with a no-op
+waker inside the call, at the send, before each run below, and as the
+logic returns:
 
 ```mermaid
 sequenceDiagram
@@ -170,8 +171,8 @@ the README's [Writing a driver](../README.md#writing-a-driver)
 on the shots whose coin showed 1, tosses a second coin and reads the first
 again, on an executor that keeps each shot's state from one call to the
 next (`resumable_shots`, which the driver adds to the program's needs).
-The run's filter of the job's shots (`HeldShots`), between the driver and
-the executor, is not drawn:
+The run's filter of the job's shots, between the driver and the executor,
+is not drawn:
 
 ```mermaid
 sequenceDiagram

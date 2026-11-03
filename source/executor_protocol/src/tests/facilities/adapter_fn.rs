@@ -2549,6 +2549,46 @@ fn an_adapters_reply_passes_the_callers_waker_to_the_reply_below() {
     assert_eq!(wakes(&count), 1, "the caller is woken once");
 }
 
+/// A tracer splits each call into one send per instruction, over a device
+/// that answers each later: a caller polls the tracer's reply while all
+/// three sends' replies are open, then the device pushes a readout of the
+/// middle one. The caller is woken, since the reply passed the caller's
+/// waker to each pending send's reply, not only to the first or the last.
+#[test]
+fn an_adapters_reply_passes_the_callers_waker_to_each_pending_sends_reply() {
+    let each_alone = |(): &mut (),
+                      input: &CallInput<'_, bool>,
+                      below: &mut Below<'_, bool>,
+                      _: &mut Outcomes<'_>| {
+        input
+            .instructions()
+            .iter()
+            .try_for_each(|instruction| below.send(std::slice::from_ref(instruction)))
+    };
+    let senders = Senders::default();
+    let mut traced = compose(
+        adapter_fn(no_state, each_alone),
+        HeldOpen(Rc::clone(&senders)),
+    )
+    .expect("bools fit");
+    let mut reply = traced
+        .call(InstructionBatchRef {
+            shots: &ShotSet::one(0),
+            instructions: &[true, false, true],
+        })
+        .expect("the call is accepted");
+    let (count, waker) = counting();
+    assert_eq!(
+        reply.poll_events(&mut Vec::new(), &waker),
+        ReplyStatus::Pending,
+        "the three sends' replies are open"
+    );
+    assert_eq!(senders.borrow().len(), 3, "one send per instruction");
+    let middle = senders.borrow_mut().remove(1);
+    middle.push(one(0, 1));
+    assert_eq!(wakes(&count), 1, "the caller is woken once");
+}
+
 /// An adapter's logic sends a call down, then runs it below, over a device
 /// that answers on the test's thread while the caller waits on its own.
 /// The send's reply ends, with a readout, while the run's is still open:

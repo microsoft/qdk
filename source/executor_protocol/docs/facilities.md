@@ -223,8 +223,8 @@ in a batch before its last, since its later batches continue its shots;
 the chain checks the two combined when the job is given to it
 ([Needs, combined](composition.md#needs-combined)). At the same time, the
 driver's check refuses every call by opcode outside the program's set and
-every repeat of a readout tag among those calls, each at its batch and
-instruction, all at once. It sends each batch to
+every repeat of a readout tag among its calls by opcode, each at its batch
+and instruction, all at once. It sends each batch to
 every shot of the job in one call, in order, awaits the reply, and stops
 at the first batch that is refused or does not end `Done`:
 

@@ -742,9 +742,9 @@ fn read(shot: ShotId, tag: u32) -> ShotOutcome {
 }
 
 /// A state that names every outcome shot 99, as one copied from another
-/// executor might: a call on shots 1 and 2 still gives each shot's outcome
-/// named by that shot, since the executor names the outcomes of each
-/// shot's state.
+/// executor might, reads three tags: a call on shots 1 and 2 still gives
+/// each shot's outcomes, every one of them, named by that shot, since the
+/// executor names the outcomes of each shot's state.
 #[test]
 fn each_outcome_is_named_by_the_shot_whose_state_gave_it() {
     /// A state whose outcomes all name shot 99.
@@ -754,7 +754,9 @@ fn each_outcome_is_named_by_the_shot_whose_state_gave_it() {
 
         fn call(&mut self, _: InstructionBatchRef<'_, bool>) -> Result<Self::Reply, Rejected> {
             let mut reply = ImmediateReply::default();
-            reply.push(read(99, 0));
+            for tag in 0..3 {
+                reply.push(read(99, tag));
+            }
             Ok(reply)
         }
     }
@@ -769,7 +771,10 @@ fn each_outcome_is_named_by_the_shot_whose_state_gave_it() {
         .expect("shots 1 and 2 run");
     let mut out = Vec::new();
     wait(reply, &mut out).expect("both shots end");
-    assert_eq!(out.iter().map(|o| o.shot).collect::<Vec<_>>(), [1, 2]);
+    assert_eq!(
+        out.iter().map(|o| o.shot).collect::<Vec<_>>(),
+        [1, 1, 1, 2, 2, 2]
+    );
 }
 
 /// Shot 2's state reads after its call returned, under shot 7's name: the

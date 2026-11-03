@@ -175,11 +175,13 @@ The executor's side is the same in every row: the `ReplySender` pushes and,
 if a waker is kept, wakes it. It does not know which row its caller is in.
 Keeping the waker is the reply's side: `IncrementalReply` keeps the latest
 waker, and `LifecycleBoundReply` the latest for an earlier call's failure;
-both skip the clone when the new waker `will_wake` as the kept one does,
-and clone or drop a waker only outside their lock, since a waker's clone
-and drop run its own code. A reply that gathers the replies of parts (a
-`shot_states` executor's, an `adapter_fn`'s) hands its caller's waker to
-each part's poll, so that any part wakes the caller.
+both clone or drop a waker only outside their lock, since a waker's clone
+and drop run its own code. Both also skip the clone when the new waker
+`will_wake` as the kept one does: an implementation note on efficiency,
+which no test pins, since nothing a caller sees changes without it. A
+reply that gathers the replies of parts (a `shot_states` executor's, an
+`adapter_fn`'s) hands its caller's waker to each part's poll, so that any
+part wakes the caller.
 
 The cycle, drawn for a blocking caller, a polling caller, an async task
 and a stream on one `IncrementalReply`, is in
@@ -382,7 +384,9 @@ parking and being woken.
 ([Readout tags](../replies.md#readout-tags)). With several repeats, it
 refuses the first, in the batch's order, as `Rejected::Instruction`
 promises for each reason: a check made at each call stops at its first
-fault. An executor that checks for
+fault. Its reason names the earlier instruction that read the tag, or,
+for a tag repeated among one instruction's own readouts, another readout
+of that instruction. An executor that checks for
 several reasons in turn, such as its set and then its tags, refuses at the
 first fault of the first check that finds one.
 
@@ -393,6 +397,7 @@ The rule is pinned by the tests of `src/tests/facilities/readout_tags.rs`
 `distinct_tags_are_accepted`,
 `a_batch_of_at_most_one_readout_is_accepted`,
 `an_instruction_that_repeats_a_tag_among_its_own_readouts_is_refused`,
+`a_refusal_names_the_earlier_instruction_that_read_the_tag`,
 `the_refusal_names_the_contract_and_the_planned_readout_register`), and
 by two conformance checks. Both take `a_again`, another instruction than
 `a` that reads under `a`'s tag, so that the rule shows to be about a

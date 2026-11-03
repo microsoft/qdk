@@ -833,7 +833,8 @@ impl<'a> Timed<'a> {
 
 impl Program for Timed<'_> {
     type Instruction = InstructionCall;
-    /// The first batch's outcomes and the time.
+    /// The outcomes of the calls sent whole, first, and the time per call,
+    /// in ns.
     type Output = (Vec<ShotOutcome>, f64);
 
     fn needs(&self) -> Needs {
@@ -842,9 +843,9 @@ impl Program for Timed<'_> {
 }
 
 /// The driver of a [`Timed`] program: it calls the program's calls once,
-/// whole, then times them in batches of its size ([`per_call`]), each
-/// called and then waited for; it gives the first call's outcomes and the
-/// time.
+/// whole, then times them in batches of the program's `size`
+/// ([`per_call`]), each called and then waited for; it gives the outcomes
+/// of the calls sent whole and the time per call.
 struct Timing;
 
 impl<'a> Driver<Timed<'a>> for Timing {

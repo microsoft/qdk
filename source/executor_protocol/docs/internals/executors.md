@@ -545,6 +545,10 @@ results (tests `a_failed_call_reports_no_state_made_for_it_in_every_order` and
 placed state's placement stopped (its logic panicked, or its job was
 dropped unrun), which leaves that state out (test
 `a_state_whose_logic_panicked_is_left_out_of_the_report`, in
+`src/tests/facilities/executor_fn/one_per_shot/placed.rs`). `close` waits
+for every shot's calls before it reads any state, so a failure that a
+placed shot's call shows only then still decides (test
+`close_waits_for_every_shots_calls_before_it_reads_a_state`, in
 `src/tests/facilities/executor_fn/one_per_shot/placed.rs`).
 
 ```mermaid
