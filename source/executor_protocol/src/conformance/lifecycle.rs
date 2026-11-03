@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! Checks of the rules of an executor's life: a closed executor rejects
-//! every call, a refusal leaves it usable, and a failure is final and ends
-//! the later calls still in flight.
+//! every call, a refusal for the call's own fault leaves it usable, and a
+//! failure is final and ends the later calls still in flight.
 
 use std::task::Waker;
 

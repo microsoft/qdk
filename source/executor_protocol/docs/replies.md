@@ -382,7 +382,7 @@ writes for those shots in the call, those written before as well as
 after, and to no other shot's. A call its logic fails hands over the
 outcomes the logic wrote before its `Err` with those conditions too, as
 one state or a state per shot. An `executor_fn` keeps nothing across
-calls: a terminal whose shots' conditions outlast a call keeps them in its
+calls: an executor whose shots' conditions outlast a call keeps them in its
 state, and raises them again in each call. For example, a code's runtime
 with a state per shot that rejects its shot, then writes a readout for it,
 whose caller finds the rejection on the readout (an excerpt of the

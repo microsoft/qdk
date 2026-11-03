@@ -46,7 +46,11 @@ use crate::{Capabilities, InstructionMismatch, InstructionSet, OpcodeMap, Reject
 )]
 pub struct Needs {
     /// The qubits each shot uses, checked against [`Capabilities::qubits`]
-    /// where both state it; `None`: not stated, not checked.
+    /// where both state it; `None`: not stated, not checked. Only the
+    /// number is compared, and no instruction allocates or releases a
+    /// qubit (planned, `docs/planned.md`): a program whose qubits are
+    /// allocated and released during a shot states each qubit id its calls
+    /// name, even when fewer are live at once.
     pub qubits: Option<u32>,
     /// The program continues a shot in a later call, where an earlier call
     /// left it (to feed its outcomes forward, to read again, or only to go
@@ -131,7 +135,7 @@ impl Needs {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Need {
-    /// The qubits each shot uses.
+    /// The qubits each shot uses, as [`Needs::qubits`] counts them.
     Qubits,
     /// A shot resumed in a later call, where an earlier call left it, so
     /// a state per shot must be kept between calls.

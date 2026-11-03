@@ -33,8 +33,9 @@ use crate::{Message, Rejected, Reply};
 ///   message, or refuses it.
 /// - A refusal means nothing ran: no state of the executor, nor of any
 ///   shot it runs, moved, so the call can be corrected and sent again
-///   (the `conformance` module checks that the executor then takes a call,
-///   `accepts_calls_after_a_refusal`). The exception is a refusal of class
+///   (the `conformance` module checks that, after a refusal for the call's
+///   own fault, the executor takes a call: `accepts_calls_after_a_refusal`).
+///   The exception is a refusal of class
 ///   [`RetryClass::Resend`](crate::RetryClass::Resend), such as
 ///   [`Rejected::NoReply`]: no verdict arrived over a link, so work may
 ///   have run ([`Executor::call`]).

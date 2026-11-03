@@ -222,7 +222,10 @@ id (`ShotId`), not on the other shots of the run; a program that needs it says
 so in its `Needs`, a chain refuses its job when the chain's executor does not
 offer it, and the conformance check
 `gives_each_shot_alone_what_it_gives_among_others` checks an executor that does,
-such as the executor above given `.shots(OnePerShot)`.
+such as the executor above given `.shots(OnePerShot)`. It is a capability an
+executor chooses to offer, not a rule of every executor, because it can cost
+much: an ensemble that samples all the shots from one seed is much faster than a
+state per shot, but a shot's outcomes then depend on the number of shots.
 
 `.shots(OnePerShot)` makes a `OnePerShotExecutor`. Each shot's state is made at
 the shot's first call, from the run's seed and the shot, and kept for the shot's

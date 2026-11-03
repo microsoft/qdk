@@ -9,11 +9,12 @@ code's lowering and decoding, a profiler's counts. They live in
 [`src/facilities/`](../src/facilities/), whose module documentation
 ([`src/facilities.rs`](../src/facilities.rs)) lists them in two groups,
 which this page follows: those that make a part from your logic, and those
-that keep a rule of the protocol for a part you write by hand. `.run_on`,
-which the module documentation lists in the second group, is described
-here with `executor_fn`, since only an `executor_fn` is placed today. This
-page says what each serves,
-what it guarantees, where it lives, and when to write the part by hand
+that keep a rule of the protocol for a part you write by hand. Two of the
+second group are described here with `executor_fn`: `.run_on`, since only
+an `executor_fn` is placed today, and `shot_states.rs`, which keeps the
+rules of an `executor_fn` with a state per shot (its `ShotStates` is
+internal to the crate). This page says what each serves, what it
+guarantees, where it lives, and when to write the part by hand
 instead; the topic pages it links hold the how-to.
 
 | Facility                                                                 | The need it serves                                                                          | Files, in `src/facilities/`                                                                                                                                                                |
@@ -40,9 +41,11 @@ offers, how a shot's state is made, and the logic that runs a call's
 instructions on that state and writes the readouts. The executor keeps
 the protocol's rules for its logic:
 
-- it describes what its promise offers, and refuses a call outside it: a
-  new shot past the shots it holds at once, and, with one state, a shot
-  other than the one it holds;
+- it describes what its promise offers, with three changes: one shot at
+  most without `.shots(..)`, `log_probability` exactly when it is given
+  `.log_probability(f)`, and the run's seed it is given with `.seed(s)`;
+  and it refuses a call outside it: a new shot past the shots it holds at
+  once, and, with one state, a shot other than the one it holds;
 - its check (`.check`) refuses a call before any state is made; an `Err`
   of its logic fails the call, hands over the outcomes written before it,
   and the executor refuses every later call; once closed, it refuses every
@@ -70,10 +73,12 @@ simulator that samples every shot at once does: implement `Executor`,
 `ExecutorPlacement` says: `OwnThread`, a thread of its own, for a device's
 driver that must stay on one thread, or a closure that runs each job
 where it chooses, such as a thread pool. Its calls are queued and run in
-order, and its reply is an `IncrementalReply`, which an async task can
-await. `.shots(OnePerShot).run_on(OwnThread)` runs every shot on the one
-thread; `.run_on(OwnThread).shots(OnePerShot)` runs each shot on a thread
-of its own, so the shots of a batch run in parallel.
+order, and its reply, which an async task can await, is an
+`IncrementalReply`, or, with each shot placed, the shots' replies gathered
+(`ShotReplies<IncrementalReply<_>>`). `.shots(OnePerShot).run_on(OwnThread)`
+runs every shot on the one thread; `.run_on(OwnThread).shots(OnePerShot)`
+runs each shot on a thread of its own, so the shots of a batch run in
+parallel.
 
 Below, the second order, on a batch of two shots. Each shot's state is
 made on the caller's thread at the shot's first call, then served on the
@@ -139,14 +144,16 @@ its logic:
 
 - it offers upstream what the executor below offers, apart from the
   instruction sets it accepts and sends (`.accepts`, `.sends`), checked
-  against the executor below when the chain is built;
+  against the executor below when the chain is built, and what drawing
+  takes away (below);
 - its check (`.check`), or the refusal of its first call below, refuses
   the call, and the adapter serves the next one, unless that refusal is
   for an earlier failure below; an `Err` of its logic fails the call and
   the adapter;
 - with a `.state_report`, its report sits beside the report from below;
 - drawing (`.drawing(id)`), it draws from the run's seed under an id of its
-  own;
+  own, and then offers no `log_probability`, nor, with one state,
+  `replayable`;
 - each shot's conditions need no code in the logic: the adapter merges, by
   union, those its logic raises and those its outcomes from below carry,
   and marks with them every outcome it gives the shot.
@@ -206,12 +213,11 @@ then keeps the rules itself, the shots' conditions included.
 (`ChainPrefix`). It lets any `AdaptiveProgram` drive the chain's executor
 ([A run](protocol.md#a-run) draws one), and `StaticProgram` is such a
 program, of fixed batches stated as data. A static program's needs are
-checked when the job is given to the chain: a program of several batches
-needs `resumable_shots`, since its later batches continue its shots. It
-sends
-each batch to every shot of the job in one call, in order, awaits the
-reply, and stops at the first batch that is refused or does not end
-`Done`:
+checked when the job is given to the chain: a program with a call in a
+batch before its last needs `resumable_shots`, since its later batches
+continue its shots. It sends each batch to every shot of the job in one
+call, in order, awaits the reply, and stops at the first batch that is
+refused or does not end `Done`:
 
 ```mermaid
 sequenceDiagram
@@ -298,7 +304,7 @@ sequenceDiagram
   else an async task: wait_async(reply).await
     Note over C: returns Pending to its runtime, which runs other tasks
   else a stream: async_events(reply)
-    Note over C: next().await returns Pending, the runtime runs other tasks
+    Note over C: next().await yields the events so far, then returns Pending when none is new
   end
   W->>S: push(event 1)
   S--)C: waker.wake(), the waker taken (a noop waker does nothing)

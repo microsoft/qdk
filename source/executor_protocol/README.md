@@ -95,8 +95,9 @@ program and its shots. A user writes three steps:
    [checks the job](docs/composition.md#a-chain-and-its-job) against the chain
    before any call and gives a **run**;
 3. `run.wait()`, or `.await`, which runs the program on the chain, closes the
-   chain once the program ends, and gives the program's outcomes and the
-   chain's report. Nothing runs before.
+   chain once the program ends, and gives the program's output (for a
+   `StaticProgram`, its outcomes) and the chain's report. Nothing runs
+   before.
 
 In the [example](#an-example) below, the second and third lines build the
 chain (step 1), and the fifth does steps 2 and 3 in one expression. A program
@@ -146,23 +147,28 @@ program what it needs (`Needs`, [`src/needs.rs`](src/needs.rs)). Each shot
 draws from seeds fixed by the run's seed, its id and the component that draws
 ([`src/seeds.rs`](src/seeds.rs)).
 
-What the protocol guarantees, so that a part's logic need not:
+What the protocol checks itself, so that a part's logic need not:
 
 - a chain whose parts do not fit is refused when it is built, and a job its
   chain cannot run is refused before any call;
 - a run closes its chain once, after the program's last call, and a call on
-  a shot the job did not name is refused before the executor sees it;
-- a refusal leaves an executor usable, and a failure is final where state
-  carries over from one call to the next;
+  a shot the job did not name is refused before the executor sees it.
+
+What every part keeps, so that the parts around it can rely on it. The
+[facilities](#the-facilities) keep these rules for you, and the
+[conformance kit](#checking-a-part) checks a part written by hand for those
+marked (kit):
+
+- a refusal for the call's own fault leaves an executor usable (kit), and a
+  failure is final where state carries over from one call to the next
+  (kit);
 - a shot's conditions pass up with its outcomes, and a missing value does
   not end the run;
 - on a replayable executor, a shot gives the same outcomes alone or among
-  others.
+  others (kit).
 
-The [conformance kit](#checking-a-part) checks a part for the rules the
-compiler cannot check. [Getting started](#getting-started) shows how to
-write each part, and the options that set its
-[axes](docs/glossary.md#a-parts-axes).
+[Getting started](#getting-started) shows how to write each part, and the
+options that set its [axes](docs/glossary.md#a-parts-axes).
 
 ## An example
 
@@ -259,19 +265,21 @@ by hand instead.
 - `executor_fn` ([`src/facilities/executor_fn.rs`](src/facilities/executor_fn.rs))
   makes an executor from a state and a logic that runs a call's
   instructions on it: a simulator, a device, a bridge to an existing tool.
-  It describes its promise, refuses a new shot past the shots it promises
-  to hold, fails for good on its logic's error, keeps a state per shot with
-  `.shots(OnePerShot)`, and seeds each shot's state from the run's seed and
-  the shot. `.run_on(placement)`
+  It describes its promise (lowered to one shot without `.shots(..)`),
+  refuses a new shot past the shots it promises to hold, fails for good on
+  its logic's error, keeps a state per shot with `.shots(OnePerShot)`, and
+  seeds each shot's state from the run's seed and the shot. `.run_on(placement)`
   ([`src/facilities/placed_executor.rs`](src/facilities/placed_executor.rs))
-  runs it on a thread of its own, or each shot on a thread of its own.
+  runs it where a placement says: on a thread of its own, or each shot on
+  its own.
 - `adapter_fn` and `owning_adapter_fn`
   ([`src/facilities/adapter_fn.rs`](src/facilities/adapter_fn.rs)) make an
   adapter from a state and a logic that reaches the executor below: a
   profiler, a debugger, a code's lowering and decoding. It passes up what
-  the executor below offers and reports, and merges the shots' conditions
-  raised below with those its logic raises, with no code in its logic; with
-  a state per shot, the shots' equal calls below go as one.
+  the executor below offers (less `log_probability` when its states draw,
+  and `replayable` too with one state) and reports, and merges the shots'
+  conditions raised below with those its logic raises, with no code in its
+  logic; with a state per shot, the shots' equal calls below go as one.
 - `driver()` ([`src/facilities/builtin_driver.rs`](src/facilities/builtin_driver.rs))
   is the crate's driver: it runs a `StaticProgram`
   ([`src/facilities/static_program.rs`](src/facilities/static_program.rs)),
@@ -648,9 +656,9 @@ features = ["conformance"]
 Each check panics, naming the rule broken, when the part does not keep it;
 an adapter is checked composed with an executor
 ([`tests/runtime_isa.rs`](tests/runtime_isa.rs)). The check that a refusal
-leaves an executor usable, run on the existing-tool guide's profiler, an
-executor made with `executor_fn`, whose check refuses the first batch, as
-it reads two qubits under one tag
+for the call's own fault leaves an executor usable, run on the existing-tool
+guide's profiler, an executor made with `executor_fn`, whose check refuses
+the first batch, as it reads two qubits under one tag
 ([`tests/existing_tool.rs`](tests/existing_tool.rs)):
 
 ```rust

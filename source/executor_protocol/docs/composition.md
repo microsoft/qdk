@@ -176,9 +176,9 @@ The rules that the compiler cannot check are checks in `conformance` (the
 `conformance` feature), which an implementer runs on its executors in its
 own tests:
 
-- those of `call`: a refusal leaves the executor usable; a failure is final
-  where state carries over, and ends the later calls still in flight once
-  it is recorded as the executor's
+- those of `call`: a refusal for the call's own fault leaves the executor
+  usable; a failure is final where state carries over, and ends the later
+  calls still in flight once it is recorded as the executor's
   (`ends_calls_in_flight_at_an_earlier_failure`, which polls the failing
   call's reply first;
   [An executor fails](internals/executors.md#an-executor-fails) says what

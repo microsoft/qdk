@@ -10,10 +10,10 @@ use crate::{BuiltinDriver, Chain, driver};
 use crate::{Driver, Instruction, NoAdapter};
 
 /// A chain's prefix: a driver, with the adapters composed downstream of it
-/// so far (none at first), as a chain is built left to right. Composed with an adapter, it gives a
-/// `ChainPrefix` with that adapter below the others; composed with an
-/// executor, it gives a [`Chain`], which runs the job given to it. The
-/// grouping does not matter: `(driver() >> a) >> executor` and
+/// so far (none at first), as a chain is built left to right. Composed with
+/// an adapter, it gives a `ChainPrefix` with that adapter below the others;
+/// composed with an executor, it gives a [`Chain`], which runs the job given
+/// to it. The grouping does not matter: `(driver() >> a) >> executor` and
 /// `driver() >> (a >> executor)?` build chains with the same run.
 ///
 /// It is a newtype over the driver, because Rust's orphan rule lets a

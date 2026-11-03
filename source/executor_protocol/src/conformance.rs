@@ -5,12 +5,12 @@
 //! implementers to run in their own tests: the compiler checks that a type
 //! has `call`, `close` and `fold`, and that a call is an
 //! [`InstructionCall`], not that they keep the rules that callers rely on.
-//! They check the rules of [`Executor`] (a refusal leaves the executor
-//! usable, a failure is final, and ends the later calls still in flight
-//! once it is recorded as the executor's: the check polls the failing
-//! call's reply first), of [`Reply`] (a reply appends
-//! its events, keeping what the caller held, checked wherever a check
-//! reads readouts), of [`Close`], [`Fold`], described instruction sets
+//! They check the rules of [`Executor`] (a refusal for the call's own
+//! fault leaves the executor usable, a failure is final, and ends the
+//! later calls still in flight once it is recorded as the executor's: the
+//! check polls the failing call's reply first), of [`Reply`] (a reply
+//! appends its events, keeping what the caller held, checked wherever a
+//! check reads readouts), of [`Close`], [`Fold`], described instruction sets
 //! and readout tags, and the promises of
 //! [`Capabilities`](crate::Capabilities) (`replayable`; `resumable_shots`, with
 //! its rule that a call changes no shot it does not name), and of shot

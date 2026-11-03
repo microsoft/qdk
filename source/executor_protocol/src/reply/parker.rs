@@ -44,10 +44,12 @@
 //! Other callers do not park here. An async caller ([`wait_async`]) and a
 //! stream ([`async_events`]) hand the reply their runtime's waker, and their
 //! task yields instead of the thread parking. Some of the crate's polls
-//! pass [`Waker::noop`] and never sleep: they poll once, and a later poll
-//! with a real waker takes the reply up (an `adapter_fn`'s poll of its
-//! sends, a `shot_states` executor's poll of each part as it calls it, and
-//! the conformance check that polls a reply it should not have got).
+//! pass [`Waker::noop`] and never sleep: an `adapter_fn` polls each send
+//! below as it makes it, and each one still pending again before each
+//! `run` and at the call's end; a `shot_states` executor polls each part
+//! as it calls it; in both, the caller later polls the reply with a real
+//! waker. The conformance check that polls a reply it should not have got
+//! panics right after its poll.
 //!
 //! Keeping the waker is the reply's side: [`IncrementalReply`] and
 //! [`LifecycleBoundReply`] keep the latest waker, skip the clone when it

@@ -297,6 +297,11 @@ what they belong to; the names in code are the crate's.
   a consumer matches each readout by its tag; the order across shots
   carries no meaning, so two builds are compared shot by shot
   ([The order of a reply's events](internals/replies.md#the-order-of-a-replys-events)).
+- **Value** (`Value`): what an outcome reads, `Zero`, `One`, or `Missing`
+  with the reason the readout has no value (`ReadoutFailure`: `Loss`, a
+  lost qubit, or `Other`). A missing value does not end the run, and the
+  shot's other readouts stand
+  ([Outcomes, missing values and conditions go up](protocol.md#outcomes-missing-values-and-conditions-go-up)).
 - **Conditions** (`ShotConditions`): what a component found on a shot
   without ending it, any of rejected, inconsistent and unresolved. They
   are the shot's, not a readout's: each outcome carries its shot's

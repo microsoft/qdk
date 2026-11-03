@@ -2,13 +2,18 @@
 
 [Protocol overview](../README.md).
 
-The protocol is what every part of a chain keeps, whoever wrote it: the
+The protocol is what the parts of a chain share, whoever wrote them: the
 traits a driver, an adapter and an executor implement, the one message they
 exchange, the reply that carries its events up, the refusals, the outcomes
 and the conditions they carry, the seeds, what a part offers and a program
 needs, and how parts compose into a chain and a run. It lives in `src/`,
-outside `src/facilities/`. The facilities, the crate's own parts that keep it
-for an implementer's logic, are in [Facilities](facilities.md).
+outside `src/facilities/`. Some of its rules the protocol checks itself: a
+chain and its job are checked before any call, and a run closes its chain
+once and refuses a call on a shot its job did not name. Every part keeps
+the others: the facilities, the crate's own parts, keep them for an
+implementer's logic ([Facilities](facilities.md)), and the
+[conformance kit](../README.md#checking-a-part) checks a part written by
+hand for most of them.
 
 This page draws the protocol at work, step by step, from the crate's tests;
 the how-to of each part is in the topic page each section links. Its
@@ -18,20 +23,20 @@ do: a solid arrow is a call, a dashed arrow what it returns, an open arrow
 
 ## The parts, and where they are
 
-| Part                                                                                                                                            | Files                                                                                                                                                                                |
-| ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| a **driver** (`Driver<P>`) heads a chain and runs any program of its form; `ChainPrefix` is a driver with the adapters composed below it so far | [`driver.rs`](../src/driver.rs), [`driver/chain_prefix.rs`](../src/driver/chain_prefix.rs), [`driver/driven_program.rs`](../src/driver/driven_program.rs)                            |
-| an **adaptive program** (`AdaptiveProgram`) drives the executor itself, choosing each batch from the outcomes so far                            | [`adaptive_program.rs`](../src/adaptive_program.rs)                                                                                                                                  |
-| an **executor** (`Executor<M>`) runs the calls, describes what it offers (`Describe`) and reports once closed (`Close`, `Fold`)                 | [`executor.rs`](../src/executor.rs), [`executor/report.rs`](../src/executor/report.rs), [`capabilities.rs`](../src/capabilities.rs)                                                  |
-| an **adapter** (`Adapter`, `Apply`) maps the executor below it, once, to the executor above it                                                  | [`adapter.rs`](../src/adapter.rs), [`adapter/boundary.rs`](../src/adapter/boundary.rs)                                                                                               |
-| the **message** (`Message`, `InstructionBatch`) and its shots (`ShotSet`)                                                                       | [`message.rs`](../src/message.rs), [`instruction_batch.rs`](../src/instruction_batch.rs), [`shot_set.rs`](../src/shot_set.rs)                                                        |
-| the **instructions**, typed (`TypedInstruction`) or by opcode (`InstructionCall`), and their description (`InstructionSet`)                     | [`instruction_set.rs`](../src/instruction_set.rs), [`instruction_set/`](../src/instruction_set/) (`action.rs`, `call.rs`, `instruction.rs`, `renumbered.rs`)                         |
-| the **reply** (`Reply`, `ReplyStatus`), and the ways to take one (`wait`, `wait_async`, `async_events`)                                         | [`reply.rs`](../src/reply.rs), [`reply/blocking.rs`](../src/reply/blocking.rs), [`reply/asynchronous.rs`](../src/reply/asynchronous.rs), [`reply/parker.rs`](../src/reply/parker.rs) |
-| the **outcomes** (`ShotOutcome`, `Value`, `ReadoutFailure`) and the shot's **conditions** (`ShotConditions`)                                    | [`shot_outcome.rs`](../src/shot_outcome.rs), [`shot_conditions.rs`](../src/shot_conditions.rs)                                                                                       |
-| the **refusals** (`Rejected`, `RetryClass`), and the codes that will carry them over a link                                                     | [`rejected.rs`](../src/rejected.rs), [`wire_codes.rs`](../src/wire_codes.rs)                                                                                                         |
-| what a part **offers** (`Capabilities`) and a program **needs** (`Needs`)                                                                       | [`capabilities.rs`](../src/capabilities.rs), [`needs.rs`](../src/needs.rs)                                                                                                           |
-| the **seeds** (`ShotContext`, `RngId`, `shot_seed`)                                                                                             | [`seeds.rs`](../src/seeds.rs)                                                                                                                                                        |
-| **composition** (`compose`, `>>`), the **chain** (`Chain`), its faults (`BuildFaults`, `JobFaults`) and the **run** (`Run`)                     | [`compose.rs`](../src/compose.rs), [`compose/`](../src/compose/) (`adapters.rs`, `build_faults.rs`, `chain.rs`, `operator.rs`, `run.rs`)                                             |
+| Part                                                                                                                                                                                                                                    | Files                                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| a **driver** (`Driver<P>`) heads a chain and runs any program of its form; while the chain is built, the driver and the adapters composed below it so far are its prefix (`ChainPrefix`), not itself a `Driver` ([planned](planned.md)) | [`driver.rs`](../src/driver.rs), [`driver/chain_prefix.rs`](../src/driver/chain_prefix.rs), [`driver/driven_program.rs`](../src/driver/driven_program.rs)                            |
+| an **adaptive program** (`AdaptiveProgram`) drives the executor itself, choosing each batch from the outcomes so far                                                                                                                    | [`adaptive_program.rs`](../src/adaptive_program.rs)                                                                                                                                  |
+| an **executor** (`Executor<M>`) runs the calls, describes what it offers (`Describe`) and reports once closed (`Close`, `Fold`)                                                                                                         | [`executor.rs`](../src/executor.rs), [`executor/report.rs`](../src/executor/report.rs), [`capabilities.rs`](../src/capabilities.rs)                                                  |
+| an **adapter** (`Adapter`, `Apply`) maps the executor below it, once, to the executor above it                                                                                                                                          | [`adapter.rs`](../src/adapter.rs), [`adapter/boundary.rs`](../src/adapter/boundary.rs)                                                                                               |
+| the **message** (`Message`, `InstructionBatch`) and its shots (`ShotSet`)                                                                                                                                                               | [`message.rs`](../src/message.rs), [`instruction_batch.rs`](../src/instruction_batch.rs), [`shot_set.rs`](../src/shot_set.rs)                                                        |
+| the **instructions**, typed (`TypedInstruction`) or by opcode (`InstructionCall`), and their description (`InstructionSet`)                                                                                                             | [`instruction_set.rs`](../src/instruction_set.rs), [`instruction_set/`](../src/instruction_set/) (`action.rs`, `call.rs`, `instruction.rs`, `renumbered.rs`)                         |
+| the **reply** (`Reply`, `ReplyStatus`), and the ways to take one (`wait`, `wait_async`, `async_events`)                                                                                                                                 | [`reply.rs`](../src/reply.rs), [`reply/blocking.rs`](../src/reply/blocking.rs), [`reply/asynchronous.rs`](../src/reply/asynchronous.rs), [`reply/parker.rs`](../src/reply/parker.rs) |
+| the **outcomes** (`ShotOutcome`, `Value`, `ReadoutFailure`) and the shot's **conditions** (`ShotConditions`)                                                                                                                            | [`shot_outcome.rs`](../src/shot_outcome.rs), [`shot_conditions.rs`](../src/shot_conditions.rs)                                                                                       |
+| the **refusals** (`Rejected`, `RetryClass`), and the codes that will carry them over a link                                                                                                                                             | [`rejected.rs`](../src/rejected.rs), [`wire_codes.rs`](../src/wire_codes.rs)                                                                                                         |
+| what a part **offers** (`Capabilities`) and a program **needs** (`Needs`)                                                                                                                                                               | [`capabilities.rs`](../src/capabilities.rs), [`needs.rs`](../src/needs.rs)                                                                                                           |
+| the **seeds** (`ShotContext`, `RngId`, `shot_seed`)                                                                                                                                                                                     | [`seeds.rs`](../src/seeds.rs)                                                                                                                                                        |
+| **composition** (`compose`, `>>`), the **chain** (`Chain`), its faults (`BuildFaults`, `JobFaults`) and the **run** (`Run`)                                                                                                             | [`compose.rs`](../src/compose.rs), [`compose/`](../src/compose/) (`adapters.rs`, `build_faults.rs`, `chain.rs`, `operator.rs`, `run.rs`)                                             |
 
 [`lib.rs`](../src/lib.rs) states the protocol in its crate documentation and
 re-exports every public item.
@@ -104,7 +109,10 @@ program ends, the run closes the adapter's executor, which closes the one
 below and gives its report up, beside its own if it keeps one. It is one
 possible execution: the events may already be in at the first poll, more
 than one poll may take them, and a reply may end `Failed` or `Cancelled`
-instead of `Done`:
+instead of `Done`. It leaves out two steps: each call passes through the
+run's filter of the job's shots (`HeldShots`) between the driver and the
+adapter's executor, and an `adapter_fn`'s send polls the reply below once,
+with a no-op waker, inside the call:
 
 ```mermaid
 sequenceDiagram
@@ -142,9 +150,11 @@ sequenceDiagram
   R-->>T: (output, report)
 ```
 
-The chain of the README's [example](../README.md#an-example) runs this way
-through two adapters; the walk of a lowering through one adapter, and its
-decoding on the way up, is in
+The chain of the README's [example](../README.md#an-example) has this
+shape, through two adapters, with its replies made inside the calls: its
+simulator runs each call before it returns, and its debugger waits for the
+reply below inside its own call. The walk of a lowering through one
+adapter, and its decoding on the way up, is in
 [A static ISA](guides.md#a-static-isa-a-repetition-code). How a job is
 checked and run, and the run's rules, are in
 [A chain and its job](composition.md#a-chain-and-its-job).
@@ -207,7 +217,7 @@ sequenceDiagram
   C->>E: call(batch)
   alt refused
     E-->>C: Err(Rejected): nothing ran
-    Note over E: still open: its next call is served
+    Note over E: refused for the call's own fault, still open: its next call is served
   else accepted, and the work fails
     E-->>C: Ok(reply)
     C->>R: poll_events(out, waker)
@@ -323,8 +333,9 @@ adapter written by hand merges them itself. How a decoder decides a logical
 value over a missing one is its own rule: the guide's code gives the
 logical readout no value either, rather than a guess. An executor that
 offers `resumable_shots` keeps each shot's conditions from one call to the
-next. The rules in full are in [Shot conditions](replies.md#shot-conditions),
-and how each readout is named in [Readout tags](replies.md#readout-tags).
+next (the conformance kit checks it). The rules in full are in
+[Shot conditions](replies.md#shot-conditions), and how each readout is
+named in [Readout tags](replies.md#readout-tags).
 
 ## One message, and levels
 
@@ -372,8 +383,8 @@ holds when the layers are built. How a resend is made safe is in
   ([Several calls in flight](internals/replies.md#several-calls-in-flight));
   a reply keeps the latest poll's waker, which replaces the others.
 - **A reply's type names the reply below it**: an adapter's executor
-  returns a reply type of its own that holds the reply of the executor
-  below (`AdapterFnReply<B>`, `MappedReply<R, U>`), so the compiler sees
+  returns the reply below, or a reply type of its own that holds it
+  (`AdapterFnReply<B>`, `MappedReply<R, U>`), so the compiler sees
   the whole nest, and no reply is boxed as a `dyn Reply` on the way up.
   Type-erased chains, which would box one, are planned
   ([A chain is a type](internals/composition.md#a-chain-is-a-type)).
