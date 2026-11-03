@@ -208,7 +208,12 @@ token up (tests `wait_parks_until_woken_instead_of_spinning`,
 `src/tests/reply/blocking.rs`). An unpark with no wake (a spurious one, or
 another part of the program's) costs no poll: the park returns only once
 it has seen the flag, and clears it (test
-`an_unpark_without_a_wake_costs_wait_no_poll`, same file).
+`an_unpark_without_a_wake_costs_wait_no_poll`, same file). Since the park
+that returns on a wake clears the flag, a wake left over from an earlier
+reply, which woke the thread during the poll that ended it, costs the next
+wait one extra poll at most, and later parks sleep (test
+`a_wake_left_over_from_an_earlier_reply_costs_wait_one_extra_poll_at_most`,
+same file).
 
 Each thread has one such parker, which `wait` and `relay` share, so
 neither may be called from inside a `poll_events`: the nested wait could
@@ -356,8 +361,11 @@ The tests of the cycle are in `src/tests/facilities/replies.rs`:
 
 `wait_parks_until_woken_instead_of_spinning`
 (`src/tests/reply/blocking.rs`) shows step 2: a parked thread does not
-spin. For an executor whose shots' replies end after `call` returns (on
-threads of their own, say), in
+spin, and
+`a_wake_left_over_from_an_earlier_reply_costs_wait_one_extra_poll_at_most`
+(`src/tests/reply/blocking.rs` too) that it does not after a wake left
+over from an earlier reply either. For an executor whose shots' replies
+end after `call` returns (on threads of their own, say), in
 `src/tests/facilities/shot_states.rs`,
 `an_executor_hands_over_each_shots_events_as_they_come` shows a shot's
 events handed over before the batch ends, while another shot still runs;

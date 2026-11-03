@@ -18,20 +18,19 @@ executor took one call per batch.
 **In short:** an executor of a Rust instruction type, called directly, is
 the baseline. The per-shot executor (`executor_fn` under `OnePerShot`)
 cost about 1.2 times the baseline on batches of one instruction, and
-within a few percent from batches of 10, in one run on a loaded machine:
-a provisional figure, to be measured again (see [Results](#results)). An
-earlier per-shot form, since removed (measured history), which routed
-each call through an object that passed each shot's call to that shot's
+within a few percent from batches of 10, in one run on a loaded machine: a
+provisional figure, to be measured again (see [Results](#results)). An
+earlier per-shot form, since removed (measured history), which routed each
+call through an object that passed each shot's call to that shot's
 executor ([below](#what-each-cost-is-and-who-pays-it)), added a cost per
-call,
-which batching hides: 4.4 times the baseline on
-batches of one instruction, 1.2 times on batches of 100, and within a few
-percent on batches of 10 000 (the table below). An executor of calls of a
-set described at run time costs about 10 ns more per instruction, at every
-batch size. A batch of
-many shots, each on a placement of its own, costs its caller a time per
-shot that grows with the batch when it is woken by each shot that ends
-([Shots on placements of their own](#shots-on-placements-of-their-own)).
+call, which batching hides: 4.4 times the baseline on batches of one
+instruction, 1.2 times on batches of 100, and within a few percent on
+batches of 10 000 (the table below). An executor of calls of a set
+described at run time costs about 10 ns more per instruction, at every
+batch size. A batch of many shots, each on a placement of its own, costs
+its caller a time per shot that grows with the batch when it is woken by
+each shot that ends ([Shots on placements of their
+own](#shots-on-placements-of-their-own)).
 
 ## Results
 
@@ -240,10 +239,13 @@ llvm-args=-align-all-nofallthru-blocks=5` to `RUSTFLAGS`.
   smaller share of the time.
 - Building the instructions is not timed: each column's instructions
   (`Gate`s, `InstructionCall`s) are built before the timing starts.
-- Adapters are not measured yet: no column runs through one, so neither
-  an adapter's own cost nor that of the executor `compose` makes from it
-  (`AdapterExecutor`, or an `adapter_fn`'s) is known. Columns with
-  an adapter that passes calls down, and with a lowering, upstream of the
+- `benches/protocol_overhead.rs` has no column through an adapter, and no
+  lowering is measured. `benches/adapter_overhead.rs` measures one adapter
+  that passes each call down (written by hand, and an `adapter_fn` with
+  one state and with a state per shot) against the executor alone; its
+  figures are not tabled here, only compared with the crate before
+  conditions ([Shot conditions](#shot-conditions)). Columns with an
+  adapter that passes calls down, and with a lowering, upstream of the
   per-shot executor, are to be added to `benches/protocol_overhead.rs`.
   Estimates from an earlier prototype of the protocol, not measured on this
   crate: a lowering of a Steane code cost about 9 ns per physical

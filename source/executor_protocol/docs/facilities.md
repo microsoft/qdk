@@ -123,9 +123,11 @@ sequenceDiagram
 - **A failed shot outranks a cancelled one**: the call's reply then ends
   `Failed`, whatever the order the shots end in.
 - **Placed whole** (`.run_on(..)` alone, or after `.shots(..)`), the
-  executor refuses on its own thread, after `call` accepted the call, and
-  such a refusal fails the call and the executor
-  ([a design question](rejections.md#what-a-rejection-says)).
+  executor makes its own refusals (its promise's, its state closure's, its
+  check's) on its own thread, after `call` accepted the call, and such a
+  refusal fails the call and the executor
+  ([a design question](rejections.md#what-a-rejection-says)); once closed
+  or failed, it still refuses at `call`.
 - **Known issue**: each shot's reply may wake the caller, so a batch of n
   shots costs its caller O(n²) polls of shots
   ([Performance](performance.md#shots-on-placements-of-their-own)).
@@ -155,14 +157,18 @@ its logic:
   own, and then offers no `log_probability`, nor, with one state,
   `replayable`;
 - each shot's conditions need no code in the logic: the adapter merges, by
-  union, those its logic raises and those its outcomes from below carry,
-  and marks with them every outcome it gives the shot.
+  union, those its logic raises and those it reads from below before its
+  call ends, and marks with them every outcome it gives the shot; a
+  condition a send's reply gives after its call returned passes up on that
+  reply's outcomes, but the adapter does not take it in, a known issue
+  ([Shot conditions](replies.md#shot-conditions)).
 
 With `.shots(OnePerShot)` it keeps a state per shot: the logic serves each
 shot of a call on that shot's state, and once every shot's logic ran, the
-shots' equal sends go below as one call. Below, a logic with a state per
-shot that raises a condition on shot 3, over an executor that raises one
-on shot 4 (as the [tests of shot
+shots' equal sends go below as one call, but for the sends a shot kept
+before its run, which go below alone, at that run. Below, a logic with a
+state per shot that raises a condition on shot 3, over an executor that
+raises one on shot 4 (as the [tests of shot
 conditions](../src/tests/facilities/adapter_fn/conditions.rs) and of [a
 state per shot](../src/tests/facilities/adapter_fn/one_per_shot.rs) run
 it):
@@ -336,10 +342,11 @@ tag, at the instruction that repeats it, for an executor written by hand
 The rules the compiler cannot check are checks in `conformance`, behind
 the `conformance` feature, which an implementer runs on its parts in its
 own tests: those of a call, a reply, close and fold, instruction sets and
-readout tags, the capabilities `replayable` and `resumable_shots`, and a
-shot's conditions across calls. Each panics, naming the rule broken, and a
-check on each shot names every shot that breaks it; an adapter is checked
-composed with an executor. The checks are listed in
+readout tags, the capabilities `replayable` and `resumable_shots`, a
+shot's conditions across calls, and that a new executor starts its shots
+as made, whatever an earlier one left. Each panics, naming the rule
+broken, and a check on each shot names every shot that breaks it; an
+adapter is checked composed with an executor. The checks are listed in
 [Conformance checks](composition.md#conformance-checks), and how to enable
 them in [Checking a part](../README.md#checking-a-part). They live in
 [`src/conformance.rs`](../src/conformance.rs) and

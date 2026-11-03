@@ -89,8 +89,7 @@ The rules of composition:
 
   ```rust
   let sends_h = bits_set().with("h", [Block]);
-  let noise =
-      map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
+  let noise = map_executor::<InstructionCall, _>(|below| below).drawing(RngId::LAST_EXECUTOR);
   let Err(faults) = compose(
       compose(Relabel::new(sends_h, false), noise),
       TestDoubleExecutor::with_model(Bits::default(), 7),

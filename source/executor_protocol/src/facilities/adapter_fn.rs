@@ -1294,6 +1294,8 @@ fn poll_parts<B: Reply<Item = ShotOutcome>>(
     waker: &Waker,
     cancelled: &mut bool,
 ) -> Result<(), String> {
+    // Known issue, not measured (blocks neither): `remove` costs O(n²) moves
+    // over n parts ending one by one (`retain_mut` would take one pass).
     let mut i = 0;
     while i < parts.len() {
         match poll_part(&mut parts[i], out, waker, cancelled) {

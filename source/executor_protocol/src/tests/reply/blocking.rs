@@ -217,6 +217,37 @@ fn a_wake_from_another_thread_before_the_park_is_not_lost() {
     );
 }
 
+/// A reply that wakes its waker during the poll that ends it, as a reply
+/// does whose producer wakes the caller while the caller's poll already
+/// takes the end: the wake outlives the wait.
+struct WakesAsItEnds;
+
+impl Reply for WakesAsItEnds {
+    type Item = u32;
+
+    fn poll_events(&mut self, _: &mut Vec<u32>, waker: &Waker) -> ReplyStatus {
+        waker.wake_by_ref();
+        ReplyStatus::Done
+    }
+}
+
+/// A wake left over from an earlier reply costs `wait` one extra poll at
+/// most: a thread waits for a reply that woke it as it ended, then waits on
+/// the same thread for a call that ends 30 ms later, with one wake. The
+/// second wait polls three times at most (once pending, once more for the
+/// left-over wake, once at the end), against thousands if the left-over
+/// wake kept every later park from sleeping.
+#[test]
+fn a_wake_left_over_from_an_earlier_reply_costs_wait_one_extra_poll_at_most() {
+    let polls = ends_soon(|| {
+        assert_eq!(wait(WakesAsItEnds, &mut Vec::new()), Ok(()));
+        let (reply, polls) = counted(ends_after(Duration::from_millis(30)));
+        assert_eq!(wait(reply, &mut Vec::new()), Ok(()));
+        polls.load(Ordering::SeqCst)
+    });
+    assert!((1..=3).contains(&polls), "{polls} polls");
+}
+
 /// A reply whose first pending poll hands the polling thread to a
 /// bystander thread, which unparks it with no wake.
 struct HandsOverItsThread {

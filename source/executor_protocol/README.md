@@ -278,8 +278,10 @@ by hand instead.
   profiler, a debugger, a code's lowering and decoding. It passes up what
   the executor below offers (less `log_probability` when its states draw,
   and `replayable` too with one state) and reports, and merges the shots'
-  conditions raised below with those its logic raises, with no code in its
-  logic; with a state per shot, the shots' equal calls below go as one.
+  conditions raised below, as it reads them during a call, with those its
+  logic raises, with no code in its logic; with a state per shot, the
+  shots' equal calls below go as one, but for those a shot kept before its
+  run, which go alone at that run.
 - `driver()` ([`src/facilities/builtin_driver.rs`](src/facilities/builtin_driver.rs))
   is the crate's driver: it runs a `StaticProgram`
   ([`src/facilities/static_program.rs`](src/facilities/static_program.rs)),

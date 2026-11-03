@@ -305,9 +305,9 @@ what they belong to; the names in code are the crate's.
 - **Conditions** (`ShotConditions`): what a component found on a shot
   without ending it, any of rejected, inconsistent and unresolved. They
   are the shot's, not a readout's: each outcome carries its shot's
-  conditions so far, an `adapter_fn` merges those raised below with its
-  own and marks its outcomes with them, and a caller takes a shot's as the
-  union of those its outcomes carry
+  conditions so far, an `adapter_fn` merges those it reads from below
+  during a call with its own and marks its outcomes with them, and a
+  caller takes a shot's as the union of those its outcomes carry
   ([Shot conditions](replies.md#shot-conditions)).
 - **Wake**: a reply wakes its waiting caller when it can make progress; an
   `IncrementalReply` wakes it at most once per sleep, however many events
