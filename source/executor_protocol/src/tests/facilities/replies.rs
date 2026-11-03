@@ -1,15 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
 use std::task::{Wake, Waker};
 use std::thread;
+use std::time::Duration;
 
 use crate::{
     ImmediateReply, MappedReply, Reply, ReplySender, ReplyStatus, relay, reply_channel, wait,
 };
 
-use crate::tests::{PATIENT, counting, ends_soon, signalling, wakes};
+use crate::tests::{PATIENT, counted, counting, ends_after, ends_soon, signalling, wakes};
 
 struct NoWake;
 
@@ -371,6 +373,21 @@ fn relay_hands_each_event_to_the_caller_as_it_comes() {
         .expect("relay hands the end over, which wakes the caller");
     assert_eq!(reply.poll_events(&mut out, &waker), ReplyStatus::Done);
     assert!(worker.join().is_ok());
+}
+
+/// A worker that relays its device's reply parks between polls, as `wait`
+/// does: a device's reply that ends 30 ms later is polled twice (once if
+/// it ended before the first poll), where a relay that spun would poll it
+/// on and on.
+#[test]
+fn relay_parks_between_polls() {
+    let (inner, polls) = counted(ends_after(Duration::from_millis(30)));
+    let (sender, outer) = reply_channel();
+    let worker = thread::spawn(move || relay(inner, sender));
+    assert_eq!(wait(outer, &mut Vec::new()), Ok(()));
+    assert!(worker.join().is_ok());
+    let polls = polls.load(Ordering::SeqCst);
+    assert!((1..=2).contains(&polls), "{polls} polls");
 }
 
 /// `relay` passes an inner reply's cancellation up as a cancellation, not

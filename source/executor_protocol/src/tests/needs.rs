@@ -378,3 +378,37 @@ fn a_yes_or_no_need_is_met_by_its_own_capability_alone() {
         .collect();
     assert_eq!(met, its_own_alone);
 }
+
+/// An executor that checks a need at call time lets the call through when
+/// it offers at least what is needed: a simulator of two qubits, given
+/// calls on two qubits, then on one, and a terminal that resumes shots,
+/// given a call that continues one.
+#[test]
+fn a_need_checked_at_call_time_is_met_by_as_much_or_more() {
+    assert_eq!(
+        [
+            UnmetNeed::check("simulator", Need::Qubits, 2, 2),
+            UnmetNeed::check("simulator", Need::Qubits, 1, 2),
+            UnmetNeed::check("terminal", Need::ResumableShots, 1, 1),
+        ],
+        [Ok(()), Ok(()), Ok(())]
+    );
+}
+
+/// An executor that checks a need at call time refuses a call that needs
+/// more than it offers as unmet, naming itself, the need, and how much was
+/// needed and offered: a terminal that holds each shot for one call alone,
+/// given a call that continues a shot.
+#[test]
+fn a_need_checked_at_call_time_beyond_the_offer_is_refused_as_unmet() {
+    assert_eq!(
+        UnmetNeed::check("terminal", Need::ResumableShots, 1, 0),
+        Err(Rejected::Unmet(UnmetNeed {
+            component: "terminal".into(),
+            need: Need::ResumableShots,
+            needed: 1,
+            offered: 0,
+            mismatches: Vec::new(),
+        }))
+    );
+}

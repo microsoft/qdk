@@ -10,7 +10,8 @@
 //! when a chain is given a job, every unmet need is reported
 //! ([`JobFaults`](crate::JobFaults)); by hand, [`Capabilities::admit`]
 //! returns the first, as an [`UnmetNeed`] naming the component that does
-//! not meet it.
+//! not meet it; and an executor that checks a need at call time refuses
+//! with [`UnmetNeed::check`].
 
 use std::fmt;
 use std::sync::Arc;
@@ -279,6 +280,21 @@ pub struct UnmetNeed {
 }
 
 impl UnmetNeed {
+    /// Checks that `component` offers at least what is `needed`: for an
+    /// executor that refuses, at call time, a call needing what it lacks (a
+    /// yes-or-no need is 1 needed against 0 offered).
+    ///
+    /// # Errors
+    ///
+    /// [`Rejected::Unmet`] when `needed` exceeds `offered`, naming
+    /// `component`.
+    pub fn check(component: &str, need: Need, needed: u64, offered: u64) -> Result<(), Rejected> {
+        match Self::of(component, need, needed, offered) {
+            Some(unmet) => Err(Rejected::Unmet(unmet)),
+            None => Ok(()),
+        }
+    }
+
     /// The need `component` does not meet, when `needed` exceeds `offered`.
     fn of(component: &str, need: Need, needed: u64, offered: u64) -> Option<UnmetNeed> {
         (needed > offered).then(|| UnmetNeed {

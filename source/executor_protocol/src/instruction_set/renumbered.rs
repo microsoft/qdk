@@ -2,9 +2,10 @@
 // Licensed under the MIT License.
 
 //! How calls by opcode ([`InstructionCall`]s) reach an executor that
-//! numbers their instructions otherwise: [`Renumbered`] is inserted where a
-//! driver's calls meet the chain's executor, when a job is given to the
-//! chain ([`Chain::run`](crate::Chain::run)), or where an adapter's meet the
+//! numbers their instructions otherwise, by a [`Renumbering`] of the set:
+//! [`Renumbered`] is inserted where a driver's calls meet the chain's
+//! executor, when a job is given to the chain
+//! ([`Chain::run`](crate::Chain::run)), or where an adapter's meet the
 //! executor downstream of it, when it is composed
 //! ([`compose`](fn@crate::compose)), and they are numbered otherwise.
 

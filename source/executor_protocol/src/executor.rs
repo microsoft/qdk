@@ -142,8 +142,8 @@ pub trait Executor<M: Message> {
     /// # Errors
     ///
     /// [`Rejected`] when the message is refused. An executor's refusal means
-    /// that no work was started, so the caller may correct the message and
-    /// send it again without undoing anything. A rejection of class
+    /// that no work was started, so the caller may act on its retry class
+    /// ([`Rejected::retry`]) without undoing anything. A rejection of class
     /// [`RetryClass::Resend`](crate::RetryClass::Resend) (such as
     /// [`Rejected::NoReply`]) instead means that no verdict arrived over a
     /// link, so work may have run. A run that starts and cannot finish is

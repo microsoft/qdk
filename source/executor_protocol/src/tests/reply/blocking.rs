@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::reply::CANCELLATION;
 use crate::{ImmediateReply, IncrementalReply, Reply, ReplyStatus, reply_channel, wait};
 
-use super::super::{counted, ends_soon};
+use crate::tests::{counted, ends_after, ends_soon};
 
 /// What a test double's two ends share: the events pushed so far, whether
 /// the run ended, and the waker of the last pending poll.
@@ -111,18 +111,6 @@ fn spin_wait<R: Reply>(mut reply: R, out: &mut Vec<R::Item>) -> Result<(), Strin
             ReplyStatus::Pending => thread::yield_now(),
         }
     }
-}
-
-/// A reply that ends with no event `after` from now, on a thread of its
-/// own: its sender wakes the caller at most once, at the end, so the count
-/// of a parked caller's polls does not depend on when its thread runs.
-fn ends_after(after: Duration) -> IncrementalReply<u32> {
-    let (sender, reply) = reply_channel();
-    thread::spawn(move || {
-        thread::sleep(after);
-        sender.done();
-    });
-    reply
 }
 
 /// `wait` parks until it is woken instead of spinning: a call that ends 30 ms

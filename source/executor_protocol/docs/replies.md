@@ -386,7 +386,7 @@ calls: a terminal whose shots' conditions outlast a call keeps them in its
 state, and raises them again in each call. For example, a code's runtime
 with a state per shot that rejects its shot, then writes a readout for it,
 whose caller finds the rejection on the readout (an excerpt of the
-[tests of shot conditions](../src/tests/facilities/adapter_fn/conditions.rs)):
+[tests of an `executor_fn`'s conditions](../src/tests/facilities/executor_fn/conditions.rs)):
 
 ```rust
 let mut runtime = executor_fn(

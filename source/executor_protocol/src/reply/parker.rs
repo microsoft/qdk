@@ -23,8 +23,9 @@
 //! `park` returns at once. A wake left over from an earlier reply costs one
 //! extra poll at most.
 //!
-//! Each thread has one parker ([`PARKER`]), made at its first use, so that
-//! a wait allocates nothing. It serves:
+//! Each thread has one parker for the crate's blocking waits ([`PARKER`]),
+//! made at its first use and kept, so that a wait makes no waker of its
+//! own. It serves:
 //!
 //! - [`wait`] (and [`wait_status`]): a synchronous caller takes a whole
 //!   reply;
@@ -35,10 +36,10 @@
 //! the nested wait could take the outer one's wake.
 //!
 //! [`block_on`], with which [`Run::wait`](crate::Run::wait) runs a job's
-//! program on this thread, has a parker of its own ([`FUTURE_PARKER`]): the
-//! program's async code, run synchronously, may itself call [`wait`] (an
-//! adapter's logic does, inside its `call`), and those parks must not take
-//! a wake meant for the program's future.
+//! program on this thread, has a second one, its own
+//! ([`FUTURE_PARKER`]): the program's async code, run synchronously, may
+//! itself call [`wait`] (an adapter's logic does, inside its `call`), and
+//! those parks must not take a wake meant for the program's future.
 //!
 //! Other callers do not park here. An async caller ([`wait_async`]) and a
 //! stream ([`async_events`]) hand the reply their runtime's waker, and their
@@ -117,7 +118,8 @@ impl Parker {
 }
 
 thread_local! {
-    /// Made once per thread, so that a wait allocates nothing.
+    /// Made once per thread and kept, so that a wait makes no waker of its
+    /// own.
     pub(crate) static PARKER: Parker = Parker::new();
     /// [`block_on`]'s, apart from [`PARKER`]: a future it polls may call
     /// [`wait`], whose parks must not take a wake meant for the future.

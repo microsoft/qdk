@@ -61,7 +61,7 @@ fn device() -> OnePerShotExecutor<Op, Bit, impl MakeState<Bit>, impl ExecutorLog
 }
 
 mod below;
-mod conditions;
+pub(in crate::tests::facilities) mod conditions;
 mod one_per_shot;
 mod owning;
 

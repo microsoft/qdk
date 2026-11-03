@@ -61,9 +61,9 @@ crate. Adding a capability takes five steps:
    each existing adapter, the guides' included.
 5. The tests: a program with the need, given to a chain over an executor
    that offers it and over one that does not (`Rejected::Unmet`, naming
-   the chain's executor); through an adapter; the refusal at the call, if
-   a call can need it without the program stating it; and across a link,
-   once the link is built (planned).
+   the chain's executor); through an adapter; the refusal at the call
+   (`UnmetNeed::check`), if a call can need it without the program stating
+   it; and across a link, once the link is built (planned).
 
 Two capabilities are planned, with no milestone yet, each added by these
 steps:
@@ -694,6 +694,7 @@ From [Executors](../executors.md):
 | The default offers nothing an executor does not state: no limit of qubits or shots, and no resumable shots, replayable shots, resets or log probability                | `default_capabilities_state_no_limit_and_offer_nothing_unstated` (`src/tests/capabilities.rs`)                                                                                                                                                                                      |
 | An executor that does not state a capability is refused a job that needs it, naming the need                                                                           | `an_executor_that_states_no_resumable_shots_is_refused_a_job_that_continues_a_shot` (`src/tests/capabilities.rs`)                                                                                                                                                                   |
 | A `true` need is met only by its own `true` capability: each offered alone meets its own need and no other                                                             | `a_yes_or_no_need_is_met_by_its_own_capability_alone` (`src/tests/needs.rs`)                                                                                                                                                                                                        |
+| `UnmetNeed::check` lets through a need met by as much or more, and refuses a greater one as `Rejected::Unmet`, naming the component, the need, needed and offered      | `a_need_checked_at_call_time_is_met_by_as_much_or_more`, `a_need_checked_at_call_time_beyond_the_offer_is_refused_as_unmet` (`src/tests/needs.rs`)                                                                                                                                  |
 | The crate's driver adds `resumable_shots` to a `StaticProgram`'s needs when it has calls before its last batch, and none when its calls are all in its last batch      | `a_typed_call_before_a_static_programs_last_batch_needs_resumable_shots`, `a_static_program_of_one_batch_runs_on_an_executor_without_resumable_shots` (`src/tests/facilities/static_program.rs`)                                                                                    |
 | The conformance check across calls fails an executor that forgets a shot's conditions at a call                                                                        | `keeps_each_shots_conditions_from_one_call_to_the_next_catches_conditions_forgotten_at_a_call` (`src/tests/conformance.rs`)                                                                                                                                                         |
 | An executor made by `executor_fn`, dropped unclosed, frees its state before its closures, as `close` does, and so does its shot form                                   | `dropped_it_frees_its_state_before_its_closures` (`src/tests/facilities/executor_fn.rs`), `dropped_it_frees_its_states_before_its_closures` (`src/tests/facilities/executor_fn/one_per_shot.rs`)                                                                                    |

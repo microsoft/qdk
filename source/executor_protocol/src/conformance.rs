@@ -50,8 +50,8 @@
 //!   [`changes_no_shot_a_call_does_not_name`],
 //!   [`starts_its_shots_as_made_whatever_an_earlier_executor_left`] and
 //!   [`keeps_each_shots_conditions_from_one_call_to_the_next`].
-//! - `readouts`: what more than one family uses: a call's outcomes, a
-//!   run's readouts by shot, and a check on each shot.
+//! - `readouts`: how the checks read what an executor gives (a call's
+//!   outcomes, a run's readouts by shot), and a check on each shot.
 
 // Known issue, open (blocks neither this commit nor a later one): no check
 // here of the rule that a wrapper never forgets a refusal (`Executor`'s

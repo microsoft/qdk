@@ -9,11 +9,11 @@ question a caller that retries must ask first: **may the work have run?**
 Its retry class (`Rejected::retry`) says, and it is the only thing that
 says:
 
-| `RetryClass` | Work may have run? | What the caller does                                                               |
-| ------------ | ------------------ | ---------------------------------------------------------------------------------- |
-| `Never`      | no                 | correct the message; sent unchanged, it is refused again                           |
-| `Later`      | no                 | send it again later: the executor cannot take it now, and the message is not wrong |
-| `Resend`     | **maybe**          | no verdict came: resend the same content, which goes under the same id             |
+| `RetryClass` | Work may have run? | What the caller does                                                                                                                              |
+| ------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Never`      | no                 | do not send it unchanged: change the message, send it to another executor (after `Closed` or `EarlierFailure`), or change what is asked (`Unmet`) |
+| `Later`      | no                 | send it again later: the executor cannot take it now, and the message is not wrong                                                                |
+| `Resend`     | **maybe**          | no verdict came: resend the same content, which goes under the same id                                                                            |
 
 So a rejection means that no work started, unless its class is `Resend`.
 A run that started and could not finish is not a rejection: its reply ends

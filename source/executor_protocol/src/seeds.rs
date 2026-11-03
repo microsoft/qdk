@@ -16,8 +16,8 @@
 //!   on the other shots of a call or on the executor or process that runs
 //!   it. A component that draws each shot from that shot's seeds therefore
 //!   draws it alike however the shots are split; an
-//!   [`adapter_fn`](fn@crate::adapter_fn) with one state does not, and
-//!   offers no `replayable` upstream.
+//!   [`adapter_fn`](fn@crate::adapter_fn) with one state that draws does
+//!   not, and offers no `replayable` upstream.
 //!
 //! The parts:
 //!
@@ -32,7 +32,7 @@
 //! - [`RngIds`]: the ids drawn with at or downstream of a component, which
 //!   a component that draws is checked against when built.
 //!
-//! The adapter that draws these serve is a noise model (planned: the
+//! The adapter these seeds are for is a noise model (planned: the
 //! simulators' Pauli noise, `NoiseConfig` in `source/simulators`, as an
 //! adapter upstream of any simulator given the run's seed).
 
@@ -300,8 +300,9 @@ impl ShotContext {
 /// context with [`ShotContext::last_executor`], whose `seed` is the last
 /// executor's, and its draws would then repeat the executor's: a readout
 /// error of ½ over fair coins, drawing as the coins do, flips exactly the
-/// coins that come up One, and every readout reads Zero. The seeds bind the id, so the adapter's shot
-/// `j` draws from the `seed` of [`AdapterSeeds::shot`], its own, the one an
+/// coins that come up One, and every readout reads Zero. The seeds bind
+/// the id, so the adapter's shot `j` draws from the `seed` of
+/// [`AdapterSeeds::shot`], its own, the one an
 /// [`adapter_fn`](fn@crate::adapter_fn) drawing with that id has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AdapterSeeds {

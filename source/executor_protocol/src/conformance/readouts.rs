@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What more than one family of checks uses: the outcomes of a call, read
-//! into a buffer that already holds some, the readouts of a run by shot,
-//! and a check on each shot that names every shot that breaks it.
+//! How the checks read what an executor gives: the outcomes of a call, read
+//! into a buffer that already holds some, and the readouts of a run by
+//! shot; and a check on each shot that names every shot that breaks it.
 
 use std::collections::BTreeMap;
 use std::iter;

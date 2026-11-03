@@ -807,9 +807,11 @@ pub(super) fn report_states<'a, S: 'a, Q: Fold>(
 /// catch too, then raises the first panic: `earlier` (a report closure's),
 /// else the first state drop's, else the close below's; the others are
 /// left to the panic hook, which reported them, as
-/// [`end_each_raising_first`](crate::facilities::panics::end_each_raising_first) does.
-/// So the executor below is closed whatever the states' code did, and
-/// after them, since a state may own its way below ([`owning_adapter_fn`]).
+/// [`end_each_raising_first`] does. So the executor below is closed
+/// whatever the states' code did, and after them, since a state may own
+/// its way below ([`owning_adapter_fn`]).
+///
+/// [`end_each_raising_first`]: super::panics::end_each_raising_first
 //
 // Known issue, open (it needs two bugs at once; blocks neither this commit
 // nor a later one), as at `report_states`: a close run while the thread

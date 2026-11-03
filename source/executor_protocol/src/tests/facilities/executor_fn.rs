@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod conditions;
 mod one_per_shot;
 
 use std::cell::Cell;

@@ -43,8 +43,8 @@ use crate::{Executor, Instruction, InstructionBatch, Needs, Rejected, ShotSet};
 /// look to it like that single executor. A caller makes it a chain's
 /// prefix, `runtime.into_chain() >> adapters >> executor` (with
 /// [`DriverExt`] in scope), then calls `chain.run(program, shots)`. A
-/// driver with adapters below it is a [`ChainPrefix`], not itself a
-/// `Driver` (planned).
+/// driver with adapters below it is a [`ChainPrefix`]; that the prefix is
+/// itself a `Driver` is planned (`docs/planned.md`).
 ///
 /// The driver is apart from the program, so a crate may drive a program
 /// type of another crate, and one driver may drive several program types,

@@ -76,13 +76,13 @@ fn signalling() -> (mpsc::Receiver<()>, Waker) {
 /// so it is kept apart from the crate's own `block_on`, which runs
 /// `Run::wait`: a test of an async caller must not use the crate's parker.
 fn block_on<Fut: Future>(future: Fut) -> Fut::Output {
-    struct Unpark(thread::Thread);
-    impl Wake for Unpark {
+    struct UnparkThread(thread::Thread);
+    impl Wake for UnparkThread {
         fn wake(self: Arc<Self>) {
             self.0.unpark();
         }
     }
-    let waker = Waker::from(Arc::new(Unpark(thread::current())));
+    let waker = Waker::from(Arc::new(UnparkThread(thread::current())));
     let mut context = Context::from_waker(&waker);
     let mut future = pin!(future);
     loop {
@@ -204,6 +204,18 @@ impl<R: Reply> Reply for Counted<R> {
 fn counted<R>(reply: R) -> (Counted<R>, Arc<AtomicUsize>) {
     let polls = Arc::new(AtomicUsize::new(0));
     (Counted(reply, Arc::clone(&polls)), polls)
+}
+
+/// A reply that ends with no event `after` from now, on a thread of its
+/// own: its sender wakes the caller at most once, at the end, so the count
+/// of a parked caller's polls does not depend on when its thread runs.
+fn ends_after(after: Duration) -> IncrementalReply<u32> {
+    let (sender, reply) = reply_channel();
+    thread::spawn(move || {
+        thread::sleep(after);
+        sender.done();
+    });
+    reply
 }
 
 /// Runs `f` on its own thread and fails the test if it does not end soon: a

@@ -165,7 +165,7 @@ at step 3:
 | The caller                                         | On `Pending` (step 2)                                             | Its waker, when woken (step 3)                 | What blocks                                        |
 | -------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------- |
 | `wait`                                             | parks its thread                                                  | sets a flag and unparks the thread             | the caller's thread, which chose to wait           |
-| `relay`, on a worker thread                        | parks the worker's thread                                         | sets a flag and unparks the worker's thread    | the worker's thread, not the caller's              |
+| `relay`, on a worker thread                        | parks the worker's thread (test `relay_parks_between_polls`)      | sets a flag and unparks the worker's thread    | the worker's thread, not the caller's              |
 | `Run::wait`, running a job's program               | parks its thread, on a parker of its own                          | sets that parker's flag and unparks the thread | the thread that runs the job, which chose to wait  |
 | `poll_events` with `Waker::noop()`                 | does its own work, and polls again when it chooses                | nothing                                        | nothing                                            |
 | `poll_events` on several replies, a waker for each | parks, if no reply was woken                                      | marks its reply ready, and unparks the caller  | the caller's thread, only while none is ready      |
@@ -426,8 +426,10 @@ sends a batch at each measurement pays the first.
 Each promise of [Shot conditions](../replies.md#shot-conditions), and of
 the API docs of `ShotConditions`, in the page's order, with the tests that
 pin it. They are in `src/tests/facilities/adapter_fn/conditions.rs` unless
-named elsewhere; those of `ShotConditions` alone
-(`conditions_print_as_their_flags` and
+named elsewhere; those of an `executor_fn` alone (the outcomes its logic
+writes, and that it keeps nothing from call to call) are in
+`src/tests/facilities/executor_fn/conditions.rs`; those of
+`ShotConditions` alone (`conditions_print_as_their_flags` and
 `a_shots_conditions_contain_a_set_only_with_every_condition_of_it`) are in
 `src/tests/shot_conditions.rs`, and those of the conformance kit's checks,
 which show that each check fails an executor that breaks its rule, are in

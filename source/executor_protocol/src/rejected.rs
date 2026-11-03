@@ -217,15 +217,16 @@ impl fmt::Display for Rejected {
 impl std::error::Error for Rejected {}
 
 /// What a caller may do after a call is rejected ([`Rejected::retry`]):
-/// correct the message, send it again later, or resend it unchanged; and
-/// whether the work may have run, which only the last allows.
+/// change the message or where it goes, send it again later, or resend it
+/// unchanged; and whether the work may have run, which only the last
+/// allows.
 ///
 /// Every reason of [`Rejected`] has one class: [`Rejected::Unrecognized`]
 /// the one the far end sent with it, every other reason the one below:
 ///
 /// | Class                          | Did the work run? | What the caller does        | Reasons             |
 /// | ------------------------------ | ----------------- | --------------------------- | ------------------- |
-/// | [`Never`](RetryClass::Never)   | no                | correct the message first   | all the others      |
+/// | [`Never`](RetryClass::Never)   | no                | not send it unchanged       | all the others      |
 /// | [`Later`](RetryClass::Later)   | no                | send the same message later | `Unavailable`       |
 /// | [`Resend`](RetryClass::Resend) | maybe             | resend it under the same id | `NoReply` (planned) |
 ///
@@ -239,8 +240,13 @@ impl std::error::Error for Rejected {}
 /// same [`CallId`] runs it at most once (planned, with links).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RetryClass {
-    /// Nothing ran, and the same message will be refused again: correct it
-    /// before sending it again.
+    /// Nothing ran, and the same message, sent unchanged to the same
+    /// executor, will be refused again: change the message (a malformed one,
+    /// or one that breaks a rule of the shots or the instructions), send it
+    /// to another executor (after [`Closed`](Rejected::Closed) or
+    /// [`EarlierFailure`](Rejected::EarlierFailure), where the executor is at
+    /// fault), or change what is asked (after [`Unmet`](Rejected::Unmet):
+    /// another component, or other needs).
     Never,
     /// Nothing ran, and the message is not at fault: the executor cannot take
     /// it now. Send it again later; over a link, under the same

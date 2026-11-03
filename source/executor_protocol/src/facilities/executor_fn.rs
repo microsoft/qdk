@@ -3,9 +3,9 @@
 
 //! The facility that makes an executor from its logic alone
 //! ([`executor_fn`]): what a call brings to the logic ([`CallInput`]),
-//! where the logic puts its outcomes ([`Outcomes`]), the executor made
-//! ([`ExecutorFn`]), which keeps the protocol's rules, and how it holds
-//! its shots' states ([`ShotStrategy`]).
+//! where the logic puts its outcomes ([`Outcomes`], each an [`Outcome`]),
+//! the executor made ([`ExecutorFn`]), which keeps the protocol's rules,
+//! and how it holds its shots' states ([`ShotStrategy`]).
 
 mod one_per_shot;
 
