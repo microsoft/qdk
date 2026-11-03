@@ -364,7 +364,7 @@ given `program()`, the guide's program, made by `program_of(batches())`
 from its two batches, on the job's shots, then waited for:
 
 ```rust
-let chain = (driver() >> simulator()).expect("the program's calls fit the toy");
+let chain = (driver() >> simulator()).expect("nothing between to refuse");
 let (outcomes, report) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
 ```
 
@@ -493,8 +493,8 @@ let (outcomes, _) = chain
 ```
 
 On an executor that does not keep a shot between calls, the job is
-refused before any call, for the need the driver adds, though the program
-states none.
+refused before any call, for the need the driver adds (`resumable_shots`),
+which the program does not state.
 
 The caller's entry point is the chain:
 `runtime.into_chain() >> adapters >> executor` (with the trait `DriverExt`

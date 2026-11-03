@@ -183,8 +183,11 @@ order:
   (`benches/instruction_calls.rs`, its `emitting` table). Each boundary is
   matched once. A typed adapter gets the executor downstream of it as it is, at
   no cost.
-- **A job's program** states the instructions its driver sends
-  (`Needs::with_instruction_set`) and builds its calls with its own set. Its
+- **A job's program, or its driver,** states the instructions the driver sends
+  (`Needs::with_instruction_set`), and the program builds its calls with its
+  own set; two different sets are refused
+  ([Needs, combined](../composition.md#needs-combined),
+  `a_job_whose_program_and_driver_state_different_sets_is_refused`). Its
   chain is headed by a driver, such as `driver()`, the program given with the
   job, and the
   chain checks the two sets' compatibility when the job is given to it

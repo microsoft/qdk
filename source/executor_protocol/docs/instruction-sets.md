@@ -189,12 +189,14 @@ any order:
 - **An adapter** states the instructions it sends (`Adapter::sends`). `compose`
   checks them against the set downstream, and copies its calls into the
   downstream numbering where it numbers them otherwise.
-- **A job's program** states the instructions its driver sends
-  (`Needs::with_instruction_set`). A set the chain lacks is refused when the
-  job is given to the chain, with every instruction that does not fit. A
-  program of `InstructionCall`s whose set numbers its instructions otherwise
-  runs its own instructions, each batch copied into the chain's numbering. A
-  typed program's calls reach the executor as they are.
+- **A job's program, or its driver,** states the instructions the driver
+  sends (`Needs::with_instruction_set`); two different sets are refused
+  ([Needs, combined](composition.md#needs-combined)). A set the chain lacks
+  is refused when the job is given to the chain, with every instruction that
+  does not fit. A program of `InstructionCall`s whose set numbers its
+  instructions otherwise runs its own instructions, each batch copied into
+  the chain's numbering. A typed program's calls reach the executor as they
+  are.
 
 A caller that calls an executor directly, without a run, sends calls in
 the executor's numbering: the set the executor describes

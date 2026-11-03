@@ -843,6 +843,27 @@ fn adapters_drawing_with_the_same_id_are_refused_through_one_that_states_its_off
     assert_eq!(faults.0[0].error, BuildError::RngInUse(id));
 }
 
+/// A readout error over a crosstalk model over another readout error, each
+/// a noise model drawing with an id of its own: the upstream readout error
+/// is refused, since the one further below draws with its id already, the
+/// crosstalk model's draw between hiding nothing.
+#[test]
+fn a_drawer_between_does_not_hide_an_id_drawn_with_further_below() {
+    let readout = RngId::named("readout");
+    let upstream = map_executor::<InstructionCall, _>(|below| below).drawing(readout);
+    let crosstalk =
+        map_executor::<InstructionCall, _>(|below| below).drawing(RngId::named("crosstalk"));
+    let downstream = map_executor::<InstructionCall, _>(|below| below).drawing(readout);
+    let Err(faults) = compose(
+        compose(compose(upstream, crosstalk), downstream),
+        TestDoubleExecutor::with_model(Bits::default(), 7),
+    ) else {
+        panic!("the two readout errors draw the same numbers");
+    };
+    assert_eq!(faults.0.len(), 1, "{faults}");
+    assert_eq!(faults.0[0].error, BuildError::RngInUse(readout));
+}
+
 /// A noise model that writes into its offer the ids of a stream of its own
 /// and of crosstalk, leaving out the readout error below it: it still
 /// offers the ids drawn with below it and its own, the last executor's, the

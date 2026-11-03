@@ -99,14 +99,15 @@ impl Instruction for InstructionCall {
 /// quarter in batches of many. A program that cannot afford the copy builds
 /// its calls with the executor's set (its
 /// [`Capabilities::instruction_set`], read before the program is made, since
-/// the program sees the executor only through its calls), by mnemonic
+/// its driver sees the executor only through its calls), by mnemonic
 /// ([`InstructionSet::call`](crate::InstructionSet::call), or
 /// [`InstructionSet::opcode`](crate::InstructionSet::opcode) resolved
 /// once), and states that set in its needs: its calls then pass as they
 /// are.
 //
 // Known issue, open: it is unexported, so its name is not part of the API:
-// a program of calls by opcode sees it only as an executor of its calls.
+// the driver of a program of calls by opcode sees it only as an executor
+// of its calls.
 // Planned to become the renumbering adapter, once adapters map any
 // executor.
 //

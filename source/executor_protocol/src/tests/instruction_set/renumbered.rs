@@ -54,8 +54,12 @@ struct ToyState {
 }
 
 impl Describe for Toy {
+    /// The chain's set, and resumable shots: each shot keeps its bits
+    /// between calls.
     fn capabilities(&self) -> Capabilities {
-        Capabilities::default().with_instruction_set(Some(Arc::clone(&self.set)))
+        Capabilities::default()
+            .with_instruction_set(Some(Arc::clone(&self.set)))
+            .with_resumable_shots(true)
     }
 }
 
@@ -143,10 +147,15 @@ impl Program for Batches {
 }
 
 /// A driver of [`Batches`]: it sends each batch to every shot of its job,
-/// in turn, waiting for each.
+/// in turn, waiting for each, so that a later batch continues each shot
+/// where the earlier left it.
 struct EachInTurn;
 
 impl Driver<Batches> for EachInTurn {
+    fn needs(&self, program: &Batches) -> Needs {
+        Needs::default().with_resumable_shots(program.batches.len() > 1)
+    }
+
     async fn drive<E: Executor<InstructionBatch<InstructionCall>>>(
         &self,
         program: Batches,

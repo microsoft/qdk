@@ -143,9 +143,10 @@ with a branch on a readout, has a driver of its own
   several, only the least is reported.
 - **A job calls only its own shots**: a call on another is refused before the
   executor sees it.
-- **The run gives the outcomes with the chain's report**, waited for or awaited
-  alike. A `StaticProgram` stops at the first batch that the chain refuses or
-  that fails.
+- **The run gives the program's output with the executor's report** (for a
+  `StaticProgram`, its outcomes), waited for or awaited alike. A
+  `StaticProgram` stops at the first batch that the chain refuses or that
+  fails.
 - **A chain runs one job.** A function that builds the chain builds it again for
   the next job. A chain that runs many jobs is planned, with no milestone yet.
 

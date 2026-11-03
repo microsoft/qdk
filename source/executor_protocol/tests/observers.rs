@@ -312,7 +312,7 @@ fn by_shot(outcomes: Result<Vec<ShotOutcome>, impl std::fmt::Debug>) -> Vec<Shot
 /// tag 0, and again at tags 1 and 2, since the copy copies it, so that the
 /// observed runs are compared with the program run as the toy means it.
 fn run_alone() -> (Vec<ShotOutcome>, ExecutorReport<()>) {
-    let chain = (driver() >> simulator()).expect("the program's calls fit the toy");
+    let chain = (driver() >> simulator()).expect("nothing between to refuse");
     let (outcomes, report) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let outcomes = by_shot(outcomes);
     for shot in SHOTS {
@@ -624,7 +624,7 @@ fn read_out_of_order() -> Vec<InstructionCall> {
 #[test]
 fn the_observers_pass_each_shots_readouts_up_in_the_order_read() {
     let program = || program_of(vec![read_out_of_order()]);
-    let chain = (driver() >> simulator()).expect("the program fits");
+    let chain = (driver() >> simulator()).expect("nothing between to refuse");
     let (alone, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let alone = by_shot(alone);
     let tags: Vec<_> = alone.iter().map(|o| (o.shot, o.tag)).collect();
@@ -647,7 +647,7 @@ fn the_observers_pass_each_shots_readouts_up_in_the_order_read() {
 #[test]
 fn the_debugger_logs_each_calls_readouts_in_the_order_read() {
     let program = || program_of(vec![read_out_of_order()]);
-    let chain = (driver() >> simulator()).expect("the program fits");
+    let chain = (driver() >> simulator()).expect("nothing between to refuse");
     let (alone, _) = chain.run(program(), [6]).expect(THE_JOB_FITS).wait();
     let alone = alone.expect("the run succeeds");
     let tags: Vec<_> = alone.iter().map(|o| o.tag).collect();
@@ -671,7 +671,7 @@ fn a_batch_the_simulators_check_refuses_is_refused_alike_under_each_observer() {
     let beyond = toy_set().call("measure", vec![Operand::Block(QUBITS), Operand::Tag(1)]);
     let beyond = beyond.expect("the toy's set reads a qubit under a tag");
     let program = || program_of(vec![toss(), vec![beyond.clone()]]);
-    let chain = (driver() >> simulator()).expect("the program fits");
+    let chain = (driver() >> simulator()).expect("nothing between to refuse");
     let (alone, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let alone = alone.expect_err("the simulator refuses the batch");
     let chain = (driver() >> profiler() >> simulator()).expect("the profiler fits");
@@ -701,7 +701,7 @@ fn a_program_that_reads_a_tag_twice_is_refused_alike_under_each_observer() {
     let read = |qubit| set.call("measure", vec![Operand::Block(qubit), Operand::Tag(1)]);
     let read = |qubit| read(qubit).expect("the toy's set reads a qubit under a tag");
     let program = || program_of(vec![toss(), vec![read(0), read(1)]]);
-    let chain = (driver() >> simulator()).expect("the program fits");
+    let chain = (driver() >> simulator()).expect("nothing between to refuse");
     let Err(alone) = chain.run(program(), SHOTS) else {
         panic!("a static program refuses a tag read twice");
     };
@@ -731,7 +731,7 @@ fn a_program_that_reads_a_tag_twice_is_refused_alike_under_each_observer() {
 fn under_the_debugger_a_shot_refused_after_another_ran_fails_the_run() {
     let program = || program_of(vec![toss()]);
     for down in [SHOTS[0], SHOTS[1]] {
-        let chain = (driver() >> simulator_refusing_shot(down)).expect("the program fits");
+        let chain = (driver() >> simulator_refusing_shot(down)).expect("nothing between to refuse");
         let (alone, _) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
         let alone = alone.expect_err("the simulator refuses the shot");
         assert!(
@@ -942,7 +942,7 @@ type RunResult = Result<Vec<ShotOutcome>, StaticProgramError>;
 /// debugger: what each run gave, and the debugger's log.
 fn alone_and_debugged(device: NotWhole) -> (RunResult, RunResult, DebugLog) {
     let program = || program_of(vec![toss()]);
-    let chain = compose(driver(), device).expect("the program fits");
+    let chain = compose(driver(), device).expect("nothing between to refuse");
     let (alone, ()) = chain.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let log = DebugLog::default();
     let chain = compose(driver() >> debugger(log.clone()), device);
@@ -1065,11 +1065,11 @@ fn the_observers_grouped_any_way_give_the_same_run_and_log() {
         .expect(THE_JOB_FITS)
         .wait();
     let below = ((profiler() >> debugger(logs[3].clone())) >> simulator()).expect(fit);
-    let fourth = (driver() >> below).expect("the program fits");
+    let fourth = (driver() >> below).expect("the observers below are built: nothing between");
     let fourth = fourth.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let below = (debugger(logs[4].clone()) >> simulator()).expect("the debugger fits");
     let below = (profiler() >> below).expect("the profiler fits");
-    let fifth = (driver() >> below).expect("the program fits");
+    let fifth = (driver() >> below).expect("the observers below are built: nothing between");
     let fifth = fifth.run(program(), SHOTS).expect(THE_JOB_FITS).wait();
     let runs = [first, second, third, fourth, fifth];
     let [first, rest @ ..] = runs.map(|(outcomes, report)| (by_shot(outcomes), report));

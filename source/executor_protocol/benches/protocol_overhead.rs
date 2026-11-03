@@ -69,7 +69,7 @@ use executor_protocol::{
     Action, Angle, CallInput, Capabilities, Close, Driver, DriverExt, Executor, ExecutorReport,
     Fold, ImmediateReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
     InstructionSet, Needs, OnePerShot, OpcodeTable, Operand, OperandKind, Outcome, Outcomes, Pauli,
-    Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
+    Program, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value,
     check_unique_tags, compose, executor_fn, wait,
 };
 
@@ -87,7 +87,7 @@ const SHOT: u32 = 1;
 const QUBITS: u32 = 100;
 
 fn main() {
-    let program = Program::new();
+    let mix = Mix::new();
     let set = Arc::new(RuntimeSet::new(&Arc::new(gate_set())));
     println!(
         "Instruction sizes: Gate {} B, InstructionCall {} B, QepInstruction {} B",
@@ -96,7 +96,7 @@ fn main() {
         size_of::<QepInstruction>()
     );
     for batch in BATCHES {
-        assert_columns_agree(&program, &set, batch);
+        assert_columns_agree(&mix, &set, batch);
     }
     println!(
         "Every column gives the typed executor's counts, highest qubit and readouts;\n\
@@ -114,23 +114,23 @@ fn main() {
     for batch in BATCHES {
         let typed = best(|| {
             let mut profiler = TypedCounting::new(SHOT, SEED);
-            drive(&mut profiler, &program.typed, batch);
+            drive(&mut profiler, &mix.typed, batch);
             black_box(&profiler.counter.counts);
         });
         let typed_per_shot = best(|| {
-            black_box(typed_run(&program.typed, batch));
+            black_box(typed_run(&mix.typed, batch));
         });
         let run_time = best(|| {
             let mut profiler = RuntimeCounting::new(&set, SHOT, SEED);
-            drive(&mut profiler, &program.calls, batch);
+            drive(&mut profiler, &mix.calls, batch);
             black_box(&profiler.counter.counts);
         });
         let run_time_per_shot = best(|| {
-            black_box(runtime_run(&set, &program.calls, batch));
+            black_box(runtime_run(&set, &mix.calls, batch));
         });
         let qep = best(|| {
             let mut profiler = QepCounting::new(SEED);
-            black_box(qep_drive(&mut profiler, &program.qep, batch));
+            black_box(qep_drive(&mut profiler, &mix.qep, batch));
             black_box(&profiler.counts);
         });
         let cell = |t: f64| format!("{:.2} ({:.2}×)", ns_per_instruction(t), t / typed);
@@ -217,20 +217,20 @@ fn of_the_shot(outcomes: &[ShotOutcome]) -> &[ShotOutcome] {
     outcomes
 }
 
-/// Asserts that every column gives the baseline's [`Totals`] on `program`
+/// Asserts that every column gives the baseline's [`Totals`] on `mix`
 /// in calls of `batch` instructions; that the columns called directly read
 /// the same values, as do the two per-shot columns; and that the executor
 /// of each per-shot column took one call per batch.
-fn assert_columns_agree(program: &Program, set: &Arc<RuntimeSet>, batch: usize) {
-    let calls = u64::try_from(program.typed.len().div_ceil(batch)).expect("the calls fit in a u64");
+fn assert_columns_agree(mix: &Mix, set: &Arc<RuntimeSet>, batch: usize) {
+    let calls = u64::try_from(mix.typed.len().div_ceil(batch)).expect("the calls fit in a u64");
 
     let mut typed = TypedCounting::new(SHOT, SEED);
-    let outcomes = drive(&mut typed, &program.typed, batch);
+    let outcomes = drive(&mut typed, &mix.typed, batch);
     let expected = Totals::of(typed.close(), &outcomes);
     let direct_values = values_of(&outcomes);
 
     let mut run_time = RuntimeCounting::new(set, SHOT, SEED);
-    let outcomes = drive(&mut run_time, &program.calls, batch);
+    let outcomes = drive(&mut run_time, &mix.calls, batch);
     assert_eq!(
         Totals::of(run_time.close(), &outcomes),
         expected,
@@ -243,7 +243,7 @@ fn assert_columns_agree(program: &Program, set: &Arc<RuntimeSet>, batch: usize) 
     );
 
     let mut qep = QepCounting::new(SEED);
-    let readouts = qep_drive(&mut qep, &program.qep, batch);
+    let readouts = qep_drive(&mut qep, &mix.qep, batch);
     assert!(qep.unexpected.is_empty(), "QEP-like names every gate");
     let tally = qep.take();
     assert_eq!(
@@ -257,7 +257,7 @@ fn assert_columns_agree(program: &Program, set: &Arc<RuntimeSet>, batch: usize) 
         "QEP-like's values, batch {batch}"
     );
 
-    let (outcomes, report) = typed_run(&program.typed, batch);
+    let (outcomes, report) = typed_run(&mix.typed, batch);
     let outcomes = of_the_shot(&outcomes);
     let shot_values = values_of(outcomes);
     assert_eq!(
@@ -267,7 +267,7 @@ fn assert_columns_agree(program: &Program, set: &Arc<RuntimeSet>, batch: usize) 
     );
     assert_eq!(report.calls, calls, "typed per-shot's calls");
 
-    let (outcomes, report) = runtime_run(set, &program.calls, batch);
+    let (outcomes, report) = runtime_run(set, &mix.calls, batch);
     let outcomes = of_the_shot(&outcomes);
     assert_eq!(
         values_of(outcomes),
@@ -429,13 +429,13 @@ impl Gate {
 }
 
 /// The mix, as each executor is called with it.
-struct Program {
+struct Mix {
     typed: Vec<Gate>,
     calls: Vec<InstructionCall>,
     qep: Vec<QepInstruction>,
 }
 
-impl Program {
+impl Mix {
     /// [`INSTRUCTIONS`] instructions drawn from [`MIX`] on [`QUBITS`]
     /// qubits, from a fixed seed, so every run times the same mix. The
     /// `k`-th measurement is tagged `k`.
@@ -701,11 +701,11 @@ fn per_shot_run<I: Instruction, P: Profile<I>>(
     run.expect("the program's needs fit the profiler").wait()
 }
 
-/// The run of `program` on shot [`SHOT`] of an executor of
-/// [`TypedCounting`]s, in calls of `batch` instructions ([`per_shot_run`]).
-fn typed_run(program: &[Gate], batch: usize) -> (Vec<ShotOutcome>, ExecutorReport<Tally>) {
+/// The run of `instructions` on shot [`SHOT`] of an executor of
+/// [`TypedCounting`]s, in calls of `batch` ([`per_shot_run`]).
+fn typed_run(instructions: &[Gate], batch: usize) -> (Vec<ShotOutcome>, ExecutorReport<Tally>) {
     let program = Chunked {
-        program,
+        instructions,
         batch,
         needs: Needs::default(),
     };
@@ -717,15 +717,15 @@ fn typed_run(program: &[Gate], batch: usize) -> (Vec<ShotOutcome>, ExecutorRepor
     )
 }
 
-/// A program: `program`, sent to the run's shots in calls of `batch`
-/// instructions by its driver ([`InChunks`]); it needs `needs`.
+/// A program: `instructions`, sent to the run's shots in calls of `batch`
+/// by its driver ([`InChunks`]); it needs `needs`.
 struct Chunked<'a, I> {
-    program: &'a [I],
+    instructions: &'a [I],
     batch: usize,
     needs: Needs,
 }
 
-impl<I: Instruction> executor_protocol::Program for Chunked<'_, I> {
+impl<I: Instruction> Program for Chunked<'_, I> {
     type Instruction = I;
     type Output = Vec<ShotOutcome>;
 
@@ -742,7 +742,7 @@ impl<'a, I: Instruction> Driver<Chunked<'a, I>> for InChunks {
     /// `resumable_shots` when there is more than one chunk: each later one
     /// continues the shot.
     fn needs(&self, program: &Chunked<'a, I>) -> Needs {
-        Needs::default().with_resumable_shots(program.program.len() > program.batch)
+        Needs::default().with_resumable_shots(program.instructions.len() > program.batch)
     }
 
     async fn drive<E: Executor<InstructionBatch<I>>>(
@@ -752,7 +752,7 @@ impl<'a, I: Instruction> Driver<Chunked<'a, I>> for InChunks {
         shots: &ShotSet,
     ) -> Vec<ShotOutcome> {
         let mut outcomes = Vec::new();
-        for batch in program.program.chunks(program.batch) {
+        for batch in program.instructions.chunks(program.batch) {
             let batch = black_box(batch);
             let reply = (executor.call(InstructionBatchRef {
                 shots,
@@ -875,16 +875,16 @@ impl Close for RuntimeCounting {
     }
 }
 
-/// The run of `program`, calls of `set`, on shot [`SHOT`] of an executor of
-/// [`RuntimeCounting`]s, by a program that states `set` in its needs, in
-/// calls of `batch` instructions ([`per_shot_run`]).
+/// The run of `instructions`, calls of `set`, on shot [`SHOT`] of an
+/// executor of [`RuntimeCounting`]s, by a program that states `set` in its
+/// needs, in calls of `batch` instructions ([`per_shot_run`]).
 fn runtime_run(
     set: &Arc<RuntimeSet>,
-    program: &[InstructionCall],
+    instructions: &[InstructionCall],
     batch: usize,
 ) -> (Vec<ShotOutcome>, ExecutorReport<Tally>) {
     let program = Chunked {
-        program,
+        instructions,
         batch,
         needs: Needs::default().with_instruction_set(Some(Arc::clone(&set.set))),
     };

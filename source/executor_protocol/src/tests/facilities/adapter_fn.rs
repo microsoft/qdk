@@ -16,9 +16,9 @@ use std::ops::Shr;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::task::Waker;
+use std::task::{Wake, Waker};
 use std::thread;
 use std::time::Duration;
 
@@ -2521,6 +2521,51 @@ fn a_sends_readouts_pass_up_in_the_order_its_reply_gives_them() {
     let mut read = Vec::new();
     wait(reply, &mut read).expect("the send ends well");
     assert_eq!(read, [one(0, 0), one(0, 1)]);
+}
+
+/// A waker that counts how often it was woken.
+#[derive(Default)]
+struct CountsWakes(AtomicUsize);
+
+impl Wake for CountsWakes {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// A caller polls a profiler's reply while the send's reply below is
+/// still open, then the device below pushes a readout: the caller is
+/// woken, since the adapter's reply passed the caller's waker down.
+#[test]
+fn an_adapters_reply_passes_the_callers_waker_to_the_reply_below() {
+    let senders = Senders::default();
+    let mut profiled =
+        compose(adapter_fn(no_state, pass), HeldOpen(Rc::clone(&senders))).expect("bools fit");
+    let mut reply = profiled
+        .call(InstructionBatchRef {
+            shots: &ShotSet::one(0),
+            instructions: &[true],
+        })
+        .expect("the call is accepted");
+    let counter = Arc::new(CountsWakes::default());
+    let waker = Waker::from(Arc::clone(&counter));
+    let mut read = Vec::new();
+    assert_eq!(
+        reply.poll_events(&mut read, &waker),
+        ReplyStatus::Pending,
+        "the send's reply is open"
+    );
+    let sent = senders.borrow_mut().pop().expect("the send is open");
+    sent.push(one(0, 0));
+    assert_eq!(
+        counter.0.load(Ordering::Relaxed),
+        1,
+        "the caller is woken once"
+    );
 }
 
 /// An adapter's logic sends a call down, then runs it below, over a device

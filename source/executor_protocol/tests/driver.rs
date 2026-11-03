@@ -57,8 +57,8 @@ fn a_driver_runs_a_branch_on_the_shots_whose_readout_is_one() {
 }
 
 /// The same program, on a toy that does not keep a shot's state between
-/// calls: the job is refused for the need its driver adds, though the
-/// program states none, before any call.
+/// calls: the job is refused before any call, for the need its driver adds
+/// (`resumable_shots`), which the program does not state.
 #[test]
 fn a_job_is_refused_for_the_need_its_driver_adds() {
     let forgetful = Capabilities::default().with_qubits(QUBITS);

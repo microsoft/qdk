@@ -240,18 +240,23 @@ fn a_call_sends_below_what_its_own_shots_sent_only() {
     );
 }
 
-/// A lowering whose even shots send one batch and odd ones another, on
-/// shots whose parities interleave: each batch goes below once, over the
-/// shots that sent it, the one of the first shot first.
+/// A lowering whose even shots send a read and odd ones a skip, batches of
+/// one length, on shots whose parities interleave: each batch goes below
+/// once, over the shots that sent it, the one of the first shot first.
 #[test]
 fn unequal_sends_go_below_apart_each_over_the_shots_that_sent_it() {
     let (executor, calls) = recorded(below(TestDoubleModel::default()));
+    let read_or_skip =
+        |shot: &mut ShotId,
+         _: &CallInput<'_, bool>,
+         below: &mut Below<'_, bool>,
+         _: &mut Outcomes<'_>| { below.send(&[shot.is_multiple_of(2)]) };
     let mut lowered =
-        (adapter_fn(its_shot, by_parity).shots(OnePerShot) >> executor).expect("bools fit");
+        (adapter_fn(its_shot, read_or_skip).shots(OnePerShot) >> executor).expect("bools fit");
     step(&mut lowered, &shots(&SHOTS), &[true], "the call runs");
     assert_eq!(
         *calls.borrow(),
-        [(vec![2, 6], vec![true]), (vec![5, 11], vec![false, true])]
+        [(vec![2, 6], vec![true]), (vec![5, 11], vec![false])]
     );
 }
 

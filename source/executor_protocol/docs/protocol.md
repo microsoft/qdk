@@ -168,9 +168,10 @@ the README's [Writing a driver](../README.md#writing-a-driver)
 ([`tests/driver/if_one.rs`](../tests/driver/if_one.rs)), drives
 `toss_again_on_one()`, which tosses a coin on every shot of the job, then,
 on the shots whose coin showed 1, tosses a second coin and reads the first
-again, on an executor that keeps each
-shot's state from one call to the next (`resumable_shots`, which the
-driver adds to the program's needs):
+again, on an executor that keeps each shot's state from one call to the
+next (`resumable_shots`, which the driver adds to the program's needs).
+The run's filter of the job's shots (`HeldShots`), between the driver and
+the executor, is not drawn:
 
 ```mermaid
 sequenceDiagram
@@ -185,7 +186,7 @@ sequenceDiagram
   Note over D: waits for the reply: each shot's coin
   opt some coins showed 1
     Note over D: the shots whose coin showed 1, a subset of the job's
-    D->>E: call(a second coin, on those shots)
+    D->>E: call(a second coin and the first read again, on those shots)
     Note over E: continues each of those shots from its first call
     E-->>D: Ok(reply)
     Note over D: waits for the reply
