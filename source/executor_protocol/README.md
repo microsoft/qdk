@@ -341,17 +341,25 @@ What to write, by task, and where it is explained:
 The excerpts below are from the
 [guide tests](docs/guides.md#building-on-the-protocol-the-guide-tests), on
 a toy of classical bits and seeded fair coins. The names an excerpt uses
-but does not define (`toy_set()`, `the_toys_promise()`, `check_calls`,
-`Counts`, `Op`, `toy_simulator`, `on_shot_0`, …) are helpers of the test
-file the excerpt links.
+but does not define (`toy_set()`, `batches()`, `the_toys_promise()`,
+`check_calls`, `Counts`, `Op`, `toy_simulator`, `on_shot_0`, …) are
+helpers of the test file the excerpt links.
 
 ### Running a chain
 
 `driver()` runs a `StaticProgram`: what the program needs of the chain
-(`Needs`), and its batches, run in turn on every shot
+(`Needs`), and its batches, run in turn on every shot. The guide's
+program is its two batches on two qubits of the toy's set
 ([`tests/observers.rs`](tests/observers.rs)):
 
 ```rust
+/// The program each run runs on every shot: its [`batches`], on two
+/// qubits, of the toy's set.
+fn program() -> StaticProgram<InstructionCall> {
+    program_of(batches())
+}
+
+/// A program of `batches`, on two qubits, of the toy's set.
 fn program_of(batches: Vec<Vec<InstructionCall>>) -> StaticProgram<InstructionCall> {
     let needs = Needs::default()
         .with_qubits(2)
@@ -361,8 +369,7 @@ fn program_of(batches: Vec<Vec<InstructionCall>>) -> StaticProgram<InstructionCa
 ```
 
 The chain, `driver() >> simulator()` with no adapter between, is built,
-given `program()`, the guide's program, made by `program_of(batches())`
-from its two batches, on the job's shots, then waited for:
+given `program()` on the job's shots, then waited for:
 
 ```rust
 let chain = (driver() >> simulator()).expect("nothing between to refuse");

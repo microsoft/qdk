@@ -834,7 +834,8 @@ fn an_executor_hands_over_each_shots_events_as_they_come() {
 
 /// An executor wakes its caller when any of its pending shots has news, not
 /// only the first or the last: shot 2 reads while shots 1 and 3 are still
-/// running.
+/// running, then shot 1, then shot 3, each read waking the caller once
+/// after a poll that hands it the waker again.
 #[test]
 fn an_executor_wakes_its_caller_when_any_pending_shot_has_news() {
     let (mut executor, seen, _) = executor(TestDoubleModel {
@@ -847,11 +848,21 @@ fn an_executor_wakes_its_caller_when_any_pending_shot_has_news() {
             instructions: &[false],
         })
         .expect("the executor runs shots 1 to 3");
+    let [shot_1, shot_2, shot_3] = [1, 2, 3].map(|j| pending_reply(&seen, j));
     let (count, waker) = counting();
-    let pending = reply.poll_events(&mut Vec::new(), &waker);
-    assert_eq!(pending, ReplyStatus::Pending, "shots 1 to 3 have not ended");
-    pending_reply(&seen, 2).push(read(2, 0));
-    assert_eq!(wakes(&count), 1);
+    for (wakes_before, (j, shot)) in [(2, &shot_2), (1, &shot_1), (3, &shot_3)]
+        .into_iter()
+        .enumerate()
+    {
+        let pending = reply.poll_events(&mut Vec::new(), &waker);
+        assert_eq!(pending, ReplyStatus::Pending, "shots 1 to 3 have not ended");
+        shot.push(read(j, 0));
+        assert_eq!(
+            wakes(&count),
+            wakes_before + 1,
+            "shot {j}'s read wakes the caller once"
+        );
+    }
 }
 
 /// Two calls on shot 1 are in flight, each reading once as it is made and

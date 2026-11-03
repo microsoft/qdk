@@ -569,8 +569,9 @@ rules of a job given to a chain
   (`a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor`,
   `a_static_programs_needs_are_checked_when_given_to_a_chain`), the set
   that a job of calls by opcode leaves undescribed among them, in the
-  instruction set's place, after the qubits
-  (`an_undescribed_set_is_reported_after_the_jobs_other_unmet_needs`).
+  instruction set's place, after the qubits and the log probability and
+  before the shots
+  (`an_undescribed_set_is_reported_in_the_instruction_sets_place`).
   Each need either side states is checked
   (`each_need_a_program_states_is_checked_whatever_its_driver_adds`,
   `each_need_a_driver_adds_is_checked_with_its_programs`,

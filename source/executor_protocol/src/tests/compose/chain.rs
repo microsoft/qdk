@@ -204,18 +204,24 @@ fn a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal() {
     );
 }
 
-/// A job whose program of calls by opcode states no set and needs three
-/// qubits, run by the crate's driver on the two bits: the undescribed set
-/// is reported with the qubits it lacks, after them, in the order of
-/// `Capabilities::admit`, so that both are fixed in one go.
+/// A job of four shots whose program of calls by opcode states no set and
+/// needs three qubits and the log probability, run by the crate's driver on
+/// two bits that hold three shots at once and give no log probability: the
+/// undescribed set is reported in the instruction set's place, in the order
+/// of `Capabilities::admit`, after the qubits and the log probability and
+/// before the shots, so that all are fixed in one go.
 #[test]
-fn an_undescribed_set_is_reported_after_the_jobs_other_unmet_needs() {
-    let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
+fn an_undescribed_set_is_reported_in_the_instruction_sets_place() {
+    let bits = Bits {
+        max_shots: Some(3),
+        ..Bits::default()
+    };
+    let chain = (driver() >> TestDoubleExecutor::with_model(bits, 7))
         .expect("the bits run calls by opcode");
-    let needs = Needs::default().with_qubits(3);
+    let needs = Needs::default().with_qubits(3).with_log_probability(true);
     let program = StaticProgram::new(needs, flip_and_toss(&bits_set()));
-    let Err(JobFaults(faults)) = chain.run(program, 0..1) else {
-        panic!("three qubits on two bits and no set stated must be refused");
+    let Err(JobFaults(faults)) = chain.run(program, 0..4) else {
+        panic!("the qubits, the log probability, no set and four shots must be refused");
     };
     let faults: Vec<_> = (faults.iter())
         .map(|fault| match fault {
@@ -230,7 +236,12 @@ fn an_undescribed_set_is_reported_after_the_jobs_other_unmet_needs() {
         .collect();
     assert_eq!(
         faults,
-        [(Need::Qubits, 3, 2, 0), (Need::InstructionSet, 1, 0, 0)]
+        [
+            (Need::Qubits, 3, 2, 0),
+            (Need::LogProbability, 1, 0, 0),
+            (Need::InstructionSet, 1, 0, 0),
+            (Need::Shots, 4, 3, 0)
+        ]
     );
 }
 

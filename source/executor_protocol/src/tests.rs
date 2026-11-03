@@ -634,6 +634,8 @@ struct Bits {
     undeclared: &'static [&'static str],
     /// Whether it describes no set at all.
     undescribed: bool,
+    /// The shots it holds at once, when stated; no limit by default.
+    max_shots: Option<u64>,
 }
 
 impl Bits {
@@ -649,13 +651,17 @@ impl Bits {
 
 impl Describe for Bits {
     fn capabilities(&self) -> Capabilities {
-        Capabilities::default()
+        let capabilities = Capabilities::default()
             .with_qubits(2)
             .with_resumable_shots(true)
             .with_replayable(true)
             .with_resets(self.resets)
             .with_instruction_set((!self.undescribed).then(|| Arc::new(self.set())))
-            .with_log_probability(self.log_probability)
+            .with_log_probability(self.log_probability);
+        Capabilities {
+            max_shots: self.max_shots,
+            ..capabilities
+        }
     }
 }
 

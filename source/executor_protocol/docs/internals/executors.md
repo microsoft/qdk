@@ -38,9 +38,12 @@ crate. Adding a capability takes five steps:
 1. A field in `Capabilities`, whose default is what an executor that says
    nothing of it offers (as `log_probability` defaults to `false`).
 2. A field in `Needs`, whose default states nothing (`false`, `None`), so
-   no existing driver or program changes.
-3. A `Need` variant, its check in `Capabilities::admit`, and its code in
-   `need_code` and `need_of`: a new code, never one used before
+   no existing driver or program changes, and its rule of combination in
+   `Needs::combined` (how the program's and its driver's combine), stated
+   on the field's doc.
+3. A `Need` variant, its check in `Capabilities::check_needs` (which
+   `admit` and `Chain::run` share), and its code in `need_code` and
+   `need_of`: a new code, never one used before
    (Codes, in [What this crate does](composition.md#what-this-crate-does)).
 4. Each adapter passes the new field on, maps it, or clears it. What an
    adapter offers upstream starts as what downstream offers, so an
@@ -61,9 +64,11 @@ crate. Adding a capability takes five steps:
    each existing adapter, the guides' included.
 5. The tests: a program with the need, given to a chain over an executor
    that offers it and over one that does not (`Rejected::Unmet`, naming
-   the chain's executor); through an adapter; the refusal at the call
-   (`UnmetNeed::check`), if a call can need it without the program stating
-   it; and across a link, once the link is built (planned).
+   the chain's executor); the need stated by the program, by its driver,
+   and by both (`src/tests/compose/chain.rs`); through an adapter; the
+   refusal at the call (`UnmetNeed::check`), if a call can need it without
+   the program stating it; and across a link, once the link is built
+   (planned).
 
 Two capabilities are planned, with no milestone yet, each added by these
 steps:
