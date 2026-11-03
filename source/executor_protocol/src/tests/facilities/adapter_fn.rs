@@ -2556,15 +2556,6 @@ fn an_adapters_reply_passes_the_callers_waker_to_the_reply_below() {
 /// waker to each pending send's reply, not only to the first or the last.
 #[test]
 fn an_adapters_reply_passes_the_callers_waker_to_each_pending_sends_reply() {
-    let each_alone = |(): &mut (),
-                      input: &CallInput<'_, bool>,
-                      below: &mut Below<'_, bool>,
-                      _: &mut Outcomes<'_>| {
-        input
-            .instructions()
-            .iter()
-            .try_for_each(|instruction| below.send(std::slice::from_ref(instruction)))
-    };
     let senders = Senders::default();
     let mut traced = compose(
         adapter_fn(no_state, each_alone),
@@ -3041,6 +3032,20 @@ fn count_and_pass<I>(
     Ok(())
 }
 
+/// The logic of a tracer that splits each call: sends each of its
+/// instructions below alone, in order.
+fn each_alone<I>(
+    (): &mut (),
+    input: &CallInput<'_, I>,
+    below: &mut Below<'_, I>,
+    _: &mut Outcomes<'_>,
+) -> Result<(), AdapterError> {
+    input
+        .instructions()
+        .iter()
+        .try_for_each(|instruction| below.send(std::slice::from_ref(instruction)))
+}
+
 /// The logic of a decoder over the device: runs each call below, then
 /// writes what it read, as a decoder writes what it decodes from the
 /// readouts below, whatever its state.
@@ -3217,6 +3222,39 @@ fn a_decoder_refuses_a_tag_repeated_within_a_batch() {
         &Op::Read(1),
         &Op::ReadInverted(0),
     );
+}
+
+/// A tracer that sends each instruction of a call below alone, over a
+/// device that checks its tags: the device refuses a batch that reads tag
+/// 4 twice, but through the tracer each send holds one readout, so the
+/// repeat is not refused below and both readouts come up under tag 4. An
+/// adapter that splits a call checks the call's tags itself.
+#[test]
+fn an_adapter_that_splits_a_call_is_not_refused_below_for_a_tag_it_repeats() {
+    let checking_tags = || {
+        executor_fn(promise(), Bit::new, run_bit)
+            .check(|input| check_unique_tags(readouts(input.instructions())))
+            .shots(OnePerShot)
+    };
+    let shot_0 = ShotSet::one(0);
+    let repeated = InstructionBatchRef {
+        shots: &shot_0,
+        instructions: &[Op::Read(4), Op::Read(4)],
+    };
+    assert!(
+        matches!(
+            checking_tags().call(repeated),
+            Err(Rejected::Instruction { at: 1, .. })
+        ),
+        "the device refuses the repeat in one batch"
+    );
+    let mut traced = (adapter_fn(no_state, each_alone) >> checking_tags()).expect("ops fit");
+    let reply = traced
+        .call(repeated)
+        .expect("each send below holds one readout");
+    let mut out = Vec::new();
+    wait(reply, &mut out).expect("the device reads both");
+    assert_eq!(out.iter().map(|o| o.tag).collect::<Vec<_>>(), [4, 4]);
 }
 
 /// A profiler over the device: a second call reads the flip of the first,

@@ -199,6 +199,9 @@ pub(in crate::tests) struct TestDoubleModel {
     /// The shot whose batches are cancelled as they are called, below the
     /// state (by an executor it places in turn, dropped).
     pub(in crate::tests) cancelling: Option<ShotId>,
+    /// The call of the `failing` or `cancelling` shot, counted from 0, from
+    /// which its batches fail or are cancelled; those before end `Done`.
+    pub(in crate::tests) failing_from_call: u64,
     /// The shot whose state the model panics making: a model with a bug.
     pub(in crate::tests) panicking: Option<ShotId>,
     /// Whether the executor's check refuses a batch with a `false`.
@@ -238,6 +241,8 @@ pub(in crate::tests) struct TestDoubleState {
     refuses: Option<Rejected>,
     failing: bool,
     cancelling: bool,
+    /// The first of its calls that fails or is cancelled, if it does.
+    failing_from_call: u64,
     deferred: bool,
     seen: Rc<RefCell<Seen>>,
 }
@@ -301,6 +306,7 @@ impl Model for TestDoubleModel {
             },
             failing: self.failing == Some(j),
             cancelling: self.cancelling == Some(j),
+            failing_from_call: self.failing_from_call,
             deferred: self.deferred.contains(&j),
             seen: Rc::clone(&self.seen),
         })
@@ -330,12 +336,13 @@ impl Executor<InstructionBatch<bool>> for TestDoubleState {
                 ));
             }
         }
+        let ends_badly = self.calls >= self.failing_from_call;
         self.calls += 1;
         let mut seen = self.seen.borrow_mut();
         seen.calls.insert(self.shot, self.calls);
-        if self.failing {
+        if self.failing && ends_badly {
             sender.fail("lost".into());
-        } else if self.cancelling {
+        } else if self.cancelling && ends_badly {
             sender.cancel();
         } else if self.deferred {
             seen.replies.entry(self.shot).or_default().push(sender);

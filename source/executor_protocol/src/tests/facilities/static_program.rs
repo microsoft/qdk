@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::reply::CANCELLATION;
 use crate::tests::test_double::{Model, TestDoubleExecutor, TestDoubleModel};
 use crate::tests::{
     Bits, BitsState, Count, YieldNow, bits_set, call, ends_soon, flip_and_toss, run_tasks, values,
@@ -208,6 +209,67 @@ fn the_driver_stops_at_a_cancelled_batch_as_failed() {
         matches!(error, StaticProgramError::Failed { batch: 0, .. }),
         "{error:?}"
     );
+}
+
+/// A program of three reads on a double whose device runs shot 4's first
+/// batch and fails the second: the driver's error names the second batch,
+/// by its index, with the reply's reason, and the third is never sent.
+#[test]
+fn a_later_batch_that_fails_is_named_by_its_index() {
+    let model = TestDoubleModel {
+        failing: Some(4),
+        failing_from_call: 1,
+        ..TestDoubleModel::default()
+    };
+    let seen = Rc::clone(&model.seen);
+    let chain = (driver() >> TestDoubleExecutor::with_model(model, 7))
+        .expect("the double takes any batch of `bool`s");
+    let (outcomes, _) = chain
+        .run(
+            StaticProgram::new(Needs::default(), vec![vec![true], vec![true], vec![true]]),
+            [4],
+        )
+        .expect("a new shot")
+        .wait();
+    assert_eq!(
+        outcomes,
+        Err(StaticProgramError::Failed {
+            batch: 1,
+            reason: "lost".into(),
+        })
+    );
+    assert_eq!(seen.borrow().calls[&4], 2, "the third batch is never sent");
+}
+
+/// The same program on a double whose device runs shot 4's first batch
+/// and cancels the second: the cancellation is a failure named by the
+/// second batch's index, with the cancellation's reason, and the third is
+/// never sent.
+#[test]
+fn a_later_batch_cancelled_is_named_by_its_index() {
+    let model = TestDoubleModel {
+        cancelling: Some(4),
+        failing_from_call: 1,
+        ..TestDoubleModel::default()
+    };
+    let seen = Rc::clone(&model.seen);
+    let chain = (driver() >> TestDoubleExecutor::with_model(model, 7))
+        .expect("the double takes any batch of `bool`s");
+    let (outcomes, _) = chain
+        .run(
+            StaticProgram::new(Needs::default(), vec![vec![true], vec![true], vec![true]]),
+            [4],
+        )
+        .expect("a new shot")
+        .wait();
+    assert_eq!(
+        outcomes,
+        Err(StaticProgramError::Failed {
+            batch: 1,
+            reason: CANCELLATION.to_owned(),
+        })
+    );
+    assert_eq!(seen.borrow().calls[&4], 2, "the third batch is never sent");
 }
 
 /// A program of one read, run awaited beside another task, on a double

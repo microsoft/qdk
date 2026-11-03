@@ -12,16 +12,25 @@ fn a_paulis_factors_compare_whatever_their_order() {
 
 /// Factors on the same qubit multiply as Paulis do, the phase included, so
 /// that `X_0 Y_0` is `i Z_0`, its reverse `-i Z_0`, and `X_0 X_0` the
-/// identity.
+/// identity: every product of two of X, Y and Z, in both orders.
 #[test]
 fn factors_on_one_qubit_multiply_into_one() {
     let (x, y, z) = (Pauli::x(0), Pauli::y(0), Pauli::z(0));
     let i = Pauli::i;
-    assert_eq!(x.clone() * y.clone(), i() * z.clone());
-    assert_eq!(y.clone() * z.clone(), i() * x.clone());
-    assert_eq!(z.clone() * x.clone(), i() * y.clone());
-    assert_eq!(y.clone() * x.clone(), -(i() * z));
-    assert_eq!(x.clone() * x, Pauli::identity());
+    let products = [
+        (x.clone() * y.clone(), i() * z.clone()),
+        (y.clone() * z.clone(), i() * x.clone()),
+        (z.clone() * x.clone(), i() * y.clone()),
+        (y.clone() * x.clone(), -(i() * z.clone())),
+        (z.clone() * y.clone(), -(i() * x.clone())),
+        (x.clone() * z.clone(), -(i() * y.clone())),
+        (x.clone() * x, Pauli::identity()),
+        (y.clone() * y, Pauli::identity()),
+        (z.clone() * z, Pauli::identity()),
+    ];
+    for (product, expected) in products {
+        assert_eq!(product, expected);
+    }
 }
 
 /// Paulis on many shared qubits multiply as on one: `Y_q X_q = -i Z_q` on

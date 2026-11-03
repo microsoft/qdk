@@ -2,7 +2,9 @@
 // Licensed under the MIT License.
 
 use super::device;
-use crate::{InstructionCall, Opcode, Operand, Operands};
+use crate::{InstructionCall, InstructionSet, Opcode, Operand, OperandKind, Operands};
+
+use OperandKind::{Block, Integer, Real, Tag};
 
 /// A call keeps all its operands, in order, however many it takes: none,
 /// as many as are held in the call ([`Operands::INLINE`]), or more (a
@@ -61,15 +63,25 @@ fn operands_copied_into_others_equal_them() {
     }
 }
 
-/// A call is written with the mnemonic of its opcode in the set, and its
-/// operands' kinds and values, for a log or a debugger.
+/// A call is written with the mnemonic of its opcode in the set, and each
+/// operand's kind and value (one of each kind here), for a log or a
+/// debugger.
 #[test]
 fn a_call_is_displayed_with_its_mnemonic() {
-    let set = device();
-    let rz = set
-        .call("rz", [Operand::Block(2), Operand::Real(0.5)])
-        .expect("`rz` takes a block and a real");
-    assert_eq!(set.display(&rz).to_string(), "rz(block 2, real 0.5)");
+    let set = InstructionSet::new("pulses").with("pulse", [Block, Real, Integer, Tag]);
+    let operands = [
+        Operand::Block(2),
+        Operand::Real(0.5),
+        Operand::Integer(3),
+        Operand::Tag(5),
+    ];
+    let pulse = set
+        .call("pulse", operands)
+        .expect("`pulse` takes one operand of each kind");
+    assert_eq!(
+        set.display(&pulse).to_string(),
+        "pulse(block 2, real 0.5, integer 3, tag 5)"
+    );
 }
 
 /// A call at an opcode the set lacks has no mnemonic there, so it is

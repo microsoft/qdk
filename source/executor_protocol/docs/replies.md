@@ -320,12 +320,15 @@ pub fn readouts(batch: &[Op]) -> impl Iterator<Item = (usize, u32)> {
 ```
 
 and calls `check_unique_tags(readouts(batch))?` with its other checks. An
-adapter that maps each of its tags to distinct tags downstream (the static
-guide's repetition code: logical tag `t` becomes physical tags `3t`, `3t + 1`,
-`3t + 2`) needs no check of its own: the downstream executor refuses the repeat,
-and the adapter maps the index back to its own instruction. An adapter that
-sends fresh tags down checks its own tags, as the code of the [run-time
-instruction set guide](../tests/runtime_isa.rs) does.
+adapter that maps each of its tags to distinct tags downstream, and sends a
+call's instructions down in one batch (the static guide's repetition code:
+logical tag `t` becomes physical tags `3t`, `3t + 1`, `3t + 2`, and a call's
+gadgets go down as one physical batch), needs no check of its own: the
+downstream executor refuses the repeat, and the adapter maps the index back to
+its own instruction. The downstream executor checks each batch it is sent
+alone, so an adapter that splits a call into several sends checks the call's
+tags itself, as does one that sends fresh tags down, like the code of the
+[run-time instruction set guide](../tests/runtime_isa.rs).
 
 The rule is pinned by the conformance check
 `refuses_a_tag_repeated_within_a_batch` ([Conformance

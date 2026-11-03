@@ -330,8 +330,9 @@ fn closing_the_code_closes_what_it_wraps() {
 /// The toy refuses a batch that reads two qubits under one tag, at the
 /// instruction that repeats it, and accepts a tag used again in a later
 /// batch: the conformance kit's checks of readout tags. The code needs no
-/// check of its own: its logical tags map to distinct physical ones, so the
-/// toy refuses a logical repeat, at the logical instruction.
+/// check of its own: its logical tags map to distinct physical ones, and it
+/// sends a call down as one batch, so the toy refuses a logical repeat, at
+/// the logical instruction.
 #[test]
 fn the_toy_and_the_code_refuse_a_tag_repeated_within_a_batch() {
     let read = |qubit, tag| Op::Measure { qubit, tag };

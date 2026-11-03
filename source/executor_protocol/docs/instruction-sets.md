@@ -84,15 +84,24 @@ here `coin` is 0 and `reset` 4. A call carries the opcode, not the mnemonic, so
 an executor checks and dispatches it by an index; a name is resolved once, when
 a program or an adapter is built. A log or a debugger gets the names back with
 `set.display(&call)`. From the [tests of
-calls](../src/tests/instruction_set/call.rs), on their `device()`, a set whose
-`rz` takes a block and a real:
+calls](../src/tests/instruction_set/call.rs), a set whose `pulse` takes one
+operand of each kind:
 
 ```rust
-let set = device();
-let rz = set
-    .call("rz", [Operand::Block(2), Operand::Real(0.5)])
-    .expect("`rz` takes a block and a real");
-assert_eq!(set.display(&rz).to_string(), "rz(block 2, real 0.5)");
+let set = InstructionSet::new("pulses").with("pulse", [Block, Real, Integer, Tag]);
+let operands = [
+    Operand::Block(2),
+    Operand::Real(0.5),
+    Operand::Integer(3),
+    Operand::Tag(5),
+];
+let pulse = set
+    .call("pulse", operands)
+    .expect("`pulse` takes one operand of each kind");
+assert_eq!(
+    set.display(&pulse).to_string(),
+    "pulse(block 2, real 0.5, integer 3, tag 5)"
+);
 ```
 
 An opcode means something only in its set. A part of a set, or the same

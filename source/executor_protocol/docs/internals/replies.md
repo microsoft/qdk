@@ -428,6 +428,15 @@ on the described toy and the run-time code
 the profiler and an existing backend through the bridge
 (`each_executor_refuses_a_tag_repeated_within_a_batch`).
 
+An adapter needs no tag check of its own when it maps its tags to distinct
+ones below and sends a call down in one batch: the static code has none, and
+is refused at the logical instruction
+(`the_toy_and_the_code_refuse_a_tag_repeated_within_a_batch`). The executor
+below checks each send alone, so an adapter that splits a call is not refused
+below for a tag the call repeats
+(`an_adapter_that_splits_a_call_is_not_refused_below_for_a_tag_it_repeats`,
+in `src/tests/facilities/adapter_fn.rs`), and checks the call's tags itself.
+
 **What it costs.** One sort of the batch's readouts by tag: about 2 ns for
 a batch of one readout (no allocation), and 1.5 to 13 ns per readout for
 ten thousand, by how scrambled the tags are
