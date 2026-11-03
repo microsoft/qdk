@@ -1,8 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What a job's program needs from the components of a chain ([`Needs`], each a
-//! [`Need`]), and the check of those needs against what a component offers:
+//! What a job's program needs from the components of a chain ([`Needs`], a
+//! field for each property it may need), and the check of those needs
+//! against what a component offers ([`Capabilities`]). A [`Need`] names one
+//! such property, as `Needs` and `Capabilities` both state it (a run's
+//! shots are needed by the run itself, not stated in `Needs`), and an
+//! [`UnmetNeed`] reports one a component does not meet:
 //! when a chain is given a job, every unmet need is reported
 //! ([`JobFaults`](crate::JobFaults),
 //! `a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor`);
@@ -42,7 +46,8 @@ use crate::{Capabilities, InstructionMismatch, InstructionSet, OpcodeMap, Reject
     reason = "each is an independent need, checked one to one against a capability"
 )]
 pub struct Needs {
-    /// The qubits each shot uses; `None`: not stated, not checked.
+    /// The qubits each shot uses, checked against [`Capabilities::qubits`]
+    /// where both state it; `None`: not stated, not checked.
     pub qubits: Option<u32>,
     /// The program continues a shot in a later call, where an earlier call
     /// left it (to feed its outcomes forward, to read again, or only to go
@@ -60,7 +65,8 @@ pub struct Needs {
     /// it draws only from its own random numbers; checked against
     /// [`Capabilities::replayable`].
     pub replayable: bool,
-    /// The report at close gives each shot's log probability.
+    /// The report at close gives each shot's log probability, checked
+    /// against [`Capabilities::log_probability`].
     pub log_probability: bool,
     /// The instructions the caller will send, each taking the operands it
     /// describes; `None`: not stated, and not checked for a typed caller.
@@ -275,19 +281,6 @@ pub struct UnmetNeed {
 }
 
 impl UnmetNeed {
-    /// Checks that `component` offers at least what is `needed`.
-    ///
-    /// # Errors
-    ///
-    /// [`Rejected::Unmet`] when `needed` exceeds `offered`, naming
-    /// `component`.
-    pub fn check(component: &str, need: Need, needed: u64, offered: u64) -> Result<(), Rejected> {
-        match Self::of(component, need, needed, offered) {
-            Some(unmet) => Err(Rejected::Unmet(unmet)),
-            None => Ok(()),
-        }
-    }
-
     /// The need `component` does not meet, when `needed` exceeds `offered`.
     fn of(component: &str, need: Need, needed: u64, offered: u64) -> Option<UnmetNeed> {
         (needed > offered).then(|| UnmetNeed {
