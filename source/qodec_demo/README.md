@@ -90,9 +90,10 @@ assert_eq!(profile.batches, C4C6_BOTTOM_BATCHES * shots.len() as u64);
 The `qodec` library comes from crates.io (0.2.1). The tests load
 repetition3 from [`tests/data`](tests/data/repetition3.qodec.yaml), a
 copy of the bundle the library's repository ships (`microsoft/qdk-ec` at
-commit `50f3bff`, `qodec/examples/repetition3`), kept unchanged since its
-gadgets declare the checks the decoder conditions outcomes on, which the
-lowerer's copy lacks; and c422 and c4c6 from the lowerer's examples
+commit `50f3bff`, `qodec/examples/repetition3`), kept unchanged (the
+repository's Prettier check skips it) since its gadgets declare the
+checks the decoder conditions outcomes on, which the lowerer's copy
+lacks; and c422 and c4c6 from the lowerer's examples
 (`source/qodec_lowerer/examples`).
 
 ```sh
