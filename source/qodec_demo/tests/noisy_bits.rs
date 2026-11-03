@@ -325,6 +325,23 @@ fn the_simulator_refuses_an_instruction_with_other_operands() {
     let _ = simulator(set, SEED, 0.5);
 }
 
+/// A set that holds the four instructions, each with its operands, but
+/// with `R` and `M` at each other's opcodes is refused when the simulator
+/// is made: the simulator reads a call by its opcode, so each instruction
+/// is checked at its opcode, not by its mnemonic alone.
+#[test]
+#[should_panic(expected = "stim+rz's `R`")]
+fn the_simulator_refuses_an_instruction_at_another_opcode() {
+    use OperandKind::{Block, Real, Tag};
+    let set = set_of(&[
+        ("M", &[Block, Tag]),
+        ("R", &[Block]),
+        ("CX", &[Block, Block]),
+        ("rotate_z", &[Block, Real]),
+    ]);
+    let _ = simulator(set, SEED, 0.5);
+}
+
 /// A set may hold more than `stim+rz`: here `H` follows the four. Both
 /// forms fail its call as it runs: the executor accepts it, its set
 /// holding `H`, and its reply fails; the backend returns the error.

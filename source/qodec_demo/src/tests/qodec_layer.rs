@@ -275,8 +275,8 @@ fn a_layer_whose_decoder_cannot_be_planned_is_refused_with_its_error_then_each_s
 }
 
 /// One state serving two shots runs the runtime on both shots' readouts
-/// as one shot's: their equal tags collide, and the layer fails the call,
-/// naming the readout that came twice, instead of answering every shot with
+/// as one shot's: their equal tags collide, and the layer fails the call
+/// as for a readout that came twice, instead of answering every shot with
 /// one shot's bits.
 #[test]
 fn a_layer_of_one_state_fails_a_call_on_two_shots() {
@@ -460,8 +460,8 @@ fn coins_dropping_the_last_readout(
     })
 }
 
-/// A readout the executor below does not give fails the call, naming its
-/// tag below, instead of reading as a bit it never had.
+/// A readout the executor below does not give fails the call instead of
+/// reading as a bit it never had.
 #[test]
 fn a_readout_missing_below_fails_the_call() {
     let (layer, program) = two_reads();
@@ -475,8 +475,8 @@ fn a_readout_missing_below_fails_the_call() {
 }
 
 /// An outcome the executor below gives under a tag its call did not use,
-/// beside each readout asked for, fails the call, naming it, instead of
-/// being dropped.
+/// beside each readout asked for, fails the call instead of being
+/// dropped.
 #[test]
 fn an_outcome_not_asked_for_below_fails_the_call() {
     let (layer, program) = two_reads();
