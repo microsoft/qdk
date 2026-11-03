@@ -669,6 +669,7 @@ would miss incomplete nonempty check lists.
 
 Submodules:
 
+- `qdk.circuit` – **experimental** circuit construction: `QuantumCircuit`, `QuantumRegister`, `Parameter`, and related types. Importing this module emits a warning, and its API may change in any release until that marker is removed.
 - `qdk.qsharp` – Q# interpreter functions: `init`, `eval`, `run`, `compile`, `circuit`, `estimate`, `dump_machine`, `dump_circuit`, `dump_operation`, and related types.
 - `qdk.openqasm` – OpenQASM compilation, execution, parsing, semantic analysis,
   source navigation, visitors, and canonical serialization.
@@ -704,7 +705,6 @@ For convenience, the following helpers and types are also importable directly fr
 | `Context`            | class    | `qdk.Context`                   | Isolated Q# and OpenQASM interpreter context for independent sessions. |
 
 ### Configuration Map
-
 You can provide configuration at initialization time as a Python dictionary.
 
 In Python, pass `qdk_config: dict[str, int | float | str | bool]` to `Context(...)`.

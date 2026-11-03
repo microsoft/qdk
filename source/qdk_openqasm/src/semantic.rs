@@ -39,6 +39,45 @@ pub struct AnalysisResult {
 }
 
 impl AnalysisResult {
+    /// Populates constant values for literal expression trees, including casts.
+    ///
+    /// This opt-in evaluation uses the front end's typed conversion semantics.
+    /// Runtime reads are left untouched; evaluation errors join `errors`.
+    pub fn evaluate_literal_expressions(&mut self) {
+        use mut_visit::MutVisitor;
+        struct Evaluator(Lowerer);
+        impl MutVisitor for Evaluator {
+            fn visit_expr(&mut self, expr: &mut ast::Expr) {
+                mut_visit::walk_expr(self, expr);
+                let literal_tree = match &*expr.kind {
+                    ast::ExprKind::Lit(_) => true,
+                    ast::ExprKind::Paren(inner) => inner.get_const_value().is_some(),
+                    ast::ExprKind::Cast(cast) => cast.expr.get_const_value().is_some(),
+                    ast::ExprKind::UnaryOp(unary) => unary.expr.get_const_value().is_some(),
+                    ast::ExprKind::BinaryOp(binary) => {
+                        binary.lhs.get_const_value().is_some()
+                            && binary.rhs.get_const_value().is_some()
+                    }
+                    _ => false,
+                };
+                if literal_tree && expr.get_const_value().is_none() {
+                    let mut candidate = expr.clone();
+                    candidate.ty = candidate.ty.with_const(true);
+                    expr.const_value = candidate.with_const_value(&mut self.0).const_value;
+                }
+            }
+        }
+        let mut context = Lowerer::new(
+            self.source.clone(),
+            self.source_map.clone(),
+            self.source_snapshot.clone(),
+        );
+        context.symbols = self.symbols.clone();
+        let mut evaluator = Evaluator(context);
+        evaluator.visit_program(&mut self.program);
+        self.errors.extend(evaluator.0.errors);
+    }
+
     #[must_use]
     pub fn has_errors(&self) -> bool {
         self.has_parse_errors() || self.has_semantic_errors()

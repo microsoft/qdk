@@ -771,6 +771,10 @@ if build_widgets and build_qdk and args.integration_tests:
         "qiskit_submission_to_azure",
         "pennylane_submission_to_azure.",
         "benzene.",
+        # These compile standalone clients and require the separately built C API.
+        "circuit_api_c.",
+        "circuit_api_go.",
+        "circuit_api_fortran.",
     )
     notebook_files = [
         os.path.join(dp, f)

@@ -1,0 +1,32 @@
+[package]
+name = "qsc_qhdg"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+capnp = { workspace = true }
+qsc_semantic_contracts = { path = "../qsc_semantic_contracts" }
+qsc_snapshot = { path = "../qsc_snapshot" }
+serde = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+wasm-bindgen = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+wasm-bindgen-test = "0.3.64"
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

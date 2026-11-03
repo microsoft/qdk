@@ -1,0 +1,29 @@
+[package]
+name = "qdk_circuit_api"
+description = "Shared native circuit authoring and document API"
+
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+qsc_circuit = { path = "../compiler/qsc_circuit" }
+qsc_circuit_store = { path = "../compiler/qsc_circuit_store" }
+qsc_codegen = { path = "../compiler/qsc_codegen" }
+qsc_data_structures = { path = "../compiler/qsc_data_structures" }
+qsc_qhdg = { path = "../compiler/qsc_qhdg" }
+qsc_snapshot = { path = "../compiler/qsc_snapshot" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3.64"
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false

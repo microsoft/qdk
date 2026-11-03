@@ -1,0 +1,2 @@
+QDKCIRCT(
+(qdk 1 (circuit (store (store (version 1) (qubitCount 2) (clbitCount 1) (globalPhase -0.0) (parameters (list)) (variables (list)) (expressions (list)) (angles (list)) (blocks (list)) (instructions (list (instruction (operation (standard h)) (qubits (list 0)) (clbits (list)) (parameters (none))) (instruction (operation (standard cx)) (qubits (list 0 1)) (clbits (list)) (parameters (none))) (instruction (operation (standard measureZ)) (qubits (list 0)) (clbits (list 0)) (parameters (none))))))) (quantumRegisters (list)) (classicalRegisters (list))))

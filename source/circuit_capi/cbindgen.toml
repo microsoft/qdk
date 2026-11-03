@@ -1,0 +1,17 @@
+language = "C"
+include_guard = "QDK_CIRCUIT_H"
+cpp_compat = true
+usize_is_size_t = true
+documentation = true
+style = "both"
+header = """
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+// Experimental interface; no stable ABI compatibility promise.
+"""
+
+[export]
+exclude = ["QdkContext"]
+
+[export.rename]
+QdkContext = "uintptr_t"

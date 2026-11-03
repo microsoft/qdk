@@ -34,6 +34,12 @@
 //!   for concrete runtime instances. Reusing a prepared source/argument pair does
 //!   not consume a second specialization slot.
 //!
+//! - **There is exactly one place a FIR-to-FIR optimization stage may run.**
+//!   [`run_pipeline_with_diagnostics_and_optimize`] hands a caller the point
+//!   after argument promotion converges and before the backend stages, where
+//!   `PostArgPromote` holds and item DCE, GC, and the exec graph rebuild have
+//!   not run yet. See that function for why that point and not another.
+//!
 //! - **``tuple_decompose`` ↔ ``arg_promote`` run to a fixed point.** These two passes
 //!   iterate until convergence (capped), so
 //!   changes to either must preserve the strictly-decreasing measure that
@@ -112,6 +118,9 @@ use qsc_fir::{
 use thiserror::Error;
 
 use crate::package_assigners::PackageAssigners;
+/// Exposed for the QHDG return leg, which must regenerate exec graphs for FIR
+/// it assembles outside the pipeline.
+pub use exec_graph_rebuild::rebuild_exec_graphs;
 pub use monomorphize::{
     Error as MonomorphizationError, SpecializationBudget, instantiate_runtime_closure,
     runtime_callable_parameters,
@@ -299,12 +308,18 @@ pub enum PipelineStage {
 ///
 /// In every fatal case the intermediate FIR intentionally violates downstream
 /// invariants, so running later passes would produce misleading failures.
+///
+/// `optimize` is the FIR-stage optimization point described on
+/// [`run_pipeline_with_diagnostics_and_optimize`]. It runs only when `stage`
+/// carries the schedule past argument promotion; an earlier cut point returns
+/// before it.
 fn run_pipeline_to_impl(
     store: &mut PackageStore,
     package_id: PackageId,
     stage: PipelineStage,
     pinned_items: &[StoreItemId],
     specialization_budget: &mut SpecializationBudget,
+    optimize: impl FnOnce(&mut PackageStore, PackageId),
 ) -> PipelineResult {
     assert!(
         store.get(package_id).entry.is_some(),
@@ -411,6 +426,8 @@ fn run_pipeline_to_impl(
     ) {
         return result;
     }
+
+    optimize(store, package_id);
 
     finalize_pipeline(store, package_id, stage, pinned_items, &exemptions);
     result
@@ -960,6 +977,7 @@ pub fn run_pipeline_to_with_diagnostics(
         stage,
         pinned_items,
         &mut SpecializationBudget::default(),
+        |_, _| {},
     )
 }
 
@@ -975,7 +993,7 @@ pub fn run_pipeline_to_with_specialization_budget(
     pinned_items: &[StoreItemId],
     budget: &mut SpecializationBudget,
 ) -> PipelineResult {
-    run_pipeline_to_impl(store, package_id, stage, pinned_items, budget)
+    run_pipeline_to_impl(store, package_id, stage, pinned_items, budget, |_, _| {})
 }
 
 /// Runs the full FIR optimization pipeline on the given package, returning
@@ -1018,6 +1036,66 @@ pub fn run_pipeline_with_diagnostics(
     package_id: PackageId,
 ) -> PipelineResult {
     run_pipeline_to_with_diagnostics(store, package_id, PipelineStage::Full, &[])
+}
+
+/// Runs the full FIR transform pipeline, giving a caller the one point in the
+/// schedule where a FIR-to-FIR optimization stage can run.
+///
+/// A closure rather than a pair of public halves, so the two cannot be called
+/// out of order or one without the other. This is the FIR counterpart of
+/// `qsc_rir::passes::check_and_transform_with`, which gives the
+/// post-partial-evaluation stage its equivalent point.
+///
+/// `optimize` runs after argument promotion converges and before the backend
+/// stages, which fixes three things:
+///
+/// - **[`invariants::InvariantLevel::PostArgPromote`] holds.** That is the
+///   strongest level the schedule reaches before the backend stages: no
+///   `Ty::Param`, no `ExprKind::Return`, no `Ty::Arrow` parameters or closures,
+///   no `Ty::Udt` or struct expressions, no tuple comparisons, and no tuple
+///   locals or parameters. Every structural rewrite has already run, so the
+///   closure sees one FIR form rather than a stage-dependent one.
+/// - **Item DCE, node GC, and the exec graph rebuild have not run yet.** A
+///   closure that retires the last call to a callable lets item DCE drop that
+///   callable, the GC that follows tombstones the arena nodes the edit
+///   orphaned, and [`rebuild_exec_graphs`] regenerates every execution graph
+///   and every `exec_graph_range` from the rewritten FIR. None of that has to
+///   be done, or even known about, by the closure.
+/// - **The next invariant walk checks the closure's work.**
+///   [`invariants::InvariantLevel::PostItemDce`] enforces every
+///   `PostArgPromote` check and runs immediately afterwards, so an edit that
+///   breaks the level is caught by the pipeline rather than by the caller
+///   asserting for itself.
+///
+/// The point sits after monomorphization and defunctionalization, which both
+/// duplicate callable bodies, and before partial evaluation, which inlines
+/// every call and unrolls every loop. No point in this schedule is before all
+/// three: the levels earlier than `PostArgPromote` are earlier precisely
+/// because the FIR forms they still admit have not been eliminated yet. The
+/// trade is deliberate — monomorphization and defunctionalization copy a
+/// bounded number of bodies, partial evaluation copies without bound.
+///
+/// # Note
+///
+/// Like [`run_pipeline_to_with_diagnostics`], this mutates `store`
+/// destructively; see that function for the disposable-store contract.
+///
+/// # Panics
+///
+/// Panics if the package has no entry expression.
+pub fn run_pipeline_with_diagnostics_and_optimize(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    optimize: impl FnOnce(&mut PackageStore, PackageId),
+) -> PipelineResult {
+    run_pipeline_to_impl(
+        store,
+        package_id,
+        PipelineStage::Full,
+        &[],
+        &mut SpecializationBudget::default(),
+        optimize,
+    )
 }
 
 /// Runs the body-only, signature-preserving FIR sub-pipeline on the seeded

@@ -13,6 +13,7 @@ miette = { workspace = true }
 thiserror = { workspace = true }
 num-bigint = { workspace = true }
 qsc_data_structures = { path = "../qsc_data_structures" }
+qsc_eval = { path = "../qsc_eval", optional = true }
 qsc_fir = { path = "../qsc_fir" }
 qsc_formatter = { path = "../qsc_formatter" }
 qsc_frontend = { path = "../qsc_frontend", optional = true }
@@ -23,7 +24,7 @@ rustc-hash = { workspace = true }
 
 [features]
 slow-proptest-tests = []
-testutil = ["qsc_frontend", "qsc_hir", "qsc_passes"]
+testutil = ["qsc_eval", "qsc_frontend", "qsc_hir", "qsc_passes"]
 
 [dev-dependencies]
 qsc_fir_transforms = { path = ".", features = ["testutil"] }
@@ -31,7 +32,6 @@ expect-test = { workspace = true }
 indoc = { workspace = true }
 proptest = { workspace = true }
 qsc_codegen = { path = "../qsc_codegen" }
-qsc_eval = { path = "../qsc_eval" }
 qsc_frontend = { path = "../qsc_frontend" }
 qsc_hir = { path = "../qsc_hir" }
 qsc_partial_eval = { path = "../qsc_partial_eval" }

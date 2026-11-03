@@ -1,0 +1,122 @@
+\section{Related Work}\label{sec:relwork}
+
+
+A cornucopia of IRs has been presented in the literature to better expose desirable
+program properties for optimizations. For brevity, we restrict our discussion to the
+most prominent IRs, only highlighting their strengths and weaknesses in comparison to
+the RVSDG, and refer the reader to Stanier~\etal~\cite{Stanier13} for a greater survey.
+
+\subsection{Control (Data) Flow Graph}
+The Control Flow Graph (CFG)~\cite{Allen70} exposes the intra-procedural control flow of a
+function. Its nodes represent basic blocks, \ie, an ordered list of operations without
+branches or branch targets, and its edges represent the possible control flow paths between these
+nodes. This explicit exposure of control flow simplifies certain analyses, such as loop
+identification or irreducibility detection, and enables simple target code generation. The CFG's
+translation to SSA form~\cite{Cytron91}, or one of its variants, such as gated SSA~\cite{Tu95},
+thinned gated SSA~\cite{Havlak93}, or future gated SSA~\cite{Ding14}, additionally improves the
+efficiency of data flow optimizations~\cite{Wegman91,Rosen88}. These properties along with its
+simple construction from a language's abstract syntax tree made the CFG in SSA form the predominant
+IR for imperative language compilers~\cite{Stanier13}, such as LLVM~\cite{Lattner04} and
+GCC~\cite{gcc}. However, the CFG has also been criticized as an IR for optimizing
+compilers~\cite{Ferrante87,Johnson03,Johnson04,Lawrence07,Weise94,Zaidi15,Zaidi15-2}:
+
+\begin{enumerate}
+	\item It is incapable of representing inter-procedural information. It requires additional IRs,
+		\eg, the call graph, to represent such information.
+
+	\item It provides no structural information about a procedure's body. Important structures, such
+		as loops, and their nesting needs to be constantly (re-)discovered for optimizations, as well
+		as normalized to make them amenable for transformations.
+
+	\item It emphasizes control dependencies, even though many optimizations are based on the flow
+		of data. This is somewhat mitigated by translating it to SSA form or one of its variants, but
+		in turn requires SSA restoration passes~\cite{Choi96} to ensure SSA invariants.
+
+	\item It is an inherently sequential IR. The operations in basic blocks are listed in a
+		sequential order, even if they are not dependent on each other. Moreover, this
+		sequentialization also exists for structures such as loops, as two independent loops can only
+		be represented in sequential order. Thus, the CFG is by design incapable of explicitly
+		encoding independent operations.
+
+	\item It provides no means to encode additional dependencies other than control and true data
+		dependencies. Other information, such as loop-carried dependencies or alias information, must
+		regularly be recomputed and/or memoized in addition to the CFG.
+\end{enumerate}
+
+The Control Data Flow Graph (CDFG)~\cite{Namballa04} tries to mitigate the sequential nature of
+the CFG by replacing the sequence of operations in basic blocks with the Data Flow
+Graph (DFG)~\cite{Dennis80}, an acyclic graph that represents the flow of data between operations.
+This relaxes the strict ordering within a basic block, but does not expose instruction level
+parallelism beyond basic block boundaries or between program structures.
+
+\subsection{Program Dependence Graph/Web}
+The Program Dependence Graph (PDG) \cite{Ferrante87,Horwitz288} combines control and data flow
+within a single representation. It features data and control flow edges, as well as statement,
+predicate, and region nodes. Statement nodes represent operations, predicate nodes represent
+conditional choices, and region nodes group nodes with the same control dependency. If a
+region's control dependencies are fulfilled, then its children can be executed in
+parallel. Horwitz \etal~\cite{Horwitz88} extended the PDG to model inter-procedural dependencies
+by incorporating procedures into the graph.
+
+The PDG improves upon the CFG by employing region nodes to relax the overly restrictive sequence
+of operations. This relaxed sequence combined with the unified representation of data and control
+dependencies simplifies complex optimizations, such as code vectorization~\cite{Baxter89} or the
+extraction of thread-level parallelism~\cite{Ottoni05,Sarkar91}. However, the unified data and
+control flow representation results in a large number of edge types, five in Ferrante
+\etal~\cite{Ferrante87} and four in Horwitz \etal~\cite{Horwitz288}, which need to be maintained
+to ensure the graph's invariants. The PDG suffers from aliasing and side-effect problems, as it
+supports no clear distinction between data held in register and memory. This complicates or can
+even preclude its construction altogether~\cite{Johnson04}. Moreover, program structure and SSA
+form still need to be discovered and maintained.
+
+The Program Dependence Web (PDW)~\cite{Ottenstein90} extends the PDG and gated SSA~\cite{Tu95}
+to provide a unified representation for the interpretation of programs using control-, data-, or
+demand-driven execution models. This simplifies the mapping of programs written in different
+paradigms, such as the imperative or functional paradigm, to different architectures, such as
+Von-Neumann and dataflow architectures. In addition to the elements of the PDG, the PDW adds $\mu$
+nodes to manage initial and loop-carried values and $\eta$ nodes to manage loop-exit
+values. Campbell \etal~\cite{Campbell93} further refined the definition of the PDW by replacing
+$\mu$ nodes with $\beta$ nodes and eliminating $\eta$ nodes. As the PDW is based on the PDG, it
+suffers from the same aliasing and side-effect problems. PDW's additional constructs
+further complicate graph maintenance and its construction is elaborate, requiring three
+additional passes over a PDG, and is limited to programs with reducible control flow.
+
+
+
+\subsection{Value (State) Dependence Graph}
+The Value Dependence Graph (VDG)~\cite{Weise94} abandons the explicit representation of control
+flow and only models the flow of values using ports. Its nodes represent simple operations, the
+selection between values, or functions, using recursive functions to model loops.
+The VDG is implicitly in SSA form and abandons the sequential order of operations from the CFG, as
+each node is only dependent on its values. However, modeling only data flow between stateful
+computations raises a significant problem in terms of preservation of program semantics, as the
+"evaluation of the VDG may terminate even if the original program would not..."~\cite{Weise94}.
+
+
+The Value State Dependence Graph (VSDG)~\cite{Johnson03,Johnson04} addresses the VDG's termination
+problem by introducing state edges. These edges are used to model the sequential
+execution of stateful computations. In addition to nodes for representing simple operations
+and selection, it introduces nodes to explicitly represent loops. Like the VDG, the VSDG is
+implicitly in SSA form, and nodes are solely dependent on required operands, avoiding a sequential
+order of operations. However, the VSDG supports no inter-procedural constructs, and its selection
+operator is only capable of selecting between two values based on a predicate. This complicates
+destruction, as selection nodes must be combined to express conditionals. Even worse, the VSDG
+represents all nodes as a flat graph, which simplifies optimizations~\cite{Johnson04}, but has a
+severe effect on evaluation semantics. Operations with side-effects are no longer guarded by
+predicates, and care must be taken to avoid duplicated evaluation of these operations. In fact,
+for graphs with stateful computations, lazy evaluation is the only safe strategy~\cite{Lawrence07}.
+The restoration of a program with an eager evaluation semantics complicates destruction immensely,
+and requires a detour over the PDG to arrive at a unique CFG~\cite{Lawrence07}.
+Zaidi \etal~\cite{Zaidi15-2,Zaidi15} adapted the VSDG to spatial hardware and sidestepped this
+problem by introducing a predication-based eager/dataflow semantics. The idea is to effectively
+enforce correct evaluation of operations with side-effects by using predication. While this seems
+to circumvent the problem for spatial hardware, it is unclear what the performance implications
+would be for conventional~processors.
+
+The RVSDG solves the VSDG's eager evaluation problem by introducing regions. %
+These regions enable the modeling of control flow constructs as nested nodes, and the guarding of
+operations with side-effects. This avoids any possibility of duplicated evaluation, and in turn
+simplifies RVSDG destruction. Moreover, nested nodes permit the explicit encoding of a program's
+hierarchical structure into the graph, further simplifying optimizations.
+
+

@@ -47,10 +47,23 @@ use crate::{
 /// - If the target has no reset capability, reindexing qubit IDs and removing resets.
 /// - If the target has no mid-program measurement capability, deferring measurements to the end of the program.
 pub fn check_and_transform(program: &mut Program) {
+    check_and_transform_with(program, |_| {});
+}
+
+/// Run the default set of passes, giving a caller the point between the common
+/// prefix and the profile-dependent remainder.
+///
+/// A closure rather than a pair of public halves, so the two cannot be called
+/// out of order or one without the other. `optimize` sees the one program form
+/// that is the same across every profile: control flow simplified, types
+/// checked, block IDs stable, and operands still ordinary variables.
+pub fn check_and_transform_with(program: &mut Program, optimize: impl FnOnce(&mut Program)) {
     simplify_control_flow(program);
     check_unreachable_code(program);
     check_types(program);
     remap_block_ids(program);
+
+    optimize(program);
 
     let uses_non_ssa_pipeline = program.config.capabilities >= Profile::Adaptive.into();
     if uses_non_ssa_pipeline {

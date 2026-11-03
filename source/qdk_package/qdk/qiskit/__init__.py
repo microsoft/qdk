@@ -96,7 +96,12 @@ def estimate(
     return job.result()
 
 
+from ._convert import ConversionError, from_qiskit, to_qiskit
+
 __all__ = [
+    "ConversionError",
+    "from_qiskit",
+    "to_qiskit",
     "NeutralAtomBackend",
     "QSharpBackend",
     "ResourceEstimatorBackend",

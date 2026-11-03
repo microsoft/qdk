@@ -8,7 +8,8 @@ pub mod operations;
 
 pub use builder::{CircuitTracer, OMITTED_LOOP_ITERATIONS_GATE, TracerConfig};
 pub use circuit::{
-    CURRENT_VERSION, Circuit, CircuitGroup, ComponentColumn, Operation, operation_list_to_grid,
+    CURRENT_VERSION, Circuit, CircuitGroup, ComponentColumn, Ket, Measurement, Operation, Qubit,
+    Register, Unitary, operation_list_to_grid,
 };
 pub use operations::Error;
 pub mod circuit_to_qsharp;

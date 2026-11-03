@@ -17,6 +17,11 @@ num-complex = { workspace = true }
 num-traits = { workspace = true }
 qsc = { path = "../compiler/qsc" }
 qdk_openqasm = { path = "../qdk_openqasm" }
+qdk_circuit_api = { path = "../circuit_api" }
+qsc_circuit = { path = "../compiler/qsc_circuit" }
+qsc_circuit_store = { path = "../compiler/qsc_circuit_store" }
+qsc_codegen = { path = "../compiler/qsc_codegen" }
+qsc_qhdg = { path = "../compiler/qsc_qhdg" }
 stim_compiler = { path = "../compiler/stim_compiler" }
 qdk_simulators = { path = "../simulators", features = ["gpu"] }
 resource_estimator = { path = "../resource_estimator" }

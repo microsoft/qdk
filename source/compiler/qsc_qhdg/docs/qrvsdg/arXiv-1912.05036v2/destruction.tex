@@ -1,0 +1,67 @@
+\subsection{Destruction}\label{sec:destruction}
+The destruction stage reestablishes control flow by extracting an IPG from an RVSDG
+and generating CFGs from individual \lambdaregions. Inter-Procedural Control Flow Recovery
+(Inter-PCFR) creates an IPG from \lambdanodes, while
+Intra-Procedural Control Flow Recovery (Intra-PCFR) extracts control flow from \gammam and
+\thetanodes and generates basic blocks with corresponding operations for primitive nodes.
+A \lambdaregion without \gammam and \thetanodes trivially transforms into a linear CFG,
+while \lambdaregions with these nodes require construction of branches and/or loops.
+This section discusses Inter-PCFR in detail. Detailed discussion
+of Intra-PCFR is found in Bahmann~\etal~\cite{Bahmann15}.
+
+\subsubsection{Inter-Procedural Control Flow Recovery}\label{sec:ipcfr}
+Inter-PCFR recovers an IPG from an RVSDG. IPG nodes are created for \lambdanodes as well as
+arguments of the \omegaregion, while IPG edges are inserted to capture the dependencies between
+\lambdanodes. Algorithm~\ref{alg:intrapt} starts by
+creating IPG nodes for all arguments of the \omegaregion, \ie, all external functions. It
+continues by recursively traversing the region tree, creating IPG nodes for encountered
+\lambdanodes and IPG edges for their dependencies. For the region of every \lambdanode, it
+invokes Intra-PCFR to create a CFG.
+
+\begin{informalg}{Inter-Procedural Control Flow Recovery}{alg:intrapt}
+\begin{enumerate}
+	\vspace*{-0.7\baselineskip}
+
+	\item Create IPG nodes for all arguments of the \omegaregion.
+	\item Process all nodes of the \omegaregion in topological order as follows:
+		\begin{itemize}
+			\item \bpoint{\lambdanodes}: Create an IPG node, and mark it exported if the
+				\lambdanode's output has a \omegaregion's result as user. For every context variable
+				$cv = (\iput{}{}, \argument{}{})$, add an edge from the \lambdanode's IPG node to the
+				corresponding IPG node of the producer of $\iput{}{}$. Create a CFG from the \lambdanode's
+				subregion and attach it to the IPG node.
+
+			\item \bpoint{\deltanodes}: Create an IPG node, and mark it exported if the
+				\deltanode's output has a \omegaregion's result as user. For every context variable
+				$cv = (\iput{}{}, \argument{}{})$, add an edge from the \deltanode's IPG node to the
+				corresponding IPG node of the producer of $\iput{}{}$. Create the expression from the
+				\deltanode's subregion and attach it to the IPG node.
+
+			\item \bpoint{\phinodes}: For every argument of the \phiregion, create an IPG node for
+				the corresponding \deltam/\lambdanode and add IPG edges from this node to the
+				corresponding IPG nodes of the context variables. Translate the \deltam/\lambdanodes in the
+				\phiregion according to the rules above. Mark the IPG node as exported if the corresponding
+				\phinode's output has a \omegaregion's result as user.
+		\end{itemize}
+
+	\vspace*{-\baselineskip}
+\end{enumerate}
+\end{informalg}
+
+\subsubsection{Intra-Procedural Control Flow Recovery}
+Bahmann~\etal~\cite{Bahmann15} explored two different approaches for CFG generation:
+\textit{Structured Control Flow Recovery (SCFR)} and \textit{Predicative Control Flow Recovery
+(PCFR)}. SCFR uses the region hierarchy within a \lambdaregion to recover control flow, while PCFR
+generates branches for predicate producers and follows the predicate consumers to the eventual
+destination. Both schemes reestablish evaluation-equivalent CFGs, but differ in the recoverable
+control flow. SCFR recovers only control flow that resembles the structural nodes in
+\lambdaregions, \ie, control flow equivalent to \verb;if-then-else;, \verb;switch;, and
+\verb;do-while; statements, while PCFR can recover arbitrary complex control flow, \ie, control
+flow that is not restricted to RVSDG constructs. PCFR reduces the number of static branches in the
+resulting control flow~\cite{Bahmann15}, but might also result in undesirable
+control flow for certain architectures, such as graphic processing units~\cite{Reissmann16}.
+For the sake of brevity, we omit a discussion of SCFR and PCFR as the algorithms are extensively
+described by Bahmann~\etal~\cite{Bahmann15}.
+
+
+

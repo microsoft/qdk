@@ -33,6 +33,10 @@ use qsc_lowerer::map_hir_package_to_fir;
 
 pub(crate) use crate::PipelineStage;
 
+/// Seed used for both the classical RNG and the simulator backend so
+/// evaluation is reproducible across runs and across programs being compared.
+const EVAL_SEED: u64 = 42;
+
 fn format_errors<T: ToString>(errors: &[T]) -> String {
     errors
         .iter()
@@ -1055,14 +1059,12 @@ pub(crate) fn generate_qir(source: &str) -> String {
     fir_to_qir(&store, capabilities, &compute_properties, &entry).expect("QIR generation failed")
 }
 
-#[cfg(test)]
 type EvaluationObservables = (Result<qsc_eval::val::Value, String>, Vec<TraceOp>, Vec<u8>);
 
 /// Evaluates the entry exec graph of the given FIR store with a fixed
 /// simulator seed for determinism. Returns `Ok(value)` on success, or
 /// `Err(error_string)` on evaluation failure.
-#[cfg(test)]
-pub(crate) fn try_eval_fir_entry(
+pub fn try_eval_fir_entry(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
 ) -> Result<qsc_eval::val::Value, String> {
@@ -1091,23 +1093,26 @@ pub(crate) fn try_eval_fir_callable(
     eval_fir_graph(store, callable.package, spec.body.exec_graph.clone())
 }
 
-#[cfg(test)]
 fn eval_fir_graph(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
     graph: fir::ExecGraph,
 ) -> Result<qsc_eval::val::Value, String> {
-    use qsc_eval::backend::{SparseSim, TracingBackend};
+    use qsc_eval::backend::{Backend, SparseSim, TracingBackend};
     use qsc_eval::output::GenericReceiver;
     use qsc_fir::fir::ExecGraphConfig;
 
     let mut env = qsc_eval::Env::default();
     let mut sim = SparseSim::new();
+    // The seed passed to `eval` covers only the classical RNG. Measurement
+    // outcomes come from the simulator, which is entropy-seeded until told
+    // otherwise.
+    sim.set_seed(Some(EVAL_SEED));
     let mut out = Vec::<u8>::new();
     let mut receiver = GenericReceiver::new(&mut out);
     qsc_eval::eval(
         pkg_id,
-        Some(42),
+        Some(EVAL_SEED),
         graph,
         ExecGraphConfig::NoDebug,
         store,
@@ -1122,9 +1127,8 @@ fn eval_fir_graph(
 /// order it was performed. Comparing two ordered `TraceOp` sequences detects
 /// effect-ordering differences (e.g. an extra gate or reset on an early-return
 /// path) that an equal return value alone would not reveal.
-#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum TraceOp {
+pub enum TraceOp {
     QubitAllocate(usize),
     QubitRelease(usize),
     QubitSwapId(usize, usize),
@@ -1148,13 +1152,11 @@ pub(crate) enum TraceOp {
 /// quantum operations performed during evaluation. Stack tracing is disabled,
 /// so the call-stack argument is ignored; only the operations and their order
 /// are captured.
-#[cfg(test)]
 #[derive(Default)]
-pub(crate) struct OpTracer {
+pub struct OpTracer {
     ops: Vec<TraceOp>,
 }
 
-#[cfg(test)]
 impl qsc_eval::backend::Tracer for OpTracer {
     fn qubit_allocate(&mut self, _stack: &[qsc_eval::debug::Frame], q: usize) {
         self.ops.push(TraceOp::QubitAllocate(q));
@@ -1226,12 +1228,11 @@ impl qsc_eval::backend::Tracer for OpTracer {
 /// The real [`SparseSim`](qsc_eval::backend::SparseSim) backend is kept rather
 /// than a no-backend fallback, so measurements are produced by simulation and stay
 /// aligned across runs of the same program.
-#[cfg(test)]
 fn eval_fir_entry_with_observables(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
 ) -> EvaluationObservables {
-    use qsc_eval::backend::{SparseSim, TracingBackend};
+    use qsc_eval::backend::{Backend, SparseSim, TracingBackend};
     use qsc_eval::output::GenericReceiver;
     use qsc_fir::fir::ExecGraphConfig;
 
@@ -1239,12 +1240,16 @@ fn eval_fir_entry_with_observables(
     let entry_graph = package.entry_exec_graph.clone();
     let mut env = qsc_eval::Env::default();
     let mut sim = SparseSim::new();
+    // Without this the simulator is entropy-seeded and superposition
+    // measurements differ run to run, which silently makes any trace
+    // comparison over a measuring program flaky.
+    sim.set_seed(Some(EVAL_SEED));
     let mut tracer = OpTracer::default();
     let mut out = Vec::<u8>::new();
     let mut receiver = GenericReceiver::new(&mut out);
     let result = qsc_eval::eval(
         pkg_id,
-        Some(42),
+        Some(EVAL_SEED),
         entry_graph,
         ExecGraphConfig::NoDebug,
         store,
@@ -1258,8 +1263,7 @@ fn eval_fir_entry_with_observables(
 
 /// Evaluates FIR with its quantum trace for explicit test preconditions.
 /// Semantic-equivalence assertions additionally compare receiver output.
-#[cfg(test)]
-pub(crate) fn try_eval_fir_entry_with_trace(
+pub fn try_eval_fir_entry_with_trace(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
 ) -> (Result<qsc_eval::val::Value, String>, Vec<TraceOp>) {

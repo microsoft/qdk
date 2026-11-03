@@ -33,3 +33,4 @@ __pycache__/
 /samples/
 /target/
 .config/1espt/PipelineAutobaseliningConfig.yml
+.copilot-tracking/

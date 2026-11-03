@@ -1,0 +1,110 @@
+\newcommand\todo[1]{\textcolor{red}{TODO: #1}}
+
+\newcommand{\ie}{i.e.\xspace}
+\newcommand{\eg}{e.g.\xspace}
+\newcommand{\etal}{et al.\xspace}
+
+\usepackage{xparse}
+\newcounter{infalg}
+\def\theinfalg{\Roman{infalg}}
+\NewDocumentEnvironment{informalg}{mm}{
+	\refstepcounter{infalg}
+	\renewcommand{\tablename}{Algorithm}
+  \setlength\extrarowheight{2pt}
+	\setlist{nosep}
+	\begin{table}
+	\footnotesize
+  \begin{tabular}{p{0.96\textwidth}}\hline
+    \textbf{Algorithm \Roman{infalg}}: \textsc{#1}\\\hline
+    \slshape
+}{
+	\\\hline
+  \end{tabular}
+  \end{table}
+	\label{#2}
+}
+
+\newtheorem{definition}{Definition}
+
+\newcommand{\Region}{{\mathcal R}\xspace}
+
+\newcommand{\node}[2]{\mbox{$n_{#2}^{#1}$}\xspace}
+\newcommand{\n}{\node{}{}}
+\newcommand{\np}{\node{\prime}{}}
+
+\newcommand{\edgea}[2]{\mbox{$e_{#2}^{#1}$}\xspace}
+\newcommand{\edgeb}[2]{\mbox{$({#1}, {#2})$}\xspace}
+\newcommand{\edgec}[3]{\mbox{${#1}:({#2}, {#3})$}\xspace}
+\newcommand{\e}{\edgea{}{}}
+
+\newcommand{\iput}[2]{\mbox{$i_{#2}^{#1}$}\xspace}
+\newcommand{\ipt}{\iput{}{}}
+
+\newcommand{\oput}[2]{\mbox{$o_{#2}^{#1}$}\xspace}
+\newcommand{\opt}{\oput{}{}}
+
+\newcommand{\argument}[2]{\mbox{$a_{#2}^{#1}$}\xspace}
+\newcommand{\argmnt}{\argument{}{}}
+
+\newcommand{\result}[2]{\mbox{$r_{#2}^{#1}$}\xspace}
+\newcommand{\res}{\result{}{}}
+
+\newcommand{\user}[2]{\mbox{$u_{#2}^{#1}$}\xspace}
+\newcommand{\usr}{\user{}{}}
+
+\newcommand{\origin}[2]{\mbox{$g_{#2}^{#1}$}\xspace}
+\newcommand{\org}{\origin{}{}}
+
+\newcommand{\card}[1]{\left\vert{#1}\right\vert}
+
+\newcommand{\bpoint}[1]{\textbf{\textsc{#1}}}
+
+\newcommand{\gammam}{\mbox{$\gamma$-}\xspace}
+\newcommand{\gammanode}{\mbox{$\gamma$-node}\xspace}
+\newcommand{\gammanodes}{\mbox{$\gamma$-nodes}\xspace}
+\newcommand{\gammaregion}{\mbox{$\gamma$-region}\xspace}
+\newcommand{\gammaregions}{\mbox{$\gamma$-regions}\xspace}
+\newcommand{\gammapred}{\mbox{$\gamma$-predicate}\xspace}
+\newcommand{\gammares}{\mbox{$\gamma$-result}\xspace}
+
+\newcommand{\thetam}{\mbox{$\theta$-}\xspace}
+\newcommand{\thetanode}{\mbox{$\theta$-node}\xspace}
+\newcommand{\thetanodes}{\mbox{$\theta$-nodes}\xspace}
+\newcommand{\thetaregion}{\mbox{$\theta$-region}\xspace}
+\newcommand{\thetaregions}{\mbox{$\theta$-regions}\xspace}
+\newcommand{\thetapred}{\mbox{$\theta$-predicate}\xspace}
+\newcommand{\thetares}{\mbox{$\theta$-result}\xspace}
+
+\newcommand{\lambdam}{\mbox{$\lambda$-}\xspace}
+\newcommand{\lambdanode}{\mbox{$\lambda$-node}\xspace}
+\newcommand{\lambdanodes}{\mbox{$\lambda$-nodes}\xspace}
+\newcommand{\lambdaregion}{\mbox{$\lambda$-region}\xspace}
+\newcommand{\lambdaregions}{\mbox{$\lambda$-regions}\xspace}
+
+\newcommand{\deltam}{\mbox{$\delta$-}\xspace}
+\newcommand{\deltanode}{\mbox{$\delta$-node}\xspace}
+\newcommand{\deltanodes}{\mbox{$\delta$-nodes}\xspace}
+\newcommand{\deltaregion}{\mbox{$\delta$-region}\xspace}
+\newcommand{\deltaregions}{\mbox{$\delta$-regions}\xspace}
+
+\newcommand{\applynode}{\mbox{$apply$-node}\xspace}
+\newcommand{\applynodes}{\mbox{$apply$-nodes}\xspace}
+
+\newcommand{\phinode}{\mbox{$\phi$-node}\xspace}
+\newcommand{\phinodes}{\mbox{$\phi$-nodes}\xspace}
+\newcommand{\phiregion}{\mbox{$\phi$-region}\xspace}
+
+\newcommand{\omeganode}{\mbox{$\omega$-node}\xspace}
+\newcommand{\omeganodes}{\mbox{$\omega$-nodes}\xspace}
+\newcommand{\omegaregion}{\mbox{$\omega$-region}\xspace}
+
+\newcommand{\Sequentialization}{\mbox{\textsc{Sequentialization}}\xspace}
+\newcommand{\VarNames}{\mbox{\textsc{Variable Names}}\xspace}
+
+\newcommand{\Ozero}{\texttt{O0}\xspace}
+\newcommand{\Oone}{\texttt{O1}\xspace}
+\newcommand{\Otwo}{\texttt{O2}\xspace}
+\newcommand{\Othree}{\texttt{O3}\xspace}
+\newcommand{\Othreenovec}{\texttt{O3-no-vec}\xspace}
+\newcommand{\Othreenovecstripped}{\texttt{O3-no-vec-stripped}\xspace}
+\newcommand{\Os}{\texttt{Os}\xspace}

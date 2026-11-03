@@ -1,0 +1,31 @@
+\begin{abstract}
+  Intermediate Representations (IRs) are central to optimizing compilers as the
+  way the program is represented may enhance or limit analyses and %
+  transformations. %
+  Suitable IRs focus on exposing the most relevant information and establish
+  invariants that different compiler passes can rely on. %
+  While control-flow centric IRs appear to be a natural fit for imperative
+  programming languages, analyses required by compilers have increasingly
+  shifted to understand data dependencies and work at multiple abstraction
+	layers at the same time. %
+  This is partially evidenced in recent developments such as the MLIR proposed
+  by Google. %
+  However, rigorous use of data flow centric IRs in general purpose compilers
+  has not been evaluated for feasibility and usability as previous works provide
+  no practical implementations. %
+
+  We present the Regionalized Value State Dependence Graph (RVSDG) IR for
+  optimizing compilers. %
+  The RVSDG is a data flow centric IR where nodes represent computations, edges
+  represent computational dependencies, and regions capture the hierarchical
+  structure of programs. %
+  It represents programs in demand-dependence form, implicitly supports
+  structured control flow, and models entire programs within a single IR. %
+  We provide a complete specification of the RVSDG, construction and destruction
+  methods, as well as exemplify its utility by presenting Dead Node and Common
+  Node Elimination optimizations. %
+  We implemented a prototype compiler and evaluate it in terms of performance,
+  code size, compilation time, and representational overhead. %
+  Our results indicate that the RVSDG can serve as a competitive IR in
+  optimizing compilers while reducing complexity.
+\end{abstract}

@@ -10,6 +10,7 @@ from typing import (
     Dict,
     Iterator,
     List,
+    Sequence,
     Tuple,
     TypedDict,
     Literal,
@@ -1345,3 +1346,1353 @@ class GpuContext:
         Runs the specified number of shots of the loaded adaptive program on the GPU.
         """
         ...
+
+class QuantumRegister:
+    """
+    A named, non-overlapping view over a contiguous range of qubit indices.
+    """
+
+    def __init__(self, name: str, size: int) -> None: ...
+    @property
+    def name(self) -> str: ...
+    @property
+    def start(self) -> int: ...
+    @property
+    def size(self) -> int: ...
+    def __len__(self) -> int: ...
+    def __getitem__(self, index: int) -> int:
+        """
+        Returns the absolute qubit index for a position in this register.
+        """
+        ...
+
+class ClassicalRegister:
+    """
+    A named, non-overlapping view over a contiguous range of classical bits.
+    """
+
+    def __init__(self, name: str, size: int) -> None: ...
+    @property
+    def name(self) -> str: ...
+    @property
+    def start(self) -> int: ...
+    @property
+    def size(self) -> int: ...
+    def __len__(self) -> int: ...
+    def __getitem__(self, index: int) -> int: ...
+
+class Parameter:
+    """
+    A compile-time symbolic value, bound before compilation.
+
+    Parameters belong to the circuit that created them.
+    """
+
+    @property
+    def name(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __hash__(self) -> int: ...
+    def __add__(self, other: "Angle") -> "AngleExpression": ...
+    def __radd__(self, other: "Angle") -> "AngleExpression": ...
+    def __sub__(self, other: "Angle") -> "AngleExpression": ...
+    def __rsub__(self, other: "Angle") -> "AngleExpression": ...
+    def __mul__(self, other: "Angle") -> "AngleExpression": ...
+    def __rmul__(self, other: "Angle") -> "AngleExpression": ...
+    def __truediv__(self, other: "Angle") -> "AngleExpression": ...
+    def __rtruediv__(self, other: "Angle") -> "AngleExpression": ...
+    def __neg__(self) -> "AngleExpression": ...
+
+class AngleExpression:
+    """
+    Arithmetic over angles, built from parameters and numbers.
+
+    Resolved before compilation, so an expression never reaches the target as a
+    computation and never raises the capability a circuit demands.
+    """
+
+    def __add__(self, other: "Angle") -> "AngleExpression": ...
+    def __radd__(self, other: "Angle") -> "AngleExpression": ...
+    def __sub__(self, other: "Angle") -> "AngleExpression": ...
+    def __rsub__(self, other: "Angle") -> "AngleExpression": ...
+    def __mul__(self, other: "Angle") -> "AngleExpression": ...
+    def __rmul__(self, other: "Angle") -> "AngleExpression": ...
+    def __truediv__(self, other: "Angle") -> "AngleExpression": ...
+    def __rtruediv__(self, other: "Angle") -> "AngleExpression": ...
+    def __neg__(self) -> "AngleExpression": ...
+
+Angle = Union[float, Parameter, AngleExpression]
+
+class LoopVariable:
+    """
+    A loop index read while the program runs.
+
+    Can be tested in a condition, unlike a Parameter, and cannot stand in for
+    an angle.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+class ConditionView:
+    """
+    A condition as a readable tree.
+
+    ``kind`` is one of ``literal``, ``clbit``, ``variable``, ``not``, or
+    ``binary``. The fields that do not apply to a kind are ``None``.
+    """
+
+    @property
+    def kind(self) -> str: ...
+    @property
+    def op(self) -> Optional[str]: ...
+    @property
+    def clbit(self) -> Optional[int]: ...
+    @property
+    def name(self) -> Optional[str]: ...
+    @property
+    def value(self) -> Optional[Union[bool, int, float]]: ...
+    @property
+    def operands(self) -> List["ConditionView"]: ...
+
+class InstructionView:
+    """
+    A read-only view of one stored instruction.
+
+    Mutating this object does not change the circuit it came from.
+    """
+
+    @property
+    def name(self) -> str: ...
+    @property
+    def qubits(self) -> List[int]: ...
+    @property
+    def clbits(self) -> List[int]: ...
+    @property
+    def blocks(self) -> List[int]:
+        """
+        Blocks a control-flow construct transfers into, empty for anything else.
+
+        Reported as identifiers rather than as their contents, so reading an
+        instruction costs the same whatever it contains. Pass one to
+        ``QuantumCircuit.block`` to read it.
+        """
+        ...
+
+    @property
+    def condition(self) -> Optional[ConditionView]: ...
+    @property
+    def values(self) -> List[Union[bool, int, float]]:
+        """Values a for loop runs over."""
+        ...
+
+    @property
+    def loop_index(self) -> Optional[str]:
+        """Name of the index a for loop binds."""
+        ...
+
+    @property
+    def label(self) -> Optional[str]:
+        """Label carried by a box."""
+        ...
+
+    @property
+    def cases(self) -> List[List[Union[bool, int, float]]]:
+        """
+        Values each case of a switch matches.
+
+        Aligned with the leading entries of ``blocks``, so the first case's
+        body is ``blocks[0]``.
+        """
+        ...
+
+    @property
+    def default_block(self) -> Optional[int]:
+        """Block a switch takes when no case matches."""
+        ...
+
+    @property
+    def params(self) -> List[Union[float, Parameter, AngleExpression]]:
+        """
+        Stored angles. A symbolic angle is reported as its parameter or as the
+        arithmetic that produces it.
+        """
+        ...
+
+class BlockBuilder:
+    """
+    A control-flow body opened by a builder.
+
+    Use as a context manager. Leaving the body emits the construct, unless the
+    body raised, in which case nothing is emitted.
+    """
+
+    def __enter__(self) -> "QuantumCircuit": ...
+    def __exit__(
+        self, exc_type: object, exc_value: object, traceback: object
+    ) -> bool: ...
+    def otherwise(self) -> "BlockBuilder":
+        """
+        Opens the alternative branch of a conditional.
+        """
+        ...
+
+class ForLoopBuilder:
+    """
+    A for-loop body, which hands its index to the code inside it.
+
+    Separate from BlockBuilder because a `with` statement receives the loop
+    index here rather than the circuit.
+    """
+
+    @property
+    def index(self) -> Union[Parameter, LoopVariable]: ...
+    def __enter__(self) -> Union[Parameter, LoopVariable]: ...
+    def __exit__(
+        self, exc_type: object, exc_value: object, traceback: object
+    ) -> bool: ...
+
+class SwitchBuilder:
+    """
+    A switch, and the cases collected into it.
+
+    Use as a context manager. The construct is emitted once, when the switch
+    closes, rather than after each case.
+    """
+
+    def __enter__(self) -> "SwitchBuilder": ...
+    def __exit__(
+        self, exc_type: object, exc_value: object, traceback: object
+    ) -> bool: ...
+    def case(self, *values: int) -> "SwitchCaseBuilder":
+        """
+        Opens the body taken when the selector equals any of these values.
+        """
+        ...
+
+    def default(self) -> "SwitchCaseBuilder":
+        """
+        Opens the body taken when no case matches.
+        """
+        ...
+
+class SwitchCaseBuilder:
+    """
+    One case body of a switch.
+    """
+
+    def __enter__(self) -> "QuantumCircuit": ...
+    def __exit__(
+        self, exc_type: object, exc_value: object, traceback: object
+    ) -> bool: ...
+
+class QuantumCircuit:
+    """
+    A quantum circuit.
+    """
+
+    def __init__(self, qubits: int, clbits: int = 0) -> None: ...
+    @classmethod
+    def from_registers(
+        cls, *registers: Union[QuantumRegister, ClassicalRegister], clbits: int = 0
+    ) -> "QuantumCircuit":
+        """
+        Builds a circuit from named registers laid out end to end.
+
+        Registers of each kind are laid out in their own index space, in the
+        order given. ``clbits`` adds unnamed classical bits after the named ones.
+        """
+        ...
+
+    @property
+    def num_qubits(self) -> int: ...
+    @property
+    def num_clbits(self) -> int: ...
+    @property
+    def global_phase(self) -> float:
+        """
+        The phase applied to the circuit as a whole, in radians.
+
+        Unobservable when the circuit is run on its own, and observable when it
+        is controlled or used as a subroutine. Reduced to one turn when set.
+        """
+        ...
+
+    @global_phase.setter
+    def global_phase(self, phase: float) -> None: ...
+    @property
+    def quantum_registers(self) -> List[QuantumRegister]: ...
+    @property
+    def classical_registers(self) -> List[ClassicalRegister]: ...
+    def __len__(self) -> int: ...
+    def __getitem__(self, index: int) -> InstructionView: ...
+    def reserve(self, additional: int) -> "QuantumCircuit": ...
+    def i(self, qubit: int) -> "QuantumCircuit": ...
+    def x(self, qubit: int) -> "QuantumCircuit": ...
+    def y(self, qubit: int) -> "QuantumCircuit": ...
+    def z(self, qubit: int) -> "QuantumCircuit": ...
+    def h(self, qubit: int) -> "QuantumCircuit": ...
+    def s(self, qubit: int) -> "QuantumCircuit": ...
+    def sdg(self, qubit: int) -> "QuantumCircuit": ...
+    def sx(self, qubit: int) -> "QuantumCircuit": ...
+    def sxdg(self, qubit: int) -> "QuantumCircuit": ...
+    def t(self, qubit: int) -> "QuantumCircuit": ...
+    def tdg(self, qubit: int) -> "QuantumCircuit": ...
+    def cx(self, control: int, target: int) -> "QuantumCircuit": ...
+    def cy(self, control: int, target: int) -> "QuantumCircuit": ...
+    def cz(self, control: int, target: int) -> "QuantumCircuit": ...
+    def swap(self, first: int, second: int) -> "QuantumCircuit": ...
+    def cswap(self, control: int, first: int, second: int) -> "QuantumCircuit": ...
+    def prepare_x(self, qubit: int) -> "QuantumCircuit": ...
+    def prepare_y(self, qubit: int) -> "QuantumCircuit": ...
+    def prepare_z(self, qubit: int) -> "QuantumCircuit": ...
+    def measure_x(self, qubit: int, clbit: int) -> "QuantumCircuit": ...
+    def measure_y(self, qubit: int, clbit: int) -> "QuantumCircuit": ...
+    def ccx(self, control_a: int, control_b: int, target: int) -> "QuantumCircuit": ...
+    def measure(self, qubit: int, clbit: int) -> "QuantumCircuit": ...
+    def reset(self, qubit: int) -> "QuantumCircuit": ...
+    def barrier(self, qubits: Optional[List[int]] = None) -> "QuantumCircuit": ...
+    def delay(self, duration: float, qubit: int, unit: str = "dt") -> "QuantumCircuit":
+        """
+        Holds a qubit idle for a duration.
+
+        The unit is one of ``dt``, ``ns``, ``us``, ``ms``, or ``s``. ``dt`` is
+        the target's own time step, which is what a bare number means.
+        """
+        ...
+
+    def rx(self, angle: "Angle", qubit: int) -> "QuantumCircuit": ...
+    def ry(self, angle: "Angle", qubit: int) -> "QuantumCircuit": ...
+    def rz(self, angle: "Angle", qubit: int) -> "QuantumCircuit": ...
+    def crx(self, angle: "Angle", control: int, target: int) -> "QuantumCircuit": ...
+    def cry(self, angle: "Angle", control: int, target: int) -> "QuantumCircuit": ...
+    def crz(self, angle: "Angle", control: int, target: int) -> "QuantumCircuit": ...
+    def rxx(self, angle: "Angle", first: int, second: int) -> "QuantumCircuit": ...
+    def ryy(self, angle: "Angle", first: int, second: int) -> "QuantumCircuit": ...
+    def rzz(self, angle: "Angle", first: int, second: int) -> "QuantumCircuit": ...
+    def parameter(self, name: str) -> Parameter:
+        """
+        Declares a symbolic parameter owned by this circuit.
+        """
+        ...
+
+    @property
+    def parameters(self) -> List[Parameter]:
+        """
+        Parameters referenced by at least one instruction, in declaration order.
+
+        A declared but unused parameter is omitted.
+        """
+        ...
+
+    def assign_parameters(
+        self, values: List[Tuple[Parameter, float]]
+    ) -> "QuantumCircuit":
+        """
+        Returns a new circuit with every referenced parameter replaced by a value.
+        """
+        ...
+
+    def if_test(self, subject: Union[int, LoopVariable], value: int) -> BlockBuilder:
+        """
+        Opens a conditional on a measurement result or a loop index.
+        """
+        ...
+
+    def while_loop(self, subject: Union[int, LoopVariable], value: int) -> BlockBuilder:
+        """
+        Opens a loop that repeats while a measurement result holds.
+        """
+        ...
+
+    def for_loop(
+        self,
+        values: Sequence[Union[int, float]],
+        name: Optional[str] = None,
+        runtime: bool = False,
+    ) -> ForLoopBuilder:
+        """
+        Opens a loop over a compile-time known sequence of values.
+
+        The index is handed to the body, so ``with circuit.for_loop(...) as i``
+        binds it. By default it is a Parameter, usable as an angle, and the loop
+        is unrolled during compilation. Pass ``runtime=True`` for a
+        LoopVariable, usable in a condition, which the target can loop over
+        itself.
+        """
+        ...
+
+    def moment(self) -> BlockBuilder:
+        """
+        Opens a group of instructions that run at the same time.
+
+        Unlike a box, which only groups, a moment asserts simultaneity, so two
+        instructions inside it may not touch the same qubit.
+        """
+        ...
+
+    def box_(self, label: Optional[str] = None) -> BlockBuilder:
+        """
+        Opens a grouped region of instructions.
+        """
+        ...
+
+    def switch(self, subject: Union[int, LoopVariable]) -> SwitchBuilder:
+        """
+        Opens a multi-way branch on a classical bit or a loop variable.
+
+        Use as a context manager. Cases are opened from the builder it yields::
+
+            with circuit.switch(0) as selected:
+                with selected.case(0):
+                    circuit.x(0)
+                with selected.default():
+                    circuit.z(0)
+        """
+        ...
+
+    def break_loop(self) -> "QuantumCircuit":
+        """
+        Leaves the loop this instruction sits in.
+
+        Refused outside a loop body, because nothing can lower it there.
+        """
+        ...
+
+    def continue_loop(self) -> "QuantumCircuit":
+        """
+        Starts the next iteration of the loop this instruction sits in.
+
+        Refused outside a loop body, because nothing can lower it there.
+        """
+        ...
+
+    def block(self, block: int) -> List[InstructionView]:
+        """
+        Instructions in a block, addressed by an identifier from a view.
+
+        Reading a construct's branches one at a time keeps them
+        distinguishable, which concatenating them would not.
+        """
+        ...
+
+    def body_of(self, index: int) -> List[InstructionView]:
+        """
+        Instructions inside a control-flow body, for inspection.
+        """
+        ...
+
+    def to_diagram(self) -> Circuit:
+        """
+        Converts the circuit into the diagram type used for display.
+
+        The diagram is a display format rather than a program representation, so
+        the conversion is lossy. Classical bit indices appear as operation
+        arguments because the diagram addresses measurement results per qubit,
+        and control-flow bodies are drawn as a placeholder spanning every qubit
+        rather than being expanded.
+        """
+        ...
+
+    def __str__(self) -> str: ...
+    def to_qir(self, target_profile: TargetProfile) -> str:
+        """
+        Compiles the circuit to QIR for a target profile.
+
+        The profile decides what the circuit is allowed to contain:
+        `TargetProfile.Base` takes a straight-line program, and the adaptive
+        profiles take measurement feedback.
+
+        Raises ValueError if a control-flow block is still open, or if the
+        circuit asks for a capability the profile lacks, naming the construct
+        and the capability.
+        """
+        ...
+
+    def to_qasm(self) -> str:
+        """
+        Exports the circuit as OpenQASM 3 source.
+
+        Qubits and classical bits are written as one register each, so register
+        names given to this circuit do not appear in the output. A program
+        containing a switch declares OpenQASM 3.1; everything else declares 3.0.
+
+        Raises ValueError if a control-flow block is still open, or if the
+        circuit holds something OpenQASM cannot express.
+        """
+        ...
+
+    @classmethod
+    def from_qasm(cls, source: str) -> "QuantumCircuit":
+        """
+        Builds a circuit from OpenQASM 3 source.
+
+        Registers are flattened into the circuit's qubit and classical bit
+        indices in declaration order, and their names are not carried over.
+
+        Raises ValueError if the source does not parse, or if it uses a
+        construct that has no place in a circuit, naming the construct.
+        """
+        ...
+
+    def to_graph(self) -> "QuantumGraph":
+        """
+        Lowers the circuit into the graph representation.
+
+        The graph is straight-line. It has no form for control flow, for a
+        delay, or for a parameter that is still symbolic.
+
+        Raises ValueError if a control-flow block is still open, or if the
+        circuit holds a construct the graph has no form for, naming it.
+        """
+        ...
+
+    @classmethod
+    def from_graph(cls, graph: "QuantumGraph") -> "QuantumCircuit":
+        """
+        Raises a graph back to a circuit.
+
+        This is the only best-effort crossing in the API. The graph expresses
+        programs the circuit has no form for. Registers are not recovered,
+        because the graph never held them.
+
+        Raises ValueError if the graph holds an operation the circuit has no
+        form for, naming that operation, or if the graph is not shaped like
+        anything a lowered circuit produces.
+        """
+        ...
+
+    @classmethod
+    def from_graph_with_origins(cls, graph: "QuantumGraph") -> "RaisedCircuit":
+        """
+        Raises a graph back to a circuit, reporting what each recovered
+        instruction came from.
+
+        Attribution is read from the origin each node has carried since it was
+        created, so a pass that removes operations leaves the survivors naming
+        the instructions they came from rather than their new positions. A node
+        that carries no circuit origin reports nothing rather than a guess.
+
+        Raises the same errors as `from_graph`.
+        """
+        ...
+
+    def to_bytes(self) -> bytes:
+        """
+        Saves the circuit as a QDK-native Cap'n Proto envelope.
+
+        Save and restore is exact: every circuit that can be built can be
+        written and read back with the same instructions, operands, parameters,
+        classical variables, control flow, and registers.
+
+        Raises ValueError if a control-flow block is still open.
+        """
+        ...
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "QuantumCircuit":
+        """
+        Restores a circuit from a binary or S-expression snapshot envelope.
+
+        Raises ValueError if the text is not a saved circuit, if it was written
+        by a different schema version, or if it describes a circuit that could
+        not have been built.
+        """
+        ...
+
+    def to_text(self) -> str:
+        """Saves the same snapshot model as a readable S-expression envelope."""
+        ...
+
+    @classmethod
+    def from_text(cls, text: str) -> "QuantumCircuit":
+        """Restores a circuit saved by `to_text`, applying the same validation."""
+        ...
+
+class OriginKind(Enum):
+    """Which kind of circuit construct a graph node came from."""
+
+    Instruction: int
+    Qubit: int
+    Clbit: int
+    GlobalPhase: int
+
+class CircuitOrigin:
+    """The circuit construct a raised operation came from."""
+
+    def __init__(self, kind: OriginKind, index: Optional[int] = None) -> None: ...
+    @property
+    def kind(self) -> OriginKind: ...
+    @property
+    def index(self) -> Optional[int]:
+        """
+        The instruction position, qubit index, or classical bit index. The
+        global phase has none.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+
+class RaisedCircuit:
+    """A circuit recovered from a graph, with what each instruction came from."""
+
+    @property
+    def circuit(self) -> "QuantumCircuit": ...
+    @property
+    def origins(self) -> List[Optional[CircuitOrigin]]:
+        """One entry per recovered instruction, in program order."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class QuantumGraph:
+    """
+    A program in the graph representation.
+
+    The handle is read-only. Reading answers with plain records rather than
+    live views, so nothing here borrows the graph, and changing a graph means
+    building a new one with `GraphBuilder`.
+    """
+
+    def to_bytes(self) -> bytes:
+        """Saves a QDK-native Cap'n Proto graph envelope."""
+        ...
+
+    def to_text(self) -> str:
+        """Saves the same graph snapshot as an S-expression envelope."""
+        ...
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "QuantumGraph":
+        """Restores either graph envelope format, checking limits, digest and validity."""
+        ...
+
+    @classmethod
+    def from_text(cls, text: str) -> "QuantumGraph":
+        """Restores an S-expression graph envelope with the same checks."""
+        ...
+
+    @property
+    def regions(self) -> List["RegionView"]: ...
+    @property
+    def nodes(self) -> List["NodeView"]: ...
+    @property
+    def ports(self) -> List["PortView"]: ...
+    @property
+    def edges(self) -> List["EdgeView"]: ...
+    def diagnostics(self) -> List[str]:
+        """
+        Reports what the graph's own verification says about this graph.
+
+        An empty list means the graph satisfies every rule. A graph built by
+        hand can fail verification, because the builder checks each edit in
+        isolation and the rules are about the whole program.
+        """
+        ...
+
+    def to_qir(self, target_profile: TargetProfile) -> str:
+        """
+        Compiles the graph to QIR for a target profile.
+
+        This is a path of its own rather than a raise followed by the circuit's
+        compilation, so a program a pass produced reaches QIR whether or not a
+        circuit could still express it. The profile names the same thing it
+        names on a circuit.
+
+        Raises ValueError naming the operation for a graph outside the
+        vocabulary the circuit lowering emits, or naming the construct and the
+        capability the profile lacks.
+        """
+        ...
+
+    def to_qasm(self) -> str:
+        """
+        Exports the graph as OpenQASM 3 source.
+
+        The graph raises to a circuit first and the circuit's own exporter
+        writes it, so this offers nothing the raise does not.
+
+        Raises ValueError naming the operation for a graph outside the
+        circuit-expressible subset.
+        """
+        ...
+
+    def bind_parameters(self, values: Dict[str, float]) -> "QuantumGraph":
+        """
+        Substitutes values for the parameters this graph's angles name.
+
+        Returns a new graph, so the symbolic program survives and can be bound
+        again with the next set of values, which is the shape a variational
+        loop needs. Node, port, and edge identity carry across, so a rebind is
+        a value update rather than a second lowering.
+
+        A parameter this call does not name survives unbound, and a name no
+        angle reads changes nothing.
+        """
+        ...
+
+    def rewrite(
+        self,
+        operations: List[str],
+        pass_: Callable[["PassMatch"], Optional["PassPatch"]],
+        budget: Optional[int] = None,
+    ) -> "PassResult":
+        """
+        Runs a patch-returning pass over the operations it names.
+
+        The pass is called once for each matched node and returns a PassPatch
+        or None. Matching and application stay native, so the cost at the
+        boundary follows how much the pass changes rather than how large the
+        graph is.
+
+        Raises ValueError when a decision cannot be applied, naming the
+        operation and the reason.
+        """
+        ...
+
+    def expand(
+        self,
+        operations: List[str],
+        pass_: Callable[["PassMatch"], Optional[List[str]]],
+    ) -> "PassResult":
+        """
+        Runs a fragment-returning pass over the operations it names.
+
+        The pass returns the sequence of operations that stands in the matched
+        node's place, or None. This is separate from `rewrite` because a patch
+        cannot create a node, so a decomposition that grows the program has no
+        patch form.
+
+        Raises ValueError when a node cannot be stood in for, naming the
+        operation and the reason.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+
+class RegionKind(Enum):
+    """What a region stands for."""
+
+    ModuleOmega: int
+    Lambda: int
+    Gamma: int
+    Theta: int
+    Recursion: int
+    Handler: int
+    Stage: int
+    ResidualCfg: int
+
+class PortDirection(Enum):
+    """Which way a port faces."""
+
+    Input: int
+    Output: int
+
+class PortKind(Enum):
+    """What a port carries."""
+
+    Value: int
+    Capability: int
+    HardEffect: int
+    ControlExit: int
+
+class PortStage(Enum):
+    """When a port's value is known."""
+
+    Generation: int
+    Residual: int
+
+class PortUsage(Enum):
+    """How many times a port's value may be used."""
+
+    Copyable: int
+    Affine: int
+    Linear: int
+
+class EdgeKind(Enum):
+    """What an edge carries between two ports."""
+
+    CopyableValue: int
+    AffineCapability: int
+    HardEffect: int
+    ControlExit: int
+
+class EffectDomain(Enum):
+    """What an effect acts on."""
+
+    Memory: int
+    Quantum: int
+    Result: int
+    Allocation: int
+    Output: int
+    Abort: int
+    Host: int
+    Noise: int
+    Unknown: int
+
+class EffectMode(Enum):
+    """What an effect does to what it acts on."""
+
+    Read: int
+    Write: int
+    Irreversible: int
+    Allocate: int
+    Release: int
+    Emit: int
+    Abort: int
+    Unknown: int
+
+class InterfaceRole(Enum):
+    """What a bound port is to the region boundary it crosses."""
+
+    Argument: int
+    Result: int
+    Exit: int
+    Capture: int
+    Carried: int
+
+class ValueType:
+    """
+    The type a port carries.
+
+    Built rather than named, because three of the forms hold another type.
+    """
+
+    @staticmethod
+    def unit() -> "ValueType": ...
+    @staticmethod
+    def bool() -> "ValueType": ...
+    @staticmethod
+    def int() -> "ValueType": ...
+    @staticmethod
+    def double() -> "ValueType": ...
+    @staticmethod
+    def string() -> "ValueType": ...
+    @staticmethod
+    def result() -> "ValueType": ...
+    @staticmethod
+    def qubit() -> "ValueType": ...
+    @staticmethod
+    def unknown() -> "ValueType": ...
+    @staticmethod
+    def array(element: "ValueType") -> "ValueType": ...
+    @staticmethod
+    def tuple(elements: List["ValueType"]) -> "ValueType": ...
+    @staticmethod
+    def location(target: "ValueType") -> "ValueType": ...
+    def __repr__(self) -> str: ...
+
+class SymbolId:
+    """The source-level item a node came from."""
+
+    def __init__(self, package: str, item: str) -> None: ...
+    @property
+    def package(self) -> str: ...
+    @property
+    def item(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class EffectEvent:
+    """One observable effect a node performs."""
+
+    def __init__(
+        self,
+        domain: EffectDomain,
+        mode: EffectMode,
+        resource: Optional[str] = None,
+        observable: bool = True,
+    ) -> None: ...
+    @property
+    def domain(self) -> EffectDomain: ...
+    @property
+    def mode(self) -> EffectMode: ...
+    @property
+    def resource(self) -> Optional[str]:
+        """The named resource acted on, or None when it is not known."""
+        ...
+
+    @property
+    def observable(self) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class InterfaceBinding:
+    """A child region port bound to the parent port it crosses to."""
+
+    def __init__(self, outer: int, inner: int, role: InterfaceRole) -> None: ...
+    @property
+    def outer(self) -> int: ...
+    @property
+    def inner(self) -> int: ...
+    @property
+    def role(self) -> InterfaceRole: ...
+    def __repr__(self) -> str: ...
+
+class RegionView:
+    """A region as the graph holds it."""
+
+    @property
+    def id(self) -> int: ...
+    @property
+    def parent(self) -> Optional[int]:
+        """The enclosing region, or None for the outermost one."""
+        ...
+
+    @property
+    def kind(self) -> RegionKind: ...
+    @property
+    def owner(self) -> Optional[int]:
+        """The node this region is a body of, when one declared it."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class AngleOp(Enum):
+    """Arithmetic available in a symbolic angle."""
+
+    Add = ...
+    Sub = ...
+    Mul = ...
+    Div = ...
+
+class NodeAngle:
+    """
+    An angle a node carries, which may still name a parameter.
+
+    A parameter is named rather than indexed, so an angle read from one graph
+    can be written to another without the circuit that produced either. Named
+    apart from `Angle`, which is what a gate accepts as an argument rather than
+    what a node holds.
+    """
+
+    @staticmethod
+    def literal(value: float) -> NodeAngle: ...
+    @staticmethod
+    def parameter(name: str) -> NodeAngle: ...
+    @staticmethod
+    def negate(operand: NodeAngle) -> NodeAngle: ...
+    @staticmethod
+    def binary(op: AngleOp, left: NodeAngle, right: NodeAngle) -> NodeAngle: ...
+    @property
+    def value(self) -> Optional[float]:
+        """The fixed value, or None while this angle still names a parameter."""
+        ...
+
+    @property
+    def parameters(self) -> List[str]:
+        """Every parameter this angle reads, in first-seen order."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class NodeView:
+    """A node as the graph holds it."""
+
+    @property
+    def id(self) -> int: ...
+    @property
+    def region(self) -> int: ...
+    @property
+    def operation(self) -> str: ...
+    @property
+    def inputs(self) -> List[int]: ...
+    @property
+    def outputs(self) -> List[int]: ...
+    @property
+    def effects(self) -> List[EffectEvent]: ...
+    @property
+    def symbol(self) -> Optional[SymbolId]:
+        """The source-level item this node came from, when one was declared."""
+        ...
+
+    @property
+    def number(self) -> Optional[float]:
+        """The real constant this node carries, when it carries one."""
+        ...
+
+    @property
+    def classical_bit(self) -> Optional[int]:
+        """The classical bit this node targets, when it targets one."""
+        ...
+
+    @property
+    def angle(self) -> Optional[NodeAngle]:
+        """The angle this node carries, when it still names a parameter."""
+        ...
+
+    @property
+    def origin(self) -> Optional[CircuitOrigin]:
+        """The construct this node came from, when a producer recorded one."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class PortView:
+    """A port as the graph holds it."""
+
+    @property
+    def id(self) -> int: ...
+    @property
+    def node(self) -> int: ...
+    @property
+    def region(self) -> int: ...
+    @property
+    def direction(self) -> PortDirection: ...
+    @property
+    def kind(self) -> PortKind: ...
+    @property
+    def value_type(self) -> ValueType: ...
+    @property
+    def stage(self) -> PortStage: ...
+    @property
+    def usage(self) -> PortUsage: ...
+    def __repr__(self) -> str: ...
+
+class EdgeView:
+    """An edge as the graph holds it."""
+
+    @property
+    def source(self) -> int: ...
+    @property
+    def target(self) -> int: ...
+    @property
+    def kind(self) -> EdgeKind: ...
+    def __repr__(self) -> str: ...
+
+class GraphBuilder:
+    """
+    Builds a graph region by region, node by node, port by port, and edge by
+    edge.
+
+    Each call is checked as it is made, so an edge between ports of different
+    types is refused where it is written rather than at the end. Rules about
+    the whole program are not checked here, which is what
+    `QuantumGraph.diagnostics` reports.
+    """
+
+    def __init__(self) -> None: ...
+    def add_region(self, kind: RegionKind, parent: Optional[int] = None) -> int:
+        """Adds a region, optionally inside another one."""
+        ...
+
+    def add_node(
+        self,
+        region: int,
+        operation: str,
+        effects: Optional[List[EffectEvent]] = None,
+    ) -> int:
+        """
+        Adds a node to a region, named by the operation it performs.
+
+        Raises ValueError if the region does not exist.
+        """
+        ...
+
+    def add_port(
+        self,
+        node: int,
+        direction: PortDirection,
+        kind: PortKind,
+        value_type: ValueType,
+        stage: PortStage,
+        usage: PortUsage,
+    ) -> int:
+        """
+        Adds a port to a node.
+
+        Raises ValueError if the node does not exist.
+        """
+        ...
+
+    def connect(self, source: int, target: int, kind: EdgeKind) -> None:
+        """
+        Connects an output port to an input port.
+
+        Raises ValueError if either port is unknown or the edge violates the
+        kind, type, region, or stage rules.
+        """
+        ...
+
+    def declare_symbol(self, node: int, symbol: SymbolId) -> None:
+        """
+        Declares which source-level item a node came from.
+
+        Raises ValueError if the node does not exist.
+        """
+        ...
+
+    def declare_payload(
+        self,
+        node: int,
+        number: Optional[float] = None,
+        classical_bit: Optional[int] = None,
+        angle: Optional[NodeAngle] = None,
+        origin: Optional[CircuitOrigin] = None,
+    ) -> None:
+        """
+        Declares the value a node carries and the construct it came from.
+
+        A pass that rebuilds a graph calls this to carry forward what each node
+        held, since a node's value and origin are not recoverable from its name.
+
+        Raises ValueError if the node does not exist, if more than one value is
+        given, or if an origin kind that needs an index has none.
+        """
+        ...
+
+    def bind_interface(self, region: int, binding: InterfaceBinding) -> None:
+        """
+        Binds a port inside a region to the parent port it crosses to.
+
+        Raises ValueError if either port is unknown or the binding does not
+        cross the declared parent boundary with a matching type.
+        """
+        ...
+
+    def declare_region_owner(self, region: int, node: int) -> None:
+        """
+        Declares the node a region is a body of.
+
+        Branch regions are siblings under one parent, so nesting alone cannot
+        say which node they belong to or which predicate selects between them.
+
+        Raises ValueError if the region or the node is unknown.
+        """
+        ...
+
+    def demand(self, node: int) -> None:
+        """Marks a node as demanded, so that analysis treats it as needed."""
+        ...
+
+    def finish(self) -> QuantumGraph:
+        """
+        Produces the graph, leaving the builder spent.
+
+        Raises ValueError if this builder has already produced a graph.
+        """
+        ...
+
+class PassStage(Enum):
+    """What the program is at an anchor."""
+
+    Circuit: int
+    Graph: int
+
+class PassAnchor(Enum):
+    """
+    Where a pass runs in the progression from a circuit to generated code.
+
+    See PASS-EXTENSION-POINTS.md for what each anchor sees and why it exists
+    separately from the others.
+    """
+
+    CircuitBuilt: int
+    GraphLowered: int
+    GraphRewritten: int
+    CircuitRaised: int
+
+    @staticmethod
+    def all() -> List["PassAnchor"]:
+        """Every anchor, in the order the progression reaches them."""
+        ...
+
+    @property
+    def name(self) -> str:
+        """The stable name of the anchor."""
+        ...
+
+    @property
+    def stage(self) -> PassStage:
+        """What the program is when a pass at this anchor runs."""
+        ...
+
+    @property
+    def outbound(self) -> bool:
+        """Whether the anchor is reached going out of the graph."""
+        ...
+
+class PassMatch:
+    """
+    A node a pass matched.
+
+    Plain data rather than a view, because a pass runs while the graph is not
+    borrowed and a live view could not survive that.
+    """
+
+    @property
+    def node(self) -> int: ...
+    @property
+    def operation(self) -> str: ...
+    @property
+    def operands(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+class PassPatch:
+    """
+    What a pass asks to happen at a matched node.
+
+    Edges are not exposed, because an edge in this graph names an operand
+    rather than a node.
+    """
+
+    @staticmethod
+    def replace(operation: str) -> "PassPatch":
+        """Keeps the node and its operands, changes what it is."""
+        ...
+
+    @staticmethod
+    def remove() -> "PassPatch":
+        """Retires the node and splices each operand thread past it."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class PassResult:
+    """What a pass run produced."""
+
+    @property
+    def graph(self) -> QuantumGraph: ...
+    @property
+    def outcome(self) -> str:
+        """unchanged, committed, budget_exhausted, or oscillation."""
+        ...
+
+    @property
+    def applications(self) -> int: ...
+    @property
+    def crossings(self) -> int:
+        """How many times the pass was consulted, which is one per match."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class PassListing:
+    """One registered pass, as the pipeline lists it."""
+
+    @property
+    def anchor(self) -> PassAnchor: ...
+    @property
+    def name(self) -> str: ...
+    @property
+    def built_in(self) -> bool:
+        """Whether the pass came with the compiler rather than from a caller."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class PipelineResult:
+    """What a pipeline run produced."""
+
+    @property
+    def circuit(self) -> QuantumCircuit:
+        """The circuit that came back out, after the outbound anchor."""
+        ...
+
+    @property
+    def graph(self) -> QuantumGraph:
+        """The graph as it stood when the last graph anchor finished with it."""
+        ...
+
+    @property
+    def executed(self) -> List[PassListing]:
+        """The passes that ran, in the order they ran."""
+        ...
+
+    @property
+    def changed(self) -> List[str]:
+        """The passes that reported changing the program, in run order."""
+        ...
+
+    @property
+    def diagnostics(self) -> List[Tuple[str, str]]:
+        """What the passes reported that was not a failure, as (pass, message)."""
+        ...
+
+    @property
+    def analyses_computed(self) -> int:
+        """
+        How many analyses the run computed rather than served from the cache one
+        manager keeps for the whole run.
+        """
+        ...
+
+    @property
+    def crossings(self) -> int:
+        """How many times a pass was consulted, totalled over the run."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class PassPipeline:
+    """
+    Passes to run at the named anchors, in one declared order.
+
+    Adding a pass to an anchor is the only edit. Nothing reorders, replaces, or
+    removes what is already registered.
+    """
+
+    def __init__(
+        self, *, built_ins: bool = True, optimization_level: str = "default"
+    ) -> None:
+        """
+        Builds a pipeline, carrying the compiler's own passes unless declined.
+
+        `optimization_level` is one of "none", "default", or "aggressive", and
+        every pass in the pipeline reads the same one.
+        """
+        ...
+
+    def add_circuit_pass(
+        self,
+        anchor: PassAnchor,
+        name: str,
+        pass_: Callable[[QuantumCircuit], Optional[QuantumCircuit]],
+    ) -> None:
+        """
+        Registers a pass at an anchor where the program is a circuit.
+
+        Raises ValueError if the anchor is one where the program is a graph.
+        """
+        ...
+
+    def add_rewrite_pass(
+        self,
+        anchor: PassAnchor,
+        name: str,
+        operations: List[str],
+        pass_: Callable[[PassMatch], Optional[PassPatch]],
+        budget: Optional[int] = None,
+    ) -> None:
+        """
+        Registers a patch-returning pass at an anchor where the program is a graph.
+
+        Raises ValueError if the anchor is one where the program is a circuit.
+        """
+        ...
+
+    def add_expand_pass(
+        self,
+        anchor: PassAnchor,
+        name: str,
+        operations: List[str],
+        pass_: Callable[[PassMatch], Optional[List[str]]],
+    ) -> None:
+        """
+        Registers a fragment-returning pass at an anchor where the program is a graph.
+
+        Raises ValueError if the anchor is one where the program is a circuit.
+        """
+        ...
+
+    def listing(self) -> List[PassListing]:
+        """Every registered pass, in the order a run reaches it."""
+        ...
+
+    def run(self, circuit: QuantumCircuit) -> PipelineResult:
+        """
+        Walks a circuit through the whole progression, running each anchor.
+
+        The circuit handed in is not changed. Raises whatever a pass raised, and
+        ValueError if the circuit cannot be lowered or the graph cannot be raised.
+        """
+        ...
+
+    def __repr__(self) -> str: ...

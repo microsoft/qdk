@@ -1,0 +1,28 @@
+[package]
+name = "qdk_circuit_capi"
+description = "Experimental standalone C interface to QDK circuits"
+
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+qdk_circuit_api = { path = "../circuit_api" }
+qsc_circuit_store = { path = "../compiler/qsc_circuit_store" }
+qsc_codegen = { path = "../compiler/qsc_codegen" }
+qsc_data_structures = { path = "../compiler/qsc_data_structures" }
+qsc_qhdg = { path = "../compiler/qsc_qhdg" }
+serde_json = { workspace = true }
+
+[build-dependencies]
+cbindgen = "0.29"
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+doctest = false

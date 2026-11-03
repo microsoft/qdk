@@ -1,0 +1,82 @@
+\section{Introduction}
+
+Intermediate representations (IRs) are at the heart of every modern compiler. These data structures
+represent programs throughout compilation, connect individual compiler stages, and provide
+abstractions to facilitate the implementation of analyses, optimizations, and program
+transformations. A suitable IR highlights and exposes program properties that are important to the
+transformations in a specific compiler stage. This reduces the complexity of optimizations and
+simplifies their implementation.
+
+
+Modern embedded systems have become increasingly parallel %
+as system designers strive to improve their computational power and energy
+efficiency. %
+Increasing the number of cores in a system enables each core to be operated at a
+lower clock frequency and supply voltage, improving
+overall energy efficiency while providing sufficient system performance. %
+Multi-core systems also reduce the total system cost by enabling the consolidation
+of multiple functionalities onto a single chip.
+In order to take full advantage of these systems, optimizing compilers need to
+expose a program's available parallelism. %
+This has led to an interest in developing more efficient program
+representations~\cite{Cordes10,Lattner20}
+and methodologies and frameworks~\cite{Castrillon13} for exposing the necessary information.
+
+Data flow centric IRs, such as the Value (State) Dependence Graph
+(V(S)DG)~\cite{Weise94, Johnson03, Johnson04, Lawrence07, Stanier211, Stanier12}, show promises as a
+new class of IRs for optimizing compilers. %
+These IRs are based on the observation that many optimizations require data flow
+rather than control flow information, and shift the focus to explicitly expose
+data instead of control flow. %
+They represent programs in demand-dependence form, encode structured control
+flow, and explicitly model data flow between operations. %
+This raises the IR's abstraction level, permits simple and powerful
+implementations of data flow optimizations, and helps to expose the inherent
+parallelism in programs~\cite{Lawrence07, Johnson04, Stanier211}. %
+However, the shift in focus from explicit control flow to only structured and
+implicit control flow requires more sophisticated construction and destruction
+methods~\cite{Weise94, Lawrence07, Stanier12}. %
+In this context, Bahmann~\etal~\cite{Bahmann15} presents the \emph{Regionalized Value State
+Dependence Graph} (RVSDG) and conclusively addresses the problem of intra-procedural control
+flow recovery for demand-dependence graphs. %
+They show that the RVSDG's restricted control flow constructs do not limit the complexity of
+the recoverable control flow. %
+
+In this work, we are concerned with the aspects of unified program
+representation in the RVSDG. We present the required RVSDG constructs, consider
+construction and destruction at the program level, and show feasibility and
+practicality of this IR for optimizations by providing a practical compiler implementation.
+Specifically, we make the following contributions: \emph{i)} A complete RVSDG specification,
+including intra- and inter-procedural constructs. \emph{ii)} A complete description of RVSDG
+construction and destruction, augmenting the previously proposed algorithms with the construction
+and destruction of inter-procedural constructs, as well as the handling of intra-procedural
+dependencies during construction. \emph{iii)} A presentation of Dead Node Elimination (DNE) and
+Common Node Elimination (CNE) optimizations to demonstrate the RVSDG's utility. DNE combines dead
+and unreachable code elimination, as well as dead function removal. CNE permits the removal of
+redundant computations by detecting congruent operations. \emph{iv)} A publicly
+available~\cite{jlm} prototype compiler that implements the discussed concepts.  It consumes and
+produces LLVM IR, and is to our knowledge the first optimizing compiler that uses a demand
+dependence graph as IR. \emph{v)} An evaluation of the RVSDG in terms of performance and size of
+the produced code, as well as compile time and representational overhead.
+
+
+
+
+
+
+
+
+Our results show that the RVSDG can serve as the IR in a compiler's optimization stage, producing
+competitive code even with a conservative modeling of programs using a single memory state.
+Even though this leaves significant parallelization potential
+unused, it already yields satisfactory results compared to control-flow
+based approaches.
+This work paves the way for %
+further exploration of the RVSDG's properties and their effect on optimizations
+and analyses, as well as its usability in code generation for dataflow and
+parallel architectures.
+
+
+
+
+

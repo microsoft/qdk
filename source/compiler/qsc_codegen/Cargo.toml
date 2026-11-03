@@ -12,7 +12,10 @@ license.workspace = true
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
 rustc-hash = { workspace = true }
+thiserror = { workspace = true }
+qdk_openqasm = { path = "../../qdk_openqasm" }
 qsc_ast = { path = "../qsc_ast" }
+qsc_circuit_store = { path = "../qsc_circuit_store" }
 qsc_data_structures = { path = "../qsc_data_structures" }
 qsc_eval = { path = "../qsc_eval" }
 qsc_fir = { path = "../qsc_fir" }
@@ -22,11 +25,14 @@ qsc_hir = { path = "../qsc_hir" }
 qsc_lowerer = { path = "../qsc_lowerer" }
 qsc_partial_eval = { path = "../qsc_partial_eval" }
 qsc_rca = { path = "../qsc_rca" }
+qsc_qhdg = { path = "../qsc_qhdg" }
+qsc_semantic_contracts = { path = "../qsc_semantic_contracts" }
 qsc_rir = { path = "../qsc_rir" }
 
 [dev-dependencies]
 expect-test = { workspace = true }
 indoc = { workspace = true }
+qsc_fir_transforms = { path = "../qsc_fir_transforms", features = ["testutil"] }
 qsc_passes = { path = "../qsc_passes" }
 difference = { workspace = true }
 

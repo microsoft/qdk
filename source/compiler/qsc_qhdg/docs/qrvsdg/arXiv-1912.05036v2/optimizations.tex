@@ -1,0 +1,10 @@
+\section{Optimizations}\label{sec:optimizations}
+The properties of the RVSDG make it an appealing IR for optimizing compilers. Many optimizations
+can be expressed as simple graph traversals, where subgraphs are rewritten, nodes are moved between
+regions, nodes or edges are marked, or edges are diverted. In this section, we present Common and
+Dead Node Elimination optimizations that exploit the RVSDG's properties to unify traditionally
+distinct transformations.
+
+\input{cne.tex}
+
+\input{dne.tex}

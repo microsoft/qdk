@@ -44,6 +44,14 @@ pub mod qir {
         pub fir_store: qsc_fir::fir::PackageStore,
         pub fir_package_id: qsc_fir::fir::PackageId,
         pub compute_properties: qsc_rca::PackageStoreComputeProperties,
+        /// What the FIR optimization stage did while this FIR was prepared.
+        ///
+        /// Default on every path that does not run the stage, which is every
+        /// path but [`prepare_codegen_fir_from_lowered_store`] at a level above
+        /// `None`. The stage declines silently by design, so a caller that
+        /// cannot read this cannot tell a stage that declined on every callable
+        /// from one that was never asked to run.
+        pub fir_report: qsc_codegen::fir_optimize::StageReport,
         /// Non-fatal diagnostics surfaced while transforming the FIR (for
         /// example, warn-and-delegate diagnostics for early-return shapes the
         /// pipeline cannot convert). These are carried alongside the codegen
@@ -443,6 +451,49 @@ pub mod qir {
             pinned_items,
             budget,
         );
+        attach_pipeline_diagnostics(package_store, pipeline_result)
+    }
+
+    /// Runs the full FIR pipeline with the FIR optimization stage at `level`,
+    /// and reports what that stage did.
+    ///
+    /// The counterpart of `fir_to_qir_at` for the stage above partial
+    /// evaluation. At [`OptimizationLevel::None`] this is the same pipeline run
+    /// as [`run_codegen_pipeline`] over a closure that returns immediately, so
+    /// the delivered path is unchanged rather than merely expected to be.
+    ///
+    /// The report is accumulated into a value this function owns rather than
+    /// returned by the pipeline, because the pipeline hands the stage through a
+    /// closure and has no opinion about what the closure produces.
+    ///
+    /// No `PipelineStage` or `pinned_items` parameter, because the point the
+    /// stage runs at is only defined for a `Full` run and the QIR path pins
+    /// nothing. A partial run would stop before the invariant level the stage
+    /// was placed at.
+    pub fn run_codegen_pipeline_at(
+        package_store: &PackageStore,
+        fir_store: &mut qsc_fir::fir::PackageStore,
+        fir_package_id: qsc_fir::fir::PackageId,
+        level: qsc_codegen::pass_pipeline::OptimizationLevel,
+    ) -> Result<(Vec<Error>, qsc_codegen::fir_optimize::StageReport), Vec<Error>> {
+        let mut report = qsc_codegen::fir_optimize::StageReport::default();
+        let pipeline_result = qsc_fir_transforms::run_pipeline_with_diagnostics_and_optimize(
+            fir_store,
+            fir_package_id,
+            |store, package| {
+                report = qsc_codegen::fir_optimize::optimize(store, package, level);
+            },
+        );
+        attach_pipeline_diagnostics(package_store, pipeline_result)
+            .map(|warnings| (warnings, report))
+    }
+
+    /// Partitions a pipeline result into fatal errors and forwarded warnings,
+    /// attaching sources to both.
+    fn attach_pipeline_diagnostics(
+        package_store: &PackageStore,
+        pipeline_result: qsc_fir_transforms::PipelineResult,
+    ) -> Result<Vec<Error>, Vec<Error>> {
         if !pipeline_result.errors.is_empty() {
             return Err(pipeline_result
                 .errors
@@ -1826,6 +1877,7 @@ pub mod qir {
                 fir_store,
                 fir_package_id,
                 compute_properties,
+                fir_report: qsc_codegen::fir_optimize::StageReport::default(),
                 warnings,
             },
             backend,
@@ -1918,6 +1970,7 @@ pub mod qir {
             fir_store,
             fir_package_id,
             compute_properties,
+            fir_report: qsc_codegen::fir_optimize::StageReport::default(),
             warnings,
         })
     }
@@ -1961,6 +2014,7 @@ pub mod qir {
         package_id: qsc_hir::hir::PackageId,
         package_override: Option<&qsc_hir::hir::Package>,
         capabilities: TargetCapabilityFlags,
+        level: qsc_codegen::pass_pipeline::OptimizationLevel,
     ) -> Result<CodegenFir, Vec<Error>> {
         let (fir_store, fir_package_id, _) =
             lower_to_fir(package_store, package_id, package_override, None);
@@ -1971,6 +2025,7 @@ pub mod qir {
             fir_store,
             fir_package_id,
             capabilities,
+            level,
         )
     }
 
@@ -1980,8 +2035,10 @@ pub mod qir {
         mut fir_store: qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         capabilities: TargetCapabilityFlags,
+        level: qsc_codegen::pass_pipeline::OptimizationLevel,
     ) -> Result<CodegenFir, Vec<Error>> {
-        let warnings = run_codegen_pipeline(package_store, &mut fir_store, fir_package_id)?;
+        let (warnings, fir_report) =
+            run_codegen_pipeline_at(package_store, &mut fir_store, fir_package_id, level)?;
 
         let compute_properties =
             PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, capabilities)
@@ -1991,6 +2048,7 @@ pub mod qir {
             fir_store,
             fir_package_id,
             compute_properties,
+            fir_report,
             warnings,
         })
     }
@@ -2000,7 +2058,13 @@ pub mod qir {
         package_id: qsc_hir::hir::PackageId,
         capabilities: TargetCapabilityFlags,
     ) -> Result<CodegenFir, Vec<Error>> {
-        prepare_codegen_fir_inner(package_store, package_id, None, capabilities)
+        prepare_codegen_fir_inner(
+            package_store,
+            package_id,
+            None,
+            capabilities,
+            qsc_codegen::pass_pipeline::OptimizationLevel::None,
+        )
     }
 
     pub fn prepare_codegen_fir_from_fir_store(
@@ -2016,6 +2080,7 @@ pub mod qir {
             fir_store.clone(),
             fir_package_id,
             capabilities,
+            qsc_codegen::pass_pipeline::OptimizationLevel::None,
         )
     }
 
@@ -2041,6 +2106,7 @@ pub mod qir {
                 compute_properties: qsc_rca::Analyzer::init(&fir_store, capabilities).analyze_all(),
                 fir_store,
                 fir_package_id,
+                fir_report: qsc_codegen::fir_optimize::StageReport::default(),
                 warnings: Vec::new(),
             });
         }
@@ -2064,6 +2130,7 @@ pub mod qir {
             fir_store,
             fir_package_id,
             compute_properties,
+            fir_report: qsc_codegen::fir_optimize::StageReport::default(),
             warnings,
         })
     }
@@ -2074,6 +2141,7 @@ pub mod qir {
         capabilities: TargetCapabilityFlags,
         package_store: &mut PackageStore,
         dependencies: &Dependencies,
+        level: qsc_codegen::pass_pipeline::OptimizationLevel,
     ) -> Result<(qsc_hir::hir::PackageId, CodegenFir), Vec<Error>> {
         if capabilities == TargetCapabilityFlags::all() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
@@ -2092,7 +2160,8 @@ pub mod qir {
         }
 
         let package_id = package_store.insert(unit);
-        let prepared_fir = prepare_codegen_fir(package_store, package_id, capabilities)?;
+        let prepared_fir =
+            prepare_codegen_fir_inner(package_store, package_id, None, capabilities, level)?;
         Ok((package_id, prepared_fir))
     }
 
@@ -2155,6 +2224,7 @@ pub mod qir {
             capabilities,
             &mut package_store,
             dependencies,
+            qsc_codegen::pass_pipeline::OptimizationLevel::None,
         )?;
         let entry = entry_from_codegen_fir(&prepared_fir);
         let CodegenFir {
@@ -2189,24 +2259,97 @@ pub mod qir {
         sources: SourceMap,
         language_features: LanguageFeatures,
         capabilities: TargetCapabilityFlags,
-        mut package_store: PackageStore,
+        package_store: PackageStore,
         dependencies: &Dependencies,
     ) -> Result<String, Vec<Error>> {
+        get_qir_at(
+            sources,
+            language_features,
+            capabilities,
+            package_store,
+            dependencies,
+            qsc_codegen::pass_pipeline::OptimizationLevels::OFF,
+        )
+    }
+
+    /// Generates QIR, running each optimization stage as far as `levels` allows.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`get_qir`].
+    pub fn get_qir_at(
+        sources: SourceMap,
+        language_features: LanguageFeatures,
+        capabilities: TargetCapabilityFlags,
+        package_store: PackageStore,
+        dependencies: &Dependencies,
+        levels: qsc_codegen::pass_pipeline::OptimizationLevels,
+    ) -> Result<String, Vec<Error>> {
+        get_qir_reporting(
+            sources,
+            language_features,
+            capabilities,
+            package_store,
+            dependencies,
+            levels,
+        )
+        .map(|(qir, _, _)| qir)
+    }
+
+    /// Generates QIR and reports what each optimization stage did with it.
+    ///
+    /// The FIR stage's report comes first, in pipeline order. It is carried out
+    /// of the transform pipeline on [`CodegenFir`] rather than returned by the
+    /// pipeline, because the pipeline hands the stage through a closure.
+    ///
+    /// Reading it is the only way to tell a stage that declined on every
+    /// callable from a stage that was never asked to run, and the only way to
+    /// tell either from a stage that lowered every callable and found nothing
+    /// to remove. Emitted QIR does not distinguish those three.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`get_qir`].
+    pub fn get_qir_reporting(
+        sources: SourceMap,
+        language_features: LanguageFeatures,
+        capabilities: TargetCapabilityFlags,
+        mut package_store: PackageStore,
+        dependencies: &Dependencies,
+        levels: qsc_codegen::pass_pipeline::OptimizationLevels,
+    ) -> Result<
+        (
+            String,
+            qsc_codegen::fir_optimize::StageReport,
+            qsc_codegen::rir_optimize::StageReport,
+        ),
+        Vec<Error>,
+    > {
         let (_, prepared_fir) = compile_to_codegen_fir(
             sources,
             language_features,
             capabilities,
             &mut package_store,
             dependencies,
+            levels.fir,
         )?;
         let entry = entry_from_codegen_fir(&prepared_fir);
         let CodegenFir {
             fir_store,
             compute_properties,
+            fir_report,
             ..
         } = prepared_fir;
 
-        fir_to_qir(&fir_store, capabilities, &compute_properties, &entry).map_err(|e| {
+        qsc_codegen::qir::fir_to_qir_reporting(
+            &fir_store,
+            capabilities,
+            &compute_properties,
+            &entry,
+            levels.rir,
+        )
+        .map(|(qir, rir_report)| (qir, fir_report, rir_report))
+        .map_err(|e| {
             let source_package_id = e.span().package;
             let source_package = package_store
                 .get(source_package_id)

@@ -8,8 +8,10 @@ mod adaptive_ri_profile;
 mod adaptive_rif_profile;
 mod base_profile;
 mod callable_evaluation;
+mod golden_corpus_pairs;
+mod optimized_path_semantics;
 
-use std::{io::Cursor, rc::Rc, sync::Arc};
+use std::{fmt::Write as _, io::Cursor, rc::Rc, sync::Arc};
 
 use expect_test::{Expect, expect};
 use miette::Report;
@@ -2915,6 +2917,583 @@ fn controlled_tuple_values_and_aliases_match_literal_inputs_in_base_qir() {
         eval_fragments(&mut interpreter, &source.replace("@EntryPoint()", ""));
         assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::unit());
     }
+}
+
+/// Compiles with the post-partial-evaluation stage asked to optimize, which no
+/// production caller does by default.
+fn compile_source_to_optimized_qir(source: &str, capabilities: TargetCapabilityFlags) -> String {
+    let sources = source_map_from_source(source);
+    let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+    crate::codegen::qir::get_qir_at(
+        sources,
+        LanguageFeatures::default(),
+        capabilities,
+        store,
+        &[(std_id, None)],
+        qsc_codegen::pass_pipeline::OptimizationLevels::at_rir(
+            qsc_codegen::pass_pipeline::OptimizationLevel::Default,
+        ),
+    )
+    .unwrap_or_else(|errors| {
+        panic!(
+            "Failed to generate QIR for capabilities {capabilities:?}:\n{}",
+            format_interpret_errors(errors)
+        )
+    })
+}
+
+/// Compiles with the stage asked to optimize and reports what it did.
+fn optimize_and_report(
+    source: &str,
+    capabilities: TargetCapabilityFlags,
+) -> qsc_codegen::rir_optimize::StageReport {
+    let sources = source_map_from_source(source);
+    let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+    crate::codegen::qir::get_qir_reporting(
+        sources,
+        LanguageFeatures::default(),
+        capabilities,
+        store,
+        &[(std_id, None)],
+        qsc_codegen::pass_pipeline::OptimizationLevels::at_rir(
+            qsc_codegen::pass_pipeline::OptimizationLevel::Default,
+        ),
+    )
+    .unwrap_or_else(|errors| {
+        panic!(
+            "Failed to generate QIR for capabilities {capabilities:?}:\n{}",
+            format_interpret_errors(errors)
+        )
+    })
+    .2
+}
+
+#[test]
+fn how_often_qubit_identity_declines_is_measured_rather_than_assumed() {
+    // The figure this test exists to report. A producer that is correct and
+    // declines on everything looks exactly like a producer that is correct and
+    // useful, until someone counts, and that is how the first wiring of this
+    // stage passed every test while doing nothing on every real program.
+    //
+    // `resource` is an operand that resolved to a wire, `binding` and `opaque`
+    // are the two ways of not resolving. `declined` is why the stage left the
+    // program alone, when it did.
+    let straight = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                H(q); H(q); X(q);
+                MResetZ(q)
+            }
+        }"#;
+    let looping = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                mutable r = Zero;
+                for _ in 1..3 { H(q); set r = M(q); }
+                r
+            }
+        }"#;
+    let conditional = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use (a, b) = (Qubit(), Qubit());
+                H(a);
+                if M(a) == One { X(b); X(b); }
+                MResetZ(b)
+            }
+        }"#;
+
+    let mut measured = String::new();
+    for (name, source) in [
+        ("straight", straight),
+        ("looping", looping),
+        ("conditional", conditional),
+    ] {
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let report = optimize_and_report(source, profile.into());
+            let outcome = match &report.declined {
+                Some(reason) => format!("declined: {reason}"),
+                None if report.changed => "changed".to_string(),
+                None => "accepted".to_string(),
+            };
+            writeln!(
+                measured,
+                "{name} @ {profile:?}: resource {} binding {} opaque {}, {outcome}",
+                report.census.resource, report.census.binding, report.census.opaque,
+            )
+            .expect("writing to a string cannot fail");
+        }
+    }
+
+    // The answer is that identity does not decline at all, and the reason is
+    // the call site: a body names a parameter, but it is walked from the call
+    // that passed a literal, so the parameter resolves. `binding` and `opaque`
+    // stay reachable for a dynamically allocated qubit, which no profile here
+    // emits. The Adaptive loop is refused before its operands are counted.
+    // The `conditional` decline is the rewrite failing verification
+    // inside a gamma arm, which is not an identity result and predates bodies.
+    expect![[r#"
+        straight @ AdaptiveRI: resource 4 binding 0 opaque 0, changed
+        straight @ AdaptiveRIF: resource 4 binding 0 opaque 0, changed
+        straight @ Adaptive: resource 4 binding 0 opaque 0, changed
+        looping @ AdaptiveRI: resource 6 binding 0 opaque 0, declined: Unchanged
+        looping @ AdaptiveRIF: resource 6 binding 0 opaque 0, declined: Unchanged
+        looping @ Adaptive: resource 0 binding 0 opaque 0, declined: a loop is outside the shape this stage repeats: both of its arms come back to the condition
+        conditional @ AdaptiveRI: resource 5 binding 0 opaque 0, declined: verification rejected the transaction
+        conditional @ AdaptiveRIF: resource 5 binding 0 opaque 0, declined: verification rejected the transaction
+        conditional @ Adaptive: resource 5 binding 0 opaque 0, declined: verification rejected the transaction
+    "#]]
+    .assert_eq(&measured);
+}
+
+/// Optimization yield measured over real loop-bearing compiler output.
+///
+/// Counted as static call instructions in the emitted QIR, which is the
+/// conservative reading and the only one available here: a gate retired from a
+/// loop body is one instruction and as many executions as the loop takes, and
+/// nothing in the compiler knows the trip count. A delta of one therefore
+/// understates what the program saves by a factor nobody here can name.
+///
+/// At the full Adaptive profile alone, because a backwards branch is what makes
+/// a loop reach this stage as a loop rather than as whatever partial evaluation
+/// unrolled it into.
+#[test]
+fn what_a_loop_body_loses_is_measured_rather_than_claimed() {
+    let interior = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                mutable count = 0;
+                while count < 3 { X(q); H(q); H(q); Z(q); set count += 1; }
+                MResetZ(q)
+            }
+        }"#;
+    let at_the_edge = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                mutable count = 0;
+                while count < 3 { H(q); H(q); Z(q); set count += 1; }
+                MResetZ(q)
+            }
+        }"#;
+    let counted = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                for _ in 1..3 { X(q); H(q); H(q); Z(q); }
+                MResetZ(q)
+            }
+        }"#;
+
+    let calls = |qir: &str| qir.matches("call void @").count();
+    let mut measured = String::new();
+    for (name, source) in [
+        ("while, pair inside the body", interior),
+        ("while, pair at the body's edge", at_the_edge),
+        ("for, pair inside the body", counted),
+    ] {
+        let capabilities = Profile::Adaptive.into();
+        let report = optimize_and_report(source, capabilities);
+        let outcome = match &report.declined {
+            Some(reason) => format!("declined: {reason}"),
+            None if report.changed => "changed".to_string(),
+            None => "accepted".to_string(),
+        };
+        let before = calls(&compile_source_to_qir(source, capabilities));
+        let after = calls(&compile_source_to_optimized_qir(source, capabilities));
+        writeln!(measured, "{name}: {before} calls, {after} after, {outcome}")
+            .expect("writing to a string cannot fail");
+    }
+
+    // The result, stated as a delta and not as a ratio nobody computed. Three
+    // instructions leave the `while`: both calls in the body, and the intrinsic
+    // in the gate wrapper whose last caller was inside that body. The other two
+    // are zero and are reported rather than omitted, which is the whole point
+    // of measuring at all: the edge case is declined by the rule and the `for`
+    // is refused by name, and neither contributes an optimization benefit.
+    expect![[r#"
+        while, pair inside the body: 10 calls, 7 after, changed
+        while, pair at the body's edge: 8 calls, 8 after, declined: Unchanged
+        for, pair inside the body: 10 calls, 10 after, declined: a loop is outside the shape this stage repeats: both of its arms come back to the condition
+    "#]]
+    .assert_eq(&measured);
+}
+
+#[test]
+fn the_adaptive_profile_reaches_the_stage_through_its_ir_functions() {
+    // At this profile every operation arrives wrapped in an IR function, so
+    // before bodies were walked the producer refused every Adaptive program at
+    // the door and the decline rate here was one hundred percent.
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                H(q);
+                H(q);
+                X(q);
+                return MResetZ(q);
+            }
+        }
+    "#;
+    let qir = compile_source_to_optimized_qir(source, Profile::Adaptive.into());
+
+    assert!(
+        !qir.contains("__quantum__qis__h__body"),
+        "the cancelled pair leaves the emitted code, wrapper and declaration included:\n{qir}"
+    );
+    assert!(
+        qir.contains("__quantum__qis__x__body"),
+        "only the pair leaves:\n{qir}"
+    );
+}
+
+#[test]
+fn the_post_partial_evaluation_stage_removes_an_adjacent_pair_when_asked() {
+    // The stage is reachable only from here, so a unit test on the producer
+    // cannot show that it runs. It silently declined on every real program
+    // until this was written, because a real program opens with a runtime call
+    // the vocabulary has no term for, and nothing else in the suite noticed.
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                H(q);
+                H(q);
+                X(q);
+                return MResetZ(q);
+            }
+        }
+    "#;
+    let qir = compile_source_to_optimized_qir(source, Profile::AdaptiveRI.into());
+
+    assert!(
+        !qir.contains("__quantum__qis__h__body"),
+        "the cancelled pair leaves the emitted code, declaration included:\n{qir}"
+    );
+    assert!(
+        qir.contains("__quantum__qis__x__body"),
+        "only the pair leaves:\n{qir}"
+    );
+}
+
+#[test]
+fn the_post_partial_evaluation_stage_is_off_unless_asked() {
+    // The default for every production caller. Cancelling a pair is sound about
+    // the unitary and wrong about the device: a chain of `x` gates is the
+    // identity on paper and a noise accumulator on hardware, so a program
+    // written to characterize gate error must reach the simulator intact.
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                H(q);
+                H(q);
+                X(q);
+                return MResetZ(q);
+            }
+        }
+    "#;
+    let qir = compile_source_to_qir(source, Profile::AdaptiveRI.into());
+
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        2,
+        "both halves of the pair survive at the default level:\n{qir}"
+    );
+}
+
+/// Compiles with the FIR stage asked to optimize and the stage below left off,
+/// which no production caller does by default.
+///
+/// The two levels are separate deliberately. Both stages remove the same pairs
+/// wherever both accept, so asking for them together would leave any assertion
+/// here unable to say which one acted.
+fn compile_source_to_fir_optimized_qir(
+    source: &str,
+    capabilities: TargetCapabilityFlags,
+) -> String {
+    let sources = source_map_from_source(source);
+    let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+    crate::codegen::qir::get_qir_at(
+        sources,
+        LanguageFeatures::default(),
+        capabilities,
+        store,
+        &[(std_id, None)],
+        qsc_codegen::pass_pipeline::OptimizationLevels::at_fir(
+            qsc_codegen::pass_pipeline::OptimizationLevel::Default,
+        ),
+    )
+    .unwrap_or_else(|errors| {
+        panic!(
+            "Failed to generate QIR for capabilities {capabilities:?}:\n{}",
+            format_interpret_errors(errors)
+        )
+    })
+}
+
+/// A pair in a callable the FIR producer can walk, beside a gate that does not
+/// cancel, called from an entry that measures.
+///
+/// The measurement is in the entry rather than in the body on purpose: the FIR
+/// producer refuses a body containing one, because a `Result` at FIR is a value
+/// bound to a local and the vocabulary's store name carries a register index
+/// that does not exist yet.
+const FIR_STAGE_PAIR: &str = r#"
+    namespace Test {
+        operation Body(q : Qubit) : Unit {
+            H(q);
+            H(q);
+            X(q);
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use q = Qubit();
+            Body(q);
+            return MResetZ(q);
+        }
+    }
+"#;
+
+#[test]
+fn the_fir_stage_removes_an_adjacent_pair_when_asked() {
+    // Exercise the public compiler entry point, not a test-only stage assembly.
+    let qir = compile_source_to_fir_optimized_qir(FIR_STAGE_PAIR, Profile::AdaptiveRI.into());
+
+    assert!(
+        !qir.contains("__quantum__qis__h__body"),
+        "the cancelled pair leaves the emitted code, declaration included:\n{qir}"
+    );
+    assert!(
+        qir.contains("__quantum__qis__x__body"),
+        "only the pair leaves:\n{qir}"
+    );
+}
+
+#[test]
+fn the_fir_stage_is_off_unless_asked() {
+    // Neither stage is asked for here.
+    let untouched = compile_source_to_qir(FIR_STAGE_PAIR, Profile::AdaptiveRI.into());
+    assert_eq!(
+        untouched
+            .matches("call void @__quantum__qis__h__body")
+            .count(),
+        2,
+        "both halves of the pair survive when neither stage is asked for:\n{untouched}"
+    );
+
+    // The stronger claim the two levels exist for: asking for the stage below
+    // leaves this one alone. It cannot be asserted from emitted QIR, because
+    // that stage removes the same pair, so it is asserted from the report.
+    let at_rir = fir_stage_report(
+        FIR_STAGE_PAIR,
+        Profile::AdaptiveRI.into(),
+        qsc_codegen::pass_pipeline::OptimizationLevels::at_rir(
+            qsc_codegen::pass_pipeline::OptimizationLevel::Default,
+        ),
+    );
+    assert_eq!(
+        at_rir,
+        qsc_codegen::fir_optimize::StageReport::default(),
+        "asking for the stage below must not run this one"
+    );
+}
+
+/// Compiles at `levels` and reports what the FIR stage did.
+fn fir_stage_report(
+    source: &str,
+    capabilities: TargetCapabilityFlags,
+    levels: qsc_codegen::pass_pipeline::OptimizationLevels,
+) -> qsc_codegen::fir_optimize::StageReport {
+    let sources = source_map_from_source(source);
+    let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+    crate::codegen::qir::get_qir_reporting(
+        sources,
+        LanguageFeatures::default(),
+        capabilities,
+        store,
+        &[(std_id, None)],
+        levels,
+    )
+    .unwrap_or_else(|errors| {
+        panic!(
+            "Failed to generate QIR for capabilities {capabilities:?}:\n{}",
+            format_interpret_errors(errors)
+        )
+    })
+    .1
+}
+
+/// The FIR stage asked to optimize, reporting what it did.
+fn fir_stage_report_when_asked(
+    source: &str,
+    capabilities: TargetCapabilityFlags,
+) -> qsc_codegen::fir_optimize::StageReport {
+    fir_stage_report(
+        source,
+        capabilities,
+        qsc_codegen::pass_pipeline::OptimizationLevels::at_fir(
+            qsc_codegen::pass_pipeline::OptimizationLevel::Default,
+        ),
+    )
+}
+
+/// A program whose every callable the producer lowers and finds nothing to
+/// cancel in.
+///
+/// `H` then `X` is not a pair, so the rule leaves the graph alone. No callable
+/// here measures, because a measurement is a refusal and one decline would make
+/// this program indistinguishable from the one below. This is the case the
+/// report exists to separate: what the stage emits here is byte-identical to
+/// what it emits when it was never asked to run.
+const FIR_STAGE_NOTHING_TO_REMOVE: &str = r#"
+    namespace Test {
+        operation Body(q : Qubit) : Unit {
+            H(q);
+            X(q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            Body(q);
+        }
+    }
+"#;
+
+/// A program the producer refuses in every callable it holds.
+///
+/// The loop is the refusal in `Main`, and `Body` is refused for holding the
+/// measurement whose `Result` the graph has no register index for.
+const FIR_STAGE_REFUSED_THROUGHOUT: &str = r#"
+    namespace Test {
+        operation Body(q : Qubit) : Result {
+            return MResetZ(q);
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use q = Qubit();
+            mutable r = Zero;
+            for _ in 1..2 {
+                H(q);
+                H(q);
+                set r = Body(q);
+            }
+            return r;
+        }
+    }
+"#;
+
+#[test]
+fn the_fir_stage_report_separates_acting_from_declining_from_finding_nothing() {
+    // Three outcomes rather than two. Emitted QIR distinguishes only the first
+    // from the other two, and the two it collapses are the pair that matters:
+    // a stage that declined on every callable and a stage that lowered every
+    // callable and found nothing to remove emit the same program, which is how
+    // the stage below once passed every test while doing nothing.
+    let capabilities: TargetCapabilityFlags = Profile::AdaptiveRI.into();
+
+    let acted = fir_stage_report_when_asked(FIR_STAGE_PAIR, capabilities);
+    assert!(
+        acted.edits > 0,
+        "a program holding a pair the producer can reach is acted on: {acted:?}"
+    );
+
+    let declined = fir_stage_report_when_asked(FIR_STAGE_REFUSED_THROUGHOUT, capabilities);
+    assert!(
+        declined.declined > 0 && declined.edits == 0,
+        "a program the producer refuses throughout reports declines and no edits: {declined:?}"
+    );
+
+    let nothing_to_remove = fir_stage_report_when_asked(FIR_STAGE_NOTHING_TO_REMOVE, capabilities);
+    assert!(
+        nothing_to_remove.unchanged > 0
+            && nothing_to_remove.edits == 0
+            && nothing_to_remove.declined == 0,
+        "a program the producer lowers and the rule leaves alone is neither of the \
+         other two: {nothing_to_remove:?}"
+    );
+
+    // And none of the three is the report of a stage that was never asked.
+    let never_asked = fir_stage_report(
+        FIR_STAGE_NOTHING_TO_REMOVE,
+        capabilities,
+        qsc_codegen::pass_pipeline::OptimizationLevels::OFF,
+    );
+    assert_eq!(
+        never_asked,
+        qsc_codegen::fir_optimize::StageReport::default(),
+        "a stage that never ran reports nothing"
+    );
+    assert_ne!(
+        nothing_to_remove, never_asked,
+        "which is the distinction emitted QIR cannot make"
+    );
+}
+
+#[test]
+fn the_fir_stage_leaves_a_quarter_turn_pair_alone() {
+    // `t` twice is `s`, not the identity. Asserted from this origin rather than
+    // inferred from the other one: the hazard belongs to every producer, and
+    // the golden corpus carries three adjacent `t;t` pairs that a wrong answer
+    // here would silently miscompile.
+    let source = r#"
+        namespace Test {
+            operation Body(q : Qubit) : Unit {
+                T(q);
+                T(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Body(q);
+                return MResetZ(q);
+            }
+        }
+    "#;
+    let qir = compile_source_to_fir_optimized_qir(source, Profile::AdaptiveRI.into());
+
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__t__body").count(),
+        2,
+        "both quarter turns survive:\n{qir}"
+    );
+}
+
+#[test]
+fn the_post_partial_evaluation_stage_leaves_a_quarter_turn_pair_alone() {
+    // `t` twice is `s`, not the identity. Asserted end to end rather than
+    // trusted from the rule's name list, because this is the one failure that
+    // would be a silent miscompile rather than a visible one.
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                T(q);
+                T(q);
+                return MResetZ(q);
+            }
+        }
+    "#;
+    let qir = compile_source_to_optimized_qir(source, Profile::AdaptiveRI.into());
+
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__t__body").count(),
+        2,
+        "both quarter turns survive:\n{qir}"
+    );
 }
 
 #[test]
@@ -13716,5 +14295,79 @@ fn return_in_while_condition_emits_forty_two_in_base_and_adaptive_qir() {
             }
         "#},
         42,
+    );
+}
+
+/// A loop from compiler output must lower and verify even when the rewrite
+/// finds no eligible pair. The decline reason distinguishes an unchanged graph
+/// from an unsupported loop.
+#[test]
+fn a_loop_from_the_real_compiler_lowers_and_verifies() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                mutable count = 0;
+                while count < 3 {
+                    H(q);
+                    set count += 1;
+                }
+                MResetZ(q)
+            }
+        }"#;
+    let report = optimize_and_report(source, Profile::Adaptive.into());
+    assert_eq!(
+        report.declined.as_deref(),
+        Some("Unchanged"),
+        "the loop should reach the rule rather than be refused before it: {report:?}"
+    );
+
+    // What makes the assertion above mean what it says. The same rule at the
+    // same profile does cancel an adjacent pair, so `Unchanged` above is the
+    // rule declining to reason across a back edge rather than the rule being
+    // absent from this profile.
+    let adjacent = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                H(q); H(q);
+                MResetZ(q)
+            }
+        }"#;
+    let report = optimize_and_report(adjacent, Profile::Adaptive.into());
+    assert!(
+        report.changed,
+        "the comparison must cancel, or it says nothing: {report:?}"
+    );
+}
+
+/// The edge of the accepted class, and it is narrower than "a loop".
+///
+/// A `for` over a range does not compile to a condition with one arm that
+/// repeats and one that leaves. Partial evaluation rotates it, so the block
+/// that leaves the loop sits inside the loop and both arms of the condition
+/// come back to it. A theta body has one back-edge exit and one continuation,
+/// and that shape has neither, so it refuses by name instead of being folded
+/// into a region that would describe a different program.
+#[test]
+fn a_loop_whose_exit_sits_inside_it_is_refused() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                for _ in 1..2 { H(q); }
+                MResetZ(q)
+            }
+        }"#;
+    let report = optimize_and_report(source, Profile::Adaptive.into());
+    assert_eq!(
+        report.declined.as_deref(),
+        Some(
+            "a loop is outside the shape this stage repeats: both of its arms come back to the condition"
+        ),
+        "the refusal should name the shape rather than report an unspecified cycle: {report:?}"
     );
 }

@@ -1,0 +1,19 @@
+\section{Conclusion}\label{sec:conclusion}
+
+This paper presents a complete specification of the RVSDG IR for
+an optimizing compiler. We provide construction and destruction algorithms, and show the RVSDG's
+efficacy as an IR for analyses and optimizations by presenting Dead Node and Common Node
+Elimination. We
+implemented jlm, a publicly available~\cite{jlm} compiler that uses the RVSDG for optimizations, and
+evaluate it in terms of performance, code size, compilation time, and representational overhead.
+The results suggest that the RVSDG
+combines the abstractions of data centric IRs with the CFG's advantages to optimize and generate
+efficient control flow. This makes the RVSDG an appealing IR for optimizing compilers. A natural
+direction for future work is to explore how features
+such as exceptions can be efficiently mapped to the RVSDG. Another research direction would be to
+extend the number of optimizations and their heuristics in jlm to a competitive level with CFG-based
+compilers. This would provide further information about the number of necessary optimizations, their
+complexity, and consequently the required engineering effort.
+
+
+

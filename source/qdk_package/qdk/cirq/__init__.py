@@ -27,7 +27,12 @@ Usage:
 from ._neutral_atom import NeutralAtomSampler
 from ._result import NeutralAtomCirqResult
 
+from ._convert import ConversionError, from_cirq, to_cirq
+
 __all__ = [
+    "ConversionError",
+    "from_cirq",
+    "to_cirq",
     "NeutralAtomSampler",
     "NeutralAtomCirqResult",
 ]

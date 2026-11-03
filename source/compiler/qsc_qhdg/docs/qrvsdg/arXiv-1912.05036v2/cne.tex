@@ -1,0 +1,115 @@
+\subsection{Common Node Elimination}\label{sec:cne}
+Common Node Elimination (CNE) permits the removal of redundant computations by detecting congruent
+nodes. These nodes always produce the same results, enabling the redirection of their result edges
+to a single node. This renders the other nodes dead, permitting Dead Node Elimination to remove
+them. CNE is similar
+to common subexpression elimination and value numbering~\cite{Alpern88} in that it detects
+equivalent computations, but as the RVSDG represents all computations uniformly as nodes, it can
+be extended to conditionals~\cite{Rugina00}, loops, and functions.
+
+We consider two simple nodes $n_1$ and $n_2$ congruent, or $n_1 \cong n_2$, if they represent the
+same computation, have the same number of inputs, \ie, $\card{I_{n_1}} = \card{I_{n_2}}$, and the
+inputs $\iput{k}{n_1}$ and $\iput{k}{n_2}$ are congruent, or $\iput{k}{n_1} \cong \iput{k}{n_2}$,
+for all $k = [0..\card{I_{n_1}}]$. Two inputs are congruent if their respective origins
+$\origin{k}{n_1}$ and $\origin{k}{n_2}$ are congruent, \ie, $\origin{k}{n_1} \cong
+\origin{k}{n_2}$. By definition, the origins of inputs are either outputs of simple or structural
+nodes, or arguments of regions. Origins from simple nodes are only equivalent when their respective
+producers are computationally equivalent, whereas for the other cases, it must be guaranteed that
+they always receive the same value.
+
+The implementation of CNE consists of two phases: mark and divert. The mark phase identifies
+congruent simple nodes, while the divert phase diverts all edges of their origins to
+a single node, rendering all other nodes dead. Both phases of Algorithm~\ref{alg:cne} perform a
+simple top-down traversal, recursively processing subregions of structural nodes
+annotating inputs, outputs, arguments, and results, as well as simple nodes as congruent. For
+\gammanodes, the algorithm marks only computations within a \emph{single} region as congruent and
+performs no analysis between regions. In the case of \thetanodes, computations are only congruent
+when they are congruent before and after the loop execution, \ie, the inputs and results of two
+loop variables must be congruent.
+Figure~\ref{fig:dcne1} shows the RVSDG for the code in Figure~\ref{fig:dcne-code}, and Figure
+\ref{fig:dcne2} the RVSDG after CNE. Two of the four multiplications take the same inputs and
+therefore are congruent to each other, resulting in the redirection of their result edges.
+
+\begin{informalg}{Common Node Elimination}{alg:cne}
+\begin{enumerate}
+	\vspace*{-0.7\baselineskip}
+
+	\item \bpoint{Mark}: Process all nodes in topological order as follows:
+		\begin{itemize}
+			\item \bpoint{Simple nodes}: Denote this node as \n. Mark \n as congruent to all nodes
+				\np which represent the same operation and where $\card{I_n} = \card{I_{n^{\prime}}} \land
+				\iput{k}{n} \cong \iput{k}{n^{\prime}}$ for all $k = [0..\card{I_n}]$. Mark all outputs
+				$\oput{k}{n} \cong \oput{k}{n^{\prime}}$ for all $k = [0..\card{O_n}]$.
+
+			\item \bpoint{\gammanode}: For all entry variables $ev_1, ev_2 \in EV$ where
+				$\iput{}{ev_1} \cong \iput{}{ev_2}$, mark $\argument{k}{ev_1} \cong \argument{k}{ev_2}$ for
+				all $k \in [0..\card{A_{ev_1}}]$. Recursively process the \gammaregions. For all exit
+				variables $ex_1, ex_2 \in EX$ where $\result{k}{ex_1} \cong \result{k}{ex_2}$ for all
+				$k \in [0..\card{R_{ex_1}}]$, mark $\oput{}{ex_1} \cong \oput{}{ex_2}$.
+
+			\item \bpoint{\thetanode}: For all loop variables $lv_1, lv_2 \in LV$ where
+				$\iput{}{lv_1} \cong \iput{}{lv_2} \land \result{}{lv_1} \cong \result{}{lv_2}$, mark
+				$\argument{}{lv_1} \cong \argument{}{lv_2}$ and $\oput{}{lv_1} \cong \oput{}{lv_2}$.
+				Recursively process the \thetaregion.
+
+			\item \bpoint{\lambdanode}: For all context variables $cv_1, cv_2 \in CV$ where
+				$\iput{}{cv_1} \cong \iput{}{cv_2}$, mark $\argument{}{cv_1} \cong \argument{}{cv_2}$.
+				Recursively process the \lambdaregion.
+
+			\item \bpoint{\phinode}: For all context variables $cv_1, cv_2 \in CV$ where
+				$\iput{}{cv_1} \cong \iput{}{cv_2}$, mark $a_{cv_1} \cong a_{cv_2}$. Recursively process
+				the \phiregion.
+
+			\item \bpoint{\omeganode}: Recursively process the \omegaregion.
+		\end{itemize}
+
+	\item \bpoint{Divert}: Process all nodes in topological order as follows:
+		\begin{itemize}
+			\item \bpoint{Simple nodes}: Denote this node as \n. For all nodes \np which are congruent to
+				\n, divert all outputs $\oput{k}{n^{\prime}}$ to \oput{k}{n} for all $k = [0..\card{O_n}]$.
+
+			\item \bpoint{\gammanode}: For all entry variables $ev_1, ev_2 \in EV$ where
+				$\iput{}{ev_1} \cong \iput{}{ev_2}$, divert all edges from $\argument{k}{ev_2}$ to
+				$\argument{k}{ev_1}$ for all $k \in [0..\card{A_{ev_1}}]$. Recursively
+				process the \gammaregions. For all exit variables $ex_1, ex_2 \in EX$ where
+				$\result{k}{ex_1} \cong \result{k}{ex_2}$ for all $k \in [0..\card{R_{ex_1}}]$, divert all
+				edges from $\oput{}{ex_2}$ to $\oput{}{ex_1}$.
+
+			\item \bpoint{\thetanode}: For all induction variables $lv_1, lv_2 \in LV$ where
+				$\argument{}{lv_1} \cong \argument{}{lv_2} \land \oput{}{lv_1} \cong \oput{}{lv_2}$, divert
+				all edges from $\argument{}{lv_2}$ to $\argument{}{lv_1}$ and from $\oput{}{lv_2}$ to
+				$\oput{}{lv_1}$. Recursively process the \thetaregion.
+
+			\item \bpoint{\lambdanode}: For all context variables $cv_1, cv_2 \in CV$ where
+				$\iput{}{cv_1} \cong \iput{}{cv_2}$, divert all edges from $\argument{}{cv_2}$ to
+				$\argument{}{cv_1}$. Recursively process the \lambdaregion.
+
+			\item \bpoint{\phinode}: For all context variables $cv_1, cv_2 \in CV$ where
+				$\iput{}{cv_1} \cong \iput{}{cv_2}$, divert all edges from $\argument{}{cv_2}$ to
+				$\argument{}{cv_1}$. Recursively process the \phiregion.
+
+			\item \bpoint{\omeganode}: Recursively process the \omegaregion.
+		\end{itemize}
+
+	\vspace*{-\baselineskip}
+\end{enumerate}
+\end{informalg}
+
+For simple nodes, the algorithm marks all nodes within a
+region that are congruent to a node \n. In order to avoid costly traversals of all nodes for every
+node \n, the mark phase takes the candidates from the users of the origin of \n's first
+input. If there is another input from a simple node \np with the same operation and number of
+inputs among them, the other inputs from both nodes can be compared for congruence. Moreover, a
+region must store constant nodes, \ie nodes without inputs, separately from other nodes so that the
+candidate nodes for constants are available. For commutative simple nodes, the inputs should be
+sorted before their comparison.
+
+The presented algorithm only detects congruent simple nodes within a region. For \gammanodes,
+congruence can also exist between nodes of different \gammaregions, and extending the
+algorithm would eliminate these redundancies. Another extension would
+be to detect congruent structural nodes, to implement conditional fusion
+\cite{Rugina00} and loop fusion~\cite{manjikian97}. In
+the case of \gammanodes, it is sufficient to ensure that two nodes have congruent
+predicates, while \thetanodes require congruence detection between
+different \thetaregions to ensure that their predicates are the same.
+

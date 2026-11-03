@@ -1,0 +1,300 @@
+\begin{thebibliography}{10}
+
+\bibitem{Allen70}
+Frances~E Allen.
+\newblock Control flow analysis.
+\newblock In {\em ACM Sigplan Notices}, volume~5, pages 1--19. ACM, 1970.
+
+\bibitem{Alpern88}
+B.~Alpern, M.~N. Wegman, and F.~K. Zadeck.
+\newblock Detecting equality of variables in programs.
+\newblock In {\em Proceedings of the {ACM} {SIGPLAN} Symposium on Principles of
+  Programming Languages}, pages 1--11. ACM, 1988.
+
+\bibitem{Bahmann15}
+Helge Bahmann, Nico Reissmann, Magnus Jahre, and Jan~Christian Meyer.
+\newblock Perfect reconstructability of control flow from demand dependence
+  graphs.
+\newblock {\em {ACM} Transactions on Architecture and Code Optimization},
+  11(4):66:1--66:25, 2015.
+
+\bibitem{Baxter89}
+W.~Baxter and H.~R. Bauer, III.
+\newblock The program dependence graph and vectorization.
+\newblock In {\em Proceedings of the {ACM} {SIGPLAN} Symposium on Principles of
+  Programming Languages}, pages 1--11. ACM, 1989.
+
+\bibitem{Campbell93}
+Philip~L Campbell, Ksheerabdhi Krishna, and Robert~A Ballance.
+\newblock {Refining and Defining the Program Dependence Web}.
+\newblock Technical report, {University of New Mexico}, 1993.
+
+\bibitem{Carter03}
+Larry Carter, Jeanne Ferrante, and Clark Thomborson.
+\newblock {Folklore Confirmed: Reducible Flow Graphs are Exponentially Larger}.
+\newblock In {\em Proceedings of the {ACM} {SIGPLAN} Symposium on Principles of
+  Programming Languages}, volume~38, pages 106--114. ACM, 2003.
+
+\bibitem{Castrillon13}
+Jeronimo Castrillon.
+\newblock {\em Programming Heterogeneous MPSoCs: Tool Flows to Close the
+  Software Productivity Gap}.
+\newblock PhD thesis, RWTH Aachen Univeristy, 2013.
+
+\bibitem{Choi96}
+Jong-Deok Choi, Vivek Sarkar, and Edith Schonberg.
+\newblock Incremental computation of static single assignment form.
+\newblock In {\em Proceedings of the International Conference on Compiler
+  Construction}, pages 223--237. Springer-Verlag, 1996.
+
+\bibitem{clang}
+Clang.
+\newblock Clang: A c language family frontend for llvm.
+\newblock \url{https://clang.llvm.org}, 2017.
+\newblock Accessed: 2019-10-30.
+
+\bibitem{gcc}
+GNU~Compiler Collection.
+\newblock \url{https://gcc.gnu.org/}, 2018.
+\newblock Accesssed: 2019-08-05.
+
+\bibitem{Cordes10}
+Daniel Cordes, Peter Marwedel, and Arindam Mallik.
+\newblock Automatic parallelization of embedded software using hierarchical
+  task graphs and integer linear programming.
+\newblock In {\em Proceedings of the {ACM}/{IEEE} International Conference on
+  Hardware/Software Codesign and System Synthesis}, pages 267--276, 2010.
+
+\bibitem{Cytron91}
+Ron Cytron, Jeanne Ferrante, Barry~K. Rosen, Mark~N. Wegman, and F.~K Zadeck.
+\newblock Efficiently computing static single assignment form and the control
+  dependence graph.
+\newblock Technical report, 1991.
+
+\bibitem{Dennis80}
+Jack~Bonnell Dennis.
+\newblock Data flow supercomputers.
+\newblock {\em Computer}, 13(11):48--56, 1980.
+
+\bibitem{Ding14}
+Shuhan Ding, John Earnest, and Soner \"{O}nder.
+\newblock {Single Assignment Compiler, Single Assignment Architecture: Future
+  Gated Single Assignment Form}.
+\newblock In {\em Proceedings of the International Symposium on Code Generation
+  and Optimization}. ACM, 2014.
+
+\bibitem{Ferrante87}
+Jeanne Ferrante, Karl~J. Ottenstein, and Joe~D. Warren.
+\newblock The program dependence graph and its use in optimization.
+\newblock {\em {ACM} Transactions on Programming Languages and Systems},
+  9(3):319--349, 1987.
+
+\bibitem{Havlak93}
+Paul Havlak.
+\newblock {Construction of Thinned Gated Single-Assignment Form}.
+\newblock In {\em Proceedings of the International Workshop on Languages and
+  Compilers for Parallel Computing-Revised Papers}, pages 477--499. Springer,
+  1993.
+
+\bibitem{Horwitz288}
+S.~Horwitz, J.~Prins, and T.~Reps.
+\newblock On the adequacy of program dependence graphs for representing
+  programs.
+\newblock In {\em Proceedings of the {ACM} {SIGPLAN} Symposium on Principles of
+  Programming Languages}, pages 146--157. ACM, 1988.
+
+\bibitem{Horwitz88}
+S.~Horwitz, T.~Reps, and D.~Binkley.
+\newblock Interprocedural slicing using dependence graphs.
+\newblock volume~23, pages 35--46. ACM, 1988.
+
+\bibitem{Johnson03}
+Neil Johnson and Alan Mycroft.
+\newblock Combined code motion and register allocation using the value state
+  dependence graph.
+\newblock In {\em Proceedings of the International Conference on Compiler
+  Construction}, pages 1--16. Springer-Verlag, 2003.
+
+\bibitem{Johnson04}
+Neil~E. Johnson.
+\newblock Code size optimization for embedded processors.
+\newblock Technical report, University of Cambridge, Computer Laboratory, 2004.
+
+\bibitem{Johnson94}
+Richard Johnson, David Pearson, and Keshav Pingali.
+\newblock The program structure tree: Computing control regions in linear time.
+\newblock pages 171--185. ACM, 1994.
+
+\bibitem{Lattner04}
+Chris Lattner and Vikram Adve.
+\newblock {LLVM: A Compilation Framework for Lifelong Program Analysis \&
+  Transformation}.
+\newblock In {\em Proceedings of the International Symposium on Code Generation
+  and Optimization}, 2004.
+
+\bibitem{Lattner20}
+Chris Lattner, Mehdi Amini, Uday Bondhugula, Albert Cohen, Andy Davis, Jacques
+  Pienaar, River Riddle, Tatiana Shpeisman, Nicolas Vasilache, and Oleksandr
+  Zinenko.
+\newblock Mlir: A compiler infrastructure for the end of moore's law, 2020.
+
+\bibitem{Lawrence07}
+Alan~C. Lawrence.
+\newblock {Optimizing compilation with the Value State Dependence Graph}.
+\newblock Technical report, University of Cambridge, 2007.
+
+\bibitem{llvm-bug1}
+LLVM.
+\newblock \url{https://bugs.llvm.org/show_bug.cgi?id=31851}, 2018.
+\newblock Accesssed: 2018-05-07.
+
+\bibitem{llvm-bug2}
+LLVM.
+\newblock \url{https://bugs.llvm.org/show_bug.cgi?id=37202}, 2018.
+\newblock Accesssed: 2018-05-07.
+
+\bibitem{llvm-bug3}
+LLVM.
+\newblock \url{https://bugs.llvm.org/show_bug.cgi?id=31183}, 2018.
+\newblock Accesssed: 2018-05-07.
+
+\bibitem{manjikian97}
+Naraig Manjikian and Tarek~S Abdelrahman.
+\newblock Fusion of loops for parallelism and locality.
+\newblock {\em {IEEE} Transactions on Parallel and Distributed Systems},
+  8(2):193--209, 1997.
+
+\bibitem{Muchnick97}
+Steven~S. Muchnick.
+\newblock {\em Advanced Compiler Design and Implementation}.
+\newblock Morgan Kaufmann, 1997.
+
+\bibitem{Namballa04}
+R.~Namballa, N.~Ranganathan, and A.~Ejnioui.
+\newblock {Control and Data Flow Graph Extraction for High-Level Synthesis}.
+\newblock In {\em IEEE Computer Society Annual Symposium on VLSI}, pages
+  187--192, 2004.
+
+\bibitem{Ottenstein90}
+Karl~J. Ottenstein, Robert~A. Ballance, and Arthur~B. MacCabe.
+\newblock {The Program Dependence Web: A Representation Supporting Control-,
+  Data-, and Demand-driven Interpretation of Imperative Languages}.
+\newblock In {\em Proceedings of the {ACM} {SIGPLAN} Conference on Programming
+  Language Design and Implementation}, pages 257--271. ACM, 1990.
+
+\bibitem{Ottoni05}
+Guilherme Ottoni, Ram Rangan, Adam Stoler, and David~I. August.
+\newblock {Automatic Thread Extraction with Decoupled Software Pipelining}.
+\newblock In {\em Proceedings of the {ACM/IEEE} International Symposium on
+  Microarchitecture}, pages 105--118. IEEE, 2005.
+
+\bibitem{polybench}
+Louis-No\"{e}l Pouchet.
+\newblock Polybench/c 4.2.
+\newblock \url{http://web.cse.ohio-state.edu/~pouchet.2/software/polybench/},
+  2017.
+\newblock Accessed: 2019-11-11.
+
+\bibitem{Reissmann12}
+Nico Reissmann.
+\newblock Utilizing the value state dependence graph for haskell.
+\newblock 2012.
+
+\bibitem{jlm}
+Nico Reissmann.
+\newblock jlm.
+\newblock \url{https://github.com/phate/jlm}, 2017.
+\newblock Accessed: 2017-12-13.
+
+\bibitem{Reissmann16}
+Nico Reissmann, Thomas~L. Falch, Benjamin~A. Bj{\o}rnseth, Helge Bahmann,
+  Jan~Christian Meyer, and Magnus Jahre.
+\newblock Efficient control flow restructuring for {GPU}s.
+\newblock In {\em Proceedings of the International Conference on High
+  Performance Computing and Simulation}, pages 48--57, 2016.
+
+\bibitem{Rosen88}
+B.~K. Rosen, M.~N. Wegman, and F.~K. Zadeck.
+\newblock Global value numbers and redundant computations.
+\newblock In {\em Proceedings of the {ACM} {SIGPLAN} Symposium on Principles of
+  Programming Languages}, pages 12--27. ACM, 1988.
+
+\bibitem{Rugina00}
+Radu Rugina and Martin~C. Rinard.
+\newblock Recursion unrolling for divide and conquer programs.
+\newblock In {\em Proceedings of the International Workshop on Languages and
+  Compilers for Parallel Computing-Revised Papers}, pages 34--48.
+  Springer-Verlag, 2001.
+
+\bibitem{Sarkar91}
+V.~Sarkar.
+\newblock {Automatic Partitioning of a Program Dependence Graph into Parallel
+  Tasks}.
+\newblock {\em IBM Journal of Research and Development}, 35(5-6):779--804,
+  1991.
+
+\bibitem{Sharir80}
+M.~Sharir.
+\newblock Structural analysis: A new approach to flow analysis in optimizing
+  compilers.
+\newblock {\em Computer Languages}, 5(3-4):141--153, 1980.
+
+\bibitem{Stanier12}
+James Stanier.
+\newblock {\em Removing and Restoring Control Flow with the Value State
+  Dependence Graph}.
+\newblock PhD thesis, University of Sussex, 2012.
+
+\bibitem{Stanier211}
+James Stanier and Alan Lawrence.
+\newblock The value state dependence graph revisited.
+\newblock In {\em Proceedings of the Workshop on Intermediate Representations},
+  pages 53--60, 2011.
+
+\bibitem{Stanier13}
+James Stanier and Des Watson.
+\newblock Intermediate representations in imperative compilers: A survey.
+\newblock {\em ACM Computing Surveys (CSUR)}, 45(3):26:1--26:27, 2013.
+
+\bibitem{Tarjan72}
+R.~Tarjan.
+\newblock Depth-first search and linear graph algorithms.
+\newblock {\em {SIAM} Journal on Computing}, 1(2):146--160, 1972.
+
+\bibitem{Tu95}
+Peng Tu and David Padua.
+\newblock {Efficient Building and Placing of Gating Functions}.
+\newblock In {\em Proceedings of the {ACM} {SIGPLAN} Conference on Programming
+  Language Design and Implementation}, pages 47--55. ACM, 1995.
+
+\bibitem{Wegman91}
+Mark~N. Wegman and F.~Kenneth Zadeck.
+\newblock Constant propagation with conditional branches.
+\newblock {\em {ACM} Transactions on Programming Languages and Systems},
+  13(2):181--210, 1991.
+
+\bibitem{Weise94}
+Daniel Weise, Roger~F. Crew, Michael Ernst, and Bjarne Steensgaard.
+\newblock Value dependence graphs: Representation without taxation.
+\newblock In {\em Proceedings of the {ACM} {SIGPLAN} Symposium on Principles of
+  Programming Languages}, pages 297--310. ACM, 1994.
+
+\bibitem{Zaidi15-2}
+Ali~Mustafa Zaidi.
+\newblock {Accelerating control-flow intensive code in spatial hardware}.
+\newblock Technical report, University of Cambridge, 2015.
+
+\bibitem{Zaidi15}
+Ali~Mustafa Zaidi and David Greaves.
+\newblock Value state flow graph: A dataflow compiler ir for accelerating
+  control-intensive code in spatial hardware.
+\newblock {\em {ACM} Transactions on Reconfigurable Technology and Systems},
+  9(2):14:1--14:22, 2015.
+
+\bibitem{Zhang04}
+F.~Zhang and E.H. D'Hollander.
+\newblock Using hammock graphs to structure programs.
+\newblock {\em IEEE Transactions on Software Engineering}, 30(4):231--245,
+  2004.
+
+\end{thebibliography}

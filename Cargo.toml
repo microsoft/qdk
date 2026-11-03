@@ -4,9 +4,12 @@ members = [
     "library",
     "source/allocator",
     "source/allocator/mimalloc-sys",
+    "source/circuit_api",
+    "source/circuit_capi",
     "source/compiler/qsc",
     "source/compiler/qsc_ast",
     "source/compiler/qsc_circuit",
+    "source/compiler/qsc_circuit_store",
     "source/compiler/qsc_codegen",
     "source/compiler/qsc_data_structures",
     "source/compiler/qsc_doc_gen",
@@ -23,7 +26,10 @@ members = [
     "source/compiler/qsc_partial_eval",
     "source/compiler/qsc_passes",
     "source/compiler/qsc_project",
+    "source/compiler/qsc_qhdg",
     "source/compiler/qsc_rir",
+    "source/compiler/qsc_semantic_contracts",
+    "source/compiler/qsc_snapshot",
     "source/fuzz",
     "source/index_map",
     "source/language_service",
@@ -47,6 +53,8 @@ version = "0.0.0"
 
 [workspace.dependencies]
 binar = "0.1.1"
+capnp = "0.26"
+lexpr = { version = "0.2", default-features = false }
 bitflags = "2.13"
 memchr = "2.8"
 clap = "4.4"
@@ -86,7 +94,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 sorted-vec = "0.8"
 sorted-iter = "0.1"
+toml = "0.9"
 wasm-bindgen = "0.2.127"
+sha2 = "0.10"
 wasm-bindgen-futures = "0.4"
 rand = "0.10.2"
 serde_json = "1.0"

@@ -19,9 +19,10 @@
 //! concrete `entry` expression so that `invariants::check` runs the full
 //! reachability-based checks rather than returning early.
 
+use qsc_fir::fir::{ItemKind, PackageId, PackageStore};
 use qsc_fir_transforms::{
     invariants,
-    test_utils::{assert_full_pipeline_succeeds, compile_to_fir},
+    test_utils::{assert_full_pipeline_succeeds, assert_no_pipeline_errors, compile_to_fir},
 };
 
 // ---------------------------------------------------------------------------
@@ -130,4 +131,98 @@ fn run_pipeline_combined_features_output_satisfies_post_all_invariants() {
     );
 
     invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
+}
+
+// ---------------------------------------------------------------------------
+// FIR-stage optimization point
+// ---------------------------------------------------------------------------
+
+/// Names every callable item still present in `package_id`.
+fn callable_names(store: &PackageStore, package_id: PackageId) -> Vec<String> {
+    store
+        .get(package_id)
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
+            ItemKind::Ty(..) => None,
+        })
+        .collect()
+}
+
+/// The optimization point runs exactly once, and the invariant level it
+/// advertises is asserted where the point actually is rather than in prose.
+#[test]
+fn the_fir_stage_optimization_point_holds_post_arg_promote() {
+    let (mut store, pkg_id) = compile_to_fir(
+        r#"
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            H(q);
+            H(q);
+        }
+        "#,
+    );
+
+    let mut times_reached = 0;
+    let result = qsc_fir_transforms::run_pipeline_with_diagnostics_and_optimize(
+        &mut store,
+        pkg_id,
+        |store, package_id| {
+            times_reached += 1;
+            invariants::check(
+                store,
+                package_id,
+                invariants::InvariantLevel::PostArgPromote,
+            );
+        },
+    );
+
+    assert_no_pipeline_errors("run_pipeline_with_diagnostics_and_optimize", &result.errors);
+    assert_eq!(times_reached, 1);
+    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
+}
+
+/// The point sits before the backend stages, which is what lets a stage that
+/// retires a call leave the resulting cleanup to the pipeline.
+///
+/// Item DCE, node GC, and the exec graph rebuild are the same `finalize_pipeline`
+/// call in that order, so observing pre-DCE state at the point observes
+/// pre-rebuild state too.
+#[test]
+fn the_fir_stage_optimization_point_runs_before_item_dce() {
+    let (mut store, pkg_id) = compile_to_fir(
+        r#"
+        operation NeverCalled() : Unit {
+            use q = Qubit();
+            X(q);
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            H(q);
+        }
+        "#,
+    );
+
+    let mut seen_at_the_point = Vec::new();
+    let result = qsc_fir_transforms::run_pipeline_with_diagnostics_and_optimize(
+        &mut store,
+        pkg_id,
+        |store, package_id| seen_at_the_point = callable_names(store, package_id),
+    );
+
+    assert_no_pipeline_errors("run_pipeline_with_diagnostics_and_optimize", &result.errors);
+    assert!(
+        seen_at_the_point.iter().any(|name| name == "NeverCalled"),
+        "the point should see the entry-unreachable callable, saw {seen_at_the_point:?}"
+    );
+    assert!(
+        !callable_names(&store, pkg_id)
+            .iter()
+            .any(|name| name == "NeverCalled"),
+        "item DCE should still remove it after the point"
+    );
 }

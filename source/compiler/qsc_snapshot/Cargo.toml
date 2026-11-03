@@ -1,0 +1,22 @@
+[package]
+name = "qsc_snapshot"
+description = "Versioned Cap'n Proto and S-expression envelopes for QDK snapshots"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+capnp = { workspace = true }
+lexpr = { workspace = true }
+thiserror = { workspace = true }
+capnpc = { version = "0.26", optional = true }
+
+[[bin]]
+name = "generate-schema"
+required-features = ["capnpc"]
+
+[lints]
+workspace = true
