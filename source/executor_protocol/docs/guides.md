@@ -77,8 +77,8 @@ and profilers can be written this way, as the guide shows.
 What the protocol adds, each shown by a test of
 [`tests/existing_tool.rs`](../tests/existing_tool.rs):
 
-- A lost qubit is read as `Value::Error(ReadoutFailure::Loss)`, and the batch
-  goes on.
+- A lost qubit is read as `Value::Missing(ReadoutFailure::Loss)`, and the
+  batch goes on.
 - The profiler's random bits replay from the run's seed, and its counts are a
   report folded over shots.
 - A program of more than one batch, which continues its shots from one batch to

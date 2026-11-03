@@ -552,7 +552,7 @@ fn flip_first_votes(
     let flipped = |value: Value| match value {
         Value::Zero => Value::One,
         Value::One => Value::Zero,
-        lost @ Value::Error(_) => lost,
+        lost @ Value::Missing(_) => lost,
     };
     let read = below.run(input.instructions())?;
     outcomes.extend(read.into_iter().map(|outcome| match outcome.tag % 3 {

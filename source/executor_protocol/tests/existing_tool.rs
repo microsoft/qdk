@@ -187,7 +187,7 @@ fn a_lost_qubit_is_read_as_a_loss_and_the_batch_goes_on() {
     ];
     assert_eq!(
         run_bridged(Bits::new(2, [1]), &ops),
-        [(0, Value::Error(ReadoutFailure::Loss)), (1, Value::One)]
+        [(0, Value::Missing(ReadoutFailure::Loss)), (1, Value::One)]
     );
 }
 

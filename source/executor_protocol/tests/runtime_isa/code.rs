@@ -434,7 +434,7 @@ impl<R: Reply<Item = ShotOutcome>> Reply for Decoded<R> {
 /// none.
 fn xor(a: Value, b: Value) -> Value {
     match (a, b) {
-        (Value::Error(kind), _) | (_, Value::Error(kind)) => Value::Error(kind),
+        (Value::Missing(failure), _) | (_, Value::Missing(failure)) => Value::Missing(failure),
         (a, b) => ((a == Value::One) != (b == Value::One)).into(),
     }
 }

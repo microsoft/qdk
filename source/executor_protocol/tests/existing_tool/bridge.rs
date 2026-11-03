@@ -103,7 +103,7 @@ impl From<Reading> for Value {
         match reading {
             Reading::Zero => Value::Zero,
             Reading::One => Value::One,
-            Reading::Lost => Value::Error(ReadoutFailure::Loss),
+            Reading::Lost => Value::Missing(ReadoutFailure::Loss),
         }
     }
 }

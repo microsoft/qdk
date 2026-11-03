@@ -84,7 +84,7 @@ impl<E: Executor<InstructionBatch<Op>>> Executor<InstructionBatch<Op>> for Reado
                 outcome.value = match outcome.value {
                     Value::Zero => Value::One,
                     Value::One => Value::Zero,
-                    error @ Value::Error(_) => error,
+                    missing @ Value::Missing(_) => missing,
                 };
             }
             *k += 1;

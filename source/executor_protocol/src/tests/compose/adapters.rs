@@ -1033,7 +1033,7 @@ impl<E: Executor<InstructionBatch<InstructionCall>>> Executor<InstructionBatch<I
                 outcome.value = match outcome.value {
                     Value::Zero => Value::One,
                     Value::One => Value::Zero,
-                    error @ Value::Error(_) => error,
+                    missing @ Value::Missing(_) => missing,
                 };
             }
         }

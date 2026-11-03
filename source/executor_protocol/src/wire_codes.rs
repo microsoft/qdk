@@ -99,8 +99,8 @@ pub fn value_code(value: Value) -> u8 {
     match value {
         Value::Zero => 0,
         Value::One => 1,
-        Value::Error(ReadoutFailure::Loss) => 2,
-        Value::Error(ReadoutFailure::Other) => 3,
+        Value::Missing(ReadoutFailure::Loss) => 2,
+        Value::Missing(ReadoutFailure::Other) => 3,
     }
 }
 
@@ -111,8 +111,8 @@ pub fn value_of(code: u8) -> Option<Value> {
     Some(match code {
         0 => Value::Zero,
         1 => Value::One,
-        2 => Value::Error(ReadoutFailure::Loss),
-        3 => Value::Error(ReadoutFailure::Other),
+        2 => Value::Missing(ReadoutFailure::Loss),
+        3 => Value::Missing(ReadoutFailure::Other),
         _ => return None,
     })
 }

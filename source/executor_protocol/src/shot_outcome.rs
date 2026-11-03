@@ -127,7 +127,7 @@ pub enum Value {
     One,
     /// The readout has no value, for the reason given; it does not end the
     /// run, so the shot's other readouts stand.
-    Error(ReadoutFailure),
+    Missing(ReadoutFailure),
 }
 
 impl From<bool> for Value {

@@ -156,11 +156,11 @@ pub(super) fn outcomes_of_call<I, E: Executor<InstructionBatch<I>>>(
 /// events: one that no executor gives for a caller's shots, of the last
 /// shot and the last tag, with no value.
 const HELD: ShotOutcome =
-    ShotOutcome::new(ShotId::MAX, u32::MAX, Value::Error(ReadoutFailure::Other));
+    ShotOutcome::new(ShotId::MAX, u32::MAX, Value::Missing(ReadoutFailure::Other));
 
 /// An outcome of `shot` that the readout checks' buffer holds before each
 /// reply's events, as a caller holds those of the shot's earlier calls:
 /// of the last tag, with no value and no condition.
 const fn held_of(shot: ShotId) -> ShotOutcome {
-    ShotOutcome::new(shot, u32::MAX, Value::Error(ReadoutFailure::Other))
+    ShotOutcome::new(shot, u32::MAX, Value::Missing(ReadoutFailure::Other))
 }

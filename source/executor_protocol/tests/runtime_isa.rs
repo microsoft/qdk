@@ -338,7 +338,7 @@ fn m_on_block_0() -> [InstructionCall; 1] {
 /// the other bits.
 #[test]
 fn a_circuit_readout_with_no_value_leaves_its_logical_readout_without_one() {
-    let lost = Value::Error(ReadoutFailure::Loss);
+    let lost = Value::Missing(ReadoutFailure::Loss);
     let composed = code_upstream_of(
         m_as_parity_of_three(),
         answers([lost, Value::One, Value::Zero]),

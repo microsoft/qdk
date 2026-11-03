@@ -85,8 +85,8 @@ fn value_codes_are_fixed_and_decode_back() {
     let values = [
         (Value::Zero, 0),
         (Value::One, 1),
-        (Value::Error(ReadoutFailure::Loss), 2),
-        (Value::Error(ReadoutFailure::Other), 3),
+        (Value::Missing(ReadoutFailure::Loss), 2),
+        (Value::Missing(ReadoutFailure::Other), 3),
     ];
     for (value, code) in values {
         assert_eq!(value_code(value), code);
