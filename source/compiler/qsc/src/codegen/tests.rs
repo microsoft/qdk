@@ -729,6 +729,50 @@ fn evaluation_order_short_circuit_double_assignment_then_arithmetic() {
 }
 
 #[test]
+/// Checks copy-on-write aliases and self-appends through the full QIR generation pipeline.
+fn array_append_preserves_aliases_and_rhs_values() {
+    for (body, expected) in [
+        (
+            "let alias = values; set values += [q]; (Length(alias), Length(values))",
+            "(1, 2)",
+        ),
+        (
+            "set values += values; (Length(values), Length(values))",
+            "(2, 2)",
+        ),
+        (
+            "set values += { set values += [q]; values }; (Length(values), 0)",
+            "(4, 0)",
+        ),
+    ] {
+        let source = format!(
+            "operation Main() : (Int, Int) {{
+                use q = Qubit();
+                mutable values = [q];
+                {body}
+            }}"
+        );
+        let reference = format!(
+            "operation Main() : (Int, Int) {{
+                use q = Qubit();
+                {expected}
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        let actual = eval_fragments(&mut interpreter, "Main()");
+        assert_eq!(actual, eval_fragments(&mut interpreter, expected));
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            assert_eq!(
+                compile_source_to_qir(&source, profile.into()),
+                compile_source_to_qir(&reference, profile.into()),
+                "{profile:?}: {body}"
+            );
+        }
+    }
+}
+
+#[test]
 fn evaluation_order_array_append_reads_target_after_rhs() {
     let source = r#"
         operation Main() : Int {

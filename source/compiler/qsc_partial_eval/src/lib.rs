@@ -1597,6 +1597,7 @@ impl<'a> PartialEvaluator<'a> {
         Ok(EvalControlFlow::Continue(Value::unit()))
     }
 
+    /// Evaluates compound assignment, reading array append targets after RHS side effects.
     fn eval_expr_assign_op(
         &mut self,
         bin_op: BinOp,
@@ -1604,8 +1605,6 @@ impl<'a> PartialEvaluator<'a> {
         rhs_expr_id: ExprId,
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<EvalControlFlow, Error> {
-        // Consider optimization of array in-place operations instead of reusing the general binary operation
-        // evaluation.
         let lhs_expr = self.get_expr(lhs_expr_id);
         let lhs_expr_package_span = self.get_expr_package_span(lhs_expr_id);
         if matches!(lhs_expr.ty, Ty::Array(_)) {
@@ -1622,10 +1621,8 @@ impl<'a> PartialEvaluator<'a> {
             // Array append reads its target after evaluating the RHS.
             let mut lhs_array = self
                 .eval_context
-                .get_current_scope()
-                .get_classical_local_value(*lhs_loc_id)
-                .clone()
-                .unwrap_array();
+                .get_current_scope_mut()
+                .take_local_array(*lhs_loc_id);
             Rc::make_mut(&mut lhs_array).extend_from_slice(&rhs_value.unwrap_array());
             self.update_bindings(lhs_expr_id, Value::Array(lhs_array))?;
             return Ok(EvalControlFlow::Continue(Value::unit()));
