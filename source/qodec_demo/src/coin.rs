@@ -7,6 +7,10 @@
 //! runtime's outcomes are a function of the coins (its decoder draws
 //! nothing). Both count what they ran as a [`Profile`], by opcode in the
 //! bottom set's own numbering.
+//!
+//! [`biased_coin_device`] reads 1 with a chance `p` instead of 1/2, so that
+//! a code's checks pass on most shots (at `p` 0, on all), as on a device
+//! with little noise; the examples run on it.
 
 use std::sync::Arc;
 
@@ -241,4 +245,73 @@ impl Backend<usize, OwnedParam, BasicReadout> for CoinBackend {
         }
         Ok(BatchResult { results })
     }
+}
+
+/// One shot's biased coins: its seed, the readouts drawn, and the chance
+/// that a readout is 1.
+#[derive(Clone, Debug)]
+pub struct BiasedCoins {
+    seed: u64,
+    drawn: u64,
+    p: f64,
+}
+
+/// The `n`-th draw of the shot whose seed is `seed`, uniform in `[0, 1)`:
+/// one splitmix64 step, its top 53 bits.
+fn uniform(seed: u64, n: u64) -> f64 {
+    let mut z = (seed ^ n).wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    #[expect(clippy::cast_precision_loss, reason = "53 bits: exact in an f64")]
+    let top = (z >> 11) as f64;
+    top / (1u64 << 53) as f64
+}
+
+/// A biased coin per tag, in call order.
+fn toss_biased(
+    coins: &mut BiasedCoins,
+    input: &CallInput<'_, InstructionCall>,
+    outcomes: &mut Outcomes<'_>,
+) -> Result<(), String> {
+    for call in input.instructions() {
+        for operand in call.operands.iter() {
+            if let Operand::Tag(tag) = *operand {
+                let one = uniform(coins.seed, coins.drawn) < coins.p;
+                coins.drawn += 1;
+                outcomes.push(Outcome::new(tag, one.into()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Coins of `set` that read 1 with chance `p`, a state per shot, each shot
+/// drawing from its seed in a run of seed `seed`. At `p` 0 every readout
+/// is 0, as on a noiseless device where the code's checks all pass; above
+/// it, readouts flip, as noise would. Unlike [`coin_device`], it neither
+/// checks its calls against `set` nor reports what it ran.
+pub fn biased_coin_device(
+    set: Arc<InstructionSet>,
+    seed: u64,
+    p: f64,
+) -> OnePerShotExecutor<
+    InstructionCall,
+    BiasedCoins,
+    impl MakeState<BiasedCoins>,
+    impl ExecutorLogic<InstructionCall, BiasedCoins>,
+> {
+    let promise = Capabilities::default()
+        .with_resumable_shots(true)
+        .with_instruction_set(Some(set));
+    let make = move |shot: ShotContext| {
+        Ok(BiasedCoins {
+            seed: shot.seed(),
+            drawn: 0,
+            p,
+        })
+    };
+    executor_fn(promise, make, toss_biased)
+        .seed(seed)
+        .shots(OnePerShot)
 }

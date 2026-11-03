@@ -45,15 +45,13 @@
 mod common;
 
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
 use executor_protocol::{
-    CallInput, Capabilities, InstructionCall, InstructionSet, Needs, OnePerShot, Operand, Outcome,
-    Outcomes, ShotContext, ShotId, ShotOutcome, ShotSet, executor_fn, static_driver,
+    InstructionCall, InstructionSet, Needs, Operand, ShotId, ShotOutcome, ShotSet, static_driver,
 };
 use qodec::Qodec;
 use qodec_demo::call_counter::{Calls, call_counter};
-use qodec_demo::coin::coin_device;
+use qodec_demo::coin::{biased_coin_device, coin_device};
 use qodec_demo::noisy_bits::simulator;
 use qodec_demo::program::Program;
 use qodec_demo::qodec_layer::QodecLayer;
@@ -79,7 +77,7 @@ struct Case {
 enum Device {
     /// The tests' coins ([`coin_device`]).
     Coins,
-    /// Coins that read 1 with this chance ([`biased_coins`]).
+    /// Coins that read 1 with this chance ([`biased_coin_device`]).
     Biased(f64),
     /// Repetition3's noisy bits ([`simulator`]), flip chance [`FLIP`].
     Noisy,
@@ -93,71 +91,6 @@ impl Device {
             Device::Noisy => format!("noisy {FLIP}"),
         }
     }
-}
-
-/// One shot's biased coins: its seed and the readouts drawn.
-#[derive(Clone)]
-struct Biased {
-    seed: u64,
-    drawn: u64,
-    p: f64,
-}
-
-/// The `n`-th draw of the shot whose seed is `seed`, uniform in `[0, 1)`:
-/// one splitmix64 step, its top 53 bits.
-fn uniform(seed: u64, n: u64) -> f64 {
-    let mut z = (seed ^ n).wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^= z >> 31;
-    #[expect(clippy::cast_precision_loss, reason = "53 bits: exact in an f64")]
-    let top = (z >> 11) as f64;
-    top / (1u64 << 53) as f64
-}
-
-/// A biased coin per tag, in call order.
-fn toss_biased(
-    coins: &mut Biased,
-    input: &CallInput<'_, InstructionCall>,
-    outcomes: &mut Outcomes<'_>,
-) -> Result<(), String> {
-    for call in input.instructions() {
-        for operand in call.operands.iter() {
-            if let Operand::Tag(tag) = *operand {
-                let one = uniform(coins.seed, coins.drawn) < coins.p;
-                coins.drawn += 1;
-                outcomes.push(Outcome::new(tag, one.into()));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Coins of `set` that read 1 with chance `p`, a state per shot, each shot
-/// drawing from its seed in a run of seed `seed`.
-fn biased_coins(
-    set: Arc<InstructionSet>,
-    seed: u64,
-    p: f64,
-) -> executor_protocol::OnePerShotExecutor<
-    InstructionCall,
-    Biased,
-    impl executor_protocol::MakeState<Biased>,
-    impl executor_protocol::ExecutorLogic<InstructionCall, Biased>,
-> {
-    let promise = Capabilities::default()
-        .with_resumable_shots(true)
-        .with_instruction_set(Some(set));
-    let make = move |shot: ShotContext| {
-        Ok(Biased {
-            seed: shot.seed(),
-            drawn: 0,
-            p,
-        })
-    };
-    executor_fn(promise, make, toss_biased)
-        .seed(seed)
-        .shots(OnePerShot)
 }
 
 /// The chain of `case`'s layers over `$device`, counted and recorded: its
@@ -208,7 +141,7 @@ fn run(case: &Case, device: Device, shots: &ShotSet) -> (Vec<ShotOutcome>, Calls
     let set = || bottom(&case.qodec).set.clone();
     match device {
         Device::Coins => measured!(case, shots, coin_device(set(), SEED)),
-        Device::Biased(p) => measured!(case, shots, biased_coins(set(), SEED, p)),
+        Device::Biased(p) => measured!(case, shots, biased_coin_device(set(), SEED, p)),
         Device::Noisy => measured!(case, shots, simulator(set(), SEED, FLIP)),
     }
 }
