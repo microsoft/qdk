@@ -20,6 +20,103 @@ static CAPABILITIES_DYNAMIC_QUBIT_ALLOC: std::sync::LazyLock<TargetCapabilityFla
     });
 
 #[test]
+fn returned_scalar_callable_in_mutable_loop_compiles_to_qir() {
+    let qir = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use r = Qubit();
+            mutable a = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            for _ in 0..0 { a = g(a)(2); }
+            if a == 4 { X(r); }
+            MResetZ(r)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
+
+#[test]
+fn returned_scalar_callable_in_runtime_while_compiles_to_qir() {
+    let qir = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use r = Qubit();
+            let count = if MResetZ(r) == Zero { 3 } else { 0 };
+            mutable a = 0;
+            mutable i = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            while i < count {
+                a = g(a)(2);
+                i += 1;
+            }
+            if a == 12 { X(r); }
+            MResetZ(r)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
+
+#[test]
+fn conditional_returned_scalar_callable_with_argument_mutation_compiles_to_qir() {
+    let qir = compile_source_to_qir(
+        r#"
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : Result {
+            use q = Qubit();
+            use r = Qubit();
+            mutable a = 0;
+            let value = (
+                if MResetZ(q) == Zero { Make(a) }
+                else { Make(a + 1) }
+            )({ a = 9; 2 });
+            if value == 4 { X(r); }
+            MResetZ(r)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
+
+#[test]
+fn array_update_scalar_evaluates_index_then_replacement_then_container() {
+    assert_array_update_operand_order("0", "true");
+}
+
+#[test]
+fn array_update_range_evaluates_index_then_replacement_then_container() {
+    assert_array_update_operand_order("0..0", "[true]");
+}
+
+fn assert_array_update_operand_order(index: &str, replacement: &str) {
+    let expected = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            H(q); X(q); Z(q);
+            MResetZ(q)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    let source = format!(
+        r#"
+        operation Main() : Result {{
+            use q = Qubit();
+            let ignored = {{ Z(q); [false] }}
+                w/ {{ H(q); {index} }} <- {{ X(q); {replacement} }};
+            MResetZ(q)
+        }}
+        "#
+    );
+    assert_eq!(compile_source_to_qir(&source, *CAPABILITIES), expected);
+}
+
+#[test]
 fn nested_for_over_qubit_slice_succeeds() {
     let source = "namespace Test {
             import Std.Intrinsic.*;
@@ -464,7 +561,7 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
                     for q in qs[1...] {
                         CNOT(qs[0], q);
                     }
-                    set done = MResetZ(qs[0]) == One;
+                    done = MResetZ(qs[0]) == One;
                 }
             }
         }";
@@ -566,7 +663,7 @@ fn result_array_dynamic_index_succeeds() {
                 mutable count = 0;
                 for i in 0..3 {
                     if results[i] == One {
-                        set count += 1;
+                        count += 1;
                     }
                 }
                 count
@@ -689,8 +786,8 @@ fn result_array_while_loop_dynamic_index_succeeds() {
                 mutable count = 0;
                 mutable i = 0;
                 while i < 4 {
-                    if results[i] == One { set count += 1; }
-                    set i += 1;
+                    if results[i] == One { count += 1; }
+                    i += 1;
                 }
                 count
             }
@@ -805,7 +902,7 @@ fn mutable_result_variable_succeeds() {
                 mutable r = M(q);
                 if r == One {
                     X(q);
-                    set r = M(q);
+                    r = M(q);
                 }
                 r
             }
@@ -1189,8 +1286,8 @@ fn static_while_inside_emit_while_succeeds() {
                 while MResetZ(q) == One {
                     mutable idx = 0;
                     while idx < 3 {
-                        set total += 1;
-                        set idx += 1;
+                        total += 1;
+                        idx += 1;
                     }
                 }
                 total
@@ -1289,9 +1386,9 @@ fn nested_emit_while_loops_succeeds() {
                     mutable inner = 0;
                     while inner < 2 {
                         H(qs[1]);
-                        set inner += 1;
+                        inner += 1;
                     }
-                    set outer += 1;
+                    outer += 1;
                 }
                 outer
             }
@@ -2198,6 +2295,103 @@ fn qubit_allocating_callable_inlines_when_dynamic_alloc_disabled() {
     );
 }
 
+#[test]
+fn curried_allocation_preserves_live_caller_qubit() {
+    let source = r#"
+        operation Inc(x : Int) : Int {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        @EntryPoint()
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    assert_curried_allocation_preserves_caller(&compile_source_to_qir(source, *CAPABILITIES));
+}
+
+#[test]
+fn curried_transitive_allocation_preserves_live_caller_qubit() {
+    let source = r#"
+        operation Inner() : Unit {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+        }
+        operation Inc(x : Int) : Int {
+            Inner();
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        @EntryPoint()
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    assert_curried_allocation_preserves_caller(&compile_source_to_qir(source, *CAPABILITIES));
+}
+
+fn assert_curried_allocation_preserves_caller(qir: &str) {
+    assert!(qir.contains("\"required_num_qubits\"=\"2\""), "{qir}");
+    assert_eq!(
+        qir.matches("call void @__quantum__rt__int_record_output(i64 5,")
+            .count(),
+        2,
+        "{qir}"
+    );
+    assert!(!qir.contains("define internal i64"), "{qir}");
+}
+
+#[test]
+fn curried_caller_owned_qubit_remains_an_emitted_call() {
+    let source = r#"
+        operation Inc(q : Qubit, x : Int) : Int {
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        @EntryPoint()
+        operation Main() : (Int, Int, Result) {
+            use work = Qubit();
+            mutable a = 0;
+            mutable b = 0;
+            a = Curried2(Inc(work, _))(a)(2);
+            use r = Qubit();
+            X(r);
+            b = Curried2(Inc(work, _))(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.lines()
+            .any(|line| line.starts_with("define internal i64") && line.contains("lambda")),
+        "{qir}"
+    );
+}
+
 /// A `Controlled` call inlines: the controlled specialization takes a
 /// synthesized dynamic-length `Qubit[]` control register that has no
 /// base-phase RIR representation, so it is never emitted as an IR function.
@@ -2366,7 +2560,7 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
             operation Foo(q : Qubit) : Int {
                 mutable x = 1;
                 if MResetZ(q) == One {
-                    set x = 2;
+                    x = 2;
                 }
                 x
             }
@@ -2452,9 +2646,9 @@ fn value_returning_ir_function_reloads_after_same_block_store() {
             operation Foo(q : Qubit) : Int {
                 mutable x = 0;
                 if MResetZ(q) == One {
-                    set x = 5;
+                    x = 5;
                 }
-                set x = x + 1;
+                x = x + 1;
                 x
             }
             @EntryPoint()
@@ -2536,9 +2730,9 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
             operation Foo(q : Qubit) : Int {
                 mutable x = 0;
                 if MResetZ(q) == One {
-                    set x = 5;
+                    x = 5;
                 }
-                set x = x + 1;
+                x = x + 1;
                 x
             }
             @EntryPoint()
@@ -2630,11 +2824,11 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
             num_results: 1
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-282)
+                0 = SubProgram name=Main location=(2-274)
                 1 = SubProgram name=Foo location=(2-29)
                 2 = SubProgram name=MResetZ location=(1-182413)
             dbg_locations:
-                [1]: scope=0 location=(2-363)
+                [1]: scope=0 location=(2-355)
                 [2]: scope=1 location=(2-112) inlined_at=1
                 [3]: scope=2 location=(1-182462) inlined_at=2
                 [4]: scope=1 location=(2-109) inlined_at=1

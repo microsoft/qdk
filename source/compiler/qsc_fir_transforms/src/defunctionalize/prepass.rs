@@ -11,6 +11,8 @@
 //!
 //! - Bind inline struct operands in source order when a callable field creates
 //!   captures, before specialization moves those captures into call arguments.
+//! - Snapshot scalar inputs to immediately consumed, proven closure constructors,
+//!   including conditional callees, before invocation arguments can change them.
 //! - Expose capture bindings and saved selection guards from callable-initializer
 //!   blocks at their original evaluation point, rather than replaying them
 //!   when the callable is invoked.
@@ -42,11 +44,11 @@ use crate::fir_builder::alloc_local_var_expr;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId,
-    Mutability, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt,
-    StmtId, StmtKind, UnOp,
+    Block, BlockId, CallableImpl, CallableKind, Expr, ExprId, ExprKind, ItemKind, LocalItemId,
+    LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind,
+    Res, Stmt, StmtId, StmtKind, UnOp,
 };
-use qsc_fir::ty::{FunctorSet, Ty};
+use qsc_fir::ty::{FunctorSet, Prim, Ty};
 use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -76,9 +78,12 @@ pub(super) fn run(
     let reachable_expr_ids = reachable_expr_ids.as_slice();
     inline_static_closure_captures(store, package_id, reachable_expr_ids);
     promote_single_use_callable_locals(store, package_id, reachable_expr_ids);
+    // Promotion can expose the direct constructor needed by scalar capture normalization.
+    let reachable_expr_ids =
+        normalize_capture_operands(store.get_mut(package_id), reachable_expr_ids, assigner);
     promote_adjacent_aggregate_callable_aliases(store, package_id);
     decompose_assignment_tuple_aliases(store.get_mut(package_id), assigner);
-    identity_closure_peephole(store, package_id, reachable_expr_ids, assigner)
+    identity_closure_peephole(store, package_id, &reachable_expr_ids, assigner)
 }
 
 /// Normalizes capture creation in the supplied reachable expression IDs. Callee
@@ -92,8 +97,264 @@ pub(super) fn normalize_capture_operands(
     let mut reachable_expr_ids = reachable_expr_ids.to_vec();
     let initializers = materialize_inline_struct_captures(package, &reachable_expr_ids, assigner);
     reachable_expr_ids.extend(initializers);
+    let initializers =
+        materialize_immediate_scalar_captures(package, &reachable_expr_ids, assigner);
+    reachable_expr_ids.extend(initializers);
     expose_callable_initializer_prefixes(package, &reachable_expr_ids);
     reachable_expr_ids
+}
+
+/// Stabilizes constructor inputs at creation, never by replaying a saved producer.
+/// Only a direct function returning a closure with a call-free, total scalar body
+/// qualifies. Closure creation alone says nothing about the returned body's safety.
+fn materialize_immediate_scalar_captures(
+    pkg: &mut Package,
+    reachable: &[ExprId],
+    assigner: &mut Assigner,
+) -> Vec<ExprId> {
+    let reachable: FxHashSet<_> = reachable.iter().copied().collect();
+    let plans: Vec<_> = collect_promotion_scopes(pkg)
+        .iter()
+        .map(|scope| {
+            // Reuse reads of simple immutable bindings, including snapshots
+            // from an earlier pass, rather than snapshotting them again.
+            // Mutable bindings can change while later operands are evaluated;
+            // their values must be snapshotted when the constructor runs.
+            // Keep this set owner-local: equal local IDs in another callable
+            // do not establish stability here.
+            let stable: FxHashSet<_> = scope
+                .stmts
+                .iter()
+                .filter_map(|&id| {
+                    let StmtKind::Local(Mutability::Immutable, pat, _) = pkg.get_stmt(id).kind
+                    else {
+                        return None;
+                    };
+                    let PatKind::Bind(ident) = &pkg.get_pat(pat).kind else {
+                        return None;
+                    };
+                    Some(ident.id)
+                })
+                .collect();
+            // Start at reachable invocations, not arbitrary callable producers:
+            // only their callee values are consumed immediately. Follow block
+            // tails and conditional branches so captures precede invocation
+            // arguments, without replaying a saved callable's initializer.
+            let mut constructors = Vec::new();
+            let mut seen_callees = FxHashSet::default();
+            for &id in &scope.exprs {
+                if reachable.contains(&id)
+                    && let ExprKind::Call(callee, _) = pkg.get_expr(id).kind
+                {
+                    collect_immediate_scalar_constructors(
+                        pkg,
+                        callee,
+                        &mut constructors,
+                        &mut seen_callees,
+                    );
+                }
+            }
+            (stable, constructors)
+        })
+        .collect();
+    let mut initializers = Vec::new();
+    for (stable, constructors) in plans {
+        for (producer, args) in constructors {
+            let ExprKind::Call(callee, _) = pkg.get_expr(producer).kind else {
+                unreachable!("collected constructor must remain a call");
+            };
+            let mut statements = Vec::new();
+            let args = bind_scalar_argument_operands(
+                pkg,
+                args,
+                assigner,
+                &mut statements,
+                &mut initializers,
+                &stable,
+            );
+            pkg.exprs
+                .get_mut(producer)
+                .expect("constructor exists")
+                .kind = ExprKind::Call(callee, args);
+            super::rewrite::prepend_evaluations(pkg, producer, statements, assigner);
+        }
+    }
+    initializers
+}
+
+/// Rebuilds the input with occurrence-local snapshot reads. The original scalar
+/// expressions remain intact: another operand or later use may share their IDs
+/// but must still evaluate them at its own point, after intervening mutations.
+///
+/// For mutable `a`, with the collected bindings placed by the caller:
+///
+/// # Before
+/// ```text
+/// Make(a, { a = 3; a })({ a = 9; 2 })
+/// ```
+/// # After
+/// ```text
+/// ({
+///     let first = a;
+///     let second = { a = 3; a };
+///     Make(first, second)
+/// })({ a = 9; 2 })
+/// ```
+///
+/// This helper appends the two bindings and returns the rebuilt `(first, second)`
+/// input. The caller wraps the producer with those bindings. The first snapshot
+/// retains the old value of `a`, the second observes `3`, and both precede the
+/// invocation argument's assignment of `9`. Even if the two reads of `a` share
+/// an expression ID, each still observes the value at its own evaluation point.
+fn bind_scalar_argument_operands(
+    pkg: &mut Package,
+    id: ExprId,
+    assigner: &mut Assigner,
+    statements: &mut Vec<StmtId>,
+    initializers: &mut Vec<ExprId>,
+    stable_locals: &FxHashSet<LocalVarId>,
+) -> ExprId {
+    let expr = pkg.get_expr(id).clone();
+    match expr.kind {
+        ExprKind::Tuple(items) => {
+            let bound: Vec<_> = items
+                .iter()
+                .map(|&item| {
+                    bind_scalar_argument_operands(
+                        pkg,
+                        item,
+                        assigner,
+                        statements,
+                        initializers,
+                        stable_locals,
+                    )
+                })
+                .collect();
+            if bound == items {
+                id
+            } else {
+                crate::fir_builder::alloc_expr(
+                    pkg,
+                    assigner,
+                    expr.ty,
+                    ExprKind::Tuple(bound),
+                    expr.span,
+                )
+            }
+        }
+        ExprKind::Lit(_) | ExprKind::Var(Res::Item(_), _) => id,
+        ExprKind::Var(Res::Local(local), _) if stable_locals.contains(&local) => id,
+        _ => {
+            // Remaining admitted Int/Double/Bool expressions include locals
+            // absent from stable_locals (especially mutable locals), computations,
+            // indexing, calls, blocks, and conditionals. Snapshot this occurrence
+            // before later operands can change its inputs, without rewriting the
+            // original expression shared by other uses.
+            let (local, statement) = crate::fir_builder::alloc_local_var(
+                pkg,
+                assigner,
+                "_.scalar_operand",
+                &expr.ty,
+                id,
+                Mutability::Immutable,
+            );
+            statements.push(statement);
+            initializers.push(id);
+            alloc_local_var_expr(pkg, assigner, local, expr.ty, expr.span)
+        }
+    }
+}
+
+/// Follow only the callee's value-producing branches. Bindings and effects stay
+/// inside those branches, and saved callable initializers are never replayed.
+/// Visit shared callee nodes once per owner to preserve first-encounter order
+/// and avoid scheduling a second rewrite of an already wrapped producer.
+fn collect_immediate_scalar_constructors(
+    pkg: &Package,
+    value: ExprId,
+    constructors: &mut Vec<(ExprId, ExprId)>,
+    seen: &mut FxHashSet<ExprId>,
+) {
+    if !seen.insert(value) {
+        return;
+    }
+    match &pkg.get_expr(value).kind {
+        ExprKind::Block(block) => {
+            if let Some(&last) = pkg.get_block(*block).stmts.last()
+                && let StmtKind::Expr(tail) = pkg.get_stmt(last).kind
+            {
+                collect_immediate_scalar_constructors(pkg, tail, constructors, seen);
+            }
+        }
+        ExprKind::If(_, then, Some(otherwise)) => {
+            collect_immediate_scalar_constructors(pkg, *then, constructors, seen);
+            collect_immediate_scalar_constructors(pkg, *otherwise, constructors, seen);
+        }
+        ExprKind::Call(callee, args) => {
+            if let ExprKind::Var(Res::Item(item), _) = pkg.get_expr(*callee).kind
+                && item.package == pkg.id
+                && is_total_scalar_constructor(pkg, item.item)
+                && has_scalar_operand_shape(pkg, *args)
+            {
+                constructors.push((value, *args));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_scalar(ty: &Ty) -> bool {
+    matches!(ty, Ty::Prim(Prim::Int | Prim::Double | Prim::Bool))
+}
+
+fn has_scalar_operand_shape(pkg: &Package, id: ExprId) -> bool {
+    let expr = pkg.get_expr(id);
+    if let ExprKind::Tuple(items) = &expr.kind {
+        items.iter().all(|&id| has_scalar_operand_shape(pkg, id))
+    } else {
+        is_scalar(&expr.ty)
+    }
+}
+
+fn is_total_scalar_constructor(pkg: &Package, constructor: LocalItemId) -> bool {
+    let ItemKind::Callable(decl) = &pkg.get_item(constructor).kind else {
+        return false;
+    };
+    if decl.kind != CallableKind::Function {
+        return false;
+    }
+    let Some(value) = single_body_expression(pkg, &decl.implementation) else {
+        return false;
+    };
+    let ExprKind::Closure(_, target) = pkg.get_expr(value).kind else {
+        return false;
+    };
+    let ItemKind::Callable(target) = &pkg.get_item(target).kind else {
+        return false;
+    };
+    let Some(body) = single_body_expression(pkg, &target.implementation) else {
+        return false;
+    };
+    let mut call_free = true;
+    crate::walk_utils::for_each_expr(pkg, body, &mut |_, expr| {
+        call_free &= !matches!(expr.kind, ExprKind::Call(..));
+    });
+    is_scalar(&target.output)
+        && call_free
+        && crate::walk_utils::expr_is_safe_to_discard(pkg, pkg.id, body)
+}
+
+fn single_body_expression(pkg: &Package, implementation: &CallableImpl) -> Option<ExprId> {
+    let CallableImpl::Spec(spec) = implementation else {
+        return None;
+    };
+    let [statement] = pkg.get_block(spec.body.block).stmts[..] else {
+        return None;
+    };
+    let StmtKind::Expr(value) = pkg.get_stmt(statement).kind else {
+        return None;
+    };
+    Some(value)
 }
 
 /// Keeps inline struct operands ahead of specialization's capture relocation.

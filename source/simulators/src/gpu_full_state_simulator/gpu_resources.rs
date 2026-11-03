@@ -437,6 +437,14 @@ impl GpuResources {
             ("MAX_REGISTERS", params.num_registers.max(1).to_string()),
             ("MAX_MEMORY", params.max_memory.max(1).to_string()),
             (
+                "MAX_PROGRAM_MEMORY",
+                (params.num_constant_data + super::shader_types::MAX_ALLOCA_SIZE).to_string(),
+            ),
+            (
+                "MAX_CALL_DEPTH",
+                super::shader_types::MAX_CALL_DEPTH.to_string(),
+            ),
+            (
                 "INSTRUCTIONS_SIZE",
                 params.num_instructions.max(1).to_string(),
             ),

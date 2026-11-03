@@ -4,6 +4,8 @@
 from textwrap import dedent
 import pytest
 from qdk import qsharp
+from qdk._native import QSharpError
+from qdk.simulation import run_qir
 import qdk.code
 from contextlib import redirect_stdout
 import io
@@ -86,18 +88,18 @@ def test_classical_seed() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
     qsharp.set_classical_seed(42)
     value1 = qsharp.eval(
-        "{ mutable res = []; for _ in 0..15{ set res += [(Microsoft.Quantum.Random.DrawRandomInt(0, 100), Microsoft.Quantum.Random.DrawRandomDouble(0.0, 1.0))]; }; res }"
+        "{ mutable res = []; for _ in 0..15{ res += [(Microsoft.Quantum.Random.DrawRandomInt(0, 100), Microsoft.Quantum.Random.DrawRandomDouble(0.0, 1.0))]; }; res }"
     )
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
     qsharp.set_classical_seed(42)
     value2 = qsharp.eval(
-        "{ mutable res = []; for _ in 0..15{ set res += [(Microsoft.Quantum.Random.DrawRandomInt(0, 100), Microsoft.Quantum.Random.DrawRandomDouble(0.0, 1.0))]; }; res }"
+        "{ mutable res = []; for _ in 0..15{ res += [(Microsoft.Quantum.Random.DrawRandomInt(0, 100), Microsoft.Quantum.Random.DrawRandomDouble(0.0, 1.0))]; }; res }"
     )
     assert value1 == value2
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
     qsharp.set_classical_seed(None)
     value3 = qsharp.eval(
-        "{ mutable res = []; for _ in 0..15{ set res += [(Microsoft.Quantum.Random.DrawRandomInt(0, 100), Microsoft.Quantum.Random.DrawRandomDouble(0.0, 1.0))]; }; res }"
+        "{ mutable res = []; for _ in 0..15{ res += [(Microsoft.Quantum.Random.DrawRandomInt(0, 100), Microsoft.Quantum.Random.DrawRandomDouble(0.0, 1.0))]; }; res }"
     )
     assert value1 != value3
 
@@ -287,14 +289,14 @@ def test_dump_operation() -> None:
 def test_run_with_noise_produces_noisy_results() -> None:
     qsharp.init()
     result = qsharp.run(
-        "{ mutable errors=0; for _ in 0..100 { use q1=Qubit(); use q2=Qubit(); H(q1); CNOT(q1, q2); if MResetZ(q1) != MResetZ(q2) { set errors+=1; } } errors }",
+        "{ mutable errors=0; for _ in 0..100 { use q1=Qubit(); use q2=Qubit(); H(q1); CNOT(q1, q2); if MResetZ(q1) != MResetZ(q2) { errors+=1; } } errors }",
         shots=1,
         noise=qsharp.BitFlipNoise(0.1),
         seed=0,
     )
     assert result[0] > 5
     result = qsharp.run(
-        "{ mutable errors=0; for _ in 0..100 { use q=Qubit(); if MResetZ(q) != Zero { set errors+=1; } } errors }",
+        "{ mutable errors=0; for _ in 0..100 { use q=Qubit(); if MResetZ(q) != Zero { errors+=1; } } errors }",
         shots=1,
         noise=qsharp.BitFlipNoise(0.1),
         seed=0,
@@ -356,6 +358,387 @@ def test_compile_qir_str() -> None:
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
+
+
+def test_compiled_array_update_scalar_captures_replacement_before_container() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Bool[] {
+            use q = Qubit();
+            mutable value = MResetZ(q) == One;
+            let updated = { value = not value; [false] } w/ 0 <- value;
+            updated
+        }
+    """)
+
+    assert qsharp.eval("Main()") == [False]
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [[False]]
+
+
+def test_compiled_array_update_range_captures_replacement_before_container() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Bool[] {
+            use q = Qubit();
+            mutable value = MResetZ(q) == One;
+            let updated = { value = not value; [false] } w/ 0..0 <- [value];
+            updated
+        }
+    """)
+
+    assert qsharp.eval("Main()") == [False]
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [[False]]
+
+
+def test_compiled_array_update_assignment_preserves_index_effects() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Bool[] {
+            use q = Qubit();
+            mutable values = [false, false];
+            values w/= { values w/= 1 <- MResetZ(q) == Zero; 0 } <- false;
+            values
+        }
+    """)
+
+    assert qsharp.eval("Main()") == [False, True]
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [[False, True]]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [qsharp.TargetProfile.Adaptive, qsharp.TargetProfile.Adaptive_RIF],
+)
+def test_curried_allocation_preserves_live_caller_qubit(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Inc(x : Int) : Int {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    """)
+
+    assert qsharp.eval("Main()") == (5, 5, qsharp.Result.One)
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [(5, 5, qsharp.Result.One)]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [qsharp.TargetProfile.Adaptive, qsharp.TargetProfile.Adaptive_RIF],
+)
+def test_curried_transitive_allocation_preserves_live_caller_qubit(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Inner() : Unit {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+        }
+        operation Inc(x : Int) : Int {
+            Inner();
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    """)
+
+    assert qsharp.eval("Main()") == (5, 5, qsharp.Result.One)
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [(5, 5, qsharp.Result.One)]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [qsharp.TargetProfile.Adaptive, qsharp.TargetProfile.Adaptive_RIF],
+)
+def test_curried_nonallocating_closure_preserves_results_and_caller_qubit(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Inc(q : Qubit, x : Int) : Int {
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        operation Main() : (Int, Int, Result) {
+            use work = Qubit();
+            mutable a = 0;
+            mutable b = 0;
+            a = Curried2(Inc(work, _))(a)(2);
+            use r = Qubit();
+            X(r);
+            b = Curried2(Inc(work, _))(b)(2);
+            (a, b, MResetZ(r))
+        }
+    """)
+
+    assert qsharp.eval("Main()") == (5, 5, qsharp.Result.One)
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [(5, 5, qsharp.Result.One)]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_returned_scalar_callable_in_mutable_loop_returns_one(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Main() : Result {
+            use r = Qubit();
+            mutable a = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            for _ in 0..0 { a = g(a)(2); }
+            if a == 4 { X(r); }
+            MResetZ(r)
+        }
+    """)
+
+    assert qsharp.eval("Main()") == qsharp.Result.One
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [qsharp.Result.One]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [qsharp.TargetProfile.Adaptive_RIF, qsharp.TargetProfile.Adaptive],
+)
+def test_conditional_returned_callable_captures_true_branch_without_false_branch_effects(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : (Int, Int, Int) {
+            use q = Qubit();
+            mutable a = 0;
+            mutable calls = 0;
+            let value = (
+                if MResetZ(q) == Zero { Make({ calls += 1; a }) }
+                else { Make({ calls += 100; a + 1 }) }
+            )({ a = 9; 2 });
+            (value, calls, a)
+        }
+    """)
+
+    assert qsharp.eval("Main()") == (4, 1, 9)
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [(4, 1, 9)]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [qsharp.TargetProfile.Adaptive_RIF, qsharp.TargetProfile.Adaptive],
+)
+def test_conditional_returned_callable_captures_false_branch_without_true_branch_effects(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : (Int, Int, Int) {
+            use q = Qubit();
+            X(q);
+            mutable a = 0;
+            mutable calls = 0;
+            let value = (
+                if MResetZ(q) == Zero { Make({ calls += 1; a }) }
+                else { Make({ calls += 100; a + 1 }) }
+            )({ a = 9; 2 });
+            (value, calls, a)
+        }
+    """)
+
+    assert qsharp.eval("Main()") == (5, 100, 9)
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [(5, 100, 9)]
+
+
+def test_returned_scalar_callable_captures_fresh_value_each_runtime_iteration() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Result {
+            use r = Qubit();
+            let count = if MResetZ(r) == Zero { 3 } else { 0 };
+            mutable a = 0;
+            mutable i = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            while i < count {
+                a = g(a)(2);
+                i += 1;
+            }
+            if a == 12 { X(r); }
+            MResetZ(r)
+        }
+    """)
+
+    assert qsharp.eval("Main()") == qsharp.Result.One
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [qsharp.Result.One]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_returned_scalar_callable_captures_before_invocation_argument_mutation(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Main() : Result {
+            use r = Qubit();
+            mutable a = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            for _ in 0..0 {
+                a = g(a)({ a = 9; 2 });
+            }
+            if a == 4 { X(r); }
+            MResetZ(r)
+        }
+    """)
+
+    assert qsharp.eval("Main()") == qsharp.Result.One
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [qsharp.Result.One]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_returned_scalar_callable_captures_tuple_leaves_in_source_order(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Main() : Result {
+            use r = Qubit();
+            mutable a = 0;
+            let g = (x, y) -> (z => x + 10 * y + z);
+            for _ in 0..0 {
+                a = g(a, { a = 3; 2 })({ a = 9; 1 });
+            }
+            if a == 21 { X(r); }
+            MResetZ(r)
+        }
+    """)
+
+    assert qsharp.eval("Main()") == qsharp.Result.One
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [qsharp.Result.One]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_returned_scalar_callable_evaluates_producer_argument_exactly_once(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Main() : Result[] {
+            use marker = Qubit();
+            use check = Qubit();
+            mutable a = 0;
+            mutable calls = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            for _ in 0..0 {
+                a = g({ calls += 1; X(marker); a })(2);
+            }
+            if a == 4 and calls == 1 { X(check); }
+            [MResetZ(marker), MResetZ(check)]
+        }
+    """)
+
+    assert qsharp.eval("Main()") == [qsharp.Result.One, qsharp.Result.One]
+    compiled = run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu")
+    assert compiled == [[qsharp.Result.One, qsharp.Result.One]]
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_returned_scalar_callable_reports_producer_argument_failure_first(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation Main() : Unit {
+            mutable a = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            for _ in 0..0 {
+                a = g({ a += 1; fail "producer-first"; a })(
+                    { fail "invocation-second"; 2 }
+                );
+            }
+        }
+    """)
+
+    with pytest.raises(QSharpError, match="program failed: producer-first"):
+        qsharp.eval("Main()")
+    with pytest.raises(QSharpError, match="program failed: producer-first"):
+        qsharp.compile("Main()")
 
 
 def test_compile_qir_str_from_python_callable() -> None:

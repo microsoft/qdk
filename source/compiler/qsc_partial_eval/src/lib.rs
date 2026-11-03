@@ -48,8 +48,8 @@ use qsc_fir::{
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 use qsc_lowerer::{map_fir_package_span_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
-    ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    RuntimeFeatureFlags, ValueKind,
+    ApplicationGeneratorSet, ComputeKind, ComputePropertiesLookup, ItemComputeProperties,
+    PackageStoreComputeProperties, RuntimeFeatureFlags, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -1754,7 +1754,12 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             spec_decl
                 .filter(|spec_decl| {
-                    self.is_ir_function_eligible(store_item_id, spec_decl, callable_decl)
+                    self.is_ir_function_eligible(
+                        store_item_id,
+                        functor_app,
+                        spec_decl,
+                        callable_decl,
+                    )
                         // Resolve calls with the actual arguments before promoting
                         // static inputs to runtime parameters.
                         && !matches!(
@@ -2262,10 +2267,12 @@ impl<'a> PartialEvaluator<'a> {
     /// Determines whether a resolved callable specialization is eligible to be emitted as a QIR
     /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
     /// of being inlined. Inputs must have runtime-representable leaves; outputs must be Unit
-    /// or a supported scalar (Int/Double/Bool). Ineligible specializations use the inline path.
+    /// or a supported scalar (Int/Double/Bool). Allocation requires runtime qubit management.
+    /// Ineligible specializations use the inline path.
     fn is_ir_function_eligible(
         &self,
         store_item_id: StoreItemId,
+        functor_app: FunctorApp,
         spec_decl: &SpecDecl,
         callable_decl: &CallableDecl,
     ) -> bool {
@@ -2336,6 +2343,26 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
+        // Late-resolved callees may lack call-site MustBeInlined. Recheck allocation
+        // with runtime parameters before static qubit identities can escape into an IR function.
+        if !self
+            .program
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::DynamicQubitAllocation)
+            && self
+                .spec_application_generator_set(store_item_id, functor_app)
+                .is_some_and(|generator_set| {
+                    matches!(
+                        generator_set.generate_ir_function_application_compute_kind(),
+                        ComputeKind::Dynamic { runtime_features, .. }
+                            if runtime_features.contains(RuntimeFeatureFlags::QubitAllocation)
+                    )
+                })
+        {
+            return false;
+        }
+
         true
     }
 
@@ -2347,19 +2374,28 @@ impl<'a> PartialEvaluator<'a> {
         store_item_id: StoreItemId,
         functor_app: FunctorApp,
     ) -> Option<ComputeKind> {
+        self.spec_application_generator_set(store_item_id, functor_app)
+            .map(|generator_set| generator_set.inherent)
+    }
+
+    /// Selects the resolved specialization's properties in the current parallel context.
+    fn spec_application_generator_set(
+        &self,
+        store_item_id: StoreItemId,
+        functor_app: FunctorApp,
+    ) -> Option<&ApplicationGeneratorSet> {
         let ItemComputeProperties::Callable(callable_compute_properties) = self
             .compute_properties
             .get_item(store_item_id, self.in_parallel_scope())
         else {
             return None;
         };
-        let generator_set = match (functor_app.adjoint, functor_app.controlled) {
+        match (functor_app.adjoint, functor_app.controlled) {
             (false, 0) => Some(&callable_compute_properties.body),
             (false, _) => callable_compute_properties.ctl.as_ref(),
             (true, 0) => callable_compute_properties.adj.as_ref(),
             (true, _) => callable_compute_properties.ctl_adj.as_ref(),
-        };
-        generator_set.map(|gen_set| gen_set.inherent)
+        }
     }
 
     /// Scans a specialization block for any residual FIR `Return` expression. After the
