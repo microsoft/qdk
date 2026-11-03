@@ -8,7 +8,7 @@ use expect_test::expect;
 use crate::{
     builder::{
         cx_decl, h_decl, m_decl, mresetz_decl, mx_decl, my_decl, read_result_decl, reset_decl,
-        s_decl, x_decl,
+        s_decl, sadj_decl, x_decl,
     },
     rir::{
         Block, BlockId, CallableId, CallableType, Instruction, Literal, Operand, Prim, Program, Ty,
@@ -805,7 +805,7 @@ fn qubit_reindexed_multiple_times_with_my_and_resets() {
 
 #[test]
 fn qubit_reindexed_multiple_times_with_mz_mx_my_resets() {
-    const S: CallableId = CallableId(0);
+    const SADJ: CallableId = CallableId(0);
     const H: CallableId = CallableId(1);
     const M: CallableId = CallableId(2);
     const MX: CallableId = CallableId(3);
@@ -814,7 +814,7 @@ fn qubit_reindexed_multiple_times_with_mz_mx_my_resets() {
     const MRESETZ: CallableId = CallableId(6);
     let mut program = Program::new();
     program.num_qubits = 1;
-    program.callables.insert(S, s_decl());
+    program.callables.insert(SADJ, sadj_decl());
     program.callables.insert(H, h_decl());
     program.callables.insert(M, m_decl());
     program.callables.insert(MX, mx_decl());
@@ -834,7 +834,7 @@ fn qubit_reindexed_multiple_times_with_mz_mx_my_resets() {
                 None,
             ),
             Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
-            Instruction::Call(S, vec![Operand::Literal(Literal::Qubit(0))], None, None),
+            Instruction::Call(SADJ, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 M,
                 vec![
@@ -901,11 +901,11 @@ fn qubit_reindexed_multiple_times_with_mz_mx_my_resets() {
             Call id(7), args( Qubit(1), Qubit(2), )
             Call id(2), args( Qubit(1), Result(1), )
             Call id(1), args( Qubit(2), )
-            Call id(8), args( Qubit(2), )
+            Call id(0), args( Qubit(2), )
             Call id(1), args( Qubit(3), )
             Call id(7), args( Qubit(3), Qubit(2), )
-            Call id(0), args( Qubit(2), )
-            Call id(0), args( Qubit(3), )
+            Call id(8), args( Qubit(2), )
+            Call id(8), args( Qubit(3), )
             Call id(4), args( Qubit(2), Result(2), )
             Call id(2), args( Qubit(3), Result(3), )
             Call id(1), args( Qubit(4), )
@@ -916,13 +916,13 @@ fn qubit_reindexed_multiple_times_with_mz_mx_my_resets() {
 
     // Callables after the pass.
     expect![[r#"
-        0: __quantum__qis__s__body
+        0: __quantum__qis__s__adj
         1: __quantum__qis__h__body
         2: __quantum__qis__m__body
         3: __quantum__qis__mx__body
         4: __quantum__qis__my__body
         7: __quantum__qis__cx__body
-        8: __quantum__qis__s__adj"#]]
+        8: __quantum__qis__s__body"#]]
     .assert_eq(&callables_to_string(&program));
 }
 

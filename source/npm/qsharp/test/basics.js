@@ -150,6 +150,24 @@ namespace Test {
   assert(result.result === "Zero");
 });
 
+test("MX and MY on eigenstates", async () => {
+  const code = `namespace Test {
+    operation Main() : Result[] {
+        use qs = Qubit[4];
+        H(qs[0]);
+        X(qs[1]); H(qs[1]);
+        H(qs[2]); S(qs[2]);
+        H(qs[3]); Adjoint S(qs[3]);
+        let rs = [MX(qs[0]), MX(qs[1]), MY(qs[2]), MY(qs[3])];
+        ResetAll(qs);
+        rs
+    }
+}`;
+  const result = await runSingleShot(code, "Test.Main()", false);
+  assert(result.success);
+  assert.equal(result.result, "[Zero, One, Zero, One]");
+});
+
 test("one syntax error", async () => {
   const compiler = await getCompiler();
 

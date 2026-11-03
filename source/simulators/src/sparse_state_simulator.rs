@@ -386,7 +386,7 @@ impl SparseStateSim {
             OneQubitMeasurement::Y => {
                 let rx = self.rx_queue.get(id).copied();
 
-                // Ry commutes with Y-basis measurement so we can safely ignore it IF it is the last operation in queue.
+                // Ry commutes with Y-basis measurement so we can safely ignore it, `Ry` is always the last operation in queue.
                 self.ry_queue.remove(id);
                 // Rx rotations at +-pi/2 angles have the same affect as rotating Y <-> Z bases.
                 if let Some(entry_rx) = rx {

@@ -298,7 +298,7 @@ impl StabilizerSimulator {
         self.state.unitary_op(UnitaryOp::SqrtZInv, &[target]);
     }
 
-    /// Records a z-measurement on the given `target`.
+    /// Records a single `Pauli`-measurement on the given `target`.
     fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: OneQubitMeasurement) {
         let measurement = self.m_pauli_impl(target, pauli);
         self.measurements[result_id] = measurement;
@@ -310,7 +310,7 @@ impl StabilizerSimulator {
         self.measurements[result_id] = measurement;
     }
 
-    /// Measures a Z observable on the given `target`.
+    /// Measures a `Pauli` observable on the given `target`.
     fn m_pauli_impl(&mut self, target: QubitID, pauli: OneQubitMeasurement) -> MeasurementResult {
         if self.loss[target] {
             self.loss[target] = false;

@@ -152,6 +152,14 @@ impl Backend for CustomSim {
         self.sim.qubit_is_zero(q)
     }
 
+    fn qubit_is_plus(&mut self, q: usize) -> Result<bool, String> {
+        self.sim.qubit_is_plus(q)
+    }
+
+    fn qubit_is_plus_i(&mut self, q: usize) -> Result<bool, String> {
+        self.sim.qubit_is_plus_i(q)
+    }
+
     fn custom_intrinsic(
         &mut self,
         name: &str,
@@ -1591,7 +1599,7 @@ fn mx() {
             Reset(q);
             res2
         }"#},
-        &expect!["simulation error: qubit_is_plus operation not implemented"],
+        &expect!["(One, false)"],
     );
 }
 
@@ -1618,7 +1626,7 @@ fn my() {
             Reset(q);
             res2
         }"#},
-        &expect!["simulation error: qubit_is_plus_i operation not implemented"],
+        &expect!["(One, false)"],
     );
 }
 

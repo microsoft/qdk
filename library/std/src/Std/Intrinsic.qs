@@ -337,6 +337,7 @@ operation MY(qubit : Qubit) : Result {
     __quantum__qis__my__body(qubit)
 }
 
+/// # Summary
 /// Performs a measurement of a single qubit in the
 /// Pauli _Z_ basis.
 ///

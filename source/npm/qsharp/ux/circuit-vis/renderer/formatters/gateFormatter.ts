@@ -341,7 +341,14 @@ const _measure = (
     "qs-line-measure",
   );
   meter.style.pointerEvents = "none";
-  const basis = label === "MX" ? "X" : label === "MY" ? "Y" : label === "MZ" ? "Z" : undefined;
+  const basis =
+    label === "MX"
+      ? "X"
+      : label === "MY"
+        ? "Y"
+        : label === "MZ"
+          ? "Z"
+          : undefined;
   const elements = [mBox, mArc, meter];
   if (basis !== undefined) {
     const basisLabel = text(

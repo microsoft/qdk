@@ -1019,7 +1019,10 @@ fn traced_measurement_gates(names: &[&str]) -> Vec<String> {
 
 #[test]
 fn mx_my_mz_name_is_preserved() {
-    assert_eq!(traced_measurement_gates(&["MX", "MY", "MZ"]), ["MX", "MY", "MZ"]);
+    assert_eq!(
+        traced_measurement_gates(&["MX", "MY", "MZ"]),
+        ["MX", "MY", "MZ"]
+    );
 }
 
 #[test]

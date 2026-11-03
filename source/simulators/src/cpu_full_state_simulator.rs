@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod tests;
+
 use crate::{
     MeasurementResult, QubitID, ResultID, Simulator,
     noise_config::{
@@ -464,7 +466,7 @@ impl FullStateSimulator {
         let r = self
             .state
             .sample_instrument(instrument, &[target])
-            .expect("apply_instrument should succeed");
+            .expect("sample_instrument should succeed");
 
         if r == 1 {
             MeasurementResult::One

@@ -1339,7 +1339,7 @@ impl Backend for CliffordSim {
             .sim
             .measurements()
             .last()
-            .expect("simulation should have one measurement"); // todo: check of this panic check is required for mx and my
+            .expect("simulation should have one measurement");
         match res {
             MeasurementResult::Zero => Ok(val::Result::Val(false)),
             MeasurementResult::One => Ok(val::Result::Val(true)),
