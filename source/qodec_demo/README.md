@@ -256,6 +256,10 @@ Q65 and Q67 to Q69 name the [open questions](#open-questions).
   below](docs/findings.md#an-adapter-that-reads-below) has two ways today:
   `run`, which holds the thread that called it, or a reply written by hand
   (Q69).
+- [The protocol's conformance
+  checks](docs/findings.md#the-protocols-conformance-checks) pass on the
+  coins and on a layer over them; they found that the coins took a
+  repeated tag, which they now refuse.
 
 To write a layer, start from `src/qodec_layer.rs` and its markers (below).
 To write a profiler, start from `src/profiler.rs` (a state per shot, an

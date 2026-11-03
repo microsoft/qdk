@@ -385,6 +385,31 @@ come. An adapter that keeps state as it maps, as `Decode` keeps its
 votes, still writes its own reply, and `adapter_fn` and
 `owning_adapter_fn` offer no way to map the reply below at all (Q69).
 
+### The protocol's conformance checks
+
+In [`tests/conformance.rs`](../tests/conformance.rs), the checks of the
+protocol's `conformance` feature run on the coins (`coin_device` of
+`stim+rz`), and on repetition3's layer 0 composed with them, one check
+per test. Both refuse calls once closed, take calls after a refusal,
+refuse calls outside their set, report once, and keep the promises they
+make: `replayable`, and
+`resumable_shots` (a shot continues from one call to the next, a call
+changes no shot it does not name, new parts start their shots as made).
+The coins also refuse a repeated tag at the read that repeats it, which
+they did not until these checks found it
+(`the_coins_refuse_a_tag_repeated_within_a_batch`,
+`the_coins_refuse_a_repeated_tag_at_the_index_of_its_instruction`); the
+layer, whose own refusal is pinned above, ends a call in flight at an
+earlier failure
+(`the_layer_over_coins_ends_calls_in_flight_at_an_earlier_failure`), and
+keeps each shot's conditions from one call to the next
+(`the_layer_over_coins_keeps_each_shots_conditions_from_one_call_to_the_next`).
+
+The layer's checks run on batches that each prepare the block before
+measuring it, since a measurement of a block never prepared fails in
+the runtime; so the protocol's tag checks, whose calls are each meant to
+run alone, run on the coins only.
+
 ## Findings
 
 Each finding states what it shows, the tests that pin how the demo

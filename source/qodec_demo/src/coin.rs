@@ -17,7 +17,7 @@ use std::sync::Arc;
 use executor_protocol::{
     CallInput, Capabilities, ExecutorFn, ExecutorLogic, InstructionCall, InstructionSet, MakeState,
     OnePerShot, OnePerShotExecutor, OnePerShotPlacedExecutor, Operand, Outcome, Outcomes,
-    OwnThread, Rejected, ShotContext, executor_fn,
+    OwnThread, Rejected, ShotContext, check_unique_tags, executor_fn,
 };
 use qodec_runtime::{Backend, BasicReadout, BatchResult, OwnedParam, Readout, Status};
 
@@ -89,8 +89,9 @@ fn toss(
 
 /// The protocol's executor of `set`, a state per shot: shot `j` draws from
 /// its seed in a run of seed `seed` (`shot_seed(seed, j)`), so it reads
-/// alike whatever the other shots. It refuses a call outside `set`, and
-/// reports what it ran, summed over the shots. It answers within its call.
+/// alike whatever the other shots. It refuses a call outside `set`, or one
+/// that repeats a tag, and reports what it ran, summed over the shots. It
+/// answers within its call.
 #[expect(
     clippy::type_complexity,
     reason = "the facility's type, as `>>` composes it"
@@ -153,7 +154,19 @@ fn coins(
         .with_resumable_shots(true)
         .with_replayable(true)
         .with_instruction_set(Some(Arc::clone(&set)));
-    let check = move |input: &CallInput<'_, InstructionCall>| set.check_batch(input.instructions());
+    // The layer's own check (`qodec_layer.rs`), but for the blocks: kept
+    // apart, since the layer's is what a runtime's authors write, as the
+    // README counts it.
+    let check = move |input: &CallInput<'_, InstructionCall>| {
+        let calls = input.instructions();
+        set.check_batch(calls)?;
+        check_unique_tags(calls.iter().enumerate().flat_map(|(at, call)| {
+            call.operands.iter().filter_map(move |o| match *o {
+                Operand::Tag(t) => Some((at, t)),
+                _ => None,
+            })
+        }))
+    };
     executor_fn(
         promise,
         |shot: ShotContext| Ok(Coins::new(shot.seed())),
