@@ -57,7 +57,7 @@ use crate::{BuildFaults, ChainHead, ShotSet, UnmetNeed};
 ///
 /// ```
 /// use executor_protocol::{
-///     BuildFaults, CallInput, Capabilities, Chain, Close, DefaultDriver,
+///     BuildFaults, CallInput, Capabilities, Chain, Close, BuiltinDriver,
 ///     Executor, ExecutorReport, InstructionBatch, Needs, OnePerShot, Outcome,
 ///     Outcomes, StaticProgram, TypedInstruction, driver, executor_fn,
 /// };
@@ -95,7 +95,7 @@ use crate::{BuildFaults, ChainHead, ShotSet, UnmetNeed};
 ///     seed: u64,
 /// ) -> Result<
 ///     Chain<
-///         DefaultDriver,
+///         BuiltinDriver,
 ///         Op,
 ///         impl Executor<InstructionBatch<Op>>
 ///             + Close<Report = ExecutorReport<()>>,

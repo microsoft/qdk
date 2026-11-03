@@ -2,19 +2,19 @@
 // Licensed under the MIT License.
 
 //! A program of fixed batches ([`StaticProgram`]), and how the crate's
-//! driver ([`DefaultDriver`]) runs it: each batch to every shot of the job,
+//! driver ([`BuiltinDriver`]) runs it: each batch to every shot of the job,
 //! in order, so that a static program is data, with no code of its own.
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt;
 
-#[cfg(doc)]
-use crate::{Capabilities, Chain, driver};
 use crate::{
-    DefaultDriver, Driver, Executor, Instruction, InstructionBatch, InstructionBatchRef, Needs,
+    BuiltinDriver, Driver, Executor, Instruction, InstructionBatch, InstructionBatchRef, Needs,
     Rejected, ShotOutcome, ShotSet, wait_async,
 };
+#[cfg(doc)]
+use crate::{Capabilities, Chain, driver};
 
 /// A program of fixed batches of `I`s, run in order on every shot, and
 /// what it needs of the chain: a program that decides nothing on its
@@ -83,7 +83,7 @@ impl<I> StaticProgram<I> {
 /// or that fails, it stops and sends no later batch: it gives that batch
 /// and why ([`StaticProgramError`]), the outcomes of earlier batches
 /// dropped. A program of no batches sends no call and gives no outcomes.
-impl<I: Instruction> Driver<StaticProgram<I>> for DefaultDriver {
+impl<I: Instruction> Driver<StaticProgram<I>> for BuiltinDriver {
     type Instruction = I;
     type Output = Result<Vec<ShotOutcome>, StaticProgramError>;
 

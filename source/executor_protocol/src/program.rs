@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The programs the crate's driver runs ([`DefaultDriver`]), each given to
+//! The programs the crate's driver runs ([`BuiltinDriver`]), each given to
 //! a chain with its shots as a job, `chain.run(program, shots)`:
 //!
 //! - [`AdaptiveProgram`]: a program that drives the chain's executor
@@ -15,7 +15,7 @@ pub(crate) mod static_program;
 use std::future::Future;
 
 #[cfg(doc)]
-use crate::{Chain, DefaultDriver, Run};
+use crate::{BuiltinDriver, Chain, Run};
 use crate::{Executor, Instruction, InstructionBatch, Needs, ShotSet};
 
 /// A program that drives the executor itself: it sends each batch and can
@@ -23,7 +23,7 @@ use crate::{Executor, Instruction, InstructionBatch, Needs, ShotSet};
 /// driver, is one that decides nothing. An adaptive program states what it
 /// needs of the chain, and how it drives any executor of its instructions,
 /// through one generic method. The crate's driver lets it drive
-/// ([`DefaultDriver`]).
+/// ([`BuiltinDriver`]).
 ///
 /// A synchronous program writes `drive` as an `async fn` that takes each
 /// reply with [`wait`](crate::wait); an asynchronous one awaits them

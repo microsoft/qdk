@@ -22,7 +22,7 @@ what they belong to; the names in code are the crate's.
   batches and reading their outcomes, and the adapters and the executor
   below look to it like that single executor. The caller builds the chain,
   `ChainHead::new(runtime) >> adapters >> executor`, then calls
-  `chain.run(program, shots)`. The crate's driver (`DefaultDriver`, at the
+  `chain.run(program, shots)`. The crate's driver (`BuiltinDriver`, at the
   head `driver()` gives) runs a static program, and lets an adaptive
   program drive ([Composing a run](composition.md#composing-a-run)). A
   device's driver, the vendor's software below an executor, is not a

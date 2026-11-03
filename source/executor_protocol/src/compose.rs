@@ -77,7 +77,7 @@ use crate::{
 #[cfg(doc)]
 use crate::{AdapterBoundary, Driver};
 #[cfg(test)]
-use crate::{AdaptiveProgram, ComposedJob, DefaultDriver, DrivenProgram, JobFaults, Run};
+use crate::{AdaptiveProgram, BuiltinDriver, ComposedJob, DrivenProgram, JobFaults, Run};
 
 /// Two entities put together into one, `Self` upstream of `Rhs`: the rules
 /// of [`compose`](fn@crate::compose), one impl each.
@@ -285,11 +285,11 @@ where
     L: UpstreamOf<E, Accepts = P::Instruction>,
     L::Output: Executor<InstructionBatch<P::Instruction>> + Close,
 {
-    type Output = Result<Run<DrivenProgram<DefaultDriver, P>, L::Output>, BuildFaults>;
+    type Output = Result<Run<DrivenProgram<BuiltinDriver, P>, L::Output>, BuildFaults>;
 
     fn compose(self, executor: E) -> Self::Output {
         let (program, shots, adapters) = self.into_parts();
-        let chain = ChainHead::<_, NoAdapter<P::Instruction>>::new(DefaultDriver)
+        let chain = ChainHead::<_, NoAdapter<P::Instruction>>::new(BuiltinDriver)
             .map_adapters(|_| adapters)
             .compose(executor)?;
         chain.run(program, shots).map_err(|JobFaults(faults)| {

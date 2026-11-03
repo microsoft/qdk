@@ -20,9 +20,9 @@ use crate::{
     Action, Adapter, AdapterBoundary, Adapters, AdaptiveProgram, Angle, Apply, Capabilities, Close,
     ComponentId, Compose, Describe, Executor, ExecutorLifecycle, Fold, ImmediateReply,
     IncrementalReply, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionSet, Message, Needs, Operand, OperandKind, Pauli, Rejected, Reply, ReplyStatus,
-    ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, reply_channel, shot_seed,
-    wait, wait_async,
+    InstructionSet, Message, Needs, NoAdapter, Operand, OperandKind, Pauli, Rejected, Reply,
+    ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, reply_channel,
+    shot_seed, wait, wait_async,
 };
 
 use test_double::Model;
@@ -464,6 +464,63 @@ impl AdaptiveProgram for ByHand {
             outcomes.extend(events);
         }
         outcomes
+    }
+}
+
+/// A job composed as a chain's head is, for the crate's tests: a program,
+/// the shots it runs, and the adapters composed downstream of it (none at
+/// first). Composed with an executor, it gives the [`Run`](crate::Run) of
+/// the chain of the crate's driver on its adapters and that executor, its
+/// job's faults reported as [`BuildFaults`](crate::BuildFaults).
+///
+/// It takes no seed: the run's seed is given to the last executor when it
+/// is built ([`ExecutorFn::seed`](crate::ExecutorFn::seed)), and reaches
+/// each adapter that draws (a noise adapter) when the adapter is built
+/// against what is downstream of it
+/// ([`AdapterBoundary::drawing_seeds`](crate::AdapterBoundary::drawing_seeds)),
+/// so that each draws from seeds of its own and the program states only
+/// what it runs.
+///
+/// # Type parameters
+///
+/// - `P`: the program ([`AdaptiveProgram`]), given to [`ComposedJob::new`].
+/// - `L`: the adapters composed downstream of it by `>>`
+///   ([`ComposedAdapters`](crate::ComposedAdapters)); none at first.
+pub(crate) struct ComposedJob<P, L> {
+    program: P,
+    shots: ShotSet,
+    adapters: L,
+}
+
+impl<P: AdaptiveProgram> ComposedJob<P, NoAdapter<P::Instruction>> {
+    /// `program`, to run `shots`. The same job also runs as any other
+    /// does, given to a chain of the crate's driver:
+    /// `(driver() >> executor)?.run(program, shots)`
+    /// ([`Chain::run`](crate::Chain::run)), its faults then reported
+    /// together with the shots' ([`JobFaults`](crate::JobFaults)).
+    #[must_use]
+    pub(crate) fn new(program: P, shots: ShotSet) -> Self {
+        Self {
+            program,
+            shots,
+            adapters: NoAdapter::default(),
+        }
+    }
+}
+
+impl<P, L> ComposedJob<P, L> {
+    /// This job, with its adapters replaced by `f` of them.
+    pub(crate) fn map_adapters<M>(self, f: impl FnOnce(L) -> M) -> ComposedJob<P, M> {
+        ComposedJob {
+            program: self.program,
+            shots: self.shots,
+            adapters: f(self.adapters),
+        }
+    }
+
+    /// The program, the shots and the adapters.
+    pub(crate) fn into_parts(self) -> (P, ShotSet, L) {
+        (self.program, self.shots, self.adapters)
     }
 }
 

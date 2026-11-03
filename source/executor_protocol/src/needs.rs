@@ -26,7 +26,7 @@ use crate::{Capabilities, InstructionMismatch, InstructionSet, OpcodeMap, Reject
 /// The default states nothing but the run's shots, held at once, which
 /// every run implies. A driver may add needs it derives from the program
 /// ([`Driver::needs`](crate::Driver::needs)): the crate's driver
-/// ([`DefaultDriver`](crate::DefaultDriver)) adds `resumable_shots` for a
+/// ([`BuiltinDriver`](crate::BuiltinDriver)) adds `resumable_shots` for a
 /// [`StaticProgram`](crate::StaticProgram) with calls before its last
 /// batch. A program of calls by opcode
 /// ([`InstructionCall`](crate::InstructionCall)) also states their set

@@ -9,7 +9,7 @@ use crate::tests::{
     Bits, ByHand, Count, Relabel, bits_set, block_on, flip_and_toss, reversed_set, shots, values,
 };
 use crate::{
-    Chain, ChainHead, DefaultDriver, Driver, Executor, InstructionBatch, InstructionBatchRef,
+    BuiltinDriver, Chain, ChainHead, Driver, Executor, InstructionBatch, InstructionBatchRef,
     InstructionCall, InstructionSet, JobFaults, Need, Needs, Opcode, Operand, Rejected, ShotId,
     ShotSet, StaticProgram, Value, driver, wait_async,
 };
@@ -43,7 +43,7 @@ fn unmet(rejected: &Rejected) -> Option<(Need, u64, u64)> {
 /// most `max_shots` shots at once when stated.
 fn double_chain(
     max_shots: Option<u64>,
-) -> Chain<DefaultDriver, bool, TestDoubleExecutor<TestDoubleModel>> {
+) -> Chain<BuiltinDriver, bool, TestDoubleExecutor<TestDoubleModel>> {
     let model = TestDoubleModel {
         max_shots,
         ..TestDoubleModel::default()

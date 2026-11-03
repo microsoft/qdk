@@ -361,9 +361,9 @@ let (outcomes, _) = (ChainHead::new(InTurn) >> logger("a", &by_hand) >> bits())
 
 The caller's entry point is the chain:
 `ChainHead::new(runtime) >> adapters >> executor`, then
-`chain.run(program, shots)`. The crate's driver, `DefaultDriver`, runs
+`chain.run(program, shots)`. The crate's driver, `BuiltinDriver`, runs
 static and adaptive programs, and `driver()` is
-`ChainHead::new(DefaultDriver)`. A driver with adapters below it is still
+`ChainHead::new(BuiltinDriver)`. A driver with adapters below it is still
 a `ChainHead`, which composes the same way, but not yet a `Driver<P>`
 itself ([planned](docs/planned.md)).
 

@@ -19,8 +19,8 @@ use crate::tests::test_double::TestDoubleModel;
 use crate::tests::test_double::{Model, TestDoubleExecutor};
 use crate::{
     Adapter, AdapterBoundary, AdapterExecutor, AdapterFn, AdapterLogic, AdaptiveProgram, Apply,
-    Below, BuildError, BuildFaults, CallInput, Capabilities, Chain, ChainHead, Close, ComponentId,
-    ComposedJob, DefaultDriver, Describe, Driver, Executor, ExecutorLogic, InstructionBatch,
+    Below, BuildError, BuildFaults, BuiltinDriver, CallInput, Capabilities, Chain, ChainHead,
+    Close, ComponentId, ComposedJob, Describe, Driver, Executor, ExecutorLogic, InstructionBatch,
     InstructionBatchRef, InstructionCall, InstructionMismatch, InstructionSet, JobFaults, LogP,
     MakeState, Need, Needs, NoCheck, OnePerShot, OnePerShotAdapter, OnePerShotExecutor,
     OnePerShotPlacedExecutor, OperandKind, Outcome, Outcomes, OwnThread, Rejected, ShotContext,
@@ -225,7 +225,7 @@ fn the_grouping_of_a_jobs_chain_does_not_matter() {
 /// The values of a static program of [`flip_and_toss`] in the bits'
 /// numbering, run on shots 0 and 1 by `chain`.
 fn run_flip_and_toss<E>(
-    chain: Chain<DefaultDriver, InstructionCall, E>,
+    chain: Chain<BuiltinDriver, InstructionCall, E>,
 ) -> Vec<(ShotId, u32, Value)>
 where
     E: Executor<InstructionBatch<InstructionCall>> + Close,
@@ -273,7 +273,7 @@ fn the_grouping_of_a_drivers_chain_does_not_matter() {
         {
             let (a, b) = ab(&logs[4]);
             let executor = compose(b, bits()).expect("loggers fit");
-            let head: ChainHead<DefaultDriver, _> = driver() >> a;
+            let head: ChainHead<BuiltinDriver, _> = driver() >> a;
             run_flip_and_toss(compose(head, executor).expect("loggers fit"))
         },
     ];
@@ -453,7 +453,7 @@ fn two_calls() -> StaticProgram<bool> {
 }
 
 /// The values of `chain`'s run of [`two_calls`] on shots 2 and 5.
-fn run_two_calls<E>(chain: Chain<DefaultDriver, bool, E>) -> Vec<(ShotId, u32, Value)>
+fn run_two_calls<E>(chain: Chain<BuiltinDriver, bool, E>) -> Vec<(ShotId, u32, Value)>
 where
     E: Executor<InstructionBatch<bool>> + Close,
 {
@@ -607,7 +607,7 @@ impl<E: Close> Close for CountsCalls<E> {
 /// The values of `chain`'s run of [`two_calls`] on shots 2 and 5, and its
 /// report.
 fn run_two_calls_with_report<E>(
-    chain: Chain<DefaultDriver, bool, E>,
+    chain: Chain<BuiltinDriver, bool, E>,
 ) -> (Vec<(ShotId, u32, Value)>, E::Report)
 where
     E: Executor<InstructionBatch<bool>> + Close,

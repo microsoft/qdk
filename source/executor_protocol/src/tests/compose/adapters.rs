@@ -25,8 +25,8 @@ use crate::tests::{
 };
 use crate::tests::{PanicsOnClose, map_executor};
 use crate::{
-    Adapter, AdapterBoundary, AdapterError, AdapterSeeds, Apply, Below, BuildError, CallInput,
-    Capabilities, Chain, Close, ComponentId, ComposedJob, DefaultDriver, Describe, Executor,
+    Adapter, AdapterBoundary, AdapterError, AdapterSeeds, Apply, Below, BuildError, BuiltinDriver,
+    CallInput, Capabilities, Chain, Close, ComponentId, ComposedJob, Describe, Executor,
     ExecutorReport, ImmediateReply, InstructionBatch, InstructionBatchRef, InstructionCall,
     InstructionMismatch, InstructionSet, JobFaults, Needs, OnePerShot, Opcode, Operand,
     OperandKind, Outcomes, Rejected, Reply, ReplyStatus, RngIds, ShotContext, ShotId, ShotOutcome,
@@ -1981,7 +1981,7 @@ fn pass(
 
 /// The needs `chain` refuses, in order, for a job of one shot whose program
 /// needs `needs`; none when the job is given to it.
-fn unmet_needs<E>(chain: Chain<DefaultDriver, bool, E>, needs: Needs) -> Vec<Need>
+fn unmet_needs<E>(chain: Chain<BuiltinDriver, bool, E>, needs: Needs) -> Vec<Need>
 where
     E: Executor<InstructionBatch<bool>> + Close,
 {

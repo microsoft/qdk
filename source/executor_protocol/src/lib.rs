@@ -131,9 +131,10 @@ pub use compose::chain::{Chain, JobFaults};
 pub use compose::run::Run;
 pub use compose::{BuildError, BuildFault, BuildFaults, Compose, WithExecutor, compose};
 pub use conditions::ShotConditions;
-#[cfg(test)]
-pub(crate) use driver::ComposedJob;
-pub use driver::{ChainHead, DefaultDriver, DrivenProgram, Driver, driver};
+pub use driver::Driver;
+pub use driver::builtin_driver::{BuiltinDriver, driver};
+pub use driver::chain_head::ChainHead;
+pub use driver::driven_program::DrivenProgram;
 pub use executor::{Close, Executor, ExecutorReport, Fold, LogP};
 pub use executor_fn::{
     CallInput, ExecutorFn, ExecutorLogic, MakeState, NoCheck, OnePerShot, OnePerShotExecutor,
@@ -163,6 +164,8 @@ pub use seeds::{AdapterSeeds, ComponentId, RngIds, ShotContext, shot_seed};
 pub use shot::{IntoShotSet, ShotId, ShotSet};
 pub use shot_states::ShotReplies;
 pub(crate) use shot_states::ShotStates;
+#[cfg(test)]
+pub(crate) use tests::ComposedJob;
 
 #[cfg(test)]
 mod tests;
