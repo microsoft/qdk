@@ -325,9 +325,14 @@ The parts of a run, as
   `ChainHead::new(driver)` puts any driver there: a driver written by hand,
   as a runtime is, makes its calls on the one executor it is given, the
   adapters below it with the executor
-  (`a_driver_written_by_hand_calls_through_the_adapters_below_it`,
-  `a_drivers_default_needs_ask_no_resumable_shots`). A head with adapters
-  is a `ChainHead` still, not a `Driver<P>` (planned). Composed with the
+  (`a_driver_written_by_hand_calls_through_the_adapters_below_it`). Its
+  default needs ask no resumable shots
+  (`a_drivers_default_needs_ask_no_resumable_shots`), and no call checks
+  resumable shots it does not state
+  (`resumable_shots_a_driver_does_not_state_are_checked_by_no_call`), so
+  a driver whose later calls continue a shot states `resumable_shots`. A
+  head with adapters is a `ChainHead` still, not a `Driver<P>` (planned).
+  Composed with the
   executor, a head makes a `Chain`, which runs the job given to it
   ([A chain and its job](../composition.md#a-chain-and-its-job)), an
   adaptive program (`AdaptiveProgram`) included
@@ -615,9 +620,10 @@ not meet, or such an executor of another crate that lacks `Describe` or
 `Close`, is reported as no `>>` for the pair, with no note of the crate,
 while `compose` reports it with `Compose`'s notes; no test pins either
 (`Compose`'s rustdoc). A chain's head with no adapter below it takes the
-executor's instruction type, so its driver's own is checked when the job
-is given (`Chain::run`), as a type mismatch with no note of the crate,
-which no test pins either.
+instruction type of the part it is composed with, an adapter or the
+executor, so its driver's own is checked when the job is given
+(`Chain::run`), as a type mismatch with no note of the crate, which no
+test pins either.
 
 Another crate composes with `compose`, or gives its own types `>>`, which
 takes more for an executor than for an adapter. An adapter written by

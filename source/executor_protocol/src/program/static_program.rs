@@ -107,10 +107,10 @@ impl<I: Instruction> Driver<StaticProgram<I>> for BuiltinDriver {
     /// readout whose tag an earlier readout of the program has, each a
     /// [`Rejected::Instruction`] at its call's index in its batch, the
     /// batch named in the reason, in the program's order, so that none is
-    /// found only once earlier batches have run. A program that states no
-    /// set has no set to check its calls against (it is refused for its
-    /// needs already); its tags are still checked. Typed calls are checked
-    /// by the compiler, and their tags are not read.
+    /// found only once earlier batches have run. A program of calls by
+    /// opcode that states no set has no set to check them against (it is
+    /// refused for its needs already); its tags are still checked. Typed
+    /// calls are checked by the compiler, and their tags are not read.
     fn check(&self, program: &StaticProgram<I>) -> Vec<Rejected> {
         let set = program.needs.instruction_set.as_deref();
         // Once per job, not per batch: a map costs 0.14 s for 1e6 readouts.

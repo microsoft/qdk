@@ -442,7 +442,7 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     /// where none is compared (an observer's sends, the call's own
     /// instructions, are merged with no comparison): the bound is on the
     /// type. An adapter whose sends are not does not compile here, the
-    /// compiler naming the trait missing:
+    /// compiler naming the trait missing, `PartialEq`:
     ///
     /// ```compile_fail,E0277
     /// use executor_protocol::{
@@ -451,6 +451,31 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     /// };
     ///
     /// #[derive(Clone, Copy, Debug)] // no `PartialEq`
+    /// enum Gate {
+    ///     X(u32),
+    /// }
+    ///
+    /// impl TypedInstruction for Gate {}
+    ///
+    /// let observer = adapter_fn(
+    ///     |_| Ok(()),
+    ///     |_: &mut (),
+    ///      input: &CallInput<'_, Gate>,
+    ///      below: &mut Below<'_, Gate>,
+    ///      _: &mut Outcomes<'_>| below.send(input.instructions()),
+    /// )
+    /// .shots(OnePerShot);
+    /// ```
+    ///
+    /// or `Clone`:
+    ///
+    /// ```compile_fail,E0277
+    /// use executor_protocol::{
+    ///     Below, CallInput, OnePerShot, Outcomes, TypedInstruction,
+    ///     adapter_fn,
+    /// };
+    ///
+    /// #[derive(Debug, PartialEq)] // no `Clone`
     /// enum Gate {
     ///     X(u32),
     /// }

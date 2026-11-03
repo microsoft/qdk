@@ -64,10 +64,12 @@ pub trait Driver<P> {
 
     /// What it needs of the chain to run `program`, checked when the
     /// program is given to the chain ([`Chain::run`]). The default needs
-    /// nothing but the run's shots, held at once ([`Needs`]), which is
-    /// enough for typed instructions: a driver that sends calls by opcode
-    /// ([`InstructionCall`](crate::InstructionCall)) also states their set,
-    /// or a chain refuses its job.
+    /// nothing but the run's shots, held at once ([`Needs`]), and states no
+    /// instruction set: enough for typed instructions, while a driver that
+    /// sends calls by opcode ([`InstructionCall`](crate::InstructionCall))
+    /// also states their set, or a chain refuses its job. A driver whose
+    /// later calls continue a shot also states `resumable_shots`
+    /// ([`Needs::resumable_shots`]), which no call checks.
     #[must_use]
     fn needs(&self, program: &P) -> Needs {
         let _ = program;

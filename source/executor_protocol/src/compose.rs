@@ -118,9 +118,9 @@ use crate::{AdaptiveProgram, BuiltinDriver, ComposedJob, DrivenProgram, JobFault
 /// composed, they are reported as a type mismatch on what it accepts.
 /// Written as `compose(upstream, downstream)`, the pair shows the rule. A
 /// chain's head with no adapter below it takes the instruction type of
-/// the executor it is composed with: its driver's own instruction type is
-/// checked when the job is given ([`Chain::run`]), as a type mismatch
-/// with no note of the crate.
+/// the part it is composed with, an adapter or the executor: its driver's
+/// own instruction type is checked when the job is given ([`Chain::run`]),
+/// as a type mismatch with no note of the crate.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not compose upstream of `{Rhs}`",
     label = "no rule of `compose` puts `{Self}` upstream of this",

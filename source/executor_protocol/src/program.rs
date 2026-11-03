@@ -37,9 +37,12 @@ pub trait AdaptiveProgram {
 
     /// What it needs of the chain, checked when it is given to a chain
     /// ([`Chain::run`]). The default needs nothing but the run's shots, held
-    /// at once ([`Needs`]), which is enough for typed instructions: a
-    /// program of calls by opcode ([`InstructionCall`](crate::InstructionCall))
-    /// also states their set, or a chain refuses its job.
+    /// at once ([`Needs`]), and states no instruction set: enough for typed
+    /// instructions, while a program of calls by opcode
+    /// ([`InstructionCall`](crate::InstructionCall)) also states their set,
+    /// or a chain refuses its job. A program whose later calls continue a
+    /// shot also states `resumable_shots` ([`Needs::resumable_shots`]),
+    /// which no call checks.
     #[must_use]
     fn needs(&self) -> Needs {
         Needs::default()
