@@ -144,7 +144,7 @@ Method: `taskset -c 11 cargo bench -p executor_protocol --bench
 shot_replies_wake`, on one core of a Qualcomm Oryon machine under Linux
 (WSL), the machine otherwise idle; each cell is the fastest of 7 runs,
 and the median of 3 runs of the bench, taken separately for the times and
-for the ratios. The three runs agreed within about 5 % past one shot; on
+for the ratios. The three runs agreed within about 7 % past one shot; on
 a machine under load, a polled-once cell varied by up to about 17 %
 between runs, so read single cells as approximate. A batch of one shot is
 near the timer's resolution.
