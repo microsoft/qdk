@@ -78,10 +78,11 @@ its way of sending needs: the crate's driver adds `resumable_shots` for a
 its shots. The chain checks the two combined, so a driver cannot drop a need
 of the program: the larger number of qubits, each flag either states, and the
 instruction set either states; two different sets are a fault of the job
-([Needs, combined](composition.md#needs-combined)). A program of `InstructionCall`s
-must state its set, which numbers its calls ([Instruction
+([Needs, combined](composition.md#needs-combined)). For a program of
+`InstructionCall`s, the program or its driver states their set, which numbers
+its calls ([Instruction
 sets](internals/instruction-sets.md#compatibility-the-rules)): a chain refuses
-the job of one that does not, as its need of an instruction set unmet;
+the job when neither does, as its need of an instruction set unmet;
 `Capabilities::admit` does not yet, a known gap, since it does not know the
 caller's instruction type. A program states a need only when it wants it
 checked. From the [tests of `compose`](../src/tests/compose.rs), whose
@@ -365,10 +366,13 @@ arrows read as in [Replies](replies.md#reading-the-sequence-diagrams):
 ```mermaid
 sequenceDiagram
   participant C as caller
+  participant H as chain
   participant R as run
   participant D as driver
   participant E as executor
-  C->>R: chain.run(program, shots), checked (nothing runs)
+  C->>H: chain.run(program, shots)
+  Note over H: the job checked (nothing runs)
+  H-->>C: a run
   C->>R: wait()
   R->>D: drive
   loop each call

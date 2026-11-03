@@ -89,9 +89,10 @@ what they belong to; the names in code are the crate's.
     back, such as a QIR runtime. In a chain it is a driver (`Driver<P>`,
     for its form of program `P`; a QIR runtime's, `Driver<QirProgram>`, is
     planned), which runs the program's classical part itself and sends its
-    quantum regions downstream. The gates it sends are its needs
-    (`Needs::instruction_set`), checked when the job is given
-    (`Chain::run`)
+    quantum regions downstream. The gates a program uses are the program's
+    needs (`Program::needs`, `Needs::instruction_set`), and its runtime
+    states only what its way of sending adds (`Driver::needs`), both
+    checked when the job is given (`Chain::run`)
     ([Writing a driver](../README.md#writing-a-driver);
     [How applications use it](instruction-sets.md#how-applications-use-it));
   - an **async runtime**, such as Tokio: what polls tasks

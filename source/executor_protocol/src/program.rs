@@ -28,9 +28,10 @@ pub trait Program {
     /// to a chain ([`Chain::run`]), combined with what its driver's way of
     /// sending adds ([`Driver::needs`]). The default needs nothing but the
     /// run's shots, held at once ([`Needs`]), and states no instruction set:
-    /// enough for typed instructions, while a program of calls by opcode
-    /// ([`InstructionCall`](crate::InstructionCall)) also states their set,
-    /// or a chain refuses its job.
+    /// enough for typed instructions, while for a program of calls by
+    /// opcode ([`InstructionCall`](crate::InstructionCall)) the program or
+    /// its driver states their set ([`Needs::instruction_set`]), or a chain
+    /// refuses its job.
     #[must_use]
     fn needs(&self) -> Needs {
         Needs::default()

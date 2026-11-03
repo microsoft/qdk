@@ -219,13 +219,15 @@ and when, within a call, the readouts pass up:
 ```mermaid
 sequenceDiagram
   participant T as the test
+  participant C as chain
   participant R as Run
   participant I as driver()
   participant P as profiler()
   participant D as debugger(log)
   participant S as simulator()
-  T->>R: chain.run(program(), SHOTS)
-  Note over R: the job checked against the chain, a Run given
+  T->>C: chain.run(program(), SHOTS)
+  Note over C: the job checked against the chain
+  C-->>T: a Run
   T->>R: wait()
   R->>I: drive the program
   loop each batch in turn: toss, then copy
@@ -274,8 +276,9 @@ by hand instead.
   instructions on it: a simulator, a device, a bridge to an existing tool.
   It describes its promise (lowered to one shot without `.shots(..)`),
   refuses a new shot past the shots it promises to hold, fails for good on
-  its logic's error, keeps a state per shot with `.shots(OnePerShot)`, and
-  seeds each shot's state from the run's seed and the shot. `.run_on(placement)`
+  its logic's error, keeps a state per shot with `.shots(OnePerShot)`, and,
+  given the run's seed with `.seed(s)`, seeds each shot's state from it and
+  the shot. `.run_on(placement)`
   ([`src/facilities/placed_executor.rs`](src/facilities/placed_executor.rs))
   runs it where a placement says: on a thread of its own, or each shot on
   its own.
@@ -292,7 +295,8 @@ by hand instead.
   one, but for those a shot kept before its run, which go alone at that
   run.
 - `driver()` ([`src/facilities/builtin_driver.rs`](src/facilities/builtin_driver.rs))
-  is the crate's driver: it runs a `StaticProgram`
+  gives a chain's prefix holding the crate's driver, `BuiltinDriver`, which
+  runs a `StaticProgram`
   ([`src/facilities/static_program.rs`](src/facilities/static_program.rs)),
   a program of fixed batches.
 

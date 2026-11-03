@@ -181,9 +181,9 @@ fn a_jobs_faults_read_as_one_message_in_their_order() {
     assert_eq!(faults.to_string(), format!("{shots}; {qubits}"));
 }
 
-/// A job whose program of calls by opcode states no set, given to a chain
-/// on the bits: the refusal names the program as the side that may state
-/// none, the program being what the job gives.
+/// A job whose program of calls by opcode states no set, run by the
+/// crate's driver, which adds none, on the bits: the refusal names the
+/// program and its driver, the two sides that may state the set.
 #[test]
 fn a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal() {
     let chain = (driver() >> TestDoubleExecutor::with_model(Bits::default(), 7))
@@ -197,7 +197,10 @@ fn a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal() {
     };
     assert_eq!(unmet.need, Need::InstructionSet, "{unmet}");
     let text = unmet.to_string();
-    assert!(text.starts_with("the program or "), "{text}");
+    assert!(
+        text.starts_with("neither the program nor its driver "),
+        "{text}"
+    );
 }
 
 /// A job of four shots on an executor that holds three shots at once is

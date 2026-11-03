@@ -43,8 +43,9 @@ use crate::{Capabilities, Chain, driver};
 /// from its calls is planned.
 ///
 /// A program of no batches gets no need added to those it states (a
-/// program of calls by opcode states its set all the same); the driver
-/// sends no call for it, and it gives no outcomes.
+/// program of calls by opcode states its set all the same, as the crate's
+/// driver adds none); the driver sends no call for it, and it gives no
+/// outcomes.
 ///
 /// Its outcomes are one list, told apart by shot and tag, so each tag
 /// names one readout in the whole program, not only within its batch (a

@@ -189,7 +189,7 @@ any order:
 - **An adapter** states the instructions it sends (`Adapter::sends`). `compose`
   checks them against the set downstream, and copies its calls into the
   downstream numbering where it numbers them otherwise.
-- **A job's program** states the instructions it sends
+- **A job's program** states the instructions its driver sends
   (`Needs::with_instruction_set`). A set the chain lacks is refused when the
   job is given to the chain, with every instruction that does not fit. A
   program of `InstructionCall`s whose set numbers its instructions otherwise
@@ -344,15 +344,16 @@ instructions would be a type, which the compiler would check the runtime
 against, and an executor would refuse only qubits and results beyond its own, so
 nothing would need describing. A description is for when the gates a program
 uses (QIR's) and those an executor accepts can differ: an executor of native
-gates, or one that simulates only Clifford gates, would describe them, and the
-runtime would state the gates it sends as its needs (`Needs::instruction_set`),
-which `Chain::run` matches in the set described downstream when the job is
-given, so a missing gate would be refused then instead of in the middle of the
-program. The executor downstream of the runtime would keep its type: what it
-describes would be the gates inside its regions, not the variants of
-`RegionInstruction`. What exists is `Rejected::at_origin`: it renumbers a
-refusal from downstream so that it names the instruction the adapter received,
-as the repetition code of the [static instruction set
+gates, or one that simulates only Clifford gates, would describe them; the
+program would state the gates it uses as its needs (`Program::needs`,
+`Needs::instruction_set`), and its runtime only what its way of sending adds
+(`Driver::needs`), both checked when the job is given: `Chain::run` matches the
+gates in the set described downstream, so a missing gate would be refused then
+instead of in the middle of the program. The executor downstream of the runtime
+would keep its type: what it describes would be the gates inside its regions,
+not the variants of `RegionInstruction`. What exists is `Rejected::at_origin`:
+it renumbers a refusal from downstream so that it names the instruction the
+adapter received, as the repetition code of the [static instruction set
 guide](../tests/static_isa.rs) does.
 
 **A device over a link (L1 and L0, planned, with no milestone yet).** A

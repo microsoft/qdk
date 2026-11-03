@@ -37,10 +37,11 @@ use crate::{Capabilities, InstructionMismatch, InstructionSet, OpcodeMap, Reject
 /// numbered by one set ([`UnmetNeed`], [`JobFaults`](crate::JobFaults)).
 ///
 /// The default states nothing but the run's shots, held at once, which
-/// every run implies. A program of calls by opcode
-/// ([`InstructionCall`](crate::InstructionCall)) also states their set
+/// every run implies. A job of calls by opcode
+/// ([`InstructionCall`](crate::InstructionCall)) also states their set, in
+/// its program's needs or its driver's
 /// ([`with_instruction_set`](Self::with_instruction_set)), which numbers
-/// them, or a chain refuses its job. Beyond that, a program or a driver
+/// them, or a chain refuses it. Beyond that, a program or a driver
 /// states a need only when it wants it checked. New needs are added as
 /// fields whose default states nothing, hence `#[non_exhaustive]`: build
 /// one from the default and its `with_` methods.
@@ -59,9 +60,9 @@ pub struct Needs {
     /// name, even when fewer are live at once. Combined, the larger of the
     /// program's and its driver's, or the one either states alone.
     pub qubits: Option<u32>,
-    /// The program continues a shot in a later call, where an earlier call
-    /// left it (to feed its outcomes forward, to read again, or only to go
-    /// on), checked against [`Capabilities::resumable_shots`]: the executor
+    /// The driver's later calls continue a shot where an earlier call left
+    /// it (to feed its outcomes forward, to read again, or only to go on),
+    /// checked against [`Capabilities::resumable_shots`]: the executor
     /// keeps a state per shot between calls. Combined, needed when the
     /// program or its driver states it, as each flag below.
     pub resumable_shots: bool,
@@ -362,10 +363,10 @@ impl UnmetNeed {
         })
     }
 
-    /// The need of an instruction set that a program sending calls by opcode
-    /// (a job's, given to a chain) does not meet when it
-    /// states no set, or an empty one that `component` cannot number (it
-    /// states none): an opcode is then just a number, so whether
+    /// The need of an instruction set that a job of calls by opcode, given
+    /// to a chain, does not meet when neither its program nor its driver
+    /// states a set, or they state an empty one that `component` cannot
+    /// number (it states none): an opcode is then just a number, so whether
     /// `component` runs the calls as meant cannot be checked. A yes-or-no
     /// need (1 needed, 0 offered), with no mismatch.
     pub(crate) fn undescribed(component: &str) -> UnmetNeed {
@@ -445,8 +446,8 @@ impl fmt::Display for UnmetNeed {
             ),
             Need::InstructionSet if self.mismatches.is_empty() => write!(
                 f,
-                "the program or {c} states no instruction set, so {c} cannot check its calls \
-                 by opcode"
+                "neither the program nor its driver states an instruction set, or {c} states \
+                 none, so {c} cannot check the job's calls by opcode"
             ),
             Need::InstructionSet => {
                 write!(

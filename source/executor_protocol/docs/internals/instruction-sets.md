@@ -183,7 +183,7 @@ order:
   (`benches/instruction_calls.rs`, its `emitting` table). Each boundary is
   matched once. A typed adapter gets the executor downstream of it as it is, at
   no cost.
-- **A job's program** states the instructions it sends
+- **A job's program** states the instructions its driver sends
   (`Needs::with_instruction_set`) and builds its calls with its own set. Its
   chain is headed by a driver, such as `driver()`, the program given with the
   job, and the
@@ -211,9 +211,11 @@ order:
     `a_renumbered_batch_is_refused_at_its_first_call_outside`, and on the
     guide's code,
     `the_code_in_a_programs_numbering_refuses_calls_outside_the_programs_set`).
-    A program that states no set is refused, since its opcodes cannot be
-    checked
-    (`a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal`);
+    A program that states no set, whose driver states none either, is
+    refused, since its opcodes cannot be checked
+    (`a_jobs_program_of_calls_by_opcode_stating_no_set_is_named_in_its_refusal`),
+    while a set its driver states numbers its calls
+    (`a_set_stated_by_one_side_or_the_same_by_both_numbers_the_jobs_calls`);
     the crate's driver still checks a static program's tags, and reports a
     tag read twice with that unmet need
     (`the_tags_of_a_static_program_that_states_no_set_are_still_checked`).
