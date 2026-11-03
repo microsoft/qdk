@@ -168,8 +168,7 @@ pub struct OnePerShotExecutor<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R =
     promise: Capabilities,
     /// The states kept, each with its shot, in the order their shots first
     /// ran: shot `j`'s at `index.get(j)`. Declared before the closures, so
-    /// that they are dropped first (the reason is at `HeldPart`;
-    /// `dropped_it_frees_its_states_before_its_closures`).
+    /// that they are dropped first (the reason is at `HeldPart`).
     states: HeldStates<(ShotId, S)>,
     make_state: HeldPart<M>,
     logic: HeldPart<P>,

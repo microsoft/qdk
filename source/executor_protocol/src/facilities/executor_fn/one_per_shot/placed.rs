@@ -193,8 +193,7 @@ pub struct OnePerShotPlacedExecutor<I, S, M, P, T, C = NoCheck<I>, L = fn(&S) ->
     seed: Option<u64>,
     promise: Capabilities,
     /// Declared before the closures, so that the shots' executors are
-    /// dropped first (the reason is at `HeldPart`;
-    /// `dropped_it_frees_a_state_held_from_before_it_was_placed_before_its_closures`).
+    /// dropped first (the reason is at `HeldPart`).
     /// The placement's place in the order is not promised: it is not a
     /// closure the states were made or run with.
     shots: ShotStates<PlacedShotExecutor<I, S, P, L, R, T>>,
@@ -221,15 +220,11 @@ type ShotExecutor<I, S, P, L, R> =
 /// logic, the log probability's reader and the report's maker are copied
 /// first, so that no `Clone` of theirs (the implementer's code) runs while
 /// a state is held outside a guard, where, should it panic, the state's
-/// drop during the unwind could panic too and abort the process
-/// (`a_shots_copy_of_the_logic_that_panics_reaches_the_caller_before_its_state_is_made`).
-/// Each copy is held ([`HeldPart`]) as soon as it is made, so that, should
-/// a later copy panic, or the state closure, which `call` runs while the
-/// maker holds the copies, panic or refuse, the copies made are dropped
-/// each in a catch of its own
-/// (`a_shots_copy_that_panics_frees_the_copies_made_before_it_raising_its_own_panic`,
-/// `a_state_closure_that_panics_frees_the_shots_copies_raising_its_own_panic`,
-/// `a_state_closures_refusal_frees_the_shots_copies_raising_no_panic_of_their_drops`).
+/// drop during the unwind could panic too and abort the process. Each copy
+/// is held ([`HeldPart`]) as soon as it is made, so that, should a later
+/// copy panic, or the state closure, which `call` runs while the maker
+/// holds the copies, panic or refuse, the copies made are dropped each in
+/// a catch of its own.
 fn shot_executor<I, S, P: Clone, L: Clone, R: Clone>(
     promise: &Capabilities,
     logic: &P,

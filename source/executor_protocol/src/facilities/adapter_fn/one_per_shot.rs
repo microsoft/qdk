@@ -202,8 +202,7 @@ pub struct OnePerShotAdapterExecutor<I, O, S, M, L, C, R, D> {
     /// The states kept, each with its shot, in the order their shots first
     /// ran: shot `j`'s at `index.get(j)`. Declared first, so that they are
     /// dropped before the closures (the reason is at `HeldPart`), and before
-    /// the executor below, as `close` frees them before closing below
-    /// (`dropped_it_frees_its_states_before_its_closures_and_the_executor_below`).
+    /// the executor below, as `close` frees them before closing below.
     states: HeldStates<(ShotId, KeptState<S>)>,
     adapter: AdapterFn<I, O, S, M, L, C, R>,
     capabilities: Capabilities,

@@ -8,11 +8,9 @@
 //! shots are needed by the run itself, not stated in `Needs`), and an
 //! [`UnmetNeed`] reports one a component does not meet:
 //! when a chain is given a job, every unmet need is reported
-//! ([`JobFaults`](crate::JobFaults),
-//! `a_jobs_unmet_needs_are_each_reported_in_order_naming_the_chains_executor`);
-//! by hand, [`Capabilities::admit`] returns the first, as an [`UnmetNeed`]
-//! naming the component that does not meet it
-//! (`several_unmet_needs_are_reported_one_at_a_time_in_a_fixed_order`).
+//! ([`JobFaults`](crate::JobFaults)); by hand, [`Capabilities::admit`]
+//! returns the first, as an [`UnmetNeed`] naming the component that does
+//! not meet it.
 
 use std::fmt;
 use std::sync::Arc;

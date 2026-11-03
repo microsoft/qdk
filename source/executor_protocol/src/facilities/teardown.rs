@@ -183,20 +183,11 @@ impl<T> Drop for HeldStates<T> {
 /// the compiler does not check, rather than by a `Drop` impl, which would
 /// forbid the builders that move the fields out
 /// (`ExecutorFn::log_probability`). The executors' public docs promise it,
-/// and tests pin it (`dropped_it_frees_its_state_before_its_closures`, in
-/// `src/tests/facilities/executor_fn.rs`;
-/// `dropped_it_frees_its_states_before_its_closures`, in
-/// `src/tests/facilities/executor_fn/one_per_shot.rs`;
-/// `dropped_it_frees_a_state_held_from_before_it_was_placed_before_its_closures`
-/// and `dropped_each_shot_frees_its_state_before_its_copies_of_the_closures`,
-/// in `src/tests/facilities/executor_fn/one_per_shot/placed.rs`, where
-/// `dropped_it_frees_its_own_closures_without_waiting_for_its_shots_states`
-/// pins that `drop` does not wait for a placed state).
-/// For the adapters, whose public docs do not promise it, tests pin it
-/// (`dropped_it_frees_its_state_before_its_closures_and_the_executor_below`,
-/// in `src/tests/facilities/adapter_fn.rs`, and
-/// `dropped_it_frees_its_states_before_its_closures_and_the_executor_below`,
-/// in `src/tests/facilities/adapter_fn/one_per_shot.rs`).
+/// and tests pin it, with one state, a state per shot, and placed per
+/// shot, where a test also pins that `drop` does not wait for a placed
+/// state (the promise tables of `docs/internals/executors.md`). For the
+/// adapters, whose public docs do not promise it, tests pin it too (the
+/// promise tables of `docs/internals/adapters.md`).
 pub(crate) struct HeldPart<T>(Option<T>);
 
 impl<T> HeldPart<T> {

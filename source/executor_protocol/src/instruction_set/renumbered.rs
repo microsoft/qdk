@@ -78,8 +78,7 @@ impl Instruction for InstructionCall {
 /// checks each call's opcode and operands against its set before the tags
 /// of its readouts: where it refuses a batch in the chain's numbering for
 /// one of its instructions, it is at that call
-/// (`a_renumbered_batch_is_refused_where_a_batch_in_the_chains_numbering_is`,
-/// in `src/tests/instruction_set/renumbered.rs`), as with the executors of
+/// (`src/tests/instruction_set/renumbered.rs`), as with the executors of
 /// the crate's tests. The crate ships no executor of instruction calls: an
 /// [`executor_fn`](fn@crate::executor_fn) checks in the order its check
 /// gives ([`InstructionSet::check_batch`](crate::InstructionSet::check_batch)

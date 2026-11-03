@@ -291,8 +291,7 @@ impl<E, P> PlacedExecutor<E, P> {
     /// stopped, no job runs any more: the wait ends at once, and it takes
     /// that executor from the queue and frees it here, as `close` does,
     /// rather than leave it to the last of its jobs, which may still be on
-    /// the placement's thread
-    /// (`close_frees_a_stopped_placements_state_before_it_returns_though_its_job_is_still_ending`).
+    /// the placement's thread.
     ///
     /// # Panics
     ///

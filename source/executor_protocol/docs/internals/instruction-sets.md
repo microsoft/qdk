@@ -363,8 +363,9 @@ to drop the check, so every executor keeps it.
 ## The tests of the user pages' promises
 
 Each promise of [Instruction sets](../instruction-sets.md) and of the [guide
-walkthroughs](../guides.md) of the two instruction set guides that the sections
-above do not pin, in each page's order, with the tests that pin it.
+walkthroughs](../guides.md) of the two instruction set guides, and of the docs
+of `Renumbered`, that the sections above do not pin, in each page's order, with
+the tests that pin it.
 
 From [Instruction sets](../instruction-sets.md):
 
@@ -379,6 +380,13 @@ From [Instruction sets](../instruction-sets.md):
 | An instruction the code sends without an action is refused when the chain is built                                                                                                                                            | `an_instruction_the_code_sends_without_an_action_is_refused_when_built` (`tests/runtime_isa.rs`)                                             |
 | A circuit readout with no value leaves its logical readout without one                                                                                                                                                        | `a_circuit_readout_with_no_value_leaves_its_logical_readout_without_one` (`tests/runtime_isa.rs`)                                            |
 | An instruction refusal keeps its meaning across the lowering: nothing ran (a refusal of the code's own sends nothing down), and `Rejected::at_origin` names the instruction the adapter received, as the repetition code does | `a_refusal_names_the_logical_instruction` (`tests/static_isa.rs`)                                                                            |
+
+From the docs of `Renumbered`, the crate-internal executor that renumbers a
+sender's calls, in `src/tests/instruction_set/renumbered.rs`:
+
+| Promise                                                                                                                            | Tests                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| For an executor that checks its set before its readouts' tags, the numbering does not change which call outside its set is refused | `a_renumbered_batch_is_refused_where_a_batch_in_the_chains_numbering_is` |
 
 From the guide [A run-time ISA: a code given as
 data](../guides.md#a-run-time-isa-a-code-given-as-data), in

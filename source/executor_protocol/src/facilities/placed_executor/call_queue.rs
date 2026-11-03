@@ -239,8 +239,7 @@ impl<E> Drop for Drain<E> {
 /// the crate absorb their drops' panics themselves (`HeldStates`,
 /// `HeldPart`), and only they are placed (`PlacedExecutor::new` is
 /// crate-internal); this guard keeps the rule for any executor, should
-/// that open
-/// (`an_executors_drop_that_panics_as_a_job_dropped_unrun_frees_it_stays_off_the_placements_thread`).
+/// that open.
 pub(super) struct SharedCallQueue<E>(Option<Arc<CallQueue<E>>>);
 
 impl<E> SharedCallQueue<E> {

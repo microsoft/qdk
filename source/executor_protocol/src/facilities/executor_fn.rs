@@ -99,10 +99,8 @@ pub struct ExecutorFn<I, S, M, P, C = NoCheck<I>, L = fn(&S) -> f64, R = fn(&S)>
     /// Dropped with the executor in a catch, its panic absorbed, so that
     /// `drop` never panics, during an unwind too; `close` raises it.
     /// Declared before the closures, so that it is dropped first (the
-    /// reason is at `HeldPart`;
-    /// `dropped_it_frees_its_state_before_its_closures`, and for a shot's
-    /// executor on its placement,
-    /// `dropped_each_shot_frees_its_state_before_its_copies_of_the_closures`).
+    /// reason is at `HeldPart`), here and in a shot's executor on its
+    /// placement.
     held: HeldStates<(ShotId, S)>,
     make_state: HeldPart<M>,
     logic: HeldPart<P>,

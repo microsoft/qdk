@@ -577,8 +577,7 @@ impl<I: Instruction, O: Instruction, S, M, L, C, R> Adapter for AdapterFn<I, O, 
 pub struct AdapterFnExecutor<I, O, S, M, L, C, R, D> {
     /// The state, once a call kept it: at most one. Declared first, so that
     /// it is dropped before the closures (the reason is at `HeldPart`), and
-    /// before the executor below, as `close` frees it before closing below
-    /// (`dropped_it_frees_its_state_before_its_closures_and_the_executor_below`).
+    /// before the executor below, as `close` frees it before closing below.
     held: HeldStates<KeptState<S>>,
     adapter: AdapterFn<I, O, S, M, L, C, R>,
     capabilities: Capabilities,

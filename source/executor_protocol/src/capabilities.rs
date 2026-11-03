@@ -98,9 +98,8 @@ pub struct Capabilities {
     /// one the last executor is given
     /// ([`ExecutorFn::seed`](crate::ExecutorFn::seed)), passed up the
     /// chain as it is built, so that an adapter that draws derives its
-    /// seeds from it, whatever an adapter offers
-    /// (`an_adapter_reads_the_runs_seed_through_one_that_states_its_offer_whole`);
-    /// `None` when none is given, and then an adapter that draws is refused
+    /// seeds from it, whatever an adapter offers; `None` when none is
+    /// given, and then an adapter that draws is refused
     /// ([`BuildError::NoRunSeed`]). Set by the facility only:
     /// planned, a way for an executor written by hand to state it. Not a
     /// capability, so neither compared nor shown: two simulators given
