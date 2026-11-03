@@ -53,6 +53,8 @@ use crate::{
 // is put where an adapter is expected, after a part whose `>>` the
 // executor's crate did not implement (`driver() >> hand`,
 // `flip() >> hand`, `hand` an executor of another crate or a generic one).
+// A per-shot `adapter_fn` whose sends are not `Clone + PartialEq` reaches
+// it too, after the error at `AdapterFn::shots` that names that bound.
 #[diagnostic::on_unimplemented(
     note = "an adapter returned as a bare `impl Adapter` or given as a generic `A: Adapter` does \
             not compose over an executor: name the facility's type, its closures named by role \

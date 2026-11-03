@@ -96,9 +96,10 @@ caller that holds an executor checks its needs itself with
 table (`Rejected::Unmet`).
 
 `Needs::default()` states nothing but the run's shots, held at once, that every
-run implies, so every executor that can hold the job's shots accepts the job of
-a typed program with nothing to check. A program of `InstructionCall`s must
-state its set, which numbers its calls ([Instruction
+run implies. A driver may add needs it derives from the program: the crate's
+driver adds `resumable_shots` for a `StaticProgram` with calls before its last
+batch, whose later batches continue its shots. A program of `InstructionCall`s
+must state its set, which numbers its calls ([Instruction
 sets](internals/instruction-sets.md#compatibility-the-rules)): a chain refuses
 the job of one that does not, as its need of an instruction set unmet;
 `Capabilities::admit` does not yet, a known gap, since it does not know the

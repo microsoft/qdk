@@ -52,7 +52,9 @@ use crate::{Below, OnePerShot, ReplyStatus};
 /// [`owning_adapter_fn`](fn@crate::owning_adapter_fn), each shot's state
 /// owns its way below ([`BelowHandle`](crate::BelowHandle)), which keeps
 /// and runs as that [`Below`] does; its sends are all compared, since it
-/// does not know the call's instructions.
+/// does not know the call's instructions. Since its sends are kept as
+/// copies and compared, their type is `Clone + PartialEq`, which
+/// [`AdapterFn::shots`] requires.
 ///
 /// It keeps the rules of [`adapter_fn`](fn@crate::adapter_fn), applied to
 /// the call's merged sends, and of a state per shot (the crate's

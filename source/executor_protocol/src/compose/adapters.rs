@@ -45,7 +45,9 @@ use crate::{
 // `fn flip() -> impl Adapter<..>`, or `driver() >> a >> toy` with
 // `a: A`), or it is written by hand for one executor's type only
 // (`impl Apply<Toy>`). A diagnostic attribute cannot pick its note by the
-// type on stable Rust, so both show in each case.
+// type on stable Rust, so both show in each case. A per-shot `adapter_fn`
+// whose sends are not `Clone + PartialEq` reaches it too, after the error
+// at `AdapterFn::shots` that names that bound.
 #[diagnostic::on_unimplemented(
     note = "an adapter returned as a bare `impl Adapter` or given as a generic `A: Adapter` does \
             not compose over an executor: name the facility's type, its closures named by role \

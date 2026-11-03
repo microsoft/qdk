@@ -89,29 +89,33 @@ use crate::{AdaptiveProgram, ComposedJob, DefaultDriver, DrivenProgram, JobFault
 ///
 /// A pair that no rule composes fails to compile, which no test pins.
 /// Where the compiler reports this trait unmet, with the pair's types, it
-/// shows four notes: one that lists the rules, one that points a pair `>>`
-/// does not take to [`compose`](fn@crate::compose), one that says a generic
-/// part does not compose over an executor, and one that points a job
-/// written as a component to [`Chain::run`]. That is where no rule has the
-/// left side's type, or none the right side's for it: an executor or a
-/// chain on the left, a generic part with no bound (`compose(a, toy)`,
-/// `a: A`), an executor of another crate after a chain's head, where
-/// the executor's crate implements no `>>` (`driver() >> hand`), an
-/// executor of another crate that lacks [`Describe`](crate::Describe) or
-/// [`Close`], which the rules require of an executor (in `compose`; after
-/// `>>`, see below), or a program and its shots on the right. An
-/// adapter given as a generic `A: Adapter`, or returned as a bare
+/// shows four notes: one that lists the rules (a `Result` on the right
+/// takes `?`), one that points a pair `>>` does not take to
+/// [`compose`](fn@crate::compose), one that says a generic part does not
+/// compose over an executor, and one that points a job written as a
+/// component to [`Chain::run`]. That is where no rule has the left side's
+/// type, or none the right side's for it: an executor or a chain on the
+/// left, a generic part with no bound (`compose(a, toy)`, `a: A`), an
+/// executor of another crate after a chain's head, where the executor's
+/// crate implements no `>>` (`driver() >> hand`), an executor of another
+/// crate that lacks [`Describe`](crate::Describe) or [`Close`], which the
+/// rules require of an executor (in `compose`; after `>>`, see below), a
+/// `Result` on the right of a chain's head or in `compose` (a `?`
+/// forgotten: `driver() >> (a >> toy)`), or a program and its shots on the
+/// right. An adapter given as a generic `A: Adapter`, or returned as a bare
 /// `impl Adapter`, is reported otherwise, the executor after it as no
 /// [`Adapter`] (in `compose`) or as not of the crate's `Adapters` (after
 /// `>>`), with notes that name that case. Parts whose instruction types
 /// do not meet (an adapter, or a chain's head with adapters below it, that
 /// sends `Op`, upstream of a part that accepts `Gate`) show these notes in
-/// `compose` only. After `>>`, with an executor on the right that has
-/// `>>` (one of the crate's, or one whose crate implements it), they are
-/// reported as no `>>` for the pair, with no note of the crate, since two
-/// `Shr` impls match the executor's type; so is an executor whose crate
-/// implements `>>` but not `Describe` or `Close`. With an adapter on the
-/// right, they are reported as a type mismatch on what it accepts.
+/// `compose`, and after `>>` with a chain's head on the left and an
+/// adapter, or adapters composed, on the right. After `>>`, with an
+/// executor on the right that has `>>` (one of the crate's, or one whose
+/// crate implements it), they are reported as no `>>` for the pair, with
+/// no note of the crate, since two `Shr` impls match the executor's type;
+/// so is an executor whose crate implements `>>` but not `Describe` or
+/// `Close`. With an adapter on the right of an adapter, or of adapters
+/// composed, they are reported as a type mismatch on what it accepts.
 /// Written as `compose(upstream, downstream)`, the pair shows the rule. A
 /// chain's head with no adapter below it takes the instruction type of
 /// the executor it is composed with: its driver's own instruction type is
@@ -123,7 +127,8 @@ use crate::{AdaptiveProgram, ComposedJob, DefaultDriver, DrivenProgram, JobFault
     note = "`compose` puts an adapter or a chain's head (`driver()`, `ChainHead::new(driver)`, with \
             adapters below it or not) upstream of an adapter, or of an executor \
             (`Executor<InstructionBatch<_>> + Describe + Close`), where what the upstream one \
-            sends is what the downstream one accepts (docs/composition.md, \"Composing a run\")",
+            sends is what the downstream one accepts; a `Result` on the right is neither: apply `?` \
+            to the step that made it (docs/composition.md, \"Composing a run\")",
     note = "where `>>` does not apply (an executor of another crate), write \
             `compose(upstream, downstream)`",
     note = "a generic part (`A`, or `A: Adapter`) does not compose over an executor: name the \

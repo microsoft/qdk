@@ -437,6 +437,36 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     /// call over their shots; the sends a shot keeps before a run go alone,
     /// at that run, and its later sends rank anew, from its first.
     ///
+    /// Its sends are kept as copies until they go below, and compared to
+    /// merge equal ones, so their type `O` is `Clone + PartialEq`, even
+    /// where none is compared (an observer's sends, the call's own
+    /// instructions, are merged with no comparison): the bound is on the
+    /// type. An adapter whose sends are not does not compile here, the
+    /// compiler naming the trait missing:
+    ///
+    /// ```compile_fail,E0277
+    /// use executor_protocol::{
+    ///     Below, CallInput, OnePerShot, Outcomes, TypedInstruction,
+    ///     adapter_fn,
+    /// };
+    ///
+    /// #[derive(Clone, Copy, Debug)] // no `PartialEq`
+    /// enum Gate {
+    ///     X(u32),
+    /// }
+    ///
+    /// impl TypedInstruction for Gate {}
+    ///
+    /// let observer = adapter_fn(
+    ///     |_| Ok(()),
+    ///     |_: &mut (),
+    ///      input: &CallInput<'_, Gate>,
+    ///      below: &mut Below<'_, Gate>,
+    ///      _: &mut Outcomes<'_>| below.send(input.instructions()),
+    /// )
+    /// .shots(OnePerShot);
+    /// ```
+    ///
     /// The merged sends go below rank by rank, and those of one rank in
     /// the order of their first shots, so whether a refusal below refuses
     /// the call or fails it depends on the order of the call's shots: when
@@ -451,7 +481,10 @@ impl<I, O, S, M, L, C, R> AdapterFn<I, O, S, M, L, C, R> {
     /// [`executor_fn`](fn@crate::executor_fn), in any order: each keeps the
     /// others given before it.
     #[must_use]
-    pub fn shots(self, strategy: OnePerShot) -> OnePerShotAdapter<I, O, S, M, L, C, R> {
+    pub fn shots(self, strategy: OnePerShot) -> OnePerShotAdapter<I, O, S, M, L, C, R>
+    where
+        O: Clone + PartialEq,
+    {
         let OnePerShot = strategy;
         OnePerShotAdapter::new(self)
     }

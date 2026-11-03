@@ -130,9 +130,12 @@ it gives among others.
 A shot's `k`-th send goes below with the other shots' `k`-th sends equal to it,
 as one call over the shots that sent them, rank by rank; sends of different
 ranks, and a shot's kept sends at its run, go apart ([Merging a call's
-sends](internals/adapters.md#merging-a-calls-sends-rank-by-rank)). For a
-profiler, the shot form changes what it counts, per shot or per call, not the
-outcomes.
+sends](internals/adapters.md#merging-a-calls-sends-rank-by-rank)). The sends
+are kept as copies and compared, so their type is `Clone + PartialEq`
+(`#[derive(Clone, PartialEq)]` on a typed instruction): `.shots(OnePerShot)` on
+an adapter whose sends are not does not compile, the compiler naming the trait
+missing (the example of `AdapterFn::shots`). For a profiler, the shot form
+changes what it counts, per shot or per call, not the outcomes.
 
 ## Seeds: `.drawing(id)`
 
