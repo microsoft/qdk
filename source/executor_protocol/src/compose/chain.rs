@@ -222,7 +222,7 @@ pub struct JobFaults(pub Vec<Rejected>);
 
 impl fmt::Display for JobFaults {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        super::write_faults(f, &self.0, |f, rejected| rejected.fmt(f))
+        super::build_faults::write_faults(f, &self.0, |f, rejected| rejected.fmt(f))
     }
 }
 

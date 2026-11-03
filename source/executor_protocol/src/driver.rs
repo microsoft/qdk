@@ -15,13 +15,12 @@
 //! - [`chain_prefix`]: a chain's prefix, a driver with the adapters
 //!   composed below it so far ([`ChainPrefix`]), and how a driver becomes
 //!   one ([`DriverExt`]).
-//! - [`builtin_driver`]: the crate's driver, which runs a [`StaticProgram`]
-//!   and any [`AdaptiveProgram`] ([`BuiltinDriver`], from
-//!   [`driver()`](fn@crate::driver)).
+//! - [`builtin_driver`](crate::facilities::builtin_driver): the crate's
+//!   driver, which runs a [`StaticProgram`] and any [`AdaptiveProgram`]
+//!   ([`BuiltinDriver`], from [`driver()`](fn@crate::driver)).
 //! - [`driven_program`]: a program as its driver drives it, what a chain's
 //!   run runs ([`DrivenProgram`]).
 
-pub(crate) mod builtin_driver;
 pub(crate) mod chain_prefix;
 pub(crate) mod driven_program;
 

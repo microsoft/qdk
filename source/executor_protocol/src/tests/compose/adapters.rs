@@ -14,7 +14,7 @@ use super::{
     logger, missing_coin,
 };
 use crate::Need;
-use crate::tests::executor_fn::{
+use crate::tests::facilities::executor_fn::{
     Freed, Op as DeviceOp, PowerDownFailed, freed_so_far, powering_down_badly, promise, runs,
 };
 use crate::tests::test_double::TestDoubleModel;

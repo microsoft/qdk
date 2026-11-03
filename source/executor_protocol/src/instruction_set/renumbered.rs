@@ -14,8 +14,18 @@ use std::sync::Arc;
 use crate::Capabilities;
 use crate::{
     Close, Executor, Instruction, InstructionBatch, InstructionBatchRef, InstructionCall,
-    InstructionMismatch, Opcode, OpcodeMap, Rejected, Renumbering,
+    InstructionMismatch, Opcode, OpcodeMap, Rejected,
 };
+
+/// How calls in one numbering reach an executor that numbers the same
+/// instructions otherwise: where each of the sender's instructions is in
+/// the executor's set ([`Instruction::renumbering`]).
+#[derive(Debug)]
+pub struct Renumbering {
+    // Crate-visible, not public, so that only the crate builds one: the
+    // seal of `Instruction` rests on it.
+    pub(crate) map: OpcodeMap,
+}
 
 /// A driver's calls reach the chain's executor, and an adapter's reach the
 /// executor downstream of it: unchanged when that executor numbers the

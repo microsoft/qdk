@@ -11,14 +11,13 @@
 //! executor ([`Apply`]). An adapter is not an executor: composed with an
 //! executor, it gives an executor.
 //!
-//! - [`adapter_fn`](mod@adapter_fn): a state and a logic as an adapter,
-//!   with one state or a state per shot.
-//! - [`below`]: what the logic of an `adapter_fn` reaches below with.
+//! - [`adapter_fn`](mod@crate::facilities::adapter_fn): a state and a
+//!   logic as an adapter, with one state or a state per shot.
+//! - [`below`](mod@crate::facilities::adapter_fn::below): what the logic
+//!   of an `adapter_fn` reaches below with.
 //! - [`boundary`]: where an adapter meets what is downstream of it, when it
 //!   is built ([`AdapterBoundary`]).
 
-pub(crate) mod adapter_fn;
-pub(crate) mod below;
 pub(crate) mod boundary;
 
 use std::sync::Arc;

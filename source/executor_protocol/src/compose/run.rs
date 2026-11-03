@@ -8,8 +8,8 @@
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 
-use crate::reply::block_on;
-use crate::shot::ShotIndex;
+use crate::reply::parker::block_on;
+use crate::shot_set::ShotIndex;
 use crate::{
     AdaptiveProgram, Close, Executor, Instruction, InstructionBatch, InstructionBatchRef, Rejected,
     ShotSet,

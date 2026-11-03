@@ -176,4 +176,4 @@ decoder.
 A known reason sent with a class that contradicts it (`Closed` as `Later`)
 will be a malformed frame: a class is believed only for a reason this end
 cannot check. The codes, and the decoders of classes, needs and values, are
-in `src/codes.rs`; the decoder of reasons is not written yet.
+in `src/wire_codes.rs`; the decoder of reasons is not written yet.

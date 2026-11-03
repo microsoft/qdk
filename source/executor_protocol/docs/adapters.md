@@ -54,7 +54,7 @@ The logic serves each call. With the call it is given, it may:
   state), while `outcomes.extend(..)` with `ShotOutcome`s writes each, with its
   conditions, for its own shot alone, which must be one the state serves.
 
-The [tests of `adapter_fn`](../src/tests/adapter/adapter_fn.rs) show each of
+The [tests of `adapter_fn`](../src/tests/facilities/adapter_fn.rs) show each of
 these in code, and the [observer guide](../tests/observers.rs) shows a debugger
 that records what it reads.
 

@@ -23,8 +23,8 @@ use std::any::type_name;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::adapter::adapter_fn::{MakeAdapterState, ServeAdapterCalls, close_below_once};
-use crate::lifecycle::failing_on_panic;
+use crate::facilities::adapter_fn::{MakeAdapterState, ServeAdapterCalls, close_below_once};
+use crate::facilities::executor_lifecycle::failing_on_panic;
 use crate::{
     Adapter, AdapterBoundary, AdapterFn, AdapterFnExecutor, Apply, BuildError, BuildFault,
     BuildFaults, CallInput, Capabilities, Close, Describe, Executor, ExecutorLifecycle,

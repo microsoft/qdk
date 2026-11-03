@@ -84,88 +84,98 @@
 //! built, a program's when its job is given to the chain; a set known only
 //! at run time is an [`InstructionBatch`] of [`InstructionCall`]s.
 //!
+//! The above is the protocol. The crate's facilities implement it for you:
+//! some make a part from your logic ([`executor_fn`](fn@executor_fn),
+//! [`adapter_fn`](fn@adapter_fn), the crate's driver
+//! [`driver()`](fn@driver), and the [`StaticProgram`] it runs), others keep
+//! a rule for a part written by hand ([`ExecutorLifecycle`],
+//! [`ShotReplies`], [`PlacedExecutor`], the replies [`ImmediateReply`] and
+//! [`reply_channel()`](reply_channel), and [`check_unique_tags`]).
+//!
 //! The crate depends on `std` and `futures-core` (for [`AsyncEvents`]'s
 //! `Stream`) only, so that every part of qdk can use it. The crate's
 //! `README.md` explains the model and its choices.
 
-mod absorb;
 mod adapter;
+mod adaptive_program;
 mod capabilities;
-mod codes;
 mod compose;
-mod conditions;
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
 mod driver;
 mod executor;
-mod executor_fn;
+mod facilities;
 mod instruction_batch;
 mod instruction_set;
-mod lifecycle;
 mod message;
 mod needs;
-mod outcome;
-mod placement;
-mod program;
 mod rejected;
 mod reply;
 mod seeds;
-mod shot;
-mod shot_states;
+mod shot_conditions;
+mod shot_outcome;
+mod shot_set;
+mod wire_codes;
 
-pub use adapter::adapter_fn::{
+pub use adapter::boundary::AdapterBoundary;
+pub use adapter::{Adapter, Apply};
+pub use adaptive_program::AdaptiveProgram;
+pub use capabilities::{Capabilities, Describe};
+pub use compose::adapters::{AdapterExecutor, ComposedAdapters};
+pub(crate) use compose::adapters::{Adapters, NoAdapter, UpstreamOf};
+pub use compose::build_faults::{BuildError, BuildFault, BuildFaults};
+pub use compose::chain::{Chain, JobFaults};
+pub use compose::run::Run;
+pub use compose::{Compose, WithExecutor, compose};
+pub use driver::Driver;
+pub use driver::chain_prefix::{ChainPrefix, DriverExt};
+pub use driver::driven_program::DrivenProgram;
+pub use executor::Executor;
+pub use executor::report::{Close, ExecutorReport, Fold, LogP};
+pub use facilities::adapter_fn::below::{AdapterError, Below, BelowHandle};
+pub use facilities::adapter_fn::{
     AdapterFn, AdapterFnExecutor, AdapterFnReply, AdapterLogic, NoStateReport, OnePerShotAdapter,
     OnePerShotAdapterExecutor, Owning, OwningAdapterLogic, adapter_fn, owning_adapter_fn,
 };
-pub use adapter::below::{AdapterError, Below, BelowHandle};
-pub use adapter::boundary::AdapterBoundary;
-pub use adapter::{Adapter, Apply};
-pub use capabilities::{Capabilities, Describe};
-pub use codes::{
-    conditions_code, conditions_of, need_code, need_of, reason_code, retry_code, retry_of,
-    value_code, value_of,
-};
-pub use compose::adapters::{AdapterExecutor, ComposedAdapters};
-pub(crate) use compose::adapters::{Adapters, NoAdapter, UpstreamOf};
-pub use compose::chain::{Chain, JobFaults};
-pub use compose::run::Run;
-pub use compose::{BuildError, BuildFault, BuildFaults, Compose, WithExecutor, compose};
-pub use conditions::ShotConditions;
-pub use driver::Driver;
-pub use driver::builtin_driver::{BuiltinDriver, driver};
-pub use driver::chain_prefix::{ChainPrefix, DriverExt};
-pub use driver::driven_program::DrivenProgram;
-pub use executor::{Close, Executor, ExecutorReport, Fold, LogP};
-pub use executor_fn::{
+pub use facilities::builtin_driver::{BuiltinDriver, driver};
+pub use facilities::executor_fn::{
     CallInput, ExecutorFn, ExecutorLogic, MakeState, NoCheck, OnePerShot, OnePerShotExecutor,
-    OnePerShotPlacedExecutor, Outcomes, ShotStrategy, executor_fn,
+    OnePerShotPlacedExecutor, Outcome, Outcomes, ShotStrategy, executor_fn,
 };
+pub use facilities::executor_lifecycle::{ExecutorLifecycle, LifecycleBoundReply};
+pub use facilities::placed_executor::PlacedExecutor;
+pub use facilities::placement::{OwnThread, Placement, PlacementJob};
+pub use facilities::readout_tags::check_unique_tags;
+pub use facilities::replies::{
+    ImmediateReply, IncrementalReply, MappedReply, ReplySender, relay, reply_channel,
+};
+pub use facilities::shot_states::ShotReplies;
+pub(crate) use facilities::shot_states::ShotStates;
+pub use facilities::static_program::{StaticProgram, StaticProgramError};
 pub use instruction_batch::{InstructionBatch, InstructionBatchRef};
 pub use instruction_set::action::{Action, Angle, Pauli};
 pub use instruction_set::call::{CallDisplay, InstructionCall, Opcode, Operand, Operands};
 pub use instruction_set::instruction::{Instruction, TypedInstruction};
+pub use instruction_set::renumbered::Renumbering;
 pub use instruction_set::{
-    InstructionMismatch, InstructionSet, OpcodeMap, OpcodeTable, OperandKind, Renumbering,
+    InstructionMismatch, InstructionSet, OpcodeMap, OpcodeTable, OperandKind,
 };
-pub use lifecycle::{ExecutorLifecycle, LifecycleBoundReply};
 pub use message::Message;
 pub use needs::{Need, Needs, UnmetNeed};
-pub use outcome::{ErrorKind, Outcome, ShotOutcome, Value, check_unique_tags};
-pub use placement::{OwnThread, PlacedExecutor, Placement, PlacementJob};
-pub use program::AdaptiveProgram;
-pub use program::static_program::{StaticProgram, StaticProgramError};
 pub use rejected::{CallId, Rejected, RetryClass};
 pub use reply::asynchronous::{AsyncEvents, WaitAsync, async_events, wait_async};
-pub use reply::{
-    ImmediateReply, IncrementalReply, MappedReply, Reply, ReplySender, ReplyStatus, relay,
-    reply_channel, wait,
-};
+pub use reply::blocking::wait;
+pub use reply::{Reply, ReplyStatus};
 pub use seeds::{AdapterSeeds, ComponentId, RngIds, ShotContext, shot_seed};
-pub use shot::{IntoShotSet, ShotId, ShotSet};
-pub use shot_states::ShotReplies;
-pub(crate) use shot_states::ShotStates;
+pub use shot_conditions::ShotConditions;
+pub use shot_outcome::{ErrorKind, ShotOutcome, Value};
+pub use shot_set::{IntoShotSet, ShotId, ShotSet};
 #[cfg(test)]
 pub(crate) use tests::ComposedJob;
+pub use wire_codes::{
+    conditions_code, conditions_of, need_code, need_of, reason_code, retry_code, retry_of,
+    value_code, value_of,
+};
 
 #[cfg(test)]
 mod tests;

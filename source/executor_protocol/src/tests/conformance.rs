@@ -5,9 +5,12 @@
 //! its rule, and refuses inputs that would not let it check the rule. That
 //! the checks pass on implementations that keep the rules is shown where
 //! they run on the crate's own executors (the tests of `compose/adapters`,
-//! `executor`, `executor_fn`, `executor_fn/one_per_shot`,
-//! `executor_fn/one_per_shot/placed`, `instruction_set/renumbered`,
-//! `lifecycle`, `placement` and `shot_states`) and on the guides'.
+//! `executor/report`, `facilities/executor_fn`,
+//! `facilities/executor_fn/one_per_shot`,
+//! `facilities/executor_fn/one_per_shot/placed`,
+//! `instruction_set/renumbered`, `facilities/executor_lifecycle`,
+//! `facilities/placed_executor` and `facilities/shot_states`) and on the
+//! guides'.
 
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;

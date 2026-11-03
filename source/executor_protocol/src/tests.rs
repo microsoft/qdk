@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::any::type_name;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::f64::consts::FRAC_PI_4;
@@ -23,6 +24,10 @@ use crate::{
     InstructionSet, Message, Needs, NoAdapter, Operand, OperandKind, Pauli, Rejected, Reply,
     ReplyStatus, ShotContext, ShotId, ShotOutcome, ShotSet, TypedInstruction, Value, reply_channel,
     shot_seed, wait, wait_async,
+};
+use crate::{
+    BuildError, BuildFault, BuildFaults, BuiltinDriver, ChainPrefix, ComposedAdapters,
+    DrivenProgram, JobFaults, Run, UpstreamOf, WithExecutor,
 };
 
 use test_double::Model;
@@ -67,7 +72,9 @@ fn signalling() -> (mpsc::Receiver<()>, Waker) {
 
 /// A minimal async runtime of one future, for the tests: polls it with a
 /// waker that unparks this thread, and parks the thread between polls,
-/// since it has no other task to run.
+/// since it has no other task to run. It stands in for an external runtime,
+/// so it is kept apart from the crate's own `block_on`, which runs
+/// `Run::wait`: a test of an async caller must not use the crate's parker.
 fn block_on<Fut: Future>(future: Fut) -> Fut::Output {
     struct Unpark(thread::Thread);
     impl Wake for Unpark {
@@ -523,6 +530,54 @@ impl<P, L> ComposedJob<P, L> {
         (self.program, self.shots, self.adapters)
     }
 }
+
+/// Job, adapter: the job, with `y` downstream of its adapters.
+impl<P: AdaptiveProgram, L: Adapters, Y: Adapters<Accepts = L::Sends>> Compose<Y, WithAdapter>
+    for ComposedJob<P, L>
+{
+    type Output = ComposedJob<P, ComposedAdapters<L, Y>>;
+
+    fn compose(self, y: Y) -> Self::Output {
+        self.map_adapters(|adapters| ComposedAdapters::new(adapters, y))
+    }
+}
+
+/// Job, executor: the chain of the crate's driver on the job's adapters
+/// upstream of `executor`, given the job's program and shots as its job,
+/// so that the needs and the renumbering are the chain's
+/// ([`Chain::run`]). The adapters' faults are returned alone, as the
+/// chain's are returned before any job is given; otherwise the program's
+/// unmet needs, each as [`BuildError::Unmet`].
+impl<P, L, E> Compose<E, WithExecutor> for ComposedJob<P, L>
+where
+    P: AdaptiveProgram,
+    L: UpstreamOf<E, Accepts = P::Instruction>,
+    L::Output: Executor<InstructionBatch<P::Instruction>> + Close,
+{
+    type Output = Result<Run<DrivenProgram<BuiltinDriver, P>, L::Output>, BuildFaults>;
+
+    fn compose(self, executor: E) -> Self::Output {
+        let (program, shots, adapters) = self.into_parts();
+        let chain = ChainPrefix::<_, NoAdapter<P::Instruction>>::new(BuiltinDriver)
+            .map_adapters(|_| adapters)
+            .compose(executor)?;
+        chain.run(program, shots).map_err(|JobFaults(faults)| {
+            let unmet = faults.into_iter().map(|rejected| match rejected {
+                Rejected::Unmet(unmet) => BuildFault {
+                    component: type_name::<P>(),
+                    error: BuildError::Unmet(unmet),
+                },
+                other => unreachable!(
+                    "a job's shots are a set, and the crate's driver finds no fault \
+                     in an adaptive program, so only needs fail: {other}"
+                ),
+            });
+            BuildFaults(unmet.collect())
+        })
+    }
+}
+
+crate::compose::operator::compose_by_shr!(P, L; ComposedJob<P, L>);
 
 /// Makes shots of two bits, which toss their coins from the last executor's
 /// seed of the shot, and record where the last batch they ran was held.
@@ -1027,23 +1082,20 @@ fn run_and_close<E: Executor<InstructionBatch<InstructionCall>> + Close>(
 }
 
 mod adapter;
+mod adaptive_program;
 mod capabilities;
-mod codes;
 mod compose;
-mod conditions;
 mod conformance;
 mod driver;
 mod executor;
-mod executor_fn;
+mod facilities;
 mod instruction_set;
-mod lifecycle;
 mod needs;
-mod outcome;
-mod placement;
-mod program;
 mod rejected;
 mod reply;
 mod seeds;
-mod shot;
-mod shot_states;
+mod shot_conditions;
+mod shot_outcome;
+mod shot_set;
 mod test_double;
+mod wire_codes;

@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-mod builtin_driver;
-
 use crate::tests::test_double::{TestDoubleExecutor, TestDoubleModel};
 use crate::{
     CallInput, Capabilities, Describe, Driver, DriverExt, Executor, InstructionBatch,

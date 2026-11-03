@@ -267,6 +267,19 @@ shot's events come and when the shot ends, so the caller may be woken once
 per shot in one sleep, a known issue
 ([Performance](performance.md#shots-on-placements-of-their-own)).
 
+Each need sleeps its own way at step 2:
+
+- a synchronous caller, with `wait`, parks its thread until the waker
+  unparks it;
+- a worker thread that passes an inner reply up, with `relay`, parks the
+  worker's thread the same way;
+- `Run::wait` runs a job's program on its thread and parks it the same
+  way, on a parker of its own, since the program may itself call `wait`;
+- an async caller (`wait_async`) and a stream (`async_events`) give their
+  runtime's waker: the task yields, and the thread runs other tasks;
+- a caller that polls with `Waker::noop()` never sleeps: it polls when it
+  chooses.
+
 How each way of taking a reply sleeps, why `wait` loses no wake, a caller
 with several calls in flight, an async task that leaves its thread to
 others, and the tests of the cycle are in
@@ -372,7 +385,7 @@ calls: a terminal whose shots' conditions outlast a call keeps them in its
 state, and raises them again in each call. For example, a code's runtime
 with a state per shot that rejects its shot, then writes a readout for it,
 whose caller finds the rejection on the readout (an excerpt of the
-[tests of shot conditions](../src/tests/conditions.rs)):
+[tests of shot conditions](../src/tests/facilities/adapter_fn/conditions.rs)):
 
 ```rust
 let mut runtime = executor_fn(
@@ -424,8 +437,8 @@ across calls, with one state, decoding or sending, and with a state per
 shot, over an executor below whose replies end within their call; and
 over one whose replies end after it, when that executor meets the
 requirement below, apart from the known issue below. The
-[tests of shot conditions](../src/tests/conditions.rs) pin these rules,
-each listed with the rule it pins in
+[tests of shot conditions](../src/tests/facilities/adapter_fn/conditions.rs) pin
+these rules, each listed with the rule it pins in
 [Shot conditions: the rules](internals/replies.md#shot-conditions-the-rules).
 An adapter written by hand carries them by itself, merging those from
 below with its own; the kit checks that it keeps, from one call to the
@@ -510,7 +523,7 @@ tells it that a shot has ended (known issue, open)
 
 Over a link (planned), a shot's conditions travel as one code of three
 bits (`conditions_code`, `conditions_of`), pinned by the
-[tests of codes](../src/tests/codes.rs).
+[tests of codes](../src/tests/wire_codes.rs).
 
 The detailed rules, for maintainers of the crate, are in
 [Replies: the detailed rules](internals/replies.md).

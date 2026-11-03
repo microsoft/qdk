@@ -101,7 +101,7 @@ from the implementer's logic alone:
   (`each_outcome_is_named_by_the_shot_it_ran_on`). Its `Err` fails the
   call: the outcomes pushed before it are handed over, then the reply ends
   with its reason (`a_failed_logic_keeps_the_outcomes_before_it`, in
-  `src/tests/executor_fn.rs`), and
+  `src/tests/facilities/executor_fn.rs`), and
   the
   executor refuses every later call, since the state is then part-way
   through a batch (the conformance check `refuses_calls_after_a_failure`).
@@ -117,7 +117,7 @@ executor further:
   logic runs: what the logic cannot run whatever the state, such as a
   qubit beyond the device's, or a repeated readout tag
   (`the_check_refuses_a_call_before_the_state_is_made_and_the_logic_runs`,
-  in `src/tests/executor_fn.rs`). Planned: the facility checking each
+  in `src/tests/facilities/executor_fn.rs`). Planned: the facility checking each
   call against the instruction set `promise` states, so that `.check`
   holds only the executor's other rules
   ([Planned features](../planned.md)).
@@ -148,14 +148,14 @@ every form, placed or given a state per shot
 tests). `drop` never panics: a state's drop that panics is absorbed, after
 the panic hook reported it
 (`dropped_it_frees_its_state_raising_no_panic_of_its_drop`, in
-`src/tests/executor_fn.rs`), and so is
+`src/tests/facilities/executor_fn.rs`), and so is
 the drop of what its closures capture, each closure in a catch of its
 own, during an unwind too
 (`dropped_it_frees_what_its_closures_capture_raising_no_panic_of_their_drops`,
 `dropped_as_a_panic_unwinds_it_frees_what_its_closures_capture_raising_none`,
-in `src/tests/executor_fn.rs`; per shot,
+in `src/tests/facilities/executor_fn.rs`; per shot,
 `dropped_it_frees_what_each_closure_captures_raising_no_panic_of_their_drops`,
-in `src/tests/executor_fn/one_per_shot.rs`).
+in `src/tests/facilities/executor_fn/one_per_shot.rs`).
 `close` raises the state's drop panic once the state is freed
 (`close_frees_its_state_then_raises_its_drops_panic`), as it raises a
 report closure's
@@ -169,7 +169,7 @@ freed; a later `close` then reports none of those states (it calls that
 (`a_close_whose_reports_default_panics_ends_every_call_queued_first`,
 `a_close_whose_reports_default_panics_frees_every_state_first`,
 `a_close_after_its_reports_default_panicked_reports_nothing`, in
-`src/tests/executor_fn.rs`).
+`src/tests/facilities/executor_fn.rs`).
 
 Without a shot strategy, the executor holds one state, for one shot: it
 lowers its promise to at most one shot, so that a job of more shots is
@@ -201,15 +201,15 @@ the executor's promise is the description of one given a seed
 (`an_executor_given_no_seed_gives_none_whatever_its_promise_carries`):
 that serves logic that draws nothing, such as a device's or an existing
 tool's. The tests of
-these rules are in `src/tests/executor_fn.rs`. The seed is the run's, not
-the executor's, so a run with another seed builds the executor again;
+these rules are in `src/tests/facilities/executor_fn.rs`. The seed is the run's,
+not the executor's, so a run with another seed builds the executor again;
 the run is planned to take the seed with the job
 ([Planned features](../planned.md)).
 
 ## A state per shot: the rules
 
 `.shots(OnePerShot)` makes a `OnePerShotExecutor`, whose rules are
-pinned in `src/tests/executor_fn/one_per_shot.rs`:
+pinned in `src/tests/facilities/executor_fn/one_per_shot.rs`:
 
 - Shot `j`'s state is made at the shot's first call, from
   `ShotContext::new(seed, j)`, so that it draws the same values whatever the
@@ -273,7 +273,7 @@ this crate did them:
   that the state never leaves it. Today the compiler refuses it, which no
   test pins.
 
-The rules, pinned in `src/tests/placement.rs`:
+The rules, pinned in `src/tests/facilities/placed_executor.rs`:
 
 - Its reply is an `IncrementalReply`, whose events come as the executor
   hands them over on its thread. A placed executor and its replies move to
@@ -359,13 +359,13 @@ The rules, pinned in `src/tests/placement.rs`:
   `before_its_first_call_its_drop_frees_what_its_placement_captures_raising_no_panic_of_its_drop`,
   `once_started_its_drop_frees_what_its_placement_captures_raising_no_panic_of_its_drop`;
   per shot, with what the closures capture
-  (`src/tests/executor_fn/one_per_shot/placed.rs`:
+  (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`:
   `dropped_it_frees_what_its_closures_and_placement_capture_raising_no_panic_of_their_drops`)).
   `close` raises such a state's drop panic in its caller instead, once
   the states are freed, but not a capture's
   (`once_stopped_its_close_raises_the_first_panic_of_a_states_drop`,
   `once_stopped_its_close_frees_what_the_closures_capture_raising_no_panic_of_their_drops`;
-  placed whole (`src/tests/executor_fn/one_per_shot/placed.rs`:
+  placed whole (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`:
   `placed_whole_close_frees_every_state_then_raises_the_first_drops_panic`)),
   as it does a report closure's panic made on its placement
   (`a_panic_making_the_report_at_close_reaches_the_closer`).
@@ -375,11 +375,11 @@ The rules, pinned in `src/tests/placement.rs`:
 The order of `.shots` and `.run_on` says where the shots run.
 `.shots(OnePerShot).run_on(OwnThread)` runs every shot on the one
 thread (`placed_after_one_per_shot_every_shot_runs_on_the_one_thread`,
-`src/tests/placement.rs`), and `.run_on(OwnThread).shots(OnePerShot)`
+`src/tests/facilities/placed_executor.rs`), and `.run_on(OwnThread).shots(OnePerShot)`
 each shot on a thread of its own, so the shots of a batch run in parallel
 (`placed_before_one_per_shot_each_shot_runs_on_a_thread_of_its_own`, in
-`src/tests/executor_fn/one_per_shot/placed.rs`). That pays only for shots
-that share nothing and whose calls cost much more than a thread hop, about
+`src/tests/facilities/executor_fn/one_per_shot/placed.rs`). That pays only for
+shots that share nothing and whose calls cost much more than a thread hop, about
 9 µs per hop (each shot's call is one) on one core and 15–20 µs on three
 (measured on an earlier prototype of the protocol; not measured on this
 crate yet), and never for a grouped executor (planned), whose shots share
@@ -404,7 +404,8 @@ ones a run gives on the caller's thread
 (`a_run_gives_the_same_outcomes_and_report_wherever_the_shots_states_run`,
 `tests/per_shot_executor.rs`). The two orders, as
 `both_orders_of_the_wrappers_give_the_same_outcomes_and_report`
-(`src/tests/executor_fn/one_per_shot/placed.rs`) builds them, are shown in
+(`src/tests/facilities/executor_fn/one_per_shot/placed.rs`) builds them, are
+shown in
 [Where an executor runs](../executors.md#where-an-executor-runs-run_on).
 
 The orders may differ otherwise:
@@ -418,8 +419,8 @@ The orders may differ otherwise:
   `after_a_shots_failure_a_call_is_refused_before_any_shot_runs`,
   `after_a_shots_failure_a_call_on_other_shots_is_refused`,
   `a_failure_recorded_by_its_reply_refuses_a_later_call_on_other_shots`, all in
-  `src/tests/executor_fn/one_per_shot/placed.rs`). The batch's other shots
-  may have run. A call accepted before the failure, and queued on the
+  `src/tests/facilities/executor_fn/one_per_shot/placed.rs`). The batch's other
+  shots may have run. A call accepted before the failure, and queued on the
   failed shot behind the failing call, does not run there: its reply
   fails, and its other shots may run
   (`a_call_queued_behind_a_shots_failure_fails_while_its_other_shots_run`).
@@ -433,41 +434,41 @@ The orders may differ otherwise:
 - Dropped, each shot cancels its calls not yet started, as a placed
   executor does, so a call's reply ends `ReplyStatus::Cancelled` once a
   shot of it was cancelled (`dropped_it_cancels_the_calls_not_yet_started`,
-  in `src/tests/executor_fn/one_per_shot/placed.rs`),
+  in `src/tests/facilities/executor_fn/one_per_shot/placed.rs`),
   unless a shot of it failed: a failure outranks a cancellation, whatever
   the shots' order (`a_failed_shot_outranks_a_cancelled_one`); and a
   cancelled call fails no later call
   (`a_cancelled_call_fails_no_later_call`, all three in
-  `src/tests/executor_fn/one_per_shot/placed.rs`).
+  `src/tests/facilities/executor_fn/one_per_shot/placed.rs`).
 - A logic that keeps state of its own (a counter it captures) keeps one
   copy per shot with a thread per shot, one for every shot on one thread
   (`placed_before_one_per_shot_each_shot_runs_a_copy_of_the_logic_of_its_own`,
   `placed_after_one_per_shot_every_shot_runs_the_one_logic`).
 - With a thread per shot, the report counts every call it accepted
   (`its_report_counts_every_call_it_accepted_those_failed_behind_a_failure_included`,
-  `src/tests/executor_fn/one_per_shot/placed.rs`);
+  `src/tests/facilities/executor_fn/one_per_shot/placed.rs`);
   on one thread, only the calls that reached the executor it places
   (`its_report_counts_only_the_calls_that_reached_the_executor_it_places`,
-  `src/tests/placement.rs`).
+  `src/tests/facilities/placed_executor.rs`).
 - A refusal of the executor's own (its check's, its state closure's, or for
   want of room) arrives, placed whole, on the executor's thread, after `call`
   accepted the call: it fails the call's reply, and every later call is refused
   (`a_call_its_executor_refuses_on_its_thread_fails_its_reply`,
   `after_a_refusal_on_its_thread_it_refuses_every_later_call`, in
-  `src/tests/placement.rs`, which place an executor with no shot strategy, and
-  refuse for want of room; the check's and the state closure's refusals take
-  the same path, unpinned).
+  `src/tests/facilities/placed_executor.rs`, which place an executor with no shot
+  strategy, and refuse for want of room; the check's and the state closure's
+  refusals take the same path, unpinned).
   With a thread per shot, `call` refuses it, and the executor stays usable
   (`the_check_refuses_a_call_before_any_state_is_made`,
   `a_refused_call_leaves_it_usable`, in
-  `src/tests/executor_fn/one_per_shot/placed.rs`).
+  `src/tests/facilities/executor_fn/one_per_shot/placed.rs`).
 
 In parallel, the outcomes of a batch's shots interleave
 (`an_executor_hands_over_each_shots_events_as_they_come`), each shot's in
 the order it gives them, not sorted by tag
 (`a_shots_late_outcomes_keep_the_order_of_its_reads_not_of_their_tags`,
-both in `src/tests/shot_states.rs`). Known issue, open: each shot's reply
-wakes the caller, at most once per sleep, as the shot's events come and
+both in `src/tests/facilities/shot_states.rs`). Known issue, open: each shot's
+reply wakes the caller, at most once per sleep, as the shot's events come and
 when it
 ends; the caller polls the reply once per wake, and each poll polls every
 shot still pending, so a batch of n shots, woken once per shot that ends,
@@ -500,20 +501,20 @@ with several calls in flight may have had later calls admitted before that
 poll: their replies end at their next poll, without more events, and the
 next `call` is refused (tests `a_bound_reply_that_fails_fails_the_executor`
 and `a_bound_reply_ends_at_an_earlier_calls_failure`, in
-`src/tests/lifecycle.rs`). A poll that runs as the failure is recorded may
-still leave its reply pending and hand over that poll's own events; the
-next poll ends it (a known issue, noted at `LifecycleBoundReply`'s source;
+`src/tests/facilities/executor_lifecycle.rs`). A poll that runs as the failure
+is recorded may still leave its reply pending and hand over that poll's own
+events; the next poll ends it (a known issue, noted at
+`LifecycleBoundReply`'s source;
 `a_reply_left_pending_as_an_earlier_failure_is_recorded_ends_at_its_next_poll`).
-The executors that `executor_fn` makes keep the same rules for the shots'
-states they hold. Until the failure is recorded as the executor's, a
-later call's reply ends as its own work does: placed per shot, a call on
-other shots ends done while the failing call's reply is not polled,
-though the executor already refuses a new call (refusing one ends no
-call already in flight), and one queued behind the failing shot
-hands over its other shots' events before it fails
+The executors that `executor_fn` makes keep the same rules for the shots' states
+they hold. Until the failure is recorded as the executor's, a later call's reply
+ends as its own work does: placed per shot, a call on other shots ends done
+while the failing call's reply is not polled, though the executor already
+refuses a new call (refusing one ends no call already in flight), and one queued
+behind the failing shot hands over its other shots' events before it fails
 (`a_call_on_other_shots_ends_done_while_the_failing_reply_is_unpolled`,
 `a_call_queued_behind_a_shots_failure_fails_while_its_other_shots_run`,
-in `src/tests/executor_fn/one_per_shot/placed.rs`).
+in `src/tests/facilities/executor_fn/one_per_shot/placed.rs`).
 
 A wrapper never forgets a refusal: an executor that `executor_fn` makes,
 closed or failed, then placed (`run_on`) or given a state per shot
@@ -525,19 +526,19 @@ failures included, as iterator adapters and Tower's `Buffer` do (tests
 `given_a_state_per_shot_a_placed_executor_keeps_its_own_refusal`). A
 failed executor keeps the states made before the failed call until it
 closes, and `close` reports them (tests
-`a_failed_executor_still_reports_its_state`, in `src/tests/executor_fn.rs`,
-and `a_failed_executor_still_reports_the_states_made_before_the_failed_call`,
-in `src/tests/executor_fn/one_per_shot.rs`). And a failed call reports no
-shot of it: `close` reports no state made for the
-failed call, whether its shot ran or not, nor runs a report closure on one,
-so every order of the wrappers reports the same states, as `futures`'
-`try_join_all` drops the others' results (tests
-`a_failed_call_reports_no_state_made_for_it_in_every_order` and
+`a_failed_executor_still_reports_its_state`, in
+`src/tests/facilities/executor_fn.rs`, and
+`a_failed_executor_still_reports_the_states_made_before_the_failed_call`, in
+`src/tests/facilities/executor_fn/one_per_shot.rs`). And a failed call reports
+no shot of it: `close` reports no state made for the failed call, whether its
+shot ran or not, nor runs a report closure on one, so every order of the
+wrappers reports the same states, as `futures`' `try_join_all` drops the others'
+results (tests `a_failed_call_reports_no_state_made_for_it_in_every_order` and
 `the_report_closures_never_read_a_state_made_for_a_failed_call`), unless a
 placed state's placement stopped (its logic panicked, or its job was
 dropped unrun), which leaves that state out (test
 `a_state_whose_logic_panicked_is_left_out_of_the_report`, in
-`src/tests/executor_fn/one_per_shot/placed.rs`).
+`src/tests/facilities/executor_fn/one_per_shot/placed.rs`).
 
 ```mermaid
 sequenceDiagram
@@ -583,8 +584,9 @@ call. The crate's ensemble double, `SharedState` (`src/tests.rs`), is
 built on it and passes the conformance checks
 (`a_shared_state_executor_refuses_calls_after_its_device_stops`,
 `a_shared_state_executor_refuses_calls_once_closed`,
-`a_shared_state_executor_reports_once`, in `src/tests/lifecycle.rs`). The
-executors that `executor_fn` makes keep their rules on it too.
+`a_shared_state_executor_reports_once`, in
+`src/tests/facilities/executor_lifecycle.rs`). The executors that `executor_fn`
+makes keep their rules on it too.
 
 ## An ensemble executor
 
@@ -661,7 +663,7 @@ the executor's outcomes are unchanged
 `src/tests/compose/adapters.rs`), and one runs two adapters that draw
 from the one seed, each under its own id
 (`two_drawing_adapters_seed_from_the_one_seed_each_with_its_own_id`,
-`src/tests/adapter/adapter_fn/one_per_shot.rs`); but each keeps a
+`src/tests/facilities/adapter_fn/one_per_shot.rs`); but each keeps a
 generator of its own, so these tests could not see a shift, and no test
 checks that one component's draws do not shift another's.
 `src/tests/seeds.rs` also pins known answers.
@@ -687,27 +689,27 @@ sections above do not pin, in each page's order, with the tests that pin it.
 
 From [Executors](../executors.md):
 
-| Promise                                                                                                                                                                | Tests                                                                                                                                                                                                                                                         |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The default offers nothing an executor does not state: no limit of qubits or shots, and no resumable shots, replayable shots, resets or log probability                | `default_capabilities_state_no_limit_and_offer_nothing_unstated` (`src/tests/capabilities.rs`)                                                                                                                                                                |
-| An executor that does not state a capability is refused a job that needs it, naming the need                                                                           | `an_executor_that_states_no_resumable_shots_is_refused_a_job_that_continues_a_shot` (`src/tests/capabilities.rs`)                                                                                                                                             |
-| A `true` need is met only by its own `true` capability: each offered alone meets its own need and no other                                                             | `a_yes_or_no_need_is_met_by_its_own_capability_alone` (`src/tests/needs.rs`)                                                                                                                                                                                  |
-| The crate's driver adds `resumable_shots` to a `StaticProgram`'s needs when it has calls before its last batch, and none when its calls are all in its last batch      | `a_typed_call_before_a_static_programs_last_batch_needs_resumable_shots`, `a_static_program_of_one_batch_runs_on_an_executor_without_resumable_shots` (`src/tests/program/static_program.rs`)                                                                 |
-| The conformance check across calls fails an executor that forgets a shot's conditions at a call                                                                        | `keeps_each_shots_conditions_from_one_call_to_the_next_catches_conditions_forgotten_at_a_call` (`src/tests/conformance.rs`)                                                                                                                                   |
-| An executor made by `executor_fn`, dropped unclosed, frees its state before its closures, as `close` does, and so does its shot form                                   | `dropped_it_frees_its_state_before_its_closures` (`src/tests/executor_fn.rs`), `dropped_it_frees_its_states_before_its_closures` (`src/tests/executor_fn/one_per_shot.rs`)                                                                                    |
-| The per-shot executor guide's executor, given `.shots(OnePerShot)`, gives each shot alone what it gives among the others                                               | `each_shot_alone_gives_what_it_gives_among_others` (`tests/per_shot_executor.rs`; tests of the same name pin it for `executor_fn`'s state per shot in `src/tests/executor_fn/one_per_shot.rs`, and placed, in `src/tests/executor_fn/one_per_shot/placed.rs`) |
-| A program with feedback runs its next batch on the shots it chose, on the state their first batch left                                                                 | `a_program_with_feedback_runs_its_next_batch_on_the_shots_it_chose` (`tests/per_shot_executor.rs`)                                                                                                                                                            |
-| `ExecutorLifecycle::fail` records a failure learnt inside `call`, so the next call is refused                                                                          | `a_counter_refuses_calls_after_its_device_stops` (`src/tests/lifecycle.rs`)                                                                                                                                                                                   |
-| An executor written by hand in another crate, given `>>` by its crate on each of the four public left-hand types, is composed with `>>` after each, grouped either way | `an_executor_written_by_hand_is_composed_with_shr_after_each_public_left_type` (`tests/executor_by_hand.rs`)                                                                                                                                                  |
+| Promise                                                                                                                                                                | Tests                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The default offers nothing an executor does not state: no limit of qubits or shots, and no resumable shots, replayable shots, resets or log probability                | `default_capabilities_state_no_limit_and_offer_nothing_unstated` (`src/tests/capabilities.rs`)                                                                                                                                                                                      |
+| An executor that does not state a capability is refused a job that needs it, naming the need                                                                           | `an_executor_that_states_no_resumable_shots_is_refused_a_job_that_continues_a_shot` (`src/tests/capabilities.rs`)                                                                                                                                                                   |
+| A `true` need is met only by its own `true` capability: each offered alone meets its own need and no other                                                             | `a_yes_or_no_need_is_met_by_its_own_capability_alone` (`src/tests/needs.rs`)                                                                                                                                                                                                        |
+| The crate's driver adds `resumable_shots` to a `StaticProgram`'s needs when it has calls before its last batch, and none when its calls are all in its last batch      | `a_typed_call_before_a_static_programs_last_batch_needs_resumable_shots`, `a_static_program_of_one_batch_runs_on_an_executor_without_resumable_shots` (`src/tests/facilities/static_program.rs`)                                                                                    |
+| The conformance check across calls fails an executor that forgets a shot's conditions at a call                                                                        | `keeps_each_shots_conditions_from_one_call_to_the_next_catches_conditions_forgotten_at_a_call` (`src/tests/conformance.rs`)                                                                                                                                                         |
+| An executor made by `executor_fn`, dropped unclosed, frees its state before its closures, as `close` does, and so does its shot form                                   | `dropped_it_frees_its_state_before_its_closures` (`src/tests/facilities/executor_fn.rs`), `dropped_it_frees_its_states_before_its_closures` (`src/tests/facilities/executor_fn/one_per_shot.rs`)                                                                                    |
+| The per-shot executor guide's executor, given `.shots(OnePerShot)`, gives each shot alone what it gives among the others                                               | `each_shot_alone_gives_what_it_gives_among_others` (`tests/per_shot_executor.rs`; tests of the same name pin it for `executor_fn`'s state per shot in `src/tests/facilities/executor_fn/one_per_shot.rs`, and placed, in `src/tests/facilities/executor_fn/one_per_shot/placed.rs`) |
+| A program with feedback runs its next batch on the shots it chose, on the state their first batch left                                                                 | `a_program_with_feedback_runs_its_next_batch_on_the_shots_it_chose` (`tests/per_shot_executor.rs`)                                                                                                                                                                                  |
+| `ExecutorLifecycle::fail` records a failure learnt inside `call`, so the next call is refused                                                                          | `a_counter_refuses_calls_after_its_device_stops` (`src/tests/facilities/executor_lifecycle.rs`)                                                                                                                                                                                     |
+| An executor written by hand in another crate, given `>>` by its crate on each of the four public left-hand types, is composed with `>>` after each, grouped either way | `an_executor_written_by_hand_is_composed_with_shr_after_each_public_left_type` (`tests/executor_by_hand.rs`)                                                                                                                                                                        |
 
 From the [Glossary](../glossary.md#a-parts-axes), a wrapper never forgets a
 refusal, in either order of `.shots(OnePerShot)` and `.run_on(..)` ([An executor
 fails](#an-executor-fails) cites the others):
 
-| Promise                                                                       | Tests                                                                                                                                                                                     |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Given a state per shot then placed, a closed executor refuses at call         | `given_a_state_per_shot_then_placed_after_close_it_refuses_at_call` (`src/tests/executor_fn/one_per_shot.rs`)                                                                             |
-| Placed then given a state per shot, a failed or closed executor still refuses | `placed_then_given_a_state_per_shot_after_a_failure_it_still_refuses`, `placed_then_given_a_state_per_shot_after_close_it_still_refuses` (`src/tests/executor_fn/one_per_shot/placed.rs`) |
+| Promise                                                                       | Tests                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Given a state per shot then placed, a closed executor refuses at call         | `given_a_state_per_shot_then_placed_after_close_it_refuses_at_call` (`src/tests/facilities/executor_fn/one_per_shot.rs`)                                                                             |
+| Placed then given a state per shot, a failed or closed executor still refuses | `placed_then_given_a_state_per_shot_after_a_failure_it_still_refuses`, `placed_then_given_a_state_per_shot_after_close_it_still_refuses` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`) |
 
 From the guide [Running a program](../guides.md#running-a-program), in
 `tests/simulator.rs`:
@@ -741,26 +743,26 @@ profiler](../guides.md#an-existing-backend-and-a-profiler), in
 
 From the API docs of the executor types:
 
-| Promise                                                                                                                                                                                                                                                                                                                       | Tests                                                                                                                                                                                                                                                                                                                                                                   |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ExecutorFn::check` frees the check it replaces, raising no panic of its drop                                                                                                                                                                                                                                                 | `a_replaced_closure_is_freed_raising_no_panic_of_its_drop` (`src/tests/executor_fn.rs`)                                                                                                                                                                                                                                                                                 |
-| At close, the drop of a state while the panic of a report closure or of `Q::default` unwinds leaves its panic to the panic hook, with one state or a state per shot                                                                                                                                                           | `a_reports_default_panic_wins_over_its_states_drops` (`src/tests/executor_fn.rs`)                                                                                                                                                                                                                                                                                       |
-| Dropped, an executor with a state per shot absorbs the panic of each state's drop                                                                                                                                                                                                                                             | `dropped_it_frees_every_state_raising_no_panic_of_their_drops` (`src/tests/executor_fn/one_per_shot.rs`)                                                                                                                                                                                                                                                                |
-| Placed per shot and dropped unclosed, it frees a state held from before it was placed before its closures, and each shot's state, on its placement, before the shot's copies of the closures                                                                                                                                  | `dropped_it_frees_a_state_held_from_before_it_was_placed_before_its_closures`, `dropped_each_shot_frees_its_state_before_its_copies_of_the_closures` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                   |
-| Placed per shot and dropped unclosed, it frees its own closures (the state closure, the check, and the closures it copies for each shot) on the dropping thread without waiting for the shots' states, so they may be freed before a shot's state                                                                             | `dropped_it_frees_its_own_closures_without_waiting_for_its_shots_states` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                                               |
-| Placed per shot and holding a state from before, a `Clone` of the logic or of the placement that panics as that state's shot is placed frees the state, or the placement, raising the copy's own panic; a report closure's copy is made there as in `call` (next row)                                                         | `a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_from_before_raising_its_own_panic`, `a_placement_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_from_before_raising_its_own_panic`, `a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_placement_raising_its_own_panic` (`src/tests/executor_fn/one_per_shot/placed.rs`) |
-| Placed per shot, a `Clone` of the logic that panics as a new shot's copies are made reaches the caller before the shot's state is made; one of a report closure (`state_report`'s, copied after the logic and `log_probability`'s closure) frees the copies made before it, each in a catch of its own, raising its own panic | `a_shots_copy_of_the_logic_that_panics_reaches_the_caller_before_its_state_is_made`, `a_shots_copy_that_panics_frees_the_copies_made_before_it_raising_its_own_panic` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                  |
-| Placed per shot, a copy of the placement that panics as a new shot's copies are made frees the shot's state, raising its own panic                                                                                                                                                                                            | `a_shots_copy_of_the_placement_that_panics_frees_its_state_raising_its_own_panic` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                                      |
-| Placed per shot, a call that is refused, or fails as it is handed to a shot, frees the states made for it whose placement never started, then raises the first drop's panic on the caller's thread                                                                                                                            | `a_refused_call_frees_every_state_made_for_it_then_raises_the_first_drops_panic`, `a_call_whose_shot_fails_frees_the_states_of_its_unstarted_shots_then_raises_the_first_drops_panic` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                  |
-| After a shot's failure and such a drop's panic, later calls are refused with the failed logic's reason                                                                                                                                                                                                                        | `after_a_shots_failure_and_an_unstarted_states_drop_panic_later_calls_get_the_logics_reason` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                           |
-| Placed per shot, `close` frees the copies of the closures and the placement of a shot whose placement stopped or whose state it leaves out, raising no panic of their drops, and raises a stopped shot's state's drop's panic though its placement's drop panics too                                                          | `once_stopped_close_frees_the_shots_copies_of_the_closures_raising_no_panic_of_their_drops`, `close_frees_the_copies_and_placement_of_a_shot_left_out_raising_no_panic_of_their_drops`, `once_stopped_close_raises_the_states_drop_panic_though_its_placements_drop_panics_too` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                        |
-| The copies and placement of a shot that `close` reports are freed raising no panic of their drops                                                                                                                                                                                                                             | `a_reported_shots_copies_and_placement_are_freed_raising_no_panic_of_their_drops` (`src/tests/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                                      |
-| `PlacedExecutor`'s drop absorbs the panic of a caller's waker, or of an instruction's drop, as it cancels a call, and the calls after it are cancelled still                                                                                                                                                                  | `a_waker_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled`, `an_instructions_drop_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled` (`src/tests/placement.rs`)                                                                                                                                                                          |
-| A state's drop that panics as a job dropped unrun, a stopping job or a job ending after `drop` frees the placed executor stays off the placement's thread                                                                                                                                                                     | `a_states_drop_that_panics_as_a_job_dropped_unrun_frees_it_stays_off_the_placements_thread`, `a_states_drop_that_panics_as_a_stopping_job_frees_it_stays_off_the_placements_thread`, `a_states_drop_that_panics_as_a_job_ending_after_drop_frees_it_stays_off_the_placements_thread` (`src/tests/placement.rs`)                                                         |
-| A placed executor's `close` waits for the calls queued, those whose replies were dropped included                                                                                                                                                                                                                             | `closing_waits_for_the_calls_whose_replies_were_dropped` (`src/tests/placement.rs`)                                                                                                                                                                                                                                                                                     |
+| Promise                                                                                                                                                                                                                                                                                                                       | Tests                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExecutorFn::check` frees the check it replaces, raising no panic of its drop                                                                                                                                                                                                                                                 | `a_replaced_closure_is_freed_raising_no_panic_of_its_drop` (`src/tests/facilities/executor_fn.rs`)                                                                                                                                                                                                                                                                                 |
+| At close, the drop of a state while the panic of a report closure or of `Q::default` unwinds leaves its panic to the panic hook, with one state or a state per shot                                                                                                                                                           | `a_reports_default_panic_wins_over_its_states_drops` (`src/tests/facilities/executor_fn.rs`)                                                                                                                                                                                                                                                                                       |
+| Dropped, an executor with a state per shot absorbs the panic of each state's drop                                                                                                                                                                                                                                             | `dropped_it_frees_every_state_raising_no_panic_of_their_drops` (`src/tests/facilities/executor_fn/one_per_shot.rs`)                                                                                                                                                                                                                                                                |
+| Placed per shot and dropped unclosed, it frees a state held from before it was placed before its closures, and each shot's state, on its placement, before the shot's copies of the closures                                                                                                                                  | `dropped_it_frees_a_state_held_from_before_it_was_placed_before_its_closures`, `dropped_each_shot_frees_its_state_before_its_copies_of_the_closures` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                   |
+| Placed per shot and dropped unclosed, it frees its own closures (the state closure, the check, and the closures it copies for each shot) on the dropping thread without waiting for the shots' states, so they may be freed before a shot's state                                                                             | `dropped_it_frees_its_own_closures_without_waiting_for_its_shots_states` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                                               |
+| Placed per shot and holding a state from before, a `Clone` of the logic or of the placement that panics as that state's shot is placed frees the state, or the placement, raising the copy's own panic; a report closure's copy is made there as in `call` (next row)                                                         | `a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_from_before_raising_its_own_panic`, `a_placement_copy_that_panics_as_its_shots_are_placed_frees_the_state_held_from_before_raising_its_own_panic`, `a_logic_copy_that_panics_as_its_shots_are_placed_frees_the_placement_raising_its_own_panic` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`) |
+| Placed per shot, a `Clone` of the logic that panics as a new shot's copies are made reaches the caller before the shot's state is made; one of a report closure (`state_report`'s, copied after the logic and `log_probability`'s closure) frees the copies made before it, each in a catch of its own, raising its own panic | `a_shots_copy_of_the_logic_that_panics_reaches_the_caller_before_its_state_is_made`, `a_shots_copy_that_panics_frees_the_copies_made_before_it_raising_its_own_panic` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                  |
+| Placed per shot, a copy of the placement that panics as a new shot's copies are made frees the shot's state, raising its own panic                                                                                                                                                                                            | `a_shots_copy_of_the_placement_that_panics_frees_its_state_raising_its_own_panic` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                                      |
+| Placed per shot, a call that is refused, or fails as it is handed to a shot, frees the states made for it whose placement never started, then raises the first drop's panic on the caller's thread                                                                                                                            | `a_refused_call_frees_every_state_made_for_it_then_raises_the_first_drops_panic`, `a_call_whose_shot_fails_frees_the_states_of_its_unstarted_shots_then_raises_the_first_drops_panic` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`)                                                                                                                                  |
+| After a shot's failure and such a drop's panic, later calls are refused with the failed logic's reason                                                                                                                                                                                                                        | `after_a_shots_failure_and_an_unstarted_states_drop_panic_later_calls_get_the_logics_reason` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                           |
+| Placed per shot, `close` frees the copies of the closures and the placement of a shot whose placement stopped or whose state it leaves out, raising no panic of their drops, and raises a stopped shot's state's drop's panic though its placement's drop panics too                                                          | `once_stopped_close_frees_the_shots_copies_of_the_closures_raising_no_panic_of_their_drops`, `close_frees_the_copies_and_placement_of_a_shot_left_out_raising_no_panic_of_their_drops`, `once_stopped_close_raises_the_states_drop_panic_though_its_placements_drop_panics_too` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`)                                        |
+| The copies and placement of a shot that `close` reports are freed raising no panic of their drops                                                                                                                                                                                                                             | `a_reported_shots_copies_and_placement_are_freed_raising_no_panic_of_their_drops` (`src/tests/facilities/executor_fn/one_per_shot/placed.rs`)                                                                                                                                                                                                                                      |
+| `PlacedExecutor`'s drop absorbs the panic of a caller's waker, or of an instruction's drop, as it cancels a call, and the calls after it are cancelled still                                                                                                                                                                  | `a_waker_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled`, `an_instructions_drop_that_panics_as_drop_cancels_its_call_leaves_the_others_cancelled` (`src/tests/facilities/placed_executor.rs`)                                                                                                                                                                    |
+| A state's drop that panics as a job dropped unrun, a stopping job or a job ending after `drop` frees the placed executor stays off the placement's thread                                                                                                                                                                     | `a_states_drop_that_panics_as_a_job_dropped_unrun_frees_it_stays_off_the_placements_thread`, `a_states_drop_that_panics_as_a_stopping_job_frees_it_stays_off_the_placements_thread`, `a_states_drop_that_panics_as_a_job_ending_after_drop_frees_it_stays_off_the_placements_thread` (`src/tests/facilities/placed_executor.rs`)                                                   |
+| A placed executor's `close` waits for the calls queued, those whose replies were dropped included                                                                                                                                                                                                                             | `closing_waits_for_the_calls_whose_replies_were_dropped` (`src/tests/facilities/placed_executor.rs`)                                                                                                                                                                                                                                                                               |
 
-From the API docs of `Fold`, in `src/tests/executor.rs` (a pair's default and
-its order are pinned in [Adapters: the detailed rules](adapters.md)):
+From the API docs of `Fold`, in `src/tests/executor/report.rs` (a pair's default
+and its order are pinned in [Adapters: the detailed rules](adapters.md)):
 
 | Promise                                                                        | Tests                                                                              |
 | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |

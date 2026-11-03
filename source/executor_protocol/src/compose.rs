@@ -49,35 +49,26 @@
 //! - [`run`]: the run a chain gives for a job.
 //! - [`chain`]: the chain a driver gives with an executor, which runs the
 //!   job given to it.
+//! - [`operator`]: the operator `>>`, `compose(a, b)` where it is
+//!   implemented.
+//! - [`build_faults`]: what building a chain reports.
 //!
 //! What is composed has its own module: an adapter ([`Adapter`]), where it
 //! meets what is downstream of it ([`AdapterBoundary`]), and a driver
 //! ([`Driver`], in the chain's prefix, [`ChainPrefix`]).
 
 pub(crate) mod adapters;
+pub(crate) mod build_faults;
 pub(crate) mod chain;
+pub(crate) mod operator;
 pub(crate) mod run;
 
-#[cfg(test)]
-use std::any::type_name;
-use std::fmt;
-use std::ops::Shr;
-use std::sync::Arc;
-
-#[cfg(any(test, doc))]
-use crate::Rejected;
-use crate::compose::adapters::DownstreamOf;
-use crate::instruction_set::write_mismatches;
-use crate::{
-    Adapter, AdapterExecutor, AdapterFn, AdapterFnExecutor, Adapters, Apply, Chain, ChainPrefix,
-    Close, ComponentId, ComposedAdapters, Executor, ExecutorFn, InstructionBatch,
-    InstructionMismatch, NoAdapter, OnePerShotAdapter, OnePerShotAdapterExecutor,
-    OnePerShotExecutor, OnePerShotPlacedExecutor, PlacedExecutor, UnmetNeed, UpstreamOf,
-};
 #[cfg(doc)]
-use crate::{AdapterBoundary, Driver, DriverExt};
-#[cfg(test)]
-use crate::{AdaptiveProgram, BuiltinDriver, ComposedJob, DrivenProgram, JobFaults, Run};
+use crate::{
+    Adapter, AdapterBoundary, AdapterExecutor, AdapterFnExecutor, Apply, BuildError, BuildFault,
+    Close, Driver, DriverExt, InstructionBatch, Rejected,
+};
+use crate::{Adapters, BuildFaults, Chain, ChainPrefix, ComposedAdapters, UpstreamOf};
 
 /// Two entities put together into one, `Self` upstream of `Rhs`: the rules
 /// of [`compose`](fn@crate::compose), one impl each.
@@ -261,54 +252,6 @@ impl<X: UpstreamOf<E>, E> Compose<E, WithExecutor> for X {
     }
 }
 
-/// Job, adapter: the job, with `y` downstream of its adapters.
-#[cfg(test)]
-impl<P: AdaptiveProgram, L: Adapters, Y: Adapters<Accepts = L::Sends>> Compose<Y, WithAdapter>
-    for ComposedJob<P, L>
-{
-    type Output = ComposedJob<P, ComposedAdapters<L, Y>>;
-
-    fn compose(self, y: Y) -> Self::Output {
-        self.map_adapters(|adapters| ComposedAdapters::new(adapters, y))
-    }
-}
-
-/// Job, executor: the chain of the crate's driver on the job's adapters
-/// upstream of `executor`, given the job's program and shots as its job,
-/// so that the needs and the renumbering are the chain's
-/// ([`Chain::run`]). The adapters' faults are returned alone, as the
-/// chain's are returned before any job is given; otherwise the program's
-/// unmet needs, each as [`BuildError::Unmet`].
-#[cfg(test)]
-impl<P, L, E> Compose<E, WithExecutor> for ComposedJob<P, L>
-where
-    P: AdaptiveProgram,
-    L: UpstreamOf<E, Accepts = P::Instruction>,
-    L::Output: Executor<InstructionBatch<P::Instruction>> + Close,
-{
-    type Output = Result<Run<DrivenProgram<BuiltinDriver, P>, L::Output>, BuildFaults>;
-
-    fn compose(self, executor: E) -> Self::Output {
-        let (program, shots, adapters) = self.into_parts();
-        let chain = ChainPrefix::<_, NoAdapter<P::Instruction>>::new(BuiltinDriver)
-            .map_adapters(|_| adapters)
-            .compose(executor)?;
-        chain.run(program, shots).map_err(|JobFaults(faults)| {
-            let unmet = faults.into_iter().map(|rejected| match rejected {
-                Rejected::Unmet(unmet) => BuildFault {
-                    component: type_name::<P>(),
-                    error: BuildError::Unmet(unmet),
-                },
-                other => unreachable!(
-                    "a job's shots are a set, and the crate's driver finds no fault \
-                     in an adaptive program, so only needs fail: {other}"
-                ),
-            });
-            BuildFaults(unmet.collect())
-        })
-    }
-}
-
 /// Chain prefix, adapter: the prefix, with `y` downstream of its adapters.
 impl<T, L: Adapters, Y: Adapters<Accepts = L::Sends>> Compose<Y, WithAdapter>
     for ChainPrefix<T, L>
@@ -336,257 +279,5 @@ impl<T, L: UpstreamOf<E>, E> Compose<E, WithExecutor> for ChainPrefix<T, L> {
         })?;
         let offered = offered.expect("adapters give what the chain offers to what is upstream");
         Ok(Chain::new(driver, executor, offered))
-    }
-}
-
-/// `>>` for the crate's types: `a >> b` is `compose(a, b)`, where `b` is
-/// an adapter. A chain that starts at a driver is written with `>>` all
-/// along, a component made by a function included, when the function
-/// returns the type the facility gives ([`compose`]'s documentation).
-///
-/// Not for any executor: `>>` takes no rule to infer, and an impl for any
-/// adapter and one for any executor would overlap. An executor is composed with
-/// `compose`, or its crate implements `>>` for it on each of the four
-/// public types that may be on its left, [`ChainPrefix`],
-/// [`ComposedAdapters`], [`AdapterFn`] and [`OnePerShotAdapter`], so that
-/// a chain groups either way, as this crate does
-/// for the executors its facility makes and for an adapter, written by hand
-/// or not, composed with an executor; likewise an adapter of another
-/// crate, which this crate cannot give `>>`. Planned: a macro that writes
-/// these impls (`docs/planned.md`).
-macro_rules! compose_by_shr {
-    ($($generics:ident),* ; $left:ty) => {
-        impl<$($generics,)* Rhs> Shr<Rhs> for $left
-        where
-            Rhs: Adapters,
-            Self: Compose<Rhs, WithAdapter>,
-        {
-            type Output = <Self as Compose<Rhs, WithAdapter>>::Output;
-
-            fn shr(self, rhs: Rhs) -> Self::Output {
-                self.compose(rhs)
-            }
-        }
-    };
-}
-
-#[cfg(test)]
-compose_by_shr!(P, L; ComposedJob<P, L>);
-compose_by_shr!(T, L; ChainPrefix<T, L>);
-compose_by_shr!(X, Y; ComposedAdapters<X, Y>);
-compose_by_shr!(I; NoAdapter<I>);
-compose_by_shr!(I, O, S, M, L, C, R; AdapterFn<I, O, S, M, L, C, R>);
-compose_by_shr!(I, O, S, M, L, C, R; OnePerShotAdapter<I, O, S, M, L, C, R>);
-
-/// `>>` with one of the crate's executors on the right, as an executor's
-/// crate implements it: `a >> executor` is `compose(a, executor)` for each
-/// executor the facility makes (`executor_fn`, and an adapter over an
-/// executor, `adapter_fn` or written by hand), so that a chain ending at
-/// one is written with `>>` all along, grouped either way.
-macro_rules! compose_executor_by_shr {
-    ([$($right_generics:ident),*] $right:ty) => {
-        compose_executor_by_shr!([$($right_generics),*] $right where);
-    };
-    // The bounds of the executor's type, which every impl that names it
-    // states.
-    ([$($right_generics:ident),*] $right:ty where $($bounds:tt)*) => {
-        #[cfg(test)]
-        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; P0, L0; ComposedJob<P0, L0>);
-        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; T0, L0; ChainPrefix<T0, L0>);
-        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; X0, Y0; ComposedAdapters<X0, Y0>);
-        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; I0; NoAdapter<I0>);
-        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; I0, O0, S0, M0, L0, C0, R0; AdapterFn<I0, O0, S0, M0, L0, C0, R0>);
-        compose_executor_by_shr!(@left [$($right_generics),*] $right [$($bounds)*]; I0, O0, S0, M0, L0, C0, R0; OnePerShotAdapter<I0, O0, S0, M0, L0, C0, R0>);
-    };
-    (@left [$($right_generics:ident),*] $right:ty [$($bounds:tt)*]; $($left_generics:ident),*; $left:ty) => {
-        impl<$($left_generics,)* $($right_generics),*> Shr<$right> for $left
-        where
-            Self: Compose<$right, WithExecutor>,
-            $($bounds)*
-        {
-            type Output = <Self as Compose<$right, WithExecutor>>::Output;
-
-            fn shr(self, executor: $right) -> Self::Output {
-                self.compose(executor)
-            }
-        }
-    };
-}
-
-compose_executor_by_shr!([I, S, M, P, C, L, R] ExecutorFn<I, S, M, P, C, L, R>);
-compose_executor_by_shr!([I, S, M, P, C, L, R] OnePerShotExecutor<I, S, M, P, C, L, R>);
-compose_executor_by_shr!(
-    [I, S, M, P, T, C, L, R] OnePerShotPlacedExecutor<I, S, M, P, T, C, L, R>
-);
-compose_executor_by_shr!([E, T] PlacedExecutor<E, T>);
-compose_executor_by_shr!([I, O, S, M, L, C, R, D] AdapterFnExecutor<I, O, S, M, L, C, R, D>);
-compose_executor_by_shr!(
-    [I, O, S, M, L, C, R, D] OnePerShotAdapterExecutor<I, O, S, M, L, C, R, D>
-);
-compose_executor_by_shr!(
-    [A, E] AdapterExecutor<A, E>
-    where
-        A: Adapter + Apply<DownstreamOf<A, E>>,
-        E: Executor<InstructionBatch<A::Sends>> + Close,
-);
-
-/// A component of a chain that cannot be built against what is downstream
-/// of it, and why.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BuildFault {
-    /// The component's type.
-    pub component: &'static str,
-    /// Why it cannot be built.
-    pub error: BuildError,
-}
-
-/// Every fault of a chain built against an executor, each adapter's,
-/// upstream first, so that whoever builds the chain can fix
-/// them all at once. It reads as one message: each fault as its component
-/// and its error (`component: error`), in their order, joined by `"; "`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BuildFaults(pub Vec<BuildFault>);
-
-impl fmt::Display for BuildFaults {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_faults(f, &self.0, |f, BuildFault { component, error }| {
-            write!(f, "{component}: {error}")
-        })
-    }
-}
-
-/// Writes `faults` as one message, in their order, each by `write`,
-/// separated by `"; "`: the one spelling of a list of faults, for
-/// [`BuildFaults`] and [`JobFaults`](crate::JobFaults).
-pub(crate) fn write_faults<F>(
-    f: &mut fmt::Formatter<'_>,
-    faults: &[F],
-    write: impl Fn(&mut fmt::Formatter<'_>, &F) -> fmt::Result,
-) -> fmt::Result {
-    for (i, fault) in faults.iter().enumerate() {
-        if i > 0 {
-            f.write_str("; ")?;
-        }
-        write(f, fault)?;
-    }
-    Ok(())
-}
-
-impl std::error::Error for BuildFaults {}
-
-/// Why a component of a chain cannot be built against the components
-/// downstream of it.
-///
-/// Two errors are equal when they state the same fault; an adapter's own
-/// fault is equal only to itself and its clones, as its type is the
-/// adapter's.
-#[derive(Clone, Debug)]
-#[non_exhaustive]
-pub enum BuildError {
-    /// A component downstream already draws with this id, so the two would draw
-    /// the same numbers in every shot: one of them must be given another id
-    /// ([`AdapterFn::drawing`](crate::AdapterFn::drawing)).
-    RngInUse(ComponentId),
-    /// An adapter draws with this id ([`Adapter::draws`]), and no run's seed
-    /// reaches it: the last executor below is given none
-    /// ([`ExecutorFn::seed`](crate::ExecutorFn::seed)). Refused when built
-    /// rather than at its first draw, since a seed made up for it would draw
-    /// the same values in every run, and one drawn from the system could not be
-    /// replayed; an [`adapter_fn`](fn@crate::adapter_fn) and an adapter written
-    /// by hand alike.
-    ///
-    /// Only an [`executor_fn`](fn@crate::executor_fn) given a seed passes
-    /// one up today. An executor written by hand cannot state one yet
-    /// (planned), so an adapter that draws is refused over it: for example
-    /// a noise model over the user's own simulator.
-    NoRunSeed(ComponentId),
-    /// An adapter sends instructions that the downstream executor does not
-    /// accept: each of them, in the order the adapter declares them.
-    Instructions(Vec<InstructionMismatch>),
-    /// An adapter is built against an executor that describes no
-    /// instruction set, so what it sends cannot be checked: an adapter that
-    /// states the set it sends, or only the set it accepts and sends
-    /// instructions of the kind it is called with (by opcode or typed), or
-    /// one that sends calls by opcode and states no set: one that passes
-    /// them through as they are, or one that makes them from instructions
-    /// of another type, then also refused as [`Self::UnstatedSends`].
-    NoInstructionSetDownstream,
-    /// An adapter makes calls by opcode from instructions of another type,
-    /// and states no set they are numbered by
-    /// ([`Adapter::sends`]); the set it accepts, if
-    /// any, describes the instructions it is called with, not its calls. So
-    /// its opcodes cannot be checked downstream.
-    UnstatedSends,
-    /// A fault of the adapter's own, of a type it defines
-    /// ([`AdapterBoundary::fault`](crate::AdapterBoundary::fault)): for example
-    /// a code whose block needs more qubits than the downstream executor holds.
-    /// Equal only to itself: two faults compare equal when they share one
-    /// error.
-    Adapter(Arc<dyn std::error::Error + Send + Sync>),
-    /// A need of a component that the chain downstream of it does not meet
-    /// ([`UnmetNeed`], as [`Rejected::Unmet`] states it). No component
-    /// reports it yet: a job's unmet needs are reported when the job is
-    /// given to the chain, among its [`JobFaults`](crate::JobFaults).
-    /// Planned: an adapter that states what it needs downstream, such as a
-    /// decoder that needs resumable shots, reports its unmet needs as this
-    /// when the chain is built (`docs/planned.md`).
-    Unmet(UnmetNeed),
-}
-
-impl PartialEq for BuildError {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (BuildError::RngInUse(a), BuildError::RngInUse(b))
-            | (BuildError::NoRunSeed(a), BuildError::NoRunSeed(b)) => a == b,
-            (BuildError::Instructions(a), BuildError::Instructions(b)) => a == b,
-            (BuildError::NoInstructionSetDownstream, BuildError::NoInstructionSetDownstream)
-            | (BuildError::UnstatedSends, BuildError::UnstatedSends) => true,
-            (BuildError::Adapter(a), BuildError::Adapter(b)) => Arc::ptr_eq(a, b),
-            (BuildError::Unmet(a), BuildError::Unmet(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for BuildError {}
-
-impl fmt::Display for BuildError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BuildError::RngInUse(id) => write!(
-                f,
-                "{id} are already drawn from downstream: two components would share them; \
-                 give one of them another id, for example with \
-                 adapter_fn(..).drawing(ComponentId::named(name))"
-            ),
-            BuildError::NoRunSeed(id) => write!(
-                f,
-                "{id} have no run's seed to be drawn from: give the last executor one, \
-                 for example with executor_fn(..).seed(seed); for an executor written by \
-                 hand, see BuildError::NoRunSeed"
-            ),
-            BuildError::Instructions(mismatches) => {
-                f.write_str("the instructions sent do not fit downstream: ")?;
-                write_mismatches(f, mismatches)
-            }
-            BuildError::NoInstructionSetDownstream => {
-                f.write_str("the downstream executor describes no instruction set")
-            }
-            BuildError::UnstatedSends => f.write_str(
-                "the adapter makes calls by opcode and states no set they are numbered by",
-            ),
-            BuildError::Adapter(fault) => fault.fmt(f),
-            BuildError::Unmet(unmet) => unmet.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for BuildError {
-    /// An adapter's own fault's source, as its text is the fault's.
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            BuildError::Adapter(fault) => fault.source(),
-            _ => None,
-        }
     }
 }

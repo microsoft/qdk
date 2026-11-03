@@ -311,7 +311,7 @@ The order of `.shots` and `.run_on` says where the shots run:
   so the shots of a batch run in parallel.
 
 The two orders, from the [tests of a placed state per
-shot](../src/tests/executor_fn/one_per_shot/placed.rs):
+shot](../src/tests/facilities/executor_fn/one_per_shot/placed.rs):
 
 ```rust
 let mut on_one_thread = recording(&threads).shots(OnePerShot).run_on(OwnThread);

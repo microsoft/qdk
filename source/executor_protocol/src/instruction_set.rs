@@ -64,9 +64,9 @@ use std::fmt;
 use std::ops::Index;
 use std::sync::Arc;
 
-#[cfg(doc)]
-use crate::Instruction;
 use crate::{Action, CallDisplay, InstructionCall, Opcode, Operand, Rejected};
+#[cfg(doc)]
+use crate::{Instruction, Renumbering};
 
 /// The kind of one operand of an instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -480,16 +480,6 @@ impl OpcodeMap {
             .enumerate()
             .all(|(index, opcode)| opcode.index() == index)
     }
-}
-
-/// How calls in one numbering reach an executor that numbers the same
-/// instructions otherwise: where each of the sender's instructions is in
-/// the executor's set ([`Instruction::renumbering`]).
-#[derive(Debug)]
-pub struct Renumbering {
-    // Crate-visible, not public, so that only the crate builds one: the
-    // seal of `Instruction` rests on it.
-    pub(crate) map: OpcodeMap,
 }
 
 /// A value `T` for each instruction of a set, at its opcode

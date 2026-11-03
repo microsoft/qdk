@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use super::adapter_fn::{Offering, each_capability_alone};
+use crate::tests::facilities::adapter_fn::{Offering, each_capability_alone};
 use crate::tests::map_executor;
 use crate::tests::test_double::TestDoubleExecutor;
 use crate::tests::{
