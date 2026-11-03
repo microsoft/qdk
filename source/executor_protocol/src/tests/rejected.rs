@@ -41,15 +41,18 @@ fn every_known_reason_has_its_retry_class() {
 }
 
 /// A reason a newer far end sent, which this end does not know, keeps what
-/// the far end gave it: its retry class and its text, unchanged.
+/// the far end gave it: its retry class, whichever it is, and its text,
+/// unchanged.
 #[test]
 fn an_unrecognized_reason_keeps_the_far_ends_class_and_text() {
-    let unrecognized = Rejected::Unrecognized {
-        retry: RetryClass::Later,
-        reason: "newer".into(),
-    };
-    assert_eq!(unrecognized.retry(), RetryClass::Later);
-    assert_eq!(unrecognized.to_string(), "newer");
+    for class in [RetryClass::Never, RetryClass::Later, RetryClass::Resend] {
+        let unrecognized = Rejected::Unrecognized {
+            retry: class,
+            reason: "newer".into(),
+        };
+        assert_eq!(unrecognized.retry(), class);
+        assert_eq!(unrecognized.to_string(), "newer");
+    }
 }
 
 /// A refused instruction says which one and why.

@@ -23,7 +23,8 @@ pub type CallId = u64;
 
 /// Why a call was refused.
 ///
-/// A rejection means that no work started, unless its class
+/// Each reason has a class ([`RetryClass`]) that says what the caller may do
+/// next. A rejection means that no work started, unless its class
 /// ([`Rejected::retry`]) is [`RetryClass::Resend`]: then no verdict came over
 /// a link, and the work may have run ([`Rejected::NoReply`], or an
 /// [`Rejected::Unrecognized`] reason that the far end classed so). Matching
@@ -215,12 +216,27 @@ impl fmt::Display for Rejected {
 
 impl std::error::Error for Rejected {}
 
-/// What a caller may do after a rejection, and whether the work may have
-/// run: only after [`Resend`](RetryClass::Resend).
+/// What a caller may do after a call is rejected ([`Rejected::retry`]):
+/// correct the message, send it again later, or resend it unchanged; and
+/// whether the work may have run, which only the last allows.
 ///
-/// The class, not the reason, answers that question, and it crosses a link
-/// before the reason ([`retry_code`](crate::retry_code)), so a caller can act
-/// on a reason it does not know ([`Rejected::Unrecognized`]).
+/// Every reason of [`Rejected`] has one class: [`Rejected::Unrecognized`]
+/// the one the far end sent with it, every other reason the one below:
+///
+/// | Class                          | Did the work run? | What the caller does        | Reasons             |
+/// | ------------------------------ | ----------------- | --------------------------- | ------------------- |
+/// | [`Never`](RetryClass::Never)   | no                | correct the message first   | all the others      |
+/// | [`Later`](RetryClass::Later)   | no                | send the same message later | `Unavailable`       |
+/// | [`Resend`](RetryClass::Resend) | maybe             | resend it under the same id | `NoReply` (planned) |
+///
+/// A caller acts on the class, not the reason, so that it also handles a
+/// reason it does not know: a newer executor's, or one that came over a
+/// link, whose class crosses before its reason
+/// ([`retry_code`](crate::retry_code)) and is kept when the reason is not
+/// known ([`Rejected::Unrecognized`]). Above all, this is how a caller knows
+/// that a resend cannot run the work twice: after `Never` and `Later`
+/// nothing ran; after `Resend` the work may have run, and a resend under the
+/// same [`CallId`] runs it at most once (planned, with links).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RetryClass {
     /// Nothing ran, and the same message will be refused again: correct it
