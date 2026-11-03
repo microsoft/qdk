@@ -8,8 +8,9 @@ use super::*;
 use crate::{
     fir_builder::{alloc_item_var_expr, alloc_semi_stmt},
     test_utils::{
-        compile_to_fir_with_library, compile_to_monomorphized_fir, find_callable,
-        find_callable_body_block, find_library_callable,
+        assert_full_pipeline_succeeds, compile_to_fir, compile_to_fir_with_library,
+        compile_to_monomorphized_fir, find_callable, find_callable_body_block,
+        find_library_callable,
     },
     walk_utils::for_each_expr_in_callable_impl,
 };
@@ -24,6 +25,463 @@ const FACTORY: &str = r#"
         }
     }
 "#;
+
+const SHARED_CONSTRUCTOR: &str = r#"
+    function Make(x : Int) : Int => Int { y => x + 2 * y }
+    operation Main() : Int {
+        use q = Qubit();
+        let choose = MResetZ(q) == Zero;
+        mutable a = 0;
+        (if choose { Make(a) } else { Make(a) })({ a = 9; 2 })
+    }
+"#;
+
+fn share_conditional_constructor_branch(package: &mut Package) {
+    let selections: Vec<_> = package
+        .exprs
+        .iter()
+        .filter_map(|(id, expr)| {
+            if let ExprKind::If(condition, then, Some(_)) = expr.kind
+                && matches!(expr.ty, Ty::Arrow(_))
+            {
+                Some((id, condition, then))
+            } else {
+                None
+            }
+        })
+        .collect();
+    let [(id, condition, then)] = selections[..] else {
+        panic!("expected one callable-valued conditional");
+    };
+    package.exprs.get_mut(id).expect("conditional exists").kind =
+        ExprKind::If(condition, then, Some(then));
+}
+
+fn normalize_scalar_inputs(package: &mut Package) -> Vec<ExprId> {
+    let expressions: Vec<_> = package.exprs.iter().map(|(id, _)| id).collect();
+    let mut assigner = Assigner::from_package(package);
+    materialize_immediate_scalar_captures(package, &expressions, &mut assigner)
+}
+
+fn make_calls(package: &Package) -> Vec<(ExprId, ExprId, ExprId)> {
+    package
+        .exprs
+        .iter()
+        .filter_map(|(id, expr)| {
+            let ExprKind::Call(callee, args) = expr.kind else {
+                return None;
+            };
+            let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+                return None;
+            };
+            (item.package == package.id
+                && matches!(&package.get_item(item.item).kind,
+                    ItemKind::Callable(decl) if decl.name.name.as_ref() == "Make"))
+            .then_some((id, callee, args))
+        })
+        .collect()
+}
+
+#[test]
+fn distinct_constructors_with_shared_operand_keep_snapshots_in_scope() {
+    let (mut store, entry) = compile_to_fir(
+        r#"
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : Int {
+            mutable a = 0;
+            Make(a)({ a = 5; 2 }) + Make(a)({ a = 9; 3 })
+        }
+        "#,
+    );
+    let package = store.get_mut(entry);
+    let [(first, _, arg), (second, callee, _)] = make_calls(package)[..] else {
+        panic!("expected two constructors");
+    };
+    assert_ne!(first, second);
+    package
+        .exprs
+        .get_mut(second)
+        .expect("second constructor")
+        .kind = ExprKind::Call(callee, arg);
+    crate::invariants::check(&store, entry, crate::invariants::InvariantLevel::PostMono);
+
+    assert_full_pipeline_succeeds(
+        "distinct constructors sharing an operand",
+        &mut store,
+        entry,
+    );
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, entry),
+        Ok(Value::Int(15))
+    );
+}
+
+#[test]
+fn constructor_snapshot_does_not_rewrite_a_shared_later_read() {
+    let (mut store, entry) = compile_to_fir(
+        r#"
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : Int {
+            mutable a = 0;
+            let value = Make(a)(2);
+            a = 9;
+            value * 100 + a
+        }
+        "#,
+    );
+    let package = store.get_mut(entry);
+    let [(_, _, arg)] = make_calls(package)[..] else {
+        panic!("expected one constructor");
+    };
+    let ExprKind::Var(Res::Local(local), _) = package.get_expr(arg).kind else {
+        panic!("mutable input read");
+    };
+    let additions: Vec<_> = package
+        .exprs
+        .iter()
+        .filter_map(|(id, expr)| {
+            if let ExprKind::BinOp(qsc_fir::fir::BinOp::Add, lhs, rhs) = expr.kind
+                && matches!(package.get_expr(rhs).kind, ExprKind::Var(Res::Local(id), _) if id == local)
+            {
+                Some((id, lhs))
+            } else {
+                None
+            }
+        })
+        .collect();
+    let [(sum, lhs)] = additions[..] else {
+        panic!("expected one final addition");
+    };
+    package.exprs.get_mut(sum).expect("final addition").kind =
+        ExprKind::BinOp(qsc_fir::fir::BinOp::Add, lhs, arg);
+    crate::invariants::check(&store, entry, crate::invariants::InvariantLevel::PostMono);
+
+    assert_full_pipeline_succeeds(
+        "constructor operand shared with later read",
+        &mut store,
+        entry,
+    );
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, entry),
+        Ok(Value::Int(409))
+    );
+}
+
+#[test]
+fn shared_tuple_operand_read_observes_mutation_between_occurrences() {
+    let (mut store, entry) = compile_to_fir(
+        r#"
+        function Make(x : Int, y : Int) : Int => Int { z => x + 10 * y + z }
+        operation Main() : Int {
+            mutable a = 0;
+            Make(a, { a = 3; a })(2)
+        }
+        "#,
+    );
+    let package = store.get_mut(entry);
+    let [(_, _, args)] = make_calls(package)[..] else {
+        panic!("expected one constructor");
+    };
+    let ExprKind::Tuple(items) = &package.get_expr(args).kind else {
+        panic!("tuple input");
+    };
+    let [first, second] = items[..] else {
+        panic!("two operands");
+    };
+    let ExprKind::Block(block) = package.get_expr(second).kind else {
+        panic!("second operand block");
+    };
+    let last = *package.get_block(block).stmts.last().expect("block tail");
+    package.stmts.get_mut(last).expect("tail statement").kind = StmtKind::Expr(first);
+    crate::invariants::check(&store, entry, crate::invariants::InvariantLevel::PostMono);
+
+    assert_full_pipeline_succeeds(
+        "shared tuple operand read across mutation",
+        &mut store,
+        entry,
+    );
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, entry),
+        Ok(Value::Int(32))
+    );
+}
+
+#[test]
+fn shared_conditional_constructor_is_normalized_once_without_unbound_locals() {
+    let (mut store, entry) = compile_to_monomorphized_fir(SHARED_CONSTRUCTOR);
+    share_conditional_constructor_branch(store.get_mut(entry));
+    crate::invariants::check(&store, entry, crate::invariants::InvariantLevel::PostMono);
+
+    assert_eq!(normalize_scalar_inputs(store.get_mut(entry)).len(), 1);
+    let package = store.get(entry);
+    crate::invariants::check_local_var_consistency(package, find_callable(package, "Main"));
+    let normalized = format!("{package:?}");
+    assert!(normalize_scalar_inputs(store.get_mut(entry)).is_empty());
+    assert_eq!(format!("{:?}", store.get(entry)), normalized);
+    assert_normalized_result(&mut store, entry, 4);
+}
+
+#[test]
+fn shared_conditional_constructor_preserves_bound_locals_through_full_pipeline() {
+    let (mut store, entry) = compile_to_fir(SHARED_CONSTRUCTOR);
+    share_conditional_constructor_branch(store.get_mut(entry));
+    crate::invariants::check(&store, entry, crate::invariants::InvariantLevel::PostMono);
+
+    assert_full_pipeline_succeeds("shared conditional constructor", &mut store, entry);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, entry),
+        Ok(Value::Int(4))
+    );
+}
+
+#[test]
+fn shared_constructor_across_calls_snapshots_fresh_values_at_each_invocation() {
+    let (mut store, entry) = compile_to_monomorphized_fir(
+        r#"
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : Int {
+            mutable a = 0;
+            Make(a)({ a = 5; 2 }) + Make(a)({ a = 9; 3 })
+        }
+        "#,
+    );
+    let package = store.get_mut(entry);
+    let calls: Vec<_> = package
+        .exprs
+        .iter()
+        .filter_map(|(id, expr)| {
+            if let ExprKind::Call(callee, args) = expr.kind
+                && matches!(package.get_expr(callee).kind, ExprKind::Call(..))
+            {
+                Some((id, callee, args))
+            } else {
+                None
+            }
+        })
+        .collect();
+    let [(_, producer, _), (second, _, args)] = calls[..] else {
+        panic!("expected two immediately consumed constructors");
+    };
+    package
+        .exprs
+        .get_mut(second)
+        .expect("second call exists")
+        .kind = ExprKind::Call(producer, args);
+    crate::invariants::check_local_var_consistency(package, find_callable(package, "Main"));
+
+    assert_eq!(normalize_scalar_inputs(package).len(), 1);
+    crate::invariants::check_local_var_consistency(package, find_callable(package, "Main"));
+    assert_normalized_result(&mut store, entry, 15);
+}
+
+#[test]
+fn immediate_scalar_constructor_snapshots_tuple_leaves_in_order() {
+    let (mut store, entry) = compile_to_monomorphized_fir(
+        r#"
+        function Make(x : Int, y : Int) : Int => Int { z => x + 10 * y + z }
+        operation Main() : Int {
+            mutable a = 0;
+            Make(a, { set a = 3; 2 })({ set a = 9; 1 })
+        }
+        "#,
+    );
+    let package = store.get(entry);
+    let (producer, args) = package
+        .exprs
+        .iter()
+        .find_map(|(_, expr)| {
+            let ExprKind::Call(producer, _) = expr.kind else {
+                return None;
+            };
+            let ExprKind::Call(_, args) = package.get_expr(producer).kind else {
+                return None;
+            };
+            Some((producer, args))
+        })
+        .expect("immediate constructor call");
+    let original_producer = package.get_expr(producer).clone();
+    let ExprKind::Tuple(leaves) = &package.get_expr(args).kind else {
+        panic!("tuple producer input");
+    };
+    let leaves = leaves.clone();
+    let original_leaves: Vec<_> = leaves
+        .iter()
+        .map(|&id| package.get_expr(id).clone())
+        .collect();
+
+    let initializers = normalize_scalar_inputs(store.get_mut(entry));
+    let package = store.get(entry);
+    assert_eq!(initializers.len(), 2);
+    let normalized_producer = package.get_expr(producer);
+    assert_eq!(normalized_producer.ty, original_producer.ty);
+    assert_eq!(normalized_producer.span, original_producer.span);
+    let ExprKind::Block(block) = normalized_producer.kind else {
+        panic!("snapshots must precede the producer at its original evaluation point");
+    };
+    let statements = &package.get_block(block).stmts;
+    assert_eq!(statements.len(), 3);
+    let StmtKind::Expr(tail) = package.get_stmt(statements[2]).kind else {
+        panic!("producer must follow both snapshots");
+    };
+    let ExprKind::Call(callee, rewritten_args) = package.get_expr(tail).kind else {
+        panic!("block must end in the constructor");
+    };
+    assert_eq!(original_producer.kind, ExprKind::Call(callee, args));
+    let ExprKind::Tuple(rewritten_leaves) = &package.get_expr(rewritten_args).kind else {
+        panic!("input must remain a tuple");
+    };
+    assert_eq!(rewritten_leaves.len(), original_leaves.len());
+    assert_eq!(
+        package.get_expr(rewritten_args).ty,
+        package.get_expr(args).ty
+    );
+    assert_eq!(
+        package.get_expr(rewritten_args).span,
+        package.get_expr(args).span
+    );
+    for (index, original) in original_leaves.iter().enumerate() {
+        let StmtKind::Local(Mutability::Immutable, pat, init) =
+            package.get_stmt(statements[index]).kind
+        else {
+            panic!("each operand must have an immutable snapshot");
+        };
+        assert_eq!(init, initializers[index]);
+        let initializer = package.get_expr(init);
+        assert_eq!(initializer.kind, original.kind);
+        assert_eq!(initializer.ty, original.ty);
+        assert_eq!(initializer.span, original.span);
+        let PatKind::Bind(binding) = &package.get_pat(pat).kind else {
+            panic!("snapshot must bind one leaf");
+        };
+        assert_eq!(
+            package.get_expr(rewritten_leaves[index]).kind,
+            ExprKind::Var(Res::Local(binding.id), Vec::new())
+        );
+        assert_eq!(
+            package.get_expr(leaves[index]),
+            original,
+            "snapshotting must not change other uses of the original operand"
+        );
+    }
+    assert_normalized_result(&mut store, entry, 21);
+}
+
+#[test]
+fn immediate_scalar_constructor_normalization_is_idempotent_after_callee_rewrite() {
+    let (mut store, entry) = compile_to_monomorphized_fir(
+        r#"
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : Int {
+            mutable a = 0;
+            Make(a)(2)
+        }
+        "#,
+    );
+    let package = store.get_mut(entry);
+    assert_eq!(normalize_scalar_inputs(package).len(), 1);
+    let expressions = package.exprs.iter().map(|(id, _)| id).collect();
+    let mut assigner = Assigner::from_package(package);
+    assert!(super::super::rewrite::normalize_direct_callee_control_flow(
+        package,
+        expressions,
+        &mut assigner
+    ));
+    let normalized = format!("{package:?}");
+
+    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(format!("{package:?}"), normalized);
+}
+
+#[test]
+fn conditional_scalar_constructor_normalization_is_idempotent() {
+    let (mut store, entry) = compile_to_monomorphized_fir(
+        r#"
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : Int {
+            use q = Qubit();
+            mutable a = 0;
+            (if MResetZ(q) == Zero { Make(a) } else { Make(a + 1) })(
+                { a = 9; 2 }
+            )
+        }
+        "#,
+    );
+    let package = store.get_mut(entry);
+    assert_eq!(normalize_scalar_inputs(package).len(), 2);
+    let normalized = format!("{package:?}");
+
+    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(format!("{package:?}"), normalized);
+    assert_normalized_result(&mut store, entry, 4);
+}
+
+#[test]
+fn immediate_scalar_constructor_with_effectful_producer_is_unchanged() {
+    let (mut store, entry) = compile_to_monomorphized_fir(
+        r#"
+        function Make(x : Int) : Int => Int {
+            Message("factory");
+            y => x + 2 * y
+        }
+        operation Main() : Int {
+            mutable a = 0;
+            Make(a)(2)
+        }
+        "#,
+    );
+    let package = store.get_mut(entry);
+    let original = format!("{package:?}");
+
+    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(format!("{package:?}"), original);
+}
+
+#[test]
+fn immediate_scalar_constructor_with_fallible_returned_body_is_unchanged() {
+    let (mut store, entry) = compile_to_monomorphized_fir(
+        r#"
+        function Make(x : Int) : Int => Int { y => x / y }
+        operation Main() : Int {
+            mutable a = 8;
+            Make(a)(2)
+        }
+        "#,
+    );
+    let package = store.get_mut(entry);
+    let (_, target) = closure_in(package, "Make");
+    let ItemKind::Callable(target) = &package.get_item(target).kind else {
+        panic!("returned closure target");
+    };
+    let body = single_body_expression(package, &target.implementation)
+        .expect("single-expression returned body");
+    assert!(matches!(
+        package.get_expr(body).kind,
+        ExprKind::BinOp(qsc_fir::fir::BinOp::Div, _, _)
+    ));
+    let original = format!("{package:?}");
+
+    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(format!("{package:?}"), original);
+}
+
+#[test]
+fn immediate_scalar_constructor_with_recursive_returned_body_is_unchanged() {
+    let (mut store, entry) = compile_to_monomorphized_fir(
+        r#"
+        operation Recursive(x : Int) : Int { Recursive(x) }
+        function Make(x : Int) : Int => Int { y => Recursive(x + y) }
+        operation Main() : Int {
+            mutable a = 0;
+            Make(a)(2)
+        }
+        "#,
+    );
+    let package = store.get_mut(entry);
+    let original = format!("{package:?}");
+
+    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(format!("{package:?}"), original);
+}
 
 fn closure_in(package: &Package, owner: &str) -> (ExprId, LocalItemId) {
     let mut closures = Vec::new();
