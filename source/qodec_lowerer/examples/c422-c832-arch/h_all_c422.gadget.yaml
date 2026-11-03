@@ -1,0 +1,8 @@
+implements: nlb.isa.yaml#h_all_c422
+circuit:
+  instruction_set: physical.isa.yaml
+  source:
+    - H: [0]
+    - H: [1]
+    - H: [2]
+    - H: [3]

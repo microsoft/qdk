@@ -1,0 +1,29 @@
+implements: ../c4c6.isa.yaml#measure_x_all
+circuit:
+  instruction_set: ../c4c6.isa.yaml
+  source:
+    - measure_x_all: [0]
+    - measure_x_all: [1]
+    - measure_x_all: [2]
+  in: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+in:
+  - c4c6_block: [0, 1, 2]
+checks:
+  - - circuit.readouts[0]
+    - circuit.readouts[3]
+    - circuit.readouts[4]
+    - circuit.readouts[5]
+    - in[0].stabilizers[0]
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+    - circuit.readouts[2]
+    - circuit.readouts[5]
+    - in[0].stabilizers[1]
+readouts:
+  - ["circuit.readouts[1]", "circuit.readouts[2]", "in[0].x[0]"]
+  - [
+      "circuit.readouts[0]",
+      "circuit.readouts[2]",
+      "circuit.readouts[3]",
+      "in[0].x[1]",
+    ]

@@ -1,0 +1,57 @@
+name: c4c6
+description: |
+  Knill C4/C6 concatenated qodec. Three layers:
+    top    — operations on Knill C6-encoded blocks
+    middle — operations on Knill C4-encoded blocks
+    bottom — physical Stim circuits
+
+  The top and middle layers share the same ISA (c4c6.isa.yaml) — what
+  changes between them is the encoding of each block's qubits. At the
+  middle layer a block is a C4 [[4,2,2]] codeword (4 physical qubits);
+  at the top layer a block is a C6 [[6,2,2]] codeword that is itself
+  built from three C4 blocks (12 physical qubits in total).
+
+  Encoded operations (state preparation, transversal CNOT, destructive
+  measurements) at the top layer are realized as small programs in the
+  middle layer, following Knill's error-correcting teleportation
+  protocol.
+
+  Reference: E. Knill, "Quantum computing with realistically noisy
+  devices," Nature 434, 39-44 (2005), arXiv:quant-ph/0410199.
+
+layers:
+  - instruction_set: c4c6.isa.yaml # top layer: blocks are C6-encoded
+    codes:
+      c4c6_block: c6.code.yaml
+    gadgets:
+      controlled_x_all: c6/controlled_x_all.gadget.yaml
+      hadamard_all: c6/hadamard_all.gadget.yaml
+      idle: c6/idle.gadget.yaml
+      measure_x_all: c6/measure_x_all.gadget.yaml
+      measure_z_all: c6/measure_z_all.gadget.yaml
+      mul_u: c6/mul_u.gadget.yaml
+      mul_u_sq: c6/mul_u_sq.gadget.yaml
+      prepare_x_all: c6/prepare_x_all.gadget.yaml
+      prepare_z_all: c6/prepare_z_all.gadget.yaml
+      x0_if: c6/x0_if.gadget.yaml
+      x1_if: c6/x1_if.gadget.yaml
+      z0_if: c6/z0_if.gadget.yaml
+      z1_if: c6/z1_if.gadget.yaml
+  - instruction_set: c4c6.isa.yaml # middle layer: blocks are C4-encoded
+    codes:
+      c4c6_block: c4.code.yaml
+    gadgets:
+      controlled_x_all: c4/controlled_x_all.gadget.yaml
+      hadamard_all: c4/hadamard_all.gadget.yaml
+      idle: c4/idle.gadget.yaml
+      measure_x_all: c4/measure_x_all.gadget.yaml
+      measure_z_all: c4/measure_z_all.gadget.yaml
+      mul_u: c4/mul_u.gadget.yaml
+      mul_u_sq: c4/mul_u_sq.gadget.yaml
+      prepare_x_all: c4/prepare_x_all.gadget.yaml
+      prepare_z_all: c4/prepare_z_all.gadget.yaml
+      x0_if: c4/x0_if.gadget.yaml
+      x1_if: c4/x1_if.gadget.yaml
+      z0_if: c4/z0_if.gadget.yaml
+      z1_if: c4/z1_if.gadget.yaml
+  - instruction_set: ../stim.isa.yaml # bottom layer: physical qubits (shared stim ISA)

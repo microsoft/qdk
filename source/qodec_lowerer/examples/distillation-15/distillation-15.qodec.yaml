@@ -1,0 +1,233 @@
+# Magic state distillation — single-file qodec bundle (generated).
+#
+# Fowler, Mariantoni, Martinis & Cleland, "Surface codes: Towards practical
+# large-scale quantum computation", Phys. Rev. A 86, 032324 (2012),
+# arXiv:1208.0928, FIGURE 33a — the 15-to-1 |A> = |T> = T|+> distillation circuit —
+# with the BASE CODE taken to be the trivial [[1,1,1]] code instead of the surface
+# code. Every operation is therefore a bare physical gate; a surface or colour code
+# would slot in as the base unchanged.
+#
+# THE CIRCUIT (Fowler's qubit numbering 1..15, plus output qubit 0):
+#   1. Create a logical Bell pair between the output O (qubit 0) and qubit 1.
+#   2. Encode qubit 1 with fourteen |0> ancillas (2..15) into the [[15,1,3]]
+#      Reed-Muller code.
+#   3. Apply T-dagger to all fifteen (transversal; each T-dagger consumes a noisy
+#      |A> magic state — the resource being distilled).
+#   4. Measure all fifteen in X.
+#   5. Accept iff Fowler's four Reed-Muller X-stabilizers are all +1:
+#        XR1 = X4 X5 X6 X7 X8 X9 X10 X11   XR2 = X1 X2 X3 X4 X5 X6 X7 X15
+#        XR3 = X2 X3 X4 X5 X10 X11 X12 X13  XR4 = X1 X2 X5 X6 X9 X10 X13 X14
+#   The output is the Bell partner O — a single, decoded, purified |A>.
+#
+# WHY THIS FITS QODEC. Because the data is ENCODED into a codeword before the
+# transversal T-dagger, the four X-stabilizer outcomes are DETERMINISTIC under
+# ideal execution (+1 on a clean run; a faulty |A> flips one). That is the
+# deterministic error-detection qodec's checks/flags model — unlike measuring
+# stabilizers on fifteen un-encoded |A> states, whose syndrome is random. So the
+# four X-stabilizers are honest `reject` flags; the keep/discard + retry FACTORY
+# that consumes them is a program-level pass, not part of this qodec.
+#
+# ENCODER. The Reed-Muller [[15,1,3]] encoder follows the code's binary-monomial
+# structure: the four coordinate qubits (single-bit labels 1,2,4,8) are each
+# Hadamarded and fanned out to every qubit sharing their bit, then qubit 15
+# (all-ones) spreads to the six weight-2 qubits. The four X-stabilizers, the Bell
+# pair, the transversal T-dagger, and the fifteen X-measurements are Fowler's.
+#
+# Reference: A. G. Fowler, M. Mariantoni, J. M. Martinis, A. N. Cleland, Phys. Rev.
+# A 86, 032324 (2012), arXiv:1208.0928, Fig. 33a; S. Bravyi, A. Kitaev, Phys. Rev.
+# A 71, 022316 (2005).
+---
+qodec.yaml:
+  name: distillation-15
+  description: >-
+    Fowler et al. (arXiv:1208.0928) Figure 33a — 15-to-1 |A>=T|+> distillation —
+    over the trivial [[1,1,1]] base code: a Bell pair, a Reed-Muller encoding,
+    transversal T-dagger, and fifteen X-measurements, accepted by four
+    deterministic Reed-Muller X-stabilizer reject flags. The post-select + retry
+    factory is a program-level pass.
+  layers:
+    - instruction_set: factory.isa.yaml
+      codes:
+        out: out.code.yaml
+      gadgets:
+        distill_t: distill_t.gadget.yaml
+    - instruction_set: base.isa.yaml
+      codes:
+        base: base.code.yaml
+---
+factory.isa.yaml:
+  name: factory
+  description: >-
+    The distillation interface. distill_t delivers one purified |A> = T|+>, heralded
+    by Fowler's four Reed-Muller X-stabilizer reject flags; a factory program
+    post-selects on them and retries.
+  blocks: { out: 1 }
+  instructions:
+    - mnemonic: distill_t
+      description: >-
+        One round of Fowler Fig. 33a 15-to-1 distillation. Consumes fifteen noisy
+        |A> (via the transversal T-dagger gates) and outputs one purified |A> = T|+>
+        on the Bell-partner qubit, heralded by four reject flags (the Reed-Muller
+        X-stabilizers).
+      out: [out]
+      flags: [reject_1, reject_2, reject_3, reject_4]
+      action:
+        - stabilize: X_0
+        - rotate: { pauli: Z_0, angle: 0.7853981633974483 }
+---
+base.isa.yaml:
+  name: base
+  description: >-
+    The base code's logical ISA — the operations Fowler's circuit needs from ANY
+    base code: |0> prep, Hadamard, CNOT, the T-dagger magic gate, and X-basis
+    measurement. Bound here to the trivial [[1,1,1]] code, so each is a bare
+    physical gate.
+  blocks: { base: 1 }
+  instructions:
+    - mnemonic: prepare_z
+      description: Prepare the logical |0> state.
+      out: [base]
+      action: [stabilize: Z_0]
+    - mnemonic: h
+      description: Logical Hadamard.
+      in: [base]
+      out: [base]
+      action: [clifford: { X_0: Z_0, Z_0: X_0 }]
+    - mnemonic: cx
+      description: Logical CNOT.
+      in: [base, base]
+      out: [base, base]
+      action: [clifford: { X_0: X_0 X_1, Z_1: Z_0 Z_1 }]
+    - mnemonic: t_dg
+      description: >-
+        Logical T-dagger = exp(+i pi/8 Z). Each call consumes one noisy |A> magic
+        state (Fowler Fig. 33b realizes it by gate teleportation); it is the
+        non-Clifford resource the distillation purifies.
+      in: [base]
+      out: [base]
+      action: [rotate: { pauli: Z_0, angle: -0.7853981633974483 }]
+    - mnemonic: measure_x
+      description: Destructive logical X-basis measurement.
+      in: [base]
+      action: [observe: X_0]
+---
+base.code.yaml:
+  name: base
+  description: >-
+    The trivial [[1,1,1]] base code — one logical qubit per physical qubit. Any
+    other code (realizing base.isa.yaml with its own gadgets one layer down) leaves
+    Fowler's distillation above unchanged.
+  stabilizers: []
+  x: [X_0]
+  z: [Z_0]
+---
+out.code.yaml:
+  name: out
+  description: The trivial [[1,1,1]] code carrying the single distilled |A> output.
+  stabilizers: []
+  x: [X_0]
+  z: [Z_0]
+---
+# Fowler Fig. 33a as a program over the base code's logical ISA. Program qubits:
+# 0 = output O; 1..15 = the Reed-Muller block. measure_x of qubit q lands on
+# circuit.readouts[q-1], so each reject flag below is one of Fowler's four
+# Reed-Muller X-stabilizers read off the fifteen X-measurements.
+distill_t.gadget.yaml:
+  circuit:
+    instruction_set: base.isa.yaml
+    source:
+      - prepare_z: [0]
+      - prepare_z: [1]
+      - prepare_z: [2]
+      - prepare_z: [3]
+      - prepare_z: [4]
+      - prepare_z: [5]
+      - prepare_z: [6]
+      - prepare_z: [7]
+      - prepare_z: [8]
+      - prepare_z: [9]
+      - prepare_z: [10]
+      - prepare_z: [11]
+      - prepare_z: [12]
+      - prepare_z: [13]
+      - prepare_z: [14]
+      - prepare_z: [15]
+      - h: [0]
+      - cx: [0, 1]
+      - h: [8]
+      - cx: [8, 9]
+      - cx: [8, 10]
+      - cx: [8, 11]
+      - cx: [8, 12]
+      - cx: [8, 13]
+      - cx: [8, 14]
+      - cx: [8, 15]
+      - h: [4]
+      - cx: [4, 5]
+      - cx: [4, 6]
+      - cx: [4, 7]
+      - cx: [4, 12]
+      - cx: [4, 13]
+      - cx: [4, 14]
+      - cx: [4, 15]
+      - h: [2]
+      - cx: [2, 3]
+      - cx: [2, 6]
+      - cx: [2, 7]
+      - cx: [2, 10]
+      - cx: [2, 11]
+      - cx: [2, 14]
+      - cx: [2, 15]
+      - h: [1]
+      - cx: [1, 3]
+      - cx: [1, 5]
+      - cx: [1, 7]
+      - cx: [1, 9]
+      - cx: [1, 11]
+      - cx: [1, 13]
+      - cx: [1, 15]
+      - cx: [15, 3]
+      - cx: [15, 5]
+      - cx: [15, 6]
+      - cx: [15, 9]
+      - cx: [15, 10]
+      - cx: [15, 12]
+      - t_dg: [1]
+      - t_dg: [2]
+      - t_dg: [3]
+      - t_dg: [4]
+      - t_dg: [5]
+      - t_dg: [6]
+      - t_dg: [7]
+      - t_dg: [8]
+      - t_dg: [9]
+      - t_dg: [10]
+      - t_dg: [11]
+      - t_dg: [12]
+      - t_dg: [13]
+      - t_dg: [14]
+      - t_dg: [15]
+      - measure_x: [1]
+      - measure_x: [2]
+      - measure_x: [3]
+      - measure_x: [4]
+      - measure_x: [5]
+      - measure_x: [6]
+      - measure_x: [7]
+      - measure_x: [8]
+      - measure_x: [9]
+      - measure_x: [10]
+      - measure_x: [11]
+      - measure_x: [12]
+      - measure_x: [13]
+      - measure_x: [14]
+      - measure_x: [15]
+    out:
+      "0": base
+  out:
+    - out: [0]
+  readouts:
+    - reject_1: ["circuit.readouts[3,4,5,6,7,8,9,10]"]
+    - reject_2: ["circuit.readouts[0,1,2,3,4,5,6,14]"]
+    - reject_3: ["circuit.readouts[1,2,3,4,9,10,11,12]"]
+    - reject_4: ["circuit.readouts[0,1,4,5,8,9,12,13]"]

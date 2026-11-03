@@ -1,0 +1,9 @@
+implements: ../c4c6.isa.yaml#z0_if
+# A conditional logical Pauli is tracked in the Pauli frame, not applied, so it
+# lowers to nothing: the correction is classical bookkeeping the decoder carries.
+circuit:
+  source: []
+in:
+  - c4c6_block: [0, 1, 2]
+out:
+  - c4c6_block: [0, 1, 2]

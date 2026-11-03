@@ -28,6 +28,9 @@ members = [
     "source/fuzz",
     "source/index_map",
     "source/language_service",
+    "source/qodec_demo",
+    "source/qodec_lowerer",
+    "source/qodec_runtime",
     "source/simulators",
     "source/qdk_openqasm",
     "source/qdk_package",
@@ -47,6 +50,10 @@ license = "MIT"
 version = "0.0.0"
 
 [workspace.dependencies]
+anstream = "1.0"
+anstyle = "1.0"
+qodec = "0.2.1"
+smallvec = "1.15"
 binar = "0.1.1"
 bitflags = "2.13"
 memchr = "2.8"
@@ -125,3 +132,8 @@ debug = true
 strip = false
 lto = "thin"
 codegen-units = 1
+
+# Demo only: crates.io's `qodec` 0.2.1 is not in the offline cache; this is
+# the local source of the same version (qdk-ec at 50f3bff).
+[patch.crates-io]
+qodec = { path = "../../qdk-ec/qodec" }

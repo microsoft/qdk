@@ -1,0 +1,28 @@
+name: c422-c832-arch
+description: |
+  Logical → physical realisation of the implementable subset of the
+  Nelson-Landahl-Baczewski architecture (arXiv:2507.20387). The top
+  layer is a four-instruction subset of the architecture's full logical
+  ISA: state preparation and destructive measurement in X and Z bases
+  on the [[4,2,2]] block. The bottom layer is a Stim-compatible
+  physical ISA. See README.md for the full architecture and the
+  realisations that remain deferred.
+layers:
+  - instruction_set: nlb.isa.yaml
+    codes:
+      c422: c422.code.yaml
+      c832: c832.code.yaml
+    gadgets:
+      ccz_c832: ccz_c832.gadget.yaml
+      h_all_c422: h_all_c422.gadget.yaml
+      measure_x_all_c422: measure_x_all_c422.gadget.yaml
+      measure_x_all_c832: measure_x_all_c832.gadget.yaml
+      measure_z_all_c422: measure_z_all_c422.gadget.yaml
+      measure_z_all_c832: measure_z_all_c832.gadget.yaml
+      prepare_x_all_c422: prepare_x_all_c422.gadget.yaml
+      prepare_x_all_c832: prepare_x_all_c832.gadget.yaml
+      prepare_z_all_c422: prepare_z_all_c422.gadget.yaml
+      prepare_z_all_c832: prepare_z_all_c832.gadget.yaml
+      teleport_c422_to_c832: teleport_c422_to_c832.gadget.yaml
+      teleport_c832_to_c422: teleport_c832_to_c422.gadget.yaml
+  - instruction_set: physical.isa.yaml

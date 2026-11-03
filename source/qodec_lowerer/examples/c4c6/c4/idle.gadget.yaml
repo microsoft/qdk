@@ -1,0 +1,15 @@
+circuit:
+  source:
+    # C4-level idle: trivial pass-through.
+    #
+    # In the c4c6 qodec, error correction is performed at the C6 layer (see
+    # c6/idle.gadget.yaml), where Knill's teleportation EC network is
+    # realized from middle-layer (C4-encoded) primitives. The C4 layer —
+    # being the leaf of the encoded hierarchy in this qodec — has no
+    # further encoding to build EC against, so `idle` just hands its input
+    # through unchanged.
+
+    - I: [0]
+    - I: [1]
+    - I: [2]
+    - I: [3]

@@ -1,0 +1,184 @@
+name: C4C6
+description: |
+  ISA used by both the C4 and C6 layers of the Knill C4/C6 multi-level
+  qodec example.
+
+  Used at *both* the top and middle layers of the qodec. Each block carries
+  2 logical qubits called L (logical 0) and S (logical 1), following Knill's
+  notation in his Nature 434, 2005 paper.
+
+  This is a deliberately small, faithful subset of Knill's scheme: state
+  preparation, transversal CNOT, transversal Hadamard, and destructive Z
+  and X measurements. Conditional single-logical-qubit Pauli corrections
+  (needed to complete error-correcting teleportation) are not yet included.
+
+  Deferred / not yet included (all of these are in Knill's full scheme but
+  require careful paper-reading to write correctly):
+    - Single-qubit S (phase) gate; non-Clifford gates.
+    - Variadic / multi-block joint Pauli measurement primitives.
+
+  At the bottom layer each block is realized as a C4 [[4,2,2]] codeword.
+  At the top layer each block is realized as a C6 [[6,2,2]] codeword,
+  itself encoded across three blocks at the layer below.
+blocks: { c4c6_block: 2 }
+instructions:
+  - mnemonic: prepare_z_all
+    description: Prepare a block in |00⟩ (Z_L = +1 and Z_S = +1).
+    out: [c4c6_block]
+    action:
+      - stabilize:
+          - Z_0
+          - Z_1
+    flags: [reject]
+  - mnemonic: prepare_x_all
+    description: Prepare a block in |++⟩ (X_L = +1 and X_S = +1).
+    out: [c4c6_block]
+    action:
+      - stabilize:
+          - X_0
+          - X_1
+    flags: [reject]
+  - mnemonic: controlled_x_all
+    description: |
+      Block CNOT acting on both logical pairs in parallel. Equivalent to
+      CX_LL ⊗ CX_SS, where CX_xy is the encoded CNOT from logical qubit x
+      of `control` to logical qubit y of `target`. This *is* a standard
+      transversal operation on C4: physical CNOTs between corresponding
+      qubits of the two blocks realize it directly.
+    in: [c4c6_block, c4c6_block]
+    out: [c4c6_block, c4c6_block]
+    action:
+      - clifford:
+          X_0: X_0 X_2
+          X_1: X_1 X_3
+          Z_2: Z_0 Z_2
+          Z_3: Z_1 Z_3
+  - mnemonic: measure_z_all
+    description: Destructive Z_L and Z_S measurement; produces 2 outcome bits.
+    in: [c4c6_block]
+    action:
+      - observe:
+          - Z_0
+          - Z_1
+  - mnemonic: measure_x_all
+    description: Destructive X_L and X_S measurement; produces 2 outcome bits.
+    in: [c4c6_block]
+    action:
+      - observe:
+          - X_0
+          - X_1
+  - mnemonic: mul_u
+    description: |
+      Multiply the GF(4) labels of the block's logical Paulis by u (Knill).
+      A 3-cycle on {X_L, X_S, X_L X_S} (and reverse 3-cycle on Z side).
+    in: [c4c6_block]
+    out: [c4c6_block]
+    action:
+      - clifford:
+          X_0: X_1
+          X_1: X_0 X_1
+          Z_0: Z_0 Z_1
+          Z_1: Z_0
+  - mnemonic: mul_u_sq
+    description: |
+      Multiply the GF(4) labels of the block's logical Paulis by u² (Knill).
+      Inverse of mul_u.
+    in: [c4c6_block]
+    out: [c4c6_block]
+    action:
+      - clifford:
+          X_0: X_0 X_1
+          X_1: X_0
+          Z_0: Z_1
+          Z_1: Z_0 Z_1
+  - mnemonic: hadamard_all
+    description: |
+      Hadamard on both logical qubits of the block: H_L ⊗ H_S.
+      At the C4 level this is realized as transversal physical H on all
+      four qubits, followed by SWAP(1,2) to undo the logical L↔S swap that
+      transversal H induces with Knill's [[4,2,2]] convention (Fig 12 top
+      of quant-ph/0410199). At the C6 level transversal H per C4 sub-block
+      produces a twisted Clifford; an extra round of mul_u_sq per sub-block
+      rotates that Clifford back to H_L ⊗ H_S on the C6 logicals.
+    in: [c4c6_block]
+    out: [c4c6_block]
+    action:
+      - clifford:
+          X_0: Z_0
+          X_1: Z_1
+          Z_0: X_0
+          Z_1: X_1
+  - mnemonic: idle
+    description: |
+      Error-correcting teleportation (Knill's Fig 7 / teleec_a of
+      arXiv:quant-ph/0410199). The block is teleported through a freshly
+      prepared encoded Bell pair: prepare ancilla A as `|++⟩` and ancilla
+      B as `|00⟩`, entangle them with a transversal CNOT to form the
+      encoded Bell pair, then Bell-measure the input against A (transversal
+      CNOT from input to A, X-measure the input, Z-measure A). The output
+      is B, holding the input's logical state up to a Pauli frame update
+      determined by the Bell-measurement outcomes.
+
+      In this qodec the EC network lives at the C6 layer
+      (`c6_c4/idle.gadget.yaml`), where C4-encoded sub-blocks are
+      available as building blocks for the encoded Bell pair. The C4
+      layer — being the leaf of the encoded hierarchy here — has nothing
+      further to encode against, so its `idle` gadget is a trivial
+      pass-through.
+
+      Logically this is the identity on the encoded qubit pair; the
+      Pauli-frame updates that absorb the random Bell-measurement
+      outcomes must be reconstructed by the decoder from the
+      realization's CNOT-then-measure topology.
+      EC also acts as a fault-tolerant refresh — the output lives on
+      freshly prepared qubits.
+
+      Internally the C6 realization invokes flagged ancilla preparations,
+      but those flags are handled via `select: [{reject: 0}]` in each call object and
+      are not surfaced as gadget-level flags. Post-selection on
+      error-detection signals is the decoder's job (it reads the gadget's
+      checks and outcomes), not the qodec's.
+    in: [c4c6_block]
+    out: [c4c6_block]
+    action: []
+  - mnemonic: z0_if
+    description: >-
+      Logical Z on the block's first logical qubit, applied only when the supplied
+      classical bit is set. A measurement-based preparation feeds an outcome into
+      this to cancel the logical Pauli that outcome leaves behind.
+    in: [c4c6_block]
+    out: [c4c6_block]
+    parameters: { correction: bit }
+    action:
+      - pauli: Z_0
+        if: [correction]
+  - mnemonic: z1_if
+    description: >-
+      Logical Z on the block's second logical qubit, applied only when the
+      supplied classical bit is set.
+    in: [c4c6_block]
+    out: [c4c6_block]
+    parameters: { correction: bit }
+    action:
+      - pauli: Z_1
+        if: [correction]
+  - mnemonic: x0_if
+    description: >-
+      Logical X on the block's first logical qubit, applied only when the supplied
+      classical bit is set — the dual of z0_if.
+    in: [c4c6_block]
+    out: [c4c6_block]
+    parameters: { correction: bit }
+    action:
+      - pauli: X_0
+        if: [correction]
+  - mnemonic: x1_if
+    description: >-
+      Logical X on the block's second logical qubit, applied only when the
+      supplied classical bit is set.
+    in: [c4c6_block]
+    out: [c4c6_block]
+    parameters: { correction: bit }
+    action:
+      - pauli: X_1
+        if: [correction]

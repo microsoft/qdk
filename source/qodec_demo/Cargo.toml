@@ -1,0 +1,23 @@
+[package]
+name = "qodec_demo"
+description = "The Qodec runtime as layers of executor_protocol chains: a test bed of the protocol on a real code runtime."
+publish = false
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+executor_protocol = { path = "../executor_protocol" }
+qodec = { workspace = true }
+qodec_runtime = { path = "../qodec_runtime" }
+smallvec = { workspace = true }
+anstream = { workspace = true }
+anstyle = { workspace = true }
+
+[dev-dependencies]
+# The conformance checks, run on the layer.
+executor_protocol = { path = "../executor_protocol", features = ["conformance"] }

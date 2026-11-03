@@ -1,0 +1,12 @@
+implements: nlb.isa.yaml#ccz_c832
+circuit:
+  instruction_set: physical.isa.yaml
+  source:
+    - T: [0]
+    - Tdg: [1]
+    - Tdg: [2]
+    - T: [3]
+    - Tdg: [4]
+    - T: [5]
+    - T: [6]
+    - Tdg: [7]

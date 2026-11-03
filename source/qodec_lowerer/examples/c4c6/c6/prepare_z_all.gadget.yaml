@@ -1,0 +1,50 @@
+implements: ../c4c6.isa.yaml#prepare_z_all
+circuit:
+  instruction_set: ../c4c6.isa.yaml
+  source:
+    - prepare_x_all: { operands: [3], select: [{ reject: 0 }] }
+    - prepare_x_all: { operands: [4], select: [{ reject: 0 }] }
+    - prepare_x_all: { operands: [5], select: [{ reject: 0 }] }
+    - prepare_z_all: { operands: [0], select: [{ reject: 0 }] }
+    - prepare_z_all: { operands: [1], select: [{ reject: 0 }] }
+    - prepare_z_all: { operands: [2], select: [{ reject: 0 }] }
+    - controlled_x_all: [3, 0]
+    - controlled_x_all: [4, 1]
+    - controlled_x_all: [5, 2]
+    - controlled_x_all: [0, 4]
+    - controlled_x_all: [1, 5]
+    - controlled_x_all: [2, 3]
+    - mul_u: [1]
+    - mul_u_sq: [2]
+    - measure_z_all: [3]
+    - measure_z_all: [4]
+    - measure_z_all: [5]
+    # Feed the sub-block readouts forward to cancel the logical Pauli they leave.
+    - x0_if: [1, correction: "circuit.readouts[6]"]
+    - x0_if: [1, correction: "circuit.readouts[8]"]
+    - x0_if: [2, correction: "circuit.readouts[6]"]
+    - x0_if: [2, correction: "circuit.readouts[7]"]
+    - x0_if: [2, correction: "circuit.readouts[8]"]
+    - x0_if: [2, correction: "circuit.readouts[9]"]
+  out: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+out:
+  - c4c6_block: [0, 1, 2]
+checks:
+  # The sub-preparations carry their signs up uncorrected, so the last two
+  # stabilizer signs are fixed only relative to the sub-block outcomes.
+  - ["out[0].stabilizers[0]"]
+  - ["out[0].stabilizers[1]"]
+  - [
+      "circuit.readouts[1]",
+      "circuit.readouts[2]",
+      "circuit.readouts[3]",
+      "out[0].stabilizers[2]",
+    ]
+  - ["circuit.readouts[0]", "circuit.readouts[3]", "out[0].stabilizers[3]"]
+readouts:
+  # One flag: reject iff the total parity of the three sub-block Z_L outcomes is
+  # odd. Each sub-prep call exposes one `reject` readout, so the six sub-preps
+  # occupy circuit.readouts[0..5]; the three measure_z_all calls (blocks 3,4,5)
+  # sit at readouts[6..11], with Z_L of each block at [6,8,10].
+  - reject:
+      ["circuit.readouts[6]", "circuit.readouts[8]", "circuit.readouts[10]"]

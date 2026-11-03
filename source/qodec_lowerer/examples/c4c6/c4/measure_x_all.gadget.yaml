@@ -1,0 +1,29 @@
+implements: ../c4c6.isa.yaml#measure_x_all
+circuit:
+  source:
+    # Destructive X-basis measurement: rotate then measure in Z.
+    # - Parity of all 4 outcomes recovers the X_0 X_1 X_2 X_3 stabilizer (check).
+    # - X_L = X_0 X_1 is the parity of outcomes 0 and 1 (Knill convention).
+    # - X_S = X_1 X_3 is the parity of outcomes 1 and 3 (Knill convention).
+
+    - H: [0]
+    - H: [1]
+    - H: [2]
+    - H: [3]
+    - M: [0]
+    - M: [1]
+    - M: [2]
+    - M: [3]
+checks:
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+    - circuit.readouts[2]
+    - circuit.readouts[3]
+    - in[0].stabilizers[0]
+readouts:
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+    - in[0].x[0]
+  - - circuit.readouts[1]
+    - circuit.readouts[3]
+    - in[0].x[1]

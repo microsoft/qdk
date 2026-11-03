@@ -1,0 +1,1336 @@
+══════════════════════════════════════════════════════════════════════
+ QODEC RUNTIME — PSEUDOCODE
+══════════════════════════════════════════════════════════════════════
+
+The qodec runtime (QodecRuntime) is the stack of all layer runtimes plugged
+together.  It executes instructions of a qodec's top ISA by lowering them one
+layer at a time (https://github.com/microsoft/qdk-ec/tree/main/qodec) and
+returns the top layer's results.
+
+qodec releases a rust crate at https://docs.rs/qodec/latest/qodec/ which could
+help with the data model.
+
+  ┌──────────────────────────────┐  Backend<Id, P, R>   (top ISA instructions)
+  │ LayerRuntime 0               │
+  ├──────────────────────────────┤  Backend<Id, P, R>   (layer-1 ISA instructions)
+  │ LayerRuntime 1               │
+  ├──────────────────────────────┤        ...
+  │ LayerRuntime n-1             │
+  └──────────────────────────────┘  Backend<Id, P, R>   (bottom ISA instructions)
+     bottom backend: any implementation of Backend for the bottom ISA
+     (a simulator, a tracer, a profiler, ...)
+
+Every layer implements Backend and consumes the Backend below it.  The stack is
+nested ownership: LayerRuntime<LayerRuntime<... LayerRuntime<B>>>, where B is
+the bottom backend.
+
+Out of scope:
+  - The classical runtime (e.g. a QIR runtime) that drives the stack.  It
+    already speaks the top ISA: it sends top-ISA instructions and reads results.
+  - The bottom backend.  It only has to implement Backend for the bottom ISA
+    (§10).
+
+Tags used below:
+  [SPEC]       required or defined by the qodec specification
+  [INTERFACE]  required by the Backend interface (§0)
+  [RUNTIME]    a consumer choice made by this runtime; the spec leaves it open
+
+Names follow three domains:
+  qodec data         The model loaded by the qodec crate: Qodec, Layer, Gadget,
+                     Instruction, Code, Encoding, Circuit, ...
+  plans   (XPlan)    Shot-independent data derived once from the qodec data by
+                     pre-processing: QodecPlan, LayerPlan, GadgetPlan,
+                     InstructionPlan, CodePlan, EncodingPlan, CircuitPlan,
+                     DecoderPlan.  Built with new() (or decoder.plan()).
+  runtimes (XRuntime) Per-shot state instantiated from a plan: QodecRuntime,
+                     LayerRuntime, DecoderRuntime.  Built with plan.instantiate().
+So Qodec → QodecPlan → QodecRuntime, Layer → LayerPlan → LayerRuntime, and a
+chosen Decoder → DecoderPlan (one per layer) → DecoderRuntime (one per shot).
+A plan is independent of any program, and so is its runtime: layer runtimes
+allocate lower block ids on demand, so a program need not know its size
+upfront.  A caller that does know it can ask
+qodecPlan.requiredResources(topResources) how large the bottom backend must be
+(§10.1).
+
+Deliberate differences from the Python reference implementation
+(qdk/simulation/_qodec).  Each fixes a bug found by formal verification or
+complexity analysis:
+  - accepts() is exact; it never answers None when the outcome is determined.  §4.3
+  - BinarySystem must iterate its rows in insertion order.                     §4.4
+  - Alias expansion in frame values is memoized (it was exponential).          §4.5
+  - Encodings may not share lower blocks or retype a lower block.              §4.6 §5 §8
+  - Live types constrain only the input side when binding operands.            §8.5
+  - Any unrecoverable error after side effects poisons the layer.              §8.4
+  - Outputs always get a fresh BlockRef generation.  decode() corrections
+    never target inputs.                                                       §2 §8.6
+  - Every shot gets fresh layer and decoder runtimes.                        §8.3 §10.1
+  - A `number` argument accepts Ints, and never overflows on out-of-range values. §4.2
+Interface differences: the stack takes ISA instructions only (no generic h/cx/
+prepare/measure requests), batches lower traffic, and reports recoverable
+outcomes in R instead of raising.
+
+Sections
+   0. Backend interface and conventions
+   1. Spec data model
+   2. Runtime types
+   4. Spec helpers (operand binding, arguments, select, parity, encodings)
+   5. Layer plan
+   6. Lower-ISA operation resolver
+   7. Gadget body runtime
+   8. Layer runtime (implements Backend)
+   9. Reference decoder (Pauli-frame decoder)
+  10. Qodec plan, qodec runtime and bottom backend contract
+
+══════════════════════════════════════════════════════════════════════
+ 0. BACKEND INTERFACE AND CONVENTIONS  [INTERFACE]
+══════════════════════════════════════════════════════════════════════
+
+── 0.1 The trait ──────────────────────────────────────────────────────
+
+    use smallvec::SmallVec;
+
+    pub struct BackendInstruction<Id, P> {
+        pub instruction_id: Id,
+        pub parameters: SmallVec<[P; 2]>,
+    }
+
+    /// Ordered backend results, with zero or one result stored without heap allocation.
+    pub struct BatchResult<R> {
+        pub results: SmallVec<[R; 1]>,
+    }
+
+    pub trait Backend<Id, P, R> {
+        type Error;
+        /// Produces one result per instruction requiring a result, in input order.
+        /// `Err` reports an unrecoverable error.  Recoverable outcomes are
+        /// encoded in `R`.
+        fn execute_batch(
+            &mut self,
+            instructions: &[BackendInstruction<Id, P>],
+        ) -> Result<BatchResult<R>, Self::Error>;
+    }
+
+The same Id, P and R types are used at every boundary in the stack.
+
+── 0.2 Instruction ids (Id) ───────────────────────────────────────────
+
+At each boundary, an Id is the index of the instruction in that boundary's ISA
+instruction list, in declaration order.  The top boundary uses the top ISA, and
+the boundary below layer k uses layer k+1's ISA.  The bottom boundary uses the
+bottom ISA, which the bottom backend implements.
+
+    pub trait InstructionId: Copy {
+        fn from_index(index: usize) -> Self;
+        fn index(self) -> usize;
+    }
+
+── 0.3 Parameters (P) ─────────────────────────────────────────────────
+
+One P type carries both block operands and classical arguments.  The runtime
+only needs to view and build values:
+
+    pub enum ParamView<'a> {
+        Block(u64),          // a block (qubit) operand: an id at this boundary
+        Bool(bool),          // `bit` (also Int 0/1) and `boolean` parameters
+        Int(i64),            // `integer`, and `number` and `bit` accept it too
+        Float(f64),          // `number`
+        Text(&'a str),       // `string` and `pauli`
+        IntList(&'a [u64]),  // list arguments: non-negative Ints ...
+        TextList(&'a [&'a str]), // ... or Strings
+    }
+    pub trait Param: Clone {
+        fn view(&self) -> ParamView<'_>;
+        fn from_view(view: ParamView<'_>) -> Self;
+    }
+
+Encoding of one instruction I [RUNTIME]:
+    parameters = [Block(operand_0), ..., Block(operand_m-1),   // operands in order
+                  arg_0, ..., arg_p-1]                          // I.parameters, in
+                                                                // declaration order
+Operands are the leading Block entries, so the operand count is unambiguous even
+for variadic instructions.  Every parameter of I must be supplied (spec).
+valueOf(view) and encodeArg(value) = P::from_view(...) convert between P and
+spec argument values: Bool, Int, Float, Text and the lists map one to one.
+valueOf(Block(_)) is undefined: a Block entry after the first argument fails
+with InvalidInstruction.  encodeArg fails with InvalidInstruction for an Int
+outside i64 (any kind: `number`, `integer`, `bit`) or a list Int outside u64.
+It never wraps.
+
+Block ids are names chosen by whoever issues the instruction.  At the top, the
+classical runtime chooses them.  Below layer k, they are the lower block ids that
+layer k allocates on demand, densely from 0: the lowest free id first (§8.6).
+
+── 0.4 Results (R) ────────────────────────────────────────────────────
+
+An instruction requires a result iff observeCount(I) + len(I.flags) > 0.  It
+then contributes exactly ONE R, an aggregate of all its bits (spec order:
+observe outcomes first, then flags).  Other instructions contribute nothing.
+
+    pub type Bit = Option<bool>;           // None = unresolved (not determinable)
+
+    #[derive(Clone, Copy, Default)]
+    pub struct Status {                    // recoverable, shot-level conditions
+        pub rejected: bool,                // a select pattern did not match
+        pub inconsistent: bool,            // parity evidence contradicts itself
+        pub unresolved: bool,              // a needed bit was None (replaced by 0,
+    }                                      // §7), or a selection was undetermined (§4.3)
+    // Statuses merge with field-wise OR.
+
+    pub trait Readout: Sized {
+        fn new(outcomes: &[Bit], flags: &[Bit], status: Status) -> Self;
+        fn outcomes(&self) -> &[Bit];
+        fn flags(&self) -> &[Bit];
+        fn status(&self) -> Status;
+    }
+
+A backend returning the outcome of `mz` builds R::new(&[Some(b)], &[], Status::default()).
+
+── 0.5 Errors ─────────────────────────────────────────────────────────
+
+Recoverable outcomes (in R):  rejected, inconsistent, unresolved, None bits.
+Unrecoverable (in Err):
+
+    pub enum QodecError<E> {
+        Lower(E),            // the backend below returned Err
+        Protocol,            // the backend below broke the result contract: wrong
+                             // number of Rs, or an R of the wrong shape
+        InvalidInstruction,  // unknown Id, bad operands or arguments, block not live
+        NoImplementation,    // an instruction has no gadget and no native handling
+        Poisoned,            // a previous Err left the layer inconsistent
+    }
+
+A layer's Error is QodecError<B::Error>.  The QodecRuntime's Error is therefore
+nested, one level per layer (an implementation may flatten it).
+
+── 0.6 Shot lifecycle [RUNTIME] ───────────────────────────────────────
+
+Neither the trait nor the layers have lifecycle methods.  A QodecRuntime lives
+for exactly one shot:
+  - A QodecPlan does the program-independent work once: layer plans and
+    decoder plans (§5, §10.1).
+  - qodecPlan.instantiate(backend) builds a QodecRuntime: fresh layer
+    runtimes, each with a fresh decoder runtime, on top of a bottom backend
+    supplied by the caller.  A layer runtime is constructed ready to run
+    (§8.3), and allocates lower block ids on demand (§8.6).
+  - Dropping the QodecRuntime ends the shot.  There is no start(), close() or
+    reset.
+The caller owns the bottom backend's lifecycle: it hands over one in its
+initial state, either built for this shot or reset and reused (§10.2).
+
+After an unrecoverable error the shot is lost.  A poisoned layer rejects every
+further execute_batch with Poisoned; the caller drops the QodecRuntime and runs
+a new shot.
+
+Status is shot-level, not per instruction.  Once set, it is OR-ed into every R
+the layer returns for the rest of the shot.  It is not causal within a batch:
+results are built after the final flush, so a result may carry a condition that
+first appeared while a later instruction of the same batch ran.  A lower layer's
+status reaches this layer only through a lower R.  A condition raised by
+result-free instructions shows up on the next result of the shot, and is never
+reported if the shot produces no further result.
+
+══════════════════════════════════════════════════════════════════════
+ 1. SPEC DATA MODEL  [SPEC]
+══════════════════════════════════════════════════════════════════════
+
+Manifest        = (layers: List<Layer>)             // top (abstract) -> bottom (concrete)
+Layer           = (isa: ISA,
+                   codes:   Map<BlockType, Code>,   // empty on the bottom layer
+                   gadgets: Map<Mnemonic, Gadget>)  // empty on the bottom layer
+
+ISA             = (blocks: Map<BlockType, Int>,     // block type -> logical qubits encoded
+                   instructions: List<Instruction>) // ORDERED: index = instruction Id (§0.2)
+Instruction     = (mnemonic,
+                   in:  List<Operand>,              // positional
+                   out: List<Operand>,              // positional; default []
+                   parameters: OrderedMap<Name, ParamKind>,   // declaration order
+                   action: List<Step>,
+                   flags:  List<Name>)
+Operand         = (type: BlockType, variadic: Bool) // `[[t]]` => variadic
+ParamKind       = bit | number | integer | boolean | string | pauli
+Step            = (kind ∈ {clifford, pauli, observe, rotate, stabilize},
+                   payload,
+                   guard: None | (if|unless, List<bitParam | "outcomes[i]">))
+                   // observe can never be guarded
+observeCount(I) = Σ len(step.payload) over observe steps of I
+needsResult(I)  = observeCount(I) + len(I.flags) > 0          // [INTERFACE] §0.4
+
+  Flat index space: operand j of a side occupies the next blocks[type_j]
+  consecutive indices.  Boundary width = max(in capacity, out capacity).
+  out > in: extra indices are fresh.  out < in: the extra input indices are
+  traced out.  An unconditional `stabilize` may introduce temporary indices
+  beyond the boundary, local to one invocation.
+
+Code            = (stabilizers: List<Pauli>,       // unsigned sparse Paulis
+                   x: List<Pauli>, z: List<Pauli>,  // one per logical qubit
+                   n: Int)                          // physical qubit count (inferred)
+
+Gadget          = (implements: Instruction,        // supplied by the layer if omitted
+                   circuit: Circuit,
+                   in:  List<Encoding>,             // one per instruction `in` operand
+                   out: List<Encoding>,             // one per instruction `out` operand
+                   parameterBindings: Map<InstrParam, SourceName>,
+                   checks:   List<Equation>,        // XOR == 0 on noiseless runs
+                   readouts: List<Equation>,        // observe outcomes ++ flags
+                   frames:   Map<FrameKey, Equation>)
+Encoding        = (blockType: BlockType,           // upper type (layer binds the code)
+                   code: Code,                      // must equal the layer's code
+                   support: List<CircuitLabel>,     // lower blocks, code-qubit order
+                   lowerTypes: List<BlockType>)     // per support label; empty when the
+                                                    // lower ISA has one block type
+                   // If `in`/`out` is omitted, the default sequential layout applies:
+                   // operand i sits on the next k_i circuit qubits, where k_i is
+                   // the qubit count of that operand's layer-bound code.
+Circuit         = (isa: ISA,                       // the layer below's ISA
+                   source: List<Call> | Text,       // inline YAML, Stim, OpenQASM ...
+                   in:  Map<CircuitLabel, BlockType>,  // inferred when the lower ISA has
+                   out: Map<CircuitLabel, BlockType>)  // exactly one block type
+Call            = (mnemonic, operands: List<CircuitLabel>,
+                   args: Map<Name, Arg>, select: List<Pattern>)
+Pattern         = Map<flagName | "flags[i]", 0|1>   // AND inside a pattern, OR across
+
+Equation        = List<ParityTerm>                 // XOR of the terms; [] == 0
+ParityTerm      = 0 | 1 | Reference
+Reference       = "circuit.readouts[SEL]"           // circuit record bit(s)
+                | "readouts[SEL]"                   // this gadget's own readout(s)
+                | "in[e].stabilizers[SEL]"  | "in[e].x[SEL]"  | "in[e].z[SEL]"
+                | "out[e].stabilizers[SEL]" | "out[e].x[SEL]" | "out[e].z[SEL]"
+SEL             = i | a:b | a:b:s | [i,j,...]       // slices exclusive; unions keep
+                                                    // order and duplicates
+FrameKey        = "out[e].x[k]" | "out[e].z[k]"     // exactly one output logical sign
+
+  Reference aliases, normalized before use (see the spec's paths doc):
+    "in[e].code.B[SEL]"  ≡ "in[e].B[SEL]",  "out[e].code.B[SEL]" ≡ "out[e].B[SEL]"
+  References are gadget-local.  Model-rooted paths such as
+  "layers[n].gadgets[\"g\"].<path>" are not accepted in equations, so a layer
+  does not need to know its index in the manifest.
+
+  Circuit record: each call appends its observe outcomes, then its flags.
+  Hidden reset outcomes are not recorded.  `circuit.readouts[i]` counts from 0
+  across the whole circuit.
+
+══════════════════════════════════════════════════════════════════════
+ 2. RUNTIME TYPES  [RUNTIME]
+══════════════════════════════════════════════════════════════════════
+
+Label           = u64                              // upper block id (Block param above)
+LowerId         = u64                              // lower block id, allocated densely
+                                                   // from 0 (Block param below)
+BlockRef        = (label: Label, generation: Int, type: BlockType)
+Resources       = (qubits: Int, blocks: Map<BlockType, Int>)
+
+LiveBlock       = (ref: BlockRef,
+                   support: List<LowerId>,          // lower blocks holding it
+                   qubits:  List<(LowerId, Int)>)   // its code qubits, in code order:
+                                                    // (lower block, logical index in it)
+
+EncodingPlan    = (blockType: BlockType, code: CodePlan,
+                   labels: List<CircuitLabel>,
+                   lowerTypes: List<BlockType>)     // lower type per label
+CodePlan        = a Code with its Pauli text parsed
+resources(L)    = countBy(L.lowerTypes)
+
+Call            = (I: Instruction, operands: List<Label>, args: Map<Name, Value>)
+                  // a decoded BackendInstruction (§8.5)
+Invocation      = (id, gadget, call,
+                   inputRefs: List<BlockRef>, outputRefs: List<BlockRef>)
+Decoded         = (outcomes: List<Bit>, flags: List<Bit>, status: Status)
+Correction      = (blocks: List<BlockRef>, op: Operation)
+Operation       = (name, targets: List<Int>, angle)  // targets index into
+                                                     // concat(blocks[*].qubits)
+
+── 2.1 Lazy bits [RUNTIME] ────────────────────────────────────────────
+
+Lower instructions are buffered and sent in batches (§8.4), so a lower result
+is unknown until its batch is flushed.
+
+SlotId          = Int                              // one per buffered result-producing
+                                                   // lower instruction
+LazyBit         = Known(Bit) | Pending(slot: SlotId, kind: outcome|flag, index: Int)
+force(b)        = b is Known(v) ? v
+                : (flushIfPending(b.slot);  bitOf(results[b.slot], b.kind, b.index))
+
+Decoder interface  [RUNTIME]   (three domains, like everything else)
+    Decoder                              // the algorithm the caller chooses
+        deferrable()     -> Bool       // true iff `before` is absent and `decode`
+                                       // never yields corrections; such decodes are
+                                       // queued and run at flush time (§8.4).  A
+                                       // property of the algorithm, known before
+                                       // any plan exists.
+        plan(layerPlan)  -> DecoderPlan  // once per layer (e.g. §9)
+    DecoderPlan
+        instantiate()    -> DecoderRuntime   // once per shot (§8.3)
+    DecoderRuntime                       // per-shot state, dropped with its layer
+        before(inv)      -> Coroutine<Correction, None>      (optional)
+                            may target inv.inputRefs and other live blocks
+        decode(inv, raw: List<Bit>) -> Coroutine<Correction, Decoded>
+                            may target inv.outputRefs and other live blocks,
+                            never inv.inputRefs (they are dead by then)
+        discarded(refs)                                      (optional)
+    A correction coroutine is resumed with the lower result of the previous
+    correction (or nothing, if that correction requires no result).
+
+══════════════════════════════════════════════════════════════════════
+ 4. SPEC HELPERS  [SPEC]
+══════════════════════════════════════════════════════════════════════
+
+── 4.1 Operand binding (flat index space, variadics) ──────────────────
+
+// Both sides are bound against the same operand list: operand j is in[j]
+// and/or out[j].  len(targets) == max(#in, #out) after variadic expansion.
+// targets[#in:] are therefore output-only operands.
+
+// `inputTypes` constrains only the input side (live block types); output
+// types come from the instruction, so type-changing instructions bind.
+function bindOperands(isa, I, targets, inputTypes = {}, outputTypes = {})
+        -> (inputs, outputs):
+    require all targets are distinct
+    inputs  = bindSide(I.in,  targets, isa.blocks, inputTypes)
+    outputs = bindSide(I.out, targets, isa.blocks, outputTypes)
+    require len(targets) == max(len(inputs), len(outputs))
+    return (inputs, outputs)      // each entry: (label, type, offset, width)
+
+function bindSide(operands, targets, caps, knownTypes):
+    if no operand is variadic:
+        require len(operands) ≤ len(targets)
+        types = [op.type for op in operands]
+    else:
+        // A variadic side consumes ALL targets.  Each variadic operand takes
+        // 0..k consecutive targets and each fixed operand exactly one.
+        // Find the splittings whose total is len(targets) and whose types agree
+        // with knownTypes; require exactly one resulting type list.  Stop at the
+        // second candidate.  Dynamic programming over (operand, targets used)
+        // keeps this O(#operands · len(targets)).
+        types = uniqueTypeAssignment(operands, targets, knownTypes)
+                or error ("no match" | "ambiguous variadic types")
+    offset = 0;  bound = []
+    for (t, ty) in zip(targets, types):
+        require ty ∈ caps and knownTypes.get(t, ty) == ty
+        bound.append((t, ty, offset, caps[ty]));  offset += caps[ty]
+    return bound
+
+── 4.2 Arguments ──────────────────────────────────────────────────────
+
+function validateArguments(I, args):
+    require keys(args) == keys(I.parameters)           // no unknown, none missing
+    for (name, v) in args:
+        items = (v is List ? v : [v])
+        // [SPEC] A list argument is all non-negative Ints or all Strings
+        // (possibly empty).  No Bool, Float or mixed lists.
+        if v is List: require (all items are Int ≥ 0 and not Bool) or (all items are String)
+        for item in items:
+            require matches(I.parameters[name], item)
+    // Every Int crosses the Backend boundary as i64 (list Ints as u64).  Values
+    // outside those ranges are valid spec values but cannot be encoded:
+    // InvalidInstruction, never overflow (§0.3).
+
+function matches(kind, v):
+    number  : v is Int or a finite Float, and not Bool
+    integer : v is Int, and not Bool
+    bit     : v is Bool, or v is an Int (not Float) ∈ {0, 1}   // after readout substitution
+    boolean : v is Bool
+    string, pauli : v is String and does not start with "circuit.readouts["
+
+── 4.3 Selection ──────────────────────────────────────────────────────
+
+function compileSelect(flagNames, patterns) -> List<Map<Int, Bool>>:
+    for each pattern:
+        for (key, value) in pattern:
+            idx = (key matches "flags[i]") ? i : indexOf(flagNames, key)
+            require 0 ≤ idx < len(flagNames)
+            require value is the integer 0 or 1 (not a Bool)
+            require no conflicting value for idx in this pattern
+    return compiled patterns
+
+// Exact three-valued answer: true iff EVERY completion of the unknown flags
+// matches some pattern, false iff NO completion does, None otherwise.
+// (A per-pattern scan is not enough: [{f0:0},{f0:1}] with f0 unknown is
+//  accepted by every completion.)
+function accepts(compiled, flags: List<Bit>) -> Bool | None:
+    if compiled is empty: return true                  // [] or missing => no constraint
+    // Keep patterns consistent with the known flags, restricted to unknown ones.
+    live = [ {i: v for (i, v) in p if flags[i] == None}
+             for p in compiled
+             if all (flags[i] == None or flags[i] == v) for (i, v) in p ]
+    if live is empty:                return false
+    if any p in live with p == {}:   return true        // matches regardless
+    // Some completion matches.  Do all?  Enumerate the unknown flags that the
+    // live patterns mention (others cannot affect the result).
+    U = sorted(∪ keys(p) for p in live)
+    for each assignment a: U -> Bool:
+        if no p in live with all a[i] == v for (i, v) in p: return None
+    return true
+
+// Worst case is exponential in |U|.  |U| ≤ number of declared flags, which is
+// small in practice.  A tautology check on the DNF can replace the enumeration.
+
+// [RUNTIME] Selection is a spec hint.  This runtime turns it into a recoverable
+// status, never an error.
+function selectStatus(compiled, flags) -> Status:
+    a = accepts(compiled, flags)
+    return a == true  ? Status{}
+         : a == false ? Status{rejected}
+         :              Status{unresolved}
+
+── 4.4 Parity expressions ─────────────────────────────────────────────
+
+Var    = ("rec", i)                         // circuit.readouts[i]
+       | ("ro", i)                          // readouts[i]
+       | ("enc", in|out, e, stabilizers|x|z, k)
+Parity = (vars: Set<Var>, const: Bool)       // XOR of vars XOR const
+p ⊕ q  = (p.vars Δ q.vars, p.const xor q.const)
+
+function expr(equation) -> Parity:
+    acc = Parity({}, false)
+    for term in equation:
+        if term ∈ {0, 1}: acc = acc ⊕ Parity({}, term == 1)
+        else:
+            for ref in expandSelector(normalizeAliases(term)):  // slices/unions -> single
+                                                               // refs, in order
+                acc = acc ⊕ Parity({varOf(ref)}, false)
+    return acc                                  // duplicate refs cancel
+
+// GF(2) system with incremental elimination.
+// REQUIRED: `rows` is iterated in INSERTION order, and `add` only appends.
+// Each new row is reduced by all earlier rows, so no row contains an earlier
+// pivot, and one in-order pass of `reduce` eliminates every pivot.  With any
+// other order (e.g. a sorted or hash map), `value` can be wrong and
+// Inconsistent can be missed.  Counterexample with sorted order and
+// largest-var pivot: {a⊕c=0, a⊕b=0, b=1, c=0} is accepted without error.
+BinarySystem:
+    rows: InsertionOrderedMap<Var, Parity>     // pivot -> reduced row
+    reduce(p):  for (pivot, row) in rows: if pivot ∈ p.vars: p = p ⊕ row;  return p
+    add(p):     q = reduce(p)
+                if q.vars ≠ ∅: rows[any(q.vars)] = q
+                elif q.const: raise Inconsistent
+    value(p):   q = reduce(p);  return q.vars == ∅ ? q.const : None
+
+── 4.5 Frame deltas ───────────────────────────────────────────────────
+
+function prepareFrames(g) -> Map<(e, basis, k), Parity>:
+    out = {};  memo = {}                               // memo: readout index -> Parity
+    for (key, equation) in g.frames:
+        ref = single reference in normalizeAliases(key) or error
+        require ref = out[e].{x|z}[k] with 0 ≤ e < len(g.out)
+                and 0 ≤ k < len(code(g.out[e]).{x|z})
+        require (e, basis, k) ∉ out                      // no aliases for one target
+        out[(e, basis, k)] = localParity(g, equation, memo, {})
+    return out
+
+// Frame values may use circuit readouts, literals, and readouts[...] aliases
+// that resolve (acyclically) to those.  Never in[...] or out[...], even if
+// they would cancel.  Each alias is expanded once (memo); without the memo,
+// chains such as readouts[i] = [readouts[i-1], readouts[i-1]] take 2^depth time.
+function localParity(g, equation, memo, active):
+    acc = Parity()
+    for term in equation:
+        if term ∈ {0, 1}: acc ⊕= const(term)
+        else for ref in expandSelector(normalizeAliases(term)):
+            if ref is circuit.readouts[i]: acc ⊕= ("rec", i)
+            elif ref is readouts[i]:
+                require 0 ≤ i < len(g.readouts) and i ∉ active      // acyclic
+                if i ∉ memo: memo[i] = localParity(g, g.readouts[i], memo, active ∪ {i})
+                acc ⊕= memo[i]
+            else: error "frame values cannot reference encoding signs"
+    return acc
+
+── 4.6 Encodings and code-qubit addresses ─────────────────────────────
+
+// Plans one side of a gadget boundary: one EncodingPlan per operand.
+function layoutBoundary(operands, encodings, codes, upperCaps, lowerCaps):
+    require len(operands) == len(encodings)
+    layouts = []
+    for (op, enc) in zip(operands, encodings):
+        code = codes[op.type] or error          // a CodePlan: the layer binds the code,
+                                                // never the gadget
+        require enc.code == code.code
+        require len(code.x) == len(code.z) == upperCaps[op.type]
+        types = enc.lowerTypes  or  (size(lowerCaps)==1 ? [onlyKey(lowerCaps)] * len(enc.support)
+                                                      : error)
+        require len(types) == len(enc.support) and types ⊆ keys(lowerCaps)
+        require Σ lowerCaps[t] for t in types == code.n
+        require enc.support labels are distinct
+        layouts.append(EncodingPlan(op.type, code, enc.support, types))
+    // Distinct operands on the same side must not share lower blocks; otherwise
+    // two live blocks would own the same LowerId (double free).
+    require all labels across `layouts` are pairwise distinct
+    return layouts
+
+// Code-qubit position k → (lower block, logical index inside it).  With a
+// single lower type of size `stride`, this is offset k % stride inside
+// support[k // stride].  Mixed lower types contribute their own sizes, in
+// support order.
+function codeQubits(L: EncodingPlan, placement, lowerCaps) -> List<(LowerId, Int)>:
+    require len(L.labels) == len(L.lowerTypes)          // never truncate silently
+    return [ (placement[lab], i)
+             for (lab, t) in zip(L.labels, L.lowerTypes)
+             for i in 0 .. lowerCaps[t]-1 ]
+
+══════════════════════════════════════════════════════════════════════
+ 5. LAYER PLAN  (built once per layer)
+══════════════════════════════════════════════════════════════════════
+
+function LayerPlan::new(layer, lowerIsa, decoderDeferrable: Bool):
+    // decoderDeferrable: whether the chosen Decoder is deferrable (§2).  It is a
+    // property of the algorithm, known before any decoder plan exists, and it
+    // only affects the Pauli check below.
+    plan.isa          = layer.isa                         // upper ISA: decodes incoming Ids
+    plan.lowerIsa     = lowerIsa                          // the next layer's ISA
+    plan.capacities   = layer.isa.blocks                  // upper type -> logical qubits
+    plan.lowerCaps    = lowerIsa.blocks
+    plan.codes        = { t: CodePlan(code) for (t, code) in layer.codes }
+    plan.requirements = {}                                // upperType -> Map<lowerType, Int>
+    plan.scratch      = {}                                // lowerType -> Int
+    plan.instructions = [Unsupported] * len(layer.isa.instructions)
+                        // one InstructionPlan per upper instruction:
+                        //   Gadget(GadgetPlan) | LogicalPauli | Release | Unsupported
+    plan.lowerId      = { I.mnemonic: index for (index, I) in enumerate(lowerIsa.instructions) }
+
+    for (name, g) in layer.gadgets:
+        I = g.implements                                  // [SPEC] must be layer.isa[name]
+        require g.circuit.isa == lowerIsa                 // one lower ISA per layer
+
+        inputs  = layoutBoundary(I.in,  g.in,  plan.codes, plan.capacities, plan.lowerCaps)
+        outputs = layoutBoundary(I.out, g.out, plan.codes, plan.capacities, plan.lowerCaps)
+        body    = CircuitPlan::new(g.circuit, plan.lowerId)    // §7
+
+        labels  = orderedUnique( concat(e.support for e in g.in)
+                               ++ body.labels
+                               ++ concat(e.support for e in g.out) )
+
+        labelType = copy(body.blockTypes)
+        for L in inputs ++ outputs:
+            plan.requirements[L.blockType] =
+                maxMerge(plan.requirements.get(L.blockType, {}), resources(L))
+            for (lab, t) in zip(L.labels, L.lowerTypes):
+                // A label has ONE lower type for the whole gadget; encodings and the
+                // circuit body must agree (no silent retyping of a lower block).
+                require labelType.get(lab, t) == t
+                labelType[lab] = t
+        if size(plan.lowerCaps) == 1:
+            for lab in labels: labelType.setDefault(lab, onlyKey(plan.lowerCaps))
+        require labels ⊆ keys(labelType)
+
+        boundary = maxMerge(sumMerge(resources(L) for L in inputs),
+                            sumMerge(resources(L) for L in outputs))
+        scratch  = positivePart(countBy(labelType[lab] for lab in labels) - boundary)
+        plan.scratch = maxMerge(plan.scratch, scratch)
+
+        plan.instructions[indexOf(layer.isa.instructions, I)] =
+            Gadget(GadgetPlan(g, I, body, labels, inputs, outputs, labelType,
+                              frames = prepareFrames(g)))
+
+    // Upper instructions without a gadget [RUNTIME]:
+    //   LogicalPauli: the action is only unguarded `pauli` steps, with no flags,
+    //                 and the boundary is strictly in place (in and out have the
+    //                 same operand shape and types, so nothing is created, consumed
+    //                 or retyped).  It is applied to the Pauli frame as the code's
+    //                 logical operator (§8.6).
+    //   Release:      in = [t], out = [], empty action, no flags.  It releases
+    //                 the block (§8.6).
+    //   Unsupported:  anything else.  It fails with NoImplementation.
+    for (index, I) in enumerate(layer.isa.instructions):
+        if plan.instructions[index] == Unsupported:
+            plan.instructions[index] = pauliOnly(I) ? LogicalPauli
+                                     : release(I)   ? Release : Unsupported
+
+    // Lower-ISA instructions this layer emits on its own (§6):
+    plan.resolver     = buildResolver(lowerIsa)                    // §6
+    plan.lowerRelease = { t: findRelease(lowerIsa, t) for t in lowerCaps }
+                        // optional per type: an instruction with in = [t], out = [],
+                        // no observe and no flags.  If a type has none, releases of
+                        // that type are lazy (§8.6): no instruction is emitted.
+                        // A measuring fallback is never used, because below a qodec
+                        // layer it would run a whole measurement gadget.
+    // Pauli corrections are checked only where they can occur: when the upper
+    // ISA has a LogicalPauli instruction (§8.6), or when not decoderDeferrable
+    // (the decoder may emit corrections).  In that case resolveLower("x") and
+    // resolveLower("z") must bind on one logical index of every lower type.  A
+    // "y" correction falls back to x·z (§6).  Layers that never emit a Pauli need
+    // no Pauli instructions below them.
+    return plan
+
+// maxMerge: per-key max.  sumMerge: per-key sum.  positivePart: drop keys ≤ 0.
+
+══════════════════════════════════════════════════════════════════════
+ 6. LOWER-ISA OPERATION RESOLVER  [RUNTIME, built on SPEC action semantics]
+══════════════════════════════════════════════════════════════════════
+
+// The spec has no generic operations: "the action is authoritative".  A layer
+// emits generic operations of its own: Pauli corrections, decoder operations
+// and releases.  It matches them against the LOWER ISA's actions, never its
+// mnemonics.  Every target is a live lower block, so liveness and spare slots
+// play no role here.
+
+function buildResolver(isa):
+    for each (index, I) in isa.instructions with no variadic operands,
+            no `pauli` parameters, and no guarded steps:
+        width = max(Σ caps over I.in, Σ caps over I.out)
+        steps = []
+        for s in I.action:
+            clifford  T    -> steps += Clifford(T)
+            pauli     P    -> steps += [Op(lower(P[q]), [q]) for q in support(P)]
+            stabilize Z_q  -> steps += Op("prepare", [q])     // single +Z, q < width
+            observe   Z_q  -> steps += Op("measure", [q])     // single +Z
+            rotate (P, θ)  -> steps += Op("r" + axis*len(support), support, θ)
+                              // P has 1 or 2 qubits on the same positive axis
+            anything else  -> skip I (no static semantics)
+        semantics[index] = steps
+        // Clifford composition of ALL steps (clifford and pauli).  It is None if
+        // the action is empty or contains any prepare, measure or rotate step.
+        clifford[index]  = (steps non-empty and every step is Clifford or Pauli)
+                           ? compose(steps, width) : None
+    // Index the semantics by (operation kind, operand types) and cache resolved
+    // (op, slot types, angle) results.  Repeated operations then cost O(1).
+
+// `slots` are (lowerBlock, logicalIndex) pairs.  Returns lower instructions.
+function resolveLower(op, slots, angle) -> List<(index, operands, args)>:
+    try:   return [bindOne(op, slots, angle)]
+    catch Unbound:
+        parts = decompose(op, angle) or raise NoImplementation
+                // e.g. rotation synthesis, and y -> [x, z] (equal up to a global
+                // phase) when the lower ISA has no Y instruction
+        return [bindOne(part.op, part.slots, part.angle) for part in parts]
+
+function bindOne(op, slots, angle):
+    labels  = orderedUnique(s.block for s in slots)
+    offsets = running sum of lowerCaps[typeOf[label]] over labels
+    pos     = [offsets[s.block] + s.index for s in slots]       // must be distinct
+    width   = Σ capacities over labels
+    blocks  = [typeOf[label] for label in labels]
+    gate    = namedClifford(op, len(pos), angle)                // None for non-Clifford
+    matches = []
+    // Inside this loop, a failed `require` skips the candidate (no error).
+    for (index, steps) in semantics:
+        I = isa.instructions[index]
+        require I.in types == I.out types == blocks             // in place, all live
+        flagged = I.flags not empty
+        if gate ≠ None:
+            if clifford[index] == embed(gate, pos, width): matches += ((flagged,F), index, {})
+            continue
+        require op ∉ {prepare, measure}                         // not emitted by a layer
+        require len(steps) == 1 and steps[0] = Op(op, pos, a)
+        if a is a parameter name and angle ≠ None: matches += ((flagged,T), index, {a: angle})
+        elif a == None == angle:                    matches += ((flagged,F), index, {})
+        elif a, angle numeric and isclose(a, angle): matches += ((flagged,F), index, {})
+    if matches empty: raise Unbound
+    // Rank (flagged, parameterized), lexicographic, lowest wins.  Ties:
+    // prefer "__quantum__qis__<op>__body", else NoImplementation (ambiguous).
+    (index, args) = best match
+    // The layer cannot act on a raised flag for operations it issues itself, so
+    // it requires all flags to be zero (as a recoverable status, §8.6).
+    select = isa.instructions[index].flags not empty
+             ? [{f: 0 for f in isa.instructions[index].flags}] : []
+    return (index, labels, args, select)
+
+══════════════════════════════════════════════════════════════════════
+ 7. GADGET BODY RUNTIME  (inline YAML call list)  [SPEC semantics]
+══════════════════════════════════════════════════════════════════════
+
+// Stim, OpenQASM and QIR sources need their own parsers, but their output must
+// follow the same record rules.  A body never sees the backend; it emits
+// through the layer's buffer (§8.4) and works with LazyBits.
+
+function CircuitPlan::new(circuit, lowerId) -> CircuitPlan:
+    calls  = parse(circuit.source)
+    labels = orderedUnique(str(o) for c in calls for o in c.operands)
+    blockTypes = {};  callPlans = [];  offset = 0
+    for c in calls:
+        I = circuit.isa.instructions[lowerId[c.mnemonic]] or error
+        (ins, outs) = bindOperands(circuit.isa, I, c.operands)
+        for (name, a) in c.args:
+            require name ∈ I.parameters
+            if a is "circuit.readouts[SEL]":
+                // [SPEC] only `bit` parameters, exactly one earlier bit
+                require I.parameters[name] == bit
+                        and expandSelector(a) has exactly one index j and j < offset
+        count = observeCount(I) + len(I.flags)
+        callPlans += CallPlan(c, I, lowerId[c.mnemonic], count,
+                              compileSelect(I.flags, c.select))
+        offset += count
+        for b in ins ++ outs: blockTypes[str(b.label)] = b.type
+    // Labels the body itself consumes: their last appearance is as an input of a
+    // call that does not also output them.  They are already gone below, so the
+    // layer must not release them again (§8.6).
+    consumed = { str(l) for each label l whose LAST appearance among the calls is in
+                 that call's inputs and not in its outputs }
+    needs = countBy(values(blockTypes))
+    return CircuitPlan(labels, blockTypes, needs, calls = callPlans, consumed)
+
+// Runs one body.  `placement` maps circuit labels to lower block ids.
+// Returns the lazy record, the per-call selects, and the slots it owns.
+function runBody(layer, body, inv, placement) -> (record: List<LazyBit>, selects, slots):
+    validateArguments(inv.gadget.implements, inv.call.args)
+    // [SPEC] parameter_bindings: instruction param -> circuit source name
+    forwarded = { src: inv.call.args[param] for (param, src) in inv.gadget.parameterBindings }
+    record = [];  selects = [];  slots = []
+    for (c, I, id, count, sel) in body.calls:
+        args = {}
+        for (name, a) in c.args:
+            if a is String and a ∈ forwarded:      a = forwarded[a]
+            elif a is "circuit.readouts[j]":
+                v = force(record[j])                   // may flush (§8.4)
+                if v == None:                          // [RUNTIME] recoverable
+                    layer.status |= Status{unresolved};  v = false
+                a = v
+            args[name] = a
+        validateArguments(I, args)
+        params = [Block(placement[str(o)]) for o in c.operands]
+                 ++ [encodeArg(args[p]) for p in I.parameters]   // declaration order
+        slot = layer.emit(id, params)
+        if count > 0:
+            slots += slot
+            record ++= [Pending(slot, outcome, i) for i in 0..observeCount(I)-1]
+                    ++ [Pending(slot, flag, i)    for i in 0..len(I.flags)-1]
+            // [RUNTIME] per-call select is a spec hint.  It is checked lazily and
+            // becomes a recoverable status (§8.4).
+            if sel not empty: selects += (slot, sel)
+    return (record, selects, slots)
+
+══════════════════════════════════════════════════════════════════════
+ 8. LAYER RUNTIME  (implements Backend)  [RUNTIME]
+══════════════════════════════════════════════════════════════════════
+
+    pub struct LayerRuntime<B> { plan: LayerPlan, lower: B, state... }
+    impl<Id: InstructionId, P: Param, R: Readout, B: Backend<Id, P, R>>
+        Backend<Id, P, R> for LayerRuntime<B> { type Error = QodecError<B::Error>; ... }
+
+── 8.1 State ──────────────────────────────────────────────────────────
+
+blocks         : Map<Label, LiveBlock>
+free           : MinHeap<LowerId>        // released lower ids, reused lowest first
+nextFresh      : LowerId                 // ids below it have been allocated before
+typeOf         : Map<LowerId, BlockType> // lower type of every allocated id
+generation     : Map<Label, Int>
+nextInvocation : Int
+decoder        : DecoderRuntime          // decoderPlan.instantiate(), in new()
+status         : Status                  // sticky per shot (§0.6)
+failed         : Bool                    // poisoned: every further execute_batch
+                                         // fails with Poisoned (§0.6)
+sideEffects    : Int                     // see rule below
+
+// Lower-traffic buffer (§8.4)
+buffer         : List<BackendInstruction<Id, P>>
+bufferSlots    : List<(SlotId | Discard, shape: (outcomes, flags))>
+                 // one entry per result-producing buffered instruction, with the
+                 // R shape it must have.  Discard = result is not kept.
+results        : Map<SlotId, R>          // resolved lower results that still have a reader
+nextSlot       : Int
+decoderLog     : Queue<DecoderEvent>     // deferred decoder work, in program order
+                 DecoderEvent = Decode(inv, raw: List<LazyBit>, selects, slots, sink)
+                              | Discarded(refs)
+// Slot ownership: every kept slot has exactly one owner, which deletes it
+// after its last read.  An invocation owns its body's slots (deleted after its
+// decode).  A correction owns its result slot (deleted after the decoder is
+// resumed).  Release-fallback results are never kept.  `results` therefore
+// holds only buffered or not-yet-decoded work.
+
+// sideEffects rule: every call to emit(), every write to blocks, free,
+// nextFresh, typeOf, generation, and every decoder call or queued DecoderEvent
+// increments sideEffects.  It decides whether an Err poisons the layer (§8.4).
+
+── 8.2 Sizing (optional; a LayerPlan method) ──────────────────────────
+
+// Layer runtimes do not need it: they allocate lower ids on demand (§8.6).  It
+// tells a caller whose program knows its size how many blocks the layer below
+// needs: blocks per encoding for every upper block, plus gadget scratch.
+function LayerPlan.requiredResources(upper) -> Resources:
+    need = copy(upper.blocks)
+    if upper.qubits > 0:
+        require size(plan.capacities) == 1
+        need[onlyKey(plan.capacities)] += upper.qubits
+    require keys(need) ⊆ keys(plan.requirements)
+    lower = copy(plan.scratch)
+    for (upType, count) in need:
+        for (lowType, k) in plan.requirements[upType]: lower[lowType] += count * k
+    if size(plan.lowerCaps) == 1 and onlyValue(plan.lowerCaps) == 1:
+        return Resources(qubits = Σ values(lower))
+    return Resources(blocks = lower)
+
+── 8.3 Construction (one layer runtime per shot) ──────────────────────
+
+// The layer runtime is ready to run; dropping it ends the shot.  It needs no
+// resources: lower ids are allocated on demand (§8.6).
+function LayerRuntime::new(plan: LayerPlan, decoderPlan, lower):
+    blocks, free, typeOf, generation, buffer, bufferSlots, results, decoderLog = empty
+    // Generations start over in every shot, so BlockRefs repeat across shots:
+    // a decoder runtime must never outlive its shot.
+    decoder = decoderPlan.instantiate()
+    nextFresh = 0;  nextInvocation = 0;  nextSlot = 0;  sideEffects = 0
+    status = Status{};  failed = false
+
+── 8.4 execute_batch, buffering and flushing ──────────────────────────
+
+fn execute_batch(instructions) -> Result<BatchResult<R>, QodecError>:
+    if failed: return Err(Poisoned)
+    mark = sideEffects
+    try:
+        sinks = []                                 // one per result-requiring instruction
+        for ins in instructions:
+            call = decodeInstruction(ins)          // §8.5, pure
+            sink = executeOne(call)                // §8.6; a sink is filled at flush
+            if needsResult(call.I): sinks += sink
+        flush()                                    // also drains decoderLog
+        return Ok(BatchResult{ results = [ R::new(s.outcomes, s.flags, status | s.status)
+                                           for s in sinks ] })
+    catch e:                                       // every Err path
+        if sideEffects ≠ mark: failed = true       // layer and lower layers may disagree
+        return Err(e)
+
+// Buffer one lower instruction I (an index into the lower ISA).  Returns a
+// SlotId iff it requires a result and `keep` is true.
+function emit(id, params, keep = true) -> SlotId | None:
+    sideEffects += 1
+    I = plan.lowerIsa.instructions[id]
+    buffer += BackendInstruction{ instruction_id: Id::from_index(id), parameters: params }
+    if not needsResult(I): return None
+    shape = (observeCount(I), len(I.flags))
+    if not keep: bufferSlots += (Discard, shape);  return None
+    s = nextSlot;  nextSlot += 1;  bufferSlots += (s, shape)
+    return s
+
+// Send the buffer to the backend below and resolve its slots.
+function flushLower():
+    if buffer empty: return
+    batch = lower.execute_batch(buffer)  else Err(Lower(e))
+    require len(batch.results) == len(bufferSlots)                    else Err(Protocol)
+    // Validate everything before writing anything, so a Protocol error never
+    // leaves partial state (it still poisons, because emit() already counted).
+    for ((s, shape), r) in zip(bufferSlots, batch.results):
+        require (len(r.outcomes()), len(r.flags())) == shape          else Err(Protocol)
+    for ((s, shape), r) in zip(bufferSlots, batch.results):
+        status |= r.status()                     // recoverable lower conditions bubble up
+        if s ≠ Discard: results[s] = r
+    clear buffer, bufferSlots
+
+function flushIfPending(slot): if slot ∉ results: flush()
+
+// Full flush: resolve lower results, then run the deferred decoder work in
+// program order.  Deferred decodes never emit, so one pass is enough.
+function flush():
+    flushLower()
+    while decoderLog not empty:
+        ev = decoderLog.popFront()
+        match ev:
+          Decode(inv, raw, selects, slots, sink): sink.fill(decodeNow(inv, raw, selects, slots))
+          Discarded(refs):                 decoder.discarded?(refs)
+
+// Flush triggers.  Everything else stays buffered, so a non-adaptive program
+// costs AT MOST ONE lower execute_batch per upper execute_batch, at every layer.
+//   1. end of execute_batch;
+//   2. force() of a pending bit (bit-parameter threading, §7);
+//   3. a non-deferrable decoder needs raw readouts or a correction result (§8.6);
+//   4. optional: |buffer| exceeds a memory bound.
+
+── 8.5 Decoding an incoming instruction (pure, no side effects) ───────
+
+function decodeInstruction(ins) -> Call:
+    I = plan.isa.instructions[ins.instruction_id.index()] or Err(InvalidInstruction)
+    operands = leading params with view() == Block(l)       // labels
+    args     = remaining params, matched to I.parameters in declaration order
+    require len(args) == len(I.parameters)                     else Err(InvalidInstruction)
+    args     = { name: valueOf(p.view()) for (name, p) in zip(I.parameters, args) }
+    validateArguments(I, args)                                 else Err(InvalidInstruction)
+    return Call(I, operands, args)
+
+── 8.6 Executing one instruction ──────────────────────────────────────
+
+function executeOne(call) -> Sink:
+    match plan.instructions[index of call.I]:
+        Gadget(gp):   return runInvocation(prepareInvocation(gp, call), nextInvocation++)
+        LogicalPauli: applyLogicalPauli(call);  return Sink.empty()
+        Release:      release(call.operands[0]); return Sink.empty()
+        Unsupported:  Err(NoImplementation)
+
+// Places one invocation on live lower blocks.  Pure: it only reads state, so a
+// failure here never poisons.
+function prepareInvocation(gp, call):
+    // Only inputs are constrained by live types; outputs take the instruction's
+    // declared types, so type-changing instructions are allowed (spec).
+    // Look up only the operands, not every live block.
+    (inOps, outOps) = bindOperands(plan.isa, call.I, call.operands,
+                                   inputTypes = {l: blocks[l].ref.type
+                                                 for l in call.operands if l ∈ blocks})
+    require len(inOps) == len(gp.g.in) and len(outOps) == len(gp.g.out)
+
+    placement = {}                                     // circuit label -> LowerId
+    for (t, enc) in zip(call.operands, gp.g.in):
+        b = blocks.get(t) or Err(InvalidInstruction)   // input not live
+        require len(enc.support) == len(b.support)
+        for (lab, lb) in zip(enc.support, b.support):
+            require placement.get(lab, lb) == lb       // one label -> one lower block
+            require typeOf[lb] == gp.labelType[lab]    // no silent retyping of lower blocks
+            placement[lab] = lb
+    // Placement is injective because live blocks never share lower blocks:
+    // inputs are distinct live blocks and outputs are disjoint (§4.6).
+    return (gp, call, outOps, placement)
+
+function runInvocation(prepared, id) -> Sink:
+    gp = prepared.gp;  nIn = len(gp.g.in)
+
+    for t in prepared.call.operands[nIn:]: release(t)        // overwrite output-only operands
+
+    inRefs  = [blocks[t].ref for t in prepared.call.operands[:nIn]]
+    outRefs = [freshRef(o.label, o.type) for o in prepared.outOps]
+    inv     = Invocation(id, gp.g, prepared.call, inRefs, outRefs)
+
+    // Correction contract: `before` may target inputRefs and other live blocks.
+    // It runs while inputs are still published.  `decode` runs after outputs
+    // are published, so it may target outputRefs and other live blocks, never
+    // inputRefs.  outRefs are always fresh, so a correction aimed at a consumed
+    // or in-place input fails the generation check.
+    if decoder has before: applyCorrections(decoder.before(inv))
+
+    placement = prepared.placement
+    for lab in gp.labels:
+        if lab ∉ placement: placement[lab] = allocateLower(gp.labelType[lab])
+
+    (raw, selects, slots) = runBody(this, gp.body, inv, placement)   // lazy circuit.readouts
+
+    // Publish outputs: an output block is the gadget's `out` encoding.
+    for t in prepared.call.operands[:nIn]: blocks.remove(t)
+    retained = {}
+    for (ref, L) in zip(outRefs, gp.outputs):
+        sup = [placement[lab] for lab in L.labels]
+        require sup ∩ retained == ∅                   // outputs never share lower blocks
+        blocks[ref.label] = LiveBlock(ref, sup, codeQubits(L, placement, plan.lowerCaps))
+        retained ∪= set(sup)
+
+    // Release scratch and consumed lower blocks.  Nothing here depends on
+    // decoding, so it is emitted immediately.  Blocks the body consumed itself
+    // (e.g. measured away) are only returned to the free list.
+    for lab in sorted(labels with placement[lab] ∉ retained, by placement[lab]):
+        if lab ∈ gp.body.consumed: forgetLower(placement[lab])
+        else:                      releaseLower(placement[lab])
+
+    sink = Sink.new()
+    if decoder.deferrable():
+        decoderLog += Decode(inv, raw, selects, slots, sink)
+        decoderLog += Discarded(inRefs)               // after the decode that reads them
+    else:
+        sink.fill(decodeNow(inv, raw, selects, slots))  // forces raw: flushes
+        decoder.discarded?(inRefs)
+    return sink
+
+// Decode one invocation.  `raw` and `selects` are forced here.
+function decodeNow(inv, raw, selects, slots) -> Decoded:
+    bits = [force(b) for b in raw]
+    st   = Status{}
+    for (slot, sel) in selects:
+        flushIfPending(slot);  st |= selectStatus(sel, flagsOf(results[slot]))
+    for s in slots: results.remove(s)                         // last reader: release
+    d = applyCorrections(decoder.decode(inv, bits))           // §9
+    require len(d.outcomes) == observeCount(inv.gadget.implements)
+            and len(d.flags) == len(inv.gadget.implements.flags)
+    status |= st | d.status                                   // sticky shot status
+    return Decoded(d.outcomes, d.flags, st | d.status)
+    // [RUNTIME] The upper call carries no select (§0.3): the caller reads the
+    // flags in R and applies its own post-selection policy.
+
+// Every output gets a new generation, even when it reuses an input's label in
+// place, so corrections or decoder state keyed by the old ref never reach it.
+function freshRef(label, type) -> BlockRef:
+    generation[label] = generation.get(label, 0) + 1
+    return BlockRef(label, generation[label], type)
+
+// [RUNTIME] Upper Pauli instruction without a gadget: apply the code's logical
+// operator (spec code.x / code.z) as Pauli corrections on the block's code qubits.
+function applyLogicalPauli(call):
+    P = product of the instruction's unguarded `pauli` steps (flat indices)
+    (ins, _) = bindOperands(plan.isa, call.I, call.operands)
+    for (label, type, offset, width) in ins:
+        b = blocks.get(label) or Err(InvalidInstruction)
+        code = plan.codes.get(type) or Err(NoImplementation)
+        L = identity(code.n)
+        for i in 0..width-1:
+            if P[offset+i] ∈ {X, Y}: L = L * code.x[i]
+            if P[offset+i] ∈ {Z, Y}: L = L * code.z[i]
+        applyCorrections(pauliCorrections(b.ref, L))
+
+coroutine pauliCorrections(ref, L):
+    for q in support(L): yield Correction([ref], Operation(lower(L[q]), [q], None))
+
+// [RUNTIME] Upper release instruction without a gadget, and output-only overwrite.
+function release(label):
+    b = blocks.remove(label)
+    if b == None: return
+    for lb in b.support: releaseLower(lb)
+    if decoder.deferrable(): decoderLog += Discarded([b.ref])
+    else:                    decoder.discarded?([b.ref])
+
+// Release a lower block that is still live below.
+// Eager: emit the lower release instruction.  Lazy, when the lower ISA has
+// none: emit nothing, and the block stays live below until this layer reuses
+// the id.  At that next use:
+//   - as an output-only operand: a lower qodec layer first releases the live
+//     block itself (§8.6), and the bottom backend treats it as fresh (§10.2);
+//   - as an in-place operand: the block is still live, carrying stale state.
+//     That is correct only if the instruction resets it (an unconditional
+//     `stabilize`, e.g. a physical R).  A lower frame decoder may then report
+//     `unresolved` if stale signs remain on the reset qubits (§9.2).
+//     A body that reads a scratch block before preparing it is malformed
+//     either way.
+function releaseLower(lb):
+    id = plan.lowerRelease.get(typeOf[lb])
+    if id ≠ None: emit(id, [Block(lb)])      // no observe, no flags: no result
+    forgetLower(lb)
+
+// Return a lower block id to the free list without emitting anything.
+function forgetLower(lb):
+    typeOf.remove(lb);  free.push(lb)
+
+// Allocate a lower block id on demand: the lowest released id first, otherwise
+// a fresh one.  Ids therefore stay dense, so the bottom backend needs only as
+// many blocks as the shot keeps live at once.  There is no limit here: a
+// backend that cannot hold the id fails it (§10.2).
+function allocateLower(type) -> LowerId:
+    lb = free.popMin() or (nextFresh++)
+    typeOf[lb] = type
+    return lb
+
+── 8.7 Corrections (decoder → lower layer) ────────────────────────────
+
+function applyCorrections(stream) -> T:
+    r = None
+    loop:
+        (done, c) = stream.resume(r)
+        if done: return c
+        require c.blocks are distinct
+        qubits = []
+        for ref in c.blocks:
+            b = blocks.get(ref.label)
+            require b ≠ None and b.ref == ref          // live, same generation
+            qubits ++= b.qubits
+        idx = localIndices(c.op);  require all 0 ≤ i < len(qubits)
+        slots = [qubits[i] for i in idx]               // (lower block, logical index)
+        // A correction lowers to at most ONE result-producing lower instruction;
+        // otherwise NoImplementation.  The coroutine is resumed with that R, or
+        // with None if no part produces a result.
+        parts = resolveLower(c.op.name, slots, c.op.angle)
+        require count(needsResult(plan.lowerIsa.instructions[p.index]) for p in parts) ≤ 1
+                                                                  else Err(NoImplementation)
+        r = None
+        for (index, operands, args, select) in parts:
+            I = plan.lowerIsa.instructions[index]
+            s = emit(index, [Block(o) for o in operands] ++ encodeArgs(I, args))
+            if s ≠ None:
+                flushIfPending(s);  r = results.remove(s)   // needed now; sole reader
+                if select not empty:
+                    status |= selectStatus(compileSelect(I.flags, select), flagsOf(r))
+        // A Pauli X/Z correction is an ordinary lower instruction.  If the lower
+        // layer is a qodec layer whose ISA has no gadget for it, that layer applies
+        // it to its own frame (applyLogicalPauli).  Eventually it is a physical
+        // Pauli in the bottom backend.
+
+══════════════════════════════════════════════════════════════════════
+ 9. REFERENCE DECODER — PAULI-FRAME DECODER  [SPEC semantics]
+══════════════════════════════════════════════════════════════════════
+
+// It evaluates a gadget's checks, readouts and frames as one GF(2) system, and
+// carries every block's stabilizer and logical signs from one gadget's `out` to
+// the next gadget's `in`.  It never yields corrections, so it is deferrable.  A
+// contradiction is reported as the recoverable status `inconsistent`.  A
+// fault-tolerant decoder would instead use nonzero checks as a syndrome and
+// yield Corrections (§8.7); it is then not deferrable.
+
+FrameDecoder.deferrable() = true
+
+// Plan: per gadget of the layer, fixed once.
+FrameDecoder.plan(layerPlan) -> FrameDecoderPlan:
+    for each Gadget(gp) in layerPlan.instructions:
+        g = gp.g
+        gadgets[g.name] = ( checks    = [expr(c) for c in g.checks],
+                            readouts  = [expr(r) for r in g.readouts],
+                            frames    = prepareFrames(g),             // §4.5
+                            transport = circuitTransport(g) )         // may be None
+        // Optimization: the checks, readout definitions and transport are fixed
+        // per gadget.  Eliminate them once here, and substitute only the readout
+        // bits and incoming signs at decode time.
+    return FrameDecoderPlan(gadgets)
+
+// Runtime: the signs known in this shot.
+FrameDecoderPlan.instantiate() -> FrameDecoderRuntime:
+    signs: Map<BlockRef, Map<(basis, k), Bool>> = {}              // known boundary signs
+
+coroutine FrameDecoderRuntime.decode(inv, raw) -> Decoded:
+    p   = gadgets[inv.call.I.mnemonic]
+    sys = BinarySystem();  st = Status{}
+    n   = observeCount(inv.gadget.implements)
+    try:
+        for c in p.checks: sys.add(c)                                   // check == 0
+        for (i, v) in enumerate(raw): if v ≠ None: sys.add(("rec",i) ⊕ const(v))
+        for (e, ref) in enumerate(inv.inputRefs):                        // incoming frame
+            for ((basis, k), v) in signs.get(ref, {}):
+                sys.add(("enc","in",e,basis,k) ⊕ const(v))
+        for (i, eq) in enumerate(p.readouts): sys.add(("ro",i) ⊕ eq)     // define readouts[i]
+
+        T = p.transport
+        if T == None:
+            try:    T = actionTransport(inv, sys)
+            catch Unresolved:                     // recoverable: output logical
+                T = {};  st |= Status{unresolved} // signs stay unknown
+        for (key = (e, basis, k), t) in T:                               // carry logical signs
+            sys.add(("enc","out",e,basis,k) ⊕ t ⊕ p.frames.get(key, Parity()))
+            // Missing frame entries add nothing. They never reset the transported sign.
+    catch Inconsistent:
+        // Recoverable: every bit and every output sign becomes unknown.
+        return Decoded([None]*n, [None]*len(inv.gadget.implements.flags),
+                       st | Status{inconsistent})
+
+    for (e, ref) in enumerate(inv.outputRefs):
+        code = inv.gadget.out[e].code
+        signs[ref] = { (b, k): v
+                       for b in {stabilizers, x, z} for k in 0..len(code.b)-1
+                       if (v = sys.value(("enc","out",e,b,k))) ≠ None }
+
+    values = [sys.value(("ro", i)) for i in 0..len(p.readouts)-1]    // None = unresolved
+    return Decoded(values[:n], values[n:], st)
+
+FrameDecoderRuntime.discarded(refs): for r in refs: signs.remove(r)   // no-op if r has no entry
+
+── 9.1 Logical-sign transport from a Clifford-only body ───────────────
+
+// Applies when ALL of these hold; otherwise it returns None:
+//   - the gadget has inputs and outputs, and no instruction parameters;
+//   - the circuit source is an inline call list (not QIR or OpenQASM);
+//   - every encoding label has one consistent lower type across in/out;
+//   - every circuit call is an in==out instruction whose action is only
+//     unguarded Clifford and Pauli steps.
+function circuitTransport(g) -> Map<(e, x|z, k), Parity> | None:
+    assign each circuit label a range of positions (width = Σ caps)
+    U = identity Clifford(width)
+    for each call c: U = actionClifford(c) ∘ U on c's operand positions
+    gens = {}                                     // input generator -> image under U
+    for (e, enc) in g.in, b ∈ {stabilizers, x, z}, k:
+        gens[(e,b,k)] = U · place(code.b[k], enc.support) · U†
+    T = {}
+    for (e, enc) in g.out, b ∈ {x, z}, k:
+        L = place(code.b[k], enc.support)
+        // Solve over GF(2): which input generators multiply (up to sign) to L?
+        S = solve( Σ_{gen ∈ S} pauliBits(gens[gen]) == pauliBits(L) )
+            or error "circuit does not preserve the code boundary"
+        T[(e,b,k)] = XOR of ("enc","in",e',b',k') for (e',b',k') ∈ S
+    return T
+
+── 9.2 Logical-sign transport from the instruction action ─────────────
+
+// Each logical qubit q carries a pair (zSign_q, xSign_q) of Parities.
+// zSign is flipped by an X-type frame on q. xSign is flipped by a Z-type frame.
+function actionTransport(inv, sys) -> Map<(e, x|z, k), Parity>:
+    I     = inv.gadget.implements
+    nIn   = Σ len(code.x) over inv.gadget.in
+    prog  = action program of I for (nIn, nOut, inv.call.args)
+    s[q]  = (("enc","in",e,z,k), ("enc","in",e,x,k)) for input logical qubit q = (e,k)
+    s[q]  = (0, 0) for fresh and temporary qubits
+    for step in prog:
+        if step is guarded:
+            require every s[q] part has sys.value == false  else raise Unresolved
+            continue
+        clifford C:
+            new = all (0,0)
+            for q: for (v, image) in ((s[q].z, C(X_q)), (s[q].x, C(Z_q))):
+                for t in support(image):
+                    if image[t] ∈ {X,Y}: new[t].z ⊕= v
+                    if image[t] ∈ {Z,Y}: new[t].x ⊕= v
+            s = new
+        stabilize P: require for q ∈ support(P): s[q] parts are known zero, else Unresolved
+        rotate (P, θ):
+            require sys.value(⊕ {s[q].z : P[q] ∈ {Z,Y}} ⊕ {s[q].x : P[q] ∈ {X,Y}}) == false
+                    else Unresolved            // non-Clifford needs a realized frame
+        pauli, observe, allocate, trace-out: no change
+    T = {};  off = 0
+    for (e, enc) in inv.gadget.out:
+        for k in 0..len(code.x)-1:
+            T[(e,z,k)] = s[off+k].z;  T[(e,x,k)] = s[off+k].x
+        off += len(code.x)
+    return T
+
+══════════════════════════════════════════════════════════════════════
+ 10. QODEC PLAN, QODEC RUNTIME AND BOTTOM BACKEND CONTRACT
+══════════════════════════════════════════════════════════════════════
+
+── 10.1 The qodec plan and its runtimes ───────────────────────────────
+
+// Plan: program-independent work, done once per qodec and decoder.
+function QodecPlan::new(manifest, decoder):
+    require len(manifest.layers) ≥ 1                // one layer: a pass-through to the
+                                                    // bottom backend (no layer runtimes)
+    n = len(manifest.layers) - 1                    // layers 0..n-1 have gadgets
+    layerPlans   = [LayerPlan::new(manifest.layers[k], manifest.layers[k+1].isa,
+                                   decoderDeferrable = decoder.deferrable)
+                    for k in 0..n-1]
+    decoderPlans = [decoder.plan(layerPlans[k]) for k in 0..n-1]      // e.g. §9
+    return QodecPlan(layerPlans, decoderPlans)
+
+// Optional sizing, for a caller whose program knows its size: the resources at
+// every boundary, so the bottom backend can be built large enough.  res[k] is
+// layer k's UPPER resources; it runs on res[k+1].  Nothing else needs it.
+function qodecPlan.requiredResources(topResources) -> List<Resources>:
+    res[0] = topResources
+    for k in 0..n-1: res[k+1] = layerPlans[k].requiredResources(res[k])   // §8.2
+    return res                                      // res[n]: the bottom backend
+
+// Runtime: the QodecRuntime of one shot, with fresh layer and decoder runtimes
+// over the caller's bottom backend.  Layer runtimes allocate lower ids on
+// demand (§8.6), so no program size is needed.
+function qodecPlan.instantiate(backend) -> QodecRuntime:
+    runtime = backend
+    for k in n-1 down to 0:
+        runtime = LayerRuntime::new(layerPlans[k], decoderPlans[k], lower = runtime)
+    return runtime                                  // : impl Backend<Id, P, R>
+
+// `backend` is any Backend for the bottom ISA: a simulator, a profiler,
+// or another stack of components.  Backend is also implemented for
+// &mut B, so a caller that reuses one backend across shots lends it with
+// instantiate(&mut backend), and resets it however it likes between shots.
+// A backend whose setup is expensive (e.g. a GPU simulator or a hardware
+// connection) is therefore never rebuilt.
+//
+//     qodecPlan = QodecPlan::new(manifest, FrameDecoder)          // per qodec
+//     for each shot:
+//         runtime = qodecPlan.instantiate(bottom backend in its initial state)
+//         runtime.execute_batch(...) ...
+//         drop(runtime)
+
+── 10.2 Bottom backend contract ───────────────────────────────────────
+
+The bottom backend implements Backend<Id, P, R> for the bottom ISA:
+  - It starts every shot in its initial state.  Whether it is built for the
+    shot or reset and reused is the caller's choice (§10.1).
+  - Block ids are allocated on demand, densely from 0 (§8.6), so the backend
+    needs only as many blocks as the shot keeps live at once.  It either holds
+    enough blocks upfront (qodecPlan.requiredResources(top) gives the count
+    when the program's size is known) or grows on demand.  An id it cannot
+    hold is an unrecoverable failure: it returns Err.
+  - Id is the index of a bottom-ISA instruction, whose action defines it (a
+    simulator executes it; a profiler or a device may count, forward or run it).
+  - parameters follow §0.3: Block(q) operands, then arguments in declaration
+    order.
+    then arguments in declaration order.
+  - It returns exactly one R per instruction with needsResult, in order.  Each R
+    holds that instruction's observe outcomes, then its flags.  Status is
+    usually default; None bits are allowed (e.g. a lost qubit, or a backend that
+    does not produce outcomes).
+  - Err is reserved for unrecoverable failures, e.g. a numerical error or a lost
+    device connection.
+  - A block id that a layer releases lazily (§8.6) may still hold stale state
+    when it is next used.  The backend must accept that: an output-only use
+    treats the block as fresh, and a reset overwrites it.
+  - Optional, per block type the last layer uses:
+      * a release instruction (in = [t], out = [], no observe, no flags).  If it
+        exists, releases are eager; otherwise they are lazy.
+      * Pauli X and Z instructions.  These are required only if the last layer
+        can emit Pauli corrections or has native Pauli instructions (§5).
+    Checked by LayerPlan::new (§5).
+
+── 10.3 Cost summary ──────────────────────────────────────────────────
+
+Lower execute_batch calls per upper execute_batch, at each layer:
+    at most 1                non-adaptive programs with a deferrable decoder
+                             (0 if the batch emits nothing below)
+    + 1 per forced bit       bit-parameter threading inside a gadget body
+    + 1 per decode / correction result
+                             non-deferrable decoders
+Per invocation, excluding the decoder: O(L log N + C + M + #types), independent
+of the number of live blocks (L = gadget labels, N = lower blocks, C = body
+calls, M = record bits).

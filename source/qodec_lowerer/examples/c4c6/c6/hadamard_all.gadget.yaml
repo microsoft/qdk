@@ -1,0 +1,22 @@
+implements: ../c4c6.isa.yaml#hadamard_all
+# Transversal H on the 3 C4 sub-blocks of the C6 codeword maps
+# (X_L, X_S, Z_L, Z_S) of the C6 code to a twisted Clifford
+# (X_L → Z_S, X_S → Z_L·Z_S, Z_L → X_L·X_S, Z_S → X_L) rather than to
+# H_L ⊗ H_S. Transversal mul_u_sq on the 3 sub-blocks rotates that
+# twisted Clifford back to H_L ⊗ H_S: composed in this order the action
+# on every C6 logical Pauli matches the ISA declaration target.X_i ↔ Z_i.
+circuit:
+  instruction_set: ../c4c6.isa.yaml
+  source:
+    - hadamard_all: [0]
+    - hadamard_all: [1]
+    - hadamard_all: [2]
+    - mul_u_sq: [0]
+    - mul_u_sq: [1]
+    - mul_u_sq: [2]
+  in: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+  out: { "0": c4c6_block, "1": c4c6_block, "2": c4c6_block }
+in:
+  - c4c6_block: [0, 1, 2]
+out:
+  - c4c6_block: [0, 1, 2]

@@ -1,0 +1,65 @@
+implements: ../c4c6.isa.yaml#prepare_z_all
+# Knill's fault-tolerant |00>_L preparation for the C4 [[4,2,2]] code,
+# transcribed from Fig 8 top of arXiv:quant-ph/0410199 ("reducebprepZ"). The
+# Fig-9-style subblock-teleportation (T) elements are deliberately omitted
+# (logically equivalent, just less FT) — see the c4c6 README.
+#
+# Qubits 0-3: codeword survivors, each initialized as |0> (Z+).
+# Qubits 4-7: ancillas, each initialized as |+> (X+), measured in Z.
+# Bell pairs: ancilla 4 controls survivor 0, 5 controls 1, etc.
+# Cat-prep cycle: each survivor XORs into the next pair's ancilla, with a long
+# wrap-around from survivor 3 into ancilla 4.
+#
+# Only 2 of the 8 reachable ancilla outcomes leave the survivors in the
+# canonical |00>_L codeword; the other 6 carry a logical X_L, X_S or X_L X_S.
+# The trailing X_if calls feed the outcomes forward to cancel it, dual to
+# prepare_x_all: X_L0 = X_0 X_1 when readouts 0 and 1 differ, X_L1 = X_1 X_3
+# when readout 3 is set.
+circuit:
+  source:
+    - R: [0]
+    - R: [1]
+    - R: [2]
+    - R: [3]
+    - R: [4]
+    - R: [5]
+    - R: [6]
+    - R: [7]
+    - H: [4]
+    - H: [5]
+    - H: [6]
+    - H: [7]
+    - CX: [4, 0]
+    - CX: [5, 1]
+    - CX: [6, 2]
+    - CX: [7, 3]
+    - CX: [0, 5]
+    - CX: [1, 6]
+    - CX: [2, 7]
+    - CX: [3, 4]
+    - M: [4]
+    - M: [5]
+    - M: [6]
+    - M: [7]
+    - X_if: [0, correction: "circuit.readouts[0]"]
+    - X_if: [1, correction: "circuit.readouts[0]"]
+    - X_if: [0, correction: "circuit.readouts[1]"]
+    - X_if: [1, correction: "circuit.readouts[1]"]
+    - X_if: [1, correction: "circuit.readouts[3]"]
+    - X_if: [3, correction: "circuit.readouts[3]"]
+checks:
+  # The correction fixes the logical state, not the syndrome: stabilizer 1's sign
+  # still records the ancilla outcomes that produced it.
+  - ["out[0].stabilizers[0]"]
+  - ["circuit.readouts[0]", "circuit.readouts[2]", "out[0].stabilizers[1]"]
+readouts:
+  # One flag (Knill's verification): reject iff the total parity of the four
+  # ancilla Z measurements is odd. Z_4 Z_5 Z_6 Z_7 = +1 (parity 0) in noiseless
+  # execution, so reject is deterministically 0; a consumer post-selects on it.
+  - reject:
+      [
+        "circuit.readouts[0]",
+        "circuit.readouts[1]",
+        "circuit.readouts[2]",
+        "circuit.readouts[3]",
+      ]
