@@ -134,8 +134,9 @@ impl Instruction for InstructionCall {
 //   batch, a change to the protocol's core trait for under a twentieth.
 //   What wrapped the toy executor's logic when this was measured (its
 //   lifecycle, its shots' states) cost about 40 ns per batch of one call,
-//   six times the copy: it is where to look first; `executor_fn`'s cost is
-//   to be measured again (`docs/performance.md`).
+//   six times the copy, so it was where to look first; the per-shot
+//   executor of `executor_fn`, measured since on another executor, costs
+//   about 7 ns per call (`docs/performance.md`).
 pub struct Renumbered<E> {
     inner: E,
     /// Where the sender's instructions are in the set of the executor it

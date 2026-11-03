@@ -17,48 +17,37 @@ executor took one call per batch.
 
 **In short:** an executor of a Rust instruction type, called directly, is
 the baseline. The per-shot executor (`executor_fn` under `OnePerShot`)
-cost about 1.2 times the baseline on batches of one instruction, and
-within a few percent from batches of 10, in one run on a loaded machine: a
-provisional figure, to be measured again (see [Results](#results)). An
-earlier per-shot form, since removed (measured history), which routed each
-call through an object that passed each shot's call to that shot's
-executor ([below](#what-each-cost-is-and-who-pays-it)), added a cost per
-call, which batching hides: 4.4 times the baseline on batches of one
-instruction, 1.2 times on batches of 100, and within a few percent on
-batches of 10 000 (the table below). An executor of calls of a set
-described at run time costs about 10 ns more per instruction, at every
-batch size. A batch of many shots, each on a placement of its own, costs
-its caller a time per shot that grows with the batch when it is woken by
-each shot that ends ([Shots on placements of their
-own](#shots-on-placements-of-their-own)).
+costs about 1.6 times the baseline on batches of one instruction (about
+7 ns per call), 1.25 times on batches of 10, and within a few percent
+from batches of 100 ([Results](#results)): a cost per call, which
+batching hides. An executor of calls of a set described at run time costs
+about 10 ns more per instruction, at every batch size. QEP's profiler,
+with no protocol, is slower than the baseline at every batch size, 1.3 to
+4.4 times, and faster than both executors of a set described at run time;
+the per-shot executor is faster than it from batches of 10. A batch of
+many shots, each on a placement of its own, costs its caller a time per
+shot that grows with the batch when it is woken by each shot that ends
+([Shots on placements of their own](#shots-on-placements-of-their-own)).
 
 ## Results
 
 Nanoseconds per instruction, and the ratio to the baseline, typed (below 1
 is faster):
 
-| batch  | typed | typed per-shot | run-time      | run-time per-shot |
-| :----- | ----: | :------------- | :------------ | :---------------- |
-| 1      |  9.96 | 44.82 (4.41×)  | 20.38 (2.04×) | 51.51 (5.22×)     |
-| 10     |  2.91 | 6.79 (2.34×)   | 14.05 (4.79×) | 18.20 (6.21×)     |
-| 100    |  3.27 | 3.92 (1.19×)   | 14.00 (4.06×) | 14.15 (4.35×)     |
-| 10 000 |  2.24 | 2.31 (1.03×)   | 12.79 (5.60×) | 12.49 (5.62×)     |
+| batch  | typed | typed per-shot | run-time      | run-time per-shot | QEP-like      |
+| :----- | ----: | :------------- | :------------ | :---------------- | :------------ |
+| 1      | 12.03 | 19.31 (1.57×)  | 21.20 (1.67×) | 30.94 (2.51×)     | 15.41 (1.27×) |
+| 10     |  3.07 | 3.85 (1.25×)   | 14.68 (4.68×) | 14.94 (4.87×)     | 11.02 (3.59×) |
+| 100    |  3.58 | 3.47 (0.97×)   | 14.14 (3.85×) | 14.19 (3.99×)     | 10.04 (2.82×) |
+| 10 000 |  2.23 | 2.29 (1.02×)   | 12.71 (5.61×) | 12.80 (5.69×)     | 9.87 (4.36×)  |
 
 Method: `taskset -c 4 cargo bench -p executor_protocol --bench
-protocol_overhead`, on one core of a Qualcomm Oryon machine under Linux,
-while no build ran; each cell is the fastest of 7 runs, and the median of
-5 runs of the bench, taken separately for the times and for the ratios.
-The numbers vary by machine and with its load: compare the columns of one
-run, not runs on different machines, and read single cells as approximate.
-
-**Not measured again yet:** the table and the per-shot costs below were
-measured on that earlier per-shot form (measured history), before the
-per-shot columns were made with `executor_fn` under `OnePerShot`, which
-runs each call in `call`, with no object between. One run of the bench on
-the new columns, on a loaded machine, gave about 1.2 times the baseline
-for typed per-shot on batches of one instruction (2 ns per call) and
-within a few percent from batches of 10; the table is to be measured
-again with the method above, with the QEP-like column, which it lacks.
+protocol_overhead`, on one core of a Qualcomm Oryon machine under Linux
+(WSL), while no build ran; each cell is the fastest of 7 runs, and the
+median of 5 runs of the bench, taken separately for the times and for the
+ratios. The numbers vary by machine and with its load: compare the columns
+of one run, not runs on different machines, and read single cells as
+approximate.
 
 The columns:
 
@@ -87,8 +76,7 @@ pays nothing for them, and its instruction set is fixed when it is
 compiled, which is what a Rust instruction type encodes. The per-shot
 columns pay for shots, which only a program that uses them needs; the
 run-time columns answer a question QEP cannot, a set known only at run
-time, such as one loaded from a Qodec file. The QEP-like numbers are to be
-measured with the table.
+time, such as one loaded from a Qodec file.
 
 ## What each cost is, and who pays it
 
@@ -98,16 +86,18 @@ and costs it nothing (type-erased chains are planned:
 [Planned features](planned.md)). Batching spreads what a part adds per
 call over the batch.
 
-- **A call** costs the typed profiler about 8 ns more per batch of one
+- **A call** costs the typed profiler about 10 ns more per batch of one
   instruction than per instruction of a batch of 10 000: the call, its
   reply and the wait for it. Batching spreads it over the batch.
-- **The earlier per-shot form** (measured history), which the per-shot
-  executor replaced, cost about 30 to 40 ns more per call, on batches of 1
-  and 10 instructions: it routed the batch to the shot's executor,
-  gathered the shot's reply and tracked its own lifecycle. The per-shot
-  executor's cost is to be measured again (above). Batching spreads it
-  too, so it matters only for small batches. Only an executor that holds
-  a state per shot pays it.
+- **The per-shot executor**, driven by a run, costs about 7 to 8 ns more
+  per call than the baseline, on batches of 1 and 10 instructions: the
+  run that drives it, the executor's lifecycle, the lookup of the shot's
+  state, and the reply that gathers the shot's outcomes; the bench does
+  not split these. An earlier per-shot form (measured history), which it
+  replaced, cost about 30 to 40 ns more per call: it routed the batch to
+  the shot's executor, gathered the shot's reply and tracked its own
+  lifecycle. Batching spreads the cost too, so it matters only for small
+  batches. Only an executor that holds a state per shot pays it.
 - **An executor of calls of a set described at run time** costs about 10
   ns more per instruction than one of a Rust type, at every batch size:
   it checks each call against the set (`InstructionSet::check_batch`),
@@ -132,30 +122,33 @@ Nanoseconds per shot, and the ratio to the first column:
 
 | shots | polled once | polled per shot | one placement |
 | ----: | ----------: | --------------: | ------------: |
-|     1 |         800 |     800 (1.00×) |   800 (1.00×) |
-|    16 |         450 |     575 (1.28×) |    56 (0.12×) |
-|   256 |         389 |   2 791 (7.17×) |   9.0 (0.02×) |
-| 1 024 |         369 |  10 215 (27.7×) |   5.7 (0.02×) |
+|     1 |       1 000 |   1 000 (1.00×) |   900 (0.90×) |
+|    16 |         581 |     738 (1.26×) |    69 (0.12×) |
+|   256 |         531 |   3 590 (6.20×) |  12.9 (0.02×) |
+| 1 024 |         449 |  10 312 (23.0×) |   7.5 (0.02×) |
 
 - **polled once**: the bench runs every shot's job, then polls the reply
   once.
 - **polled per shot**: the same executor, its reply polled after each
   shot's job, as a caller woken by each shot that ends: each poll costs
-  about 19 ns per shot still pending, n/2 of them on average.
+  about 19 ns per shot still pending at 1 024 shots, and 24 ns at 256,
+  n/2 of them on average.
 - **one placement**: `.shots(OnePerShot).run_on(place)`, every shot
   in the one job, its reply polled once.
 
 Method: `taskset -c 11 cargo bench -p executor_protocol --bench
 shot_replies_wake`, on one core of a Qualcomm Oryon machine under Linux
-(WSL), at a load average of about 1; each cell is the fastest of 7 runs;
-two runs of the bench agreed within 2 % past one shot. A batch of one shot
-is near the timer's resolution.
+(WSL), while no build ran; each cell is the fastest of 7 runs, and the
+median of 3 runs of the bench, taken separately for the times and for the
+ratios. The runs varied: on the same day, a polled-once cell was up to
+about 17 % from its median (447 to 524 ns at 1 024 shots), so read single
+cells as approximate. A batch of one shot is near the timer's resolution.
 
 Two costs show. The wakes cost O(n²) per batch: a known issue, open,
 whose fix polls only the shots with news (a waker per shot, or a queue of
-the shots woken). And a shot on a placement of its own costs about 370 ns
-more than one in a shared job, for its own job, its reply and the copy of
-the batch; only an executor that places its shots apart pays it.
+the shots woken). And a shot on a placement of its own costs about 440 to
+520 ns more than one in a shared job, for its own job, its reply and the
+copy of the batch; only an executor that places its shots apart pays it.
 
 ## Shot conditions
 

@@ -595,9 +595,10 @@ fn ended(end: &mut Option<ReplyStatus>) -> ReplyStatus {
 // O(pending) per wake, and O(n²) per batch for n shots that finish
 // asynchronously.
 // Measured by benches/shot_replies_wake.rs (docs/performance.md): woken
-// once per shot, each poll costs about 19 ns per part still pending, and
-// a batch of 1024 shots 27 times what one poll per batch costs. Per-part
-// wakers or a ready queue would poll only the parts with news.
+// once per shot, each poll costs about 19 to 24 ns per part still
+// pending, and a batch of 1024 shots 23 times what one poll per batch
+// costs. Per-part wakers or a ready queue would poll only the parts with
+// news.
 /// Polls the parts still `pending` into `out`, each part's outcomes named
 /// by its shot; a part's failure or cancellation becomes the reply's end
 /// where it outranks the end it has ([`outrank`]), and a failure fails the
