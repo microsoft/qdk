@@ -1578,6 +1578,59 @@ fn m() {
 }
 
 #[test]
+fn mx() {
+    check_intrinsic_result(
+        "",
+        indoc! {r#"{
+            use q = Qubit();
+            if not Microsoft.Quantum.Diagnostics.CheckZero(q) {
+                fail "Qubit should be in zero state.";
+            }
+            H(q);
+            let res1 = QIR.Intrinsic.__quantum__qis__mx__body(q);
+            if One == res1 {
+                fail "Qubit should measure Zero"
+            }
+            if not Microsoft.Quantum.Diagnostics.CheckPlus(q) {
+                fail "Qubit should be in |+> state.";
+            }
+            Z(q);
+            let res2 = (QIR.Intrinsic.__quantum__qis__mx__body(q), Microsoft.Quantum.Diagnostics.CheckPlus(q));
+            Reset(q);
+            res2
+        }"#},
+        &expect!["(One, false)"],
+    );
+}
+
+#[test]
+fn my() {
+    check_intrinsic_result(
+        "",
+        indoc! {r#"{
+            use q = Qubit();
+            if not Microsoft.Quantum.Diagnostics.CheckZero(q) {
+                fail "Qubit should be in zero state.";
+            }
+            H(q);
+            S(q);
+            let res1 = QIR.Intrinsic.__quantum__qis__my__body(q);
+            if One == res1 {
+                fail "Qubit should measure Zero"
+            }
+            if not Microsoft.Quantum.Diagnostics.CheckPlusI(q) {
+                fail "Qubit should be in |+i> state.";
+            }
+            Z(q);
+            let res2 = (QIR.Intrinsic.__quantum__qis__my__body(q), Microsoft.Quantum.Diagnostics.CheckPlusI(q));
+            Reset(q);
+            res2
+        }"#},
+        &expect!["(One, false)"],
+    );
+}
+
+#[test]
 fn m_qubit_already_released_fails() {
     check_intrinsic_result(
         "",
