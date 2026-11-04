@@ -8,6 +8,7 @@ pub mod functors;
 pub mod intrinsic_names;
 pub mod language_features;
 pub mod line_column;
+pub mod measurement;
 pub mod namespaces;
 pub mod source;
 pub mod span;
