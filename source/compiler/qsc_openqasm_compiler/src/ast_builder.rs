@@ -236,10 +236,8 @@ pub(crate) fn build_qasm_import_decl_intrinsic() -> Item {
 pub(crate) fn build_classical_decl<S>(
     name: S,
     is_const: bool,
-    _ty_span: Span,
     decl_span: Span,
     name_span: Span,
-    _ty: &crate::types::Type,
     expr: Expr,
 ) -> Stmt
 where
