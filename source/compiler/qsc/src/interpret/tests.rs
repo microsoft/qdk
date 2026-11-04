@@ -1882,6 +1882,41 @@ mod given_interpreter {
         }
 
         #[test]
+        fn qirgen_from_callable_chosen_by_dynamic_if_expr_succeeds_when_unused_after_fir_transforms()
+         {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation Main() : Result {
+                        use (q, c) = (Qubit(), Qubit());
+                        X(c);
+                        let r = MResetZ(c);
+                        let f = if r == One { q => X(q) } else { q => Z(q) };
+                        let g = { X(q); f };
+                        g(q);
+                        MResetZ(q)
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let main = user_global(&interpreter, "Main");
+
+            let qir = interpreter
+                .qirgen_from_callable(&main, Value::unit())
+                .expect("expected success");
+
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__z__body(").count(),
+                1,
+                "expected one inner captured rotation in QIR:\n{qir}"
+            );
+        }
+
+        #[test]
         fn qirgen_from_callable_profile_incompatible_outputs_report_callable_scoped_errors() {
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
             let (result, output) = line(
