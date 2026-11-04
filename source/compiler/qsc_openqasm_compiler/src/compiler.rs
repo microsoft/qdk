@@ -508,13 +508,12 @@ impl QasmCompiler {
             // are reassigned in the program body so that `set` works correctly.
             for s in input {
                 if self.assigned_input_symbols.contains(&s.name) {
-                    let qsharp_ty = self.map_semantic_type_to_qsharp_type(&s.ty, s.ty_span);
-                    let ty_span = s.ty_span.to_qsharp();
+                    self.report_type_mapping_errors(&s.ty, s.ty_span);
                     let span = s.span.to_qsharp();
                     let init_expr = build_path_ident_expr(&s.name, span, span);
                     let shadow_stmt = build_classical_decl(
                         &s.name, false, // mutable
-                        ty_span, span, span, &qsharp_ty, init_expr,
+                        span, span, init_expr,
                     );
                     validation_stmts.push(shadow_stmt);
                 }
@@ -789,10 +788,8 @@ impl QasmCompiler {
         let decl = build_classical_decl(
             &symbol.name,
             is_const,
-            symbol.ty_span.to_qsharp(),
             stmt.span.to_qsharp(),
             symbol.span.to_qsharp(),
-            &ty,
             expr,
         );
 
@@ -878,8 +875,6 @@ impl QasmCompiler {
             false,
             rhs_span,
             rhs_span,
-            rhs_span,
-            &crate::types::Type::ResultArray(crate::types::ArrayDimensions::One),
             temp_var_stmt_init_expr,
         );
         let temp_var_expr = build_path_ident_expr("bitarray", rhs_span, rhs_span);
@@ -994,16 +989,13 @@ impl QasmCompiler {
         let symbol = &self.symbols[decl.symbol_id].clone();
         let name = &symbol.name;
         let is_const = symbol.ty.is_const();
-        let ty_span = decl.ty_span.to_qsharp();
         let decl_span = decl.span.to_qsharp();
         let name_span = symbol.span.to_qsharp();
-        let qsharp_ty = self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span);
+        self.report_type_mapping_errors(&symbol.ty, symbol.ty_span);
         let expr = decl.init_expr.as_ref();
 
         let expr = self.compile_expr(expr);
-        let stmt = build_classical_decl(
-            name, is_const, ty_span, decl_span, name_span, &qsharp_ty, expr,
-        );
+        let stmt = build_classical_decl(name, is_const, decl_span, name_span, expr);
 
         Some(stmt)
     }
@@ -1381,17 +1373,14 @@ impl QasmCompiler {
         let symbol = symbol.clone();
         let name = &symbol.name;
         let is_const = symbol.ty.is_const();
-        let ty_span = stmt.ty_span.to_qsharp(); // todo
         let decl_span = stmt.span.to_qsharp();
         let name_span = symbol.span.to_qsharp();
-        let qsharp_ty = self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span);
+        self.report_type_mapping_errors(&symbol.ty, symbol.ty_span);
 
         let expr = stmt.init_expr.as_ref();
 
         let expr = self.compile_expr(expr);
-        let stmt = build_classical_decl(
-            name, is_const, ty_span, decl_span, name_span, &qsharp_ty, expr,
-        );
+        let stmt = build_classical_decl(name, is_const, decl_span, name_span, expr);
 
         Some(stmt)
     }
@@ -2683,6 +2672,14 @@ impl QasmCompiler {
             self.push_compiler_error(error);
         }
         mapped
+    }
+
+    fn report_type_mapping_errors(
+        &mut self,
+        ty: &qdk_openqasm::semantic::types::Type,
+        span: qdk_openqasm::span::Span,
+    ) {
+        self.map_semantic_type_to_qsharp_type(ty, span);
     }
 
     /// Mapping from an `OpenQASM` semantic type to its Q# equivalent.
