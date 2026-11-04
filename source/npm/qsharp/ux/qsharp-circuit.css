@@ -158,6 +158,14 @@
     stroke-width: 1;
   }
 
+  /* Measurement basis text, using the same upright main font as the ket digits */
+  text.measurement-basis {
+    fill: var(--qdk-circuit-measure-text);
+    stroke-width: 0.5;
+    font-family: "KaTeX_Main", "MJXZERO", "MJXTEX", sans-serif;
+    font-style: normal;
+  }
+
   /* Ket gate */
   .gate-ket {
     fill: var(--qdk-circuit-ket-fill);
