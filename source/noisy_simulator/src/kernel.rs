@@ -41,7 +41,7 @@ pub fn apply_kernel(
 
     // Compute all index offsets of the entries to load.
     // E.g., for a 2-qubit gate acting on qubits [k1,k2],
-    // index offsets are [0, 2^k1, 2^k2, 2^(k1+k2)]
+    // index offsets are [0, 2^k1, 2^k2, (2^k1 + 2^k2)]
     let mut index_offsets: Vec<usize> = std::vec::Vec::with_capacity(num_elements);
     for k in 0..num_elements {
         let mut j = 0;

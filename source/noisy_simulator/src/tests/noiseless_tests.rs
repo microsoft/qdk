@@ -10,6 +10,12 @@ use num_complex::Complex;
 
 use super::assert_approx_eq;
 
+pub enum Targets {
+    MX,
+    MY,
+    MZ,
+}
+
 /// Returns an H gate.
 fn noiseless_h() -> Operation {
     let f = 0.5_f64.sqrt();
@@ -46,7 +52,54 @@ pub(super) fn noiseless_mz() -> Instrument {
     Instrument::new(vec![noiseless_mz0(), noiseless_mz1()]).expect("instrument should be valid")
 }
 
-pub fn check_measuring_plus_state_yields_zero_with_50_percent_probability<NS: NoisySimulator>() {
+/// Returns the |+>-projection of an MX measurement.
+fn noiseless_mx0() -> Operation {
+    operation!([0.5, 0.5;
+                0.5, 0.5;])
+    .expect("operation should be valid")
+}
+
+/// Returns the |->-projection of an MX measurement.
+fn noiseless_mx1() -> Operation {
+    operation!([0.5, -0.5;
+                -0.5, 0.5;])
+    .expect("operation should be valid")
+}
+
+/// Returns an MX measurement.
+pub(super) fn noiseless_mx() -> Instrument {
+    Instrument::new(vec![noiseless_mx0(), noiseless_mx1()]).expect("instrument should be valid")
+}
+
+/// Returns the |i>-projection of an MY measurement.
+fn noiseless_my0() -> Operation {
+    operation!([0.5, -0.5 * Complex::i();
+                0.5 * Complex::i(), 0.5;])
+    .expect("operation should be valid")
+}
+/// Returns the |-i>-projection of an MY measurement.
+fn noiseless_my1() -> Operation {
+    operation!([0.5, 0.5 * Complex::i();
+                -0.5 * Complex::i(), 0.5;])
+    .expect("operation should be valid")
+}
+
+/// Returns an MY measurement.
+pub(super) fn noiseless_my() -> Instrument {
+    Instrument::new(vec![noiseless_my0(), noiseless_my1()]).expect("instrument should be valid")
+}
+
+pub(super) fn noiseless_instrument(target: &Targets) -> Instrument {
+    match target {
+        Targets::MX => noiseless_mx(),
+        Targets::MY => noiseless_my(),
+        Targets::MZ => noiseless_mz(),
+    }
+}
+
+pub fn check_measuring_plus_state_in_mz_yields_zero_with_50_percent_probability<
+    NS: NoisySimulator,
+>() {
     let h = noiseless_h();
     let mz = noiseless_mz();
     let mut sim = NS::new(1);
@@ -60,7 +113,9 @@ pub fn check_measuring_plus_state_yields_zero_with_50_percent_probability<NS: No
     assert_eq!(measurement, 0);
 }
 
-pub fn check_measuring_plus_state_yields_one_with_50_percent_probability<NS: NoisySimulator>() {
+pub fn check_measuring_plus_state_in_mz_yields_one_with_50_percent_probability<
+    NS: NoisySimulator,
+>() {
     let h = noiseless_h();
     let mz = noiseless_mz();
     let mut sim = NS::new(1);
@@ -74,9 +129,71 @@ pub fn check_measuring_plus_state_yields_one_with_50_percent_probability<NS: Noi
     assert_eq!(measurement, 1);
 }
 
+pub fn check_measuring_zero_state_in_mx_yields_plus_with_50_percent_probability<
+    NS: NoisySimulator,
+>() {
+    let mx = noiseless_mx();
+    let mut sim = NS::new(1);
+
+    // Random samples less than 0.5 should yield a |+> measurement.
+    let measurement = sim
+        .sample_instrument_with_distribution(&mx, &[0], 0.49999)
+        .expect("measurement should succeed");
+    assert_eq!(measurement, 0); // 0 corresponds to the |+> outcome
+}
+
+pub fn check_measuring_zero_state_in_mx_yields_minus_with_50_percent_probability<
+    NS: NoisySimulator,
+>() {
+    let mx = noiseless_mx();
+    let mut sim = NS::new(1);
+
+    // Random samples greater than 0.5 should yield a |-> measurement.
+    let measurement = sim
+        .sample_instrument_with_distribution(&mx, &[0], 0.50001)
+        .expect("measurement should succeed");
+    assert_eq!(measurement, 1); // 1 corresponds to the |-> outcome
+}
+
+pub fn check_measuring_zero_state_in_my_yields_plus_with_50_percent_probability<
+    NS: NoisySimulator,
+>() {
+    let my = noiseless_my();
+    let mut sim = NS::new(1);
+
+    // Random samples less than 0.5 should yield a |+i> measurement.
+    let measurement = sim
+        .sample_instrument_with_distribution(&my, &[0], 0.49999)
+        .expect("measurement should succeed");
+    assert_eq!(measurement, 0); // 0 corresponds to the |+i> outcome
+}
+
+pub fn check_measuring_plus_state_in_my_yields_minus_with_50_percent_probability<
+    NS: NoisySimulator,
+>() {
+    let h = noiseless_h();
+    let my = noiseless_my();
+    let mut sim = NS::new(1);
+    sim.apply_operation(&h, &[0])
+        .expect("operation should succeed");
+
+    // Random samples greater than 0.5 should yield a |-i> measurement.
+    let measurement = sim
+        .sample_instrument_with_distribution(&my, &[0], 0.50001)
+        .expect("measurement should succeed");
+    assert_eq!(measurement, 1); // 1 corresponds to the |-i> outcome
+}
+
 /// Check that both measurements in a Bell Pair yield the same result.
-pub fn check_bell_pair_sampling_yields_same_outcome_for_both_qubits<NS: NoisySimulator>(seed: u64) {
-    let (h, cnot, mz) = (noiseless_h(), noiseless_cnot(), noiseless_mz());
+pub fn check_bell_pair_sampling_yields_same_outcome_for_both_qubits<NS: NoisySimulator>(
+    seed: u64,
+    target: &Targets,
+) {
+    let (h, cnot, m) = (
+        noiseless_h(),
+        noiseless_cnot(),
+        noiseless_instrument(target),
+    );
     let mut sim = NS::new_with_seed(2, seed);
 
     // Make a Bell Pair.
@@ -87,14 +204,44 @@ pub fn check_bell_pair_sampling_yields_same_outcome_for_both_qubits<NS: NoisySim
 
     // Measure both qubits.
     let m1 = sim
-        .sample_instrument(&mz, &[0])
+        .sample_instrument(&m, &[0])
         .expect("measurement should succeed");
     let m2 = sim
-        .sample_instrument(&mz, &[1])
+        .sample_instrument(&m, &[1])
         .expect("measurement should succeed");
 
     // Check that both measurements yield the same result.
     assert_eq!(m1, m2);
+}
+
+/// Check that both measurements in a Bell Pair yield the same result.
+pub fn check_bell_pair_sampling_yields_opposite_outcome_for_both_qubits<NS: NoisySimulator>(
+    seed: u64,
+    target: &Targets,
+) {
+    let (h, cnot, m) = (
+        noiseless_h(),
+        noiseless_cnot(),
+        noiseless_instrument(target),
+    );
+    let mut sim = NS::new_with_seed(2, seed);
+
+    // Make a Bell Pair.
+    sim.apply_operation(&h, &[0])
+        .expect("operation should succeed");
+    sim.apply_operation(&cnot, &[1, 0])
+        .expect("operation should succeed");
+
+    // Measure both qubits.
+    let m1 = sim
+        .sample_instrument(&m, &[0])
+        .expect("measurement should succeed");
+    let m2 = sim
+        .sample_instrument(&m, &[1])
+        .expect("measurement should succeed");
+
+    // Check that both measurements yield opposite results.
+    assert_ne!(m1, m2);
 }
 
 /// Project both qubits of a Bell Pair on the mz0 direction.
@@ -293,18 +440,38 @@ pub fn check_two_consecutive_mz_yield_same_outcome<NS: NoisySimulator>(seed: u64
     assert_eq!(outcome_0, outcome_1);
 }
 
+/// Check that two consecutive MX on the same qubit yield the same outcome.
+pub fn check_two_consecutive_mx_yield_same_outcome<NS: NoisySimulator>(seed: u64) {
+    let mx = noiseless_mx();
+    let mut sim = NS::new_with_seed(1, seed);
+
+    let outcome_0 = sim
+        .sample_instrument(&mx, &[0])
+        .expect("measurement should succeed");
+    let outcome_1 = sim
+        .sample_instrument(&mx, &[0])
+        .expect("measurement should succeed");
+    assert_eq!(outcome_0, outcome_1);
+}
+
+/// Check that two consecutive MY on the same qubit yield the same outcome.
+pub fn check_two_consecutive_my_yield_same_outcome<NS: NoisySimulator>(seed: u64) {
+    let my = noiseless_my();
+    let mut sim = NS::new_with_seed(1, seed);
+
+    let outcome_0 = sim
+        .sample_instrument(&my, &[0])
+        .expect("measurement should succeed");
+    let outcome_1 = sim
+        .sample_instrument(&my, &[0])
+        .expect("measurement should succeed");
+    assert_eq!(outcome_0, outcome_1);
+}
+
 pub fn check_alternating_mz_and_mx_yield_right_probabilities<NS: NoisySimulator>() {
     let h = noiseless_h();
     let mz = noiseless_mz();
-    let mx = Instrument::new(vec![
-        operation!([0.5, 0.5;
-                    0.5, 0.5;])
-        .expect("operation should be valid"),
-        operation!([ 0.5, -0.5;
-                    -0.5,  0.5;])
-        .expect("operation should be valid"),
-    ])
-    .expect("instrument should be valid");
+    let mx = noiseless_mx();
 
     let mut sim = NS::new(1);
     sim.apply_operation(&h, &[0])
