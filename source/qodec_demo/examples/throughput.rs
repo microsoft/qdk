@@ -9,14 +9,14 @@
 //!
 //! It first checks, on 8 shots, that the three give the same outcomes and
 //! run as many bottom instructions; then times each, interleaved, best of
-//! 5, and reports nanoseconds per bottom instruction and the ratios to the
-//! stack's. Each timing includes building what runs, once per run: the
-//! chain's layers (each plans its own layer and its decoder) and the stack
-//! (which plans every layer and its decoder); the per-shot runtimes are
-//! made inside the run in both. A sample of fewer than 1024 shots runs
-//! `⌈1024 / shots⌉` times over, so that each sample is long enough to time;
-//! it reports, too, the time to build the chain's layers alone, which weighs
-//! most on few shots.
+//! 5, and reports nanoseconds per bottom instruction, the ratios to the
+//! stack's, and microseconds per shot. Each timing includes building what
+//! runs, once per run: the chain's layers (each plans its own layer and
+//! its decoder) and the stack (which plans every layer and its decoder);
+//! the per-shot runtimes are made inside the run in both. A sample of fewer
+//! than 1024 shots runs `⌈1024 / shots⌉` times over, so that each sample is
+//! long enough to time; it reports, too, the time to build the chain's
+//! layers alone, which weighs most on few shots.
 //!
 //! `cargo run --release -p qodec_demo --example throughput [shots...]`
 //! (by default 1000 and 3000 shots).
@@ -199,30 +199,46 @@ fn main() {
         let all = ShotSet::range(0..=shots - 1).expect("not empty");
         let times = SAMPLE_SHOTS.div_ceil(shots);
         // Interleaved: each round runs every variant once, so that a drift
-        // of the machine hits all alike.
-        let mut best = vec![[f64::INFINITY; VARIANTS.len()]; cases.len()];
+        // of the machine hits all alike. Each cell keeps its best sample's
+        // time and its bottom instructions, the same on every sample.
+        let mut best = vec![[(f64::INFINITY, 0_u64); VARIANTS.len()]; cases.len()];
         for _ in 0..REPEATS {
             for (case, row) in cases.iter().zip(&mut best) {
                 for ((variant, _), best) in VARIANTS.iter().zip(row.iter_mut()) {
                     let start = Instant::now();
                     let n: u64 = (0..times).map(|_| run(case, *variant, &all).1).sum();
-                    #[expect(clippy::cast_precision_loss, reason = "a count of instructions")]
-                    let per = start.elapsed().as_secs_f64() * 1e9 / n as f64;
-                    *best = best.min(per);
+                    let elapsed = start.elapsed().as_secs_f64();
+                    if elapsed < best.0 {
+                        *best = (elapsed, n);
+                    }
                 }
             }
         }
+        let shots_run = f64::from(times * shots);
         println!(
             "{shots} shots, {times} run(s) a sample, best of {REPEATS} interleaved; \
-             ns per bottom instruction"
+             ns per bottom instruction, and µs per shot"
         );
         println!(
-            "{:<8} {:>8} {:>8} {:>9} {:>8} {:>11}",
-            "example", "stack", "chain", "profiled", "chain/s", "profiled/s"
+            "{:<8} {:>8} {:>8} {:>9} {:>8} {:>11} {:>9} {:>9} {:>11}",
+            "example",
+            "stack",
+            "chain",
+            "profiled",
+            "chain/s",
+            "profiled/s",
+            "stack µs",
+            "chain µs",
+            "profiled µs"
         );
-        for (case, [stack, chain, profiled]) in cases.iter().zip(&best) {
+        for (case, row) in cases.iter().zip(&best) {
+            #[expect(clippy::cast_precision_loss, reason = "a count of instructions")]
+            let [stack, chain, profiled] = row.map(|(secs, n)| secs * 1e9 / n as f64);
+            let [stack_shot, chain_shot, profiled_shot] =
+                row.map(|(secs, _)| secs * 1e6 / shots_run);
             println!(
-                "{:<8} {stack:>8.1} {chain:>8.1} {profiled:>9.1} {:>8.2} {:>11.2}",
+                "{:<8} {stack:>8.1} {chain:>8.1} {profiled:>9.1} {:>8.2} {:>11.2} \
+                 {stack_shot:>9.1} {chain_shot:>9.1} {profiled_shot:>11.1}",
                 case.name,
                 chain / stack,
                 profiled / stack

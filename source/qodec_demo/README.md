@@ -100,7 +100,7 @@ lacks; and c422 and c4c6 from the lowerer's examples
 cargo test -p qodec_demo                       # the behaviours
 cargo test -p qodec_demo -- --ignored          # the findings: these fail
 cargo run --release -p qodec_demo --example lockstep [shots...]
-cargo run --release -p qodec_demo --example latency [ms...]
+cargo run --release -p qodec_demo --example latency [--shots n,...] [ms...]
 cargo run --release -p qodec_demo --example throughput [shots...]
 ```
 
@@ -123,11 +123,14 @@ Three examples measure the chain end to end. The numbers below are from
 release builds on one WSL machine, two cores. Each range pools several
 runs:
 
-- latency: sixteen runs;
-- throughput from 64 shots on: eighteen runs;
-- throughput on fewer shots: the seven runs since each layer plans only
-  itself (below);
-- throughput on fewer shots before that change: thirteen runs.
+- latency on 1 and 4 shots: sixteen runs;
+- latency on 4, 16 and 64 shots at 10 ms: one run, the latest;
+- throughput's ratios from 64 shots on: twenty-one runs, the latest three
+  included;
+- throughput's ratios on fewer shots: the ten runs since each layer plans
+  only itself (below), the latest three included;
+- throughput's ratios on fewer shots before that change: thirteen runs;
+- throughput's times per shot: the latest three runs.
 
 Times vary by about 10% between runs, more on few shots, so a new run
 can fall slightly outside these ranges. Call counts do not vary.
@@ -176,14 +179,25 @@ can fall slightly outside these ranges. Call counts do not vary.
     many device calls as the one chain (276), and on c422 12 calls against
     its 9. The 69 calls of way `bare` on c4c6 are a bound that no layer
     reaches today.
+  - On more shots (one run, `latency --shots 4,16,64 10`), the gap grows
+    with the shots. On c4c6, on 4, 16 and 64 shots, way `layer` takes
+    2.86, 11.6 and 46.9 s, and `thread` 2.91, 11.6 and 48.7 s, the shots
+    one after another; way `shots` takes 0.71, 0.72 and 0.80 s, and `bare`
+    0.72, 0.72 and 0.87 s, about one shot's time: on 64 shots, `shots` is
+    59 times faster than `layer`. On c422, `layer` takes 95, 359 and
+    1386 ms, and `shots` 34, 41 and 51 ms. On c422, `layer` holds the
+    polling thread for 89%, 97% and 99% of the run. Way `bare` on 64
+    shots of c4c6 takes 12.7 ms a call, the run's own work on the 64 shots
+    adding to the latency. This run's `layer` on 4 shots of c4c6 (2.86 s)
+    falls just below the sixteen runs' 2.9–3.0 s.
 - **Throughput** (`examples/throughput.rs`, run as
-  `throughput 1 4 16 64 256 1024`): the time per bottom instruction over
-  coins that answer within their call, against the Qodec runtime's own
-  stack.
+  `throughput 1 4 16 64 256 1024`): the time per bottom instruction, and
+  per shot, over coins that answer within their call, against the Qodec
+  runtime's own stack.
   - From 64 to 1024 shots, the chain takes 0.98–1.18 times the stack's
-    time, and with the profiler 1.03–1.19 times.
+    time, and with the profiler 1.03–1.20 times.
   - On 1 shot, the chain takes 1.00–1.09 times the stack's time on c422
-    and 1.05–1.11 times on c4c6, with or without the profiler. Each run
+    and 1.05–1.13 times on c4c6, with or without the profiler. Each run
     builds what it runs: the chain's layers (about 0.4 ms on c422, 0.6 ms
     on c4c6), each planning its own layer and its decoder, and the stack,
     which plans the same.
@@ -197,6 +211,21 @@ can fall slightly outside these ranges. Call counts do not vary.
     layer, as the layer now does.
   - On 4 and 16 shots, the chain takes 1.01–1.18 times the stack's time,
     with or without the profiler (1.05–1.30 before that change).
+  - The time per shot, in µs, over the latest three runs:
+
+    | Shots | c422 stack | c422 chain | c4c6 stack | c4c6 chain |
+    | ----: | ---------: | ---------: | ---------: | ---------: |
+    |     1 |    607–631 |    641–659 |  1575–1590 |  1662–1733 |
+    |     4 |    246–256 |    261–273 |   989–1013 |  1066–1094 |
+    |    16 |    157–161 |    172–183 |    823–862 |    896–933 |
+    |    64 |    134–135 |    141–149 |    796–806 |    874–875 |
+    |   256 |    123–130 |    136–148 |    781–798 |    870–898 |
+    |  1024 |    124–129 |    137–143 |    778–794 |    886–892 |
+
+    On few shots, building what runs weighs most: on 1 shot of c422,
+    building the chain's layers (0.41–0.42 ms in these runs) is about two
+    thirds of the chain's time.
+
   - The chain converts each call's instructions to and from the runtime's
     and checks them against the sets (`[GLUE]`, `[PLUMBING:checks]`), as
     the Qodec prototype's did. There, passing the runtime's own

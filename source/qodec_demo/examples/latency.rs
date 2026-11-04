@@ -27,8 +27,10 @@
 //! `thread` and `shots` include building the chain on its thread, which
 //! it reports apart.
 //!
-//! `cargo run --release -p qodec_demo --example latency [ms...]`
-//! (by default 0.1, 1 and 10 ms).
+//! `cargo run --release -p qodec_demo --example latency [--shots n,...]
+//! [ms...]`: each case runs on shots `0..n` for each `n` (by default 1
+//! and 4), at each latency (by default 0.1, 1 and 10 ms); for example
+//! `latency --shots 4,16,64 10`.
 
 #[path = "../tests/common/mod.rs"]
 mod common;
@@ -375,8 +377,22 @@ fn tagged_once(batches: &[Vec<InstructionCall>]) -> Vec<Vec<InstructionCall>> {
 }
 
 fn main() {
-    let latencies: Vec<f64> = std::env::args()
-        .skip(1)
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let shot_counts: Vec<ShotId> = if args.first().is_some_and(|a| a == "--shots") {
+        let counts = args.get(1).expect("--shots takes a list, such as 4,16,64");
+        let counts = (counts.split(','))
+            .map(|n| n.parse().expect("a number of shots"))
+            .collect();
+        args.drain(..2);
+        counts
+    } else {
+        vec![1, 4]
+    };
+    assert!(
+        shot_counts.iter().all(|&n| n > 0),
+        "a run takes at least one shot"
+    );
+    let latencies: Vec<f64> = (args.iter())
         .map(|s| s.parse().expect("a latency in ms"))
         .collect();
     let latencies = if latencies.is_empty() {
@@ -400,8 +416,6 @@ fn main() {
         case("c422", c422(), 1, c422_program),
         case("c4c6", c4c6(), 2, c4c6_program),
     ];
-    let shot_counts: [ShotId; 2] = [1, 4];
-
     for case in &cases {
         for &n in &shot_counts {
             let shots = ShotSet::range(0..=n - 1).expect("not empty");
