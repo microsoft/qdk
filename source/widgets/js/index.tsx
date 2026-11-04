@@ -15,6 +15,11 @@ import {
   Atoms,
   type ZoneLayout,
   type TraceData,
+  Majorana,
+  type MajoranaInput,
+  type MajoranaOptions,
+  type MajoranaPresentationOptions,
+  type MajoranaView,
   MoleculeViewer,
   Entanglement,
   type EntanglementProps,
@@ -44,7 +49,7 @@ type RenderArgs = {
   el: HTMLElement;
 };
 
-function render({ model, el }: RenderArgs) {
+function render({ model, el }: RenderArgs): void | (() => void) {
   const componentType = model.get("comp");
 
   // There is an existing issue where in VS Code it always shows the widget background as white.
@@ -85,6 +90,8 @@ function render({ model, el }: RenderArgs) {
     case "Atoms":
       renderAtoms({ model, el });
       break;
+    case "Majorana":
+      return renderMajorana({ model, el });
     case "MoleculeViewer":
       renderMoleculeViewer({ model, el });
       break;
@@ -304,6 +311,36 @@ function renderAtoms({ model, el }: RenderArgs) {
   onChange();
   model.on("change:machine_layout", onChange);
   model.on("change:trace_data", onChange);
+}
+
+function renderMajorana({ model, el }: RenderArgs): () => void {
+  const getInput = () =>
+    [model.get("device_size"), model.get("trace")] as MajoranaInput;
+  const getPresentation = (): MajoranaPresentationOptions => ({
+    showQubitLabels: model.get("show_qubit_labels") as boolean,
+    showMzmLabels: model.get("show_mzm_labels") as boolean,
+  });
+  const controller = Majorana(el, getInput(), {
+    ...getPresentation(),
+    enableVirtualView: model.get("enable_virtual_view") as boolean,
+    initialView: model.get("initial_view") as MajoranaView,
+  } satisfies MajoranaOptions);
+  const onInputChange = () => controller.updateInput(getInput());
+  const onPresentationChange = () =>
+    controller.updatePresentation(getPresentation());
+
+  model.on("change:device_size", onInputChange);
+  model.on("change:trace", onInputChange);
+  model.on("change:show_qubit_labels", onPresentationChange);
+  model.on("change:show_mzm_labels", onPresentationChange);
+
+  return () => {
+    model.off("change:device_size", onInputChange);
+    model.off("change:trace", onInputChange);
+    model.off("change:show_qubit_labels", onPresentationChange);
+    model.off("change:show_mzm_labels", onPresentationChange);
+    controller.dispose();
+  };
 }
 
 function renderEntanglement({ model, el }: RenderArgs) {

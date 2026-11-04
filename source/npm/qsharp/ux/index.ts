@@ -30,6 +30,35 @@ export {
 export { Circuit, CircuitPanel } from "./circuit.js";
 export { setRenderer, Markdown } from "./renderers.js";
 export { Atoms, type ZoneLayout, type TraceData } from "./atoms/index.js";
+export {
+  Majorana,
+  MajoranaValidationError,
+  validateMajoranaInput,
+  validateMajoranaOptions,
+  validateMajoranaPresentationOptions,
+  type JointQubitOperation,
+  type JointQubitOperationName,
+  type JointVirtualOperationTraceEntry,
+  type MajoranaController,
+  type MajoranaDeviceSize,
+  type MajoranaInput,
+  type MajoranaInputValidationOptions,
+  type MajoranaOperation,
+  type MajoranaOperationName,
+  type MajoranaOptions,
+  type MajoranaPresentationOptions,
+  type MajoranaTrace,
+  type MajoranaTraceStep,
+  type MajoranaValidationErrorCode,
+  type MajoranaView,
+  type ResolvedMajoranaOptions,
+  type SingleQubitOperation,
+  type SingleQubitOperationName,
+  type SingleVirtualOperationTraceEntry,
+  type ValidatedMajoranaInput,
+  type VirtualOperationName,
+  type VirtualOperationTraceEntry,
+} from "./majorana/index.js";
 export { MoleculeViewer } from "./chem/index.js";
 export { Entanglement, type EntanglementProps } from "./entanglement.js";
 export {

@@ -246,6 +246,51 @@ class Atoms(anywidget.AnyWidget):
         super().__init__(machine_layout=machine_layout, trace_data=trace_data)
 
 
+class Majorana(anywidget.AnyWidget):
+    """Display a Majorana device and its operation trace.
+
+    Device sizes and traces accept lists or tuples. Device and operation
+    validation is performed by the frontend when rendering.
+    ``enable_virtual_view`` is read-only after construction.
+    ``initial_view`` is read when the browser component mounts. Changing it
+    later does not override the view selected by the user.
+    """
+
+    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
+    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+
+    comp = traitlets.Unicode("Majorana").tag(sync=True)
+    device_size = traitlets.List().tag(sync=True)
+    trace = traitlets.List().tag(sync=True)
+    enable_virtual_view = traitlets.Bool(False, read_only=True).tag(sync=True)
+    show_qubit_labels = traitlets.Bool(True).tag(sync=True)
+    show_mzm_labels = traitlets.Bool(False).tag(sync=True)
+    initial_view = traitlets.Enum(
+        ("Tetrons", "Qubits", "Virtual"), default_value="Tetrons"
+    ).tag(sync=True)
+
+    def __init__(
+        self,
+        device_size,
+        trace,
+        *,
+        enable_virtual_view=False,
+        show_qubit_labels=True,
+        show_mzm_labels=False,
+        initial_view=None,
+    ):
+        self.set_trait("enable_virtual_view", enable_virtual_view)
+        if initial_view is None:
+            initial_view = "Virtual" if self.enable_virtual_view else "Tetrons"
+        super().__init__(
+            device_size=device_size,
+            trace=trace,
+            show_qubit_labels=show_qubit_labels,
+            show_mzm_labels=show_mzm_labels,
+            initial_view=initial_view,
+        )
+
+
 class Entanglement(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
     _css = pathlib.Path(__file__).parent / "static" / "index.css"
