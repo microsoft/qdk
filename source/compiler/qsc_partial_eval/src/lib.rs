@@ -2699,23 +2699,30 @@ impl<'a> PartialEvaluator<'a> {
         self.eval_context.push_block_node(continuation_block_node);
 
         // Since the if expression can represent a dynamic value, create a variable to store it if the expression is
-        // non-unit.
+        // of a supported type.
         let if_expr = self.get_expr(if_expr_id);
         let maybe_if_expr_var =
             if if_expr.ty == Ty::UNIT || matches!(if_expr.ty, Ty::Prim(Prim::String)) {
                 None
             } else {
                 let variable_id = self.resource_manager.next_var();
-                let variable_ty = map_fir_type_to_rir_type(&if_expr.ty).map_err(|msg| {
-                    Error::Unexpected(
-                        format!("unsupported if-expression output type `{msg}`"),
-                        self.get_expr_package_span(if_expr_id),
-                    )
-                })?;
-                Some(rir::Variable {
-                    variable_id,
-                    ty: variable_ty,
-                })
+                let expected_variable_ty = map_fir_type_to_rir_type(&if_expr.ty);
+                match expected_variable_ty {
+                    Ok(variable_ty) => Some(rir::Variable {
+                        variable_id,
+                        ty: variable_ty,
+                    }),
+                    // If the type is an arrow, this could be leftover dynamic callable values that have been transformed away by passes.
+                    // In this case, we ignore the error and return none so that the output of the expression will become unit below.
+                    // This should be safe because a dynamic callable value will not be invoked (blocked by RCA).
+                    Err(_) if matches!(if_expr.ty, Ty::Arrow(_)) => None,
+                    Err(msg) => {
+                        return Err(Error::Unexpected(
+                            format!("unsupported if-expression output type `{msg}`"),
+                            self.get_expr_package_span(if_expr_id),
+                        ));
+                    }
+                }
             };
 
         // Evaluate the body expression.
