@@ -350,20 +350,36 @@ fn explicit_specialization_bodies_are_return_unified() {
         "#},
         &["Foo", "Main"],
         &expect![[r#"
-callable Foo: input_ty=(Int, Qubit), output_ty=Unit
-    body: block_ty=Unit
-        [0] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
-    adj: block_ty=Unit
-        [0] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
-    ctl: block_ty=Unit
-        [0] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
-    ctl_adj: block_ty=Unit
-        [0] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
-callable Main: input_ty=Unit, output_ty=Unit
-    body: block_ty=Unit
-        [0] Local(Immutable, q: Qubit): Call[ty=Qubit]
-        [1] Semi Call[ty=Unit]
-        [2] Semi Call[ty=Unit]"#]],
+            callable Foo: input_ty=(Int, Qubit), output_ty=Unit
+                body: block_ty=Unit
+                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, _.ret_val: Unit): Tuple(len=0)
+                    [2] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit])
+                    [3] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Unit], else=Tuple(len=0))
+                adj: block_ty=Unit
+                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, _.ret_val: Unit): Tuple(len=0)
+                    [2] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit])
+                    [3] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Unit], else=Tuple(len=0))
+                ctl: block_ty=Unit
+                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, _.ret_val: Unit): Tuple(len=0)
+                    [2] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit])
+                    [3] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Unit], else=Tuple(len=0))
+                ctl_adj: block_ty=Unit
+                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, _.ret_val: Unit): Tuple(len=0)
+                    [2] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit])
+                    [3] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Unit], else=Tuple(len=0))
+            callable Main: input_ty=Unit, output_ty=Unit
+                body: block_ty=Unit
+                    [0] Local(Immutable, q: Qubit): Call[ty=Qubit]
+                    [1] Semi Call[ty=Unit]
+                    [2] Semi Call[ty=Unit]"#]],
     );
 }
 

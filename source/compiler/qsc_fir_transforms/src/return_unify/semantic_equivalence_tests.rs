@@ -19,6 +19,269 @@ use qsc_fir::{
     ty::{GenericArg, Prim, Ty},
 };
 
+// Keep the specialization bodies without a trailing Unit expression.
+fn check_bare_unit_specialization(call: &str, expected: bool) {
+    let source = format!(
+        r#"
+        operation GuardedX(stop : Bool, target : Qubit) : Unit is Adj + Ctl {{
+            body ... {{
+                if stop {{ return (); }}
+                X(target);
+            }}
+            adjoint ... {{
+                if stop {{ return (); }}
+                X(target);
+            }}
+            controlled (controls, ...) {{
+                if stop {{ return (); }}
+                Controlled X(controls, target);
+            }}
+            controlled adjoint (controls, ...) {{
+                if stop {{ return (); }}
+                Controlled X(controls, target);
+            }}
+        }}
+        @EntryPoint()
+        operation Main() : Result {{
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            {call};
+            Reset(control);
+            MResetZ(target)
+        }}
+        "#
+    );
+    check_value(&source, Value::Result(qsc_eval::val::Result::Val(expected)));
+}
+
+#[test]
+fn bare_unit_body_return_skips_gate() {
+    check_bare_unit_specialization("GuardedX(true, target)", false);
+}
+
+#[test]
+fn bare_unit_body_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization("GuardedX(false, target)", true);
+}
+
+#[test]
+fn bare_unit_adjoint_return_skips_gate() {
+    check_bare_unit_specialization("Adjoint GuardedX(true, target)", false);
+}
+
+#[test]
+fn bare_unit_adjoint_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization("Adjoint GuardedX(false, target)", true);
+}
+
+#[test]
+fn bare_unit_controlled_return_skips_gate() {
+    check_bare_unit_specialization("Controlled GuardedX([control], (true, target))", false);
+}
+
+#[test]
+fn bare_unit_controlled_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization("Controlled GuardedX([control], (false, target))", true);
+}
+
+#[test]
+fn bare_unit_controlled_adjoint_return_skips_gate() {
+    check_bare_unit_specialization(
+        "Controlled Adjoint GuardedX([control], (true, target))",
+        false,
+    );
+}
+
+#[test]
+fn bare_unit_controlled_adjoint_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization(
+        "Controlled Adjoint GuardedX([control], (false, target))",
+        true,
+    );
+}
+
+fn measured_bare_unit_guard_source(prepare_control: &str) -> String {
+    format!(
+        r#"
+        operation GuardedX(stop : Bool, target : Qubit) : Unit {{
+            if stop {{ return (); }}
+            X(target);
+        }}
+        @EntryPoint()
+        operation Main() : Result {{
+            use control = Qubit();
+            use target = Qubit();
+            {prepare_control}
+            let stop = MResetZ(control) == One;
+            GuardedX(stop, target);
+            MResetZ(target)
+        }}
+        "#
+    )
+}
+
+#[test]
+fn measured_bare_unit_guard_return_skips_gate() {
+    check_value(
+        &measured_bare_unit_guard_source("X(control);"),
+        Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn measured_bare_unit_guard_fallthrough_applies_gate_once() {
+    check_value(
+        &measured_bare_unit_guard_source(""),
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn measured_bare_unit_guard_generates_adaptive_qir_with_gate_only_on_fallthrough() {
+    let qir = crate::test_utils::generate_qir(&measured_bare_unit_guard_source(""));
+    expect_test::expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          br i1 %var_0, label %block_1, label %block_2
+        block_1:
+          br label %block_2
+        block_2:
+          %var_6 = phi i1 [false, %block_0], [true, %block_1]
+          %var_5 = xor i1 %var_6, true
+          br i1 %var_5, label %block_3, label %block_4
+        block_3:
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          br label %block_4
+        block_4:
+          br i1 %var_6, label %block_5, label %block_6
+        block_5:
+          br label %block_7
+        block_6:
+          br label %block_7
+        block_7:
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare zeroext i1 @__quantum__rt__read_result(%Result*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn let_before_tail_preserves_the_complete_fallthrough_value() {
+    check_value(
+        r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            let y = 2;
+            y + 100
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false) }
+        "#,
+        Value::Int(102),
+    );
+}
+
+#[test]
+fn taken_guard_before_local_skips_fallthrough_effects() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int { Message("tail"); 2 }
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            let y = Tail();
+            y + 100
+        }
+        @EntryPoint()
+        operation Main() : Int { F(true) }
+        "#,
+        Value::Int(1),
+        "",
+    );
+}
+
+#[test]
+fn untaken_guard_before_local_evaluates_initializer_once_and_preserves_tail_value() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int { Message("tail"); 2 }
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            let y = Tail();
+            y + 100
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false) }
+        "#,
+        Value::Int(102),
+        "tail\n",
+    );
+}
+
+#[test]
+fn earlier_return_survives_a_later_return_and_dead_tail() {
+    check_value(
+        r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            return 2;
+            0
+        }
+        @EntryPoint()
+        operation Main() : Int { F(true) }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn later_return_survives_an_untaken_earlier_guard() {
+    check_value(
+        r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            return 2;
+            0
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false) }
+        "#,
+        Value::Int(2),
+    );
+}
+
 #[test]
 fn nested_tail_return_after_guard_returns_nine() {
     check_value(
