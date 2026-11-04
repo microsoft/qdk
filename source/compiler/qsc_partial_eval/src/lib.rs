@@ -2699,7 +2699,7 @@ impl<'a> PartialEvaluator<'a> {
         self.eval_context.push_block_node(continuation_block_node);
 
         // Since the if expression can represent a dynamic value, create a variable to store it if the expression is
-        // non-unit.
+        // of a supported type.
         let if_expr = self.get_expr(if_expr_id);
         let maybe_if_expr_var =
             if if_expr.ty == Ty::UNIT || matches!(if_expr.ty, Ty::Prim(Prim::String)) {
