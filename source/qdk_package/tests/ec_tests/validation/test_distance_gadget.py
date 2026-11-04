@@ -1019,7 +1019,7 @@ def test_gadget_profile_defaults_to_highs(rep3_qodec: qc.Qodec, method: str) -> 
     assert distance == 3
     (effect,) = profile.effects_of([distance.witness.product])
     assert effect == FaultEffect(["readouts[0]"])
-    backend.assert_called_once_with("highspy")
+    backend.assert_called_once_with("mwpf._highs")
 
 
 @requires_highs

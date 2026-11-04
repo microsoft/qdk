@@ -242,7 +242,7 @@ def test_default_bounds_uses_highs() -> None:
         lower, upper, witness = data.bounds()
     assert lower == upper == 3
     assert set(witness) == {0, 1, 2}
-    backend.assert_called_once_with("highspy")
+    backend.assert_called_once_with("mwpf._highs")
 
 
 @requires_highs
@@ -267,14 +267,15 @@ def test_highs_proves_infeasibility() -> None:
     assert data.shortest("highs") == (3, [])
 
 
-def test_highs_missing_package_has_install_hint() -> None:
+@pytest.mark.parametrize("missing", ["mwpf", "mwpf._highs"])
+def test_highs_missing_package_has_install_hint(missing: str) -> None:
     data = OddCycles(
         [frozenset({0, 1}), frozenset({1, 2}), frozenset({0, 2})],
         [frozenset({0}), frozenset(), frozenset()],
     )
     with patch(
         "qdk.ec._analysis.distance_solvers.import_module",
-        side_effect=ModuleNotFoundError(name="highspy"),
+        side_effect=ModuleNotFoundError(name=missing),
     ):
         assert data.shortest("enumeration")[0] == 3
         with pytest.raises(ImportError, match="qdk\\[ec\\]"):
@@ -283,7 +284,7 @@ def test_highs_missing_package_has_install_hint() -> None:
 
 @requires_highs
 def test_highs_limited_result_retains_gap() -> None:
-    backend = import_module("highspy")
+    backend = import_module("mwpf._highs")
     model = MagicMock()
     indices = count()
     model.setOptionValue.return_value = backend.HighsStatus.kOk
@@ -316,6 +317,20 @@ def test_highs_limited_result_retains_gap() -> None:
             data.bounds(solver="highs")
 
 
+def test_highs_preserves_unrelated_backend_import_failure() -> None:
+    data = OddCycles(
+        [frozenset({0, 1}), frozenset({1, 2}), frozenset({0, 2})],
+        [frozenset({0}), frozenset(), frozenset()],
+    )
+    with patch(
+        "qdk.ec._analysis.distance_solvers.import_module",
+        side_effect=ModuleNotFoundError(name="broken_dependency"),
+    ):
+        with pytest.raises(ModuleNotFoundError) as error:
+            data.shortest("highs")
+    assert error.value.name == "broken_dependency"
+
+
 @requires_highs
 @pytest.mark.parametrize(
     "values,bound",
@@ -327,7 +342,7 @@ def test_highs_limited_result_retains_gap() -> None:
     ],
 )
 def test_highs_rejects_invalid_results(values: list[float], bound: float) -> None:
-    backend = import_module("highspy")
+    backend = import_module("mwpf._highs")
     model = MagicMock()
     indices = count()
     model.setOptionValue.return_value = backend.HighsStatus.kOk

@@ -1,6 +1,6 @@
 """Skip markers for dependencies that may be absent in source environments.
 
-Published ``qdk[ec]`` installs HiGHS. MWPF requires a separate installation.
+Published ``qdk[ec]`` installs MWPF, including its bundled HiGHS interface.
 Stim comes with ``qodec[parsers]``, which ``qdk[ec]`` omits on platforms without
 Stim wheels (Linux aarch64, Windows ARM64); tests that parse ``format="stim"``
 circuits, directly or through ``build_qodec``, need it. Tests for these
@@ -15,14 +15,22 @@ import pytest
 
 
 def _requires(module: str, package: str) -> pytest.MarkDecorator:
+    try:
+        missing = find_spec(module) is None
+    except ModuleNotFoundError as error:
+        if error.name is None or not (
+            module == error.name or module.startswith(f"{error.name}.")
+        ):
+            raise
+        missing = True
     return pytest.mark.skipif(
-        find_spec(module) is None,
+        missing,
         reason=f"{module} is not installed (pip install '{package}')",
     )
 
 
-requires_mwpf = _requires("mwpf", "mwpf")
-requires_highs = _requires("highspy", "qdk[ec]")
+requires_mwpf = _requires("mwpf", "mwpf>=0.2.18")
+requires_highs = _requires("mwpf._highs", "qdk[ec]")
 requires_stim = _requires("stim", "stim")
 
 __all__ = ["requires_mwpf", "requires_highs", "requires_stim"]

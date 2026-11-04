@@ -44,7 +44,7 @@ ec = [
   "paulimer>=0.2.2",
   "binar>=0.1.2",
   "more-itertools>=10.0",
-  "highspy>=1.11,<2",
+  "mwpf>=0.2.18,<0.3",
   "numpy>=1.24",
   "scipy>=1.9",
 ]
@@ -62,7 +62,7 @@ all = [
   "paulimer>=0.2.2",
   "binar>=0.1.2",
   "more-itertools>=10.0",
-  "highspy>=1.11,<2",
+  "mwpf>=0.2.18,<0.3",
   "numpy>=1.24",
   "scipy>=1.9",
 ]

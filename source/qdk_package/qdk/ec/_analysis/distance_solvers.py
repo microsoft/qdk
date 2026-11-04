@@ -143,12 +143,12 @@ def highs_bounds(
     ):
         raise ValueError("HiGHS timeout must be finite and nonnegative")
     try:
-        highs: Any = import_module("highspy")
+        highs: Any = import_module("mwpf._highs")
     except ModuleNotFoundError as exception:
-        if exception.name != "highspy":
+        if exception.name not in {"mwpf", "mwpf._highs"}:
             raise
         raise ImportError(
-            "HiGHS is required for this solver; install it with pip install 'qdk[ec]'"
+            "Bundled HiGHS requires mwpf>=0.2.18; install it with pip install 'qdk[ec]'"
         ) from exception
     count = len(data.check_matrix)
     cap = count if upper_bound is None else min(count, upper_bound)

@@ -168,6 +168,10 @@ It requires Python 3.11 or newer and `qodec>=0.2.0.dev0,<0.3`. Install the local
 qodec Python bindings first while that version is unpublished, then install
 `qdk[ec]`.
 
+Distance analysis uses the bundled HiGHS interface in `mwpf>=0.2.18`, rather
+than a separate `highspy` installation. This also supplies the distance backend
+on Windows ARM64.
+
 On Linux aarch64 and Windows ARM64, `qdk[ec]` installs `qodec` without its
 `parsers` extra because `stim` publishes no wheels for those platforms. Features
 that parse `format="stim"` circuits, including `ec.build_qodec`, raise
