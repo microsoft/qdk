@@ -1692,7 +1692,13 @@ impl<'a> PartialEvaluator<'a> {
             Value::Closure(inner) => (inner.id, inner.functor, Some(inner.fixed_args)),
             Value::Global(id, functor) => (id, functor, None),
             Value::GlobalWithArgs(global) => (global.id, global.functor, None),
-            _ => panic!("value is not callable"),
+            Value::Tuple(inner, None) if inner.is_empty() => {
+                return Err(Error::Unimplemented(
+                    "call to dynamic callee".to_string(),
+                    self.get_expr_package_span(callee_expr_id),
+                ));
+            }
+            val => panic!("value is not callable: {val:?}"),
         };
         let global = self
             .package_store
@@ -5032,6 +5038,13 @@ impl<'a> PartialEvaluator<'a> {
         array_package_span: PackageSpan,
         array_elem_ty: &Ty,
     ) -> Result<Value, Error> {
+        if matches!(array_elem_ty, Ty::Arrow(_)) {
+            // We are indexing into an array of dynamic callables. In this case, we cannot determine the result at compile time,
+            // so we return a unit value as a placeholder. In general, this value will be unused by program after FIR transformations.
+            // In some cases, it may survive until a call expression, which case we fail gracefully at that point.
+            return Ok(Value::unit());
+        }
+
         let Ok(rir::Ty::Prim(elem_ty)) = map_fir_type_to_rir_type(array_elem_ty) else {
             return Err(Error::Unexpected(
                 "array with non-primitive RIR type".to_string(),
