@@ -15,28 +15,12 @@ use crate::{
     CompilerConfig, FunctorConstraintSolver, FunctorConstraints, OperationSignature,
     OutputSemantics, ProgramType, QasmCompileUnit, QubitSemantics,
     ast_builder::{
-        build_angle_cast_call_by_name, build_angle_convert_call_with_two_params, build_arg_pat,
-        build_argument_validation_stmts, build_array_reverse_expr, build_assignment_statement,
-        build_attr, build_barrier_call, build_binary_expr, build_break_stmt, build_call_no_params,
-        build_call_stmt_no_params, build_call_with_param, build_call_with_params,
-        build_classical_decl, build_complex_from_expr, build_continue_stmt,
-        build_convert_call_expr, build_convert_cast_call_by_name, build_end_stmt,
-        build_expr_array_expr, build_field_expr, build_for_stmt, build_function_or_operation,
-        build_functor_from_constraints, build_gate_call_param_expr,
-        build_gate_call_with_params_and_callee, build_if_expr_then_block,
-        build_if_expr_then_block_else_block, build_if_expr_then_block_else_expr,
-        build_if_expr_then_expr_else_expr, build_implicit_return_stmt, build_index_expr,
-        build_lit_angle_expr, build_lit_bigint_expr, build_lit_bool_expr, build_lit_complex_expr,
-        build_lit_double_expr, build_lit_int_expr, build_lit_result_array_expr,
-        build_lit_result_expr, build_managed_qubit_alloc, build_math_call_from_exprs,
-        build_math_call_no_params, build_measure_call, build_measureeachz_call,
-        build_operation_with_stmts, build_path_ident_expr, build_path_ident_ty,
+        build_angle_cast_call_by_name, build_angle_convert_call_with_two_params,
+        build_argument_validation_stmts, build_barrier_call, build_classical_decl,
+        build_convert_cast_call_by_name, build_end_stmt, build_for_stmt,
+        build_function_or_operation, build_lit_angle_expr, build_lit_complex_expr,
         build_qasm_convert_call_with_one_param, build_qasm_import_decl, build_qasm_import_items,
-        build_qasmstd_convert_call_with_two_params, build_range_expr, build_reset_all_call,
-        build_reset_call, build_return_expr, build_return_unit, build_stmt_semi_from_expr,
-        build_stmt_semi_from_expr_with_span, build_top_level_ns_with_items, build_tuple_expr,
-        build_unary_op_expr, build_while_stmt, build_wrapped_block_expr, managed_qubit_alloc_array,
-        map_qsharp_type_to_ast_ty, wrap_expr_in_parens,
+        build_qasmstd_convert_call_with_two_params, map_qsharp_type_to_ast_ty,
     },
     get_errors_from_analysis_result,
     parser_types::{ParserSpanExt, to_qsharp_source_map},
@@ -59,6 +43,25 @@ use qdk_openqasm::{
     stdlib::complex::Complex,
 };
 use qsc_ast::ast::{self as qsast, NodeId, Package};
+use qsc_ast::builder::{
+    boxed_list_from_iter, build_arg_pat, build_array_reverse_expr, build_assignment_statement,
+    build_attr, build_binary_expr, build_block, build_break_stmt, build_call_no_params,
+    build_call_stmt_no_params, build_call_with_param, build_call_with_params,
+    build_complex_from_expr, build_continue_stmt, build_convert_call_expr, build_expr_array_expr,
+    build_field_expr, build_functor_from_constraints, build_gate_call_param_expr,
+    build_gate_call_with_params_and_callee, build_if_expr_then_block,
+    build_if_expr_then_block_else_block, build_if_expr_then_block_else_expr,
+    build_if_expr_then_expr_else_expr, build_implicit_return_stmt, build_index_expr,
+    build_lit_bigint_expr, build_lit_bool_expr, build_lit_double_expr, build_lit_int_expr,
+    build_lit_result_array_expr, build_lit_result_expr, build_managed_qubit_alloc,
+    build_math_call_from_exprs, build_math_call_no_params, build_measure_call,
+    build_measureeachz_call, build_operation_with_stmts, build_path_ident_expr,
+    build_path_ident_ty, build_range_expr, build_reset_all_call, build_reset_call,
+    build_return_expr, build_return_unit, build_stmt_semi_from_expr,
+    build_stmt_semi_from_expr_with_span, build_top_level_ns_with_items, build_tuple_expr,
+    build_unary_op_expr, build_while_stmt, build_wrapped_block_expr, managed_qubit_alloc_array,
+    wrap_expr_in_parens,
+};
 
 const QSHARP_QIR_INTRINSIC_ANNOTATION: &str = "SimulatableIntrinsic";
 const QDK_QIR_INTRINSIC_ANNOTATION: &str = "qdk.qir.intrinsic";
@@ -89,10 +92,6 @@ fn err_expr(span: Span) -> qsast::Expr {
         span,
         ..Default::default()
     }
-}
-
-fn boxed_list_from_iter<T>(iter: impl IntoIterator<Item = T>) -> Box<[Box<T>]> {
-    iter.into_iter().map(Box::new).collect()
 }
 
 #[must_use]
@@ -910,11 +909,7 @@ impl QasmCompiler {
         let implicit_return = build_implicit_return_stmt(output_expr);
 
         // Finally we build the Block expr.
-        let block = qsast::Block {
-            id: Default::default(),
-            span: rhs_span,
-            stmts: boxed_list_from_iter(vec![temp_var_stmt, update_stmt, implicit_return]),
-        };
+        let block = build_block(vec![temp_var_stmt, update_stmt, implicit_return], rhs_span);
 
         let rhs = qsast::Expr {
             id: Default::default(),
@@ -955,11 +950,7 @@ impl QasmCompiler {
             stmts.push(close);
         }
 
-        let block = qsast::Block {
-            id: qsast::NodeId::default(),
-            stmts: boxed_list_from_iter(stmts),
-            span: stmt.span.to_qsharp(),
-        };
+        let block = build_block(stmts, stmt.span.to_qsharp());
 
         Some(build_stmt_semi_from_expr(build_wrapped_block_expr(block)))
     }
@@ -969,11 +960,7 @@ impl QasmCompiler {
         for stmt in &block.stmts {
             self.compile_stmt(stmt, &mut stmts);
         }
-        qsast::Block {
-            id: qsast::NodeId::default(),
-            stmts: boxed_list_from_iter(stmts),
-            span: block.span.to_qsharp(),
-        }
+        build_block(stmts, block.span.to_qsharp())
     }
 
     fn compile_block_stmt(&mut self, block: &semast::Block) -> Option<qsast::Stmt> {
