@@ -136,6 +136,7 @@ pub fn build_expr_array_expr(values: Vec<ast::Expr>, span: Span) -> Expr {
     }
 }
 
+// This will be used to compile arrays in the near future.
 #[must_use]
 pub fn build_default_result_array_expr(len: usize, span: Span) -> Expr {
     let exprs: Vec<_> = (0..len)
