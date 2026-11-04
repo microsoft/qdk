@@ -14,7 +14,7 @@ use qdk_simulators::{
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
     stabilizer_simulator::StabilizerSimulator,
 };
-use qsc_data_structures::index_map::IndexMap;
+use qsc_data_structures::{index_map::IndexMap, measurement::OneQubitMeasurement};
 use qsc_fir::fir::PackageStoreLookup;
 use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
@@ -41,6 +41,12 @@ pub trait Backend {
     }
     fn h(&mut self, _q: usize) -> Result<(), String> {
         Err("h gate not implemented".to_string())
+    }
+    fn mx(&mut self, _q: usize) -> Result<val::Result, String> {
+        Err("mx operation not implemented".to_string())
+    }
+    fn my(&mut self, _q: usize) -> Result<val::Result, String> {
+        Err("my operation not implemented".to_string())
     }
     fn m(&mut self, _q: usize) -> Result<val::Result, String> {
         Err("m operation not implemented".to_string())
@@ -114,6 +120,12 @@ pub trait Backend {
     }
     fn qubit_is_zero(&mut self, _q: usize) -> Result<bool, String> {
         Err("qubit_is_zero operation not implemented".to_string())
+    }
+    fn qubit_is_plus(&mut self, _q: usize) -> Result<bool, String> {
+        Err("qubit_is_plus operation not implemented".to_string())
+    }
+    fn qubit_is_plus_i(&mut self, _q: usize) -> Result<bool, String> {
+        Err("qubit_is_plus_i operation not implemented".to_string())
     }
     /// Executes custom intrinsic specified by `_name`.
     /// Returns None if this intrinsic is unknown.
@@ -246,6 +258,28 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
             tracer.gate(stack, "H", false, &[q], &[], None);
         }
         Ok(())
+    }
+
+    pub fn mx(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mx(q)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "MX", q, &r);
+        }
+        Ok(r)
+    }
+
+    pub fn my(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.my(q)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "MY", q, &r);
+        }
+        Ok(r)
     }
 
     pub fn m(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
@@ -472,6 +506,20 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
     pub fn qubit_is_zero(&mut self, q: usize) -> Result<bool, String> {
         match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_is_zero(q),
+            OptionalBackend::None(_) => Ok(true),
+        }
+    }
+
+    pub fn qubit_is_plus(&mut self, q: usize) -> Result<bool, String> {
+        match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.qubit_is_plus(q),
+            OptionalBackend::None(_) => Ok(true),
+        }
+    }
+
+    pub fn qubit_is_plus_i(&mut self, q: usize) -> Result<bool, String> {
+        match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.qubit_is_plus_i(q),
             OptionalBackend::None(_) => Ok(true),
         }
     }
@@ -806,6 +854,26 @@ impl Backend for SparseSim {
         Ok(())
     }
 
+    fn mx(&mut self, q: usize) -> Result<val::Result, String> {
+        self.apply_faults(|noise| &noise.mz, &[q]);
+        if self.is_qubit_lost(q) {
+            self.lost_qubits.set_bit(q as u64, false);
+            return Ok(val::Result::Loss);
+        }
+        let res = self.sim.measure_single_pauli(q, OneQubitMeasurement::X);
+        Ok(val::Result::Val(res))
+    }
+
+    fn my(&mut self, q: usize) -> Result<val::Result, String> {
+        self.apply_faults(|noise| &noise.mz, &[q]);
+        if self.is_qubit_lost(q) {
+            self.lost_qubits.set_bit(q as u64, false);
+            return Ok(val::Result::Loss);
+        }
+        let res = self.sim.measure_single_pauli(q, OneQubitMeasurement::Y);
+        Ok(val::Result::Val(res))
+    }
+
     fn m(&mut self, q: usize) -> Result<val::Result, String> {
         self.apply_faults(|noise| &noise.mz, &[q]);
         if self.is_qubit_lost(q) {
@@ -815,7 +883,8 @@ impl Backend for SparseSim {
             self.lost_qubits.set_bit(q as u64, false);
             return Ok(val::Result::Loss);
         }
-        Ok(val::Result::Val(self.sim.measure(q)))
+        let res = self.sim.measure(q);
+        Ok(val::Result::Val(res))
     }
 
     fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
@@ -1074,6 +1143,16 @@ impl Backend for SparseSim {
         Ok(self.sim.qubit_is_zero(q))
     }
 
+    fn qubit_is_plus(&mut self, q: usize) -> Result<bool, String> {
+        // This is a service function rather than a measurement so it doesn't incur noise.
+        Ok(self.sim.qubit_is_plus(q))
+    }
+
+    fn qubit_is_plus_i(&mut self, q: usize) -> Result<bool, String> {
+        // This is a service function rather than a measurement so it doesn't incur noise.
+        Ok(self.sim.qubit_is_plus_i(q))
+    }
+
     fn custom_intrinsic(
         &mut self,
         name: &str,
@@ -1251,6 +1330,36 @@ impl Backend for CliffordSim {
         let q_id = self.qubit_id_map[q];
         self.sim.h(q_id);
         Ok(())
+    }
+
+    fn mx(&mut self, q: usize) -> Result<val::Result, String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.mx(q_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
+
+    fn my(&mut self, q: usize) -> Result<val::Result, String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.my(q_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
     }
 
     fn m(&mut self, q: usize) -> Result<val::Result, String> {
