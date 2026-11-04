@@ -922,6 +922,8 @@ class QirInstructionId(Enum):
     RESET: QirInstructionId
     M: QirInstructionId
     MResetZ: QirInstructionId
+    MX: QirInstructionId
+    MY: QirInstructionId
     MZ: QirInstructionId
     Move: QirInstructionId
     ReadResult: QirInstructionId
