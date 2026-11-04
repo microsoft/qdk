@@ -9,11 +9,187 @@
 
 use super::{
     assert_block_instructions, assert_blocks, assert_callable, assert_error,
-    get_partial_evaluation_error, get_rir_program,
+    get_partial_evaluation_error, get_rir_program, get_rir_program_with_capabilities,
 };
 use expect_test::expect;
 use indoc::indoc;
-use qsc_rir::rir::{BlockId, CallableId};
+use qsc_data_structures::target::Profile;
+use qsc_rir::rir::{BlockId, CallableId, Instruction, Literal, Operand};
+
+/// Checks the value actually recorded as the program's sole Double output, not
+/// merely a value stored along the way. Bitwise comparison is essential because
+/// ordinary equality considers +0.0 and -0.0 equal and would hide the regression.
+///
+/// The unused qubit in these sources forces hybrid evaluation, exercising the
+/// synchronization of classical values with compiler state.
+fn assert_double_output(source: &str, expected: f64) {
+    let program = get_rir_program(source);
+    let mut outputs = program
+        .blocks
+        .values()
+        .flat_map(|block| &block.0)
+        .filter_map(|instruction| {
+            if let Instruction::Call(id, args, _, _) = instruction
+                && program.get_callable(*id).name == "__quantum__rt__double_record_output"
+            {
+                Some(args)
+            } else {
+                None
+            }
+        });
+    let args = outputs.next().expect("expected a Double output");
+    assert!(
+        outputs.next().is_none(),
+        "expected exactly one Double output"
+    );
+    let Some(Operand::Literal(Literal::Double(actual))) = args.first() else {
+        panic!("expected a statically known Double output, got {args:?}");
+    };
+    assert_eq!(actual.to_bits(), expected.to_bits());
+}
+
+/// Losing the update from +0.0 to -0.0 changes which branch executes. Division by
+/// zero is intentional: IEEE Double arithmetic gives 1.0 / -0.0 = negative infinity,
+/// making the condition true. X must therefore flip the fresh qubit before measurement.
+///
+/// The complete-block snapshot requires both signed-zero stores, exactly one X,
+/// measurement of that same qubit, and output of its result (One). The callable-name
+/// assertions identify the numeric call IDs used in the snapshot.
+#[test]
+fn negating_positive_zero_applies_x_before_measurement_in_base_profile() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {r#"
+            operation Main() : Result {
+                use q = Qubit();
+                mutable x = 0.0;
+                set x = -x;
+                if 1.0 / x < 0.0 {
+                    X(q);
+                }
+                MResetZ(q)
+            }
+        "#},
+        Profile::Base.into(),
+    );
+    assert_eq!(
+        program.get_callable(CallableId(2)).name,
+        "__quantum__qis__x__body"
+    );
+    assert_eq!(
+        program.get_callable(CallableId(3)).name,
+        "__quantum__qis__mresetz__body"
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Double) = Store Double(0)
+                Variable(0, Double) = Store Double(-0)
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), Result(0), )
+                Call id(4), args( Result(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn negating_positive_zero_outputs_negative_zero() {
+    assert_double_output(
+        indoc! {r#"
+            operation Main() : Double {
+                use q = Qubit();
+                mutable x = 0.0;
+                set x = -x;
+                x
+            }
+        "#},
+        -0.0,
+    );
+}
+
+#[test]
+fn negating_negative_zero_outputs_positive_zero() {
+    assert_double_output(
+        indoc! {r#"
+            operation Main() : Double {
+                use q = Qubit();
+                mutable x = -0.0;
+                set x = -x;
+                x
+            }
+        "#},
+        0.0,
+    );
+}
+
+#[test]
+fn replacing_array_preserves_negative_zero_element() {
+    assert_double_output(
+        indoc! {r#"
+            operation Main() : Double {
+                use q = Qubit();
+                mutable values = [0.0];
+                set values = [-0.0];
+                values[0]
+            }
+        "#},
+        -0.0,
+    );
+}
+
+#[test]
+fn copy_updating_array_element_preserves_negative_zero() {
+    assert_double_output(
+        indoc! {r#"
+            operation Main() : Double {
+                use q = Qubit();
+                mutable values = [0.0];
+                set values w/= 0 <- -0.0;
+                values[0]
+            }
+        "#},
+        -0.0,
+    );
+}
+
+#[test]
+fn replacing_tuple_preserves_negative_zero_field() {
+    assert_double_output(
+        indoc! {r#"
+            operation Main() : Double {
+                use q = Qubit();
+                mutable value = (0.0, 1);
+                set value = (-0.0, 1);
+                let (x, _) = value;
+                x
+            }
+        "#},
+        -0.0,
+    );
+}
+
+/// Compiler-state comparisons must distinguish the signs of zero without changing
+/// Q# equality: the language expression +0.0 == -0.0 must still evaluate to true.
+#[test]
+fn signed_zero_equality_keeps_language_semantics() {
+    let program = get_rir_program(indoc! {r#"
+        operation Main() : Bool {
+            use q = Qubit();
+            0.0 == -0.0
+        }
+    "#});
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Bool(true), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
 
 #[test]
 fn assigning_result_literal_updates_value() {
