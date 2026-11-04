@@ -1917,6 +1917,92 @@ mod given_interpreter {
         }
 
         #[test]
+        fn qirgen_from_callable_dynamically_chosen_by_if_expr_and_invoked_through_struct_closure_errors()
+         {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive
+                    | TargetCapabilityFlags::IntegerComputations
+                    | TargetCapabilityFlags::FloatingPointComputations
+                    | TargetCapabilityFlags::BackwardsBranching
+                    | TargetCapabilityFlags::StaticSizedArrays,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                struct Box { F : (Qubit => Unit) }
+                operation ApplyAll(ops : (Qubit => Unit)[], q : Qubit) : Unit { for op in ops { op(q); } }
+                operation Main() : Result {
+                    use (q, c) = (Qubit(), Qubit());
+                    X(c);
+                    let r = MResetZ(c);
+                    let arr : (Qubit => Unit)[] = [q => X(q), q => Z(q)];
+                    let f = if r == One { arr[1] } else { arr[0] };
+                    let ops : (Qubit => Unit)[] = [f, q => H(q)];
+                    let b = new Box { F = ApplyAll(ops, _) };
+                    b.F(q);
+                    MResetZ(q)
+                }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let main = user_global(&interpreter, "Main");
+
+            let errors = interpreter
+                .qirgen_from_callable(&main, Value::unit())
+                .expect_err("expected partial eval error");
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| format!("{error:?}").contains("call to dynamic callee")),
+                "expected a partial eval error, got {errors:?}"
+            );
+        }
+
+        #[test]
+        fn qirgen_from_callable_dynamically_chosen_by_dynamic_index_expr_and_invoked_through_struct_closure_errors()
+         {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive
+                    | TargetCapabilityFlags::IntegerComputations
+                    | TargetCapabilityFlags::FloatingPointComputations
+                    | TargetCapabilityFlags::BackwardsBranching
+                    | TargetCapabilityFlags::StaticSizedArrays,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                struct Box { F : (Qubit => Unit) }
+                operation ApplyAll(ops : (Qubit => Unit)[], q : Qubit) : Unit { for op in ops { op(q); } }
+                operation Main() : Result {
+                    use (q, c) = (Qubit(), Qubit());
+                    X(c);
+                    let r = MResetZ(c);
+                    let arr : (Qubit => Unit)[] = [q => X(q), q => Z(q)];
+                    let f = arr[if r == One { 1 } else { 0 }];
+                    let ops : (Qubit => Unit)[] = [f, q => H(q)];
+                    let b = new Box { F = ApplyAll(ops, _) };
+                    b.F(q);
+                    MResetZ(q)
+                }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let main = user_global(&interpreter, "Main");
+
+            let errors = interpreter
+                .qirgen_from_callable(&main, Value::unit())
+                .expect_err("expected partial eval error");
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| format!("{error:?}").contains("call to dynamic callee")),
+                "expected a partial eval error, got {errors:?}"
+            );
+        }
+
+        #[test]
         fn qirgen_from_callable_profile_incompatible_outputs_report_callable_scoped_errors() {
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
             let (result, output) = line(
