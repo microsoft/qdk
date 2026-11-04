@@ -14,11 +14,11 @@ use super::{
         BlockRef, Correction, Decoded, DecoderPlan, DecoderRuntime, Invocation, Operation, Step,
     },
     pauli::Pauli,
-    plan::{ArgumentPlan, GadgetPlan, InstructionPlan, LayerPlan},
+    plan::{CompiledArg, GadgetPlan, InstructionPlan, LayerPlan},
     resolver::ResolveCache,
     spec::{
-        BoundOperand, bind_operands, code_qubits, encode_arg, select_status, validate_arguments,
-        value_of,
+        BoundOperand, bind_operands, code_qubits, encode_arg, matches, select_status,
+        validate_arguments, value_of,
     },
 };
 use qodec::{Action, Argument};
@@ -283,30 +283,32 @@ where
             return Err(QodecError::InvalidInstruction);
         }
 
-        let mut placement: FxHashMap<String, u64> = FxHashMap::default();
-        for (label, layout) in call.operands.iter().zip(&gp.inputs) {
+        let mut placement = vec![UNPLACED; gp.labels.len()];
+        for (label, slots) in call.operands.iter().zip(&gp.slots.inputs) {
             let b = self
                 .blocks
                 .get(label)
                 .ok_or(QodecError::InvalidInstruction)?;
-            if layout.labels.len() != b.support.len() {
+            if slots.len() != b.support.len() {
                 return Err(QodecError::InvalidInstruction);
             }
-            for (lab, &lb) in layout.labels.iter().zip(&b.support) {
+            for (&slot, &lb) in slots.iter().zip(&b.support) {
                 // One label -> one lower block, and no silent retyping.
-                if placement.get(lab).is_some_and(|&p| p != lb)
-                    || self.type_of[ix(lb)] != Some(gp.label_type[lab])
+                if (placement[slot] != UNPLACED && placement[slot] != lb)
+                    || self.type_of[ix(lb)] != Some(gp.slots.types[slot])
                 {
                     return Err(QodecError::InvalidInstruction);
                 }
-                placement.insert(lab.clone(), lb);
+                placement[slot] = lb;
             }
         }
         // Placement is injective because live blocks never share lower blocks.
         debug_assert!(
             {
                 let mut seen = FxHashSet::default();
-                placement.values().all(|lb| seen.insert(*lb))
+                placement
+                    .iter()
+                    .all(|&lb| lb == UNPLACED || seen.insert(lb))
             },
             "two labels of one invocation should never share a lower block"
         );
@@ -361,10 +363,9 @@ where
             self.drive(first, |layer, r| Ok(layer.decoder.resume_before(r)))?;
         }
 
-        for lab in &gp.labels {
-            if !placement.contains_key(lab) {
-                let lb = self.allocate_lower(gp.label_type[lab]);
-                placement.insert(lab.clone(), lb);
+        for (slot, lb) in placement.iter_mut().enumerate() {
+            if *lb == UNPLACED {
+                *lb = self.allocate_lower(gp.slots.types[slot]);
             }
         }
 
@@ -375,16 +376,16 @@ where
             self.blocks.remove(label);
         }
         self.side_effects += 1;
-        let mut retained: FxHashSet<u64> = FxHashSet::default();
-        for (block_ref, layout) in inv.output_refs.iter().zip(&gp.outputs) {
-            let support: Vec<u64> = layout.labels.iter().map(|l| placement[l]).collect();
-            // Two outputs must not share a lower block, or both live blocks
-            // would own it and release it twice.
-            if support.iter().any(|lb| retained.contains(lb)) {
-                return Err(QodecError::InvalidInstruction);
-            }
-            retained.extend(&support);
-            let qubits = code_qubits(layout, &placement, &self.plan.lower);
+        // Outputs never share a lower block: a label is used at most once per
+        // side (see `layout_boundary`), and placement is injective.
+        for ((block_ref, layout), output_slots) in inv
+            .output_refs
+            .iter()
+            .zip(&gp.outputs)
+            .zip(&gp.slots.outputs)
+        {
+            let support: Vec<u64> = output_slots.iter().map(|&s| placement[s]).collect();
+            let qubits = code_qubits(layout, output_slots, &placement, &self.plan.lower);
             self.blocks.insert(
                 block_ref.label,
                 LiveBlock {
@@ -398,15 +399,15 @@ where
         // Release scratch and consumed lower blocks. Nothing here depends on
         // decoding, so it is emitted immediately. Blocks the body consumed
         // itself (e.g. measured away) are only returned to the free list.
-        let mut leftovers: Vec<(u64, &String)> = gp
-            .labels
+        let mut leftovers: Vec<(u64, usize)> = placement
             .iter()
-            .map(|lab| (placement[lab], lab))
-            .filter(|(lb, _)| !retained.contains(lb))
+            .enumerate()
+            .filter(|&(slot, _)| !gp.slots.retained[slot])
+            .map(|(slot, &lb)| (lb, slot))
             .collect();
         leftovers.sort_unstable();
-        for (lb, lab) in leftovers {
-            if gp.body.consumed.contains(lab) {
+        for (lb, slot) in leftovers {
+            if gp.slots.consumed[slot] {
                 self.forget_lower(lb);
             } else {
                 self.release_lower(lb);
@@ -444,24 +445,32 @@ where
         &mut self,
         gp: &GadgetPlan,
         inv: &Invocation,
-        placement: &FxHashMap<String, u64>,
+        placement: &[u64],
     ) -> LayerResult<BodyRecord, B::Error> {
-        let plan = Rc::clone(&self.plan);
         let mut record: Vec<LazyBit> = Vec::with_capacity(gp.body.record_len);
         let mut selects = Vec::new();
         let mut slots = Vec::new();
-        for (call_index, pc) in gp.body.calls.iter().enumerate() {
-            let instruction = &plan.lower_isa.instructions[pc.instruction];
-            let mut args = BTreeMap::new();
-            for (name, arg) in &pc.args {
-                let value = match arg {
-                    ArgumentPlan::Value(v) => v.clone(),
-                    ArgumentPlan::Forwarded(param) => inv
-                        .args
-                        .get(param)
-                        .cloned()
-                        .ok_or(QodecError::InvalidInstruction)?,
-                    ArgumentPlan::Readout(j) => {
+        for (call_index, (pc, cc)) in gp.body.calls.iter().zip(&gp.slots.calls).enumerate() {
+            let args = cc.args.as_ref().ok_or(QodecError::InvalidInstruction)?;
+            let mut params: SmallVec<[P; 2]> =
+                SmallVec::with_capacity(cc.operands.len() + args.len());
+            params.extend(
+                cc.operands
+                    .iter()
+                    .map(|&slot| P::from_view(ParamView::Block(placement[slot]))),
+            );
+            for arg in args {
+                params.push(match arg {
+                    CompiledArg::Value(value) => P::from_view(value.view()),
+                    CompiledArg::Forwarded { name, kind } => {
+                        let value = inv
+                            .args
+                            .get(name)
+                            .filter(|v| matches(*kind, v))
+                            .ok_or(QodecError::InvalidInstruction)?;
+                        encode_arg(value).ok_or(QodecError::InvalidInstruction)?
+                    }
+                    CompiledArg::Readout(j) => {
                         // Forcing an earlier bit may flush the buffer. A `None`
                         // bit is recoverable: it is passed as 0 and marks the
                         // shot `unresolved`.
@@ -469,21 +478,9 @@ where
                         if bit.is_none() {
                             self.status |= Status::UNRESOLVED;
                         }
-                        Argument::Boolean(bit.unwrap_or(false))
+                        P::from_view(ParamView::Bool(bit.unwrap_or(false)))
                     }
-                };
-                args.insert(name.clone(), value);
-            }
-            validate_arguments(instruction, &args).map_err(|_| QodecError::InvalidInstruction)?;
-            let mut params: SmallVec<[P; 2]> = pc
-                .operands
-                .iter()
-                .map(|o| P::from_view(ParamView::Block(placement[o])))
-                .collect();
-            for parameter in &instruction.parameters {
-                params.push(
-                    encode_arg(&args[&parameter.name]).ok_or(QodecError::InvalidInstruction)?,
-                );
+                });
             }
             let slot = self.emit(pc.instruction, params);
             if pc.observe_count + pc.flag_count > 0 {
@@ -927,8 +924,12 @@ struct PreparedInvocation {
     gp: Rc<GadgetPlan>,
     call: Call,
     out_ops: Vec<BoundOperand<u64>>,
-    placement: FxHashMap<String, u64>,
+    /// Lower block per slot of `gp`, `UNPLACED` until allocated.
+    placement: Vec<u64>,
 }
+
+/// A slot without a lower block yet. Lower ids are dense, so it is never one.
+const UNPLACED: u64 = u64::MAX;
 
 /// A parsed `BackendInstruction`.
 struct Call {

@@ -10,14 +10,14 @@
 //! pre-processing in a [`QodecPlan`].
 
 use super::{
-    backend::{Backend, InstructionId, Param, PlanError, Readout},
+    backend::{Backend, InstructionId, OwnedParam, Param, PlanError, Readout},
     decoder::{Decoder, DecoderPlan},
     parity::Parity,
     resolver::Resolver,
     runtime::QodecRuntime,
     spec::{
         CodePlan, CompiledSelect, EncodingPlan, FrameKey, RefScope, TypeTable, bind_operands,
-        compile_select, layout_boundary, prepare_frames,
+        compile_select, encode_arg, layout_boundary, matches, prepare_frames,
     },
 };
 use qodec::{Argument, Circuit, Gadget, Instruction, InstructionSet, Layer, ParameterKind, Qodec};
@@ -405,6 +405,14 @@ impl GadgetContext<'_> {
             outputs: &outputs,
         };
         let frames = prepare_frames(g, &scope)?;
+        let slots = SlotPlan::new(
+            &labels,
+            &label_type,
+            &inputs,
+            &outputs,
+            &body,
+            self.lower_isa,
+        );
 
         Ok(GadgetPlan {
             name: name.to_string(),
@@ -416,6 +424,7 @@ impl GadgetContext<'_> {
             outputs,
             label_type,
             frames,
+            slots,
         })
     }
 }
@@ -536,6 +545,150 @@ pub struct GadgetPlan {
     pub label_type: FxHashMap<String, usize>,
     /// Output logical-sign corrections.
     pub frames: FxHashMap<FrameKey, Parity>,
+    /// The same gadget as `labels`, `inputs`, `outputs`, and `body`, with every
+    /// label replaced by its slot (see [`SlotPlan`]). It is derived from those
+    /// fields at plan time. The layer runtime places and runs the body from it.
+    /// The label-based fields remain for decoders, which see them through
+    /// `Invocation::gadget`, and for sizing resources.
+    pub slots: SlotPlan,
+}
+
+/// The gadget with every label replaced by its slot: the label's position in
+/// [`GadgetPlan::labels`]. Labels are resolved to slots once, when the plan is
+/// built, so the layer runtime never looks up a label by name while running an
+/// invocation. Instead, it places each invocation as a `Vec<u64>` indexed by
+/// slot, holding the lower block id of each label (`PreparedInvocation::placement`).
+///
+/// For example, with `labels = ["0", "1", "anc"]`, the body call `CX: [0, anc]`
+/// compiles to slot operands `[0, 2]`. If an invocation places the labels on
+/// lower blocks `[5, 6, 2]`, the layer emits `CX` on lower blocks 5 and 2.
+///
+/// `types`, `retained`, and `consumed` have exactly one entry per slot.
+#[derive(Clone, Debug)]
+pub struct SlotPlan {
+    /// Lower type per slot.
+    pub types: Vec<usize>,
+    /// Per `in` operand: the slots of its encoding, in code-qubit order.
+    pub inputs: Vec<Vec<usize>>,
+    /// Per `out` operand: the slots of its encoding, in code-qubit order.
+    pub outputs: Vec<Vec<usize>>,
+    /// Per slot: whether an output encoding holds it.
+    pub retained: Vec<bool>,
+    /// Per slot: whether the body itself consumes it.
+    pub consumed: Vec<bool>,
+    /// Per call of [`CircuitPlan::calls`]: what running it needs.
+    pub calls: Vec<CompiledCall>,
+}
+
+impl SlotPlan {
+    fn new(
+        labels: &[String],
+        label_type: &FxHashMap<String, usize>,
+        inputs: &[EncodingPlan],
+        outputs: &[EncodingPlan],
+        body: &CircuitPlan,
+        lower_isa: &InstructionSet,
+    ) -> Self {
+        let index: FxHashMap<&str, usize> = labels
+            .iter()
+            .enumerate()
+            .map(|(slot, label)| (label.as_str(), slot))
+            .collect();
+        let encodings = |layouts: &[EncodingPlan]| -> Vec<Vec<usize>> {
+            layouts
+                .iter()
+                .map(|l| l.labels.iter().map(|label| index[label.as_str()]).collect())
+                .collect()
+        };
+        let outputs = encodings(outputs);
+        let mut retained = vec![false; labels.len()];
+        for &slot in outputs.iter().flatten() {
+            retained[slot] = true;
+        }
+        Self {
+            types: labels.iter().map(|label| label_type[label]).collect(),
+            inputs: encodings(inputs),
+            outputs,
+            retained,
+            consumed: labels
+                .iter()
+                .map(|label| body.consumed.contains(label))
+                .collect(),
+            calls: body
+                .calls
+                .iter()
+                .map(|pc| compile_call(pc, &lower_isa.instructions[pc.instruction], &index))
+                .collect(),
+        }
+    }
+}
+
+/// Compiles a call for the layer runtime: its operands become slots, and
+/// its arguments are put in the lower instruction's parameter order, with
+/// literal values validated and encoded once.
+fn compile_call(
+    cp: &CallPlan,
+    instruction: &Instruction,
+    index: &FxHashMap<&str, usize>,
+) -> CompiledCall {
+    let operands = cp.operands.iter().map(|o| index[o.as_str()]).collect();
+    let args = (cp.args.len() == instruction.parameters.len())
+        .then(|| {
+            instruction
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    let (_, arg) = cp.args.iter().find(|(name, _)| *name == parameter.name)?;
+                    Some(match arg {
+                        ArgumentPlan::Value(value) => {
+                            if !matches(parameter.kind, value) {
+                                return None;
+                            }
+                            CompiledArg::Value(encode_arg(value)?)
+                        }
+                        ArgumentPlan::Forwarded(name) => CompiledArg::Forwarded {
+                            name: name.clone(),
+                            kind: parameter.kind,
+                        },
+                        ArgumentPlan::Readout(j) => {
+                            if !matches(parameter.kind, &Argument::Boolean(false)) {
+                                return None;
+                            }
+                            CompiledArg::Readout(*j)
+                        }
+                    })
+                })
+                .collect::<Option<Vec<_>>>()
+        })
+        .flatten();
+    CompiledCall { operands, args }
+}
+
+/// A gadget-body call, ready to emit.
+#[derive(Clone, Debug)]
+pub struct CompiledCall {
+    /// The operands, as slots.
+    pub operands: Vec<usize>,
+    /// The arguments, in the lower instruction's parameter order. `None` if
+    /// they can never be valid, so running the call fails.
+    pub args: Option<Vec<CompiledArg>>,
+}
+
+/// One argument of a [`CompiledCall`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum CompiledArg {
+    /// A literal value, already validated and encoded.
+    Value(OwnedParam),
+    /// Forwarded from this parameter of the implemented instruction. Its value
+    /// is only known per invocation, so it is validated against `kind` then.
+    Forwarded {
+        /// The parameter of the implemented instruction.
+        name: String,
+        /// The kind of the lower parameter it is passed to.
+        kind: ParameterKind,
+    },
+    /// `circuit.readouts[j]`, an earlier record bit.
+    Readout(usize),
 }
 
 impl GadgetPlan {

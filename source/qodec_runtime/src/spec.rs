@@ -623,20 +623,20 @@ pub fn layout_boundary(
     Ok(layouts)
 }
 
-/// Code-qubit position k → (lower block, logical index inside it).
+/// Code-qubit position k → (lower block, logical index inside it),
+/// where `slots` are the encoding's labels as slots of `placement`.
 #[must_use]
-#[allow(clippy::implicit_hasher)]
 pub fn code_qubits(
     layout: &EncodingPlan,
-    placement: &FxHashMap<String, u64>,
+    slots: &[usize],
+    placement: &[u64],
     lower: &TypeTable,
 ) -> Vec<(u64, usize)> {
-    layout
-        .labels
+    slots
         .iter()
         .zip(&layout.lower_types)
-        .flat_map(|(label, &t)| {
-            let block = placement[label];
+        .flat_map(|(&slot, &t)| {
+            let block = placement[slot];
             (0..lower.caps[t]).map(move |i| (block, i))
         })
         .collect()
