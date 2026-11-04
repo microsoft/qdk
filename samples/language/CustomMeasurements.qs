@@ -16,12 +16,12 @@
 operation Main() : Result {
     use q = Qubit();
     H(q);
-    __quantum__qis__mx__body(q)
+    __quantum__qis__mflipz__body(q)
 }
 
 @Measurement()
 @SimulatableIntrinsic()
-operation __quantum__qis__mx__body(q : Qubit) : Result {
-    H(q);
+operation __quantum__qis__mflipz__body(q : Qubit) : Result {
+    X(q);
     M(q)
 }

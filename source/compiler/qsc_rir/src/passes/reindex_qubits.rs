@@ -6,12 +6,23 @@ mod tests;
 
 use std::ops::Sub;
 
+use qsc_data_structures::measurement::OneQubitMeasurement;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     builder,
+    debug::InstructionDbgMetadata,
     rir::{Block, CallableId, CallableType, Instruction, Literal, Operand, Program},
 };
+
+#[derive(Clone, Copy)]
+enum CallableToAdd {
+    M,
+    CX,
+    H,
+    S,
+    SAdj,
+}
 
 /// Reindexes qubits after they have been measured or reset. This ensures there is no qubit reuse in
 /// the program. As part of the pass, reset callables are removed and mresetz calls are replaced with
@@ -25,68 +36,169 @@ use crate::{
 pub fn reindex_qubits(program: &mut Program) {
     validate_assumptions(program);
 
-    let (used_m, m_id) = match find_callable(program, "__quantum__qis__m__body") {
-        Some(id) => (true, id),
-        None => (false, add_m(program)),
+    // Get measurement callable IDs if they exist in the program
+    let mut measurement_ids = MeasurementIds {
+        mz: find_callable(program, "__quantum__qis__m__body"),
+        mx: find_callable(program, "__quantum__qis__mx__body"),
+        my: find_callable(program, "__quantum__qis__my__body"),
+        mresetz: find_callable(program, "__quantum__qis__mresetz__body"),
     };
-    let (used_cx, cx_id) = match find_callable(program, "__quantum__qis__cx__body") {
-        Some(id) => (true, id),
-        None => (false, add_cx(program)),
-    };
-    let mresetz_id = find_callable(program, "__quantum__qis__mresetz__body");
-    let mut pass = ReindexQubitPass {
-        used_m,
-        m_id,
-        used_cx,
-        cx_id,
-        mresetz_id,
+    if measurement_ids.mresetz.is_some() && measurement_ids.mz.is_none() {
+        measurement_ids.mz = Some(add_callable(program, CallableToAdd::M));
+    }
+
+    let mut pass = ReindexQubitPass::new(
+        measurement_ids,
         // For this calculation, qubit IDs can never be lower than zero but a program may not use
         // any qubits. Since `highest_used_id` is only needed for remapping pass and a program without any
         // qubits won't do any remapping, it's safe to treat this as 1 and let `highest_used_id` default
         // to zero.
-        highest_used_id: program.num_qubits.max(1).sub(1),
-    };
-
-    // Perform the reindexing on the single entry block.
+        program.num_qubits.max(1).sub(1),
+    );
     let Some((block_id, mut block)) = program.blocks.drain().next() else {
         panic!("program should have at least one block");
     };
+
+    // Reverse walk program instructions to check for qubit reuse and measurement bases. This avoids
+    // nested loops over instructions later when reindexing.
+    pass.scan_for_qubit_reuse(program, &block);
+
+    // Add any callables required for reindexing based on the measurement bases.
+    pass.find_add_required_callables(program);
+
+    // Perform the reindexing on the single entry block.
     pass.reindex_qubits_in_block(program, &mut block);
     program.blocks.insert(block_id, block);
     program.num_qubits = pass.highest_used_id + 1;
 
     // All reset function calls should be removed, so remove them from the callables.
-    program
-        .callables
-        .retain(|id, callable| callable.call_type != CallableType::Reset && Some(id) != mresetz_id);
+    program.callables.retain(|id, callable| {
+        callable.call_type != CallableType::Reset && Some(id) != pass.measurement_ids.mresetz
+    });
+}
 
-    // If mz or cx were added but not used, remove them.
-    if !pass.used_m {
-        program.callables.remove(m_id);
+#[derive(Default)]
+struct GateIds {
+    cx: Option<CallableId>,
+    h: Option<CallableId>,
+    s: Option<CallableId>,
+    sadj: Option<CallableId>,
+}
+
+struct MeasurementIds {
+    mz: Option<CallableId>,
+    mx: Option<CallableId>,
+    my: Option<CallableId>,
+    mresetz: Option<CallableId>,
+}
+
+impl MeasurementIds {
+    fn basis(&self, call_id: CallableId) -> Option<OneQubitMeasurement> {
+        if self.mx == Some(call_id) {
+            Some(OneQubitMeasurement::X)
+        } else if self.my == Some(call_id) {
+            Some(OneQubitMeasurement::Y)
+        } else if self.mz == Some(call_id) {
+            Some(OneQubitMeasurement::Z)
+        } else {
+            None
+        }
     }
-    if !pass.used_cx {
-        program.callables.remove(cx_id);
+
+    fn is_measurement(&self, call_id: CallableId) -> bool {
+        self.mx == Some(call_id) || self.my == Some(call_id) || self.mz == Some(call_id)
     }
 }
 
 struct ReindexQubitPass {
-    used_m: bool,
-    m_id: CallableId,
-    used_cx: bool,
-    cx_id: CallableId,
-    mresetz_id: Option<CallableId>,
+    measurement_ids: MeasurementIds,
+    gate_ids: GateIds,
+    instrs_to_transfer: FxHashMap<usize, OneQubitMeasurement>,
+    bases_to_transfer: FxHashSet<OneQubitMeasurement>,
     highest_used_id: u32,
 }
 
 impl ReindexQubitPass {
+    fn new(measurement_ids: MeasurementIds, highest_used_id: u32) -> Self {
+        Self {
+            measurement_ids,
+            gate_ids: GateIds::default(),
+            instrs_to_transfer: FxHashMap::default(),
+            bases_to_transfer: FxHashSet::default(),
+            highest_used_id,
+        }
+    }
+
+    fn scan_for_qubit_reuse(&mut self, program: &Program, block: &Block) {
+        let mut bases_needed = FxHashSet::default();
+        let mut instrs_to_reindex = FxHashMap::default();
+        let mut qubits_seen: FxHashSet<u32> = FxHashSet::default();
+
+        let instrs = &block.0;
+        for (i, instr) in instrs.iter().enumerate().rev() {
+            if let Instruction::Call(call_id, args, _, _) = instr {
+                let callable = program.get_callable(*call_id);
+                let qubits = args.iter().filter_map(|arg| match arg {
+                    Operand::Literal(Literal::Qubit(id)) => Some(*id),
+                    _ => None,
+                });
+
+                if let Some(basis) = self.measurement_ids.basis(*call_id)
+                    && qubits.clone().any(|qubit| qubits_seen.contains(&qubit))
+                {
+                    bases_needed.insert(basis);
+                    instrs_to_reindex.insert(i, basis);
+                }
+
+                if callable.call_type == CallableType::Reset {
+                    for qubit in qubits {
+                        qubits_seen.remove(&qubit);
+                    }
+                } else {
+                    for qubit in qubits {
+                        qubits_seen.insert(qubit);
+                    }
+                }
+            }
+        }
+        self.instrs_to_transfer = instrs_to_reindex;
+        self.bases_to_transfer = bases_needed;
+    }
+
+    fn find_add_required_callables(&mut self, program: &mut Program) {
+        if !self.bases_to_transfer.is_empty() {
+            self.gate_ids.cx = Some(
+                find_callable(program, "__quantum__qis__cx__body")
+                    .unwrap_or_else(|| add_callable(program, CallableToAdd::CX)),
+            );
+        }
+        if self.bases_to_transfer.contains(&OneQubitMeasurement::X)
+            || self.bases_to_transfer.contains(&OneQubitMeasurement::Y)
+        {
+            self.gate_ids.h = Some(
+                find_callable(program, "__quantum__qis__h__body")
+                    .unwrap_or_else(|| add_callable(program, CallableToAdd::H)),
+            );
+        }
+        if self.bases_to_transfer.contains(&OneQubitMeasurement::Y) {
+            self.gate_ids.s = Some(
+                find_callable(program, "__quantum__qis__s__body")
+                    .unwrap_or_else(|| add_callable(program, CallableToAdd::S)),
+            );
+            self.gate_ids.sadj = Some(
+                find_callable(program, "__quantum__qis__s__adj")
+                    .unwrap_or_else(|| add_callable(program, CallableToAdd::SAdj)),
+            );
+        }
+    }
+
     fn reindex_qubits_in_block(&mut self, program: &Program, block: &mut Block) {
         let mut map = FxHashMap::default();
         let mut used_qubits: FxHashSet<u32> = FxHashSet::default();
         let mut next_qubit_id = self.highest_used_id + 1;
         let instrs = std::mem::take(&mut block.0);
-        for i in 0..instrs.len() {
+        for (i, instr) in instrs.iter().enumerate() {
             // Assume qubits only appear in void call instructions.
-            let instr = &instrs[i];
             match instr {
                 Instruction::Call(call_id, args, _, _)
                     if program.get_callable(*call_id).call_type == CallableType::Reset =>
@@ -122,29 +234,28 @@ impl ReindexQubitPass {
                             _ => *arg,
                         })
                         .collect::<Vec<_>>();
-
                     used_qubits.extend(ids_used.iter());
 
-                    if *call_id == self.m_id {
-                        if qubit_used_in_instrs(
-                            *ids_used
-                                .first()
-                                .expect("measurement call should have at least one argument"),
-                            instrs.iter().skip(i + 1),
-                        ) {
-                            // Since the call was to mz and the qubit is reused later in the block,
-                            // the new qubit replacing this one must be conditionally flipped.
-                            // Achieve this by adding a CNOT gate before the mz call.
-                            self.used_cx = true;
-                            block.0.push(Instruction::Call(
-                                self.cx_id,
-                                vec![new_args[0], Operand::Literal(Literal::Qubit(next_qubit_id))],
-                                None,
+                    if self.measurement_ids.is_measurement(*call_id) {
+                        if let Some(&basis) = self.instrs_to_transfer.get(&i) {
+                            // Since the call was to m* and the qubit is reused later in the block,
+                            // the new qubit replacing this one must mirror the old qubit's state.
+                            // Achieve this by entangling the qubits using relevant basis transformations
+                            // and a CNOT gate before the m* call.
+                            let old_qubit_id = match new_args.first() {
+                                Some(Operand::Literal(Literal::Qubit(id))) => *id,
+                                _ => panic!("Expected the first argument to be a qubit literal"),
+                            };
+                            self.emit_state_transfer_instrs(
+                                block,
+                                basis,
+                                old_qubit_id,
+                                next_qubit_id,
                                 metadata.clone(),
-                            ));
+                            );
                             self.highest_used_id = self.highest_used_id.max(next_qubit_id);
                         } else {
-                            // The call was to mz and the qubit is not reused later in the block, so
+                            // The call was to m* and the qubit is not reused later in the block, so
                             // there is no need to remap it at all as this is the last operation. Skip
                             // the rest of the logic.
                             block.0.push(Instruction::Call(
@@ -158,9 +269,10 @@ impl ReindexQubitPass {
                     }
 
                     // If the call was to mresetz, replace with mz.
-                    let call_id = if Some(*call_id) == self.mresetz_id {
-                        self.used_m = true;
-                        self.m_id
+                    let call_id = if Some(*call_id) == self.measurement_ids.mresetz {
+                        self.measurement_ids
+                            .mz
+                            .expect("MZ must be set if MResetZ is present")
                     } else {
                         *call_id
                     };
@@ -185,21 +297,93 @@ impl ReindexQubitPass {
             }
         }
     }
-}
 
-fn qubit_used_in_instrs<'a>(id: u32, instrs: impl Iterator<Item = &'a Instruction>) -> bool {
-    for instr in instrs {
-        if let Instruction::Call(_, args, _, _) = instr {
-            for arg in args {
-                if let Operand::Literal(Literal::Qubit(qubit_id)) = arg
-                    && *qubit_id == id
-                {
-                    return true;
-                }
-            }
+    /// Emits basis-dependent measurement state-transfer gates, with the new qubit in |0⟩.
+    /// In execution order:
+    /// - Z: CNOT from the old qubit to the new qubit.
+    /// - X: H on the new qubit, then CNOT from the new qubit to the old qubit.
+    /// - Y: S† on the old qubit, the X-basis sequence, then S on both qubits.
+    ///
+    /// For X, the basis changes simplify using
+    /// `(H_1 H_2){CNOT}_{1,2}(H_1 I_2) = {CNOT}_{2,1}(I_1 H_2)`,
+    /// where 1 is the old qubit, 2 is the new qubit, and operators act right to left.
+    ///
+    /// # Panics
+    /// Panics if the required gate IDs are not set.
+    fn emit_state_transfer_instrs(
+        &mut self,
+        block: &mut Block,
+        basis: OneQubitMeasurement,
+        old_qubit_id: u32,
+        new_qubit_id: u32,
+        metadata: Option<Box<InstructionDbgMetadata>>,
+    ) {
+        // For Y, map the old qubit's basis to X before the X-basis transfer.
+        if basis == OneQubitMeasurement::Y {
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .sadj
+                    .expect("SAdj must be set if Y-basis reindexing is required"),
+                vec![Operand::Literal(Literal::Qubit(old_qubit_id))],
+                None,
+                metadata.clone(),
+            ));
+        }
+        if basis == OneQubitMeasurement::X || basis == OneQubitMeasurement::Y {
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .h
+                    .expect("H must be set if X-basis reindexing is required"),
+                vec![Operand::Literal(Literal::Qubit(new_qubit_id))],
+                None,
+                metadata.clone(),
+            ));
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .cx
+                    .expect("CX must be set if any reindexing is required"),
+                vec![
+                    Operand::Literal(Literal::Qubit(new_qubit_id)),
+                    Operand::Literal(Literal::Qubit(old_qubit_id)),
+                ],
+                None,
+                metadata.clone(),
+            ));
+        }
+        if basis == OneQubitMeasurement::Y {
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .s
+                    .expect("S must be set if Y-basis reindexing is required"),
+                vec![Operand::Literal(Literal::Qubit(old_qubit_id))],
+                None,
+                metadata.clone(),
+            ));
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .s
+                    .expect("S must be set if Y-basis reindexing is required"),
+                vec![Operand::Literal(Literal::Qubit(new_qubit_id))],
+                None,
+                metadata.clone(),
+            ));
+        }
+
+        // Z-basis transfer uses a CNOT from the old qubit to the new qubit.
+        if basis == OneQubitMeasurement::Z {
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .cx
+                    .expect("CX must be set if any reindexing is required"),
+                vec![
+                    Operand::Literal(Literal::Qubit(old_qubit_id)),
+                    Operand::Literal(Literal::Qubit(new_qubit_id)),
+                ],
+                None,
+                metadata,
+            ));
         }
     }
-    false
 }
 
 fn validate_assumptions(program: &Program) {
@@ -228,8 +412,8 @@ fn find_callable(program: &Program, name: &str) -> Option<CallableId> {
     None
 }
 
-fn add_m(program: &mut Program) -> CallableId {
-    let m_id = CallableId(
+fn add_callable(program: &mut Program, name: CallableToAdd) -> CallableId {
+    let op_id = CallableId(
         program
             .callables
             .iter()
@@ -238,20 +422,12 @@ fn add_m(program: &mut Program) -> CallableId {
             .expect("should be at least one callable")
             + 1,
     );
-    program.callables.insert(m_id, builder::m_decl());
-    m_id
-}
-
-fn add_cx(program: &mut Program) -> CallableId {
-    let cx_id = CallableId(
-        program
-            .callables
-            .iter()
-            .map(|(id, _)| id.0)
-            .max()
-            .expect("should be at least one callable")
-            + 1,
-    );
-    program.callables.insert(cx_id, builder::cx_decl());
-    cx_id
+    match name {
+        CallableToAdd::M => program.callables.insert(op_id, builder::m_decl()),
+        CallableToAdd::CX => program.callables.insert(op_id, builder::cx_decl()),
+        CallableToAdd::H => program.callables.insert(op_id, builder::h_decl()),
+        CallableToAdd::S => program.callables.insert(op_id, builder::s_decl()),
+        CallableToAdd::SAdj => program.callables.insert(op_id, builder::sadj_decl()),
+    }
+    op_id
 }
