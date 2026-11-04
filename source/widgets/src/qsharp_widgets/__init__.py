@@ -246,6 +246,52 @@ class Atoms(anywidget.AnyWidget):
         super().__init__(machine_layout=machine_layout, trace_data=trace_data)
 
 
+class Majorana(anywidget.AnyWidget):
+    """Display a Majorana device and its operation trace.
+
+    ``device_size`` is ``[tetronColumns, tetronRows]``, with each dimension a
+    positive integer. Qubit IDs start at zero and increase left to right across
+    each row, then continue from top to bottom. For example, ``[4, 4]`` has 16
+    tetrons, with IDs 0-3 in the top row and 12-15 in the bottom row.
+    Device sizes and traces accept lists or tuples. Each trace step contains
+    operations of the form ``[name, targets]`` using these row-major IDs.
+    Device and operation validation is performed by the frontend when rendering.
+    ``initial_view`` is read when the browser component mounts. Changing it
+    later does not override the view selected by the user.
+    """
+
+    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
+    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+
+    comp = traitlets.Unicode("Majorana").tag(sync=True)
+    device_size = traitlets.List().tag(sync=True)
+    trace = traitlets.List().tag(sync=True)
+    show_qubit_labels = traitlets.Bool(True).tag(sync=True)
+    show_mzm_labels = traitlets.Bool(False).tag(sync=True)
+    initial_view = traitlets.Enum(
+        ("Tetrons", "Qubits"), default_value="Tetrons"
+    ).tag(sync=True)
+
+    def __init__(
+        self,
+        device_size,
+        trace,
+        *,
+        show_qubit_labels=True,
+        show_mzm_labels=False,
+        initial_view=None,
+    ):
+        if initial_view is None:
+            initial_view = "Tetrons"
+        super().__init__(
+            device_size=device_size,
+            trace=trace,
+            show_qubit_labels=show_qubit_labels,
+            show_mzm_labels=show_mzm_labels,
+            initial_view=initial_view,
+        )
+
+
 class Entanglement(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
     _css = pathlib.Path(__file__).parent / "static" / "index.css"

@@ -30,6 +30,7 @@ This module exposes the core building blocks for noise-aware quantum simulation:
 """
 
 from .._device._atom import NeutralAtomDevice
+from .._device._majorana import MajoranaDevice
 from ._simulation import NoiseConfig, LossPolicy, run_qir
 from ._noisy_simulator import (
     NoisySimulatorError,
@@ -43,6 +44,7 @@ from ._noisy_simulator import (
 
 __all__ = [
     "NeutralAtomDevice",
+    "MajoranaDevice",
     "NoiseConfig",
     "LossPolicy",
     "run_qir",
