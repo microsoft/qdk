@@ -1160,6 +1160,9 @@ impl Backend for SparseSim {
             "PostSelectZ" => {
                 let [result, qubit] = unwrap_tuple(arg);
                 let id = qubit.unwrap_qubit().deref().0;
+                if matches!(result, Value::Result(val::Result::Loss)) {
+                    return Some(Err("cannot post-select on a Loss result".to_string()));
+                }
                 let Value::Result(val::Result::Val(val)) = result else {
                     panic!("first argument to PostSelectZ should be a measurement result");
                 };
@@ -1448,6 +1451,9 @@ impl Backend for CliffordSim {
             "PostSelectZ" => {
                 let [result, qubit] = unwrap_tuple(arg);
                 let id = qubit.unwrap_qubit().deref().0;
+                if matches!(result, Value::Result(val::Result::Loss)) {
+                    return Some(Err("cannot post-select on a Loss result".to_string()));
+                }
                 let Value::Result(val::Result::Val(val)) = result else {
                     panic!("first argument to PostSelectZ should be a measurement result");
                 };
