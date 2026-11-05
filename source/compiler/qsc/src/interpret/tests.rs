@@ -1265,6 +1265,22 @@ mod given_interpreter {
         }
 
         #[test]
+        fn callable_from_failed_cell_reports_codegen_error() {
+            for capabilities in [
+                TargetCapabilityFlags::Adaptive,
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
+            ] {
+                let mut interpreter = get_interpreter_with_capabilities(capabilities);
+                let (result, _) = line(&mut interpreter, "operation Main() : Int { Undefined() }");
+                assert!(result.is_err());
+                let errors = interpreter
+                    .qirgen("Main()")
+                    .expect_err("cell did not compile");
+                assert!(!errors.is_empty());
+            }
+        }
+
+        #[test]
         fn once_rca_validation_fails_following_calls_do_not_fail() {
             let mut interpreter =
                 get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);

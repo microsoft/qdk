@@ -1703,7 +1703,12 @@ impl<'a> PartialEvaluator<'a> {
         let global = self
             .package_store
             .get_global(store_item_id)
-            .expect("global not present");
+            .ok_or_else(|| {
+                Error::EvaluationFailed(
+                    "callable was not compiled successfully".to_string(),
+                    self.get_expr_package_span(callee_expr_id),
+                )
+            })?;
         let Global::Callable(callable_decl) = global else {
             // Instruction generation for UDTs is not supported.
             panic!("global is not a callable");

@@ -182,10 +182,9 @@ fn validate_increment_capabilities(
             (target.package, target.item).into()
         };
         let target_package = store.get(target.package);
-        let item = target_package
-            .items
-            .get(target.item)
-            .expect("checked item exists");
+        let Some(item) = target_package.items.get(target.item) else {
+            return Err(original_errors);
+        };
         let fir::ItemKind::Callable(decl) = &item.kind else {
             unreachable!("only callable bodies have capability errors");
         };
