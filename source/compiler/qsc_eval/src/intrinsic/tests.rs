@@ -818,6 +818,23 @@ fn truncate() {
 }
 
 #[test]
+fn apply_unitary_after_swapped_qubit_release_reports_error() {
+    check_intrinsic_result(
+        "",
+        r#"{
+            use q = Qubit();
+            { use t = Qubit(); SWAP(q, t); }
+            let o = new Std.Math.Complex { Real = 1.0, Imag = 0.0 };
+            let z = new Std.Math.Complex { Real = 0.0, Imag = 0.0 };
+            ApplyUnitary([[z, o], [o, z]], [q]);
+        }"#,
+        &expect![
+            "intrinsic callable `Apply` failed: arbitrary unitary application is not supported with gaps in the qubit layout"
+        ],
+    );
+}
+
+#[test]
 fn sqrt() {
     check_intrinsic_value("", "Microsoft.Quantum.Math.Sqrt(0.0)", &Value::Double(0.0));
     check_intrinsic_value("", "Microsoft.Quantum.Math.Sqrt(81.0)", &Value::Double(9.0));

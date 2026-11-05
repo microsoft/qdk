@@ -1222,6 +1222,20 @@ impl SparseStateSim {
         targets: &[usize],
         controls: Option<&[usize]>,
     ) {
+        self.try_apply(unitary, targets, controls)
+            .expect("unitary application should be supported");
+    }
+
+    /// Applies a unitary, reporting unsupported qubit layouts before changing the state.
+    ///
+    /// # Errors
+    /// Returns an error if released qubits leave gaps in the positions needed for the matrix.
+    pub fn try_apply(
+        &mut self,
+        unitary: &Array2<Complex64>,
+        targets: &[usize],
+        controls: Option<&[usize]>,
+    ) -> Result<(), String> {
         let mut targets = targets.to_vec();
         let mut unitary = unitary.clone();
 
@@ -1255,6 +1269,18 @@ impl SparseStateSim {
         }
         Self::check_for_duplicates(&targets);
 
+        if self
+            .id_map
+            .values()
+            .filter(|&&position| position < targets.len())
+            .count()
+            != targets.len()
+        {
+            return Err(
+                "arbitrary unitary application is not supported with gaps in the qubit layout"
+                    .to_string(),
+            );
+        }
         self.flush_queue(&targets, FlushLevel::HRxRy);
 
         targets
@@ -1311,6 +1337,7 @@ impl SparseStateSim {
             !self.state.is_empty(),
             "State vector should never be empty."
         );
+        Ok(())
     }
 
     /// Applies an arithmetic function to a register of qubits, preserving amplitudes.

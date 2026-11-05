@@ -303,6 +303,55 @@ fn test_swap_dump() {
     println!("{}", sim.dump());
 }
 
+#[test]
+fn test_try_apply_layout_gap_preserves_pending_state() {
+    let mut sim = SparseStateSim::default();
+    let q = sim.allocate();
+    let released = sim.allocate();
+    let rotations = [sim.allocate(), sim.allocate()];
+    sim.swap_qubit_ids(q, released);
+    sim.release(released);
+
+    sim.h(q);
+    sim.rx(PI / 7.0, rotations[0]);
+    sim.ry(PI / 5.0, rotations[1]);
+    sim.x(q);
+
+    assert!(sim.h_flag.bit(q as u64));
+    assert!(!sim.rx_queue.is_empty());
+    assert!(!sim.ry_queue.is_empty());
+    assert!(!sim.op_queue.is_empty());
+    let state = sim.state.clone();
+    let id_map = sim.id_map.clone();
+    let h_flag = sim.h_flag.clone();
+    let rotation_queues = (sim.rx_queue.clone(), sim.ry_queue.clone());
+    let op_queue = format!("{:?}", sim.op_queue);
+
+    assert_eq!(
+        sim.try_apply(&Array2::eye(8), &[q, rotations[0], rotations[1]], None),
+        Err(
+            "arbitrary unitary application is not supported with gaps in the qubit layout"
+                .to_string()
+        )
+    );
+
+    assert_eq!(sim.state, state);
+    assert_eq!(
+        sim.id_map.iter().collect::<Vec<_>>(),
+        id_map.iter().collect::<Vec<_>>()
+    );
+    assert_eq!(sim.h_flag, h_flag);
+    assert_eq!(
+        sim.rx_queue.iter().collect::<Vec<_>>(),
+        rotation_queues.0.iter().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        sim.ry_queue.iter().collect::<Vec<_>>(),
+        rotation_queues.1.iter().collect::<Vec<_>>()
+    );
+    assert_eq!(format!("{:?}", sim.op_queue), op_queue);
+}
+
 /// Verify that swap preserves queued rotations.
 #[test]
 fn test_swap_rotations() {
