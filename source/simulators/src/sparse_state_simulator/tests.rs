@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
+use super::pauli_testing::{
+    Pending::{H, Rx, Ry},
+    check_measure_pauli,
+};
 use super::*;
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, PI};
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, PI};
 
 fn almost_equal(a: f64, b: f64) -> bool {
     a.max(b) - b.min(a) <= 1e-10
@@ -81,6 +85,76 @@ fn test_measure() {
     assert!(almost_equal(sim.joint_probability(&[q]), 0.0));
     sim.release(extra);
     sim.release(q);
+}
+
+/// Measures in each Pauli basis with different combinations of pending H, Rx and Ry on the target.
+#[test]
+fn test_measure_pauli() {
+    for gates in [
+        &[][..],
+        &[H],
+        &[Ry(FRAC_PI_2)],
+        &[Ry(-FRAC_PI_2)],
+        &[Ry(0.3)],
+        &[Rx(0.3)],
+        &[Rx(FRAC_PI_2)],
+        &[Rx(-FRAC_PI_2)],
+        &[Ry(FRAC_PI_4), Ry(FRAC_PI_4)],
+        &[Rx(FRAC_PI_4), Rx(FRAC_PI_4)],
+        &[H, Ry(FRAC_PI_2)],
+        &[H, Ry(-FRAC_PI_2)],
+        &[H, Ry(0.42)],
+        &[Rx(0.42), Ry(FRAC_PI_2)],
+        &[Rx(0.42), Ry(-FRAC_PI_2)],
+        &[Rx(FRAC_PI_2), Ry(-PI)],
+        &[Rx(-FRAC_PI_2), Ry(PI)],
+        &[Rx(-PI), Ry(FRAC_PI_2)],
+        &[Rx(PI), Ry(-FRAC_PI_2)],
+        &[Rx(0.6), Ry(0.9)],
+    ] {
+        for p1 in [
+            OneQubitMeasurement::Z,
+            OneQubitMeasurement::X,
+            OneQubitMeasurement::Y,
+        ] {
+            for p2 in [
+                OneQubitMeasurement::Z,
+                OneQubitMeasurement::X,
+                OneQubitMeasurement::Y,
+            ] {
+                check_measure_pauli([p1, p2], gates);
+            }
+        }
+    }
+}
+
+/// The eigenstate checks must give the right answer and must not change the state.
+#[test]
+fn test_qubit_is_plus() {
+    let mut sim = SparseStateSim::default();
+    let q = sim.allocate();
+    assert!(!sim.qubit_is_plus(q), "|0⟩");
+    sim.h(q);
+    assert!(sim.qubit_is_plus(q), "|+⟩");
+    sim.z(q);
+    assert!(!sim.qubit_is_plus(q), "|-⟩");
+    sim.s(q);
+    assert!(!sim.qubit_is_plus(q), "|-i⟩");
+}
+
+/// The eigenstate checks must give the right answer and must not change the state.
+#[test]
+fn test_qubit_is_plus_i() {
+    let mut sim = SparseStateSim::default();
+    let q = sim.allocate();
+    assert!(!sim.qubit_is_plus_i(q), "|0⟩");
+    sim.h(q);
+    sim.s(q);
+    assert!(sim.qubit_is_plus_i(q), "|+i⟩");
+    sim.z(q);
+    assert!(!sim.qubit_is_plus_i(q), "|-i⟩");
+    sim.sadj(q);
+    assert!(!sim.qubit_is_plus_i(q), "|-⟩");
 }
 
 // Verify that out of order release of non-zero qubits behaves as expected, namely qubits that
