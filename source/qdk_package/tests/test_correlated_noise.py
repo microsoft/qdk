@@ -97,7 +97,8 @@ def test_noisy_simulation_with_missing_gates_fails():
 
 @pytest.mark.parametrize("profile", [TargetProfile.Base, TargetProfile.Adaptive_RIF])
 @pytest.mark.parametrize("sim_type", ["cpu", "stabilizer", "gpu"])
-def test_repeated_noise_qubit_reports_error(profile, sim_type):
+@pytest.mark.parametrize("with_noise", [False, True])
+def test_repeated_noise_qubit_reports_error(profile, sim_type, with_noise):
     ctx = Context(target_profile=profile)
     ctx.eval("""
         @NoiseIntrinsic() operation N(a : Qubit, b : Qubit, c : Qubit) : Unit { body intrinsic; }
@@ -110,4 +111,9 @@ def test_repeated_noise_qubit_reports_error(profile, sim_type):
     noise = NoiseConfig()
     noise.intrinsic("N", 3).XXX = 1.0
     with pytest.raises(ValueError, match="qubits in invocation.*are not unique"):
-        run_qir(ctx.compile("Main()"), shots=1, noise=noise, type=sim_type)
+        run_qir(
+            ctx.compile("Main()"),
+            shots=1,
+            noise=noise if with_noise else None,
+            type=sim_type,
+        )

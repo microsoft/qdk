@@ -42,6 +42,7 @@ from .._adaptive_pass import (
     AdaptiveProgram,
     Bytecode,
     OP_RECORD_OUTPUT,
+    validate_qubit_arguments,
 )
 
 if TYPE_CHECKING:
@@ -49,30 +50,6 @@ if TYPE_CHECKING:
 
     from .._native import GpuShotResults  # This is in the pyi file only
     from .decoders import PrepareDecoder
-
-
-class ValidateQubitArgumentsPass(pyqir.QirModuleVisitor):
-    def _on_call_instr(self, call: Call) -> None:
-        name = call.callee.name
-        if name not in {
-            "__quantum__qis__ccx__body",
-            "__quantum__qis__cx__body",
-            "__quantum__qis__cy__body",
-            "__quantum__qis__cz__body",
-            "__quantum__qis__swap__body",
-            "__quantum__qis__rxx__body",
-            "__quantum__qis__ryy__body",
-            "__quantum__qis__rzz__body",
-        } and "qdk_noise" not in cast(Function, call.callee).attributes.func:
-            return
-        qubits = [
-            qubit
-            for arg in call.args
-            if isinstance(arg.type, PointerType)
-            and (qubit := pyqir.ptr_id(arg)) is not None
-        ]
-        if len(qubits) != len(set(qubits)):
-            raise ValueError(f"qubits in invocation of `{name}` are not unique")
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -122,6 +99,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
     def _on_call_instr(self, call: Call) -> None:
         callee_name = call.callee.name
         if callee_name == "__quantum__qis__ccx__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CCX,
@@ -131,6 +109,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__cx__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CX,
@@ -139,6 +118,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__cy__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CY,
@@ -147,6 +127,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__cz__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CZ,
@@ -155,6 +136,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__swap__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.SWAP,
@@ -172,6 +154,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__rxx__body":
+            validate_qubit_arguments(call)
             angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
@@ -191,6 +174,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__ryy__body":
+            validate_qubit_arguments(call)
             angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
@@ -210,6 +194,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__rzz__body":
+            validate_qubit_arguments(call)
             angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
@@ -315,10 +300,10 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             or callee_name == "__quantum__rt__begin_parallel"
             or callee_name == "__quantum__rt__end_parallel"
             or callee_name == "__quantum__qis__barrier__body"
-            # We only hit this during noiseless simulations
-            or "qdk_noise" in cast(Function, call.callee).attributes.func
         ):
             pass
+        elif "qdk_noise" in cast(Function, call.callee).attributes.func:
+            validate_qubit_arguments(call)
         else:
             raise ValueError(f"Unsupported call instruction: {callee_name}")
 
@@ -336,6 +321,7 @@ class CorrelatedNoisePass(AggregateGatesPass):
     def _on_call_instr(self, call: Call) -> None:
         callee_name = call.callee.name
         if callee_name in self.noise_intrinsics_table:
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CorrelatedNoise,
@@ -367,6 +353,7 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
     def _on_call_instr(self, call: Call) -> None:
         callee_name = call.callee.name
         if callee_name in self.noise_table:
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CorrelatedNoise,
@@ -535,6 +522,7 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
         ctrl2: Value,
         target: Value,
     ) -> None:
+        validate_qubit_arguments(call)
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target])
         self.builder.call(self.tadj_func, [ctrl1])
@@ -595,7 +583,6 @@ def preprocess_simulation_input(
     else:
         mod = Module.from_bitcode(context, input)
 
-    ValidateQubitArgumentsPass().run(mod)
     return (mod, shots, noise, seed)
 
 
