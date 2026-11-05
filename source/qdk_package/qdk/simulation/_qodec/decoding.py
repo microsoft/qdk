@@ -126,7 +126,7 @@ def prepare_deq_decoder(
 ) -> DecoderFactory:
     """Prepare a circuit-level deq decoder for a Qodec layer.
 
-    Requires ``pip install deq deq-runtime``. The decoder composes bounded
+    Requires ``pip install deq deqagram deq-runtime``. The decoder composes bounded
     groups of local Clifford gadgets using the ``run_qir`` noise model and
     deq's window coordinator with relay-BP decoding by default.
 

@@ -111,7 +111,7 @@ def test_deq_missing_dependency_has_install_instructions(
     def unused_factory(seed):
         pytest.fail("The runtime factory must not run while preparing a layer")
 
-    with pytest.raises(ImportError, match="pip install deq deq-runtime"):
+    with pytest.raises(ImportError, match="pip install deq deqagram deq-runtime"):
         prepare_deq_decoder(
             cast("Layer", object()),
             runtime_factory=unused_factory if custom_factory else None,
@@ -1041,7 +1041,7 @@ def test_deq_dependency_is_only_required_when_selected(missing_dependency, tmp_p
         try:
             run_qir(qir, qodec=codec, decoder=prepare_deq_decoder)
         except ImportError as error:
-            assert 'pip install deq deq-runtime' in str(error), str(error)
+            assert 'pip install deq deqagram deq-runtime' in str(error), str(error)
         else:
             raise AssertionError("Missing deq dependency was not reported")
     ''')
