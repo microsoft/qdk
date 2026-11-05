@@ -125,6 +125,9 @@ def init(
           the statement form instead (``use q = Qubit();``). It also removes the requirement
           to use the ``set`` keyword for mutable variable assignments.
 
+        - ``"ignore-stack-limit"``: Ignores the compile-time stack limit when generating
+          circuits or compiling to QIR.
+
     :keyword trace_circuit: Enables tracing of circuit during execution.
         Passing `True` is required for the `dump_circuit` function to return a circuit.
         The `circuit` function is *NOT* affected by this parameter and will always

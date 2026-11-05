@@ -108,6 +108,7 @@ impl OperationReceiver for TestOperationReceiver<'_> {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn check_trace(file: &str, expr: &str, expect: &Expect) {
     let capabilities = Profile::AdaptiveRIF.into();
     let mut fir_lowerer = qsc_lowerer::Lowerer::new();
@@ -177,6 +178,7 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         &entry,
         PartialEvalConfig {
             generate_debug_metadata: true,
+            ignore_stack_limit: false,
         },
     )
     .expect("RIR lowering should succeed");

@@ -3,7 +3,7 @@
 
 #![allow(clippy::needless_raw_string_hashes, clippy::similar_names)]
 
-use crate::tests::get_rir_program_with_adaptive_profile;
+use crate::tests::{get_rir_program_with_adaptive_profile, get_rir_program_without_stack_limit};
 use crate::{Error, PartialEvalConfig, partially_evaluate};
 
 use super::{
@@ -659,6 +659,7 @@ fn partial_evaluation_error_uses_expr_source_package_after_relocation() {
         capabilities,
         PartialEvalConfig {
             generate_debug_metadata: false,
+            ignore_stack_limit: false,
         },
     ) else {
         panic!("partial evaluation should fail");
@@ -686,6 +687,7 @@ fn partial_evaluation_error_uses_expr_source_package_after_relocation() {
         capabilities,
         PartialEvalConfig {
             generate_debug_metadata: false,
+            ignore_stack_limit: false,
         },
     ) else {
         panic!("partial evaluation should still fail after relocation");
@@ -1242,5 +1244,47 @@ fn temp_dynamic_result_from_ternop_same_every_path_propagates_constant() {
             Block 3:Block:
                 Variable(2, Integer) = Store Integer(4)
                 Jump(1)"#]],
+    );
+}
+
+#[test]
+fn stack_limit_prevents_deep_recursion() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        operation Recur(n : Int) : Unit {
+            if n > 0 {
+                Recur(n - 1);
+            }
+        }
+        operation Main() : Unit {
+            Recur(101);
+        }
+        "#
+    });
+    expect!["compile-time stack limit exceeded"].assert_eq(&error.to_string());
+}
+
+#[test]
+fn ignoring_stack_limit_allows_deep_recursion() {
+    let program = get_rir_program_without_stack_limit(indoc! {
+        r#"
+        operation Recur(n : Int) : Unit {
+            if n > 0 {
+                Recur(n - 1);
+            }
+        }
+        operation Main() : Unit {
+            Recur(101);
+        }
+        "#
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
     );
 }

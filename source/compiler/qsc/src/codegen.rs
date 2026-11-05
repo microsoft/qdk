@@ -2130,7 +2130,14 @@ pub mod qir {
             ..
         } = prepared_fir;
 
-        fir_to_qir(&fir_store, capabilities, &compute_properties, &entry).map_err(|e| {
+        fir_to_qir(
+            &fir_store,
+            capabilities,
+            LanguageFeatures::default(),
+            &compute_properties,
+            &entry,
+        )
+        .map_err(|e| {
             let source_package_id = e.span().package;
             let source_package = store
                 .get(source_package_id)
@@ -2170,6 +2177,7 @@ pub mod qir {
             &entry,
             PartialEvalConfig {
                 generate_debug_metadata: true,
+                ignore_stack_limit: language_features.contains(LanguageFeatures::IgnoreStackLimit),
             },
         )
         .map_err(|e| {
@@ -2206,7 +2214,14 @@ pub mod qir {
             ..
         } = prepared_fir;
 
-        fir_to_qir(&fir_store, capabilities, &compute_properties, &entry).map_err(|e| {
+        fir_to_qir(
+            &fir_store,
+            capabilities,
+            language_features,
+            &compute_properties,
+            &entry,
+        )
+        .map_err(|e| {
             let source_package_id = e.span().package;
             let source_package = package_store
                 .get(source_package_id)

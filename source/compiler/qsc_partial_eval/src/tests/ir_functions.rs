@@ -687,6 +687,7 @@ fn recursive_operation_factory_is_inlined_before_calling_returned_operation() {
             capabilities,
             crate::PartialEvalConfig {
                 generate_debug_metadata: false,
+                ignore_stack_limit: false,
             },
         )
         .expect("the recursive factory must inline");
