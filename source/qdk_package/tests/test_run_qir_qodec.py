@@ -92,7 +92,7 @@ def test_decoder_requires_a_qodec():
         run_qir("", decoder=prepare_decoder)
 
 
-@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
+@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime", "deqagram"])
 @pytest.mark.parametrize("custom_factory", [False, True])
 def test_deq_missing_dependency_has_install_instructions(
     monkeypatch, missing_dependency, custom_factory
@@ -996,7 +996,7 @@ def test_physical_execution_does_not_import_ec_dependencies(tmp_path):
 
     code = dedent('''
         import sys
-        for name in ("qodec", "paulimer", "numpy", "scipy", "stim", "deq", "deq_runtime"):
+        for name in ("qodec", "paulimer", "numpy", "scipy", "stim", "deq", "deq_runtime", "deqagram"):
             sys.modules[name] = None
         from qdk.simulation import run_qir
         qir = """
@@ -1016,7 +1016,7 @@ def test_physical_execution_does_not_import_ec_dependencies(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
+@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime", "deqagram"])
 def test_deq_dependency_is_only_required_when_selected(missing_dependency, tmp_path):
     import subprocess
     from textwrap import dedent
