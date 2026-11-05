@@ -11,12 +11,37 @@ import pytest
 
 from qdk._native import Result
 
-from qdk import qsharp
+from qdk import Context, qsharp
 from qdk import TargetProfile
 from qdk import openqasm
 
 from qdk.simulation import NoiseConfig
 from qdk.simulation._simulation import OutputRecordingPass, run_qir_cpu
+
+
+@pytest.mark.parametrize("profile", [TargetProfile.Base, TargetProfile.Adaptive_RIF])
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer", "gpu"])
+@pytest.mark.parametrize(
+    "gate",
+    [
+        "CNOT(q, q)",
+        "CY(q, q)",
+        "CZ(q, q)",
+        "SWAP(q, q)",
+        "CCNOT(q, q, q)",
+        "Rxx(0.5, q, q)",
+        "Ryy(0.5, q, q)",
+        "Rzz(0.5, q, q)",
+    ],
+)
+def test_repeated_gate_qubit_reports_error(profile, sim_type, gate):
+    from qdk.simulation import run_qir
+
+    ctx = Context(target_profile=profile)
+    ctx.eval(f"operation Main() : Result {{ use q = Qubit(); {gate}; MResetZ(q) }}")
+    with pytest.raises(ValueError, match="qubits in invocation.*are not unique"):
+        run_qir(ctx.compile("Main()"), shots=1, type=sim_type)
+
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
