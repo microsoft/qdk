@@ -743,6 +743,39 @@ def test_mz_does_not_reset(sim_type):
     )
 
 
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_mx_my_on_eigenstates_are_deterministic(sim_type):
+    check_qsharp(
+        """{
+            use qs = Qubit[4];
+            H(qs[0]);
+            X(qs[1]); H(qs[1]);
+            H(qs[2]); S(qs[2]);
+            H(qs[3]); Adjoint S(qs[3]);
+            let rs = [MX(qs[0]), MX(qs[1]), MY(qs[2]), MY(qs[3])];
+            ResetAll(qs);
+            rs
+        }""",
+        expected=["0101"],
+        sim_type=sim_type,
+    )
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_mx_my_do_not_reset(sim_type):
+    # Re-measuring in the same basis agrees, and a change of basis in between is random.
+    # In Base profile this also exercises the `reindex_qubits` basis-aware state transfer.
+    results = compile_and_run(
+        "{use q = Qubit(); let rs = [MX(q), MX(q), MY(q), MY(q)]; Reset(q); rs}",
+        shots=64,
+        seed=SEED,
+        sim_type=sim_type,
+    )
+    assert all(r[0] == r[1] and r[2] == r[3] for r in results), results
+    assert {r[0] for r in results} == {"0", "1"}
+    assert {r[2] for r in results} == {"0", "1"}
+
+
 # ===========================================================================
 # Multi-qubit state tests
 # ===========================================================================
