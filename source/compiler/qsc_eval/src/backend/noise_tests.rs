@@ -14,6 +14,34 @@ use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_p
 use std::fmt::Write;
 
 #[test]
+fn post_select_loss_reports_error() {
+    fn check(sim: &mut impl Backend) {
+        let q = crate::Rc::new(val::Qubit(
+            sim.qubit_allocate().expect("allocation succeeds"),
+        ));
+        let arg = val::Value::Tuple(
+            vec![
+                val::Value::Result(val::Result::Loss),
+                val::Value::Qubit((&q).into()),
+            ]
+            .into(),
+            None,
+        );
+        assert_eq!(
+            sim.custom_intrinsic("PostSelectZ", arg, &qsc_fir::fir::PackageStore::new()),
+            Some(Err("cannot post-select on a Loss result".to_string()))
+        );
+        assert_eq!(
+            sim.m(q.0).expect("measurement succeeds"),
+            val::Result::Val(false)
+        );
+        sim.qubit_release(q.0).expect("release succeeds");
+    }
+    check(&mut SparseSim::new());
+    check(&mut crate::backend::CliffordSim::new(1));
+}
+
+#[test]
 fn pauli_noise() {
     let noise = PauliNoise::from_probabilities(0.0, 0.0, 0.0);
     assert!(
