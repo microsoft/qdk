@@ -335,9 +335,10 @@ intervals, even rounds extending beyond execution. Pending rounds do not extend 
 runtime: each batch stops as soon as its instructions finish.
 
 `Factory utilization` sums distillation-round durations in nanoseconds and divides by the
-aggregation window size in nanoseconds, reporting an estimated average number of busy factories
-(units: `factories`), not a percentage. Waiting time is excluded. Each round is charged to its
-starting window rather than split across window boundaries.
+aggregation window size in nanoseconds, then divides by the number of factories and multiplies
+by 100, reporting estimated utilization in percent (units: `%`). The viewer displays these
+values and units directly. Waiting time is excluded. Each round is charged to its starting
+window rather than split across window boundaries.
 Event rates and factory utilization use separate `TumblingWindowAggregator` instances,
 configured with `AggregationType::Rate` and `AggregationType::Utilization`, respectively.
 Only the event aggregator contributes to the total operation/event count; their time series
