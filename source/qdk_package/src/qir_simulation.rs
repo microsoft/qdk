@@ -150,8 +150,6 @@ impl From<qdk_simulators::noise_config::LossPolicy> for LossPolicy {
 #[pyclass(module = "qdk._native")]
 pub struct NoiseConfig {
     #[pyo3(get)]
-    pub i: Py<NoiseTable>,
-    #[pyo3(get)]
     pub x: Py<NoiseTable>,
     #[pyo3(get)]
     pub y: Py<NoiseTable>,
@@ -304,7 +302,6 @@ fn bind_noise_config<T: Float, Q: Float>(
     value: &qdk_simulators::noise_config::NoiseConfig<T, Q>,
 ) -> PyResult<NoiseConfig> {
     Ok(NoiseConfig {
-        i: Py::new(py, from_qdk_simulators_noise_table(&value.i, "i"))?,
         x: Py::new(py, from_qdk_simulators_noise_table(&value.x, "x"))?,
         y: Py::new(py, from_qdk_simulators_noise_table(&value.y, "y"))?,
         z: Py::new(py, from_qdk_simulators_noise_table(&value.z, "z"))?,
@@ -379,7 +376,7 @@ pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
 ) -> qdk_simulators::noise_config::NoiseConfig<T, Q> {
     let value = value.borrow();
     qdk_simulators::noise_config::NoiseConfig {
-        i: from_noise_table_ref(value.i.borrow(py)),
+        i: qdk_simulators::noise_config::NoiseTable::noiseless(1),
         x: from_noise_table_ref(value.x.borrow(py)),
         y: from_noise_table_ref(value.y.borrow(py)),
         z: from_noise_table_ref(value.z.borrow(py)),
