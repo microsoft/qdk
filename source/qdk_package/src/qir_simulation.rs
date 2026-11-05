@@ -378,76 +378,34 @@ pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
     value: &Bound<NoiseConfig>,
 ) -> PyResult<qdk_simulators::noise_config::NoiseConfig<T, Q>> {
     let value = value.borrow();
-    for table in [
-        &value.i,
-        &value.x,
-        &value.y,
-        &value.z,
-        &value.h,
-        &value.s,
-        &value.s_adj,
-        &value.t,
-        &value.t_adj,
-        &value.sx,
-        &value.sx_adj,
-        &value.rx,
-        &value.ry,
-        &value.rz,
-        &value.cx,
-        &value.cy,
-        &value.cz,
-        &value.rxx,
-        &value.ryy,
-        &value.rzz,
-        &value.swap,
-        &value.ccx,
-        &value.mov,
-        &value.mz,
-        &value.mresetz,
-    ] {
-        qdk_simulators::noise_config::validate_probabilities(
-            table.borrow(py).pauli_noise.values().copied(),
-        )
-        .map_err(PyValueError::new_err)?;
-    }
-    for (name, (_, table)) in &value.intrinsics.borrow(py).table {
-        let table = table.borrow(py);
-        if table.pauli_noise.is_empty() {
-            return Err(PyValueError::new_err(format!(
-                "noise intrinsic `{name}` must have at least one fault entry"
-            )));
-        }
-        qdk_simulators::noise_config::validate_probabilities(table.pauli_noise.values().copied())
-            .map_err(PyValueError::new_err)?;
-    }
     Ok(qdk_simulators::noise_config::NoiseConfig {
-        i: from_noise_table_ref(value.i.borrow(py)),
-        x: from_noise_table_ref(value.x.borrow(py)),
-        y: from_noise_table_ref(value.y.borrow(py)),
-        z: from_noise_table_ref(value.z.borrow(py)),
-        h: from_noise_table_ref(value.h.borrow(py)),
-        s: from_noise_table_ref(value.s.borrow(py)),
-        s_adj: from_noise_table_ref(value.s_adj.borrow(py)),
-        t: from_noise_table_ref(value.t.borrow(py)),
-        t_adj: from_noise_table_ref(value.t_adj.borrow(py)),
-        sx: from_noise_table_ref(value.sx.borrow(py)),
-        sx_adj: from_noise_table_ref(value.sx_adj.borrow(py)),
-        rx: from_noise_table_ref(value.rx.borrow(py)),
-        ry: from_noise_table_ref(value.ry.borrow(py)),
-        rz: from_noise_table_ref(value.rz.borrow(py)),
-        cx: from_noise_table_ref(value.cx.borrow(py)),
-        cy: from_noise_table_ref(value.cy.borrow(py)),
-        cz: from_noise_table_ref(value.cz.borrow(py)),
-        rxx: from_noise_table_ref(value.rxx.borrow(py)),
-        ryy: from_noise_table_ref(value.ryy.borrow(py)),
-        rzz: from_noise_table_ref(value.rzz.borrow(py)),
-        swap: from_noise_table_ref(value.swap.borrow(py)),
-        ccx: from_noise_table_ref(value.ccx.borrow(py)),
-        mov: from_noise_table_ref(value.mov.borrow(py)),
-        mz: from_noise_table_ref(value.mz.borrow(py)),
-        mresetz: from_noise_table_ref(value.mresetz.borrow(py)),
+        i: from_noise_table_ref(value.i.borrow(py))?,
+        x: from_noise_table_ref(value.x.borrow(py))?,
+        y: from_noise_table_ref(value.y.borrow(py))?,
+        z: from_noise_table_ref(value.z.borrow(py))?,
+        h: from_noise_table_ref(value.h.borrow(py))?,
+        s: from_noise_table_ref(value.s.borrow(py))?,
+        s_adj: from_noise_table_ref(value.s_adj.borrow(py))?,
+        t: from_noise_table_ref(value.t.borrow(py))?,
+        t_adj: from_noise_table_ref(value.t_adj.borrow(py))?,
+        sx: from_noise_table_ref(value.sx.borrow(py))?,
+        sx_adj: from_noise_table_ref(value.sx_adj.borrow(py))?,
+        rx: from_noise_table_ref(value.rx.borrow(py))?,
+        ry: from_noise_table_ref(value.ry.borrow(py))?,
+        rz: from_noise_table_ref(value.rz.borrow(py))?,
+        cx: from_noise_table_ref(value.cx.borrow(py))?,
+        cy: from_noise_table_ref(value.cy.borrow(py))?,
+        cz: from_noise_table_ref(value.cz.borrow(py))?,
+        rxx: from_noise_table_ref(value.rxx.borrow(py))?,
+        ryy: from_noise_table_ref(value.ryy.borrow(py))?,
+        rzz: from_noise_table_ref(value.rzz.borrow(py))?,
+        swap: from_noise_table_ref(value.swap.borrow(py))?,
+        ccx: from_noise_table_ref(value.ccx.borrow(py))?,
+        mov: from_noise_table_ref(value.mov.borrow(py))?,
+        mz: from_noise_table_ref(value.mz.borrow(py))?,
+        mresetz: from_noise_table_ref(value.mresetz.borrow(py))?,
         idle: qdk_simulators::noise_config::IdleNoiseParams::NOISELESS, // _from_idle_noise_params_ref(value.idle.borrow(py)),
-        intrinsics: from_intrinsics_table_ref(py, value.intrinsics.borrow(py)),
+        intrinsics: from_intrinsics_table_ref(py, value.intrinsics.borrow(py))?,
     })
 }
 
@@ -863,19 +821,21 @@ impl<T: Float> From<NoiseTable> for qdk_simulators::noise_config::NoiseTable<T> 
 #[allow(clippy::needless_pass_by_value, reason = "we are passing a reference")]
 fn from_noise_table_ref<T: Float>(
     value: PyRef<'_, NoiseTable>,
-) -> qdk_simulators::noise_config::NoiseTable<T> {
+) -> PyResult<qdk_simulators::noise_config::NoiseTable<T>> {
+    qdk_simulators::noise_config::validate_probabilities(value.pauli_noise.values().copied())
+        .map_err(PyValueError::new_err)?;
     let mut pauli_strings = Vec::with_capacity(value.pauli_noise.len());
     let mut probabilities: Vec<T> = Vec::with_capacity(value.pauli_noise.len());
     for (key, probability) in &value.pauli_noise {
         pauli_strings.push(*key);
         probabilities.push(generic_float_cast(*probability));
     }
-    qdk_simulators::noise_config::NoiseTable {
+    Ok(qdk_simulators::noise_config::NoiseTable {
         qubits: value.qubits,
         pauli_strings,
         probabilities,
         on_loss: value.on_loss.into(),
-    }
+    })
 }
 
 fn from_qdk_simulators_noise_table<T: Float>(
@@ -995,11 +955,19 @@ impl NoiseIntrinsicsTable {
 fn from_intrinsics_table_ref<T: Float>(
     py: Python,
     value: PyRef<'_, NoiseIntrinsicsTable>,
-) -> FxHashMap<u32, qdk_simulators::noise_config::NoiseTable<T>> {
+) -> PyResult<FxHashMap<u32, qdk_simulators::noise_config::NoiseTable<T>>> {
     value
         .table
-        .values()
-        .map(|(k, v)| (*k, from_noise_table_ref(v.borrow(py))))
+        .iter()
+        .map(|(name, (id, table))| {
+            let table = table.borrow(py);
+            if table.pauli_noise.is_empty() {
+                return Err(PyValueError::new_err(format!(
+                    "noise intrinsic `{name}` must have at least one fault entry"
+                )));
+            }
+            Ok((*id, from_noise_table_ref(table)?))
+        })
         .collect()
 }
 
