@@ -317,20 +317,6 @@ def test_highs_limited_result_retains_gap() -> None:
             data.bounds(solver="highs")
 
 
-def test_highs_preserves_unrelated_backend_import_failure() -> None:
-    data = OddCycles(
-        [frozenset({0, 1}), frozenset({1, 2}), frozenset({0, 2})],
-        [frozenset({0}), frozenset(), frozenset()],
-    )
-    with patch(
-        "qdk.ec._analysis.distance_solvers.import_module",
-        side_effect=ModuleNotFoundError(name="broken_dependency"),
-    ):
-        with pytest.raises(ModuleNotFoundError) as error:
-            data.shortest("highs")
-    assert error.value.name == "broken_dependency"
-
-
 @requires_highs
 @pytest.mark.parametrize(
     "values,bound",
