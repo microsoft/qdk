@@ -12,7 +12,7 @@ int read_le_int_register(int start_qubit_id, int length) {
 }
 
 /// Generates GHZ state on n qubits and measures it.
-/// Returns measurement result as little0endian integer. Resets all qubits.
+/// Returns measurement result as little-endian integer. Resets all qubits.
 int ghz_example(int n) {
     qdk_h(0);
     for(int i=1;i<n;i++) {
