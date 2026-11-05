@@ -214,6 +214,9 @@ class Context:
             the statement form instead (``use q = Qubit();``). It also removes the requirement
             to use the ``set`` keyword for mutable variable assignments.
 
+            - ``"ignore-stack-limit"``: Ignores the compile-time stack limit when generating
+            circuits or compiling to QIR.
+
         :keyword qdk_config: configuration parameters that will be accessible in Q#
             code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of
             type `int`, `float`, `str`, or `bool`.

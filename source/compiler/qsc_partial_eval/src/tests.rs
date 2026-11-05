@@ -205,6 +205,22 @@ pub fn get_rir_program_with_dynamic_qubit_allocation(source: &str) -> Program {
     )
 }
 
+#[must_use]
+pub fn get_rir_program_without_stack_limit(source: &str) -> Program {
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        TargetCapabilityFlags::empty(),
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+            ignore_stack_limit: true,
+        },
+    );
+    match maybe_program {
+        Ok(program) => program,
+        Err(error) => panic!("partial evaluation failed: {error:?}"),
+    }
+}
+
 fn compile_and_partially_evaluate(
     source: &str,
     capabilities: TargetCapabilityFlags,

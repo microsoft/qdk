@@ -2247,7 +2247,7 @@ impl<'a> PartialEvaluator<'a> {
         spec_decl: &SpecDecl,
         call_span: Option<PackageSpan>,
     ) -> Result<Value, Error> {
-        if self.eval_context.push_scope(call_scope) > 300
+        if self.eval_context.push_scope(call_scope) > 100
             && !self.config.ignore_stack_limit
             && let Some(call_span) = call_span
         {
