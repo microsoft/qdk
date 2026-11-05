@@ -376,9 +376,51 @@ fn to_stim_intrinsics_table<Q: Float>(
 pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
     py: Python,
     value: &Bound<NoiseConfig>,
-) -> qdk_simulators::noise_config::NoiseConfig<T, Q> {
+) -> PyResult<qdk_simulators::noise_config::NoiseConfig<T, Q>> {
     let value = value.borrow();
-    qdk_simulators::noise_config::NoiseConfig {
+    for table in [
+        &value.i,
+        &value.x,
+        &value.y,
+        &value.z,
+        &value.h,
+        &value.s,
+        &value.s_adj,
+        &value.t,
+        &value.t_adj,
+        &value.sx,
+        &value.sx_adj,
+        &value.rx,
+        &value.ry,
+        &value.rz,
+        &value.cx,
+        &value.cy,
+        &value.cz,
+        &value.rxx,
+        &value.ryy,
+        &value.rzz,
+        &value.swap,
+        &value.ccx,
+        &value.mov,
+        &value.mz,
+        &value.mresetz,
+    ] {
+        qdk_simulators::noise_config::validate_probabilities(
+            table.borrow(py).pauli_noise.values().copied(),
+        )
+        .map_err(PyValueError::new_err)?;
+    }
+    for (name, (_, table)) in &value.intrinsics.borrow(py).table {
+        let table = table.borrow(py);
+        if table.pauli_noise.is_empty() {
+            return Err(PyValueError::new_err(format!(
+                "noise intrinsic `{name}` must have at least one fault entry"
+            )));
+        }
+        qdk_simulators::noise_config::validate_probabilities(table.pauli_noise.values().copied())
+            .map_err(PyValueError::new_err)?;
+    }
+    Ok(qdk_simulators::noise_config::NoiseConfig {
         i: from_noise_table_ref(value.i.borrow(py)),
         x: from_noise_table_ref(value.x.borrow(py)),
         y: from_noise_table_ref(value.y.borrow(py)),
@@ -406,7 +448,7 @@ pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
         mresetz: from_noise_table_ref(value.mresetz.borrow(py)),
         idle: qdk_simulators::noise_config::IdleNoiseParams::NOISELESS, // _from_idle_noise_params_ref(value.idle.borrow(py)),
         intrinsics: from_intrinsics_table_ref(py, value.intrinsics.borrow(py)),
-    }
+    })
 }
 
 #[derive(Clone, Copy, Debug)]

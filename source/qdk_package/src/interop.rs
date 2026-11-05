@@ -138,8 +138,9 @@ pub(crate) fn run_qasm_program(
     };
     let loss = qubit_loss.unwrap_or(0.0);
     // Convert NoiseConfig to a rust NoiseConfig.
-    let noise_config: Option<qdk_simulators::noise_config::NoiseConfig<f64, f64>> =
-        noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+    let noise_config: Option<qdk_simulators::noise_config::NoiseConfig<f64, f64>> = noise_config
+        .map(|noise_config| unbind_noise_config(py, noise_config))
+        .transpose()?;
     let result = run_ast(
         &mut interpreter,
         &mut receiver,
@@ -472,10 +473,10 @@ pub(crate) fn compile_stim_to_qir(
     source: &str,
     noise: Option<&Bound<NoiseConfig>>,
 ) -> PyResult<(String, NoiseConfig)> {
-    let mut noise_config: qdk_simulators::noise_config::NoiseConfig<f64, f64> = noise.map_or(
-        qdk_simulators::noise_config::NoiseConfig::NOISELESS,
-        |noise_config| unbind_noise_config(py, noise_config),
-    );
+    let mut noise_config: qdk_simulators::noise_config::NoiseConfig<f64, f64> = noise
+        .map(|noise_config| unbind_noise_config(py, noise_config))
+        .transpose()?
+        .unwrap_or(qdk_simulators::noise_config::NoiseConfig::NOISELESS);
 
     let qir = stim_compiler::compile(source, &mut noise_config)
         .map_err(|errors| StimError::new_err(stim_compiler::format_stim_errors(errors)))?;

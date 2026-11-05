@@ -67,7 +67,9 @@ pub fn run_parallel_shots<'py>(
         }
     }
 
-    let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+    let noise = noise_config
+        .map(|noise_config| unbind_noise_config(py, noise_config))
+        .transpose()?;
 
     let rng_seed = seed.unwrap_or(0xfeed_face);
 
@@ -199,7 +201,7 @@ impl GpuContext {
         py: Python<'py>,
         noise_config: &Bound<'py, NoiseConfig>,
     ) -> PyResult<()> {
-        let noise = unbind_noise_config(py, noise_config);
+        let noise = unbind_noise_config(py, noise_config)?;
         self.native_context
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?
@@ -536,7 +538,9 @@ pub fn run_adaptive_parallel_shots<'py>(
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
-    let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+    let noise = noise_config
+        .map(|noise_config| unbind_noise_config(py, noise_config))
+        .transpose()?;
     let rng_seed = seed.unwrap_or(0xfeed_face);
     let program = adaptive_program_from_pydict(input)?;
     let record_types = output_record_types(&program);

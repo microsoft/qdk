@@ -821,7 +821,9 @@ impl Interpreter {
 
         // Convert NoiseConfig to a rust NoiseConfig.
         let noise_config: Option<qdk_simulators::noise_config::NoiseConfig<f64, f64>> =
-            noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+            noise_config
+                .map(|noise_config| unbind_noise_config(py, noise_config))
+                .transpose()?;
 
         let sim_type = sim_type
             .map(|s| match s {

@@ -5,7 +5,7 @@ import os
 import pytest
 from pathlib import Path
 from qdk.simulation import NoiseConfig, run_qir
-from qdk import Result
+from qdk import Context, Result
 import qdk.openqasm
 from qdk.simulation._simulation import try_create_gpu_adapter
 
@@ -93,3 +93,33 @@ def test_noisy_simulation_with_missing_gates_fails():
     with pytest.raises(ValueError) as excinfo:
         run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="cpu")
     assert "Missing noise intrinsic: test_noise_intrinsic" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer"])
+def test_empty_intrinsic_table_reports_error(sim_type):
+    noise = NoiseConfig()
+    noise.intrinsic("test_noise_intrinsic", 3)
+    with pytest.raises(ValueError, match="must have at least one fault entry"):
+        run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type=sim_type)
+
+
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer"])
+@pytest.mark.parametrize("probabilities", [[1.0, 1.0], [1.0, 0.5], [0.1] * 10])
+def test_excess_noise_probability_reports_error(sim_type, probabilities):
+    noise = NoiseConfig()
+    table = noise.intrinsic("test_noise_intrinsic", 3)
+    paulis = ["XII", "IXI", "IIX", "XXI", "XIX", "IXX", "XXX", "YII", "IYI", "IIY"]
+    table.set_pauli_noise(paulis[: len(probabilities)], probabilities)
+    with pytest.raises(ValueError, match="noise probabilities sum to more than 1.0"):
+        run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type=sim_type)
+
+
+@pytest.mark.parametrize("sim_type", ["sparse", "stabilizer"])
+@pytest.mark.parametrize("probabilities", [[1.0, 1.0], [1.0, 0.5], [0.1] * 10])
+def test_interpreter_excess_noise_probability_reports_error(sim_type, probabilities):
+    noise = NoiseConfig()
+    paulis = ["XI", "IX", "XX", "YI", "IY", "ZI", "IZ", "YY", "ZZ", "XZ"]
+    noise.cx.set_pauli_noise(paulis[: len(probabilities)], probabilities)
+    ctx = Context()
+    with pytest.raises(ValueError, match="noise probabilities sum to more than 1.0"):
+        ctx.run("{ use qs = Qubit[2]; CNOT(qs[0], qs[1]); }", 1, noise=noise, type=sim_type)

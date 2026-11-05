@@ -139,7 +139,7 @@ where
     // Convert NoiseConfig to a rust NoiseConfig.
     let noise: qdk_simulators::noise_config::NoiseConfig<f64, f64> =
         if let Some(noise_config) = noise_config {
-            unbind_noise_config(py, noise_config)
+            unbind_noise_config(py, noise_config)?
         } else {
             qdk_simulators::noise_config::NoiseConfig::NOISELESS
         };
@@ -303,7 +303,7 @@ pub fn run_cpu_adaptive<'py>(
     let program: bytecode::AdaptiveProgram<u64> = adaptive_program_from_pydict(input)?;
 
     let noise: noise_config::NoiseConfig<f64, f64> = if let Some(nc) = noise_config {
-        unbind_noise_config(py, nc)
+        unbind_noise_config(py, nc)?
     } else {
         noise_config::NoiseConfig::NOISELESS
     };
@@ -329,7 +329,7 @@ pub fn run_clifford_adaptive<'py>(
     let program: bytecode::AdaptiveProgram<u64> = adaptive_program_from_pydict(input)?;
 
     let noise: noise_config::NoiseConfig<f64, f64> = if let Some(nc) = noise_config {
-        unbind_noise_config(py, nc)
+        unbind_noise_config(py, nc)?
     } else {
         noise_config::NoiseConfig::NOISELESS
     };

@@ -2,6 +2,17 @@
 // Licensed under the MIT License.
 
 use crate::noise_config::{CumulativeNoiseConfig, Sampler, decode_pauli, encode_pauli, uq1_63};
+
+#[test]
+fn validate_sampler_probabilities() {
+    use super::validate_probabilities;
+    assert!(validate_probabilities([1.0, 1.0]).is_err());
+    assert!(validate_probabilities([1.0, 0.5]).is_err());
+    assert!(validate_probabilities([0.1; 10]).is_err());
+    assert!(validate_probabilities([f64::NAN]).is_err());
+    assert!(validate_probabilities([0.25, 0.75]).is_ok());
+    assert!(validate_probabilities([]).is_ok());
+}
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 #[test]

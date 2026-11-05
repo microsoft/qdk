@@ -15,6 +15,23 @@ use crate::noise_config::uq1_63::UQ1_63;
 
 pub(crate) type IntrinsicID = u32;
 
+/// Checks probabilities using the same fixed-point precision as the CPU samplers.
+pub fn validate_probabilities(probabilities: impl IntoIterator<Item = f64>) -> Result<(), String> {
+    let mut total = 0u128;
+    for probability in probabilities {
+        if !(0.0..=1.0).contains(&probability) {
+            return Err("probabilities must be in the range [0, 1]".to_string());
+        }
+        total += u128::from(uq1_63::from_prob(probability));
+        if total > u128::from(uq1_63::ONE) {
+            return Err(
+                "noise probabilities sum to more than 1.0 at simulator precision".to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
 /// A [`u64`] where every 3-bits encodes one of I, X, Y, Z, and L
 /// where IXYZ represent Pauli terms, and L represents loss.
 pub type PauliAndLossString = u64;
