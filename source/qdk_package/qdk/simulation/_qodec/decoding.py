@@ -192,8 +192,8 @@ def prepare_deq_decoder(
             "deqagram",
         ):
             raise ImportError(
-                "The deq decoder requires deq and deq-runtime. "
-                "Install them with: pip install deq deq-runtime"
+                "The deq decoder requires deq, deqagram, and deq-runtime. "
+                "Install them with: pip install deq deqagram deq-runtime"
             ) from error
         raise
     return DeqModel(
