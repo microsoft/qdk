@@ -45,6 +45,10 @@ pub(crate) const RET_VAL: &str = "_.ret_val";
 /// `SynthSlots` instead.
 pub(super) const TRAILING_RESULT: &str = "_.trailing_result";
 
+/// FIR-dump-only label for a per-iteration condition result. The sentinel
+/// distinguishes it from source identifiers; Parseable output uses underscores.
+pub(super) const WHILE_CONDITION: &str = "_.while_condition";
+
 /// The temporary variable used during normalize hoist operations.
 ///
 /// The in-memory `Ident.name` carries a `.` sentinel (`_.ret_hoist`); the

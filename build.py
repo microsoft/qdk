@@ -29,6 +29,10 @@ parser.add_argument(
 )
 parser.add_argument("--widgets", action="store_true", help="Build the Python widgets")
 parser.add_argument("--qdk", action="store_true", help="Build the qdk meta-package")
+parser.add_argument(
+    "--qdk-wheel",
+    help="Use an existing qdk wheel instead of building it (requires --qdk)",
+)
 parser.add_argument("--wasm", action="store_true", help="Build the WebAssembly files")
 parser.add_argument("--npm", action="store_true", help="Build the npm package")
 parser.add_argument("--play", action="store_true", help="Build the web playground")
@@ -111,6 +115,19 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
+
+if args.qdk_wheel:
+    if not args.qdk:
+        parser.error("--qdk-wheel requires --qdk")
+    if args.editable:
+        parser.error("--qdk-wheel cannot be combined with --editable")
+    args.qdk_wheel = os.path.abspath(args.qdk_wheel)
+    if not (
+        os.path.isfile(args.qdk_wheel)
+        and os.path.basename(args.qdk_wheel).startswith("qdk-")
+        and args.qdk_wheel.endswith(".whl")
+    ):
+        parser.error("--qdk-wheel must point to an existing qdk wheel")
 
 specific_project_requested = any(
     (
@@ -522,27 +539,31 @@ def run_ci_historic_benchmark():
 
 
 if build_qdk:
-    step_start("Building the qdk python package")
+    step_start(
+        "Using the prebuilt qdk wheel"
+        if args.qdk_wheel
+        else "Building the qdk python package"
+    )
 
     # Reuse (or create) the pip environment so qdk wheel can be built/installed consistently.
     python_bin, pip_env = use_python_env(qdk_python_src)
 
-    # Read the build dependencies out of the pyproject.toml and install them first so
-    # both the wheel build and editable install can use --no-build-isolation.
-    with open(os.path.join(qdk_python_src, "pyproject.toml"), "rb") as f:
-        requires = tomllib.load(f)["build-system"]["requires"]
-    pip_install(python_bin, *requires, cwd=qdk_python_src, env=pip_env)
+    if not args.qdk_wheel:
+        # Read the build dependencies out of the pyproject.toml and install them first so
+        # both the wheel build and editable install can use --no-build-isolation.
+        with open(os.path.join(qdk_python_src, "pyproject.toml"), "rb") as f:
+            requires = tomllib.load(f)["build-system"]["requires"]
+        pip_install(python_bin, *requires, cwd=qdk_python_src, env=pip_env)
 
-    if args.editable:
-        # Install qdk in editable mode using the pre-installed build deps.
-        editable_install(
-            python_bin, qdk_python_src, env=pip_env, no_build_isolation=True
-        )
-    else:
-        # Build the qdk wheel with maturin (it now owns the native extension).
-        # maturin builds into raw_wheels_dir and copies into wheels_dir; using
-        # wheels_dir as --outdir directly would clash with maturin's own copy step.
-        build_wheel(python_bin, qdk_python_src, env=pip_env, maturin=True)
+        if args.editable:
+            # Install qdk in editable mode using the pre-installed build deps.
+            editable_install(
+                python_bin, qdk_python_src, env=pip_env, no_build_isolation=True
+            )
+        else:
+            # maturin builds into raw_wheels_dir and copies into wheels_dir; using
+            # wheels_dir as --outdir directly would clash with maturin's own copy step.
+            build_wheel(python_bin, qdk_python_src, env=pip_env, maturin=True)
     step_end()
 
     if args.check or run_tests:
@@ -556,7 +577,9 @@ if build_qdk:
         # test_requirements; --no-index can't resolve them from PyPI.
         install_python_test_requirements(qdk_python_src, python_bin)
         if not args.editable:
-            install_from_wheels(python_bin, "qdk", cwd=qdk_python_src)
+            install_from_wheels(
+                python_bin, args.qdk_wheel or "qdk", cwd=qdk_python_src
+            )
         step_end()
 
     if args.check:
@@ -582,7 +605,7 @@ if build_qdk:
         install_python_test_requirements(test_dir, python_bin, check=False)
 
         if not args.editable:
-            install_from_wheels(python_bin, "qdk", cwd=test_dir)
+            install_from_wheels(python_bin, args.qdk_wheel or "qdk", cwd=test_dir)
         step_end()
 
         step_start("Running integration tests for the qdk package")

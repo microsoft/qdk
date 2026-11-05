@@ -4,6 +4,7 @@
 use crate::lex;
 use crate::parser;
 use crate::qir;
+use crate::semantic;
 use miette::Diagnostic;
 use thiserror::Error;
 
@@ -14,6 +15,8 @@ pub enum Error {
     Lex(#[from] lex::Error),
     #[diagnostic(transparent)]
     Parser(#[from] parser::Error),
+    #[diagnostic(transparent)]
+    Semantic(#[from] semantic::Error),
     #[diagnostic(transparent)]
     Qir(#[from] qir::Error),
 }

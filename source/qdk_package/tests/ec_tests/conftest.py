@@ -19,6 +19,10 @@ _REQUIRED = ("hypothesis", "numpy", "paulimer", "qodec")
 
 _MISSING = [name for name in _REQUIRED if find_spec(name) is None]
 
+# Use the non-interactive matplotlib backend for tests.
+# This avoids using Tk which has caused issues in the Windows multiplat tests.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 
 def pytest_ignore_collect(collection_path, config) -> bool:  # noqa: ARG001
     """Skip the whole ``qdk.ec`` suite when the ``ec`` extra is not installed."""

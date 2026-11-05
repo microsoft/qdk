@@ -3197,6 +3197,13 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                 }),
                 None,
             ),
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(0)),
+                Variable {
+                    variable_id: VariableId(4),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(3),
@@ -3208,9 +3215,22 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(5))]));
+    program.blocks.insert(
+        BlockId(3),
+        Block(vec![
+            Instruction::Store(
+                Operand::Variable(Variable {
+                    variable_id: VariableId(2),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(4),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Jump(BlockId(5)),
+        ]),
+    );
     program
         .blocks
         .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(5))]));
@@ -3227,7 +3247,21 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                     ty: Ty::Prim(Prim::Integer),
                 }),
                 Variable {
+                    variable_id: VariableId(5),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Add(
+                Operand::Variable(Variable {
                     variable_id: VariableId(4),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Operand::Variable(Variable {
+                    variable_id: VariableId(5),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(6),
                     ty: Ty::Prim(Prim::Integer),
                 },
             ),
@@ -3264,13 +3298,16 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                     Variable(2, Integer) = Store Variable(1, Integer)
                     Variable(1, Integer) = Store Integer(2)
                     Variable(3, Boolean) = Call id(1), args( )
+                    Variable(4, Integer) = Store Integer(0)
                     Branch Variable(3, Boolean), 3, 4
                 Block 3: Block:
+                    Variable(4, Integer) = Store Variable(2, Integer)
                     Jump(5)
                 Block 4: Block:
                     Jump(5)
                 Block 5: Block:
-                    Variable(4, Integer) = Add Variable(1, Integer), Variable(2, Integer)
+                    Variable(5, Integer) = Add Variable(1, Integer), Variable(2, Integer)
+                    Variable(6, Integer) = Add Variable(4, Integer), Variable(5, Integer)
                     Return
             config: Config:
                 capabilities: Base
@@ -3305,7 +3342,7 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                 Block 1: Block:
                     Jump(2)
                 Block 2: Block:
-                    Variable(5, Integer) = Phi ( [Integer(0), 0], [Integer(1), 1], )
+                    Variable(7, Integer) = Phi ( [Integer(0), 0], [Integer(1), 1], )
                     Variable(3, Boolean) = Call id(1), args( )
                     Branch Variable(3, Boolean), 3, 4
                 Block 3: Block:
@@ -3313,7 +3350,9 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                 Block 4: Block:
                     Jump(5)
                 Block 5: Block:
-                    Variable(4, Integer) = Add Integer(2), Variable(5, Integer)
+                    Variable(8, Integer) = Phi ( [Variable(7, Integer), 3], [Integer(0), 4], )
+                    Variable(5, Integer) = Add Integer(2), Variable(7, Integer)
+                    Variable(6, Integer) = Add Variable(8, Integer), Variable(5, Integer)
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
@@ -3411,6 +3450,13 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                 }),
                 None,
             ),
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(0)),
+                Variable {
+                    variable_id: VariableId(4),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(3),
@@ -3422,9 +3468,22 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(5))]));
+    program.blocks.insert(
+        BlockId(3),
+        Block(vec![
+            Instruction::Store(
+                Operand::Variable(Variable {
+                    variable_id: VariableId(2),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(4),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Jump(BlockId(5)),
+        ]),
+    );
     program
         .blocks
         .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(5))]));
@@ -3441,7 +3500,21 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                     ty: Ty::Prim(Prim::Integer),
                 }),
                 Variable {
+                    variable_id: VariableId(5),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Add(
+                Operand::Variable(Variable {
                     variable_id: VariableId(4),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Operand::Variable(Variable {
+                    variable_id: VariableId(5),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(6),
                     ty: Ty::Prim(Prim::Integer),
                 },
             ),
@@ -3478,13 +3551,16 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                     Variable(2, Integer) = Store Variable(1, Integer)
                     Variable(1, Integer) = Store Integer(2)
                     Variable(3, Boolean) = Call id(1), args( )
+                    Variable(4, Integer) = Store Integer(0)
                     Branch Variable(3, Boolean), 3, 4
                 Block 3: Block:
+                    Variable(4, Integer) = Store Variable(2, Integer)
                     Jump(5)
                 Block 4: Block:
                     Jump(5)
                 Block 5: Block:
-                    Variable(4, Integer) = Add Variable(1, Integer), Variable(2, Integer)
+                    Variable(5, Integer) = Add Variable(1, Integer), Variable(2, Integer)
+                    Variable(6, Integer) = Add Variable(4, Integer), Variable(5, Integer)
                     Return
             config: Config:
                 capabilities: Base
@@ -3517,6 +3593,7 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                 Block 0: Block:
                     Variable(1, Integer) = Alloca
                     Variable(2, Integer) = Alloca
+                    Variable(4, Integer) = Alloca
                     Variable(0, Boolean) = Call id(1), args( )
                     Variable(1, Integer) = Store Integer(0)
                     Branch Variable(0, Boolean), 1, 2
@@ -3524,19 +3601,24 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_acc
                     Variable(1, Integer) = Store Integer(1)
                     Jump(2)
                 Block 2: Block:
-                    Variable(6, Integer) = Load Variable(1, Integer)
-                    Variable(2, Integer) = Store Variable(6, Integer)
+                    Variable(8, Integer) = Load Variable(1, Integer)
+                    Variable(2, Integer) = Store Variable(8, Integer)
                     Variable(1, Integer) = Store Integer(2)
                     Variable(3, Boolean) = Call id(1), args( )
+                    Variable(4, Integer) = Store Integer(0)
                     Branch Variable(3, Boolean), 3, 4
                 Block 3: Block:
+                    Variable(15, Integer) = Load Variable(2, Integer)
+                    Variable(4, Integer) = Store Variable(15, Integer)
                     Jump(5)
                 Block 4: Block:
                     Jump(5)
                 Block 5: Block:
-                    Variable(9, Integer) = Load Variable(1, Integer)
-                    Variable(10, Integer) = Load Variable(2, Integer)
-                    Variable(4, Integer) = Add Variable(9, Integer), Variable(10, Integer)
+                    Variable(12, Integer) = Load Variable(1, Integer)
+                    Variable(13, Integer) = Load Variable(2, Integer)
+                    Variable(5, Integer) = Add Variable(12, Integer), Variable(13, Integer)
+                    Variable(14, Integer) = Load Variable(4, Integer)
+                    Variable(6, Integer) = Add Variable(14, Integer), Variable(5, Integer)
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)

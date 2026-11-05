@@ -3,7 +3,7 @@
 
 //! Tests for [`crate::return_unify::simplify::guard_clause`].
 //!
-//! Most tests use [`check_simplify_rule_q`]: a Q# snippet is compiled,
+//! Snapshot tests use [`check_simplify_rule_q`]: a Q# snippet is compiled,
 //! the pipeline runs through mono + return-unify-without-simplify, the
 //! pre-simplify FIR is snapshotted, [`guard_clause::apply`] is invoked
 //! on the named callable's body block, and the post-rule FIR is
@@ -12,14 +12,12 @@
 //! drift from the canonical flag-lowering output shape.
 //!
 //! The snapshot header records `fired=<bool>` so each case witnesses
-//! whether the single-rule pass mutated the block. Three flavors of
-//! `fired=false` appear here:
-//!   * a no-returns body (no merge is ever synthesized);
-//!   * a both-arms-return body (the `both_branches` rule's domain);
-//!   * a chained-guard / let-in-rest body where the lowerer hoists
-//!     intermediate stmts that break the single-pass matcher — the
-//!     fixpoint driver is what bridges these gaps via interleaved
-//!     `dead_flag` / `dead_local` passes.
+//! whether the single-rule pass mutated the block. Refusals cover
+//! noncanonical shapes, earlier or nested returns, and mismatched result
+//! identities. Fixpoint tests separately check that let folding cannot
+//! expose an unrelated local as the continuation on a later iteration.
+//! Additional refusal tests mutate source-lowered FIR and assert that
+//! both the package and assigner remain unchanged when the rule refuses.
 //!
 //! Inverted-orientation tests live in the nested
 //! [`inverted_orientation`] module. The single positive case
@@ -33,9 +31,349 @@
 
 use expect_test::expect;
 use indoc::indoc;
+use qsc_fir::{
+    assigner::Assigner,
+    fir::{
+        BlockId, ExprId, ExprKind, Lit, LocalVarId, Mutability, Package, PackageLookup,
+        PackageSpan, PatKind, StmtId, StmtKind,
+    },
+    ty::{Prim, Ty},
+};
 
+use crate::PipelineStage;
+use crate::fir_builder::{
+    alloc_block, alloc_block_expr, alloc_bool_lit, alloc_expr_stmt, alloc_local_var,
+    alloc_local_var_expr, alloc_semi_stmt,
+};
+use crate::return_unify::lower::SynthSlots;
 use crate::return_unify::simplify::guard_clause;
-use crate::return_unify::tests::check_simplify_rule_q;
+use crate::return_unify::tests::{check_simplify_rule_q, synth_slots_for_block};
+use crate::test_utils::{compile_and_run_pipeline_to, find_callable_body_block};
+
+fn check_rejected_guard_mutation(
+    mutate: impl FnOnce(&mut Package, &mut Assigner, BlockId, &SynthSlots),
+) {
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true {} else { return 1; }
+            2
+        }
+        "#,
+        PipelineStage::Mono,
+    );
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    let errors =
+        crate::return_unify::unify_returns_without_simplify(&mut store, pkg_id, &mut assigner);
+    assert!(
+        errors.is_empty(),
+        "unexpected return-unify errors: {errors:?}"
+    );
+    let package = store.get_mut(pkg_id);
+    let block = find_callable_body_block(package, "Main");
+    let slots = synth_slots_for_block(package, block);
+    mutate(package, &mut assigner, block, &slots);
+    assert_guard_clause_rejected_without_changes(package, &mut assigner, block, &slots);
+}
+
+fn assert_guard_clause_rejected_without_changes(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block: BlockId,
+    slots: &SynthSlots,
+) {
+    let package_before = format!("{package:?}");
+    let assigner_before = format!("{assigner:?}");
+    assert!(!guard_clause::apply(package, assigner, block, slots));
+    assert_eq!(
+        format!("{package:?}"),
+        package_before,
+        "refusal changed the FIR"
+    );
+    assert_eq!(
+        format!("{assigner:?}"),
+        assigner_before,
+        "refusal consumed node IDs"
+    );
+}
+
+fn local_initializer(package: &Package, stmt: StmtId) -> ExprId {
+    let StmtKind::Local(_, _, init) = package.get_stmt(stmt).kind else {
+        panic!("expected a local binding");
+    };
+    init
+}
+
+fn slot_assignment(package: &Package, slot: LocalVarId) -> ExprId {
+    package
+        .exprs
+        .iter()
+        .find_map(|(id, expr)| {
+            let ExprKind::Assign(lhs, _) = expr.kind else {
+                return None;
+            };
+            (super::super::extract_local_read(package, lhs, None) == Some(slot)).then_some(id)
+        })
+        .expect("canonical guard must assign the slot")
+}
+
+#[test]
+fn foreign_continuation_binding_is_not_collapsed() {
+    check_rejected_guard_mutation(|package, assigner, block, _slots| {
+        let stmts = &package.get_block(block).stmts;
+        let StmtKind::Local(_, pat_id, _) = package.get_stmt(stmts[stmts.len() - 2]).kind else {
+            panic!("expected a continuation binding");
+        };
+        let PatKind::Bind(ident) = &mut package.pats.get_mut(pat_id).expect("pattern").kind else {
+            panic!("expected a bound local");
+        };
+        ident.id = assigner.next_local();
+    });
+}
+
+#[test]
+fn unrelated_merge_fallthrough_is_not_collapsed() {
+    check_rejected_guard_mutation(|package, assigner, block, slots| {
+        let stmt = *package.get_block(block).stmts.last().expect("merge");
+        let StmtKind::Expr(merge) = package.get_stmt(stmt).kind else {
+            panic!("expected a merge expression");
+        };
+        let read = alloc_local_var_expr(
+            package,
+            assigner,
+            slots.return_slot.var_id,
+            Ty::Prim(Prim::Int),
+            PackageSpan::default(),
+        );
+        let ExprKind::If(_, _, otherwise) = &mut package.exprs.get_mut(merge).expect("merge").kind
+        else {
+            panic!("expected a conditional merge");
+        };
+        *otherwise = Some(read);
+    });
+}
+
+#[test]
+fn missing_flag_declaration_prevents_guard_collapse() {
+    check_rejected_guard_mutation(|package, _assigner, block, _slots| {
+        package
+            .blocks
+            .get_mut(block)
+            .expect("block")
+            .stmts
+            .remove(0);
+    });
+}
+
+#[test]
+fn initially_true_flag_prevents_guard_collapse() {
+    check_rejected_guard_mutation(|package, _assigner, block, _slots| {
+        let init = local_initializer(package, package.get_block(block).stmts[0]);
+        package.exprs.get_mut(init).expect("initializer").kind = ExprKind::Lit(Lit::Bool(true));
+    });
+}
+
+#[test]
+fn nested_prefix_flag_write_prevents_guard_collapse() {
+    check_rejected_guard_mutation(|package, assigner, block, slots| {
+        let write = slot_assignment(package, slots.has_returned);
+        let stmt = alloc_semi_stmt(package, assigner, write, PackageSpan::default());
+        let body = alloc_block(
+            package,
+            assigner,
+            vec![stmt],
+            Ty::UNIT,
+            PackageSpan::default(),
+        );
+        let init = alloc_block_expr(package, assigner, body, Ty::UNIT, PackageSpan::default());
+        let (_, binding) = alloc_local_var(
+            package,
+            assigner,
+            "prefix",
+            &Ty::UNIT,
+            init,
+            Mutability::Immutable,
+        );
+        package
+            .blocks
+            .get_mut(block)
+            .expect("block")
+            .stmts
+            .insert(2, binding);
+    });
+}
+
+#[test]
+fn prefix_return_slot_write_prevents_guard_collapse() {
+    check_rejected_guard_mutation(|package, assigner, block, slots| {
+        let write = slot_assignment(package, slots.return_slot.var_id);
+        let stmt = alloc_semi_stmt(package, assigner, write, PackageSpan::default());
+        package
+            .blocks
+            .get_mut(block)
+            .expect("block")
+            .stmts
+            .insert(2, stmt);
+    });
+}
+
+#[test]
+fn effectful_skipped_continuation_arm_prevents_guard_collapse() {
+    check_rejected_guard_mutation(|package, assigner, block, slots| {
+        let stmts = &package.get_block(block).stmts;
+        let init = local_initializer(package, stmts[stmts.len() - 2]);
+        let ExprKind::If(_, _, Some(otherwise)) = package.get_expr(init).kind else {
+            panic!("expected a lazy continuation");
+        };
+        let write = slot_assignment(package, slots.return_slot.var_id);
+        let write_stmt = alloc_semi_stmt(package, assigner, write, PackageSpan::default());
+        let read_stmt = alloc_expr_stmt(package, assigner, otherwise, PackageSpan::default());
+        let body = alloc_block(
+            package,
+            assigner,
+            vec![write_stmt, read_stmt],
+            Ty::Prim(Prim::Int),
+            PackageSpan::default(),
+        );
+        let replacement = alloc_block_expr(
+            package,
+            assigner,
+            body,
+            Ty::Prim(Prim::Int),
+            PackageSpan::default(),
+        );
+        let ExprKind::If(_, _, otherwise) =
+            &mut package.exprs.get_mut(init).expect("continuation").kind
+        else {
+            panic!("expected a lazy continuation");
+        };
+        *otherwise = Some(replacement);
+    });
+}
+
+#[test]
+fn guard_condition_slot_write_prevents_guard_collapse() {
+    check_rejected_guard_mutation(|package, assigner, block, slots| {
+        let stmts = &package.get_block(block).stmts;
+        let (StmtKind::Expr(guard) | StmtKind::Semi(guard)) =
+            package.get_stmt(stmts[stmts.len() - 3]).kind
+        else {
+            panic!("expected a guard statement");
+        };
+        let ExprKind::If(cond, _, _) = package.get_expr(guard).kind else {
+            panic!("expected a conditional guard");
+        };
+        let write = slot_assignment(package, slots.has_returned);
+        let write_stmt = alloc_semi_stmt(package, assigner, write, PackageSpan::default());
+        let value = alloc_bool_lit(package, assigner, true, PackageSpan::default());
+        let value_stmt = alloc_expr_stmt(package, assigner, value, PackageSpan::default());
+        let body = alloc_block(
+            package,
+            assigner,
+            vec![write_stmt, value_stmt],
+            Ty::Prim(Prim::Bool),
+            PackageSpan::default(),
+        );
+        package.exprs.get_mut(cond).expect("condition").kind = ExprKind::Block(body);
+    });
+}
+
+#[test]
+fn continuation_return_preserves_guard_and_final_merge() {
+    check_simplify_rule_q(
+        indoc! {r#"
+        function Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#},
+        "Main",
+        "guard_clause",
+        |p, a, _pkg_id, b, s| {
+            let before = p.get_block(b).stmts.clone();
+            let fired = guard_clause::apply(p, a, b, s);
+            assert!(!fired, "continuation return requires the final merge");
+            assert_eq!(p.get_block(b).stmts, before);
+            fired
+        },
+        &expect![[r#"
+            // before guard_clause (fired=false)
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if false {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        if true {
+                            {
+                                __ret_val = 9;
+                                __has_returned = true;
+                            };
+                        }
+
+                        5
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+
+            // after guard_clause
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if false {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        if true {
+                            {
+                                __ret_val = 9;
+                                __has_returned = true;
+                            };
+                        }
+
+                        5
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
 
 #[test]
 fn simple_guard_clause_collapses_to_if_else() {
@@ -98,17 +436,179 @@ fn simple_guard_clause_collapses_to_if_else() {
 }
 
 #[test]
-fn guard_clause_with_let_in_rest_block() {
-    // Q# input pairs a guard clause with a `let`-bound trailing
-    // expression in the rest sequence. The lowerer per-stmt hoists the
-    // `let` into a `let y = if not __has_returned { 2 } else { 0 };`,
-    // which sits between the guard set and the trailing merge and
-    // breaks the single-pass `guard_clause` matcher (it requires the
-    // guard set to be immediately followed by the lazy continuation
-    // and merge). The snapshot records `fired=false`; the fixpoint
-    // driver is what bridges this gap by running `dead_flag` /
-    // `dead_local` first to clean up the intermediate `let` before
-    // re-entering `guard_clause`.
+fn inverted_guard_continuation_return_preserves_final_merge() {
+    check_simplify_rule_q(
+        indoc! {r#"
+        function Main() : Int {
+            if true {} else { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#},
+        "Main",
+        "guard_clause",
+        |p, a, _pkg_id, b, s| {
+            let before = p.get_block(b).stmts.clone();
+            let fired = guard_clause::apply(p, a, b, s);
+            assert!(!fired, "continuation return requires the final merge");
+            assert_eq!(p.get_block(b).stmts, before);
+            fired
+        },
+        &expect![[r#"
+            // before guard_clause (fired=false)
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {} else {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        if true {
+                            {
+                                __ret_val = 9;
+                                __has_returned = true;
+                            };
+                        }
+
+                        5
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+
+            // after guard_clause
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {} else {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        if true {
+                            {
+                                __ret_val = 9;
+                                __has_returned = true;
+                            };
+                        }
+
+                        5
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn continuation_ordinary_local_mutation_still_collapses() {
+    check_simplify_rule_q(
+        indoc! {r#"
+        function Main() : Int {
+            mutable value = 0;
+            if false { return 1; }
+            if true { set value += 2; value } else { 6 }
+        }
+        "#},
+        "Main",
+        "guard_clause",
+        |p, a, _pkg_id, b, s| {
+            let fired = guard_clause::apply(p, a, b, s);
+            assert!(fired, "ordinary local writes do not require the merge");
+            fired
+        },
+        &expect![[r#"
+            // before guard_clause (fired=true)
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable value : Int = 0;
+                if false {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                let __trailing_result : Int = if (not __has_returned) {
+                    if true {
+                        value += 2;
+                        value
+                    } else {
+                        6
+                    }
+
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+
+            // after guard_clause
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable value : Int = 0;
+                if false {
+                    1
+                } else {
+                    if true {
+                        value += 2;
+                        value
+                    } else {
+                        6
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn guard_clause_with_intervening_user_binding_does_not_collapse() {
+    // The guarded user binding separates the guard from the trailing result.
+    // It must not be mistaken for that result after a later let-folding pass.
     check_simplify_rule_q(
         indoc! {r#"
         namespace Test {
@@ -189,16 +689,9 @@ fn guard_clause_with_let_in_rest_block() {
 }
 
 #[test]
-fn multiple_guard_clauses_chain_into_nested_if_else() {
-    // Q# input chains two guard clauses before a trailing literal.
-    // The lowerer emits the second guard inside a `if not
-    // __has_returned { ... };` continuation, so the outer block does
-    // not present the canonical guard/cont/merge triple to a single
-    // `guard_clause::apply` invocation. The snapshot records
-    // `fired=false`; collapsing chained guards is the fixpoint
-    // driver's job (see `fixpoint::guard_clause_via_run_to_fixpoint`
-    // for the same Q# input run through `run_to_fixpoint`, which does
-    // converge to the nested if/else chain).
+fn guard_clause_rule_leaves_chained_guards_unchanged() {
+    // The second guard is guarded by the flag that the first guard may set.
+    // Preserve the merge rather than discarding an earlier return.
     check_simplify_rule_q(
         indoc! {r#"
         namespace Test {
@@ -414,8 +907,8 @@ fn both_branches_return_shape_not_collapsed_by_guard_clause_rule() {
 //     named callable's body block, so the Q#-driven helper cannot
 //     express the contract;
 //   * the two negatives build unnatural shapes (asymmetric slot-set
-//     sequence, foreign stmt between sets) that the flag-lowering
-//     lowering would not produce, but that pin the matcher's discipline
+//     sequence, foreign stmt between sets) that flag lowering
+//     would not produce, but that pin the matcher's discipline
 //     against future drift.
 // ---------------------------------------------------------------------------
 
@@ -435,22 +928,49 @@ mod inverted_orientation {
 
     use crate::fir_builder::{
         alloc_assign_expr, alloc_bind_pat, alloc_block, alloc_block_expr, alloc_bool_lit,
-        alloc_expr, alloc_expr_stmt, alloc_if_expr, alloc_local_stmt, alloc_local_var_expr,
-        alloc_not_expr, alloc_semi_stmt,
+        alloc_expr, alloc_expr_stmt, alloc_if_expr, alloc_local_stmt, alloc_local_var,
+        alloc_local_var_expr, alloc_not_expr, alloc_semi_stmt,
     };
     use crate::return_unify::simplify::guard_clause;
+    use crate::return_unify::symbols;
     use crate::return_unify::tests::check_simplify_rule_q;
 
-    /// Slot identities shared by every inverted-orientation fixture.
+    /// Slot identities and declarations for direct-FIR inverted-guard fixtures.
     struct Slots {
         has_returned: LocalVarId,
         ret_val: LocalVarId,
+        declarations: [StmtId; 2],
     }
 
-    fn alloc_slots(assigner: &mut Assigner) -> Slots {
+    fn alloc_slots(package: &mut Package, assigner: &mut Assigner) -> Slots {
+        let flag = alloc_bool_lit(package, assigner, false, PackageSpan::default());
+        let (has_returned, flag_decl) = alloc_local_var(
+            package,
+            assigner,
+            symbols::HAS_RETURNED,
+            &Ty::Prim(Prim::Bool),
+            flag,
+            Mutability::Mutable,
+        );
+        let value = alloc_expr(
+            package,
+            assigner,
+            Ty::Prim(Prim::Int),
+            ExprKind::Lit(Lit::Int(0)),
+            PackageSpan::default(),
+        );
+        let (ret_val, value_decl) = alloc_local_var(
+            package,
+            assigner,
+            symbols::RET_VAL,
+            &Ty::Prim(Prim::Int),
+            value,
+            Mutability::Mutable,
+        );
         Slots {
-            has_returned: assigner.next_local(),
-            ret_val: assigner.next_local(),
+            has_returned,
+            ret_val,
+            declarations: [flag_decl, value_decl],
         }
     }
 
@@ -547,14 +1067,22 @@ mod inverted_orientation {
         alloc_semi_stmt(package, assigner, if_expr, PackageSpan::default())
     }
 
-    /// Build the lazy continuation `Semi(If(not __has_returned, rest_block, None))`.
+    /// Build the lazy trailing-result binding and the merge's read of it.
     fn build_continuation_stmt(
         package: &mut Package,
         assigner: &mut Assigner,
         slots: &Slots,
         rest_block_expr_id: ExprId,
-    ) -> StmtId {
+    ) -> (StmtId, ExprId) {
         let bool_ty = Ty::Prim(Prim::Bool);
+        let return_ty = package.get_expr(rest_block_expr_id).ty.clone();
+        let fallback = alloc_local_var_expr(
+            package,
+            assigner,
+            slots.ret_val,
+            return_ty.clone(),
+            PackageSpan::default(),
+        );
         let flag_read = alloc_local_var_expr(
             package,
             assigner,
@@ -568,11 +1096,21 @@ mod inverted_orientation {
             assigner,
             not_flag,
             rest_block_expr_id,
-            None,
-            Ty::UNIT,
+            Some(fallback),
+            return_ty.clone(),
             PackageSpan::default(),
         );
-        alloc_semi_stmt(package, assigner, if_expr, PackageSpan::default())
+        let (local, binding) = alloc_local_var(
+            package,
+            assigner,
+            symbols::TRAILING_RESULT,
+            &return_ty,
+            if_expr,
+            Mutability::Immutable,
+        );
+        let read =
+            alloc_local_var_expr(package, assigner, local, return_ty, PackageSpan::default());
+        (binding, read)
     }
 
     /// Build the canonical merge `Expr(If(__has_returned, __ret_val, Some(fallthrough)))`.
@@ -626,9 +1164,8 @@ mod inverted_orientation {
 
     /// Build the rest-block expression `{ rest_value }` (single trailing
     /// `Expr` carrying the supplied value of type `return_ty`). Returns
-    /// `(block_id, block_expr_id)` because the rewriter wraps the inner
-    /// `BlockId` in a fresh `Block` expression, so callers need the
-    /// `BlockId` for shape assertions.
+    /// `(block_id, block_expr_id)` so callers can use the expression in
+    /// the fixture and assert that the rewrite preserves the rest block.
     fn build_rest_block_expr(
         package: &mut Package,
         assigner: &mut Assigner,
@@ -669,23 +1206,24 @@ mod inverted_orientation {
 
     /// Assert the rewrite output is the canonical
     /// `if not <cond_local> { v_id } else { <rest_bid> }` shape.
-    /// `rest_bid` is the inner block id; the rewriter wraps it in a
-    /// fresh `Block` expression so the assertion compares block ids
-    /// rather than expression ids.
+    /// The rewriter reuses the continuation expression; checking its
+    /// block id verifies that the original rest block is preserved.
     fn assert_rewrite_shape(
         package: &Package,
         block_id: qsc_fir::fir::BlockId,
         cond_local: LocalVarId,
         v_id: ExprId,
         rest_bid: qsc_fir::fir::BlockId,
+        prefix: &[StmtId],
     ) {
         let stmts = &package.get_block(block_id).stmts;
         assert_eq!(
             stmts.len(),
-            1,
-            "block should collapse to a single trailing Expr stmt"
+            prefix.len() + 1,
+            "block should preserve its prefix and collapse to a trailing Expr stmt"
         );
-        let StmtKind::Expr(tail_id) = package.get_stmt(stmts[0]).kind else {
+        assert_eq!(&stmts[..prefix.len()], prefix);
+        let StmtKind::Expr(tail_id) = package.get_stmt(stmts[prefix.len()]).kind else {
             panic!("trailing stmt should be an Expr stmt");
         };
         let ExprKind::If(new_cond_id, new_then_id, Some(new_else_id)) =
@@ -711,8 +1249,7 @@ mod inverted_orientation {
             panic!("then-block trailing stmt should be Expr");
         };
         assert_eq!(then_tail_id, v_id, "then-arm should be the slot RHS");
-        // Else-arm: a fresh `Block` expression wrapping the original
-        // rest block id.
+        // Else-arm: the original continuation block expression.
         let ExprKind::Block(else_bid) = &package.get_expr(*new_else_id).kind else {
             panic!("rewritten else-arm should be a Block");
         };
@@ -723,10 +1260,9 @@ mod inverted_orientation {
     }
 
     /// Build the fixed-shape inverted-guard block:
-    ///   `[ guard_stmt, cont_stmt, merge_stmt ]`
+    ///   `[ flag_decl, slot_decl, guard_stmt, cont_binding, merge_stmt ]`
     /// Returns the block id, the user-cond local id, the slot RHS expr id,
-    /// and the inner rest-block id (the wrapping `Block` expression
-    /// is discarded after the rewriter unwraps and re-wraps it).
+    /// and the rest-block id preserved by the rewrite.
     fn build_canonical_block(
         package: &mut Package,
         assigner: &mut Assigner,
@@ -759,21 +1295,20 @@ mod inverted_orientation {
         );
         let (rest_bid, rest_block_expr) =
             build_rest_block_expr(package, assigner, rest_value, int_ty);
-        let cont_stmt = build_continuation_stmt(package, assigner, slots, rest_block_expr);
-
-        let fallthrough = alloc_local_var_expr(
-            package,
-            assigner,
-            slots.ret_val,
-            int_ty.clone(),
-            PackageSpan::default(),
-        );
+        let (cont_stmt, fallthrough) =
+            build_continuation_stmt(package, assigner, slots, rest_block_expr);
         let merge_stmt = build_merge_stmt(package, assigner, slots, fallthrough, int_ty);
 
         let block_id = alloc_block(
             package,
             assigner,
-            vec![guard_stmt, cont_stmt, merge_stmt],
+            vec![
+                slots.declarations[0],
+                slots.declarations[1],
+                guard_stmt,
+                cont_stmt,
+                merge_stmt,
+            ],
             int_ty.clone(),
             PackageSpan::default(),
         );
@@ -856,7 +1391,7 @@ mod inverted_orientation {
         // on the inner block_id directly.
         let mut package = Package::default();
         let mut assigner = Assigner::default();
-        let slots = alloc_slots(&mut assigner);
+        let slots = alloc_slots(&mut package, &mut assigner);
         let int_ty = Ty::Prim(Prim::Int);
 
         let (inner_block_id, cond_local, v_id, rest_bid) =
@@ -902,7 +1437,14 @@ mod inverted_orientation {
             fired,
             "guard_clause must fire on the inverted shape inside a Local init"
         );
-        assert_rewrite_shape(&package, inner_block_id, cond_local, v_id, rest_bid);
+        assert_rewrite_shape(
+            &package,
+            inner_block_id,
+            cond_local,
+            v_id,
+            rest_bid,
+            &slots.declarations,
+        );
     }
 
     #[test]
@@ -916,7 +1458,7 @@ mod inverted_orientation {
         // while still keeping the outer block as containing context.
         let mut package = Package::default();
         let mut assigner = Assigner::default();
-        let slots = alloc_slots(&mut assigner);
+        let slots = alloc_slots(&mut package, &mut assigner);
         let int_ty = Ty::Prim(Prim::Int);
 
         let (inner_block_id, cond_local, v_id, rest_bid) =
@@ -950,126 +1492,67 @@ mod inverted_orientation {
             fired,
             "guard_clause must fire on the inverted shape inside a nested block"
         );
-        assert_rewrite_shape(&package, inner_block_id, cond_local, v_id, rest_bid);
+        assert_rewrite_shape(
+            &package,
+            inner_block_id,
+            cond_local,
+            v_id,
+            rest_bid,
+            &slots.declarations,
+        );
+    }
+
+    fn inverted_return_arm(
+        package: &Package,
+        block: qsc_fir::fir::BlockId,
+    ) -> qsc_fir::fir::BlockId {
+        let stmts = &package.get_block(block).stmts;
+        let StmtKind::Semi(guard) = package.get_stmt(stmts[stmts.len() - 3]).kind else {
+            panic!("expected a guard statement");
+        };
+        let ExprKind::If(_, _, Some(otherwise)) = package.get_expr(guard).kind else {
+            panic!("expected an inverted guard");
+        };
+        let ExprKind::Block(arm) = package.get_expr(otherwise).kind else {
+            panic!("expected a return arm block");
+        };
+        arm
     }
 
     #[test]
-    fn given_else_arm_with_only_one_set_guard_clause_does_not_match() {
-        // MANUAL-FIR: this test pins matcher discipline on a broken
-        // inverted-shape input — the else-arm contains only the slot
-        // assignment, missing the flag set. `match_slot_set_arm`
-        // requires exactly two Semi statements; the matcher must
-        // refuse. Flag lowering never emits this shape,
-        // so it isn't reachable from Q#; direct construction is the
-        // only way to feed the matcher a malformed slot-set sequence.
+    fn inverted_guard_without_flag_assignment_is_not_collapsed() {
+        // MANUAL-FIR: source lowering never omits the flag write from a return arm.
         let mut package = Package::default();
         let mut assigner = Assigner::default();
-        let slots = alloc_slots(&mut assigner);
-        let int_ty = Ty::Prim(Prim::Int);
-
-        let (_, cond_expr) = alloc_user_cond(&mut package, &mut assigner);
-        let v_id = alloc_expr(
+        let slots = alloc_slots(&mut package, &mut assigner);
+        let (block, _, _, _) =
+            build_canonical_block(&mut package, &mut assigner, &slots, &Ty::Prim(Prim::Int));
+        let arm = inverted_return_arm(&package, block);
+        package
+            .blocks
+            .get_mut(arm)
+            .expect("return arm")
+            .stmts
+            .pop()
+            .expect("flag assignment");
+        let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block);
+        super::assert_guard_clause_rejected_without_changes(
             &mut package,
             &mut assigner,
-            int_ty.clone(),
-            ExprKind::Lit(Lit::Int(42)),
-            PackageSpan::default(),
-        );
-        let slot_stmt = build_slot_assign_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
-        // Else-arm is a Unit block carrying only the slot set — flag set absent.
-        let asymmetric_bid = alloc_block(
-            &mut package,
-            &mut assigner,
-            vec![slot_stmt],
-            Ty::UNIT,
-            PackageSpan::default(),
-        );
-        let asymmetric_else = alloc_block_expr(
-            &mut package,
-            &mut assigner,
-            asymmetric_bid,
-            Ty::UNIT,
-            PackageSpan::default(),
-        );
-        let then_id = build_empty_unit_block_expr(&mut package, &mut assigner);
-        let guard_stmt = build_inverted_guard_stmt(
-            &mut package,
-            &mut assigner,
-            cond_expr,
-            then_id,
-            asymmetric_else,
-        );
-
-        let rest_value = alloc_expr(
-            &mut package,
-            &mut assigner,
-            int_ty.clone(),
-            ExprKind::Lit(Lit::Int(7)),
-            PackageSpan::default(),
-        );
-        let (_rest_bid, rest_block_expr) =
-            build_rest_block_expr(&mut package, &mut assigner, rest_value, &int_ty);
-        let cont_stmt =
-            build_continuation_stmt(&mut package, &mut assigner, &slots, rest_block_expr);
-        let fallthrough = alloc_local_var_expr(
-            &mut package,
-            &mut assigner,
-            slots.ret_val,
-            int_ty.clone(),
-            PackageSpan::default(),
-        );
-        let merge_stmt =
-            build_merge_stmt(&mut package, &mut assigner, &slots, fallthrough, &int_ty);
-
-        let block_id = alloc_block(
-            &mut package,
-            &mut assigner,
-            vec![guard_stmt, cont_stmt, merge_stmt],
-            int_ty.clone(),
-            PackageSpan::default(),
-        );
-
-        let pre_stmts = package.get_block(block_id).stmts.clone();
-        let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
-        let fired = guard_clause::apply(&mut package, &mut assigner, block_id, &synth_slots);
-        assert!(
-            !fired,
-            "guard_clause must reject an else-arm missing the flag set"
-        );
-        assert_eq!(
-            package.get_block(block_id).stmts,
-            pre_stmts,
-            "block stmts must be unchanged when the matcher refuses"
+            block,
+            &synth_slots,
         );
     }
 
     #[test]
-    fn given_else_arm_with_extra_stmt_guard_clause_does_not_match() {
-        // MANUAL-FIR: this test pins matcher discipline on a broken
-        // inverted-shape input — the else-arm carries three Semi
-        // statements (`__ret_val = v; <foreign>; __has_returned =
-        // true;`). `match_slot_set_arm` requires exactly two
-        // statements; the foreign middle stmt makes the matcher
-        // refuse. Flag lowering never emits this shape,
-        // so it isn't reachable from Q#; direct construction is the
-        // only way to feed the matcher a slot-set sequence with a
-        // foreign interloper.
+    fn inverted_guard_with_extra_statement_is_not_collapsed() {
+        // MANUAL-FIR: source lowering never interposes a statement between the slot writes.
         let mut package = Package::default();
         let mut assigner = Assigner::default();
-        let slots = alloc_slots(&mut assigner);
-        let int_ty = Ty::Prim(Prim::Int);
-
-        let (_, cond_expr) = alloc_user_cond(&mut package, &mut assigner);
-        let v_id = alloc_expr(
-            &mut package,
-            &mut assigner,
-            int_ty.clone(),
-            ExprKind::Lit(Lit::Int(42)),
-            PackageSpan::default(),
-        );
-        let slot_stmt = build_slot_assign_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
-        // Foreign stmt: a Semi(Unit-literal) — innocuous but breaks the
-        // expected 2-stmt slot-set shape.
+        let slots = alloc_slots(&mut package, &mut assigner);
+        let (block, _, _, _) =
+            build_canonical_block(&mut package, &mut assigner, &slots, &Ty::Prim(Prim::Int));
+        let arm = inverted_return_arm(&package, block);
         let foreign_expr = alloc_expr(
             &mut package,
             &mut assigner,
@@ -1083,70 +1566,18 @@ mod inverted_orientation {
             foreign_expr,
             PackageSpan::default(),
         );
-        let flag_stmt = build_flag_set_stmt(&mut package, &mut assigner, &slots);
-        let bloated_bid = alloc_block(
+        package
+            .blocks
+            .get_mut(arm)
+            .expect("return arm")
+            .stmts
+            .insert(1, foreign_stmt);
+        let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block);
+        super::assert_guard_clause_rejected_without_changes(
             &mut package,
             &mut assigner,
-            vec![slot_stmt, foreign_stmt, flag_stmt],
-            Ty::UNIT,
-            PackageSpan::default(),
-        );
-        let bloated_else = alloc_block_expr(
-            &mut package,
-            &mut assigner,
-            bloated_bid,
-            Ty::UNIT,
-            PackageSpan::default(),
-        );
-        let then_id = build_empty_unit_block_expr(&mut package, &mut assigner);
-        let guard_stmt = build_inverted_guard_stmt(
-            &mut package,
-            &mut assigner,
-            cond_expr,
-            then_id,
-            bloated_else,
-        );
-
-        let rest_value = alloc_expr(
-            &mut package,
-            &mut assigner,
-            int_ty.clone(),
-            ExprKind::Lit(Lit::Int(7)),
-            PackageSpan::default(),
-        );
-        let (_rest_bid, rest_block_expr) =
-            build_rest_block_expr(&mut package, &mut assigner, rest_value, &int_ty);
-        let cont_stmt =
-            build_continuation_stmt(&mut package, &mut assigner, &slots, rest_block_expr);
-        let fallthrough = alloc_local_var_expr(
-            &mut package,
-            &mut assigner,
-            slots.ret_val,
-            int_ty.clone(),
-            PackageSpan::default(),
-        );
-        let merge_stmt =
-            build_merge_stmt(&mut package, &mut assigner, &slots, fallthrough, &int_ty);
-
-        let block_id = alloc_block(
-            &mut package,
-            &mut assigner,
-            vec![guard_stmt, cont_stmt, merge_stmt],
-            int_ty.clone(),
-            PackageSpan::default(),
-        );
-
-        let pre_stmts = package.get_block(block_id).stmts.clone();
-        let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
-        let fired = guard_clause::apply(&mut package, &mut assigner, block_id, &synth_slots);
-        assert!(
-            !fired,
-            "guard_clause must reject an else-arm with a foreign stmt between sets"
-        );
-        assert_eq!(
-            package.get_block(block_id).stmts,
-            pre_stmts,
-            "block stmts must be unchanged when the matcher refuses"
+            block,
+            &synth_slots,
         );
     }
 }

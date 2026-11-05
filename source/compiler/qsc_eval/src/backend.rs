@@ -1084,24 +1084,12 @@ impl Backend for SparseSim {
         match name {
             "GlobalPhase" => {
                 // Apply a global phase to the simulation by doing an Rz to a fresh qubit.
-                // The controls list may be empty, in which case the phase is applied unconditionally.
-                let [ctls_val, theta] = &*arg.unwrap_tuple() else {
-                    panic!("tuple arity for GlobalPhase intrinsic should be 2");
-                };
-                let ctls = ctls_val
-                    .clone()
-                    .unwrap_array()
-                    .iter()
-                    .map(|q| q.clone().unwrap_qubit().deref().0)
-                    .collect::<Vec<_>>();
-                if ctls.iter().all(|&q| !self.is_qubit_lost(q)) {
-                    let q = self.sim.allocate();
-                    // The new qubit is by-definition in the |0⟩ state, so by reversing the sign of the
-                    // angle we can apply the phase to the entire state without increasing its size in memory.
-                    self.sim
-                        .mcrz(&ctls, -2.0 * theta.clone().unwrap_double(), q);
-                    self.sim.release(q);
-                }
+                // The new qubit is by-definition in the |0⟩ state, so by reversing the sign of the
+                // angle we can apply the phase to the entire state without increasing its size in memory.
+                let theta = arg.unwrap_double();
+                let q = self.sim.allocate();
+                self.sim.rz(-2.0 * theta, q);
+                self.sim.release(q);
                 Some(Ok(Value::unit()))
             }
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),

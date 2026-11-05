@@ -8,7 +8,7 @@
 //!
 //! # Helper surface
 //!
-//! The module exposes three families of helpers:
+//! The module exposes the following families of helpers:
 //!
 //! - **Closure-based pre-order walkers.** [`for_each_expr`] visits a single
 //!   expression and its descendants; [`for_each_expr_in_block`] visits every
@@ -33,12 +33,14 @@
 //!   [`ParamUse`] vector, while [`classify_block_use`] folds them into a
 //!   single [`UseClass`] aggregate. See
 //!   [`# Use classification`](#use-classification) below for the rules.
-//! - **Reachable-`ExprId` collectors.** [`collect_expr_ids_in_entry`],
+//! - **Reachable-ID collectors.** [`collect_expr_ids_in_entry`],
 //!   [`collect_expr_ids_in_local_callables`], and
 //!   [`collect_expr_ids_in_entry_and_local_callables`] return every
 //!   [`ExprId`] reachable from the given roots, deduplicated.
 //!   [`extend_expr_ids_in_local_callables`] is the in-place variant used to
 //!   accumulate IDs across roots while sharing a single dedup set.
+//!   [`collect_stmt_ids_in_block`] collects unique statement IDs from a block
+//!   and its nested blocks.
 //!
 //! # Use classification
 //!
@@ -60,6 +62,52 @@
 //!   that is not a `Field::Path` keeps the record value materialized and is
 //!   classified as a whole-value use.
 
+/// Returns every arena expression once, with structural children before parents.
+/// Includes expressions in nested blocks without following callable references.
+/// Arena IDs are not a dependency order after cloning or operand replacement.
+pub(crate) fn expressions_in_postorder(package: &Package) -> Vec<ExprId> {
+    expressions_in_postorder_from_roots(package, package.exprs.iter().map(|(id, _)| id))
+}
+
+/// Returns the roots and their structural descendants once, children first.
+/// Traverses nested blocks but not callable references or unrelated arena nodes.
+/// Root order and arena IDs need not be a dependency order.
+pub(crate) fn expressions_in_postorder_from_roots(
+    package: &Package,
+    roots: impl IntoIterator<Item = ExprId>,
+) -> Vec<ExprId> {
+    let mut pending: Vec<_> = roots.into_iter().map(|id| (id, false)).collect();
+    pending.reverse();
+    let mut seen = FxHashSet::default();
+    let mut ordered = Vec::new();
+    while let Some((id, children_visited)) = pending.pop() {
+        if children_visited {
+            ordered.push(id);
+            continue;
+        }
+        if !seen.insert(id) {
+            continue;
+        }
+        pending.push((id, true));
+        let mut children = Vec::new();
+        for_each_direct_child(&package.get_expr(id).kind, |child| match child {
+            DirectChild::Expr(child) => children.push(child),
+            DirectChild::Block(block) => {
+                for &statement in &package.get_block(block).stmts {
+                    match package.get_stmt(statement).kind {
+                        StmtKind::Expr(child)
+                        | StmtKind::Semi(child)
+                        | StmtKind::Local(_, _, child) => children.push(child),
+                        StmtKind::Item(_) => {}
+                    }
+                }
+            }
+        });
+        pending.extend(children.into_iter().rev().map(|id| (id, false)));
+    }
+    ordered
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -71,6 +119,30 @@ use qsc_fir::fir::{
 };
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
+
+/// Collects every base local written by an assignment, including nested tuple
+/// destinations. Does not visit assignments within the RHS; callers use the
+/// expression walker when they need writes across a whole subtree.
+pub(crate) fn assignment_written_locals(package: &Package, expr: &Expr) -> Vec<LocalVarId> {
+    let (ExprKind::Assign(lhs, _)
+    | ExprKind::AssignOp(_, lhs, _)
+    | ExprKind::AssignField(lhs, _, _)
+    | ExprKind::AssignIndex(lhs, _, _)) = expr.kind
+    else {
+        return Vec::new();
+    };
+    let mut pending = vec![lhs];
+    let mut locals = Vec::new();
+    while let Some(target) = pending.pop() {
+        match &package.get_expr(target).kind {
+            ExprKind::Tuple(elements) => pending.extend(elements),
+            ExprKind::Field(base, _) | ExprKind::Index(base, _) => pending.push(*base),
+            ExprKind::Var(Res::Local(local), _) => locals.push(*local),
+            _ => {}
+        }
+    }
+    locals
+}
 
 /// Walks an expression tree in pre-order, invoking `visit` for each expression.
 ///
@@ -653,6 +725,24 @@ fn for_each_use_event<F: FnMut(UseEvent)>(
     }
 }
 
+/// Collects each statement ID in a block and its nested blocks once, in
+/// first-encounter order.
+///
+/// Includes item-declaration statements but does not traverse their bodies
+/// or closure bodies.
+pub(crate) fn collect_stmt_ids_in_block(package: &Package, block_id: BlockId) -> Vec<StmtId> {
+    let mut ids = Vec::new();
+    let mut seen = FxHashSet::default();
+    for_each_node_in_block(package, block_id, &mut |node| {
+        if let CallableNode::Stmt(id) = node
+            && seen.insert(id)
+        {
+            ids.push(id);
+        }
+    });
+    ids
+}
+
 /// Collects all expression IDs reachable from the package entry expression.
 ///
 /// Returns an empty vector when the package has no entry.
@@ -1200,6 +1290,56 @@ pub(crate) fn collect_total_foreign_callables(store: &PackageStore) -> FxHashSet
         }
     }
     total
+}
+
+/// Extends `total_foreign` with every callable in `store` whose own body is
+/// provably side-effect free and total *within its owning package*.
+///
+/// [`collect_total_foreign_callables`] answers only for the named total
+/// intrinsics, because [`expr_has_purity`] holds a single [`Package`] and
+/// cannot open a body that lives elsewhere. This walks each package with that
+/// package as the analysis root, so a cross-package factory such as
+/// `function MakeStep(...) : (Int -> Int) { return LibStep; }` is proved pure
+/// on its home ground and can then be seen through from any caller.
+///
+/// A callable whose body itself calls into a third package stays rejected, so
+/// this is one level of cross-package reach rather than a full store-wide
+/// fixpoint. That is deliberate: the result must stay a set the reader can
+/// audit, and one level covers the factory shapes the defunctionalization pass
+/// actually meets.
+pub(crate) fn extend_with_discardable_foreign_callables(
+    store: &PackageStore,
+    total_foreign: &mut FxHashSet<ItemId>,
+) {
+    let mut discovered = Vec::new();
+    for (package_id, package) in store {
+        for (item_id, item) in &package.items {
+            let ItemKind::Callable(decl) = &item.kind else {
+                continue;
+            };
+            let candidate = ItemId {
+                package: package_id,
+                item: item_id,
+            };
+            if total_foreign.contains(&candidate) {
+                continue;
+            }
+            if callable_has_purity(
+                package,
+                package_id,
+                item_id,
+                decl,
+                PurityMode {
+                    totality: Totality::RequireTotal,
+                    total_foreign,
+                },
+                &mut FxHashSet::default(),
+            ) {
+                discovered.push(candidate);
+            }
+        }
+    }
+    total_foreign.extend(discovered);
 }
 
 /// Checks the operator-level portion of binary-expression purity.

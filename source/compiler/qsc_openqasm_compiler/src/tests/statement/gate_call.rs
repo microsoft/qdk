@@ -541,170 +541,203 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           ret void
         }
 
-        define internal void @rz(i64 %var_4, i64 %var_5, ptr %var_6) {
+        define internal void @rz(i64 %var_7, i64 %var_8, ptr %var_9) {
         block_2:
-          %var_82 = call double @AngleAsDouble(i64 %var_4, i64 %var_5)
-          call void @Rz(double %var_82, ptr %var_6)
+          %var_106 = call double @AngleAsDouble(i64 %var_7, i64 %var_8)
+          call void @Rz(double %var_106, ptr %var_9)
           ret void
         }
 
-        define internal double @AngleAsDouble(i64 %var_7, i64 %var_8) {
+        define internal double @AngleAsDouble(i64 %var_12, i64 %var_13) {
         block_3:
-          %var_10 = alloca i64
-          %var_22 = alloca i64
-          %var_34 = alloca i64
-          %var_43 = alloca i64
-          %var_45 = alloca i1
-          %var_47 = alloca i1
-          %var_50 = alloca i64
-          %var_52 = alloca i64
-          %var_58 = alloca i64
-          %var_60 = alloca i64
-          %var_61 = alloca i64
-          %var_9 = icmp sgt i64 %var_8, 53
-          br i1 %var_9, label %block_4, label %block_5
+          %var_14 = alloca i64
+          %var_16 = alloca i64
+          %var_17 = alloca i64
+          %var_30 = alloca i64
+          %var_42 = alloca i64
+          %var_44 = alloca i64
+          %var_45 = alloca i64
+          %var_54 = alloca i64
+          %var_55 = alloca i64
+          %var_58 = alloca i1
+          %var_59 = alloca i64
+          %var_62 = alloca i1
+          %var_63 = alloca i64
+          %var_67 = alloca i64
+          %var_68 = alloca i64
+          %var_70 = alloca i64
+          %var_78 = alloca i64
+          %var_79 = alloca i64
+          %var_81 = alloca i64
+          %var_82 = alloca i64
+          store i64 %var_13, ptr %var_14
+          %var_108 = load i64, ptr %var_14
+          %var_15 = icmp sgt i64 %var_108, 53
+          br i1 %var_15, label %block_4, label %block_5
         block_4:
-          %var_11 = sub i64 %var_8, 53
-          %var_13 = sub i64 %var_11, 1
-          %var_14 = ashr i64 %var_13, 63
-          %var_15 = xor i64 %var_13, %var_14
-          %var_16 = sub i64 %var_15, %var_14
-          %var_17 = shl i64 1, %var_16
-          %var_18 = ashr i64 1, %var_16
-          %var_19 = xor i64 %var_17, %var_18
-          %var_20 = and i64 %var_19, %var_14
-          %var_21 = xor i64 %var_17, %var_20
-          store i64 %var_21, ptr %var_22
-          %var_23 = ashr i64 %var_11, 63
-          %var_24 = xor i64 %var_11, %var_23
-          %var_25 = sub i64 %var_24, %var_23
-          %var_26 = shl i64 1, %var_25
-          %var_27 = ashr i64 1, %var_25
-          %var_28 = xor i64 %var_26, %var_27
-          %var_29 = and i64 %var_28, %var_23
-          %var_30 = xor i64 %var_26, %var_29
-          %var_31 = sub i64 %var_30, 1
-          %var_33 = and i64 %var_7, %var_31
-          store i64 %var_33, ptr %var_34
-          %var_35 = ashr i64 %var_11, 63
-          %var_36 = xor i64 %var_11, %var_35
-          %var_37 = sub i64 %var_36, %var_35
-          %var_38 = ashr i64 %var_7, %var_37
-          %var_39 = shl i64 %var_7, %var_37
-          %var_40 = xor i64 %var_38, %var_39
-          %var_41 = and i64 %var_40, %var_35
-          %var_42 = xor i64 %var_38, %var_41
-          store i64 %var_42, ptr %var_43
-          %var_97 = load i64, ptr %var_34
-          %var_98 = load i64, ptr %var_22
-          %var_44 = icmp sgt i64 %var_97, %var_98
-          store i1 true, ptr %var_45
-          br i1 %var_44, label %block_9, label %block_6
+          store i64 %var_13, ptr %var_17
+          %var_123 = load i64, ptr %var_17
+          %var_18 = sub i64 %var_123, 53
+          %var_21 = sub i64 %var_18, 1
+          %var_22 = ashr i64 %var_21, 63
+          %var_23 = xor i64 %var_21, %var_22
+          %var_24 = sub i64 %var_23, %var_22
+          %var_25 = shl i64 1, %var_24
+          %var_26 = ashr i64 1, %var_24
+          %var_27 = xor i64 %var_25, %var_26
+          %var_28 = and i64 %var_27, %var_22
+          %var_29 = xor i64 %var_25, %var_28
+          store i64 %var_29, ptr %var_30
+          %var_31 = ashr i64 %var_18, 63
+          %var_32 = xor i64 %var_18, %var_31
+          %var_33 = sub i64 %var_32, %var_31
+          %var_34 = shl i64 1, %var_33
+          %var_35 = ashr i64 1, %var_33
+          %var_36 = xor i64 %var_34, %var_35
+          %var_37 = and i64 %var_36, %var_31
+          %var_38 = xor i64 %var_34, %var_37
+          %var_40 = sub i64 %var_38, 1
+          store i64 %var_12, ptr %var_42
+          %var_126 = load i64, ptr %var_42
+          %var_43 = and i64 %var_126, %var_40
+          store i64 %var_43, ptr %var_44
+          store i64 %var_12, ptr %var_45
+          %var_46 = ashr i64 %var_18, 63
+          %var_47 = xor i64 %var_18, %var_46
+          %var_48 = sub i64 %var_47, %var_46
+          %var_129 = load i64, ptr %var_45
+          %var_49 = ashr i64 %var_129, %var_48
+          %var_50 = shl i64 %var_129, %var_48
+          %var_51 = xor i64 %var_49, %var_50
+          %var_52 = and i64 %var_51, %var_46
+          %var_53 = xor i64 %var_49, %var_52
+          store i64 %var_53, ptr %var_54
+          %var_131 = load i64, ptr %var_44
+          store i64 %var_131, ptr %var_55
+          %var_133 = load i64, ptr %var_55
+          %var_134 = load i64, ptr %var_30
+          %var_56 = icmp sgt i64 %var_133, %var_134
+          store i1 true, ptr %var_58
+          br i1 %var_56, label %block_9, label %block_6
         block_5:
-          store i64 %var_7, ptr %var_10
+          store i64 %var_12, ptr %var_16
           br label %block_13
         block_6:
-          %var_100 = load i64, ptr %var_34
-          %var_101 = load i64, ptr %var_22
-          %var_46 = icmp eq i64 %var_100, %var_101
-          store i1 false, ptr %var_47
-          br i1 %var_46, label %block_7, label %block_8
+          %var_136 = load i64, ptr %var_44
+          store i64 %var_136, ptr %var_59
+          %var_138 = load i64, ptr %var_59
+          %var_139 = load i64, ptr %var_30
+          %var_60 = icmp eq i64 %var_138, %var_139
+          store i1 false, ptr %var_62
+          br i1 %var_60, label %block_7, label %block_8
         block_7:
-          %var_112 = load i64, ptr %var_43
-          %var_48 = and i64 %var_112, 1
-          %var_49 = icmp eq i64 %var_48, 1
-          store i1 %var_49, ptr %var_47
+          %var_152 = load i64, ptr %var_54
+          store i64 %var_152, ptr %var_63
+          %var_154 = load i64, ptr %var_63
+          %var_64 = and i64 %var_154, 1
+          %var_66 = icmp eq i64 %var_64, 1
+          store i1 %var_66, ptr %var_62
           br label %block_8
         block_8:
-          %var_103 = load i1, ptr %var_47
-          store i1 %var_103, ptr %var_45
+          %var_141 = load i1, ptr %var_62
+          store i1 %var_141, ptr %var_58
           br label %block_9
         block_9:
-          %var_105 = load i1, ptr %var_45
-          br i1 %var_105, label %block_10, label %block_11
+          %var_143 = load i1, ptr %var_58
+          br i1 %var_143, label %block_10, label %block_11
         block_10:
-          %var_110 = load i64, ptr %var_43
-          %var_51 = add i64 %var_110, 1
-          store i64 %var_51, ptr %var_50
+          %var_148 = load i64, ptr %var_54
+          store i64 %var_148, ptr %var_68
+          %var_150 = load i64, ptr %var_68
+          %var_69 = add i64 %var_150, 1
+          store i64 %var_69, ptr %var_67
           br label %block_12
         block_11:
-          %var_106 = load i64, ptr %var_43
-          store i64 %var_106, ptr %var_50
+          %var_144 = load i64, ptr %var_54
+          store i64 %var_144, ptr %var_67
           br label %block_12
         block_12:
-          %var_108 = load i64, ptr %var_50
-          store i64 %var_108, ptr %var_10
+          %var_146 = load i64, ptr %var_67
+          store i64 %var_146, ptr %var_16
           br label %block_13
         block_13:
-          %var_84 = load i64, ptr %var_10
-          store i64 %var_84, ptr %var_52
-          %var_86 = load i64, ptr %var_52
-          %var_57 = call i64 @MinI(i64 %var_86, i64 9007199254740991)
-          store i64 %var_57, ptr %var_58
-          %var_59 = icmp sgt i64 %var_8, 53
-          br i1 %var_59, label %block_14, label %block_15
+          %var_110 = load i64, ptr %var_16
+          store i64 %var_110, ptr %var_70
+          %var_112 = load i64, ptr %var_70
+          %var_77 = call i64 @MinI(i64 %var_112, i64 9007199254740991)
+          store i64 %var_77, ptr %var_78
+          store i64 %var_13, ptr %var_79
+          %var_115 = load i64, ptr %var_79
+          %var_80 = icmp sgt i64 %var_115, 53
+          br i1 %var_80, label %block_14, label %block_15
         block_14:
-          store i64 53, ptr %var_60
+          store i64 53, ptr %var_81
           br label %block_16
         block_15:
-          store i64 %var_8, ptr %var_60
+          store i64 %var_13, ptr %var_81
           br label %block_16
         block_16:
-          %var_89 = load i64, ptr %var_60
-          store i64 %var_89, ptr %var_61
-          %var_91 = load i64, ptr %var_61
-          %var_62 = ashr i64 %var_91, 63
-          %var_63 = xor i64 %var_91, %var_62
-          %var_64 = sub i64 %var_63, %var_62
-          %var_65 = shl i64 1, %var_64
-          %var_66 = ashr i64 1, %var_64
-          %var_67 = xor i64 %var_65, %var_66
-          %var_68 = and i64 %var_67, %var_62
-          %var_69 = xor i64 %var_65, %var_68
-          %var_70 = sitofp i64 %var_69 to double
-          %var_92 = load i64, ptr %var_58
-          %var_72 = sitofp i64 %var_92 to double
-          %var_74 = fdiv double 6.283185307179586, %var_70
-          %var_76 = fmul double %var_72, %var_74
-          %var_81 = call double @MinD(double %var_76, double 6.283185307179585)
-          ret double %var_81
+          %var_117 = load i64, ptr %var_81
+          store i64 %var_117, ptr %var_82
+          %var_119 = load i64, ptr %var_82
+          %var_83 = ashr i64 %var_119, 63
+          %var_84 = xor i64 %var_119, %var_83
+          %var_85 = sub i64 %var_84, %var_83
+          %var_86 = shl i64 1, %var_85
+          %var_87 = ashr i64 1, %var_85
+          %var_88 = xor i64 %var_86, %var_87
+          %var_89 = and i64 %var_88, %var_83
+          %var_90 = xor i64 %var_86, %var_89
+          %var_91 = sitofp i64 %var_90 to double
+          %var_120 = load i64, ptr %var_78
+          %var_93 = sitofp i64 %var_120 to double
+          %var_95 = fdiv double 6.283185307179586, %var_91
+          %var_98 = fmul double %var_93, %var_95
+          %var_105 = call double @MinD(double %var_98, double 6.283185307179585)
+          ret double %var_105
         }
 
-        define internal i64 @MinI(i64 %var_53, i64 %var_54) {
+        define internal i64 @MinI(i64 %var_72, i64 %var_73) {
         block_17:
-          %var_56 = alloca i64
-          %var_55 = icmp slt i64 %var_53, %var_54
-          br i1 %var_55, label %block_18, label %block_19
+          %var_74 = alloca i64
+          %var_76 = alloca i64
+          store i64 %var_72, ptr %var_74
+          %var_157 = load i64, ptr %var_74
+          %var_75 = icmp slt i64 %var_157, %var_73
+          br i1 %var_75, label %block_18, label %block_19
         block_18:
-          store i64 %var_53, ptr %var_56
+          store i64 %var_72, ptr %var_76
           br label %block_20
         block_19:
-          store i64 %var_54, ptr %var_56
+          store i64 %var_73, ptr %var_76
           br label %block_20
         block_20:
-          %var_115 = load i64, ptr %var_56
-          ret i64 %var_115
+          %var_159 = load i64, ptr %var_76
+          ret i64 %var_159
         }
 
-        define internal double @MinD(double %var_77, double %var_78) {
+        define internal double @MinD(double %var_100, double %var_101) {
         block_21:
-          %var_80 = alloca double
-          %var_79 = fcmp olt double %var_77, %var_78
-          br i1 %var_79, label %block_22, label %block_23
+          %var_102 = alloca double
+          %var_104 = alloca double
+          store double %var_100, ptr %var_102
+          %var_162 = load double, ptr %var_102
+          %var_103 = fcmp olt double %var_162, %var_101
+          br i1 %var_103, label %block_22, label %block_23
         block_22:
-          store double %var_77, ptr %var_80
+          store double %var_100, ptr %var_104
           br label %block_24
         block_23:
-          store double %var_78, ptr %var_80
+          store double %var_101, ptr %var_104
           br label %block_24
         block_24:
-          %var_118 = load double, ptr %var_80
-          ret double %var_118
+          %var_164 = load double, ptr %var_104
+          ret double %var_164
         }
 
-        define internal void @Rz(double %var_84, ptr %var_85) {
+        define internal void @Rz(double %var_110, ptr %var_111) {
         block_25:
-          call void @__quantum__qis__rz__body(double %var_84, ptr %var_85)
+          call void @__quantum__qis__rz__body(double %var_110, ptr %var_111)
           ret void
         }
 

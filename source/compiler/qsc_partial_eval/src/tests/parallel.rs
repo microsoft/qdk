@@ -331,24 +331,27 @@ fn parallel_forces_loop_unrolling_with_adaptive() {
                 Variable(0, Integer) = Store Integer(0)
                 Jump(1)
             Block 1:Block:
-                Variable(1, Boolean) = Icmp Sle, Variable(0, Integer), Integer(1)
-                Variable(2, Boolean) = Store Bool(true)
-                Branch Variable(1, Boolean), 3, 4
+                Variable(1, Integer) = Store Variable(0, Integer)
+                Variable(2, Boolean) = Icmp Sle, Variable(1, Integer), Integer(1)
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(true)
+                Branch Variable(3, Boolean), 3, 4
             Block 2:Block:
                 Call id(4), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
-                Branch Variable(2, Boolean), 5, 2
+                Branch Variable(4, Boolean), 5, 2
             Block 4:Block:
-                Variable(2, Boolean) = Store Bool(false)
+                Variable(4, Boolean) = Store Bool(false)
                 Jump(3)
             Block 5:Block:
                 Call id(2), args( Qubit(0), )
-                Variable(4, Integer) = Add Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(4, Integer)
+                Variable(6, Integer) = Store Variable(0, Integer)
+                Variable(7, Integer) = Add Variable(6, Integer), Integer(1)
+                Variable(0, Integer) = Store Variable(7, Integer)
                 Jump(1)
             Block 6:Block:
-                Call id(3), args( Variable(3, Qubit), )
+                Call id(3), args( Variable(5, Qubit), )
                 Return"#]],
     );
 

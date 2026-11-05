@@ -161,8 +161,11 @@ const VOID_RETURN: u64 = 0xFFFF_FFFF_FFFF_FFFF;
 
 struct CallStackFrame {
     block_id: u64,
+    previous_block_id: u64,
     return_pc: u64,
     return_reg: u64,
+    registers: Vec<u64>,
+    memory_size: usize,
 }
 
 struct Runtime {
@@ -332,10 +335,12 @@ fn dispatch_reset<S: Simulator>(
 // Main interpreter entry point
 // ---------------------------------------------------------------------------
 
+/// Runs a single shot of `program` on `sim` and returns the recorded outputs.
+///
+/// The interpreter runs until the program returns; a program that never
+/// returns will not terminate.
 #[allow(clippy::too_many_lines)]
 pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Vec<OutputRecord> {
-    const MAX_STEPS: u64 = 10_000_000;
-
     let entry_pc = program.block_table[program.entry_block as usize].instr_offset;
     let mut rt = Runtime::new(
         program.num_registers,
@@ -347,7 +352,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
     // Output records captured during this shot, in execution order.
     let mut records: Vec<OutputRecord> = Vec::new();
 
-    for _ in 0..MAX_STEPS {
+    loop {
         let instr = program.instructions[rt.pc as usize];
         let op = instr.primary_opcode();
         let subcode = instr.sub_opcode();
@@ -358,7 +363,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
 
             OP_RET => {
                 rt.exit_code = rt.resolve_u64(instr.dst, flags, 2);
-                break;
+                return records;
             }
 
             OP_JUMP => {
@@ -401,14 +406,19 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
 
                 rt.call_stack.push(CallStackFrame {
                     block_id: rt.current_block_id,
+                    previous_block_id: rt.previous_block_id,
                     return_pc: rt.pc + 1,
                     return_reg: instr.dst,
+                    registers: rt.registers.clone(),
+                    memory_size: rt.memory.len(),
                 });
 
                 let param_base = func.param_base_reg;
                 for i in 0..arg_count {
                     let arg_reg = program.call_args[arg_offset + i];
-                    let val = rt.read_reg(arg_reg);
+                    // Read the saved caller state so overlapping argument registers are safe.
+                    let val = rt.call_stack.last().expect("caller frame exists").registers
+                        [arg_reg as usize];
                     rt.write_reg(param_base + i as u64, val);
                 }
 
@@ -418,15 +428,17 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
 
             OP_CALL_RETURN => {
                 let frame = rt.call_stack.pop().expect("call stack underflow");
-                let return_block = frame.block_id;
-                let return_pc = frame.return_pc;
                 let return_reg = frame.return_reg;
-
-                rt.current_block_id = return_block;
-                rt.pc = return_pc;
-                if return_reg != VOID_RETURN {
-                    let ret_val = rt.resolve_u64(instr.src0, flags, 0);
-                    rt.write_reg(return_reg, ret_val);
+                let return_value =
+                    (return_reg != VOID_RETURN).then(|| rt.resolve_u64(instr.src0, flags, 0));
+                rt.current_block_id = frame.block_id;
+                rt.previous_block_id = frame.previous_block_id;
+                rt.pc = frame.return_pc;
+                rt.registers = frame.registers;
+                // Retain writes through caller-owned pointers; discard only callee allocations.
+                rt.memory.truncate(frame.memory_size);
+                if let Some(value) = return_value {
+                    rt.write_reg(return_reg, value);
                 }
             }
 
@@ -806,7 +818,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
             // ----- Memory operations -----
             OP_ALLOCA => {
                 let num_words = rt.resolve_u64(instr.src0, flags, 0);
-                let addr = rt.resolve_u64(instr.src1, flags, 1);
+                let addr = rt.memory.len() as u64;
                 let end = (addr + num_words) as usize;
                 if end > rt.memory.len() {
                     rt.memory.resize(end, 0);
@@ -841,8 +853,6 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
             _ => panic!("unsupported opcode 0x{op:02X} at pc={}", rt.pc),
         }
     }
-
-    records
 }
 
 fn block_pc(program: &AdaptiveProgram<u64>, block_id: u64) -> u64 {

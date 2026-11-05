@@ -85,6 +85,11 @@ operation ApplyClassicalFunctionInternal(f : (BigInt) -> BigInt, target : Qubit[
     body intrinsic;
 }
 
+@Config(not Unrestricted)
+operation ApplyClassicalFunctionInternal(f : (BigInt) -> BigInt, target : Qubit[]) : Unit {
+    fail ("ApplyClassicalFunction is not supported in this profile");
+}
+
 
 /// # Summary
 /// Applies an arbitrary bijective classical function to a little-endian
@@ -116,7 +121,6 @@ operation ApplyClassicalFunctionInternal(f : (BigInt) -> BigInt, target : Qubit[
 /// bijective on those inputs.
 /// ## target
 /// The little-endian qubit register to transform.
-@Config(Unrestricted)
 operation ApplyClassicalFunction(f : (BigInt) -> BigInt, target : Qubit[]) : Unit is Ctl {
     body (...) {
         ApplyClassicalFunctionInternal(f, target);
@@ -148,7 +152,6 @@ operation ApplyClassicalFunction(f : (BigInt) -> BigInt, target : Qubit[]) : Uni
 /// ## regs
 /// The little-endian registers that hold the input values and are updated
 /// in place.
-@Config(Unrestricted)
 operation ApplyClassicalFunctionN(f : (BigInt[]) -> (BigInt[]), regs : Qubit[][]) : Unit is Ctl {
     let widths = Mapped(Length, regs);
     ApplyClassicalFunction(x -> PackInts(f(UnpackInts(x, widths)), widths), Flattened(regs));

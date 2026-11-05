@@ -133,20 +133,29 @@ class TargetProfile(Enum):
 
 class GlobalCallable:
     """
-    A callable reference that can be invoked with arguments.
+    An opaque Q# global handle accepted by its originating interpreter's APIs.
+    Retains checked type arguments and an ownership token, not the interpreter itself.
+    Python arguments do not instantiate an unbound generic declaration.
     """
 
     ...
 
 class Closure:
     """
-    A closure reference that can be passed back into Q#.
+    An opaque Q# closure handle retaining captured values and lexical type arguments.
+    It belongs to its originating interpreter. For QIR or static-circuit codegen,
+    pass it as an argument to a global wrapper rather than as the entry target.
     """
 
     ...
 
 class Interpreter:
-    """A Q# interpreter."""
+    """A Q# interpreter.
+
+    Callable handles must originate here. Their instantiated signatures are
+    checked before invocation; Python arguments do not specialize an unbound
+    generic declaration.
+    """
 
     def __init__(
         self,
@@ -235,6 +244,7 @@ class Interpreter:
     ) -> Any:
         """
         Invokes the callable with the given arguments, converted into the appropriate Q# values.
+        Callable ownership and instantiated signatures are checked before execution.
         :param callable: The callable to invoke.
         :param args: The arguments to pass to the callable.
         :param output_fn: A callback function that will be called with each output.
@@ -251,6 +261,9 @@ class Interpreter:
     ) -> str:
         """
         Generates QIR from Q# source code. Either an entry expression or a callable with arguments must be provided.
+        A callable entry must be a global handle without applied functors. Closures
+        can be supplied as arguments. All handles must belong to this interpreter,
+        and generic type arguments must already have been established by Q#.
 
         :param entry_expr: The entry expression.
         :param callable: The callable to generate QIR for, if no entry expression is provided.
@@ -272,6 +285,8 @@ class Interpreter:
         """
         Synthesizes a circuit for a Q# program. Either an entry
         expression or an operation must be provided.
+        Static generation supports Base, Adaptive_RI, and Adaptive_RIF, and requires
+        a global callable entry without applied functors. Closures can be arguments.
 
         :param config: Circuit generation options.
 

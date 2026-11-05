@@ -169,17 +169,12 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_repeat_until_loop
                 Variable(1, Boolean) = Store Bool(true)
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(1)
-                Variable(1, Boolean) = Store Bool(true)
                 Variable(0, Integer) = Store Integer(2)
-                Variable(1, Boolean) = Store Bool(true)
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
-                Variable(1, Boolean) = Store Bool(true)
                 Variable(0, Integer) = Store Integer(4)
-                Variable(1, Boolean) = Store Bool(true)
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(5)
-                Variable(1, Boolean) = Store Bool(true)
                 Variable(0, Integer) = Store Integer(6)
                 Variable(1, Boolean) = Store Bool(false)
                 Call id(3), args( Integer(0), Tag(0, 3), )
@@ -345,12 +340,13 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
                 Jump(1)
             Block 3:Block:
                 Variable(1, Integer) = Store Integer(2)
-                Variable(7, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(7, Integer), Tag(0, 3), )
+                Variable(8, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 4:Block:
-                Variable(6, Integer) = BitwiseOr Variable(0, Integer), Integer(2)
-                Variable(0, Integer) = Store Variable(6, Integer)
+                Variable(6, Integer) = Store Variable(0, Integer)
+                Variable(7, Integer) = BitwiseOr Variable(6, Integer), Integer(2)
+                Variable(0, Integer) = Store Variable(7, Integer)
                 Jump(3)"#]],
     );
 }
@@ -386,8 +382,8 @@ fn large_loop_with_inner_if_completes_eval_and_transform() {
         &expect![[r#"
             Block:
                 Variable(1, Integer) = Store Integer(100)
-                Variable(400, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(400, Integer), Tag(0, 3), )
+                Variable(598, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(598, Integer), Tag(0, 3), )
                 Return Integer(0)"#]],
     );
 }
@@ -476,15 +472,16 @@ fn if_else_expression_with_dynamic_logical_and_condition() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
-                Variable(2, Boolean) = Store Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(false)
+                Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
-                Branch Variable(2, Boolean), 4, 5
+                Branch Variable(3, Boolean), 4, 5
             Block 2:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Store Variable(3, Boolean)
-                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Store Variable(4, Boolean)
+                Variable(3, Boolean) = Store Variable(5, Boolean)
                 Jump(1)
             Block 3:Block:
                 Call id(6), args( Integer(0), Tag(0, 3), )
@@ -582,15 +579,16 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
-                Variable(2, Boolean) = Store Bool(true)
-                Branch Variable(1, Boolean), 1, 2
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(true)
+                Branch Variable(2, Boolean), 1, 2
             Block 1:Block:
-                Branch Variable(2, Boolean), 4, 5
+                Branch Variable(3, Boolean), 4, 5
             Block 2:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Store Variable(3, Boolean)
-                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Store Variable(4, Boolean)
+                Variable(3, Boolean) = Store Variable(5, Boolean)
                 Jump(1)
             Block 3:Block:
                 Call id(6), args( Integer(0), Tag(0, 3), )
@@ -905,8 +903,9 @@ fn dynamic_fact_call_ignored() {
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Variable(3, Boolean) = LogicalNot Variable(2, Boolean)
-                Variable(4, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(5, Boolean) = Store Variable(2, Boolean)
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
                 Return Integer(0)"#]],
     );
 }
@@ -959,22 +958,24 @@ fn measurement_in_loop_of_variable_qubit_supported() {
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
             Block 1:Block:
-                Variable(3, Boolean) = Icmp Slt, Variable(2, Integer), Integer(2)
-                Branch Variable(3, Boolean), 3, 2
+                Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Boolean) = Icmp Slt, Variable(3, Integer), Integer(2)
+                Branch Variable(4, Boolean), 3, 2
             Block 2:Block:
-                Variable(9, Boolean) = Store Variable(1, Boolean)
-                Call id(4), args( Variable(9, Boolean), Tag(0, 3), )
+                Variable(11, Boolean) = Store Variable(1, Boolean)
+                Call id(4), args( Variable(11, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
-                Variable(4, Qubit) = Index Array(0), Variable(2, Integer)
-                Variable(5, Qubit) = Store Variable(4, Qubit)
-                Call id(2), args( Variable(5, Qubit), Result(0), )
-                Variable(6, Boolean) = Call id(3), args( Result(0), )
-                Variable(7, Boolean) = Store Variable(6, Boolean)
-                Branch Variable(7, Boolean), 5, 4
+                Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+                Variable(6, Qubit) = Store Variable(5, Qubit)
+                Call id(2), args( Variable(6, Qubit), Result(0), )
+                Variable(7, Boolean) = Call id(3), args( Result(0), )
+                Variable(8, Boolean) = Store Variable(7, Boolean)
+                Branch Variable(8, Boolean), 5, 4
             Block 4:Block:
-                Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
-                Variable(2, Integer) = Store Variable(8, Integer)
+                Variable(9, Integer) = Store Variable(2, Integer)
+                Variable(10, Integer) = Add Variable(9, Integer), Integer(1)
+                Variable(2, Integer) = Store Variable(10, Integer)
                 Jump(1)
             Block 5:Block:
                 Variable(1, Boolean) = Store Bool(true)
@@ -1018,29 +1019,36 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
             Block 1:Block:
-                Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
-                Variable(4, Boolean) = Store Bool(true)
-                Branch Variable(3, Boolean), 3, 4
+                Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Boolean) = Icmp Sle, Variable(3, Integer), Integer(3)
+                Variable(5, Boolean) = Store Variable(4, Boolean)
+                Variable(6, Boolean) = Store Bool(true)
+                Branch Variable(5, Boolean), 3, 4
             Block 2:Block:
-                Variable(11, Boolean) = Store Variable(1, Boolean)
-                Call id(4), args( Variable(11, Boolean), Tag(0, 3), )
+                Variable(18, Boolean) = Store Variable(1, Boolean)
+                Call id(4), args( Variable(18, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
-                Branch Variable(4, Boolean), 5, 2
+                Branch Variable(6, Boolean), 5, 2
             Block 4:Block:
-                Variable(4, Boolean) = Store Bool(false)
+                Variable(6, Boolean) = Store Bool(false)
                 Jump(3)
             Block 5:Block:
-                Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
-                Variable(6, Integer) = Add Variable(2, Integer), Integer(1)
-                Variable(7, Qubit) = Index Array(0), Variable(6, Integer)
-                Call id(2), args( Variable(5, Qubit), Variable(7, Qubit), Result(0), )
-                Variable(8, Boolean) = Call id(3), args( Result(0), )
-                Variable(9, Boolean) = Store Variable(8, Boolean)
-                Branch Variable(9, Boolean), 7, 6
+                Variable(7, Integer) = Store Variable(2, Integer)
+                Variable(8, Qubit) = Index Array(0), Variable(7, Integer)
+                Variable(9, Qubit) = Store Variable(8, Qubit)
+                Variable(10, Integer) = Store Variable(7, Integer)
+                Variable(11, Integer) = Add Variable(10, Integer), Integer(1)
+                Variable(12, Qubit) = Index Array(0), Variable(11, Integer)
+                Variable(13, Qubit) = Store Variable(12, Qubit)
+                Call id(2), args( Variable(9, Qubit), Variable(13, Qubit), Result(0), )
+                Variable(14, Boolean) = Call id(3), args( Result(0), )
+                Variable(15, Boolean) = Store Variable(14, Boolean)
+                Branch Variable(15, Boolean), 7, 6
             Block 6:Block:
-                Variable(10, Integer) = Add Variable(2, Integer), Integer(2)
-                Variable(2, Integer) = Store Variable(10, Integer)
+                Variable(16, Integer) = Store Variable(2, Integer)
+                Variable(17, Integer) = Add Variable(16, Integer), Integer(2)
+                Variable(2, Integer) = Store Variable(17, Integer)
                 Jump(1)
             Block 7:Block:
                 Variable(1, Boolean) = Store Bool(true)
@@ -1121,5 +1129,118 @@ fn test_dynamic_expr_including_bigint_binop() {
                 Call id(3), args( Qubit(0), Result(0), )
                 Call id(4), args( Result(0), Tag(0, 3), )
                 Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn tuple_swap_update_of_dynamic_mutable_variables_in_static_subexpr() {
+    let program = get_rir_program(indoc! {
+        r#"
+        operation Main() : (Int, Int) {
+            use q = Qubit();
+            X(q);
+            let d = MResetZ(q) == One;
+            mutable x = 0;
+            mutable y = 0;
+            let s = d and { set x = 3; true };
+            let _ = { set (x, y) = (y, x); true };
+            (x, y)
+        }
+        "#,
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(4), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Integer) = Store Integer(0)
+                Variable(4, Integer) = Store Integer(0)
+                Variable(5, Boolean) = Store Variable(2, Boolean)
+                Variable(6, Boolean) = Store Bool(false)
+                Branch Variable(5, Boolean), 2, 1
+            Block 1:Block:
+                Variable(7, Boolean) = Store Variable(6, Boolean)
+                Variable(8, Integer) = Store Variable(3, Integer)
+                Variable(3, Integer) = Store Integer(0)
+                Variable(4, Integer) = Store Variable(8, Integer)
+                Variable(9, Integer) = Store Variable(4, Integer)
+                Call id(5), args( Integer(2), Tag(0, 3), )
+                Call id(6), args( Integer(0), Tag(1, 5), )
+                Call id(6), args( Variable(9, Integer), Tag(2, 5), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(3, Integer) = Store Integer(3)
+                Variable(6, Boolean) = Store Bool(true)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn short_circuit_instr_generating_constant_propagates_constant() {
+    let program = get_rir_program(indoc! {
+        r#"
+        operation Main() : Bool {
+            use q = Qubit();
+            let r = MResetZ(q);
+            (r == Zero and false) and true
+        }
+        "#,
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(false)
+                Branch Variable(2, Boolean), 2, 1
+            Block 1:Block:
+                Call id(4), args( Bool(false), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(3, Boolean) = Store Bool(false)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn temp_dynamic_result_from_ternop_same_every_path_propagates_constant() {
+    let program = get_rir_program(indoc! {
+        r#"
+        operation Main() : Int {
+            use q = Qubit();
+            (MResetZ(q) == One ? 4 | 4) + 1
+        }
+        "#,
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Call id(4), args( Integer(5), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(2, Integer) = Store Integer(4)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Integer) = Store Integer(4)
+                Jump(1)"#]],
     );
 }

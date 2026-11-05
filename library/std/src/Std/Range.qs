@@ -77,7 +77,9 @@ function RangeStep(r : Range) : Int { r.Step }
 /// Note that the reverse of a range is not simply `end`..`-step`..`start`, because
 /// the actual last element of a range may not be the same as `end`.
 function RangeReverse(r : Range) : Range {
-    let start = r.Start + ((r.End - r.Start) / r.Step) * r.Step;
+    // Step is both added (inside the division) and subtracted (outside) as a sneaky
+    // way to handle cases where there would be zero steps without branching.
+    let start = r.Start + ((r.End - r.Start + r.Step) / r.Step) * r.Step - r.Step;
     start..-r.Step..r.Start
 }
 

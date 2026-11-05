@@ -18,6 +18,7 @@
 mod tests;
 
 pub mod backend;
+pub mod callable;
 pub mod debug;
 pub mod function_evaluator;
 pub mod intrinsic;
@@ -27,6 +28,7 @@ pub mod state;
 pub mod val;
 
 use crate::backend::{Backend, TracingBackend};
+use crate::callable::TypeArgs;
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
@@ -453,7 +455,7 @@ impl Env {
             .find_map(|scope| scope.bindings.get(id))
     }
 
-    fn get_mut(&mut self, id: LocalVarId) -> Option<&mut Variable> {
+    pub fn get_mut(&mut self, id: LocalVarId) -> Option<&mut Variable> {
         self.scopes
             .iter_mut()
             .rev()
@@ -591,6 +593,8 @@ pub struct State {
     val_stack: Vec<Vec<Value>>,
     source_package: PackageId,
     package: PackageId,
+    type_args: TypeArgs,
+    type_args_stack: Vec<TypeArgs>,
     call_stack: CallStack,
     current_span: Span,
     rng: RefCell<StdRng>,
@@ -624,6 +628,8 @@ impl State {
             val_stack: vec![Vec::new()],
             source_package: package,
             package,
+            type_args: TypeArgs::Empty,
+            type_args_stack: Vec::new(),
             call_stack: CallStack::default(),
             current_span: Span::default(),
             rng,
@@ -646,6 +652,7 @@ impl State {
         exec_graph: ConfiguredExecGraph,
         id: StoreItemId,
         functor: FunctorApp,
+        type_args: TypeArgs,
     ) {
         self.call_stack.push_frame(Frame {
             span: self.current_span,
@@ -655,6 +662,8 @@ impl State {
             loop_iterations: Vec::new(),
         });
         self.exec_graph_stack.push(exec_graph);
+        self.type_args_stack
+            .push(std::mem::replace(&mut self.type_args, type_args));
         self.val_stack.push(Vec::new());
         self.idx_stack.push(self.idx);
         self.idx = 0;
@@ -664,6 +673,10 @@ impl State {
     fn leave_frame(&mut self) {
         if let Some(frame) = self.call_stack.pop_frame() {
             self.package = frame.caller;
+            self.type_args = self
+                .type_args_stack
+                .pop()
+                .expect("call frame has a type context");
         }
         self.val_stack.pop();
         self.idx = self.idx_stack.pop().unwrap_or_default();
@@ -1065,8 +1078,17 @@ impl State {
                             map_fir_package_span_to_hir(expr.span),
                             args,
                             *callable,
+                            self.type_args.clone(),
                         )?;
                         self.set_val_register(closure);
+                    }
+                    ExprKind::Var(Res::Item(item), args) => {
+                        let id = StoreItemId::from((item.package, item.item));
+                        self.set_val_register(Value::global_with_args(
+                            id,
+                            FunctorApp::default(),
+                            TypeArgs::bind(id, args.clone(), self.type_args.clone()),
+                        ));
                     }
                     ExprKind::AssignField(record, field, _) => {
                         self.eval_update_field(field.clone());
@@ -1334,9 +1356,17 @@ impl State {
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
         let arg = self.take_val_register();
-        let (callee_id, functor, fixed_args) = match self.pop_val() {
-            Value::Closure(inner) => (inner.id, inner.functor, Some(inner.fixed_args)),
-            Value::Global(id, functor) => (id, functor, None),
+        let (callee_id, functor, fixed_args, type_args) = match self.pop_val() {
+            Value::Closure(inner) => (
+                inner.id,
+                inner.functor,
+                Some(inner.fixed_args),
+                inner.type_args,
+            ),
+            Value::Global(id, functor) => (id, functor, None, TypeArgs::Empty),
+            Value::GlobalWithArgs(global) => {
+                (global.id, global.functor, None, global.type_args.clone())
+            }
             _ => panic!("value is not callable"),
         };
 
@@ -1358,11 +1388,16 @@ impl State {
         };
 
         let callee_span = map_fir_package_span_to_hir(callee.span);
+        let type_args = if matches!(type_args, TypeArgs::Unbound) {
+            TypeArgs::from_decl(callee_id, &callee.generics)
+        } else {
+            type_args
+        };
 
         let spec = spec_from_functor_app(functor);
         match &callee.implementation {
             CallableImpl::Intrinsic if is_counting_call(&callee.name.name) => {
-                self.push_frame(Vec::new().into(), callee_id, functor);
+                self.push_frame(Vec::new().into(), callee_id, functor, type_args);
 
                 let val = self.counting_call(&callee.name.name, arg, arg_span)?;
 
@@ -1380,6 +1415,7 @@ impl State {
                 callee_span,
                 arg,
                 arg_span,
+                type_args,
                 out,
             ),
             CallableImpl::Spec(specialized_implementation) => {
@@ -1394,6 +1430,7 @@ impl State {
                     spec_decl.exec_graph.clone().select(self.exec_graph_config),
                     callee_id,
                     functor,
+                    type_args,
                 );
                 self.push_scope(env);
                 self.increment_call_count(callee_id, functor);
@@ -1415,6 +1452,7 @@ impl State {
                     spec_decl.exec_graph.clone().select(self.exec_graph_config),
                     callee_id,
                     functor,
+                    type_args,
                 );
                 self.push_scope(env);
 
@@ -1445,10 +1483,11 @@ impl State {
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,
+        type_args: TypeArgs,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
         let call_stack = self.capture_stack_if_trace_enabled(sim);
-        self.push_frame(Vec::new().into(), callee_id, functor);
+        self.push_frame(Vec::new().into(), callee_id, functor, type_args);
         self.current_span = callee_span.span;
         self.increment_call_count(callee_id, functor);
         let name = &callee.name.name;
@@ -1734,6 +1773,13 @@ impl State {
                 Value::Global(id, app) => {
                     self.set_val_register(Value::Global(id, update_functor_app(functor, app)));
                 }
+                Value::GlobalWithArgs(global) => {
+                    self.set_val_register(Value::global_with_args(
+                        global.id,
+                        update_functor_app(functor, global.functor),
+                        global.type_args.clone(),
+                    ));
+                }
                 _ => panic!("value should be callable"),
             },
             UnOp::Neg => match val {
@@ -1767,7 +1813,12 @@ impl State {
                 }
                 _ => panic!("value should be number"),
             },
-            UnOp::Unwrap => self.set_val_register(val),
+            UnOp::Unwrap => match val {
+                Value::Tuple(v, _) => {
+                    self.set_val_register(Value::Tuple(v, None));
+                }
+                _ => self.set_val_register(val),
+            },
         }
     }
 
@@ -1962,6 +2013,7 @@ impl State {
         let counting_key = |arg: Value| match arg {
             Value::Closure(closure) => make_counting_key(closure.id, closure.functor),
             Value::Global(id, functor) => make_counting_key(id, functor),
+            Value::GlobalWithArgs(global) => make_counting_key(global.id, global.functor),
             _ => panic!("value should be callable"),
         };
         match name {
@@ -2184,15 +2236,17 @@ fn merge_fixed_args(fixed_args: Option<Rc<[Value]>>, arg: Value) -> Value {
     }
 }
 
+#[inline]
 fn resolve_binding(env: &Env, res: Res, span: PackageSpan) -> Result<Value, Error> {
     Ok(match res {
         Res::Err => panic!("resolution error"),
-        Res::Item(item) => Value::Global(
+        Res::Item(item) => Value::global_with_args(
             StoreItemId {
                 package: item.package,
                 item: item.item,
             },
             FunctorApp::default(),
+            TypeArgs::Empty,
         ),
         Res::Local(id) => env.get(id).ok_or(Error::UnboundName(span))?.value.clone(),
     })
@@ -2207,12 +2261,20 @@ fn spec_from_functor_app(functor: FunctorApp) -> Spec {
     }
 }
 
+/// Captures local values and retains the supplied lexical type context.
+/// Cloning captures neither invokes the target nor materializes its type arguments.
+/// Evaluation supplies the current frame's context; already-concrete codegen
+/// inputs can use `TypeArgs::Empty`.
+///
+/// # Errors
+/// Returns `Error::UnboundName` at `span` if any requested capture is unavailable.
 pub fn resolve_closure(
     env: &Env,
     package: PackageId,
     span: PackageSpan,
     args: &[LocalVarId],
     callable: LocalItemId,
+    type_args: TypeArgs,
 ) -> Result<Value, Error> {
     let args: Option<_> = args
         .iter()
@@ -2228,6 +2290,7 @@ pub fn resolve_closure(
             fixed_args: args.into(),
             id: callable,
             functor: FunctorApp::default(),
+            type_args,
         }
         .into(),
     ))

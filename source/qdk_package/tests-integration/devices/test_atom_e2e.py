@@ -138,6 +138,79 @@ def test_device_simlate_with_clifford() -> None:
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_device_simulate_z_h_s_h_z_is_sx_adjoint() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    # Z·H·S·H·Z is SX† and Rx(π/2) is SX (up to global phase), so the qubit
+    # always ends in |0⟩.
+    qir = qsharp.compile("""
+        {
+            use q = Qubit();
+            Z(q);
+            H(q);
+            S(q);
+            H(q);
+            Z(q);
+            Rx(Std.Math.PI() / 2.0, q);
+            MResetZ(q)
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    for sim_type in ["cpu", "stabilizer"]:
+        result = device.simulate(qir, shots=10, type=sim_type, seed=1)
+        assert result == [qsharp.Result.Zero] * 10, sim_type
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_device_compile_late_h_s_h_fusion_calls_sx() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    # The h s h on t only appears after the first optimizer run, when the
+    # module already declares __quantum__qis__sx__body.
+    qir = qsharp.compile("""
+        {
+            use (c, t) = (Qubit(), Qubit());
+            H(t);
+            S(t);
+            CNOT(c, t);
+            H(t);
+            Rx(Std.Math.PI() / 2.0, t);
+            [MResetZ(c), MResetZ(t)]
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    compiled = str(device.compile(qir))
+    assert "__quantum__qis__sx__body." not in compiled
+    for sim_type in ["cpu", "stabilizer"]:
+        result = device.simulate(qir, shots=10, type=sim_type, seed=1)
+        assert result == [[qsharp.Result.Zero, qsharp.Result.One]] * 10, sim_type
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_device_simulate_with_clifford_rejects_tadj() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    # The CZs keep the T† rotation from being folded with the Rz gates of the
+    # decomposed H gates, so it reaches the Clifford pass as Rz(-π/4).
+    qir = qsharp.compile("""
+        {
+            use (q, r) = (Qubit(), Qubit());
+            H(q);
+            CZ(q, r);
+            Adjoint T(q);
+            CZ(q, r);
+            H(q);
+            [MResetZ(q), MResetZ(r)]
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    with pytest.raises(
+        ValueError, match="used in RZ is not a Clifford compatible rotation angle"
+    ):
+        device.simulate(qir, type="stabilizer")
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_device_simulate_with_loss() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qir = qsharp.compile("""

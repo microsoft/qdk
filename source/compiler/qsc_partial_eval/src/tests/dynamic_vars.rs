@@ -3,6 +3,8 @@
 
 #![allow(clippy::needless_raw_string_hashes, clippy::similar_names)]
 
+use crate::tests::get_rir_program_with_adaptive_profile;
+
 use super::{assert_blocks, assert_callable, get_rir_program};
 use expect_test::expect;
 use indoc::indoc;
@@ -270,12 +272,14 @@ fn dynamic_var_across_if_else_in_loop_constant_folded_in_first_iteration() {
                 Call id(4), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
-                Variable(6, Integer) = Sub Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(6, Integer)
+                Variable(6, Integer) = Store Variable(0, Integer)
+                Variable(7, Integer) = Sub Variable(6, Integer), Integer(1)
+                Variable(0, Integer) = Store Variable(7, Integer)
                 Jump(4)
             Block 6:Block:
-                Variable(7, Integer) = Add Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(7, Integer)
+                Variable(8, Integer) = Store Variable(0, Integer)
+                Variable(9, Integer) = Add Variable(8, Integer), Integer(1)
+                Variable(0, Integer) = Store Variable(9, Integer)
                 Jump(4)"#]],
     );
 }
@@ -550,8 +554,9 @@ fn dynamic_var_set_to_static_after_dynamism_still_constant_folded() {
                 Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
                 Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
-                Variable(3, Integer) = Mul Variable(0, Integer), Integer(2)
-                Variable(0, Integer) = Store Variable(3, Integer)
+                Variable(3, Integer) = Store Variable(0, Integer)
+                Variable(4, Integer) = Mul Variable(3, Integer), Integer(2)
+                Variable(0, Integer) = Store Variable(4, Integer)
                 Variable(0, Integer) = Store Integer(3)
                 Variable(0, Integer) = Store Integer(4)
                 Call id(4), args( Integer(0), Tag(0, 3), )
@@ -661,11 +666,14 @@ fn immutable_bind_of_dynamic_var_should_be_point_in_time_copy() {
                 Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(0, Integer)
-                Variable(4, Integer) = Add Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(4, Integer)
+                Variable(4, Integer) = Store Variable(0, Integer)
+                Variable(5, Integer) = Add Variable(4, Integer), Integer(1)
+                Variable(0, Integer) = Store Variable(5, Integer)
+                Variable(6, Integer) = Store Variable(3, Integer)
+                Variable(7, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Integer(2), Tag(0, 3), )
-                Call id(5), args( Variable(3, Integer), Tag(1, 5), )
-                Call id(5), args( Variable(0, Integer), Tag(2, 5), )
+                Call id(5), args( Variable(6, Integer), Tag(1, 5), )
+                Call id(5), args( Variable(7, Integer), Tag(2, 5), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(-1)
@@ -931,7 +939,8 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_pass_dyn
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Call id(4), args( Variable(3, Double), Qubit(1), )
+                Variable(4, Double) = Store Variable(3, Double)
+                Call id(4), args( Variable(4, Double), Qubit(1), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
@@ -979,6 +988,82 @@ fn dynamic_string_from_if_expression_with_concat_produces_branch_without_string(
             Block 2:Block:
                 Jump(1)
             Block 3:Block:
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn dynamic_variable_with_same_value_across_branches_treated_as_literal() {
+    let program = get_rir_program(indoc! {
+        r#"
+        operation Run(k : Int, m : Int) : Int {
+            use q = Qubit();
+            let x = MResetZ(q) == One ? k | m;
+            x + k
+        }
+
+        operation Main() : Int {
+            Run(1, 1)
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Call id(4), args( Integer(2), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(2, Integer) = Store Integer(1)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Integer) = Store Integer(1)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn dynamic_variable_with_same_value_across_branches_treated_as_literal_in_adaptive() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
+        operation Run(k : Int, m : Int) : Int {
+            use q = Qubit();
+            let x = MResetZ(q) == One ? k | m;
+            x + k
+        }
+
+        operation Main() : Int {
+            Run(1, 1)
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Call id(4), args( Integer(2), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(2, Integer) = Store Integer(1)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Integer) = Store Integer(1)
                 Jump(1)"#]],
     );
 }

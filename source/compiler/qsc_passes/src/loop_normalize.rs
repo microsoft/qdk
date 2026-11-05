@@ -870,7 +870,7 @@ impl<'a> LoopNormalize<'a> {
         *expr = Expr {
             id: self.assigner.next_node(),
             span,
-            ty: Ty::Array(Box::new(expr.ty.clone())),
+            ty: Ty::Array(Box::new(inner.ty.clone())),
             kind: ExprKind::Array(vec![inner]),
         };
     }

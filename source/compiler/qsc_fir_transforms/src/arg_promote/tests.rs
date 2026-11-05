@@ -16,6 +16,286 @@ use qsc_fir::fir::{
 
 use rustc_hash::FxHashMap;
 
+fn callable_argument_refinement_fixture() -> (Expr, Arrow, StoreItemId) {
+    use qsc_fir::ty::FunctorSetValue;
+
+    let (store, package_id) = compile_to_fir(
+        "operation A(q : Qubit) : Unit is Adj + Ctl { X(q); }
+         @EntryPoint() operation Main() : Unit { use q = Qubit(); A(q); Reset(q); }",
+    );
+    let package = store.get(package_id);
+    let (item_id, decl) = package
+        .items
+        .iter()
+        .find_map(|(id, item)| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "A" => Some((id, decl)),
+            _ => None,
+        })
+        .expect("A must exist");
+    let qualified = StoreItemId::from((package_id, item_id));
+    let mut argument = package
+        .exprs
+        .values()
+        .find(|expr| {
+            matches!(&expr.kind, ExprKind::Var(Res::Item(item), _)
+                if item.package == package_id && item.item == item_id)
+        })
+        .expect("A must be referenced")
+        .clone();
+    let declared = Arrow {
+        kind: decl.kind,
+        input: Box::new(package.get_pat(decl.input).ty.clone()),
+        output: Box::new(decl.output.clone()),
+        functors: FunctorSet::Value(decl.functors),
+    };
+    let mut weakened = declared.clone();
+    weakened.functors = FunctorSet::Value(FunctorSetValue::Empty);
+    argument.ty = Ty::Arrow(Box::new(weakened));
+    (argument, declared, qualified)
+}
+
+#[test]
+fn callable_argument_refinement_requires_matching_declaration() {
+    use qsc_fir::{
+        fir::CallableKind,
+        ty::{FunctorSetValue, GenericArg},
+    };
+
+    let (argument, declared, qualified) = callable_argument_refinement_fixture();
+    let expected = Ty::Arrow(Box::new(declared.clone()));
+    let mut signatures = FxHashMap::default();
+    signatures.insert(qualified, declared.clone());
+    assert_eq!(
+        proven_callable_type(&argument, &expected, &signatures),
+        Some(&declared)
+    );
+    let mut wrong_input = declared.clone();
+    wrong_input.input = Box::new(Ty::Prim(Prim::Int));
+    let mut wrong_output = declared.clone();
+    wrong_output.output = Box::new(Ty::Prim(Prim::Int));
+    let mut wrong_kind = declared.clone();
+    wrong_kind.kind = CallableKind::Function;
+    for unsupported in [wrong_input.clone(), wrong_output, wrong_kind] {
+        signatures.insert(qualified, unsupported);
+        assert!(
+            proven_callable_type(&argument, &expected, &signatures).is_none(),
+            "must reject incompatible declaration: {:?}",
+            signatures[&qualified]
+        );
+    }
+
+    signatures.insert(qualified, declared.clone());
+    let mut wrong_stored_shape = argument.clone();
+    wrong_stored_shape.ty = Ty::Arrow(Box::new(wrong_input));
+    assert!(proven_callable_type(&wrong_stored_shape, &expected, &signatures).is_none());
+    let mut local = argument.clone();
+    local.kind = ExprKind::Var(Res::Local(LocalVarId::from(0usize)), Vec::new());
+    assert!(proven_callable_type(&local, &expected, &signatures).is_none());
+    let mut generic = argument.clone();
+    if let ExprKind::Var(_, arguments) = &mut generic.kind {
+        arguments.push(GenericArg::Functor(FunctorSet::Value(
+            FunctorSetValue::Empty,
+        )));
+    }
+    assert!(proven_callable_type(&generic, &expected, &signatures).is_none());
+    signatures.clear();
+    assert!(proven_callable_type(&argument, &expected, &signatures).is_none());
+    signatures.insert(
+        StoreItemId::from((
+            PackageId::from(usize::from(qualified.package) + 1),
+            qualified.item,
+        )),
+        declared,
+    );
+    assert!(proven_callable_type(&argument, &expected, &signatures).is_none());
+}
+
+#[test]
+fn callable_argument_refinement_allows_only_supported_functors() {
+    use qsc_fir::ty::FunctorSetValue::{Adj, Ctl, CtlAdj, Empty};
+
+    let (argument, declared, qualified) = callable_argument_refinement_fixture();
+    for (actual, required, compatible) in [
+        (CtlAdj, Empty, true),
+        (CtlAdj, Adj, true),
+        (CtlAdj, Ctl, true),
+        (CtlAdj, CtlAdj, true),
+        (Empty, CtlAdj, false),
+        (Adj, CtlAdj, false),
+        (Ctl, CtlAdj, false),
+        (Adj, Ctl, false),
+        (Ctl, Adj, false),
+    ] {
+        let mut actual_signature = declared.clone();
+        actual_signature.functors = FunctorSet::Value(actual);
+        let mut expected = declared.clone();
+        expected.functors = FunctorSet::Value(required);
+        let signatures = FxHashMap::from_iter([(qualified, actual_signature)]);
+        assert_eq!(
+            proven_callable_type(&argument, &Ty::Arrow(Box::new(expected)), &signatures)
+                .map(|arrow| arrow.functors),
+            compatible.then_some(FunctorSet::Value(actual)),
+            "{actual:?} satisfying {required:?}",
+        );
+    }
+}
+
+#[test]
+fn normalization_preserves_capabilities_shared_by_call_sites() {
+    use qsc_fir::ty::FunctorSetValue;
+
+    let (argument, declared, qualified) = callable_argument_refinement_fixture();
+    let strong = Ty::Arrow(Box::new(declared.clone()));
+    let mut weak = declared.clone();
+    weak.functors = FunctorSet::Value(FunctorSetValue::Adj);
+    let weak = Ty::Arrow(Box::new(weak));
+    let signatures = FxHashMap::from_iter([(qualified, declared)]);
+    for expected_inputs in [[&strong, &weak], [&weak, &strong]] {
+        let mut package = Package {
+            id: qualified.package,
+            ..Package::default()
+        };
+        package.exprs.insert(argument.id, argument.clone());
+        let mut assigner = Assigner::from_package(&package);
+        for expected in expected_inputs {
+            normalize_arg_to_expected_input(
+                &mut package,
+                &mut assigner,
+                argument.id,
+                expected,
+                &signatures,
+            );
+        }
+        assert_eq!(
+            package.get_expr(argument.id).ty,
+            strong,
+            "normalizing a weaker use must not invalidate the stronger use",
+        );
+        assert_eq!(package.get_expr(argument.id).kind, argument.kind);
+    }
+}
+
+#[test]
+fn normalization_combines_callable_refinement_and_singleton_wrapping() {
+    let (argument, declared, qualified) = callable_argument_refinement_fixture();
+    let expected = Ty::Tuple(vec![Ty::Arrow(Box::new(declared.clone()))]);
+    let mut unsupported = declared.clone();
+    unsupported.functors = FunctorSet::Value(qsc_fir::ty::FunctorSetValue::Empty);
+    for (signatures, can_normalize) in [
+        (FxHashMap::from_iter([(qualified, declared)]), true),
+        (FxHashMap::default(), false),
+        (FxHashMap::from_iter([(qualified, unsupported)]), false),
+    ] {
+        let mut package = Package {
+            id: qualified.package,
+            ..Package::default()
+        };
+        package.exprs.insert(argument.id, argument.clone());
+        let mut assigner = Assigner::from_package(&package);
+
+        for _ in 0..2 {
+            normalize_arg_to_expected_input(
+                &mut package,
+                &mut assigner,
+                argument.id,
+                &expected,
+                &signatures,
+            );
+            let normalized = package.get_expr(argument.id);
+            if can_normalize {
+                assert_eq!(normalized.ty, expected);
+                let ExprKind::Tuple(items) = &normalized.kind else {
+                    panic!("normalization must preserve the required singleton wrapper");
+                };
+                assert_eq!(items.len(), 1);
+                assert_eq!(package.get_expr(items[0]).kind, argument.kind);
+                assert_eq!(package.exprs.iter().count(), 2, "must wrap only once");
+            } else {
+                assert_eq!(normalized, &argument, "unproven values must not change");
+                assert_eq!(
+                    package.exprs.iter().count(),
+                    1,
+                    "must not allocate a wrapper"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn normalization_restores_callable_functors_inside_argument_tuples() {
+    use qsc_fir::ty::FunctorSetValue;
+
+    let (mut store, package_id) = compile_and_run_pipeline_to(
+        "operation A(q : Qubit) : Unit is Adj + Ctl { X(q); }
+         operation B(q : Qubit) : Unit is Adj + Ctl { X(q); }
+         operation Apply(a : (Qubit => Unit is Adj + Ctl), b : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+             a(q); b(q);
+         }
+         @EntryPoint() operation Main() : Unit { use q = Qubit(); Apply(A, B, q); Reset(q); }",
+        PipelineStage::Mono,
+    );
+    let package = store.get(package_id);
+    let callable_ids: Vec<_> = package
+        .items
+        .iter()
+        .filter_map(|(id, item)| {
+            matches!(&item.kind, ItemKind::Callable(decl) if matches!(decl.name.name.as_ref(), "A" | "B"))
+                .then_some(id)
+        })
+        .collect();
+    let arguments: Vec<_> = package
+        .exprs
+        .values()
+        .filter(|expr| {
+            matches!(&expr.kind, ExprKind::Var(Res::Item(item), _)
+                if item.package == package_id && callable_ids.contains(&item.item))
+        })
+        .cloned()
+        .collect();
+    assert_eq!(arguments.len(), 2);
+    let tuple = package
+        .exprs
+        .values()
+        .find(|expr| {
+            matches!(&expr.kind, ExprKind::Tuple(items)
+                if arguments.iter().all(|argument| items.contains(&argument.id)))
+        })
+        .expect("callable arguments share a tuple")
+        .clone();
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    let package = store.get_mut(package_id);
+    for argument in &arguments {
+        let Ty::Arrow(arrow) = &mut package
+            .exprs
+            .get_mut(argument.id)
+            .expect("argument exists")
+            .ty
+        else {
+            panic!("callable argument must have an arrow type");
+        };
+        arrow.functors = FunctorSet::Value(FunctorSetValue::Empty);
+    }
+    let ExprKind::Tuple(items) = &tuple.kind else {
+        unreachable!();
+    };
+    let weakened = Ty::Tuple(
+        items
+            .iter()
+            .map(|id| package.get_expr(*id).ty.clone())
+            .collect(),
+    );
+    package.exprs.get_mut(tuple.id).expect("tuple exists").ty = weakened;
+
+    normalize_reachable_call_arg_types(&mut store, package_id, &mut assigners, &[]);
+
+    let package = store.get(package_id);
+    for argument in &arguments {
+        assert_eq!(package.get_expr(argument.id), argument);
+    }
+    assert_eq!(package.get_expr(tuple.id), &tuple);
+}
+
 fn check(source: &str, expect: &Expect) {
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let result = extract_result(&store, pkg_id);
@@ -3080,12 +3360,8 @@ fn build_leaf_tuple_interior_whole_tuple_read_preserves_values() {
 }
 
 #[test]
-fn whole_tuple_copy_assignment_is_decomposed() {
-    // `set x = y;` copies the whole tuple value `y` into `x`. By `TupleDecompose2`
-    // the copy-assignment normalization and tuple-decompose have split the copy into
-    // per-element assignments and scalar-replaced both `x` and `y`, leaving no
-    // `(Int, Int)` tuple local. The value semantics are guarded by the paired
-    // `whole_tuple_copy_assignment_preserves_evaluated_values` test below.
+fn whole_tuple_copy_saves_source_fields_before_scalar_stores() {
+    // This pins the lowered shape; the paired semantic test below checks 34.
     check_at_stage(
         "function Main() : Unit { mutable x = (1, 2); let y = (3, 4); x = y; }",
         PipelineStage::TupleDecompose2,
@@ -3093,8 +3369,10 @@ fn whole_tuple_copy_assignment_is_decomposed() {
             function Main() : Unit {
                 mutable (x_0 : Int, x_1 : Int) = (1, 2);
                 let (y_0 : Int, y_1 : Int) = (3, 4);
-                x_0 = y_0;
-                x_1 = y_1;
+                let __tuple_rhs_0 : Int = y_0;
+                let __tuple_rhs_1 : Int = y_1;
+                x_0 = __tuple_rhs_0;
+                x_1 = __tuple_rhs_1;
             }
             // entry
             Main()
@@ -3108,7 +3386,7 @@ fn whole_tuple_copy_assignment_preserves_evaluated_values() {
     // place-valued elements make every position observable. With y = (3, 4) the
     // copy `set x = y;` must yield x.0 = 3, x.1 = 4, so the result is
     // 3 * 10 + 4 = 34. A swapped-index copy bug would change the number.
-    check_semantic_equivalence(
+    crate::test_utils::check_semantic_equivalence_with_expected(
         "@EntryPoint()
             function Main() : Int {
                 mutable x = (0, 0);
@@ -3117,6 +3395,7 @@ fn whole_tuple_copy_assignment_preserves_evaluated_values() {
                 let (a, b) = x;
                 a * 10 + b
             }",
+        qsc_eval::val::Value::Int(34),
     );
 }
 
@@ -3144,18 +3423,10 @@ fn whole_tuple_copy_assignment_partial_decompose_with_whole_use() {
 }
 
 #[test]
-fn nested_whole_tuple_copy_assignment_preserves_values() {
-    // A nested copy `set x = y;` where both are `(Int, (Int, Int))` fully
-    // decomposes to scalar leaves across the fixed point. The interesting part
-    // is that the inner copy is *regenerated* mid-loop: round 1 normalizes the
-    // top level to `set x = (y::0, y::1)` and tuple-decompose splits it into
-    // `set x_0 = y::0; set x_1 = y::1` while scalar-replacing `y`, which rewrites
-    // `y::1` into the bare `Var(y_1)`. That leaves a fresh `set x_1 = y_1`
-    // whole-tuple Var-to-Var copy, which the *next* round re-normalizes and
-    // decomposes. This is why copy-assignment normalization must run every
-    // fixed-point iteration rather than once up front. The end state shown here is
-    // stable by `TupleDecompose2`; the value semantics are guarded by the paired
-    // `nested_whole_tuple_copy_assignment_preserves_evaluated_values` test below.
+fn nested_tuple_copy_scalarizes_rhs_snapshots_through_fixpoint() {
+    // Saving the inner tuple introduces another whole-value copy. Later rounds
+    // must normalize and scalarize that copy too. This asserts the final shape;
+    // the paired semantic test below checks 789.
     check_at_stage(
         "function Main() : Unit { mutable x = (0, (0, 0)); let y = (7, (8, 9)); x = y; }",
         PipelineStage::TupleDecompose2,
@@ -3163,9 +3434,14 @@ fn nested_whole_tuple_copy_assignment_preserves_values() {
             function Main() : Unit {
                 mutable (x_0 : Int, (x_1_0 : Int, x_1_1 : Int)) = (0, (0, 0));
                 let (y_0 : Int, (y_1_0 : Int, y_1_1 : Int)) = (7, (8, 9));
-                x_0 = y_0;
-                x_1_0 = y_1_0;
-                x_1_1 = y_1_1;
+                let __tuple_rhs_0 : Int = y_0;
+                let __tuple_rhs_1_0 : Int = y_1_0;
+                let __tuple_rhs_1_1 : Int = y_1_1;
+                x_0 = __tuple_rhs_0;
+                let __tuple_rhs_0_1 : Int = __tuple_rhs_1_0;
+                let __tuple_rhs_1 : Int = __tuple_rhs_1_1;
+                x_1_0 = __tuple_rhs_0_1;
+                x_1_1 = __tuple_rhs_1;
             }
             // entry
             Main()
@@ -3178,7 +3454,7 @@ fn nested_whole_tuple_copy_assignment_preserves_evaluated_values() {
     // Value guard for the nested copy: with y = (7, (8, 9)) the element-wise
     // copy must yield 7 * 100 + 8 * 10 + 9 = 789. A cross-wired leaf copy would
     // change the number.
-    check_semantic_equivalence(
+    crate::test_utils::check_semantic_equivalence_with_expected(
         "@EntryPoint()
             function Main() : Int {
                 mutable x = (0, (0, 0));
@@ -3187,5 +3463,6 @@ fn nested_whole_tuple_copy_assignment_preserves_evaluated_values() {
                 let (a, (b, c)) = x;
                 a * 100 + b * 10 + c
             }",
+        qsc_eval::val::Value::Int(789),
     );
 }

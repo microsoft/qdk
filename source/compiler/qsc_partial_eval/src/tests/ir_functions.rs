@@ -1,11 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Tests for QIR "IR function" emission in the partial evaluator. Eligible user-package,
-//! non-composite specializations returning Unit or a scalar (Int/Double/Bool) are emitted as
+//! Tests for QIR "IR function" emission in the partial evaluator. Eligible
+//! specializations returning Unit or a scalar (Int/Double/Bool) are emitted as
 //! `Regular` RIR callables with bodies and called via `Instruction::Call` instead of being inlined.
-//! Scalar-returning callables bind a fresh call-site output variable. Every ineligible callable
-//! (including `Result`/`Qubit` returns) continues to inline, preserving the previous behavior.
+//! Scalar-returning callables bind a fresh call-site output variable; parameter-independent constants
+//! also remain available during partial evaluation. Ineligible callables (including unresolved
+//! bodies, callable-valued inputs and non-scalar returns) continue to inline.
 
 use super::{
     assert_blocks, assert_callable, get_rir_program, get_rir_program_with_adaptive_profile,
@@ -33,6 +34,319 @@ fn ir_function_names(program: &Program) -> Vec<String> {
 
 fn assert_ir_function_names(program: &Program, expected: &expect_test::Expect) {
     expected.assert_eq(&format!("{:#?}", ir_function_names(program)));
+}
+
+#[test]
+fn local_qubit_array_in_ir_function_is_materialized_before_indexing() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(q : Qubit) : Unit {
+            for target in [q] {
+                X(target);
+            }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use q = Qubit();
+            Apply(q);
+            MResetZ(q)
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Apply",
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(6), args( Result(0), Tag(0, 3), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(1, Qubit) = Store Variable(0, Qubit)
+            Variable(2, Integer) = Store Integer(0)
+            Jump(2)
+        Block 2:Block:
+            Variable(3, Integer) = Store Variable(2, Integer)
+            Variable(4, Boolean) = Icmp Slt, Variable(3, Integer), Integer(1)
+            Branch Variable(4, Boolean), 4, 3
+        Block 3:Block:
+            Return
+        Block 4:Block:
+            Variable(5, Array(1, Qubit)) = StoreArray [Variable(1, Qubit)]
+            Variable(6, Qubit) = Index Variable(5, Array(1, Qubit)), Variable(2, Integer)
+            Variable(7, Qubit) = Store Variable(6, Qubit)
+            Call id(3), args( Variable(7, Qubit), )
+            Variable(9, Integer) = Store Variable(2, Integer)
+            Variable(10, Integer) = Add Variable(9, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(10, Integer)
+            Jump(2)
+        Block 5:Block:
+            Call id(4), args( Variable(8, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn local_qubit_array_preserves_parameter_order_in_rir() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(first : Qubit, second : Qubit) : Unit {
+            for target in [second, first] {
+                X(target);
+            }
+        }
+        @EntryPoint()
+        operation Main() : (Result, Result) {
+            use first = Qubit();
+            use second = Qubit();
+            Apply(first, second);
+            (MResetZ(first), MResetZ(second))
+        }
+        "#,
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Qubit(1), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(5), args( Qubit(1), Result(1), )
+            Call id(6), args( Integer(2), Tag(0, 3), )
+            Call id(7), args( Result(0), Tag(1, 5), )
+            Call id(7), args( Result(1), Tag(2, 5), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(2, Qubit) = Store Variable(1, Qubit)
+            Variable(3, Qubit) = Store Variable(0, Qubit)
+            Variable(4, Integer) = Store Integer(0)
+            Jump(2)
+        Block 2:Block:
+            Variable(5, Integer) = Store Variable(4, Integer)
+            Variable(6, Boolean) = Icmp Slt, Variable(5, Integer), Integer(2)
+            Branch Variable(6, Boolean), 4, 3
+        Block 3:Block:
+            Return
+        Block 4:Block:
+            Variable(7, Array(2, Qubit)) = StoreArray [Variable(2, Qubit), Variable(3, Qubit)]
+            Variable(8, Qubit) = Index Variable(7, Array(2, Qubit)), Variable(4, Integer)
+            Variable(9, Qubit) = Store Variable(8, Qubit)
+            Call id(3), args( Variable(9, Qubit), )
+            Variable(11, Integer) = Store Variable(4, Integer)
+            Variable(12, Integer) = Add Variable(11, Integer), Integer(1)
+            Variable(4, Integer) = Store Variable(12, Integer)
+            Jump(2)
+        Block 5:Block:
+            Call id(4), args( Variable(10, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn empty_local_qubit_array_loop_emits_no_store_array() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(q : Qubit) : Unit {
+            for target in [] {
+                X(target);
+            }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use q = Qubit();
+            Apply(q);
+            MResetZ(q)
+        }
+        "#,
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(6), args( Result(0), Tag(0, 3), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(1, Integer) = Store Integer(0)
+            Jump(2)
+        Block 2:Block:
+            Variable(2, Integer) = Store Variable(1, Integer)
+            Variable(3, Boolean) = Icmp Slt, Variable(2, Integer), Integer(0)
+            Branch Variable(3, Boolean), 4, 3
+        Block 3:Block:
+            Return
+        Block 4:Block:
+            Variable(4, Qubit) = Index Array(0), Variable(1, Integer)
+            Variable(5, Qubit) = Store Variable(4, Qubit)
+            Call id(3), args( Variable(5, Qubit), )
+            Variable(7, Integer) = Store Variable(1, Integer)
+            Variable(8, Integer) = Add Variable(7, Integer), Integer(1)
+            Variable(1, Integer) = Store Variable(8, Integer)
+            Jump(2)
+        Block 5:Block:
+            Call id(4), args( Variable(6, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn local_array_materialization_is_not_reused_after_a_conditional_branch() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(first : Qubit, second : Qubit, index : Int, firstPass : Bool) : Unit {
+            let targets = [first, second];
+            if firstPass { X(targets[index]); }
+            X(targets[index]);
+        }
+        @EntryPoint()
+        operation Main() : (Result, Result) {
+            use first = Qubit();
+            use second = Qubit();
+            Apply(first, second, 1, false);
+            (MResetZ(first), MResetZ(second))
+        }
+        "#,
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Qubit(1), Integer(1), Bool(false), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(5), args( Qubit(1), Result(1), )
+            Call id(6), args( Integer(2), Tag(0, 3), )
+            Call id(7), args( Result(0), Tag(1, 5), )
+            Call id(7), args( Result(1), Tag(2, 5), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(4, Qubit) = Store Variable(0, Qubit)
+            Variable(5, Qubit) = Store Variable(1, Qubit)
+            Branch Variable(3, Boolean), 3, 2
+        Block 2:Block:
+            Variable(9, Array(2, Qubit)) = StoreArray [Variable(4, Qubit), Variable(5, Qubit)]
+            Variable(10, Qubit) = Index Variable(9, Array(2, Qubit)), Variable(2, Integer)
+            Call id(3), args( Variable(10, Qubit), )
+            Return
+        Block 3:Block:
+            Variable(6, Array(2, Qubit)) = StoreArray [Variable(4, Qubit), Variable(5, Qubit)]
+            Variable(7, Qubit) = Index Variable(6, Array(2, Qubit)), Variable(2, Integer)
+            Call id(3), args( Variable(7, Qubit), )
+            Jump(2)
+        Block 4:Block:
+            Call id(4), args( Variable(8, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn shared_ir_body_builds_local_array_from_each_call_argument() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Apply(q : Qubit) : Unit {
+            for target in [q] {
+                X(target);
+            }
+        }
+        @EntryPoint()
+        operation Main() : (Result, Result) {
+            use first = Qubit();
+            use second = Qubit();
+            Apply(first);
+            Apply(second);
+            (MResetZ(first), MResetZ(second))
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Apply",
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(2), args( Qubit(1), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(5), args( Qubit(1), Result(1), )
+            Call id(6), args( Integer(2), Tag(0, 3), )
+            Call id(7), args( Result(0), Tag(1, 5), )
+            Call id(7), args( Result(1), Tag(2, 5), )
+            Return Integer(0)
+        Block 1:Block:
+            Variable(1, Qubit) = Store Variable(0, Qubit)
+            Variable(2, Integer) = Store Integer(0)
+            Jump(2)
+        Block 2:Block:
+            Variable(3, Integer) = Store Variable(2, Integer)
+            Variable(4, Boolean) = Icmp Slt, Variable(3, Integer), Integer(1)
+            Branch Variable(4, Boolean), 4, 3
+        Block 3:Block:
+            Return
+        Block 4:Block:
+            Variable(5, Array(1, Qubit)) = StoreArray [Variable(1, Qubit)]
+            Variable(6, Qubit) = Index Variable(5, Array(1, Qubit)), Variable(2, Integer)
+            Variable(7, Qubit) = Store Variable(6, Qubit)
+            Call id(3), args( Variable(7, Qubit), )
+            Variable(9, Integer) = Store Variable(2, Integer)
+            Variable(10, Integer) = Add Variable(9, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(10, Integer)
+            Jump(2)
+        Block 5:Block:
+            Call id(4), args( Variable(8, Qubit), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn unresolved_callable_body_inlines_with_static_arguments() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            function Inc(value : Int) : Int { value + 1 }
+            function Twice(value : Int) : Int { value * 2 }
+            function Pick(flag : Bool, index : Int) : Int {
+                let actions = [Inc, Twice];
+                let selected = if flag { actions[index] } else { Inc };
+                selected(3)
+            }
+            @EntryPoint()
+            operation Main() : Int { Pick(true, 0) * 10 + Pick(true, 1) }
+        }
+        "#,
+    );
+    assert_ir_function_names(&program, &expect!["[]"]);
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(46), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
 }
 
 #[test]
@@ -152,10 +466,14 @@ fn scalar_and_qubit_parameters_are_threaded_as_variables() {
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
-                Call id(3), args( Variable(0, Double), Variable(1, Qubit), )
+                Variable(2, Double) = Store Variable(0, Double)
+                Variable(3, Qubit) = Store Variable(1, Qubit)
+                Call id(3), args( Variable(2, Double), Variable(3, Qubit), )
                 Return
             Block 2:Block:
-                Call id(4), args( Variable(2, Double), Variable(3, Qubit), )
+                Variable(6, Double) = Store Variable(4, Double)
+                Variable(7, Qubit) = Store Variable(5, Qubit)
+                Call id(4), args( Variable(6, Double), Variable(7, Qubit), )
                 Return"#]],
     );
 }
@@ -319,6 +637,164 @@ fn recursive_callee_is_emitted() {
 }
 
 #[test]
+fn recursive_operation_factory_is_inlined_before_calling_returned_operation() {
+    let source = r#"
+        namespace Test {
+            operation Flip(q : Qubit) : Unit { X(q); }
+            function Make(n : Int) : Qubit => Unit {
+                if n == 0 {
+                    Flip
+                } else {
+                    let next = Make(n - 1);
+                    next
+                }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Make(2)(q);
+                MResetZ(q)
+            }
+        }
+        "#;
+
+    for keep_rca_inline_hint in [true, false] {
+        let capabilities = qsc_data_structures::target::Profile::Adaptive.into();
+        let mut context = super::CompilationContext::new(source, capabilities);
+        if !keep_rca_inline_hint {
+            // The emitter must validate the resolved return ABI even if a
+            // call-site analysis result lacks the inline hint.
+            for (package_id, _) in &context.fir_store {
+                for properties in context
+                    .compute_properties
+                    .get_mut(package_id, false)
+                    .exprs
+                    .values_mut()
+                {
+                    if let qsc_rca::ComputeKind::Dynamic {
+                        runtime_features, ..
+                    } = &mut properties.inherent
+                    {
+                        runtime_features.remove(qsc_rca::RuntimeFeatureFlags::MustBeInlined);
+                    }
+                }
+            }
+        }
+        let program = crate::partially_evaluate(
+            &context.fir_store,
+            &context.compute_properties,
+            &context.entry,
+            capabilities,
+            crate::PartialEvalConfig {
+                generate_debug_metadata: false,
+            },
+        )
+        .expect("the recursive factory must inline");
+        assert_ir_function_names(
+            &program,
+            &expect![[r#"
+        [
+            "Flip",
+            "X",
+        ]"#]],
+        );
+        assert_blocks(
+            &program,
+            &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(6), args( Result(0), Tag(0, 3), )
+            Return Integer(0)
+        Block 1:Block:
+            Call id(3), args( Variable(0, Qubit), )
+            Return
+        Block 2:Block:
+            Call id(4), args( Variable(1, Qubit), )
+            Return"#]],
+        );
+    }
+}
+
+#[test]
+fn recursive_factories_with_callable_payloads_are_inlined() {
+    for (output, value, invocation) in [
+        (
+            "Int -> Int",
+            "x -> x + 1",
+            "if Make(2)(3) == 4 { Flip(q); }",
+        ),
+        (
+            "(Int, Qubit => Unit)",
+            "(7, Flip)",
+            "let (n, op) = Make(2); if n == 7 { op(q); }",
+        ),
+        ("(Qubit => Unit)[]", "[Flip]", "Make(2)[0](q);"),
+    ] {
+        let source = format!(
+            r#"
+            namespace Test {{
+                operation Flip(q : Qubit) : Unit {{ X(q); }}
+                function Make(n : Int) : {output} {{
+                    if n == 0 {{ {value} }} else {{ Make(n - 1) }}
+                }}
+                @EntryPoint()
+                operation Main() : Result {{
+                    use q = Qubit();
+                    {invocation}
+                    MResetZ(q)
+                }}
+            }}
+        "#
+        );
+        let program = get_rir_program_with_adaptive_profile(&source);
+        assert_eq!(ir_function_names(&program), ["Flip", "X"], "{source}");
+    }
+}
+
+#[test]
+fn callable_input_parameters_are_inlined_instead_of_emitted_as_operands() {
+    // These helpers use FIR without the transform pipeline, so the signature
+    // guard is exercised even when defunctionalization has not removed arrows.
+    for (input, body, argument) in [
+        ("op : Qubit => Unit", "op(q);", "Flip"),
+        ("ops : (Qubit => Unit)[]", "ops[0](q);", "[Flip]"),
+        (
+            "pair : (Int, Qubit => Unit)",
+            "let (_, op) = pair; op(q);",
+            "(7, Flip)",
+        ),
+        ("f : Int -> Int", "if f(3) == 4 { Flip(q); }", "x -> x + 1"),
+    ] {
+        let source = format!(
+            r#"
+            namespace Test {{
+                operation Flip(q : Qubit) : Unit {{ X(q); }}
+                operation Apply({input}, q : Qubit) : Unit {{ {body} }}
+                @EntryPoint()
+                operation Main() : Result {{
+                    use q = Qubit();
+                    Apply({argument}, q);
+                    MResetZ(q)
+                }}
+            }}
+        "#
+        );
+        let program = get_rir_program_with_adaptive_profile(&source);
+        assert_ir_function_names(
+            &program,
+            &expect![[r#"
+            [
+                "Flip",
+                "X",
+            ]"#]],
+        );
+    }
+}
+
+#[test]
 fn cross_package_callee_is_emitted() {
     // `Microsoft.Quantum.Intrinsic.X` is a standard-library (cross-package) operation whose body
     // wraps the `__quantum__qis__x__body` intrinsic. Reachable eligible callables from any package
@@ -471,15 +947,13 @@ fn dynamic_qubit_allocation_inside_ir_function_emits_runtime_alloc_and_release_c
 
 #[test]
 fn int_returning_callee_emits_typed_ir_function_and_binds_output_var() {
-    // An eligible `Int`-returning callable is emitted as a typed IR function. The body materializes
-    // the trailing value as the `Return` operand and the call site binds a fresh output variable so
-    // the returned value is threaded back into the caller instead of being dropped.
+    // The measurement-dependent return must cross the IR-call boundary as an output variable.
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
             operation ApplyAndReturn(q : Qubit) : Int {
                 X(q);
-                42
+                MResetZ(q) == One ? 42 | 0
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -519,29 +993,38 @@ fn int_returning_callee_emits_typed_ir_function_and_binds_output_var() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(2, Integer) = Call id(2), args( Qubit(0), )
-                Call id(5), args( Integer(0), Tag(0, 3), )
+                Variable(5, Integer) = Call id(2), args( Qubit(0), )
+                Call id(7), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(0, Qubit), )
-                Return Integer(42)
+                Call id(5), args( Variable(0, Qubit), Result(0), )
+                Variable(2, Boolean) = Call id(6), args( Result(0), )
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Branch Variable(3, Boolean), 4, 5
             Block 2:Block:
                 Call id(4), args( Variable(1, Qubit), )
-                Return"#]],
+                Return
+            Block 3:Block:
+                Return Variable(4, Integer)
+            Block 4:Block:
+                Variable(4, Integer) = Store Integer(42)
+                Jump(3)
+            Block 5:Block:
+                Variable(4, Integer) = Store Integer(0)
+                Jump(3)"#]],
     );
 }
 
 #[test]
 fn double_returning_callee_emits_typed_ir_function() {
-    // The quantum side effect (`X(q)`) prevents the call from being folded classically, so the
-    // `Double`-returning callee is emitted as a typed IR function whose body materializes the
-    // trailing value as the `Return` operand, with the call site binding a fresh output variable.
+    // The measurement-dependent return must cross the IR-call boundary as an output variable.
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
             operation ApplyAndAngle(q : Qubit) : Double {
                 X(q);
-                1.5
+                MResetZ(q) == One ? 1.5 | 0.0
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -580,29 +1063,38 @@ fn double_returning_callee_emits_typed_ir_function() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(2, Double) = Call id(2), args( Qubit(0), )
-                Call id(5), args( Integer(0), Tag(0, 3), )
+                Variable(5, Double) = Call id(2), args( Qubit(0), )
+                Call id(7), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(0, Qubit), )
-                Return Double(1.5)
+                Call id(5), args( Variable(0, Qubit), Result(0), )
+                Variable(2, Boolean) = Call id(6), args( Result(0), )
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Branch Variable(3, Boolean), 4, 5
             Block 2:Block:
                 Call id(4), args( Variable(1, Qubit), )
-                Return"#]],
+                Return
+            Block 3:Block:
+                Return Variable(4, Double)
+            Block 4:Block:
+                Variable(4, Double) = Store Double(1.5)
+                Jump(3)
+            Block 5:Block:
+                Variable(4, Double) = Store Double(0)
+                Jump(3)"#]],
     );
 }
 
 #[test]
 fn bool_returning_callee_emits_typed_ir_function() {
-    // The quantum side effect (`X(q)`) prevents the call from being folded classically, so the
-    // `Bool`-returning callee is emitted as a typed IR function whose body materializes the trailing
-    // value as the `Return` operand, with the call site binding a fresh output variable.
+    // The measurement-dependent return must cross the IR-call boundary as an output variable.
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
             operation ApplyAndFlag(q : Qubit) : Bool {
                 X(q);
-                true
+                MResetZ(q) == One
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -641,12 +1133,15 @@ fn bool_returning_callee_emits_typed_ir_function() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(2, Boolean) = Call id(2), args( Qubit(0), )
-                Call id(5), args( Integer(0), Tag(0, 3), )
+                Variable(4, Boolean) = Call id(2), args( Qubit(0), )
+                Call id(7), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(0, Qubit), )
-                Return Bool(true)
+                Call id(5), args( Variable(0, Qubit), Result(0), )
+                Variable(2, Boolean) = Call id(6), args( Result(0), )
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Return Variable(3, Boolean)
             Block 2:Block:
                 Call id(4), args( Variable(1, Qubit), )
                 Return"#]],
@@ -752,11 +1247,12 @@ fn store_backed_value_returning_ir_function_reloads_after_same_block_store() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(5, Integer) = Call id(2), args( Qubit(0), )
-                Call id(5), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(6, Integer) = Call id(2), args( Qubit(0), )
+                Call id(5), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Variable(1, Integer) = Alloca
+                Variable(4, Integer) = Alloca
                 Variable(1, Integer) = Store Integer(0)
                 Call id(3), args( Variable(0, Qubit), Result(0), )
                 Variable(2, Boolean) = Call id(4), args( Result(0), )
@@ -765,11 +1261,13 @@ fn store_backed_value_returning_ir_function_reloads_after_same_block_store() {
                 Variable(1, Integer) = Store Integer(5)
                 Jump(3)
             Block 3:Block:
-                Variable(7, Integer) = Load Variable(1, Integer)
-                Variable(4, Integer) = Add Variable(7, Integer), Integer(1)
-                Variable(1, Integer) = Store Variable(4, Integer)
-                Variable(9, Integer) = Load Variable(1, Integer)
-                Return Variable(9, Integer)"#]],
+                Variable(8, Integer) = Load Variable(1, Integer)
+                Variable(4, Integer) = Store Variable(8, Integer)
+                Variable(10, Integer) = Load Variable(4, Integer)
+                Variable(5, Integer) = Add Variable(10, Integer), Integer(1)
+                Variable(1, Integer) = Store Variable(5, Integer)
+                Variable(12, Integer) = Load Variable(1, Integer)
+                Return Variable(12, Integer)"#]],
     );
 }
 
@@ -802,14 +1300,13 @@ fn tuple_discarded_parameter_is_threaded_as_call_site_operand() {
     // When the call is emitted as an IR function, the discarded argument has no
     // body binding, but its call-site value must still be mapped to an operand
     // and passed in input-parameter order. This exercises the `Arg::Discard`
-    //branch of the call-site operand mapping. The quantum side effect (`Rz`)
-    // keeps the call from being folded classically so the IR function is actually emitted.
+    // branch of the call-site operand mapping. Unit output avoids a constant scalar result
+    // requiring inlining, keeping this test focused on the argument ABI.
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
-            operation Foo((_ : Int, d : Double), q : Qubit) : Double {
+            operation Foo((_ : Int, d : Double), q : Qubit) : Unit {
                 Rz(d, q);
-                d
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -846,7 +1343,7 @@ fn tuple_discarded_parameter_is_threaded_as_call_site_operand() {
                     [0]: 0
                     [1]: 1
                     [2]: 2
-                output_type: Double
+                output_type: <VOID>
                 body: 1"#]],
     );
 
@@ -858,14 +1355,18 @@ fn tuple_discarded_parameter_is_threaded_as_call_site_operand() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(5, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
-                Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
-                Return Variable(1, Double)
+                Variable(3, Double) = Store Variable(1, Double)
+                Variable(4, Qubit) = Store Variable(2, Qubit)
+                Call id(3), args( Variable(3, Double), Variable(4, Qubit), )
+                Return
             Block 2:Block:
-                Call id(4), args( Variable(3, Double), Variable(4, Qubit), )
+                Variable(7, Double) = Store Variable(5, Double)
+                Variable(8, Qubit) = Store Variable(6, Qubit)
+                Call id(4), args( Variable(7, Double), Variable(8, Qubit), )
                 Return"#]],
     );
 }
@@ -875,14 +1376,13 @@ fn discarded_parameter_is_threaded_as_call_site_operand() {
     // The callee has a discarded leaf parameter `_ : Int`. When the call is emitted as an IR
     // function, the discarded argument has no body binding, but its call-site value must still be
     // mapped to an operand and passed in input-parameter order. This exercises the `Arg::Discard`
-    // branch of the call-site operand mapping. The quantum side effect (`Rz`) keeps the call from
-    // being folded classically so the IR function is actually emitted.
+    // branch of the call-site operand mapping. Unit output avoids a constant scalar result
+    // requiring inlining, keeping this test focused on the argument ABI.
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
-            operation Foo(_ : Int, d : Double, q : Qubit) : Double {
+            operation Foo(_ : Int, d : Double, q : Qubit) : Unit {
                 Rz(d, q);
-                d
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -919,7 +1419,7 @@ fn discarded_parameter_is_threaded_as_call_site_operand() {
                     [0]: 0
                     [1]: 1
                     [2]: 2
-                output_type: Double
+                output_type: <VOID>
                 body: 1"#]],
     );
 
@@ -931,14 +1431,18 @@ fn discarded_parameter_is_threaded_as_call_site_operand() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(5, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
-                Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
-                Return Variable(1, Double)
+                Variable(3, Double) = Store Variable(1, Double)
+                Variable(4, Qubit) = Store Variable(2, Qubit)
+                Call id(3), args( Variable(3, Double), Variable(4, Qubit), )
+                Return
             Block 2:Block:
-                Call id(4), args( Variable(3, Double), Variable(4, Qubit), )
+                Variable(7, Double) = Store Variable(5, Double)
+                Variable(8, Qubit) = Store Variable(6, Qubit)
+                Call id(4), args( Variable(7, Double), Variable(8, Qubit), )
                 Return"#]],
     );
 }

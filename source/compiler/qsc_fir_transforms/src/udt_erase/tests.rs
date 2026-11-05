@@ -20,6 +20,136 @@ use std::rc::Rc;
 use crate::EMPTY_EXEC_RANGE;
 use qsc_fir::fir::PackageSpan;
 
+#[test]
+fn quantum_field_update_records_measurement_dependent_value() {
+    let qir = crate::test_utils::generate_qir(super::test_cases::QUANTUM_FIELD_UPDATE_ORDER);
+    // X before MResetZ yields One: record 100 * 1 + 3 = 103. The QIR keeps
+    // the measurement dynamic, so verify its full dataflow into the output.
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          br i1 %var_0, label %block_1, label %block_2
+        block_1:
+          br label %block_3
+        block_2:
+          br label %block_3
+        block_3:
+          %var_12 = phi i64 [1, %block_1], [0, %block_2]
+          %var_8 = mul i64 100, %var_12
+          %var_10 = add i64 %var_8, 3
+          call void @__quantum__rt__int_record_output(i64 %var_10, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare zeroext i1 @__quantum__rt__read_result(%Result*)
+
+        declare void @__quantum__rt__int_record_output(i64, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+    "#]]
+    .assert_eq(&qir);
+}
+
+#[test]
+fn field_update_order_records_expected_qir_values() {
+    for (source, expected) in super::test_cases::field_update_order_cases().chain([
+        (
+            super::test_cases::NESTED_FIELD_UPDATE_ORDER.to_string(),
+            375,
+        ),
+        (super::test_cases::SINGLE_FIELD_UPDATE_ORDER.to_string(), 74),
+    ]) {
+        let qir = crate::test_utils::generate_qir(&source);
+        let records: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(records.len(), 1, "{source}\n{qir}");
+        assert!(
+            records[0].contains(&format!("i64 {expected},")),
+            "{source}\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn struct_erasure_records_ordered_values_in_qir() {
+    for (source, expected) in super::test_cases::struct_initializer_order_cases()
+        .chain(super::test_cases::struct_copy_snapshot_cases())
+        .chain(super::test_cases::conditional_callable_field_cases())
+        .chain([
+            (super::test_cases::PURE_STRUCT_COPY.to_string(), 446),
+            (super::test_cases::SINGLE_FIELD_COPY.to_string(), 4),
+        ])
+    {
+        let qir = crate::test_utils::generate_qir(&source);
+        let records: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(records.len(), 1, "{source}\n{qir}");
+        assert!(
+            records[0].contains(&format!("i64 {expected},")),
+            "{source}\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn struct_erasure_evaluates_pure_copy_factory_once() {
+    let (store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to(
+        super::test_cases::PURE_STRUCT_COPY,
+        crate::PipelineStage::UdtErase,
+    );
+    let package = store.get(pkg_id);
+    let main = crate::test_utils::find_callable(package, "Main");
+    let original = crate::test_utils::callable_id_by_name(package, "Original");
+    let mut calls = 0;
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &main.implementation,
+        &mut |_, expr| {
+            if let ExprKind::Call(callee, _) = expr.kind
+                && let ExprKind::Var(Res::Item(target), _) = package.get_expr(callee).kind
+                && target.package == pkg_id
+                && target.item == original
+            {
+                calls += 1;
+            }
+        },
+    );
+    assert_eq!(
+        calls, 1,
+        "all surviving fields must share the stored copy value"
+    );
+}
+
 fn default_span() -> PackageSpan {
     PackageSpan::default()
 }
@@ -1724,6 +1854,39 @@ fn scalar_erased_newtype_field_read_lowered() {
 }
 
 #[test]
+fn tuple_erased_newtype_identity_field_read_lowered() {
+    let source = r#"
+        newtype Wrapper = (Value : (Int, Int));
+        function Extract(w : Wrapper) : (Int, Int) { w::Value }
+        @EntryPoint() operation Main() : (Int, Int) { Extract(Wrapper((4,8))) }
+    "#;
+    let (store, pkg_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::UdtErase);
+    let package = store.get(pkg_id);
+    let decl = crate::test_utils::find_callable(package, "Extract");
+    let PatKind::Bind(input) = &package.get_pat(decl.input).kind else {
+        panic!("Extract should retain its single parameter before argument promotion");
+    };
+    let block = find_callable_body_block(package, "Extract");
+    let tail = package
+        .get_block(block)
+        .stmts
+        .last()
+        .expect("Extract has a body");
+    let StmtKind::Expr(value) = package.get_stmt(*tail).kind else {
+        panic!("Extract should end in an expression");
+    };
+    assert!(
+        matches!(package.get_expr(value).kind, ExprKind::Var(Res::Local(var), _) if var == input.id),
+        "the empty-path read should become a direct parameter read"
+    );
+    assert_eq!(
+        package.get_expr(value).ty,
+        Ty::Tuple(vec![Ty::Prim(Prim::Int); 2])
+    );
+}
+
+#[test]
 fn udt_erase_is_idempotent() {
     let source = indoc! {"
         namespace Test {
@@ -1742,6 +1905,51 @@ fn udt_erase_is_idempotent() {
     erase_udts(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "udt_erase should be idempotent");
+}
+
+fn runtime_constructor_fixture() -> (PackageStore, PackageId) {
+    // The argument write keeps the call indirect instead of eliminating it statically.
+    let source = r#"
+        newtype Data = (Value : Int);
+        @EntryPoint() operation Main() : Int {
+            mutable choice = 0;
+            let factories = [Data, Data];
+            let data = factories[choice]({ choice = 1; 23 });
+            data::Value
+        }
+    "#;
+    crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::UdtErase)
+}
+
+#[test]
+fn repeated_constructor_values_share_one_identity() {
+    let (store, pkg_id) = runtime_constructor_fixture();
+    let package = store.get(pkg_id);
+    let identities = package
+        .items
+        .values()
+        .filter(|item| {
+            matches!(&item.kind, ItemKind::Callable(decl)
+                if decl.name.name.starts_with("__udt_constructor_"))
+        })
+        .count();
+    assert_eq!(
+        identities, 1,
+        "repeated constructor values share one identity"
+    );
+}
+
+#[test]
+fn runtime_constructor_erasure_is_idempotent() {
+    let (mut store, pkg_id) = runtime_constructor_fixture();
+    let before = store.get(pkg_id).to_string();
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
+    assert_eq!(
+        before,
+        store.get(pkg_id).to_string(),
+        "a second erasure must not allocate another identity or change any nodes"
+    );
 }
 
 fn render_before_after_udt_erase(source: &str) -> (String, String) {
@@ -1959,10 +2167,13 @@ fn unreachable_callable_in_reachable_package_is_erased() {
 
     // Verify Dead callable still exists and has UDT forms erased.
     let package = store.get(pkg_id);
-    let dead_exists = package.items.values().any(
-        |item| matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Dead"),
+    let dead = crate::test_utils::callable_id_by_name(package, "Dead");
+    crate::invariants::check_with_seeds(
+        &store,
+        pkg_id,
+        crate::invariants::InvariantLevel::PostUdtErase,
+        &[(pkg_id, dead).into()],
     );
-    assert!(dead_exists, "Dead should still exist (pre-DCE)");
 
     // UDT type items remain in the package after erase_udts — they are only
     // removed later by item_dce. Verify that the UDT type item is still present
@@ -1978,10 +2189,150 @@ fn unreachable_callable_in_reachable_package_is_erased() {
     );
 }
 
-#[test]
-fn cross_package_udt_copy_update_erased() {
-    use crate::test_utils::compile_to_fir_with_library;
+fn find_fixture_callable(store: &PackageStore, name: &str) -> StoreItemId {
+    store
+        .iter()
+        .find_map(|(package_id, package)| {
+            package.items.iter().find_map(|(item_id, item)| {
+                matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == name)
+                    .then_some((package_id, item_id).into())
+            })
+        })
+        .unwrap_or_else(|| panic!("fixture must declare {name}"))
+}
 
+fn check_pinned_result(mut store: PackageStore, root: PackageId, expected: i64) {
+    let pinned = find_fixture_callable(&store, "Pinned");
+    assert_eq!(
+        crate::test_utils::try_eval_fir_callable(&store, pinned),
+        Ok(qsc_eval::val::Value::Int(expected)),
+        "original pinned body"
+    );
+    let result = crate::run_pipeline_to_with_diagnostics(
+        &mut store,
+        root,
+        crate::PipelineStage::Full,
+        &[pinned],
+    );
+    crate::test_utils::assert_no_pipeline_errors("pinned UDT pipeline", &result.errors);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_callable(&store, pinned),
+        Ok(qsc_eval::val::Value::Int(expected)),
+        "transformed pinned body"
+    );
+}
+
+#[test]
+fn pinned_structs_preserve_values() {
+    let (store, root) = crate::test_utils::compile_to_fir_with_library(
+        r#"
+            namespace Lib {
+                struct Data { Value : Int }
+                operation Pinned() : Int {
+                    let data = new Data { Value = 42 };
+                    data.Value
+                }
+            }
+        "#,
+        "@EntryPoint() operation Main() : Unit {}",
+    );
+    check_pinned_result(store, root, 42);
+}
+
+#[test]
+fn pinned_constructors_and_factories_remain_distinct() {
+    for (choice, expected) in [(0, 23), (1, 33)] {
+        let library = indoc::formatdoc! {r#"
+            namespace Lib {{
+                newtype Data = (Value : Int);
+                function Offset(value : Int) : Data {{ Data(value + 10) }}
+                operation Pinned() : Int {{
+                    mutable choice = {choice};
+                    let factories = [Data, Offset];
+                    let data = factories[choice]({{ choice = 1 - choice; 23 }});
+                    data::Value
+                }}
+            }}
+        "#};
+        let (store, root) = crate::test_utils::compile_to_fir_with_library(
+            &library,
+            "@EntryPoint() operation Main() : Unit {}",
+        );
+        check_pinned_result(store, root, expected);
+    }
+}
+
+#[test]
+fn pinned_udt_dependencies_preserve_values_across_packages() {
+    let (store, root) = crate::test_utils::compile_to_fir_with_two_libraries(
+        r#"
+            namespace Inner {
+                export Data, Make;
+                struct Data { First : Int, Second : Int }
+                function Make() : Data { new Data { First = 4, Second = 2 } }
+            }
+        "#,
+        r#"
+            namespace Outer {
+                operation Pinned() : Int {
+                    let data = Inner.Make();
+                    data.First * 10 + data.Second
+                }
+            }
+        "#,
+        "@EntryPoint() operation Main() : Unit {}",
+    );
+    check_pinned_result(store, root, 42);
+}
+
+fn seed_only_udt_fixture() -> (PackageStore, PackageId) {
+    crate::test_utils::compile_and_run_pipeline_to_with_two_libraries(
+        r#"
+            namespace Unused {
+                newtype Data = (Value : Int);
+                function UnusedFactory() : Data { Data(99) }
+            }
+        "#,
+        r#"
+            namespace Lib {
+                newtype Data = (Value : Int);
+                operation Pinned() : Int {
+                    mutable choice = 0;
+                    let factories = [Data, Data];
+                    let data = factories[choice]({ choice = 1; 23 });
+                    data::Value
+                }
+            }
+        "#,
+        "@EntryPoint() operation Main() : Unit {}",
+        crate::PipelineStage::Defunc,
+    )
+}
+
+#[test]
+fn seeded_erasure_is_idempotent() {
+    let (mut store, root) = seed_only_udt_fixture();
+    let pinned = find_fixture_callable(&store, "Pinned");
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, root);
+    erase_udts_with_seeds(&mut store, root, &mut assigners, &[pinned]);
+    let before = store.get(pinned.package).to_string();
+    erase_udts_with_seeds(&mut store, root, &mut assigners, &[pinned]);
+    assert_eq!(before, store.get(pinned.package).to_string());
+}
+
+#[test]
+fn seeded_erasure_leaves_unrelated_packages_unchanged() {
+    let (mut store, root) = seed_only_udt_fixture();
+    let pinned = find_fixture_callable(&store, "Pinned");
+    let unrelated = find_fixture_callable(&store, "UnusedFactory").package;
+    assert_ne!(unrelated, pinned.package);
+    let before = store.get(unrelated).to_string();
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, root);
+    erase_udts_with_seeds(&mut store, root, &mut assigners, &[pinned]);
+    assert_eq!(before, store.get(unrelated).to_string());
+}
+
+fn cross_package_copy_update_sources() -> (&'static str, &'static str) {
     let lib_source = indoc! {"
         namespace TestLib {
             struct Pair { Fst: Int, Snd: Int }
@@ -2008,6 +2359,14 @@ fn cross_package_udt_copy_update_erased() {
         }
     "};
 
+    (lib_source, user_source)
+}
+
+#[test]
+fn cross_package_udt_copy_update_erased() {
+    use crate::test_utils::compile_to_fir_with_library;
+
+    let (lib_source, user_source) = cross_package_copy_update_sources();
     let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     erase_udts(&mut store, pkg_id, &mut assigners);
@@ -2044,31 +2403,6 @@ fn cross_package_udt_copy_update_erased() {
 fn cross_package_udt_copy_update_semantic_equivalence() {
     use crate::test_utils::check_semantic_equivalence_with_library;
 
-    let lib_source = indoc! {"
-        namespace TestLib {
-            struct Pair { Fst: Int, Snd: Int }
-
-            function MakePair(fst: Int, snd: Int) : Pair {
-                new Pair { Fst = fst, Snd = snd }
-            }
-
-            function UpdateFst(p: Pair, newFst: Int) : Pair {
-                new Pair { ...p, Fst = newFst }
-            }
-
-            export Pair, MakePair, UpdateFst;
-        }
-    "};
-    let user_source = indoc! {"
-        import TestLib.*;
-
-        @EntryPoint()
-        operation Main() : (Int, Int) {
-            let p = MakePair(1, 2);
-            let updated = UpdateFst(p, 42);
-            (updated.Fst, updated.Snd)
-        }
-    "};
-
+    let (lib_source, user_source) = cross_package_copy_update_sources();
     check_semantic_equivalence_with_library(lib_source, user_source);
 }

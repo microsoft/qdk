@@ -1,10 +1,857 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+from pathlib import Path
+
 import pytest
+import qdk
 from qdk import qsharp
 from qdk._native import QSharpError
+from qdk.simulation import run_qir
 from expecttest import assert_expected_inline
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_saved_dump_operation_preserves_codegen_noop_behavior(
+    target_profile: qsharp.TargetProfile, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ctx = qdk.Context(target_profile=target_profile)
+    ctx.eval("""
+        operation Use(op : (Int, Qubit[] => Unit) => Unit) : Unit {
+            op(1, qs => {
+                Message("diagnostic callback executed");
+                X(qs[0]);
+            });
+        }
+    """)
+    saved = ctx.eval("Std.Diagnostics.DumpOperation")
+
+    assert ctx.code.Use(saved) is None
+    assert "diagnostic callback executed" in capsys.readouterr().out
+    source_qir = str(ctx.compile("Use(Std.Diagnostics.DumpOperation)"))
+    saved_qir = str(ctx.compile(ctx.code.Use, saved))
+
+    assert saved_qir == source_qir
+    assert "DumpOperation" not in saved_qir
+    assert "__quantum__qis__x__body" not in saved_qir
+    assert run_qir(saved_qir, shots=1, type="cpu") == [()]
+    assert "diagnostic callback executed" not in capsys.readouterr().out
+
+
+def test_run_checks_noise_before_callable_arguments(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    ctx = qdk.Context()
+    ctx.eval("""
+        function Bad(n : Int) : Double { 0.5 }
+        operation Use(read : Int -> Int) : Int {
+            Message("target executed");
+            read(1)
+        }
+    """)
+
+    with pytest.raises(
+        Exception, match=r"^Incorrect Pauli noise probabilities\.$"
+    ) as error:
+        ctx.run(ctx.code.Use, 1, ctx.code.Bad, noise=(1.0, 1.0, 1.0))
+    assert type(error.value) is Exception
+    with pytest.raises(TypeError, match="incompatible callable type"):
+        ctx.run(ctx.code.Use, 1, ctx.code.Bad, noise=(0.0, 0.0, 0.0))
+    assert capsys.readouterr().out == ""
+
+
+def _singleton_tuple_context() -> qdk.Context:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    ctx.eval("""
+        function Id(x : Int) : Int { x }
+        operation Run(read : Int -> Int, value : (Int,)) : Int {
+            let (x,) = value;
+            read(x)
+        }
+    """)
+    return ctx
+
+
+def test_python_invocation_preserves_singleton_tuple() -> None:
+    ctx = _singleton_tuple_context()
+
+    assert ctx.eval("Run(Id, (7,))") == 7
+    assert ctx.code.Run(ctx.code.Id, (7,)) == 7
+    with pytest.raises(TypeError, match="mismatched tuple arity"):
+        ctx.code.Run(ctx.code.Id, (7, 8))
+
+
+def test_python_compilation_preserves_singleton_tuple() -> None:
+    ctx = _singleton_tuple_context()
+
+    source_qir = str(ctx.compile("Run(Id, (7,))"))
+    callable_qir = str(ctx.compile(ctx.code.Run, ctx.code.Id, (7,)))
+
+    assert run_qir(source_qir, shots=1, type="cpu") == [7]
+    assert run_qir(callable_qir, shots=1, type="cpu") == [7]
+
+
+def _generic_callable_context() -> qdk.Context:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    ctx.eval("""
+        function Identity<'T>(value : 'T) : 'T { value }
+        function MakeIdentity() : Int -> Int { Identity }
+        function SaveValue<'T>(value : 'T) : Unit -> 'T { () -> value }
+        function SaveArray<'T>(values : 'T[]) : Unit -> 'T[] { () -> values }
+        function BodyOnly<'T>(unused : 'T) : Unit -> Int {
+            () -> {
+                let values : 'T[] = [];
+                mutable count = 0;
+                for _ in values { set count += 1; }
+                count
+            }
+        }
+        function Forward<'T>(value : 'T) : Unit -> 'T { SaveValue(value) }
+        function Nested<'T>(value : 'T) : Unit -> (Unit -> 'T) {
+            () -> SaveValue(value)
+        }
+        operation Use(read : Unit -> Int) : Int { read() }
+        operation UseArray(read : Unit -> Int[]) : Int[] { read() }
+        operation UseBool(read : Unit -> Bool) : Bool { read() }
+        operation Apply(read : Int -> Int, value : Int) : Int { read(value) }
+    """)
+    return ctx
+
+
+def test_concrete_generic_global_from_factory_with_local_generic_caller() -> None:
+    ctx = _generic_callable_context()
+    ctx.eval("""
+        function UseLocal(read : Int -> Int, value : Int) : Int {
+            function Id<'T>(x : 'T) : 'T { x }
+            Id(read(value))
+        }
+    """)
+    saved = ctx.code.MakeIdentity()
+    assert ctx.code.Apply(saved, 7) == 7
+    assert ctx.code.UseLocal(saved, 7) == 7
+    assert run_qir(
+        str(ctx.compile(ctx.code.UseLocal, saved, 7)), shots=1, type="cpu"
+    ) == [7]
+    method = qsharp.CircuitGenerationMethod.Static
+    assert str(
+        ctx.circuit(ctx.code.UseLocal, saved, 7, generation_method=method)
+    ) == str(ctx.circuit("UseLocal(MakeIdentity(), 7)", generation_method=method))
+
+
+def test_concrete_generic_alias_with_unused_local_generic_caller() -> None:
+    ctx = _generic_callable_context()
+    ctx.eval("""
+        function UseLocal(read : Int -> Int, value : Int) : Int {
+            function Unused<'T>(x : 'T) : 'T { x }
+            read(value)
+        }
+    """)
+    saved = ctx.eval("{ let read : Int -> Int = Identity; read }")
+    assert ctx.code.Apply(saved, 7) == 7
+    assert ctx.code.UseLocal(saved, 7) == 7
+    assert run_qir(
+        str(ctx.compile(ctx.code.UseLocal, saved, 7)), shots=1, type="cpu"
+    ) == [7]
+    method = qsharp.CircuitGenerationMethod.Static
+    assert str(
+        ctx.circuit(ctx.code.UseLocal, saved, 7, generation_method=method)
+    ) == str(ctx.circuit("UseLocal(MakeIdentity(), 7)", generation_method=method))
+
+
+def test_saved_empty_generic_array_retains_type_evidence() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.eval("{ let values : Int[] = []; SaveArray(values) }")
+    assert ctx.code.UseArray(saved) == []
+    assert run_qir(str(ctx.compile(ctx.code.UseArray, saved)), shots=1, type="cpu") == [
+        []
+    ]
+
+
+def test_saved_body_only_generic_retains_type_evidence() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.eval("BodyOnly(1)")
+    assert ctx.code.Use(saved) == 0
+    assert run_qir(str(ctx.compile(ctx.code.Use, saved)), shots=1, type="cpu") == [0]
+
+
+def test_forwarded_generic_factory_retains_type_evidence() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.eval("Forward(7)")
+    assert ctx.code.Use(saved) == 7
+    assert run_qir(str(ctx.compile(ctx.code.Use, saved)), shots=1, type="cpu") == [7]
+
+
+def test_nested_escaped_generic_closure_retains_type_evidence() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.eval("Nested(7)()")
+    assert ctx.code.Use(saved) == 7
+    assert run_qir(str(ctx.compile(ctx.code.Use, saved)), shots=1, type="cpu") == [7]
+
+
+def test_distinct_saved_generic_instantiations_remain_independent() -> None:
+    ctx = _generic_callable_context()
+    integer = ctx.eval("SaveValue(7)")
+    boolean = ctx.eval("SaveValue(true)")
+    assert ctx.code.Use(integer) == 7
+    assert ctx.code.UseBool(boolean) is True
+    assert run_qir(str(ctx.compile(ctx.code.Use, integer)), shots=1, type="cpu") == [7]
+    assert run_qir(
+        str(ctx.compile(ctx.code.UseBool, boolean)), shots=1, type="cpu"
+    ) == [True]
+    with pytest.raises(TypeError, match="incompatible callable type"):
+        ctx.code.Use(boolean)
+
+
+def test_generic_declaration_is_not_inferred_from_python_arguments() -> None:
+    ctx = _generic_callable_context()
+    with pytest.raises(QSharpError, match="unsupported input type"):
+        ctx.code.Apply(ctx.code.Identity, 7)
+
+
+def test_concrete_generic_instance_as_qir_entry_target() -> None:
+    ctx = _generic_callable_context()
+    saved = ctx.code.MakeIdentity()
+    program = ctx.compile(saved, 7)
+    assert run_qir(str(program), shots=1, type="cpu") == [7]
+
+
+def test_adaptive_qir_emits_ir_function_for_passed_generic_callable() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval("""
+        operation ApplyGeneric<'T>(op : 'T => Unit, value : 'T) : Unit {
+            op(value);
+        }
+        operation Run(invoke : ((Qubit => Unit), Qubit) => Unit) : Result {
+            use q = Qubit();
+            invoke(X, q);
+            MResetZ(q)
+        }
+    """)
+    # The saved instance carries 'T = Qubit across the Python compilation boundary.
+    saved = ctx.eval(
+        "{ let invoke : ((Qubit => Unit), Qubit) => Unit = ApplyGeneric; invoke }"
+    )
+
+    qir = str(ctx.compile(ctx.code.Run, saved))
+
+    assert_expected_inline(
+        qir,
+        """\
+@0 = internal constant [4 x i8] c"0_r\\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @"ApplyGeneric<Qubit, Empty>{X}"(ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @0)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+
+define internal void @"ApplyGeneric<Qubit, Empty>{X}"(ptr %var_0) {
+block_1:
+  call void @X(ptr %var_0)
+  ret void
+}
+
+define internal void @X(ptr %var_1) {
+block_2:
+  call void @__quantum__qis__x__body(ptr %var_1)
+  ret void
+}
+
+declare void @__quantum__qis__x__body(ptr)
+
+declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
+attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+; module flags
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+!0 = !{i32 1, !"qir_major_version", i32 2}
+!1 = !{i32 7, !"qir_minor_version", i32 1}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}
+!5 = !{i32 5, !"float_computations", !{!"double"}}
+!6 = !{i32 7, !"backwards_branching", i2 3}
+!7 = !{i32 1, !"arrays", i1 true}
+!8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}
+""",
+    )
+    assert run_qir(qir, shots=1, type="cpu") == [qsharp.Result.One]
+
+
+def test_concrete_generic_instance_as_static_circuit_entry_target() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    ctx.eval("""
+        operation Flip<'T>(unused : 'T) : Result {
+            use q = Qubit();
+            X(q);
+            MResetZ(q)
+        }
+    """)
+    saved = ctx.eval("{ let op : Int => Result = Flip; op }")
+
+    circuit = ctx.circuit(
+        saved, 7, generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+
+    assert_expected_inline(
+        str(circuit),
+        """q_0    ── X ──── M ──── |0〉 ──
+                 ╘════════════
+""",
+    )
+
+
+def test_saved_body_only_generic_closure_as_static_circuit_argument() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    ctx.eval("""
+        function MakeFlip<'T>(unused : 'T) : Qubit => Unit {
+            q => {
+                let values : 'T[] = [];
+                X(q);
+            }
+        }
+        operation Run(op : Qubit => Unit) : Result {
+            use q = Qubit();
+            op(q);
+            MResetZ(q)
+        }
+    """)
+    saved = ctx.eval("MakeFlip(7)")
+
+    circuit = ctx.circuit(
+        ctx.code.Run, saved, generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+
+    assert_expected_inline(
+        str(circuit),
+        """q_0    ── X ──── M ──── |0〉 ──
+                 ╘════════════
+""",
+    )
+
+
+def _write_entry_project(root: Path, source: str) -> None:
+    (root / "src").mkdir()
+    (root / "qsharp.json").write_text("{}", encoding="utf-8")
+    (root / "src" / "Entry.qs").write_text(
+        f"namespace Test {{ {source} }}", encoding="utf-8"
+    )
+
+
+@pytest.mark.parametrize(
+    "expected,argument,compatible",
+    [
+        ("Int -> Int", "Good", True),
+        ("Int -> Int", "WrongOutput", False),
+        ("Int -> Int", "WrongInput", False),
+        ("Int -> Int", "WrongKind", False),
+        ("Int -> Int", "Save(2)", True),
+        ("Int -> Double", "Save(2)", False),
+        ("A -> A", "IdA", True),
+        ("A -> A", "IdB", False),
+        ("Int -> A", "MakeB", False),
+        ("Int -> Int", "Identity", None),
+        ("(Int -> Int)[]", ["Good", "Good"], True),
+        ("(Int -> Int)[]", ["Good", "WrongOutput"], False),
+        ("(Int, Int -> Int)", (7, "WrongOutput"), False),
+        ("Config", {"Callback": "WrongOutput"}, False),
+        ("Qubit => Unit is Adj", "Strong", True),
+        ("Qubit => Unit is Adj", "Plain", False),
+        ("Qubit => Unit is Adj", "Adjoint Strong", True),
+        ("(Qubit[], Qubit) => Unit is Adj", "Controlled Strong", True),
+        ("Qubit => Unit", "Controlled Strong", False),
+        ("(Qubit[], (Qubit[], Qubit)) => Unit", "Controlled Controlled Strong", True),
+        ("(Qubit => Unit is Adj + Ctl) => Unit", "ReadAdjoint", True),
+        ("(Qubit => Unit) => Unit", "ReadAdjoint", False),
+        ("Unit -> (Qubit => Unit is Adj)", "Factory", True),
+        ("Unit -> (Qubit => Unit is Adj + Ctl)", "WeakFactory", False),
+    ],
+)
+def test_callable_argument_signature_compatibility(
+    expected: str, argument: object, compatible: bool | None
+) -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Base)
+    ctx.eval("""
+        function Good(n : Int) : Int { n + 1 }
+        function WrongOutput(n : Int) : Double { 0.5 }
+        function WrongInput(n : Double) : Int { 0 }
+        operation WrongKind(n : Int) : Int { n }
+        function Save(n : Int) : Int -> Int { x -> x + n }
+        struct A { Data : Int }
+        struct B { Data : Int }
+        function IdA(a : A) : A { a }
+        function IdB(b : B) : B { b }
+        function MakeB(n : Int) : B { new B { Data = n } }
+        function Identity<'T>(value : 'T) : 'T { value }
+        struct Config { Callback : Int -> Int }
+        operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+        operation Plain(q : Qubit) : Unit { X(q); }
+        operation ReadAdjoint(op : Qubit => Unit is Adj) : Unit {
+            use q = Qubit(); Adjoint op(q); Reset(q);
+        }
+        function Factory() : Qubit => Unit is Adj + Ctl { Strong }
+        function WeakFactory() : Qubit => Unit { Plain }
+    """)
+    # An unused argument still needs validation, before any target effects.
+    if isinstance(argument, list):
+        argument = [ctx.eval(name) for name in argument]
+    elif isinstance(argument, tuple):
+        argument = (argument[0], ctx.eval(argument[1]))
+    elif isinstance(argument, dict):
+        argument = {field: ctx.eval(name) for field, name in argument.items()}
+    elif compatible is None:
+        assert isinstance(argument, str)
+        argument = getattr(ctx.code, argument)
+    else:
+        assert isinstance(argument, str)
+        argument = ctx.eval(argument)
+    ctx.eval(f"""
+        operation Probe(callback : {expected}) : Result {{
+            use q = Qubit(); X(q); MResetZ(q)
+        }}
+    """)
+    if compatible:
+        assert ctx.code.Probe(argument) == qsharp.Result.One
+        assert run_qir(
+            str(ctx.compile(ctx.code.Probe, argument)), shots=1, type="cpu"
+        ) == [qsharp.Result.One]
+    else:
+        for invoke in [
+            lambda: ctx.code.Probe(argument),
+            lambda: ctx.compile(ctx.code.Probe, argument),
+        ]:
+            if compatible is None:
+                with pytest.raises(QSharpError, match="unsupported input type: `Param"):
+                    invoke()
+            else:
+                with pytest.raises(
+                    TypeError, match="incompatible callable type: expected .*found"
+                ):
+                    invoke()
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+@pytest.mark.parametrize(
+    "entry_path",
+    [
+        "context-run",
+        "context-invoke",
+        "module-run",
+        "module-invoke",
+        "context-compile",
+        "module-compile",
+        "circuit-static",
+        "circuit-simulate",
+        "logical-counts",
+        "estimate",
+        "trace",
+    ],
+)
+def test_callable_mismatch_is_rejected_before_effects(
+    target_profile: qsharp.TargetProfile,
+    entry_path: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        function Bad(n : Int) : Double { Message("callback executed"); 0.5 }
+        function Good(n : Int) : Int { n }
+        function Coerce(data : (Double, Double[]), read : Int -> Int) : Double {
+            let (first, rest) = data;
+            first + rest[0] + Std.Convert.IntAsDouble(read(3))
+        }
+        operation Probe(callback : Int -> Int) : Result {
+            Message("target executed");
+            let n = callback(0);
+            use q = Qubit();
+            if n == 0 { X(q); }
+            MResetZ(q)
+        }
+    """)
+    from qdk.code import Bad, Coerce, Good, Probe
+    from qdk._interpreter import _get_context_or_default
+    from qdk.qre.interop._qsharp import trace_from_entry_expr
+
+    ctx = _get_context_or_default(Probe)
+    assert Coerce((1, [2]), Good) == 6.0
+    assert ctx.code.Probe(Good) == qsharp.Result.One
+    assert "target executed" in capsys.readouterr().out
+    paths = {
+        "context-run": lambda: ctx.run(Probe, 1, Bad),
+        "context-invoke": lambda: ctx.code.Probe(Bad),
+        "module-run": lambda: qsharp.run(Probe, 1, Bad),
+        "module-invoke": lambda: Probe(Bad),
+        "context-compile": lambda: ctx.compile(Probe, Bad),
+        "module-compile": lambda: qsharp.compile(Probe, Bad),
+        "circuit-static": lambda: ctx.circuit(
+            Probe, Bad, generation_method=qsharp.CircuitGenerationMethod.Static
+        ),
+        "circuit-simulate": lambda: ctx.circuit(
+            Probe, Bad, generation_method=qsharp.CircuitGenerationMethod.Simulate
+        ),
+        "logical-counts": lambda: ctx.logical_counts(Probe, Bad),
+        "estimate": lambda: qsharp.estimate(Probe, None, Bad),
+        "trace": lambda: trace_from_entry_expr(
+            Probe, use_trace_backend=True, args=(Bad,)
+        ),
+    }
+    with pytest.raises(TypeError, match="expected .*Int -> Int.*found .*Int -> Double"):
+        paths[entry_path]()
+    assert capsys.readouterr().out == ""
+
+
+@pytest.fixture(
+    params=[
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+    ids=["Base", "Adaptive_RI", "Adaptive_RIF", "Adaptive"],
+)
+def saved_capture_context(request: pytest.FixtureRequest) -> None:
+    qsharp.init(target_profile=request.param)
+    qsharp.eval("""
+        operation Phase(n : Int, q : Qubit) : Unit is Adj + Ctl {
+            for _ in 1..n { S(q); }
+        }
+        newtype Count = Int;
+        operation PhaseCount(n : Count, q : Qubit) : Unit is Adj + Ctl { Phase(n!, q); }
+        operation PhaseArray(ns : Int[], q : Qubit) : Unit is Adj + Ctl {
+            for n in ns { Phase(n, q); }
+        }
+        function Save<'T>(read : ('T, Qubit) => Unit is Adj + Ctl, value : 'T)
+            : Qubit => Unit is Adj + Ctl { read(value, _) }
+        function SaveInt(read : (Int, Qubit) => Unit is Adj + Ctl, value : Int)
+            : Qubit => Unit is Adj + Ctl { read(value, _) }
+        function SaveSecond<'Unused, 'T>(
+            unused : 'Unused, read : ('T, Qubit) => Unit is Adj + Ctl, value : 'T
+        ) : Qubit => Unit is Adj + Ctl { read(value, _) }
+        function Missing<'T>(unused : 'T) : Qubit => Unit is Adj + Ctl {
+            q => {
+                function Id<'U>(value : 'U) : 'U { value }
+                let values : 'T[] = [];
+                if Id(Length(values) == 0) { S(q); }
+            }
+        }
+        operation Run(f : Qubit => Unit is Adj + Ctl) : Result {
+            use q = Qubit();
+            H(q);
+            S(q);
+            Adjoint f(q);
+            H(q);
+            MResetZ(q)
+        }
+        operation RunPair(
+            first : Qubit => Unit is Adj + Ctl, second : Qubit => Unit is Adj + Ctl
+        ) : Result[] { [Run(first), Run(second)] }
+    """)
+
+
+def _check_saved_capture_pair(first: str, second: str) -> None:
+    from qdk.code import RunPair
+
+    saved = (qsharp.eval(first), qsharp.eval(second))
+    expected = [[qsharp.Result.Zero, qsharp.Result.One]] * 3
+    assert qsharp.run(RunPair, 3, *saved) == expected
+    for program in [
+        qsharp.compile(f"RunPair({first}, {second})"),
+        qsharp.compile(RunPair, *saved),
+    ]:
+        assert run_qir(str(program), shots=3, type="cpu") == expected
+
+
+def test_saved_capture_nongeneric_scalar_values(saved_capture_context: None) -> None:
+    _check_saved_capture_pair("SaveInt(Phase, 1)", "SaveInt(Phase, 3)")
+
+
+def test_saved_capture_generic_scalar_values(saved_capture_context: None) -> None:
+    _check_saved_capture_pair("Save(Phase, 1)", "Save(Phase, 3)")
+
+
+def test_saved_capture_preceding_unused_type_parameter(
+    saved_capture_context: None,
+) -> None:
+    _check_saved_capture_pair("SaveSecond((), Phase, 1)", "SaveSecond((), Phase, 3)")
+
+
+def test_saved_capture_scalar_and_array_types(saved_capture_context: None) -> None:
+    _check_saved_capture_pair("Save(Phase, 1)", "Save(PhaseArray, [3])")
+
+
+def test_saved_capture_nominal_and_scalar_types(saved_capture_context: None) -> None:
+    _check_saved_capture_pair("Save(PhaseCount, Count(1))", "Save(Phase, 3)")
+
+
+def test_saved_capture_body_only_type_with_local_generic(
+    saved_capture_context: None,
+) -> None:
+    from qdk.code import Run
+
+    missing = qsharp.eval("Missing(1)")
+    assert qsharp.run(Run, 3, missing) == [qsharp.Result.Zero] * 3
+    assert (
+        run_qir(str(qsharp.compile("Run(Missing(1))")), shots=3, type="cpu")
+        == [qsharp.Result.Zero] * 3
+    )
+    assert (
+        run_qir(str(qsharp.compile(Run, missing)), shots=3, type="cpu")
+        == [qsharp.Result.Zero] * 3
+    )
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+@pytest.mark.parametrize(
+    "entry_name,attribute", [("Main", ""), ("Run", "@EntryPoint() ")]
+)
+@pytest.mark.parametrize(
+    "parameters,body",
+    [
+        ("'T", "Int { 42 }"),
+        ("'T : Eq + Show", "Int { 42 }"),
+        ("'T : Add", "Int { 42 }"),
+        ("'T", '\'T { fail "unreachable" }'),
+    ],
+)
+def test_project_generated_generic_entry_reports_missing_type_arguments(
+    tmp_path: Path,
+    target_profile: qsharp.TargetProfile,
+    entry_name: str,
+    attribute: str,
+    parameters: str,
+    body: str,
+) -> None:
+    _write_entry_project(
+        tmp_path, f"{attribute}operation {entry_name}<{parameters}>() : {body}"
+    )
+
+    with pytest.raises(
+        QSharpError,
+        match=(
+            r"Qdk\.Qsc\.(?:EntryPoint\.MissingTypeArguments|"
+            r"LowerAst\.UnusedGeneric)"
+        ),
+    ) as error:
+        qsharp.init(project_root=str(tmp_path), target_profile=target_profile)
+
+    message = str(error.value)
+    if "Qdk.Qsc.EntryPoint.MissingTypeArguments" in message:
+        assert f"operation {entry_name}" in message
+        assert "concrete type evidence" in message
+    else:
+        assert "unused generic type parameter" in message
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_project_nongeneric_entry_expression_forms_preserve_results(
+    tmp_path: Path, target_profile: qsharp.TargetProfile
+) -> None:
+    _write_entry_project(
+        tmp_path, "operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }"
+    )
+    qsharp.init(project_root=str(tmp_path), target_profile=target_profile)
+
+    assert qsharp.eval("Test.Main()") == qsharp.Result.One
+    for expression in ["Test.Main()", "(Test.Main())", " Test.Main() "]:
+        qir = str(qsharp.compile(expression))
+        assert run_qir(qir, shots=4, type="cpu") == [qsharp.Result.One] * 4
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+@pytest.mark.parametrize(
+    "left,right",
+    [
+        (("X",), ("H", "H")),
+        (("H", "H"), ("X",)),
+        (("I", "I", "X"), ("I",)),
+    ],
+    ids=["one_then_two", "two_then_one", "three_then_one"],
+)
+def test_nested_callable_arrays_preserve_captured_operations(
+    target_profile: qsharp.TargetProfile,
+    left: tuple[str, ...],
+    right: tuple[str, ...],
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation ApplyAll(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+            for op in ops { op(q); }
+        }
+        function MakeAll(ops : (Qubit => Unit)[]) : Qubit => Unit { ApplyAll(ops, _) }
+        operation Run(f : Qubit => Unit) : Result {
+            use q = Qubit();
+            f(q);
+            MResetZ(q)
+        }
+    """)
+    from qdk.code import MakeAll, Run
+
+    argument = MakeAll(
+        [
+            MakeAll([qsharp.eval(name) for name in left]),
+            MakeAll([qsharp.eval(name) for name in right]),
+        ]
+    )
+    expected = [qsharp.Result.One] * 3
+    assert qsharp.run(Run, 3, argument) == expected
+
+    expression = (
+        f"Run(MakeAll([MakeAll([{', '.join(left)}]), "
+        f"MakeAll([{', '.join(right)}])]))"
+    )
+    for program in [qsharp.compile(expression), qsharp.compile(Run, argument)]:
+        assert run_qir(str(program), shots=3, type="cpu") == expected
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_nested_adjoint_closures_preserve_within_apply(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        operation ApplyAll(ops : (Qubit[] => Unit is Adj)[], qs : Qubit[]) : Unit is Adj {
+            for op in ops { op(qs); }
+        }
+        operation Once(op : Qubit[] => Unit is Adj, qs : Qubit[]) : Unit is Adj { op(qs); }
+        operation Flip(i : Int, qs : Qubit[]) : Unit is Adj { X(qs[i]); }
+        operation FlipFirst(qs : Qubit[]) : Unit is Adj { X(qs[0]); }
+        function MakeAll(ops : (Qubit[] => Unit is Adj)[]) : Qubit[] => Unit is Adj {
+            ApplyAll(ops, _)
+        }
+        function MakeOnce(op : Qubit[] => Unit is Adj) : Qubit[] => Unit is Adj { Once(op, _) }
+        function MakeFlip(i : Int) : Qubit[] => Unit is Adj { Flip(i, _) }
+        operation Run(f : Qubit[] => Unit is Adj) : Result[] {
+            use qs = Qubit[2];
+            within { Adjoint f(qs); } apply { CNOT(qs[0], qs[1]); }
+            MResetEachZ(qs)
+        }
+    """)
+    from qdk.code import FlipFirst, MakeAll, MakeFlip, MakeOnce, Run
+
+    argument = MakeOnce(MakeAll([MakeAll([FlipFirst]), MakeAll([MakeFlip(1)])]))
+    expected = [[qsharp.Result.Zero, qsharp.Result.One]] * 3
+    assert qsharp.run(Run, 3, argument) == expected
+
+    for program in [
+        qsharp.compile(
+            "Run(MakeOnce(MakeAll([MakeAll([FlipFirst]), MakeAll([MakeFlip(1)])])))"
+        ),
+        qsharp.compile(Run, argument),
+    ]:
+        assert run_qir(str(program), shots=3, type="cpu") == expected
+
+
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        qsharp.TargetProfile.Base,
+        qsharp.TargetProfile.Adaptive_RI,
+        qsharp.TargetProfile.Adaptive_RIF,
+        qsharp.TargetProfile.Adaptive,
+    ],
+)
+def test_nested_closures_preserve_callable_and_integer_captures(
+    target_profile: qsharp.TargetProfile,
+) -> None:
+    qsharp.init(target_profile=target_profile)
+    qsharp.eval("""
+        struct Wrapper { Op : Qubit[] => Unit is Adj }
+        operation ApplyAll(ops : (Qubit[] => Unit is Adj)[], qs : Qubit[]) : Unit is Adj {
+            for op in ops { op(qs); }
+        }
+        operation Flip(i : Int, qs : Qubit[]) : Unit is Adj { X(qs[i]); }
+        operation FlipSecond(qs : Qubit[]) : Unit is Adj { X(qs[1]); }
+        operation Rep(op : Qubit[] => Unit is Adj, count : Int, qs : Qubit[]) : Unit is Adj {
+            for _ in 1..count { op(qs); }
+        }
+        function MakeAll(ops : (Qubit[] => Unit is Adj)[]) : Qubit[] => Unit is Adj {
+            ApplyAll(ops, _)
+        }
+        function MakeFlip(i : Int) : Qubit[] => Unit is Adj { Flip(i, _) }
+        function MakeRep(op : Qubit[] => Unit is Adj, count : Int) : Qubit[] => Unit is Adj {
+            Rep(op, count, _)
+        }
+        function Wrap(op : Qubit[] => Unit is Adj) : Wrapper { new Wrapper { Op = op } }
+        operation RunWrapped(w : Wrapper) : Result[] {
+            let f = w.Op;
+            use qs = Qubit[2];
+            f(qs);
+            MResetEachZ(qs)
+        }
+    """)
+    from qdk.code import FlipSecond, MakeAll, MakeFlip, MakeRep, RunWrapped, Wrap
+
+    argument = Wrap(MakeAll([MakeRep(MakeFlip(0), 1), MakeRep(FlipSecond, 2)]))
+    expected = [[qsharp.Result.One, qsharp.Result.Zero]] * 3
+    assert qsharp.run(RunWrapped, 3, argument) == expected
+
+    for program in [
+        qsharp.compile(
+            "RunWrapped(Wrap(MakeAll([MakeRep(MakeFlip(0), 1), MakeRep(FlipSecond, 2)])))"
+        ),
+        qsharp.compile(RunWrapped, argument),
+    ]:
+        assert run_qir(str(program), shots=3, type="cpu") == expected
 
 
 def test_python_callable_passed_to_python_callable() -> None:

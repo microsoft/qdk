@@ -8,8 +8,7 @@ use crate::{
     ElementParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
-        AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind,
-        try_resolve_callee,
+        Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, LocalsLookup, try_resolve_callee,
     },
     errors::get_missing_runtime_features,
     scaffolding::{InternalItemComputeProperties, InternalPackageStoreComputeProperties},
@@ -150,10 +149,24 @@ impl<'a> Analyzer<'a> {
         &mut self,
         assignee_expr_id: ExprId,
         value_expr_id: ExprId,
+        bin_op: Option<BinOp>,
     ) -> ComputeKind {
         // Visit the assignee and value expressions to determine their compute kind.
         self.visit_expr(assignee_expr_id);
-        self.visit_expr(value_expr_id);
+        let assignee_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("assignee compute kind should be set");
+        self.analyze_bin_op_rhs(
+            bin_op,
+            assignee_expr_id,
+            assignee_compute_kind,
+            value_expr_id,
+        );
+        let value_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // Since this is an assignment, update the local variables on the assignee expression with the compute kind of
         // the value expression.
@@ -167,7 +180,38 @@ impl<'a> Analyzer<'a> {
         // The compute kind of an assign expression is determined by the runtime features of the updated compute kind
         // associated to the local variable.
         compute_kind.aggregate_runtime_features(updated_compute_kind, default_value_kind);
+
+        // The runtime features of the value expression must also be aggregated, since they are not necessarily reflected
+        // in the updated compute kind (e.g. when the assignee is the unit tuple `()`, no local is updated even though
+        // evaluating the value expression might have dynamic side effects).
+        compute_kind.aggregate_runtime_features(value_expr_compute_kind, default_value_kind);
         compute_kind
+    }
+
+    fn analyze_bin_op_rhs(
+        &mut self,
+        bin_op: Option<BinOp>,
+        lhs_expr_id: ExprId,
+        lhs_compute_kind: ComputeKind,
+        rhs_expr_id: ExprId,
+    ) {
+        // A lazy RHS has the same conditional-assignment semantics as an if body.
+        let dynamic_scope = matches!(bin_op, Some(BinOp::AndL | BinOp::OrL))
+            && lhs_compute_kind.is_variable_value_kind();
+        if dynamic_scope {
+            self.get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .push(lhs_expr_id);
+        }
+        self.visit_expr(rhs_expr_id);
+        if dynamic_scope {
+            let scope = self
+                .get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .pop()
+                .expect("short-circuit dynamic scope should exist");
+            assert_eq!(scope, lhs_expr_id);
+        }
     }
 
     fn analyze_expr_assign_index(
@@ -259,7 +303,7 @@ impl<'a> Analyzer<'a> {
             .last_analyzed_compute_kind
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
-        self.visit_expr(rhs_expr_id);
+        self.analyze_bin_op_rhs(Some(bin_op), lhs_expr_id, lhs_compute_kind, rhs_expr_id);
         let rhs_compute_kind = self
             .last_analyzed_compute_kind
             .take()
@@ -395,10 +439,15 @@ impl<'a> Analyzer<'a> {
             self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
         };
 
-        // Cache the `MustBeInlined` runtime feature flag if it was set on the compute kind of the call expression.
-        // This allows it to be added again later after aggregating the runtime features of the callee and arguments expressions,
-        // which may have cleared that flag.
-        let must_inline = matches!(compute_kind, ComputeKind::Dynamic { runtime_features, .. } if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
+        // Recursive and unresolved calls bypass the resolved-callee eligibility
+        // check. Their expression types still prohibit callable-valued QIR ABIs.
+        // Reapply this call-site flag after aggregation, which does not propagate it.
+        let must_inline = matches!(compute_kind, ComputeKind::Dynamic { runtime_features, .. } if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined))
+            || (self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::CallSupport)
+                && (self.type_contains_callable(expr_type)
+                    || self.type_contains_callable(&self.get_expr(args_expr_id).ty)));
 
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
         let application_instance = self.get_current_application_instance();
@@ -475,8 +524,12 @@ impl<'a> Analyzer<'a> {
         // application.
         let package_id = self.get_current_package_id();
         let args_package = self.package_store.get(package_id);
-        let (args_controls, args_input_id) =
-            split_controls_and_input(args_expr_id, callee.functor_app, args_package);
+        let (args_controls, args_input_id) = split_controls_and_input(
+            args_expr_id,
+            callee.functor_app,
+            args_package,
+            &self.get_current_application_instance().locals_map,
+        );
 
         // To map the input pattern to input expressions we need to provide global (store-level) pattern and expression
         // identifiers since the callable can be in a different package than the input expressions.
@@ -514,16 +567,20 @@ impl<'a> Analyzer<'a> {
         let ir_function_compute_kind =
             application_generator_set.generate_ir_function_application_compute_kind();
 
-        // If the target capabitlies allow for emitting IR functions, we need to check if the callable can be emitted or must be inlined.
+        let input_ty = &self.package_store.get_pat(callee_input_pattern_id).ty;
+        // Check the signature before considering an IR-function application:
+        // making callable arguments dynamic would introduce spurious capabilities.
         let must_inline = self
             .target_capabilities
             .contains(TargetCapabilityFlags::CallSupport)
-            && self.check_must_inline(
-                callable_decl,
-                &arg_compute_kinds,
-                &mut compute_kind,
-                ir_function_compute_kind,
-            );
+            && (self.type_contains_callable(input_ty)
+                || self.type_contains_callable(&callable_decl.output)
+                || self.check_must_inline(
+                    callable_decl,
+                    &arg_compute_kinds,
+                    &mut compute_kind,
+                    ir_function_compute_kind,
+                ));
 
         // Aggregate the runtime features of the qubit controls expressions.
         let mut has_variable_controls = false;
@@ -590,13 +647,49 @@ impl<'a> Analyzer<'a> {
         compute_kind
     }
 
+    fn type_contains_callable(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Arrow(_) => true,
+            Ty::Array(element) => self.type_contains_callable(element),
+            Ty::Tuple(elements) => elements.iter().any(|ty| self.type_contains_callable(ty)),
+            Ty::Udt(Res::Item(item)) => {
+                let ItemKind::Ty(_, udt) = &self
+                    .package_store
+                    .get(item.package)
+                    .get_item(item.item)
+                    .kind
+                else {
+                    panic!("UDT type must refer to a type item");
+                };
+                self.type_contains_callable(&udt.get_pure_ty())
+            }
+            Ty::Prim(_) | Ty::Param(_) | Ty::Infer(_) | Ty::Udt(_) | Ty::Err => false,
+        }
+    }
+
     fn check_must_inline(
         &self,
         callable_decl: &'a CallableDecl,
         arg_compute_kinds: &[ComputeKind],
         compute_kind: &mut ComputeKind,
-        ir_function_compute_kind: ComputeKind,
+        mut ir_function_compute_kind: ComputeKind,
     ) -> bool {
+        let scalar_output = matches!(
+            callable_decl.output,
+            Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
+        );
+        let constant_ir_output =
+            scalar_output && !ir_function_compute_kind.is_variable_value_kind();
+
+        // Inline only when promoting the arguments would lose a known scalar result.
+        // Parameter-independent constants can cross an IR-call boundary without expanding effects.
+        if scalar_output && !compute_kind.is_variable_value_kind() && !constant_ir_output {
+            return true;
+        }
+        if !constant_ir_output && !matches!(ir_function_compute_kind, ComputeKind::Static) {
+            ir_function_compute_kind.set_variable_value_kind();
+        }
+
         // We should not try to emit the body of a function that has all static or constant arguments as an IR function.
         // These can be fully computed at partial eval time, and may contribute unnecessary advanced runtime features to the program.
         // We do emit operations, as those may have side effects separate from their capabilities, such as gate calls.
@@ -1174,12 +1267,7 @@ impl<'a> Analyzer<'a> {
         index_expr_id: ExprId,
         replacement_value_expr_id: ExprId,
     ) -> ComputeKind {
-        // Visit the array, index and replacement value expressions to determine their compute kind.
-        self.visit_expr(array_expr_id);
-        let array_expr_compute_kind = self
-            .last_analyzed_compute_kind
-            .take()
-            .expect("last analyzed compute kind should be set after visiting an expression");
+        // Match execution order: index, replacement, then container.
         self.visit_expr(index_expr_id);
         let index_expr_compute_kind = self
             .last_analyzed_compute_kind
@@ -1187,6 +1275,11 @@ impl<'a> Analyzer<'a> {
             .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(replacement_value_expr_id);
         let replacement_value_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
+        self.visit_expr(array_expr_id);
+        let array_expr_compute_kind = self
             .last_analyzed_compute_kind
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
@@ -1260,19 +1353,11 @@ impl<'a> Analyzer<'a> {
                 .take()
                 .expect("last analyzed compute kind should be set after visiting an expression");
 
-            let package_id = self.get_current_package_id();
-            let package = self.package_store.get(package_id);
-
-            // We analyze both the condition expression and the block N times, where N is the analysis stabilization limit.
-            // The reason why we need a stabilization limit is because there can be up-to N levels of indirection for the
-            // condition due to variable assignments.
-            // The number of statements with assignments in the condition expression and the loop block is a good proxy for
-            // the worst case scenario regarding the propagation of properties throughout variables. Because of this, we use
-            // it as the stabilization limit.
-            let stabilization_limit = AssignmentStmtCounter::new(package).count_in_block(block_id)
-                + AssignmentStmtCounter::new(package).count_in_expr(condition_expr_id);
+            // Iterate to a fixed point: assignments join compute kinds, so loop-carried locals
+            // only gain runtime features or become variable. This finite lattice guarantees
+            // convergence, unlike an assignment count, which can truncate tuple-shift chains.
             let mut block_compute_kind = None;
-            for _ in 0..=stabilization_limit {
+            loop {
                 let application_instance = self.get_current_application_instance();
                 let previous_locals_map = application_instance.locals_map.clone();
                 let previous_condition_compute_kind = condition_expr_compute_kind;
@@ -1840,6 +1925,7 @@ impl<'a> Analyzer<'a> {
         let assignee_expr = self.get_expr(assignee_expr_id);
         let value_expr = self.get_expr(value_expr_id);
         match &assignee_expr.kind {
+            ExprKind::Hole => ComputeKind::Static,
             ExprKind::Var(res, _) => {
                 let Res::Local(local_var_id) = res else {
                     panic!("expected a local variable");
@@ -1945,7 +2031,7 @@ impl<'a> Analyzer<'a> {
                     updated_compute_kind
                 }
             }
-            _ => panic!("expected a local variable or a tuple"),
+            _ => panic!("expected a local variable, a tuple, or a discard"),
         }
     }
 
@@ -2156,9 +2242,11 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
                 self.analyze_expr_array_repeat(*value_expr_id, *size_expr_id)
             }
             ExprKind::Assign(assignee_expr_id, value_expr_id)
-            | ExprKind::AssignField(assignee_expr_id, _, value_expr_id)
-            | ExprKind::AssignOp(_, assignee_expr_id, value_expr_id) => {
-                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id)
+            | ExprKind::AssignField(assignee_expr_id, _, value_expr_id) => {
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, None)
+            }
+            ExprKind::AssignOp(op, assignee_expr_id, value_expr_id) => {
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, Some(*op))
             }
             ExprKind::AssignIndex(array_expr_id, index_expr_id, replacement_value_expr_id) => self
                 .analyze_expr_assign_index(
@@ -2602,9 +2690,13 @@ fn derive_intrinsic_function_application_generator_set(
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
             _ => ParamApplication::Element(ElementParamApplication {
-                constant: ComputeKind::Dynamic {
-                    runtime_features: RuntimeFeatureFlags::empty(),
-                    value_kind: ValueKind::Constant,
+                constant: if is_any_result(&param.ty) {
+                    param_compute_kind
+                } else {
+                    ComputeKind::Dynamic {
+                        runtime_features: RuntimeFeatureFlags::empty(),
+                        value_kind: ValueKind::Constant,
+                    }
                 },
                 variable: param_compute_kind,
             }),
@@ -2888,7 +2980,9 @@ fn derive_specialization_controls(
     })
 }
 
-/// Maps an input pattern to a list of expressions that correspond to identifiers or discards.
+/// Maps each identifier or discard in an input pattern to an argument expression.
+/// Opaque tuples reuse the whole expression for every leaf, conservatively losing
+/// per-element compute properties without changing the flattened argument count.
 fn map_input_pattern_to_input_expressions(
     pat_id: StorePatId,
     expr_id: StoreExprId,
@@ -2929,46 +3023,95 @@ fn map_input_pattern_to_input_expressions(
                 }
                 input_param_exprs
             } else {
-                // All elements in the pattern map to the same expression.
-                // This is one of the boundaries where we can lose specific information since we are "unpacking" the
-                // tuple represented by a single expression.
-                let pats_len = if skip_ahead.is_some() {
-                    // When skip_ahead is not None we know we are processing a lambda, so check if pattern is itself a tuple.
-                    // If it is, that is the length we need to use rather than the original one.
-                    if let PatKind::Tuple(pats) =
-                        &package_store.get_pat((pat_id.package, pats[0]).into()).kind
-                    {
-                        pats.len()
-                    } else {
-                        pats.len()
-                    }
-                } else {
-                    pats.len()
-                };
-
-                vec![expr_id.expr; pats_len]
+                pats.iter()
+                    .flat_map(|pat| {
+                        map_input_pattern_to_input_expressions(
+                            (pat_id.package, *pat).into(),
+                            expr_id,
+                            package_store,
+                            None,
+                        )
+                    })
+                    .collect()
             }
         }
     }
 }
 
+/// Peels one `(controls, input)` layer per controlled application.
+/// When a tuple cannot be resolved, its expression supplies conservative properties
+/// for both projections while its type tracks the remaining nesting.
 fn split_controls_and_input(
     args_expr_id: ExprId,
     functor_app: FunctorApp,
     package: &impl PackageLookup,
+    locals: &impl LocalsLookup,
 ) -> (Vec<ExprId>, ExprId) {
     let mut controls = Vec::new();
     let mut remainder_expr_id = args_expr_id;
+    let mut remainder_ty = &package.get_expr(args_expr_id).ty;
     for _ in 0..functor_app.controlled {
+        remainder_expr_id = resolve_immutable_argument(remainder_expr_id, package, locals);
         let expr = package.get_expr(remainder_expr_id);
-        let ExprKind::Tuple(pats) = &expr.kind else {
-            panic!("expected tuple expression");
+        let Ty::Tuple(types) = remainder_ty else {
+            panic!("controlled argument must have a tuple type");
         };
-        assert!(pats.len() == 2);
-        controls.push(pats[0]);
-        remainder_expr_id = pats[1];
+        assert_eq!(types.len(), 2);
+        remainder_ty = &types[1];
+        if let ExprKind::Tuple(elements) = &expr.kind {
+            assert_eq!(elements.len(), 2);
+            controls.push(elements[0]);
+            remainder_expr_id = elements[1];
+        } else {
+            // An opaque tuple value supplies conservative compute properties
+            // for both projections; no synthetic expression or local is needed.
+            controls.push(remainder_expr_id);
+        }
     }
     (controls, remainder_expr_id)
+}
+
+/// Resolves whole-value immutable aliases and block tails, not tuple projections.
+/// The original argument expression still contributes runtime features at the call site.
+fn resolve_immutable_argument(
+    mut expression: ExprId,
+    package: &impl PackageLookup,
+    locals: &impl LocalsLookup,
+) -> ExprId {
+    let mut visited = rustc_hash::FxHashSet::default();
+    while visited.insert(expression) {
+        let expr = package.get_expr(expression);
+        let next = match &expr.kind {
+            ExprKind::Var(Res::Local(local), _) => {
+                if let Some(Local {
+                    kind: LocalKind::Immutable(initializer, _),
+                    ..
+                }) = locals.find(*local)
+                {
+                    *initializer
+                } else {
+                    break;
+                }
+            }
+            ExprKind::Block(block) => {
+                if let Some(statement) = package.get_block(*block).stmts.last()
+                    && let StmtKind::Expr(tail) = package.get_stmt(*statement).kind
+                {
+                    tail
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        };
+        // Destructuring an opaque tuple associates each binding with the enclosing
+        // initializer. Its type is not the selected field's type, so keep it opaque.
+        if package.get_expr(next).ty != expr.ty {
+            break;
+        }
+        expression = next;
+    }
+    expression
 }
 
 fn is_any_result(t: &Ty) -> bool {

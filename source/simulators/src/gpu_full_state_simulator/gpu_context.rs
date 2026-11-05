@@ -12,9 +12,10 @@ use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
 use crate::noise_mapping::{expand_correlated_loss_commits, get_noise_ops, loss_policy_u32};
 use crate::shader_types::{
-    self, DiagnosticsData, InterpreterState, MAX_ALLOCA_SIZE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
-    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS,
-    Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer, ops,
+    self, DiagnosticsData, InterpreterState, MAX_ALLOCA_SIZE, MAX_BUFFER_SIZE, MAX_CALL_DEPTH,
+    MAX_QUBIT_COUNT, MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT,
+    MIN_REGISTERS, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer,
+    ops,
 };
 
 // On Windows, running larger circuits/shots can hit TDR issues if too many ops are dispatched in one go.
@@ -584,8 +585,17 @@ impl GpuContext {
         // tiny buffers, but grow to match the program's actual requirement.
         let num_registers = (program.num_registers as usize).max(MIN_REGISTERS);
 
-        // Memory sizing: constant_data + headroom for alloca'd variables.
-        let max_memory = program.constant_data.len() + MAX_ALLOCA_SIZE;
+        // Call frames save registers separately from addressable program allocations.
+        let saved_registers = if program
+            .instructions
+            .iter()
+            .any(|instruction| instruction.opcode & 0xFF == 0x07)
+        {
+            num_registers * MAX_CALL_DEPTH
+        } else {
+            0
+        };
+        let max_memory = program.constant_data.len() + MAX_ALLOCA_SIZE + saved_registers;
         assert!(max_memory >= 1, "WGSL arrays must have length >= 1");
 
         if num_registers > MAX_REGISTERS {
@@ -853,6 +863,8 @@ impl GpuContext {
                 let mut interp = InterpreterState::zeroed();
                 interp.pc = entry_pc;
                 interp.current_block_id = entry_block;
+                interp.memory_top = u32::try_from(self.run_params.num_constant_data)
+                    .map_err(|_| "Constant data exceeds the GPU address range")?;
                 let interp_bytes =
                     cast_slice::<InterpreterState, u8>(std::slice::from_ref(&interp));
 

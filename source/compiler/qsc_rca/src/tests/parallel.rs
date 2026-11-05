@@ -166,7 +166,7 @@ fn check_rca_for_parallel_with_short_circuit_bool_in_body() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>

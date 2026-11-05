@@ -125,6 +125,10 @@ class _FramePropagator:
         self._outcomes.append(outcome)
         return len(self._outcomes) - 1
 
+    def outcome_delta_row(self, index: int) -> list[bool]:
+        """Copy one outcome row without constructing the full delta matrix."""
+        return self._outcomes[index].copy()
+
     @property
     def outcome_deltas(self) -> BitMatrix:
         return BitMatrix(self._outcomes)

@@ -305,7 +305,7 @@ class _CirqTraceBuilder:
                         "Only integer repetitions are supported for CircuitOperation."
                     )
             else:
-                for sub_op in op._decompose_with_context_(self.decomp_context):  # type: ignore
+                for sub_op in op._decompose_with_context_(context=self.decomp_context):  # type: ignore
                     self.handle_op(sub_op)
         else:
             # op is Iterable[OP_TREE]
@@ -371,7 +371,7 @@ def h_pow_gate_to_trace(self: HPowGate, context: _CirqTraceBuilder, op: cirq.Ope
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(H, [op.qubits[0]])
     else:
-        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
+        yield from op._decompose_with_context_(context=context.decomp_context)  # type: ignore
 
 
 def x_pow_gate_to_trace(self: XPowGate, context: _CirqTraceBuilder, op: cirq.Operation):
@@ -438,7 +438,7 @@ def cx_pow_gate_to_trace(
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CX, [op.qubits[0], op.qubits[1]])
     else:
-        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
+        yield from op._decompose_with_context_(context=context.decomp_context)  # type: ignore
 
 
 def cz_pow_gate_to_trace(
@@ -481,7 +481,7 @@ def swap_pow_gate_to_trace(
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(SWAP, [op.qubits[0], op.qubits[1]])
     else:
-        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
+        yield from op._decompose_with_context_(context=context.decomp_context)  # type: ignore
 
 
 def ccx_pow_gate_to_trace(
@@ -491,7 +491,7 @@ def ccx_pow_gate_to_trace(
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CCX, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
-        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
+        yield from op._decompose_with_context_(context=context.decomp_context)  # type: ignore
 
 
 def ccz_pow_gate_to_trace(
@@ -501,7 +501,7 @@ def ccz_pow_gate_to_trace(
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CCZ, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
-        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
+        yield from op._decompose_with_context_(context=context.decomp_context)  # type: ignore
 
 
 def measurement_gate_to_trace(

@@ -9,10 +9,10 @@ use qsc_eval::{
 use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
 use qsc_rca::{ComputeKind, RuntimeFeatureFlags, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::hash_map::Entry, rc::Rc};
 
-use crate::{ScopeDbgContext, is_static_value};
+use crate::{ScopeDbgContext, is_static_value, map_rir_literal_to_eval_value};
 
 /// Struct that keeps track of the active RIR blocks (where RIR instructions are added) and the active scopes (which
 /// correspond to the Q#'s program call stack).
@@ -102,6 +102,8 @@ pub struct BlockNode {
 }
 
 /// A call scope.
+/// In this context, a "scope" is a single invocation of a callable (which might also be called a "frame").
+/// It's distinct from the eval `Scope` objects within `env`, which corresponds to a name scope.
 pub struct Scope {
     /// The package ID of the callable.
     pub package_id: PackageId,
@@ -117,6 +119,9 @@ pub struct Scope {
     hybrid_vars: FxHashMap<LocalVarId, Value>,
     /// Maps variable IDs to static literal values, if any.
     static_vars: FxHashMap<VariableId, Literal>,
+    /// Set of mutable local variables in this scope. Used to decide which variables are tracked across
+    /// the partial eval <-> eval boundary (hybrid map <-> classical env).
+    mutable_vars: FxHashSet<LocalVarId>,
     /// Number of currently active blocks (starting from where this scope was created).
     active_block_count: usize,
     /// Debug context, used for generating debug metadata.
@@ -192,6 +197,7 @@ impl Scope {
             active_block_count: 1,
             hybrid_vars,
             static_vars: FxHashMap::default(),
+            mutable_vars: FxHashSet::default(),
             dbg_context: ScopeDbgContext::default(),
             arrays: arrays.into_iter().map(|array| (array, None)).collect(),
         }
@@ -217,13 +223,19 @@ impl Scope {
         self.static_vars = static_vars;
     }
 
-    /// Keeps only the static literal value mappings that are also present in the provided other mapping.
+    /// Keeps only identical static literal values present in both mappings.
     pub fn keep_matching_static_var_mappings(
         &mut self,
         other_mappings: &FxHashMap<VariableId, Literal>,
     ) {
+        // Literal's approximate Double equality is not safe for constant propagation.
         self.static_vars
-            .retain(|var_id, lit| Some(&*lit) == other_mappings.get(var_id));
+            .retain(|var_id, lit| match (&*lit, other_mappings.get(var_id)) {
+                (Literal::Double(left), Some(Literal::Double(right))) => {
+                    left.to_bits() == right.to_bits()
+                }
+                (left, right) => Some(left) == right,
+            });
     }
 
     /// Gets the value of a hybrid local variable.
@@ -233,6 +245,87 @@ impl Scope {
             .get(local_var_id)
             .expect("local classcial variable value does not exist")
             .value
+    }
+
+    /// Takes an array out of both bindings for mutation; the caller must rebind it before further evaluation.
+    pub fn take_local_array(&mut self, local_var_id: LocalVarId) -> Rc<Vec<Value>> {
+        if self.is_currently_evaluating_branch() {
+            // Classical bindings must retain their pre-branch values.
+            return self
+                .get_classical_local_value(local_var_id)
+                .clone()
+                .unwrap_array();
+        }
+
+        self.update_hybrid_local_value(local_var_id, Value::unit());
+        let variable = self
+            .env
+            .get_mut(local_var_id)
+            .expect("local classical variable value does not exist");
+        std::mem::replace(&mut variable.value, Value::unit()).unwrap_array()
+    }
+
+    /// Updates the classical local variable values based on the current hybrid local variable values.
+    pub fn update_classical_locals_from_hybrid_locals(&mut self) {
+        for local_var_id in &self.mutable_vars {
+            if self.env.get(*local_var_id).is_none() {
+                continue;
+            }
+            let hybrid_value = self
+                .hybrid_vars
+                .get(local_var_id)
+                .expect("hybrid value should exist");
+            let update_value = match hybrid_value {
+                Value::Var(hybrid_var) => {
+                    // Check to see if there is a static literal value currently tracked for this variable,
+                    // and if so, use it to update the classical local variable value instead.
+                    if let Some(literal) = self.get_static_value(hybrid_var.id.into())
+                        && let Some(literal_val) =
+                            map_rir_literal_to_eval_value(*literal, hybrid_var.ty)
+                    {
+                        literal_val
+                    } else {
+                        hybrid_value.clone()
+                    }
+                }
+                _ => hybrid_value.clone(),
+            };
+            if let Some(classical_var) = self.env.get_mut(*local_var_id) {
+                classical_var.value = update_value;
+            }
+        }
+    }
+
+    /// Collects the local variable values that have been updated based on the current hybrid local variable values,
+    /// allowing callers to choose how to update those in tracked mapping themselves.
+    pub fn collect_updated_local_values(&mut self) -> Vec<(LocalVarId, Value)> {
+        let mut updated_values = Vec::new();
+        for local_var_id in &self.mutable_vars {
+            let hybrid_value = self
+                .hybrid_vars
+                .get(local_var_id)
+                .expect("hybrid value should exist");
+            if let Value::Var(hybrid_var) = hybrid_value
+                && let Some(literal) = self.get_static_value(hybrid_var.id.into())
+                && let Some(literal_val) = map_rir_literal_to_eval_value(*literal, hybrid_var.ty)
+            {
+                // If there is a tracked static literal value for this hybrid variable, use that to check for changes
+                // against the classical local variable value instead of the variable itself.
+                if let Some(classical_value) = self.env.get(*local_var_id).map(|var| &var.value)
+                    && classical_value != &literal_val
+                {
+                    updated_values.push((*local_var_id, classical_value.clone()));
+                }
+            } else if let Some(classical_value) = self.env.get(*local_var_id).map(|var| &var.value)
+                // Shared arrays cannot have changed independently under copy-on-write.
+                && !matches!((classical_value, hybrid_value),
+                    (Value::Array(classical), Value::Array(hybrid)) if Rc::ptr_eq(classical, hybrid))
+                && classical_value != hybrid_value
+            {
+                updated_values.push((*local_var_id, classical_value.clone()));
+            }
+        }
+        updated_values
     }
 
     /// Gets the value of a hybrid local variable.
@@ -250,6 +343,12 @@ impl Scope {
     // Insert a variable into the mutable variables map.
     pub fn insert_static_var_mapping(&mut self, var_id: VariableId, literal: Literal) {
         self.static_vars.insert(var_id, literal);
+    }
+
+    // Inserts a local variable into the set of mutable variables so it will be tracked
+    // for updates across evaluation boundaries.
+    pub fn insert_mutable_var(&mut self, local_var_id: LocalVarId) {
+        self.mutable_vars.insert(local_var_id);
     }
 
     /// Determines whether we are currently evaluating a branch within the scope.
@@ -354,12 +453,114 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Bool(_)
         | Value::Closure(_)
         | Value::Double(_)
-        | Value::Global(_, _)
+        | Value::Global(..)
+        | Value::GlobalWithArgs(..)
         | Value::Int(_)
         | Value::Pauli(_)
         | Value::Qubit(_)
         | Value::Range(_)
         | Value::Result(Result::Val(_) | Result::Id(_))
         | Value::String(_) => ValueKind::Constant,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Arg, Scope};
+    use qsc_eval::{Variable, val::Value};
+    use qsc_fir::fir::PackageId;
+    use std::rc::Rc;
+
+    /// Creates the paired classical and hybrid bindings used by partial evaluation.
+    fn scope_with_array() -> Scope {
+        let mut values = Vec::with_capacity(4);
+        values.push(Value::Int(1));
+        Scope::new(
+            PackageId::CORE,
+            None,
+            vec![Arg::Var(
+                0_usize.into(),
+                Variable {
+                    name: "values".into(),
+                    value: Value::Array(Rc::new(values)),
+                    span: Default::default(),
+                },
+            )],
+            None,
+            false,
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    /// Verifies that internal bindings do not force a copy or discard spare vector capacity.
+    fn taking_unaliased_array_reuses_storage() {
+        let mut scope = scope_with_array();
+        let original = scope
+            .get_classical_local_value(0_usize.into())
+            .clone()
+            .unwrap_array()
+            .as_ptr();
+        let mut values = scope.take_local_array(0_usize.into());
+        assert_eq!(Rc::strong_count(&values), 1);
+        Rc::make_mut(&mut values).push(Value::Int(2));
+        assert_eq!(values.as_ptr(), original);
+    }
+
+    #[test]
+    /// Verifies that a real Q# alias still triggers copy-on-write.
+    fn taking_aliased_array_preserves_alias() {
+        let mut scope = scope_with_array();
+        let alias = scope
+            .get_classical_local_value(0_usize.into())
+            .clone()
+            .unwrap_array();
+        let mut values = scope.take_local_array(0_usize.into());
+        Rc::make_mut(&mut values).push(Value::Int(2));
+        assert_eq!(&*alias, &[Value::Int(1)]);
+        assert_eq!(&*values, &[Value::Int(1), Value::Int(2)]);
+    }
+
+    #[test]
+    /// Verifies that branch-local mutation preserves the classical and hybrid snapshots.
+    fn taking_array_in_dynamic_branch_preserves_bindings() {
+        let mut scope = scope_with_array();
+        scope.active_block_count += 1;
+        let mut values = scope.take_local_array(0_usize.into());
+        Rc::make_mut(&mut values).push(Value::Int(2));
+        for binding in [
+            scope.get_classical_local_value(0_usize.into()),
+            scope.get_hybrid_local_value(0_usize.into()),
+        ] {
+            assert_eq!(binding, &Value::Array(vec![Value::Int(1)].into()));
+        }
+    }
+
+    #[test]
+    /// Shared arrays are unchanged even when their elements do not compare equal to themselves.
+    fn collecting_updates_skips_identical_array_storage() {
+        let mut scope = scope_with_array();
+        let value = Value::Array(vec![Value::Double(f64::NAN)].into());
+        scope.update_hybrid_local_value(0_usize.into(), value.clone());
+        scope
+            .env
+            .update_variable_in_top_frame(0_usize.into(), value);
+        scope.insert_mutable_var(0_usize.into());
+        assert!(scope.collect_updated_local_values().is_empty());
+    }
+
+    #[test]
+    /// Arrays updated by the classical evaluator still propagate to the hybrid binding.
+    fn collecting_updates_detects_replaced_array_storage() {
+        let mut scope = scope_with_array();
+        let value = Value::Array(vec![Value::Int(2)].into());
+        scope
+            .env
+            .update_variable_in_top_frame(0_usize.into(), value.clone());
+        scope.insert_mutable_var(0_usize.into());
+        assert_eq!(
+            scope.collect_updated_local_values(),
+            vec![(0_usize.into(), value)]
+        );
     }
 }

@@ -17,10 +17,179 @@ use thiserror::Error;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
-    ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
-    PackageSpan, PatId, StoreExprId, StoreItemId, UnOp,
+    ExprId, ExprKind, Functor, ItemId, ItemKind, LocalItemId, LocalVarId, Package, PackageId,
+    PackageLookup, PackageSpan, PackageStore, PatId, Res, StoreExprId, StoreItemId, UnOp,
 };
 use qsc_fir::ty::Ty;
+use std::rc::Rc;
+
+/// Pre-mutation type definitions, qualified by the package that owns each UDT.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct UdtMetadata {
+    pure_tys: FxHashMap<StoreItemId, Ty>,
+}
+
+impl UdtMetadata {
+    pub(super) fn new(store: &PackageStore) -> Self {
+        let mut pure_tys = FxHashMap::default();
+        for (package_id, package) in store {
+            for (item_id, item) in &package.items {
+                if let ItemKind::Ty(_, udt) = &item.kind {
+                    pure_tys.insert((package_id, item_id).into(), udt.get_pure_ty());
+                }
+            }
+        }
+        Self { pure_tys }
+    }
+
+    pub(super) fn pure_ty(&self, item: ItemId) -> Option<&Ty> {
+        self.pure_tys.get(&(item.package, item.item).into())
+    }
+
+    /// Opens outer wrappers without erasing the nominal identity of children.
+    pub(super) fn underlying_ty<'a>(&'a self, mut ty: &'a Ty) -> &'a Ty {
+        while let Ty::Udt(Res::Item(item)) = ty {
+            let Some(pure) = self.pure_ty(*item) else {
+                break;
+            };
+            ty = pure;
+        }
+        ty
+    }
+
+    /// Produces a structural view without changing the stored FIR types.
+    /// The frontend rejects cyclic UDT definitions.
+    pub(super) fn resolve(&self, ty: &Ty) -> Ty {
+        match ty {
+            Ty::Udt(Res::Item(item)) => self
+                .pure_ty(*item)
+                .map_or_else(|| ty.clone(), |pure| self.resolve(pure)),
+            Ty::Tuple(items) => Ty::Tuple(items.iter().map(|item| self.resolve(item)).collect()),
+            Ty::Array(item) => Ty::Array(Box::new(self.resolve(item))),
+            Ty::Arrow(arrow) => {
+                let mut arrow = arrow.clone();
+                arrow.input = Box::new(self.resolve(&arrow.input));
+                arrow.output = Box::new(self.resolve(&arrow.output));
+                Ty::Arrow(arrow)
+            }
+            _ => ty.clone(),
+        }
+    }
+
+    pub(super) fn contains_arrow(&self, ty: &Ty) -> bool {
+        match self.underlying_ty(ty) {
+            Ty::Arrow(_) | Ty::Udt(_) => true,
+            Ty::Array(item) => self.contains_arrow(item),
+            Ty::Tuple(items) => items.iter().any(|item| self.contains_arrow(item)),
+            Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Err => false,
+        }
+    }
+}
+
+/// A batch in original input coordinates. Only removal of an immediate child
+/// collapses its parent; original Unit fields are data, not consumed slots.
+#[derive(Clone, Debug)]
+pub(super) enum InputRemoval {
+    Keep,
+    Remove,
+    Tuple { children: Vec<Self>, collapse: bool },
+}
+
+impl InputRemoval {
+    pub(super) fn new(udts: &UdtMetadata, ty: &Ty, paths: &[&[usize]]) -> Option<Self> {
+        if paths.iter().any(|path| path.is_empty()) {
+            return Some(Self::Remove);
+        }
+        if paths.is_empty() {
+            return Some(Self::Keep);
+        }
+        let Ty::Tuple(fields) = udts.underlying_ty(ty) else {
+            return None;
+        };
+        if paths.iter().any(|path| path[0] >= fields.len()) {
+            return None;
+        }
+        let children: Vec<_> = fields
+            .iter()
+            .enumerate()
+            .map(|(index, field)| {
+                let paths: Vec<_> = paths
+                    .iter()
+                    .filter_map(|path| (path[0] == index).then_some(&path[1..]))
+                    .collect();
+                Self::new(udts, field, &paths)
+            })
+            .collect::<Option<_>>()?;
+        let removed = children.iter().filter(|child| child.is_removed()).count();
+        Some(Self::Tuple {
+            children,
+            collapse: removed > 0 && fields.len() - removed == 1,
+        })
+    }
+
+    pub(super) fn is_removed(&self) -> bool {
+        matches!(self, Self::Remove)
+    }
+
+    pub(super) fn consumes_original(&self) -> bool {
+        match self {
+            Self::Keep => false,
+            Self::Remove => true,
+            Self::Tuple { children, .. } => {
+                !children.is_empty() && children.iter().all(Self::consumes_original)
+            }
+        }
+    }
+
+    /// Preserves untouched nominal children. The type must be the original type
+    /// against which this layout was constructed.
+    pub(super) fn reduced_ty(&self, udts: &UdtMetadata, ty: &Ty) -> Ty {
+        match self {
+            Self::Keep => ty.clone(),
+            Self::Remove => Ty::UNIT,
+            Self::Tuple { children, collapse } => {
+                let Ty::Tuple(fields) = udts.underlying_ty(ty) else {
+                    unreachable!("validated removal layout requires its original tuple type");
+                };
+                let mut remaining: Vec<_> = children
+                    .iter()
+                    .zip(fields)
+                    .filter(|(child, _)| !child.is_removed())
+                    .map(|(child, field)| child.reduced_ty(udts, field))
+                    .collect();
+                if *collapse {
+                    remaining.remove(0)
+                } else {
+                    Ty::Tuple(remaining)
+                }
+            }
+        }
+    }
+
+    pub(super) fn rebase(&self, path: &[usize]) -> Option<Vec<usize>> {
+        match self {
+            Self::Keep => Some(path.to_vec()),
+            Self::Remove => None,
+            Self::Tuple { children, collapse } => {
+                let Some((&index, tail)) = path.split_first() else {
+                    return Some(Vec::new());
+                };
+                let suffix = children.get(index)?.rebase(tail)?;
+                let mut rebased = Vec::new();
+                if !collapse {
+                    rebased.push(
+                        children[..index]
+                            .iter()
+                            .filter(|child| !child.is_removed())
+                            .count(),
+                    );
+                }
+                rebased.extend(suffix);
+                Some(rebased)
+            }
+        }
+    }
+}
 
 /// A callable parameter detected in a higher-order function declaration.
 #[derive(Clone, Debug)]
@@ -36,7 +205,7 @@ pub struct CallableParam {
     pub field_path: Vec<usize>,
     /// The local variable bound by the parameter.
     pub param_var: LocalVarId,
-    /// The Arrow type of the parameter.
+    /// The callable-bearing parameter type: an arrow or an array of arrows.
     pub param_ty: Ty,
     /// Whether the owning HOF's input pattern is a tuple. Precomputed during
     /// analysis (which has `PackageStore` access) so later passes can derive
@@ -68,7 +237,7 @@ impl CallableParam {
     }
 }
 
-/// A call site where a HOF is called with a concrete callable argument.
+/// One resolved candidate, or a dynamic placeholder, for a HOF argument slot.
 #[derive(Clone, Debug)]
 pub struct CallSite {
     /// The Call expression.
@@ -102,10 +271,19 @@ pub struct CallSite {
     pub callable_arg: ConcreteCallable,
     /// Expression for the callable argument.
     pub arg_expr_id: ExprId,
-    /// Branch-split guard list: a left-associated conjunction stored
-    /// outermost-first. Selected when every guard is true; an empty list is the
-    /// default (else) branch.
+    /// Reaching source used to recover indexed dispatch, distinct from the
+    /// argument expression whose evaluation is consumed by specialization.
+    pub dispatch_source: Option<ExprId>,
+    /// Outermost-first guard path in the ordered tree described by
+    /// [`CalleeLattice::Multi`]. Branch order supplies implicit else conditions;
+    /// this path is not an independently evaluated conjunction.
     pub condition: Vec<ExprId>,
+}
+
+impl CallSite {
+    pub(super) fn dispatch_expr_id(&self) -> ExprId {
+        self.dispatch_source.unwrap_or(self.arg_expr_id)
+    }
 }
 
 /// A direct call whose callee expression resolves to a concrete callable value.
@@ -117,10 +295,24 @@ pub struct DirectCallSite {
     pub call_pkg_id: PackageId,
     /// Resolved concrete callee.
     pub callable: ConcreteCallable,
-    /// Branch-split guard list: a left-associated conjunction stored
-    /// outermost-first. Selected when every guard is true; an empty list is the
-    /// default (else) branch.
+    /// Materialized operands captured by a same-package lifted lambda.
+    ///
+    /// These values belong to this call occurrence rather than the global
+    /// callable target: separate factory invocations share the lifted item but
+    /// can retain different partial-application operands.
+    pub captures: Vec<CapturedVar>,
+    /// Outermost-first guard path in the ordered tree described by
+    /// [`CalleeLattice::Multi`]. Branch order supplies implicit else conditions;
+    /// this path is not an independently evaluated conjunction.
     pub condition: Vec<ExprId>,
+    /// Reaching expression that produced the callee value at this occurrence.
+    ///
+    /// Mutable callable locals can be reassigned from a different indexed
+    /// selection than their initializer. Rewrite must recover the discriminator
+    /// from the latest reaching assignment rather than from the local read.
+    /// Divergent indexed sources and invalidated dependencies remain `Dynamic`;
+    /// this field is not a join of multiple possible source expressions.
+    pub dispatch_source: Option<ExprId>,
     /// Optional source span of the original lambda body to stamp onto the surviving Call.
     pub def_span: Option<Span>,
 }
@@ -147,28 +339,71 @@ pub enum ConcreteCallable {
     Dynamic,
 }
 
+/// The local-variable identity domain that owns a capture operand.
+///
+/// Item IDs are local to the package being analyzed or rewritten. The enclosing
+/// call site's `call_pkg_id` supplies that package context; these scopes must
+/// not be compared or transported across packages without rebinding.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum CaptureScope {
+    /// Locals of a callable not tracked as a HOF specialization, including
+    /// lifted lambda parameters.
+    Callable(LocalItemId),
+    /// Locals of the package's entry expression, outside any callable item.
+    #[default]
+    Entry,
+    /// Locals allocated for a specialized HOF clone. This domain is distinct
+    /// from `Callable` even when the numeric item and local IDs coincide.
+    CloneScope(LocalItemId),
+}
+
+/// A local variable qualified by its owning identity domain within one package.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ScopedLocal {
+    pub var: LocalVarId,
+    pub scope: CaptureScope,
+}
+
+impl ScopedLocal {
+    #[must_use]
+    pub fn new(var: LocalVarId, scope: CaptureScope) -> Self {
+        Self { var, scope }
+    }
+}
+
 /// A variable captured by a closure.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapturedVar {
-    /// The captured local variable.
-    pub var: LocalVarId,
+    /// The captured local variable and the allocator domain that owns it.
+    pub local: ScopedLocal,
     /// The type of the captured variable.
     pub ty: Ty,
+    /// Capture-free callable identity, retained even when operand evaluation
+    /// materializes the value into a temporary. Embedding this identity must
+    /// not suppress observable capture initialization.
+    pub static_callable: Option<(ItemId, FunctorApp)>,
     /// An optional initializer expression to reuse when the original local is
     /// scoped to a block that rewrite will erase.
     pub expr: Option<ExprId>,
-    /// Caller-scope substitutions to apply when `expr` is a producer-scope
-    /// compound literal (a struct/tuple/array constructor whose sub-exprs
-    /// reference the producing function's parameters).
-    ///
-    /// Each `(local, caller_expr)` entry maps a producer-parameter
-    /// [`LocalVarId`] appearing inside `expr` to the caller-scope argument
-    /// [`ExprId`] bound to that parameter at the call site. Rewrite deep-clones
-    /// `expr` and rebinds each recorded inner `Var(Res::Local(local))` leaf to
-    /// `caller_expr`, so the literal is reconstructed entirely from caller-scope
-    /// values instead of splicing unbound producer-scope locals into the
-    /// caller. Empty for scalar captures and for captures that need no remap.
-    pub caller_substitutions: Vec<(LocalVarId, ExprId)>,
+    /// Substitutions for producer-local references in `expr`. Nested
+    /// substitutions preserve each intervening caller's environment instead of
+    /// interpreting equal numeric local IDs as bindings in the same scope.
+    pub caller_substitutions: Vec<CaptureSubstitution>,
+}
+
+/// Replaces one local in a capture expression with an operand from its caller.
+///
+/// The replacement expression has its own substitution environment. Keeping
+/// these environments separate preserves transformations such as `Make(n+1)`
+/// when the returned closure crosses another function boundary.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CaptureSubstitution {
+    /// The local referenced by the containing expression.
+    pub local: LocalVarId,
+    /// Its replacement expression, in that expression's own local scope.
+    pub expr: ExprId,
+    /// Rebindings for locals within the replacement, not the containing expression.
+    pub substitutions: Vec<CaptureSubstitution>,
 }
 
 /// Maximum number of concrete callables tracked in a `Multi` lattice element
@@ -183,19 +418,28 @@ pub enum CalleeLattice {
     Bottom,
     /// Exactly one known callable.
     Single(ConcreteCallable),
-    /// Multiple known callables from conditional branches — up to
-    /// `MULTI_CAP` before degrading to `Dynamic`.
+    /// Multiple known candidates from conditional branches or callable arrays,
+    /// bounded by `MULTI_CAP` in the analysis joins and candidate collection.
     ///
-    /// Each entry is `(callable, guards)`, where `guards` is a left-associated
-    /// conjunction stored outermost-first; the entry is selected when every
-    /// guard is true. Exactly one trailing entry has an empty guard list,
-    /// denoting the default (else) branch.
+    /// Each entry is `(callable, guards)`. Conditional entries encode an ordered
+    /// decision tree: guards are outermost-first, and a terminal entry closes
+    /// its group's true subtree before subsequent entries form the else subtree.
+    /// Equal guard IDs do not make distinct branch decisions interchangeable.
+    /// A complete conditional tree ends with one empty-guard default.
+    /// Array candidates and unconditional joins can instead have several empty
+    /// guard lists; rewrite must then recover an index discriminator.
     Multi(Vec<(ConcreteCallable, Vec<ExprId>)>),
     /// Too many or unknown callables — cannot resolve.
     Dynamic,
 }
 
 impl CalleeLattice {
+    /// Multiple fall-through candidates still need an index discriminator.
+    pub(super) fn has_unguarded_alternatives(&self) -> bool {
+        matches!(self, Self::Multi(entries)
+            if entries.iter().filter(|(_, guards)| guards.is_empty()).count() > 1)
+    }
+
     /// Constructs a lattice element from a resolved [`ConcreteCallable`].
     #[must_use]
     pub fn from_concrete(cc: ConcreteCallable) -> Self {
@@ -263,8 +507,8 @@ impl CalleeLattice {
     ///   the `condition` arm.
     /// - `Multi(s)` vs `Single(b)`: prepend `condition` onto every entry of
     ///   `s`, then append `(b,[])` as the trailing default.
-    /// - `Multi(s1)` vs `Multi(s2)`: if the callable sets are identical (the
-    ///   variable was not modified in the branch), keep `s1` unchanged.
+    /// - `Multi(s1)` vs `Multi(s2)`: if the full ordered chains, including
+    ///   guards, are identical, keep `s1` unchanged.
     ///   Otherwise merge: prepend `condition` onto every `s1` guard list, keep
     ///   `s2` guards as-is, and concatenate `s1`-then-`s2` **without**
     ///   deduplicating by callable identity — the same callable under
@@ -272,10 +516,19 @@ impl CalleeLattice {
     ///   Only the `s2` empty-guard default survives as the trailing fall-through.
     ///
     /// Overflow past `MULTI_CAP` degrades to `Dynamic`.
+    /// Unequal branches with unresolved index alternatives also remain `Dynamic`:
+    /// the outer condition cannot distinguish candidates within either branch.
     #[must_use]
     pub fn join_with_condition(self, other: Self, condition: ExprId) -> Self {
         match (self, other) {
             (Self::Bottom, x) | (x, Self::Bottom) => x,
+            (left, right)
+                if left != right
+                    && (left.has_unguarded_alternatives()
+                        || right.has_unguarded_alternatives()) =>
+            {
+                Self::Dynamic
+            }
             (Self::Single(a), Self::Single(b)) => {
                 if a == b {
                     Self::Single(a)
@@ -365,19 +618,42 @@ impl CalleeLattice {
     }
 }
 
+/// Checks the prefix structure of a complete conditional dispatch before rewrite.
+///
+/// After each leaf, its parent prefix must be retained until that subtree's
+/// terminal leaf closes it. Exactly one root default must appear, last.
+/// Guard IDs may repeat within a path or in later branches.
+pub(super) fn guards_form_complete_tree<'a>(
+    conditions: impl IntoIterator<Item = &'a [ExprId]>,
+) -> bool {
+    let mut prefix: &[ExprId] = &[];
+    let mut default_seen = false;
+    for guards in conditions {
+        if default_seen || !guards.starts_with(prefix) {
+            return false;
+        }
+        if let Some((_, parent)) = guards.split_last() {
+            prefix = parent;
+        } else {
+            default_seen = true;
+        }
+    }
+    default_seen
+}
+
 /// Deduplication key for specializations. Two call sites that share the same
 /// `SpecKey` can reuse the same generated dispatch callable.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SpecKey {
     /// The HOF being specialized.
     pub hof_id: StoreItemId,
+    /// Original input positions, aligned with the concrete callable arguments.
+    pub param_positions: Vec<(usize, Vec<usize>)>,
     /// Hashable representations of the concrete callable arguments.
     pub concrete_args: Vec<ConcreteCallableKey>,
 }
 
-/// Hashable variant of [`ConcreteCallable`] used for deduplication. Closures
-/// are keyed only by their target and functor (captures are structural, not
-/// identity-defining).
+/// Hashable callable identity, including callable captures embedded into code.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ConcreteCallableKey {
     /// A direct global callable reference.
@@ -385,12 +661,11 @@ pub enum ConcreteCallableKey {
         item_id: ItemId,
         functor: FunctorApp,
     },
-    /// A closure keyed by target and functor.
+    /// A closure keyed by target, functor, occurrence and embedded callable identity.
     ///
-    /// Captured variables are intentionally omitted so that two closures
-    /// with identical targets and functors share a specialization; the
-    /// captured values are threaded as ordinary arguments at the call site
-    /// rather than being part of the dispatch identity.
+    /// Runtime captures are omitted; an embedded capture changes generated code
+    /// and therefore participates in identity. Only capture-free identities are
+    /// embedded, so recursive environments cannot expand the key indefinitely.
     ///
     /// The target is package-qualified (`StoreItemId`) so that closures with
     /// the same package-local id in different packages do not collide.
@@ -398,6 +673,7 @@ pub enum ConcreteCallableKey {
         target: StoreItemId,
         functor: FunctorApp,
         occurrence: Option<usize>,
+        embedded: Option<(ItemId, FunctorApp)>,
     },
 }
 
@@ -409,19 +685,21 @@ pub type LatticeStates = FxHashMap<LocalItemId, Vec<(LocalVarId, CalleeLattice)>
 /// Output of the analysis phase.
 #[derive(Clone, Debug, Default)]
 pub struct AnalysisResult {
+    /// Shared snapshot rebuilt at each analysis boundary, before specialization.
+    pub(crate) udt_metadata: Rc<UdtMetadata>,
     /// Callable parameters with arrow types found in HOF declarations.
     pub callable_params: Vec<CallableParam>,
-    /// Call sites where HOFs are invoked with concrete callable arguments.
+    /// HOF argument candidates, including dynamic placeholders for diagnostics.
     pub call_sites: Vec<CallSite>,
     /// Direct calls whose callee resolves to a concrete callable value.
     pub direct_call_sites: Vec<DirectCallSite>,
-    /// Direct calls whose `Var(Res::Local)` callee resolved to `Dynamic`
-    /// (over-defined), recorded so the driver can emit a `DynamicCallable`
-    /// diagnostic with the call-site span. `Bottom` callees are excluded to
-    /// avoid spurious errors on intermediate fixpoint iterations.
+    /// Direct calls with unresolved callees or inadmissible capture operands,
+    /// recorded for call-site `DynamicCallable` diagnostics. Calls through the
+    /// owning HOF's unresolved parameter and `Bottom` callees are excluded to
+    /// avoid diagnosing transient forwarding states.
     pub unresolved_direct_call_sites: Vec<StoreExprId>,
-    /// Per-callable lattice states for all callable-typed local variables
-    /// after flow analysis.
+    /// Non-bottom lattice snapshots for entry-package callable locals, used
+    /// for diagnostics and tests.
     pub lattice_states: LatticeStates,
 }
 
@@ -429,8 +707,9 @@ pub struct AnalysisResult {
 ///
 /// # Severity
 ///
-/// All variants are fatal to the FIR transform pipeline except
-/// [`Error::ExcessiveSpecializations`], which is emitted as a warning.
+/// [`Error::DynamicCallable`] and [`Error::FixpointNotReached`] are deferred
+/// to downstream analysis. [`Error::ExcessiveSpecializations`] is a warning;
+/// the remaining variants are fatal to the FIR transform pipeline.
 /// [`Error::RecursiveSpecialization`] is the fatal counterpart of that warning:
 /// it fires when a single HOF's cumulative specialization count across all
 /// fixpoint iterations exceeds a hard cap, backstopping any runaway-growth
@@ -439,18 +718,19 @@ pub struct AnalysisResult {
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     /// Emitted when a callable argument cannot be statically resolved to a
-    /// concrete set of callables, typically because the number of conditional
-    /// branches exceeds `MULTI_CAP`, a conditional has mismatched Multi
-    /// variants, or a mutable callable variable is reassigned in a loop.
+    /// concrete set of callables, for example when the candidate count exceeds
+    /// `MULTI_CAP`, a capture cannot be reconstructed in scope, or a mutable
+    /// callable variable is reassigned in a loop.
     ///
     /// This diagnostic is also emitted when a captured compound literal — a
-    /// struct, tuple, or array — cannot be safely rebuilt in the caller's
+    /// constructor or copy-update — cannot be rebuilt in the caller's
     /// scope. For example, a captured struct field whose value comes from an
     /// operation call cannot be duplicated or reordered out of the scope that
     /// produced it. Declining such a closure to a dynamic call site keeps the
-    /// original dispatch and produces this recoverable diagnostic instead of
-    /// generating incorrect code, which would be a hard error on the base
-    /// profile.
+    /// original dispatch for downstream analysis instead of inventing capture
+    /// operands. The pipeline defers this diagnostic on every target profile;
+    /// capability analysis and partial evaluation decide whether the residual
+    /// program can generate QIR.
     #[error("callable argument could not be resolved statically")]
     #[diagnostic(code("Qdk.Qsc.Defunctionalize.DynamicCallable"))]
     #[diagnostic(help("ensure all callable arguments are known at compile time"))]
@@ -464,9 +744,9 @@ pub enum Error {
     /// single member. Failing closed here keeps the transform from emitting
     /// incorrect output for a shape it does not yet support.
     ///
-    /// Forwarding two or more callable arrays through one call is always
-    /// declined with this diagnostic rather than partially specialized, so this
-    /// unsupported shape can never turn into incorrect code.
+    /// The guard recognizes repeated, statically resolved callable-array
+    /// positions. It is not a blanket ban on every signature containing two
+    /// arrays; unresolved or singleton candidate sets can take other paths.
     #[error("higher-order function forwards more than one callable array, which is not supported")]
     #[diagnostic(code("Qdk.Qsc.Defunctionalize.UnsupportedMultipleCallableArrays"))]
     #[diagnostic(help(
@@ -479,8 +759,9 @@ pub enum Error {
     /// without eliminating every reachable closure or arrow-typed parameter.
     /// The first field is the iteration count actually reached and the
     /// second is the number of remaining callable values. Suppressed when
-    /// any other diagnostic has already fired this pass so the root cause is
-    /// surfaced instead of a generic non-convergence report.
+    /// another error has already been recorded, or when unresolved direct
+    /// calls can instead receive `DynamicCallable` diagnostics. Warnings do not
+    /// suppress it.
     #[error(
         "defunctionalization did not converge within {0} iterations; {1} callable values remain"
     )]
@@ -511,7 +792,7 @@ pub enum Error {
     ),
 
     /// Fatal error emitted when a single HOF's cumulative specialization count,
-    /// summed across every fixpoint iteration, exceeds the hard cap. The string
+    /// deduplicated across every fixpoint iteration, exceeds the hard cap. The string
     /// is the HOF name and the second field is the cumulative distinct
     /// specialization count. This is the fatal backstop for the
     /// [`Error::ExcessiveSpecializations`] warning: the warning flags a HOF that
@@ -553,11 +834,31 @@ impl Error {
         }
     }
 
-    /// Returns `true` when the diagnostic is non-fatal to the FIR transform
-    /// pipeline.
+    /// Returns `true` for diagnostics surfaced on the pipeline's warning
+    /// channel. Deferred convergence diagnostics are classified separately.
     #[must_use]
     pub fn is_warning(&self) -> bool {
         matches!(self, Self::ExcessiveSpecializations(..))
+    }
+
+    /// Returns `true` when the diagnostic reports a defunctionalization
+    /// convergence failure that may be safely deferred to downstream analysis.
+    ///
+    /// `FixpointNotReached` and `DynamicCallable` report dispatch that this
+    /// pass cannot resolve. The pipeline retains its structural checks for the
+    /// residual FIR; resource counting and partial evaluation then resolve or
+    /// reject its callable behavior. These diagnostics are suppressed rather
+    /// than surfaced on the warning channel.
+    ///
+    /// The remaining resource and unsupported-shape backstops are not
+    /// deferrable: they signal a shape the transform cannot lower and must stay
+    /// on their existing fatal or warning paths.
+    #[must_use]
+    pub fn is_deferrable(&self) -> bool {
+        matches!(
+            self,
+            Self::FixpointNotReached(..) | Self::DynamicCallable(..)
+        )
     }
 }
 

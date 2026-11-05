@@ -32,15 +32,52 @@ use crate::EMPTY_EXEC_RANGE;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BinOp, Block, BlockId, CallableDecl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident,
-    ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup,
-    Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
+    BinOp, Block, BlockId, CallableDecl, CallableImpl, CallableKind, ExecGraph, Expr, ExprId,
+    ExprKind, Field, FieldPath, Functor, Ident, Item, ItemId, ItemKind, Lit, LocalItemId,
+    LocalVarId, Mutability, Package, PackageId, PackageLookup, Pat, PatId, PatKind, Res, SpecDecl,
+    SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, StringComponent, UnOp, Visibility,
 };
 use rustc_hash::FxHashSet;
 
 use qsc_fir::fir::PackageSpan;
-use qsc_fir::ty::{Arrow, Prim, Ty};
+use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Prim, Ty};
 use std::rc::Rc;
+
+/// Checks representation-preserving assignment compatibility after inference.
+/// Only callable capabilities may weaken; callable inputs are contravariant,
+/// outputs are covariant, and nominal identity and aggregate shape stay exact.
+pub(crate) fn types_assignable(actual: &Ty, expected: &Ty) -> bool {
+    match (actual, expected) {
+        (Ty::Array(actual), Ty::Array(expected)) => types_assignable(actual, expected),
+        (Ty::Tuple(actual), Ty::Tuple(expected)) => {
+            actual.len() == expected.len()
+                && actual
+                    .iter()
+                    .zip(expected)
+                    .all(|(a, e)| types_assignable(a, e))
+        }
+        (Ty::Arrow(actual), Ty::Arrow(expected)) => {
+            actual.kind == expected.kind
+                && types_assignable(&expected.input, &actual.input)
+                && types_assignable(&actual.output, &expected.output)
+                && functors_satisfy(actual.functors, expected.functors)
+        }
+        _ => actual == expected,
+    }
+}
+
+/// Tests concrete capability inclusion without inferring unresolved functor sets.
+pub(crate) fn functors_satisfy(actual: FunctorSet, expected: FunctorSet) -> bool {
+    match (actual, expected) {
+        (_, FunctorSet::Value(FunctorSetValue::Empty))
+        | (FunctorSet::Value(FunctorSetValue::CtlAdj), FunctorSet::Value(_))
+        | (FunctorSet::Value(FunctorSetValue::Adj), FunctorSet::Value(FunctorSetValue::Adj))
+        | (FunctorSet::Value(FunctorSetValue::Ctl), FunctorSet::Value(FunctorSetValue::Ctl)) => {
+            true
+        }
+        _ => actual == expected,
+    }
+}
 
 /// Allocates an `Expr` with the given kind and inserts it into the package.
 pub(crate) fn alloc_expr(
@@ -572,6 +609,133 @@ pub(crate) fn alloc_local_var(
         package.synthetic_span(),
     );
     (local_id, stmt_id)
+}
+
+/// Allocates a callable whose body is a single `fail` expression and inserts it
+/// into the package, returning its new [`LocalItemId`].
+///
+/// Used for arrow-typed return-slot defaults and consumed closure placeholders.
+/// The caller must establish that the placeholder is never invoked; `Fail`
+/// permits a body with any output type but does not preserve callable behavior.
+/// Every advertised functor has a separate fail-bodied specialization so
+/// analysis can safely consider the placeholder as a possible callable value.
+///
+/// The generated name is `{name_prefix}_{item_id}`, using the package's assigner.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn alloc_fail_callable(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    name_prefix: &str,
+    fail_message: &str,
+    kind: CallableKind,
+    input_ty: &Ty,
+    output_ty: &Ty,
+    functors: FunctorSetValue,
+) -> LocalItemId {
+    let body = alloc_fail_spec(package, assigner, fail_message, output_ty, false);
+
+    let input_pat_id = alloc_discard_pat(
+        package,
+        assigner,
+        input_ty.clone(),
+        package.synthetic_span(),
+    );
+
+    let body_impl = SpecImpl {
+        body,
+        adj: functors
+            .contains(&Functor::Adj)
+            .then(|| alloc_fail_spec(package, assigner, fail_message, output_ty, false)),
+        ctl: functors
+            .contains(&Functor::Ctl)
+            .then(|| alloc_fail_spec(package, assigner, fail_message, output_ty, true)),
+        ctl_adj: (functors == FunctorSetValue::CtlAdj)
+            .then(|| alloc_fail_spec(package, assigner, fail_message, output_ty, true)),
+    };
+
+    let new_item_id = assigner.next_item();
+    let decl = CallableDecl {
+        span: package.synthetic_span(),
+        kind,
+        name: Ident {
+            id: LocalVarId::from(0_u32),
+            span: package.synthetic_span(),
+            name: Rc::from(format!("{name_prefix}_{new_item_id}")),
+        },
+        generics: Vec::new(),
+        input: input_pat_id,
+        output: output_ty.clone(),
+        functors,
+        implementation: CallableImpl::Spec(body_impl),
+        attrs: Vec::new(),
+    };
+
+    package.items.insert(
+        new_item_id,
+        Item {
+            id: new_item_id,
+            span: package.synthetic_span(),
+            parent: None,
+            doc: Rc::from(""),
+            attrs: Vec::new(),
+            visibility: Visibility::Internal,
+            kind: ItemKind::Callable(Box::new(decl)),
+        },
+    );
+
+    new_item_id
+}
+
+/// Allocates a placeholder specialization that fails with `fail_message`.
+///
+/// Each call creates fresh arena nodes so specializations do not share ownership.
+/// The diverging `Fail` expression and its block are typed as `output_ty`.
+/// When `controlled` is true, the specialization also discards a `Qubit[]` control
+/// input; ordinary arguments are handled by the callable's shared input pattern.
+/// The execution graph is left empty for the pipeline's final rebuild.
+fn alloc_fail_spec(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    fail_message: &str,
+    output_ty: &Ty,
+    controlled: bool,
+) -> SpecDecl {
+    let msg_expr_id = alloc_expr(
+        package,
+        assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit(Rc::from(fail_message))]),
+        package.synthetic_span(),
+    );
+    let fail_expr_id = alloc_expr(
+        package,
+        assigner,
+        output_ty.clone(),
+        ExprKind::Fail(msg_expr_id),
+        package.synthetic_span(),
+    );
+    let trailing_stmt = alloc_expr_stmt(package, assigner, fail_expr_id, package.synthetic_span());
+    let block = alloc_block(
+        package,
+        assigner,
+        vec![trailing_stmt],
+        output_ty.clone(),
+        package.synthetic_span(),
+    );
+    let input = controlled.then(|| {
+        alloc_discard_pat(
+            package,
+            assigner,
+            Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
+            package.synthetic_span(),
+        )
+    });
+    SpecDecl {
+        span: package.synthetic_span(),
+        block,
+        input,
+        exec_graph: ExecGraph::default(),
+    }
 }
 
 /// Decomposes a `PatKind::Bind` pattern into a `PatKind::Tuple` of per-element
