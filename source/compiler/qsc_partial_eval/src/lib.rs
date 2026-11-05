@@ -166,6 +166,7 @@ pub enum Error {
     #[diagnostic(help(
         "the compile-time stack limit has been exceeded, consider refactoring to reduce recursion depth"
     ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#compile-time-stack-depth-limit"))]
     StackLimitExceeded(#[label] PackageSpan),
 }
 
