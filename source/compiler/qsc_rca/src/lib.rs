@@ -719,6 +719,8 @@ bitflags! {
         const UseOfDynamicBranchingInParallelExpr = 1 << 32;
         /// Use of a dynamic limit in a parallel expression.
         const UseOfDynamicLimitInParallelExpr = 1 << 33;
+        /// Use of fail in a dynamic context that requires an emitted IR abort.
+        const UseOfDynamicFail = 1 << 34;
     }
 }
 
@@ -840,6 +842,9 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicLimitInParallelExpr) {
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicFail) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         capabilities

@@ -34,7 +34,7 @@ fn check_rca_for_function_in_core_package() {
                                 runtime_features: RuntimeFeatureFlags(0x0)
                                 value_kind: Constant
                             variable: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicallySizedArray | LoopWithDynamicCondition)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicallySizedArray | LoopWithDynamicCondition | UseOfDynamicFail)
                                 value_kind: Variable
                 adj: <none>
                 ctl: <none>

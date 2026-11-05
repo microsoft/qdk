@@ -823,6 +823,20 @@ impl<'a> Analyzer<'a> {
         let mut compute_kind = ComputeKind::Static;
         compute_kind.aggregate_runtime_features(msg_expr_compute_kind, ValueKind::Constant);
 
+        if !self
+            .get_current_application_instance()
+            .active_dynamic_scopes
+            .is_empty()
+        {
+            compute_kind.aggregate_runtime_features(
+                ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicFail,
+                    value_kind: ValueKind::Constant,
+                },
+                ValueKind::Constant,
+            );
+        }
+
         compute_kind
     }
 
