@@ -4,7 +4,7 @@ binar>=0.1.2
 cirq-core==1.7.0
 # `deq` requires `stim`, which has no wheels for Linux aarch64 or Windows ARM64,
 # so, we skip type-checking on those platforms.
-deq>=0.5.17,<0.6; platform_machine != 'aarch64' and platform_machine != 'ARM64'
+deq>=0.6.0,<0.7; platform_machine != 'aarch64' and platform_machine != 'ARM64'
 highspy>=1.11,<2
 matplotlib
 more-itertools>=10.0
