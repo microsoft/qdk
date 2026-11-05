@@ -3,8 +3,7 @@
 
 use log::trace;
 use qsc::{
-    CompileUnit, LanguageFeatures, PackageStore, PackageType, PassContext, PassError, SourceMap,
-    Span, ast, compile,
+    CompileUnit, LanguageFeatures, PackageStore, PackageType, SourceMap, Span, ast, compile,
     display::Lookup,
     error::WithSource,
     hir::{self, PackageId, Res},
@@ -441,11 +440,24 @@ fn run_fir_passes(
         }
     }
 
-    let caps_results =
-        PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, target_profile.into());
+    let caps_results = if fir_store.get(fir_package_id).entry.is_some() {
+        qsc::codegen::qir::analyze_capabilities_with_fallback(
+            &fir_store,
+            fir_package_id,
+            None,
+            target_profile.into(),
+        )
+        .map(|analysis| analysis.compute_properties)
+    } else {
+        qsc::interpret::validate_increment_capabilities(
+            &fir_store,
+            fir_package_id,
+            target_profile.into(),
+        )
+    };
     if let Err(caps_errors) = caps_results {
         for err in caps_errors {
-            let sources = if let PassError::CapabilitiesCk(err) = &err {
+            let sources = if let Some(err) = err.capability_error() {
                 let err_package = err.span().package;
                 &package_store
                     .get((Into::<usize>::into(err_package)).into())

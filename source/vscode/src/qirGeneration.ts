@@ -9,7 +9,10 @@ import {
 } from "qsharp-lang";
 import * as vscode from "vscode";
 import { getPlatformEnv, qsharpExtensionId } from "./common";
-import { invokeAndReportCommandDiagnostics } from "./diagnostics";
+import {
+  invokeAndReportCommandDiagnostics,
+  reportCommandDiagnostics,
+} from "./diagnostics";
 import { FullProgramConfig, getActiveProgram } from "./programConfig";
 import {
   EventType,
@@ -138,12 +141,13 @@ export async function getQirForProgram(
           worker.terminate();
         });
 
-        const qir = await invokeAndReportCommandDiagnostics(
-          () => worker.getQir(config),
+        const result = await invokeAndReportCommandDiagnostics(
+          () => worker.getQirWithDiagnostics(config),
           { populateProblemsView: true },
         );
+        reportCommandDiagnostics(result.warnings);
         progress.report({ increment: 100 });
-        return qir;
+        return result.qir;
       },
     );
 
@@ -185,6 +189,7 @@ export async function getQirForProgram(
       `Compiling to QIR failed.\n${e instanceof Error ? e.stack : e}`,
     );
   } finally {
+    clearTimeout(compilerTimeout);
     worker.terminate();
   }
 }
@@ -197,6 +202,7 @@ async function getQirForActiveWindowCommand() {
       content: qir,
     });
     await vscode.window.showTextDocument(qirDoc);
+    return qir;
   } catch (e: any) {
     log.error("QIR generation failed. ", e);
     if (e.name === "QirGenerationError") {

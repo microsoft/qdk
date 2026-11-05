@@ -61,7 +61,7 @@ serializable_type! {
     QSharpError,
     {
         document: String,
-        diagnostic: VSDiagnostic,
+        pub(crate) diagnostic: VSDiagnostic,
         stack: Option<String>,
     },
     r#"export interface IQSharpError {
@@ -310,6 +310,9 @@ pub fn project_errors_into_qsharp_errors(
 
 fn interpret_error_labels(err: &interpret::Error) -> Vec<Label> {
     match err {
+        interpret::Error::AdaptiveProfileFallback(warning) => {
+            interpret_error_labels(&warning.reason)
+        }
         interpret::Error::Eval(e) => error_labels(e.error()),
         interpret::Error::Compile(e) => error_labels(e),
         interpret::Error::Pass(e) => error_labels(e),

@@ -270,7 +270,19 @@ class Interpreter:
         :param args: The arguments to pass to the callable, if any.
 
         :returns qir: The QIR string.
+        Nonfatal warnings use the same Python presentation policy as
+        :meth:`qdk.Context.compile`. Use ``qir_with_diagnostics`` to retain
+        diagnostics without presenting them.
         """
+        ...
+
+    def qir_with_diagnostics(
+        self,
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
+    ) -> Tuple[str, List[Tuple[str, str]]]:
+        """Return QIR and nonfatal (code, message) pairs without presenting warnings."""
         ...
 
     def circuit(
@@ -674,6 +686,52 @@ def compile_qasm_program_to_qir(
     :rtype: str
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error compiling the program.
+    """
+    ...
+
+def compile_qasm_program_to_qir_with_diagnostics(
+    source: str,
+    read_file: Callable[[str], Tuple[str, str]],
+    list_directory: Callable[[str], List[Dict[str, str]]],
+    resolve_path: Callable[[str, str], str],
+    fetch_github: Callable[[str, str, str, str], str],
+    **kwargs: Any,
+) -> Tuple[str, List[Tuple[str, str]]]:
+    """
+    Compiles OpenQASM source code to QIR (Quantum Intermediate Representation)
+    and returns its nonfatal diagnostics without presenting warnings.
+
+    .. note::
+        This call, while exported, is intended for the Python wrapper rather
+        than direct user calls. The wrapper supplies filesystem callbacks and
+        decides how to present the returned diagnostics. This function does not
+        emit Python warnings or apply warning filters.
+
+    :param source: The OpenQASM source code to compile to QIR.
+    :param read_file: A callable that reads a file and returns its path and contents.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
+
+      - ``name`` (str): The name used for the generated entry point. Defaults to
+        ``"program"`` and is sanitized to a valid identifier.
+      - ``target_profile`` (TargetProfile): The requested profile. If omitted,
+        uses the source's profile pragma, or ``Adaptive_RIF`` if there is none.
+      - ``search_path`` (str): The base path for resolving source files and
+        includes. Required by this native function; the Python wrapper supplies
+        ``"."`` when omitted by the user.
+      - ``output_semantics`` (OutputSemantics): The output semantics for the
+        compilation. Defaults to ``OutputSemantics.OpenQasm``.
+    :return: A tuple containing the QIR string and a list of nonfatal
+        ``(code, message)`` diagnostic pairs. The list is empty when generation
+        produces no warnings. A diagnostic without a code uses an empty string.
+        Fatal failures raise an exception instead of returning partial QIR.
+    :rtype: Tuple[str, List[Tuple[str, str]]]
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If compilation or QIR generation fails, including unbound input parameters.
+    :raises TypeError: If a keyword option has an incompatible type.
+    :raises Exception: If the required ``search_path`` option is missing.
     """
     ...
 

@@ -16,6 +16,56 @@ use test_fs::{FsNode, TestProjectHost, dir, file};
 
 pub(crate) mod test_fs;
 
+async fn adaptive_fallback_diagnostics(source: &str) -> Vec<compile::ErrorKind> {
+    let errors = RefCell::new(Vec::new());
+    let cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut handler = create_update_handler(&mut ls, &errors, &cases);
+    ls.update_configuration(WorkspaceConfigurationUpdate {
+        target_profile: Some(qsc::target::Profile::Adaptive),
+        ..Default::default()
+    });
+    ls.update_document("fallback.qs", 1, source, "qsharp");
+    handler.apply_pending().await;
+    errors
+        .borrow()
+        .iter()
+        .flat_map(|(_, _, errors, _)| errors.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn adaptive_fallback_live_positive_has_no_capability_error() {
+    let errors = adaptive_fallback_diagnostics(
+        r#"
+operation Count(q : Qubit) : Int {
+    mutable n = 0; for _ in 1..3 { X(q); set n += 1; } n
+}
+@EntryPoint() operation Main() : (Int, Result[]) {
+    use q = Qubit(); let n = Count(q); use qs = Qubit[n];
+    let rs = MResetEachZ(qs);
+    (n + (MResetZ(q) == One ? 10 | 0), rs)
+}"#,
+    )
+    .await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[tokio::test]
+async fn adaptive_fallback_live_genuine_dynamic_stays_error() {
+    let errors = adaptive_fallback_diagnostics("@EntryPoint() operation Main() : Result[] { use q = Qubit(); let n = MResetZ(q) == One ? 3 | 2; use qs = Qubit[n]; MResetEachZ(qs) }").await;
+    assert!(
+        errors
+            .iter()
+            .any(|error| matches!(error, compile::ErrorKind::Pass(pass)
+                if pass.capability_error().is_some_and(|error|
+                    miette::Diagnostic::code(error).is_some_and(|code|
+                        code.to_string() == "Qdk.Qsc.CapabilitiesCk.UseOfDynamicallySizedArray")
+                    && error.span().span.hi > error.span().span.lo))),
+        "{errors:?}"
+    );
+}
+
 #[tokio::test]
 async fn single_document() {
     let received_errors = RefCell::new(Vec::new());

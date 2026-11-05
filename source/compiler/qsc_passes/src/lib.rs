@@ -58,6 +58,7 @@ pub(crate) static QIR_RUNTIME_NAMESPACE: &[&str] = &["QIR", "Runtime"];
 #[diagnostic(transparent)]
 #[error(transparent)]
 pub enum Error {
+    AdaptiveFallbackProof(AdaptiveFallbackAnalysisError),
     BorrowCk(borrowck::Error),
     CallableLimits(callable_limits::Error),
     CapabilitiesCk(qsc_rca::errors::Error),
@@ -72,6 +73,27 @@ pub enum Error {
     Reset(reset::Error),
     SpecGen(spec_gen::Error),
     TestAttribute(test_attribute::TestAttributeError),
+}
+
+#[derive(Clone, Debug, Diagnostic, Error)]
+#[error(
+    "strict Adaptive_RIF retry analysis failed: {error}; original Adaptive diagnostics are retained"
+)]
+#[diagnostic(forward(error))]
+pub struct AdaptiveFallbackAnalysisError {
+    pub error: Box<Error>,
+}
+
+impl Error {
+    /// Returns the capability diagnostic, including a failed fallback attempt.
+    #[must_use]
+    pub fn capability_error(&self) -> Option<&qsc_rca::errors::Error> {
+        match self {
+            Self::CapabilitiesCk(error) => Some(error),
+            Self::AdaptiveFallbackProof(context) => context.error.capability_error(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

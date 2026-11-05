@@ -44,6 +44,101 @@ suite("Q# Language Service Tests", function suite() {
     vscode.commands.executeCommand("workbench.action.problems.focus");
   });
 
+  const fallbackDirectory = joinPath(
+    workspaceFolderUri,
+    "adaptive-fallback-command",
+  );
+  const fallbackUri = joinPath(fallbackDirectory, "src", "Main.qs");
+  const isFallbackWarning = (diagnostic: vscode.Diagnostic) =>
+    (typeof diagnostic.code === "object"
+      ? diagnostic.code.value
+      : diagnostic.code) === "Qdk.Qsc.Codegen.AdaptiveProfileFallback";
+  const writeFallbackProgram = async (source: string) => {
+    await vscode.workspace.fs.createDirectory(
+      joinPath(fallbackDirectory, "src"),
+    );
+    const encoder = new TextEncoder();
+    await vscode.workspace.fs.writeFile(
+      joinPath(fallbackDirectory, "qsharp.json"),
+      encoder.encode('{"targetProfile":"adaptive"}'),
+    );
+    await vscode.workspace.fs.writeFile(fallbackUri, encoder.encode(source));
+    const doc = await vscode.workspace.openTextDocument(fallbackUri);
+    await vscode.window.showTextDocument(doc);
+  };
+
+  test("adaptive_fallback command retains QIR and publishes coded Warning", async () => {
+    try {
+      await writeFallbackProgram(`
+operation Count(q : Qubit) : Int {
+  mutable n = 0; for _ in 1..3 { X(q); set n += 1; } n
+}
+@EntryPoint() operation Main() : (Int, Result[]) {
+  use q = Qubit(); let n = Count(q); use qs = Qubit[n]; let rs = MResetEachZ(qs);
+  (n + (MResetZ(q) == One ? 10 | 0), rs)
+}`);
+      const qir = await vscode.commands.executeCommand<string>(
+        "qsharp-vscode.getQir",
+      );
+      assert.isString(qir);
+      assert.include(qir!, "ENTRYPOINT");
+      const warnings = vscode.languages
+        .getDiagnostics(fallbackUri)
+        .filter(isFallbackWarning);
+      assert.lengthOf(warnings, 1);
+      assert.equal(warnings[0].severity, vscode.DiagnosticSeverity.Warning);
+      assert.include(warnings[0].message, "QDK command warning:");
+      assert.notInclude(warnings[0].message, "command error");
+      await vscode.commands.executeCommand(
+        "qsharp-vscode.dismissCommandDiagnostics",
+      );
+      assert.isFalse(
+        vscode.languages.getDiagnostics(fallbackUri).some(isFallbackWarning),
+      );
+    } finally {
+      await vscode.workspace.fs.delete(fallbackDirectory, { recursive: true });
+    }
+  });
+
+  test("adaptive_fallback subsequent ordinary command has no stale warning", async () => {
+    try {
+      await writeFallbackProgram(
+        `operation Count(q : Qubit) : Int {
+          mutable n = 0; for _ in 1..3 { X(q); set n += 1; } n
+        }
+        @EntryPoint() operation Main() : (Int, Result[]) {
+          use q = Qubit(); let n = Count(q); use qs = Qubit[n];
+          let rs = MResetEachZ(qs); (n + (MResetZ(q) == One ? 10 | 0), rs)
+        }`,
+      );
+      await vscode.commands.executeCommand<string>("qsharp-vscode.getQir");
+      assert.isTrue(
+        vscode.languages.getDiagnostics(fallbackUri).some(isFallbackWarning),
+      );
+      const doc = await vscode.workspace.openTextDocument(fallbackUri);
+      const editor = await vscode.window.showTextDocument(doc);
+      await editor.edit((edit) =>
+        edit.replace(
+          new vscode.Range(
+            doc.positionAt(0),
+            doc.positionAt(doc.getText().length),
+          ),
+          "@EntryPoint() operation Main() : Result { use q = Qubit(); MResetZ(q) }",
+        ),
+      );
+      await doc.save();
+      const qir = await vscode.commands.executeCommand<string>(
+        "qsharp-vscode.getQir",
+      );
+      assert.isString(qir);
+      assert.isFalse(
+        vscode.languages.getDiagnostics(fallbackUri).some(isFallbackWarning),
+      );
+    } finally {
+      await vscode.workspace.fs.delete(fallbackDirectory, { recursive: true });
+    }
+  });
+
   test("Q# language is registered", async () => {
     const doc = await openDocumentAndWaitForProcessing(testQs);
     assert.equal(

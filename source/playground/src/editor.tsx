@@ -85,6 +85,8 @@ export function Editor(props: {
   setHir: (hir: string) => void;
   setRir: (rir: string[]) => void;
   setQir: (qir: string) => void;
+  setRirWarnings: (warnings: VSDiagnostic[]) => void;
+  setQirWarnings: (warnings: VSDiagnostic[]) => void;
   activeTab: ActiveTab;
   languageService: ILanguageServiceWorker;
   language?: "qsharp" | "openqasm";
@@ -158,6 +160,11 @@ export function Editor(props: {
     }
 
     if (props.activeTab === "qir-tab" || props.activeTab === "rir-tab") {
+      if (props.activeTab === "rir-tab") {
+        props.setRirWarnings([]);
+      } else {
+        props.setQirWarnings([]);
+      }
       // OpenQASM codegen runs through the interpreter and is slower than Q#'s
       // direct path, so allow more time before terminating the worker.
       const codeGenTimeout = language === "openqasm" ? 10000 : 1000; // ms
@@ -170,13 +177,19 @@ export function Editor(props: {
       }, codeGenTimeout);
       try {
         if (props.activeTab === "rir-tab") {
-          const ir = await compiler.getRir(config);
+          const result = await compiler.getRirWithDiagnostics(config);
           clearTimeout(compilerTimeout);
-          props.setRir(ir);
+          props.setRir(result.rir);
+          props.setRirWarnings(
+            result.warnings.map((warning) => warning.diagnostic),
+          );
         } else {
-          const ir = await compiler.getQir(config);
+          const result = await compiler.getQirWithDiagnostics(config);
           clearTimeout(compilerTimeout);
-          props.setQir(ir);
+          props.setQir(result.qir);
+          props.setQirWarnings(
+            result.warnings.map((warning) => warning.diagnostic),
+          );
         }
       } catch (e: any) {
         if (timedOut) {
@@ -193,6 +206,7 @@ export function Editor(props: {
           }
         }
       } finally {
+        clearTimeout(compilerTimeout);
         compiler.terminate();
       }
     }

@@ -9,6 +9,133 @@ from qdk.simulation import run_qir
 import qdk.code
 from contextlib import redirect_stdout
 import io
+import warnings
+import sys
+
+
+ADAPTIVE_FALLBACK_SOURCE = """
+operation Count(q : Qubit) : Int {
+    mutable n = 0;
+    for _ in 1..3 { X(q); set n += 1; }
+    n
+}
+operation Main() : (Int, Result[]) {
+    use q = Qubit(); let n = Count(q); use qs = Qubit[n];
+    let rs = MResetEachZ(qs);
+    (n + (MResetZ(q) == One ? 10 | 0), rs)
+}
+"""
+
+
+def test_adaptive_fallback_expression_warning_and_cpu_semantics() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    expected = (13, [qsharp.Result.Zero] * 3)
+    assert qsharp.eval("Main()") == expected
+    with pytest.warns(UserWarning, match="Qdk.Qsc.Codegen.AdaptiveProfileFallback") as caught:
+        program = str(qsharp.compile("Main()"))
+    assert len(caught) == 1
+    assert "QIR 1.0" in str(caught[0].message)
+    assert run_qir(program, shots=1, type="cpu") == [expected]
+    assert program.count("call void @__quantum__qis__x__body(") == 3
+    reference = ADAPTIVE_FALLBACK_SOURCE.replace(
+        "let n = Count(q);", "X(q); X(q); X(q); let n = 3;"
+    )
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qsharp.eval(reference)
+    assert qsharp.eval("Main()") == expected
+    assert run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu") == [expected]
+
+def test_adaptive_fallback_warning_can_be_promoted_to_error() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        with pytest.raises(UserWarning, match="AdaptiveProfileFallback"):
+            qsharp.compile("Main()")
+
+
+def test_adaptive_fallback_global_warning_points_to_user_call() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        line = sys._getframe().f_lineno + 1
+        qsharp.compile("Main()")
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert caught[0].lineno == line
+
+
+def test_adaptive_fallback_context_warning_points_to_user_call() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        line = sys._getframe().f_lineno + 1
+        ctx.compile("Main()")
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert caught[0].lineno == line
+
+
+def test_adaptive_fallback_default_filter_distinguishes_user_call_sites() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("default")
+        ctx.compile("Main()")
+        ctx.compile("Main()")
+    assert len(caught) == 2
+    assert caught[0].lineno != caught[1].lineno
+
+
+def test_adaptive_fallback_warning_respects_user_module_filter() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("ignore", category=UserWarning, module=f"^{__name__}$")
+        ctx.compile("Main()")
+    assert not caught
+
+
+def test_adaptive_fallback_native_details_do_not_present_warnings() -> None:
+    from qdk._interpreter import get_interpreter
+
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        qir, diagnostics = get_interpreter().qir_with_diagnostics("Main()")
+    assert not caught
+    assert diagnostics[0][0] == "Qdk.Qsc.Codegen.AdaptiveProfileFallback"
+    assert len(diagnostics) == 1
+    assert run_qir(qir, shots=1, type="cpu") == [(13, [qsharp.Result.Zero] * 3)]
+
+
+def test_adaptive_fallback_native_compatibility_warning_uses_python_caller_policy() -> None:
+    from qdk._interpreter import get_interpreter
+
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        line = sys._getframe().f_lineno + 1
+        qir = get_interpreter().qir("Main()")
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert caught[0].lineno == line
+    assert "Qdk.Qsc.Codegen.AdaptiveProfileFallback" in str(caught[0].message)
+    assert run_qir(qir, shots=1, type="cpu") == [(13, [qsharp.Result.Zero] * 3)]
+
+
+def test_adaptive_fallback_normal_success_has_no_warning() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        qsharp.compile("{ use q = Qubit(); MResetZ(q) }")
+    assert not caught
 
 # Tests for the Python library for Q#
 

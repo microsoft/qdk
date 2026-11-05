@@ -30,6 +30,7 @@ from typing import (
 )
 
 from . import telemetry_events, code
+from ._diagnostics import report_qir_warnings
 from ._native import (  # type: ignore
     Circuit,
     CircuitConfig,
@@ -811,6 +812,14 @@ class Context:
         Concrete types do not remove target-profile, capture, or codegen-limit
         restrictions. Compilation does not specialize the live simulation context.
 
+        A proven Adaptive backend fallback preserves source selection and emits
+        Adaptive_RIF / QIR 1.0. It reports a ``UserWarning`` with code
+        ``Qdk.Qsc.Codegen.AdaptiveProfileFallback`` after successful generation.
+        Normal Python warning filters apply; promoting warnings to errors raises
+        ``UserWarning`` rather than returning the compiled program.
+        Warnings are attributed to the caller of this API, not an internal QDK
+        wrapper. The native diagnostic-returning API does not present them.
+
         Example:
 
         .. code-block:: python
@@ -831,15 +840,16 @@ class Context:
         ):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
-            ll_str = self._interpreter.qir(
+            generated = self._interpreter.qir_with_diagnostics(
                 callable=getattr(entry_expr, "__global_callable"), args=args
             )
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
             args = self._python_args_to_interpreter_args(args)
-            ll_str = self._interpreter.qir(callable=entry_expr, args=args)
+            generated = self._interpreter.qir_with_diagnostics(callable=entry_expr, args=args)
         else:
             assert isinstance(entry_expr, str)
-            ll_str = self._interpreter.qir(entry_expr=entry_expr)
+            generated = self._interpreter.qir_with_diagnostics(entry_expr=entry_expr)
+        ll_str = report_qir_warnings(generated)
         res = QirInputData("main", ll_str)
         durationMs = (monotonic() - start) * 1000
         telemetry_events.on_compile_end(durationMs, target_profile)
