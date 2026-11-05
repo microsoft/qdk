@@ -106,7 +106,7 @@ def test_code_profile_defaults_to_highs(method: str) -> None:
         distance = getattr(profile, method)(errors="X")
     assert distance == 3
     assert profile.is_logical(distance.witness.product)
-    backend.assert_called_once_with("highspy")
+    backend.assert_called_once_with("mwpf._highs")
 
 
 @requires_highs
