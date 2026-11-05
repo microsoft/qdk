@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from textwrap import dedent
+from pathlib import Path
 import pytest
 from qdk import qsharp
 from qdk._native import QSharpError
@@ -25,6 +26,85 @@ operation Main() : (Int, Result[]) {
     (n + (MResetZ(q) == One ? 10 | 0), rs)
 }
 """
+
+TRANSFORM_WARNING_SOURCE = (
+    "operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }\n"
+    "operation Main() : Result { use q = Qubit();\n"
+    + "".join(f"Apply(q1 => Rx({angle}.0, q1), q);\n" for angle in range(1, 12))
+    + "MResetZ(q) }\n"
+)
+
+
+def assert_specialization_warning_message(message: str) -> None:
+    assert "Qdk.Qsc.Defunctionalize.ExcessiveSpecializations" in message
+    assert "higher-order function `Apply" in message
+    assert "generated 11 specializations, exceeding the warning threshold" in message
+    assert "help: consider reducing the number of distinct callable arguments" in message
+    assert "FIR transform error" not in message
+
+
+def test_transform_warning_adaptive_preserves_message_and_help() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(TRANSFORM_WARNING_SOURCE)
+    with pytest.warns(UserWarning, match="ExcessiveSpecializations") as caught:
+        program = ctx.compile("Main()")
+    assert len(caught) == 1
+    assert_specialization_warning_message(str(caught[0].message))
+    assert "__quantum__qis__rx__body" in str(program)
+
+
+def test_transform_warning_rif_preserves_message_and_help() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    ctx.eval(TRANSFORM_WARNING_SOURCE)
+    with pytest.warns(UserWarning, match="ExcessiveSpecializations") as caught:
+        program = ctx.compile("Main()")
+    assert len(caught) == 1
+    assert_specialization_warning_message(str(caught[0].message))
+    assert "__quantum__qis__rx__body" in str(program)
+
+
+def test_transform_warning_native_details_are_complete_without_presentation() -> None:
+    from qdk._interpreter import get_interpreter
+
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(TRANSFORM_WARNING_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        qir, diagnostics = get_interpreter().qir_with_diagnostics("Main()")
+    assert not caught
+    assert len(diagnostics) == 1
+    code, message = diagnostics[0]
+    assert_specialization_warning_message(f"{code}: {message}")
+    assert "__quantum__qis__rx__body" in qir
+
+
+def test_transform_warning_can_still_be_promoted_to_error() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(TRANSFORM_WARNING_SOURCE)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        with pytest.raises(UserWarning, match="generated 11 specializations"):
+            ctx.compile("Main()")
+
+
+def test_adaptive_fallback_failed_project_reports_original_errors_and_one_note(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "qsharp.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "Main.qs").write_text(
+        "@EntryPoint() operation Main() : Result[] { use q = Qubit(); "
+        "let n = MResetZ(q) == One ? 3 | 2; use qs = Qubit[n]; MResetEachZ(qs) }",
+        encoding="utf-8",
+    )
+    with pytest.raises(QSharpError) as caught:
+        qdk.Context(target_profile=qsharp.TargetProfile.Adaptive, project_root=str(tmp_path))
+    message = str(caught.value)
+    assert message.count("Adaptive_RIF fallback was also rejected") == 1
+    assert "UseOfDynamicallySizedArray" in message
+    assert "LoopWithDynamicCondition" not in message
+    assert "UseOfDynamicQubit" not in message
+    assert "UseOfDynamicIndex" not in message
 
 
 def test_adaptive_fallback_expression_warning_and_cpu_semantics() -> None:
@@ -128,6 +208,22 @@ def test_adaptive_fallback_native_compatibility_warning_uses_python_caller_polic
     assert caught[0].lineno == line
     assert "Qdk.Qsc.Codegen.AdaptiveProfileFallback" in str(caught[0].message)
     assert run_qir(qir, shots=1, type="cpu") == [(13, [qsharp.Result.Zero] * 3)]
+
+
+def test_qir_warning_without_frame_support_is_still_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from qdk._diagnostics import report_qir_warnings
+
+    monkeypatch.setattr("qdk._diagnostics.inspect.currentframe", lambda: None)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = report_qir_warnings(("qir", [("test.code", "warning detail")]))
+    assert result == "qir"
+    assert len(caught) == 1
+    assert caught[0].category is UserWarning
+    assert str(caught[0].message) == "test.code: warning detail"
+    assert caught[0].filename == __file__
 
 
 def test_adaptive_fallback_normal_success_has_no_warning() -> None:

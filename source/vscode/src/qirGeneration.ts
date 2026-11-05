@@ -202,7 +202,6 @@ async function getQirForActiveWindowCommand() {
       content: qir,
     });
     await vscode.window.showTextDocument(qirDoc);
-    return qir;
   } catch (e: any) {
     log.error("QIR generation failed. ", e);
     if (e.name === "QirGenerationError") {

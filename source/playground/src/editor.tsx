@@ -178,14 +178,12 @@ export function Editor(props: {
       try {
         if (props.activeTab === "rir-tab") {
           const result = await compiler.getRirWithDiagnostics(config);
-          clearTimeout(compilerTimeout);
           props.setRir(result.rir);
           props.setRirWarnings(
             result.warnings.map((warning) => warning.diagnostic),
           );
         } else {
           const result = await compiler.getQirWithDiagnostics(config);
-          clearTimeout(compilerTimeout);
           props.setQir(result.qir);
           props.setQirWarnings(
             result.warnings.map((warning) => warning.diagnostic),

@@ -134,7 +134,7 @@ test("adaptive_fallback direct RIR preview returns both forms and coded warning"
   await assert.rejects(() => compiler.getRir(fallbackProgram), QdkDiagnostics);
 });
 
-test("adaptive_fallback rejected retry preserves diagnostic codes and source spans", async () => {
+test("adaptive_fallback rejected retry preserves original diagnostics with one note", async () => {
   const compiler = await getCompiler();
   const program = {
     ...fallbackProgram,
@@ -145,23 +145,33 @@ test("adaptive_fallback rejected retry preserves diagnostic codes and source spa
       ],
     ]),
   };
+  const original = await compiler.getRir(program).then(
+    () => assert.fail("strict Adaptive must reject the program"),
+    (error) => {
+      assert.ok(error instanceof QdkDiagnostics);
+      return error.diagnostics;
+    },
+  );
   await assert.rejects(
     () => compiler.getQirWithDiagnostics(program),
     (error) => {
       assert.ok(error instanceof QdkDiagnostics);
-      const retries = error.diagnostics.filter((entry) =>
-        entry.diagnostic.message.startsWith("strict Adaptive_RIF"),
-      );
-      assert.ok(retries.length > 0);
-      for (const entry of retries) {
-        assert.equal(entry.document, "negative.qs");
-        assert.match(
-          entry.diagnostic.code ?? "",
-          /^Qdk\.Qsc\.CapabilitiesCk\./,
-        );
-        assert.ok(
-          entry.diagnostic.range.end.character >
-            entry.diagnostic.range.start.character,
+      assert.equal(error.diagnostics.length, original.length);
+      for (const [index, entry] of error.diagnostics.entries()) {
+        const expected = original[index];
+        assert.deepEqual(
+          entry,
+          index === 0
+            ? {
+                ...expected,
+                diagnostic: {
+                  ...expected.diagnostic,
+                  message:
+                    expected.diagnostic.message +
+                    "\n\nAdaptive_RIF fallback was also rejected; these diagnostics describe the requested Adaptive profile.",
+                },
+              }
+            : expected,
         );
       }
       return true;

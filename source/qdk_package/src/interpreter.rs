@@ -83,7 +83,7 @@ pub(crate) fn qir_output(result: qsc::codegen::qir::QirGenerationResult) -> QirO
                     .code()
                     .map(|code| code.to_string())
                     .unwrap_or_default(),
-                warning.to_string(),
+                qsc::error::diagnostic_message(&warning),
             )
         })
         .collect();

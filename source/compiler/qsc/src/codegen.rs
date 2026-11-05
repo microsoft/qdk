@@ -96,24 +96,16 @@ pub mod qir {
         pub fallback_reason: Option<qsc_passes::Error>,
     }
 
-    /// Only the demonstrated full-Adaptive RCA failures permit a narrower proof.
+    /// Allows one `Adaptive_RIF` attempt after any nonempty full-Adaptive RCA rejection.
+    ///
+    /// Error kinds do not determine whether the narrower backend can compile the
+    /// program. The retry must independently pass capability analysis and codegen.
     #[must_use]
     pub fn adaptive_fallback_eligible(
         capabilities: TargetCapabilityFlags,
         errors: &[qsc_passes::Error],
     ) -> bool {
-        capabilities == Profile::Adaptive.into()
-            && !errors.is_empty()
-            && errors.iter().all(|error| {
-                matches!(
-                    error,
-                    qsc_passes::Error::CapabilitiesCk(
-                        qsc_rca::errors::Error::UseOfDynamicRange(_)
-                            | qsc_rca::errors::Error::UseOfDynamicArray(_)
-                            | qsc_rca::errors::Error::UseOfDynamicallySizedArray(_)
-                    )
-                )
-            })
+        capabilities == Profile::Adaptive.into() && !errors.is_empty()
     }
 
     /// Analyzes FIR runtime capabilities and validates support, with bounded
@@ -131,7 +123,8 @@ pub mod qir {
     ///
     /// # Errors
     /// Returns the original capability errors when fallback is ineligible.
-    /// If fallback also fails, appends the narrower attempt's diagnostic context.
+    /// If fallback also fails, retains the original diagnostics and adds one
+    /// failed-fallback note to the first diagnostic's help.
     pub fn analyze_capabilities_with_fallback(
         fir_store: &qsc_fir::fir::PackageStore,
         package_id: qsc_fir::fir::PackageId,
@@ -156,10 +149,11 @@ pub mod qir {
 
     /// Runs runtime capability analysis (RCA) with at most one Adaptive-to-`Adaptive_RIF` retry.
     ///
-    /// Calls `analyze` with `capabilities` first. Only errors accepted by
-    /// [`adaptive_fallback_eligible`] trigger a second call with `Adaptive_RIF`.
-    /// The callback must analyze and validate the same unchanged FIR on each
-    /// invocation, computing fresh properties for the supplied capabilities.
+    /// Calls `analyze` with `capabilities` first. Any nonempty RCA rejection under
+    /// full Adaptive triggers a second call with `Adaptive_RIF`, regardless of
+    /// the individual error kinds. The callback must perform only capability
+    /// analysis and validation on the same unchanged FIR, computing fresh
+    /// properties for each invocation's capabilities.
     ///
     /// Returns the successful compute properties and effective capabilities.
     /// After successful fallback, `fallback_reason` contains the first error
@@ -168,8 +162,8 @@ pub mod qir {
     ///
     /// # Errors
     /// Returns the original errors unchanged when fallback is ineligible.
-    /// If fallback also fails, returns the original errors followed by the
-    /// retry errors, each wrapped with fallback-proof context.
+    /// If fallback also fails, preserves the original errors' messages, codes,
+    /// spans, and order, adding one failed-fallback note to the first error's help.
     pub(super) fn run_rca_with_adaptive_fallback(
         capabilities: TargetCapabilityFlags,
         mut analyze: impl FnMut(
@@ -187,22 +181,21 @@ pub mod qir {
             }),
             Err(mut errors) if adaptive_fallback_eligible(capabilities, &errors) => {
                 let effective: TargetCapabilityFlags = Profile::AdaptiveRIF.into();
-                match analyze(effective) {
-                    Ok(compute_properties) => Ok(QirAnalysis {
+                if let Ok(compute_properties) = analyze(effective) {
+                    Ok(QirAnalysis {
                         compute_properties,
                         capabilities: effective,
                         fallback_reason: Some(errors.remove(0)),
-                    }),
-                    Err(retry) => {
-                        errors.extend(retry.into_iter().map(|error| {
-                            qsc_passes::Error::AdaptiveFallbackProof(
-                                qsc_passes::AdaptiveFallbackAnalysisError {
-                                    error: Box::new(error),
-                                },
-                            )
-                        }));
-                        Err(errors)
-                    }
+                    })
+                } else {
+                    let original = errors.remove(0);
+                    errors.insert(
+                        0,
+                        qsc_passes::Error::AdaptiveFallbackProof(
+                            qsc_passes::AdaptiveFallbackAnalysisError::new(original),
+                        ),
+                    );
+                    Err(errors)
                 }
             }
             Err(errors) => Err(errors),

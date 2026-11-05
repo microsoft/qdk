@@ -75,13 +75,28 @@ pub enum Error {
     TestAttribute(test_attribute::TestAttributeError),
 }
 
+/// Adds a failed-fallback note while preserving an original Adaptive diagnostic.
 #[derive(Clone, Debug, Diagnostic, Error)]
-#[error(
-    "strict Adaptive_RIF retry analysis failed: {error}; original Adaptive diagnostics are retained"
-)]
-#[diagnostic(forward(error))]
+#[error("{error}")]
+#[diagnostic(forward(error), help("{help}"))]
 pub struct AdaptiveFallbackAnalysisError {
     pub error: Box<Error>,
+    help: String,
+}
+
+impl AdaptiveFallbackAnalysisError {
+    /// Preserves the original diagnostic's help and appends one failed-fallback note.
+    #[must_use]
+    pub fn new(error: Error) -> Self {
+        let note = "Adaptive_RIF fallback was also rejected; these diagnostics describe the requested Adaptive profile.";
+        let help = error
+            .help()
+            .map_or_else(|| note.to_string(), |help| format!("{help}\n\n{note}"));
+        Self {
+            error: Box::new(error),
+            help,
+        }
+    }
 }
 
 impl Error {

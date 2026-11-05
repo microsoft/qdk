@@ -71,39 +71,35 @@ fn adaptive_fallback_fatal_evaluation_serializes_as_error() {
 }
 
 #[test]
-fn adaptive_fallback_failed_retry_serializes_codes_and_original_source_locations() {
+fn adaptive_fallback_failed_retry_serializes_original_diagnostics_with_one_note() {
     let source = "@EntryPoint() operation Main() : Result[] { use q = Qubit(); let n = MResetZ(q) == One ? 3 | 2; use qs = Qubit[n]; MResetEachZ(qs) }";
+    let caps = qsc::target::Profile::Adaptive.into();
+    let (std_id, store) = crate::compile::package_store_with_stdlib(caps);
+    let original = qsc::codegen::qir::get_rir(
+        SourceMap::new([("fallback.qs".into(), source.into())], None),
+        LanguageFeatures::default(),
+        caps,
+        store,
+        &[(std_id, None)],
+    )
+    .expect_err("strict Adaptive rejects measurement-dependent allocation");
+    let original: Vec<serde_json::Value> =
+        serde_json::from_str(&super::interpret_errors_into_qsharp_errors_json(original))
+            .expect("original diagnostics");
     let fatal = adaptive_fallback_result(source).expect_err("genuine dynamic allocation");
     let errors: Vec<serde_json::Value> = serde_json::from_str(&fatal).expect("errors");
-    let retries: Vec<_> = errors
-        .iter()
-        .filter(|error| {
-            error["diagnostic"]["message"]
-                .as_str()
-                .expect("message")
-                .starts_with("strict Adaptive_RIF")
-        })
-        .collect();
-    assert!(
-        !retries.is_empty(),
-        "retry diagnostics must survive serialization"
-    );
-    for error in retries {
+    assert_eq!(errors.len(), original.len());
+    for (index, (mut error, original)) in errors.into_iter().zip(original).enumerate() {
         assert_eq!(error["document"], "fallback.qs");
-        assert!(
-            error["diagnostic"]["code"]
-                .as_str()
-                .expect("code")
-                .starts_with("Qdk.Qsc.CapabilitiesCk.")
-        );
-        assert_eq!(error["diagnostic"]["severity"], "error");
-        let start = error["diagnostic"]["range"]["start"]["character"]
-            .as_u64()
-            .expect("start");
-        let end = error["diagnostic"]["range"]["end"]["character"]
-            .as_u64()
-            .expect("end");
-        assert!(end > start, "{error}");
+        if index == 0 {
+            let expected = format!(
+                "{}\n\nAdaptive_RIF fallback was also rejected; these diagnostics describe the requested Adaptive profile.",
+                original["diagnostic"]["message"].as_str().expect("message"),
+            );
+            assert_eq!(error["diagnostic"]["message"], expected);
+            error["diagnostic"]["message"] = original["diagnostic"]["message"].clone();
+        }
+        assert_eq!(error, original);
     }
 }
 fn run_internal<F>(sources: SourceMap, event_cb: F, shots: u32) -> Result<(), Box<interpret::Error>>

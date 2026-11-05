@@ -52,6 +52,23 @@ operation Count(q : Qubit) : Int {
 }
 
 #[tokio::test]
+async fn adaptive_fallback_live_mixed_array_and_exponent_errors_have_no_diagnostics() {
+    let errors = adaptive_fallback_diagnostics(
+        r#"
+operation Count(q : Qubit) : Int {
+    mutable n = 0; for _ in 1..3 { X(q); set n += 1; } n
+}
+@EntryPoint() operation Main() : (Int, Result[]) {
+    use q = Qubit(); let n = Count(q); use qs = Qubit[n];
+    let rs = MResetEachZ(qs);
+    (2 ^ n + (MResetZ(q) == One ? 10 | 0), rs)
+}"#,
+    )
+    .await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[tokio::test]
 async fn adaptive_fallback_live_genuine_dynamic_stays_error() {
     let errors = adaptive_fallback_diagnostics("@EntryPoint() operation Main() : Result[] { use q = Qubit(); let n = MResetZ(q) == One ? 3 | 2; use qs = Qubit[n]; MResetEachZ(qs) }").await;
     assert!(

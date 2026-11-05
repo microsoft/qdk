@@ -297,7 +297,7 @@ pub enum Error {
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]
     PartialEvaluation(#[from] WithSource<qsc_partial_eval::Error>),
-    #[error("FIR transform error")]
+    #[error(transparent)]
     #[diagnostic(transparent)]
     FirTransform(#[from] WithSource<qsc_fir_transforms::PipelineError>),
 }
