@@ -647,7 +647,19 @@ impl Profiler for TemporalProfiler {
             runtime_sec_per_operation: Default::default(),
         };
         let mut profiles = self.event_aggregator.get_profiles("Event rates");
-        profiles.extend(self.utilization_aggregator.get_profiles("Utilization"));
+
+        // Scale profiles to show utilization in %.
+        let mut utilization_profiles = self.utilization_aggregator.get_profiles("Utilization");
+        #[allow(clippy::cast_precision_loss)]
+        let factory_count = self.factories.len() as f64;
+        for profile in &mut utilization_profiles {
+            "%".clone_into(&mut profile.metric_units);
+            for (_, value) in &mut profile.series {
+                *value = *value / factory_count * 100.0;
+            }
+        }
+        profiles.extend(utilization_profiles);
+
         profiles.sort_by(|left, right| left.metric_name.cmp(&right.metric_name));
         #[allow(clippy::cast_precision_loss)]
         let window_size_sec = self.config.aggregation_window_nanos as f64 / 1e9;
@@ -1147,8 +1159,10 @@ mod tests {
             .iter()
             .find(|profile| profile.metric_name == "Factory utilization")
             .expect("factory utilization is reported separately");
-        assert_eq!(utilization_profile.metric_units, "factories");
-        assert_eq!(utilization_profile.series, vec![(0.0, 330_000e-9)]);
+        assert_eq!(utilization_profile.metric_units, "%");
+        assert_eq!(utilization_profile.series.len(), 1);
+        assert!(utilization_profile.series[0].0.abs() < 1e-18);
+        assert!((utilization_profile.series[0].1 - 0.0066).abs() < 1e-15);
         let round_profile = metrics
             .iter()
             .find(|profile| profile.metric_name == "round rate")
@@ -1164,6 +1178,55 @@ mod tests {
                 .iter()
                 .all(|profile| profile.metric_name != "t rate")
         );
+        Ok(())
+    }
+
+    /// Reports percent utilization for all factory counts, preserving idle windows and timestamps.
+    #[test]
+    fn reports_factory_utilization_as_percentage() -> Result<(), String> {
+        for factory_count in [1, 2, 5] {
+            let mut profiler = TemporalProfiler::new(TemporalProfilerConfig {
+                t_factories_count: factory_count,
+                aggregation_window_nanos: 55_000,
+                seed: Some(42),
+                ..TemporalProfilerConfig::default()
+            });
+            for factory in &mut profiler.factories {
+                factory.probability_success = 1.0;
+            }
+            profiler.execute_batch(&vec![
+                QuantumBackendInstruction {
+                    instruction_name: "h",
+                    parameters: smallvec::smallvec![QubitId(0)],
+                };
+                22
+            ])?;
+            profiler.execute_batch(&[QuantumBackendInstruction {
+                instruction_name: "t",
+                parameters: smallvec::smallvec![QubitId(0)],
+            }])?;
+
+            let result = profiler.get_result();
+            assert_eq!(result, profiler.get_result());
+            let utilization = result
+                .profiles
+                .profiles
+                .iter()
+                .find(|profile| profile.metric_name == "Factory utilization")
+                .expect("factory utilization is reported");
+            assert_eq!(utilization.metric_units, "%");
+            assert_eq!(utilization.group_name, "Utilization");
+            #[allow(clippy::cast_precision_loss)]
+            let expected_percentage = 100.0 / factory_count as f64;
+            assert_eq!(
+                utilization.series,
+                vec![
+                    (0.0, 100.0),
+                    (55_000e-9, 0.0),
+                    (110_000e-9, expected_percentage)
+                ]
+            );
+        }
         Ok(())
     }
 

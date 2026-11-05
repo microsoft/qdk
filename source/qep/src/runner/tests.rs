@@ -182,10 +182,7 @@ fn recorder_supports_multiple_reads_per_batch() {
         .execute_batch(&[
             crate::QuantumBackendInstruction {
                 instruction_name: "mz_store",
-                parameters: smallvec::smallvec![
-                    QubitId(0),
-                    crate::Parameter::ResultId(0)
-                ],
+                parameters: smallvec::smallvec![QubitId(0), crate::Parameter::ResultId(0)],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
@@ -197,10 +194,7 @@ fn recorder_supports_multiple_reads_per_batch() {
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "mz_store_reset",
-                parameters: smallvec::smallvec![
-                    QubitId(1),
-                    crate::Parameter::ResultId(1)
-                ],
+                parameters: smallvec::smallvec![QubitId(1), crate::Parameter::ResultId(1)],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
@@ -224,10 +218,7 @@ fn recorder_supports_multiple_reads_per_batch() {
         .execute_batch(&[
             crate::QuantumBackendInstruction {
                 instruction_name: "mz_store",
-                parameters: smallvec::smallvec![
-                    QubitId(0),
-                    crate::Parameter::ResultId(0)
-                ],
+                parameters: smallvec::smallvec![QubitId(0), crate::Parameter::ResultId(0)],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
