@@ -5,7 +5,7 @@ import os
 import pytest
 from pathlib import Path
 from qdk.simulation import NoiseConfig, run_qir
-from qdk import Result
+from qdk import Context, Result, TargetProfile
 import qdk.openqasm
 from qdk.simulation._simulation import try_create_gpu_adapter
 
@@ -93,3 +93,21 @@ def test_noisy_simulation_with_missing_gates_fails():
     with pytest.raises(ValueError) as excinfo:
         run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="cpu")
     assert "Missing noise intrinsic: test_noise_intrinsic" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("profile", [TargetProfile.Base, TargetProfile.Adaptive_RIF])
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer", "gpu"])
+def test_repeated_noise_qubit_reports_error(profile, sim_type):
+    ctx = Context(target_profile=profile)
+    ctx.eval("""
+        @NoiseIntrinsic() operation N(a : Qubit, b : Qubit, c : Qubit) : Unit { body intrinsic; }
+        operation Main() : Result[] {
+            use qs = Qubit[2];
+            N(qs[0], qs[0], qs[1]);
+            MResetEachZ(qs)
+        }
+    """)
+    noise = NoiseConfig()
+    noise.intrinsic("N", 3).XXX = 1.0
+    with pytest.raises(ValueError, match="qubits in invocation.*are not unique"):
+        run_qir(ctx.compile("Main()"), shots=1, noise=noise, type=sim_type)

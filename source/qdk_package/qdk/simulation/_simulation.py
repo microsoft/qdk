@@ -51,6 +51,30 @@ if TYPE_CHECKING:
     from .decoders import PrepareDecoder
 
 
+class ValidateQubitArgumentsPass(pyqir.QirModuleVisitor):
+    def _on_call_instr(self, call: Call) -> None:
+        name = call.callee.name
+        if name not in {
+            "__quantum__qis__ccx__body",
+            "__quantum__qis__cx__body",
+            "__quantum__qis__cy__body",
+            "__quantum__qis__cz__body",
+            "__quantum__qis__swap__body",
+            "__quantum__qis__rxx__body",
+            "__quantum__qis__ryy__body",
+            "__quantum__qis__rzz__body",
+        } and "qdk_noise" not in cast(Function, call.callee).attributes.func:
+            return
+        qubits = [
+            qubit
+            for arg in call.args
+            if isinstance(arg.type, PointerType)
+            and (qubit := pyqir.ptr_id(arg)) is not None
+        ]
+        if len(qubits) != len(set(qubits)):
+            raise ValueError(f"qubits in invocation of `{name}` are not unique")
+
+
 class AggregateGatesPass(pyqir.QirModuleVisitor):
     def __init__(self) -> None:
         super().__init__()
@@ -571,6 +595,7 @@ def preprocess_simulation_input(
     else:
         mod = Module.from_bitcode(context, input)
 
+    ValidateQubitArgumentsPass().run(mod)
     return (mod, shots, noise, seed)
 
 
