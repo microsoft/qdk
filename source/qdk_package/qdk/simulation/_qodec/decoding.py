@@ -186,7 +186,11 @@ def prepare_deq_decoder(
     try:
         from .deq_decoding import DeqModel
     except ModuleNotFoundError as error:
-        if error.name and error.name.split(".")[0] in ("deq", "deq_runtime"):
+        if error.name and error.name.split(".")[0] in (
+            "deq",
+            "deq_runtime",
+            "deqagram",
+        ):
             raise ImportError(
                 "The deq decoder requires deq and deq-runtime. "
                 "Install them with: pip install deq deq-runtime"
