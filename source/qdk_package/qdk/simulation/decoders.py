@@ -190,7 +190,7 @@ above one half. deq 0.5.7 can miss corrections for such faults at zero syndrome;
 QDK does not work around this decoder behavior.
 
 Install deq separately with ``pip install deq deq-runtime``; deq
-decoding is tested with deq and deq-runtime 0.5.7. It is not
+decoding is tested with deq and deq-runtime 0.5.17. It is not
 required by ``qdk[ec]`` or ``qdk[all]``; missing dependencies are reported
 only when this decoder is selected. deq-runtime publishes no Windows ARM64
 wheels, and deq requires Stim, which has no Linux aarch64 or Windows ARM64
