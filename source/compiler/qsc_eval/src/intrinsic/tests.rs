@@ -13,6 +13,7 @@ use crate::{
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
+use miette::Diagnostic;
 use num_bigint::BigInt;
 use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_data_structures::source::SourceMap;
@@ -1611,7 +1612,9 @@ fn mresetz_qubit_already_released_fails() {
 
 #[test]
 fn unknown_intrinsic() {
-    check_intrinsic_result(
+    let mut stdout = vec![];
+    let mut out = GenericReceiver::new(&mut stdout);
+    let error = check_intrinsic(
         indoc! {"
             namespace Test {
                 function Foo() : Int {
@@ -1620,8 +1623,17 @@ fn unknown_intrinsic() {
             }
         "},
         "Test.Foo()",
-        &expect!["unknown intrinsic `Foo`"],
-    );
+        &mut out,
+    )
+    .expect_err("unknown intrinsic should fail");
+    expect!["unknown intrinsic `Foo`"].assert_eq(&error.to_string());
+    expect!["provide a simulation implementation using the `@SimulatorIntrinsic()` attribute"]
+        .assert_eq(
+            &error
+                .help()
+                .expect("diagnostic should have help")
+                .to_string(),
+        );
 }
 
 #[test]
