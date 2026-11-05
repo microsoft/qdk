@@ -29,7 +29,7 @@ def _requires(module: str, package: str) -> pytest.MarkDecorator:
     )
 
 
-requires_mwpf = _requires("mwpf", "mwpf>=0.2.18")
+requires_mwpf = _requires("mwpf", "qdk[ec]")
 requires_highs = _requires("mwpf._highs", "qdk[ec]")
 requires_stim = _requires("stim", "stim")
 
