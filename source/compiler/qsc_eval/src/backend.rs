@@ -1152,7 +1152,11 @@ impl Backend for SparseSim {
                         return Some(Err("matrix is not unitary".to_string()));
                     }
 
-                    self.sim.apply(&matrix, &qubits, None);
+                    return Some(
+                        self.sim
+                            .try_apply(&matrix, &qubits, None)
+                            .map(|()| Value::unit()),
+                    );
                 }
 
                 Some(Ok(Value::unit()))
