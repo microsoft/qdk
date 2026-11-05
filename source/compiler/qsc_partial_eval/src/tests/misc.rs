@@ -659,6 +659,7 @@ fn partial_evaluation_error_uses_expr_source_package_after_relocation() {
         capabilities,
         PartialEvalConfig {
             generate_debug_metadata: false,
+            ignore_stack_limit: false,
         },
     ) else {
         panic!("partial evaluation should fail");
@@ -686,6 +687,7 @@ fn partial_evaluation_error_uses_expr_source_package_after_relocation() {
         capabilities,
         PartialEvalConfig {
             generate_debug_metadata: false,
+            ignore_stack_limit: false,
         },
     ) else {
         panic!("partial evaluation should still fail after relocation");

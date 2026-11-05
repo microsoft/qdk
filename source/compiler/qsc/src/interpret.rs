@@ -303,6 +303,8 @@ pub struct Interpreter {
     compiler: Compiler,
     /// The target capabilities used for compilation.
     capabilities: TargetCapabilityFlags,
+    /// The language features used for compilation.
+    language_features: LanguageFeatures,
     /// The number of lines that have so far been compiled.
     /// This field is used to generate a unique label
     /// for each line evaluated with `eval_fragments`.
@@ -469,7 +471,13 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
-        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
+        Self::with_compiler(
+            eval_config,
+            capabilities,
+            language_features,
+            circuit_tracer_config,
+            compiler,
+        )
     }
 
     pub fn with_package_store(
@@ -502,12 +510,19 @@ impl Interpreter {
             ExecGraphConfig::NoDebug
         };
 
-        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
+        Self::with_compiler(
+            eval_config,
+            capabilities,
+            language_features,
+            circuit_tracer_config,
+            compiler,
+        )
     }
 
     fn with_compiler(
         eval_config: ExecGraphConfig,
         capabilities: TargetCapabilityFlags,
+        language_features: LanguageFeatures,
         circuit_tracer_config: Option<TracerConfig>,
         compiler: Compiler,
     ) -> std::result::Result<Interpreter, Vec<Error>> {
@@ -603,6 +618,7 @@ impl Interpreter {
             compiler,
             lines: 0,
             capabilities,
+            language_features,
             fir_store,
             lowerer: qsc_lowerer::Lowerer::new(),
             expr_graph: None,
@@ -1521,8 +1537,14 @@ impl Interpreter {
             ..
         } = prepared_fir;
 
-        fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry)
-            .map_err(|e| self.partial_evaluation_error(e))
+        fir_to_qir(
+            &fir_store,
+            self.capabilities,
+            self.language_features,
+            &compute_properties,
+            &entry,
+        )
+        .map_err(|e| self.partial_evaluation_error(e))
     }
 
     /// Performs RIR codegen using the given entry expression on a new instance of the environment
@@ -1542,6 +1564,9 @@ impl Interpreter {
             &entry,
             PartialEvalConfig {
                 generate_debug_metadata: true,
+                ignore_stack_limit: self
+                    .language_features
+                    .contains(LanguageFeatures::IgnoreStackLimit),
             },
         )
         .map_err(|e| {
@@ -1594,8 +1619,14 @@ impl Interpreter {
                     ..
                 } = prepared_fir;
 
-                fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry)
-                    .map_err(|e| self.partial_evaluation_error(e))
+                fir_to_qir(
+                    &fir_store,
+                    self.capabilities,
+                    self.language_features,
+                    &compute_properties,
+                    &entry,
+                )
+                .map_err(|e| self.partial_evaluation_error(e))
             }
             CallableArgsBackend::ReinvokeOriginal { callable, args } => {
                 let CodegenFir {
@@ -1607,6 +1638,7 @@ impl Interpreter {
                 fir_to_qir_from_callable(
                     &fir_store,
                     self.capabilities,
+                    self.language_features,
                     &compute_properties,
                     callable,
                     args,
@@ -1766,6 +1798,9 @@ impl Interpreter {
                     &entry,
                     PartialEvalConfig {
                         generate_debug_metadata: true,
+                        ignore_stack_limit: self
+                            .language_features
+                            .contains(LanguageFeatures::IgnoreStackLimit),
                     },
                 )
                 .map_err(|e| self.partial_evaluation_error(e))?;
@@ -1793,6 +1828,9 @@ impl Interpreter {
                     args,
                     PartialEvalConfig {
                         generate_debug_metadata: true,
+                        ignore_stack_limit: self
+                            .language_features
+                            .contains(LanguageFeatures::IgnoreStackLimit),
                     },
                 )
                 .map_err(|e| self.partial_evaluation_error(e))?;
@@ -1839,6 +1877,9 @@ impl Interpreter {
             &entry,
             PartialEvalConfig {
                 generate_debug_metadata: true,
+                ignore_stack_limit: self
+                    .language_features
+                    .contains(LanguageFeatures::IgnoreStackLimit),
             },
         )
         .map_err(|e| self.partial_evaluation_error(e))?;

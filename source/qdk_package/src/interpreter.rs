@@ -475,11 +475,8 @@ impl Interpreter {
                 panic!("file system hooks should have been passed in with a manifest descriptor")
             }
         } else {
-            let graph = PackageGraphSources::with_no_dependencies(
-                Vec::default(),
-                LanguageFeatures::from_iter(language_features),
-                None,
-            );
+            let graph =
+                PackageGraphSources::with_no_dependencies(Vec::default(), language_features, None);
             BuildableProgram::new(target, graph)
         };
 

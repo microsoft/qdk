@@ -4769,6 +4769,7 @@ fn callable_args_with_arrow_input_survives_dce() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         capabilities,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -4993,6 +4994,7 @@ fn callable_with_udt_wrapped_arrow_generates_qir_via_callable_args() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         capabilities,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -5133,6 +5135,7 @@ fn callable_with_nested_udt_wrapped_arrow_generates_qir_via_callable_args() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         capabilities,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -5300,6 +5303,7 @@ fn prepared_callable_to_qir(
             qsc_codegen::qir::fir_to_qir(
                 &codegen_fir.fir_store,
                 capabilities,
+                LanguageFeatures::default(),
                 &codegen_fir.compute_properties,
                 &entry,
             )
@@ -5309,6 +5313,7 @@ fn prepared_callable_to_qir(
             qsc_codegen::qir::fir_to_qir_from_callable(
                 &codegen_fir.fir_store,
                 capabilities,
+                LanguageFeatures::default(),
                 &codegen_fir.compute_properties,
                 callable,
                 args,
@@ -7964,6 +7969,7 @@ fn synthetic_path_captureless_closure_adjoint_preserves_functor() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         caps,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -9730,6 +9736,7 @@ fn synthetic_path_udt_wrapped_controlled_callable_preserves_functor() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         caps,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -9852,6 +9859,7 @@ fn synthetic_path_udt_wrapped_adjoint_callable_preserves_functor() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         caps,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -10002,6 +10010,7 @@ fn synthetic_path_callable_field_taking_udt_with_callable_generates_qir() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         caps,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )

@@ -81,6 +81,7 @@ pub fn get_partial_evaluation_error_with_capabilities(
         capabilities,
         PartialEvalConfig {
             generate_debug_metadata: false,
+            ignore_stack_limit: false,
         },
     );
     match maybe_program {
@@ -101,6 +102,7 @@ pub fn get_rir_program_with_dbg_metadata(source: &str) -> Program {
         Profile::AdaptiveRIF.into(),
         PartialEvalConfig {
             generate_debug_metadata: true,
+            ignore_stack_limit: false,
         },
     );
     match maybe_program {
@@ -175,6 +177,7 @@ pub fn get_rir_program_with_capabilities(
         capabilities,
         PartialEvalConfig {
             generate_debug_metadata: false,
+            ignore_stack_limit: false,
         },
     );
     match maybe_program {
