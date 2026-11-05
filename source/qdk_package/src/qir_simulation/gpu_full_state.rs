@@ -61,9 +61,9 @@ pub fn run_parallel_shots<'py>(
             if *id == QirInstructionId::ResultRecordOutput {
                 recorded_result_ids.push(value.parse().unwrap_or(0));
             }
-        } else if let Some(op) = map_instruction(&item) {
-            // However some ops can't be mapped (e.g. OutputRecording), so skip those
-            ops.push(op);
+        } else {
+            // Some ops can't be mapped (e.g. OutputRecording) and expand to nothing.
+            ops.extend(map_instruction(&item));
         }
     }
 
@@ -180,10 +180,8 @@ impl GpuContext {
             let item: QirInstruction = intr
                 .extract()
                 .map_err(|e| PyValueError::new_err(format!("expected QirInstruction: {e}")))?;
-            // However some ops can't be mapped (e.g. OutputRecording), so skip those
-            if let Some(op) = map_instruction(&item) {
-                ops.push(op);
-            }
+            // Some ops can't be mapped (e.g. OutputRecording) and expand to nothing.
+            ops.extend(map_instruction(&item));
         }
         gpu_context.set_program(&ops, qubit_count, result_count);
 
@@ -429,7 +427,10 @@ fn output_records_to_pylist<'py>(
     PyList::new(py, per_shot)
 }
 
-fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
+/// Maps a QIR instruction to GPU ops. Most instructions map to a single op, but the GPU has no
+/// native X/Y-basis measurement, so `MX`/`MY` expand into a basis change, `MZ`, and the inverse
+/// basis change (leaving the qubit in the measured eigenstate).
+fn map_instruction(qir_inst: &QirInstruction) -> Vec<Op> {
     let op = match qir_inst {
         QirInstruction::OneQubitGate(id, qubit) => match id {
             QirInstructionId::I => Op::new_id_gate(*qubit),
@@ -450,6 +451,22 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
             }
         },
         QirInstruction::TwoQubitGate(id, control, target) => match id {
+            QirInstructionId::MX => {
+                return vec![
+                    Op::new_h_gate(*control),
+                    Op::new_mz_gate(*control, *target),
+                    Op::new_h_gate(*control),
+                ];
+            }
+            QirInstructionId::MY => {
+                return vec![
+                    Op::new_s_adj_gate(*control),
+                    Op::new_h_gate(*control),
+                    Op::new_mz_gate(*control, *target),
+                    Op::new_h_gate(*control),
+                    Op::new_s_gate(*control),
+                ];
+            }
             QirInstructionId::M | QirInstructionId::MZ => Op::new_mz_gate(*control, *target),
             QirInstructionId::MResetZ => Op::new_mresetz_gate(*control, *target),
             QirInstructionId::CX | QirInstructionId::CNOT => Op::new_cx_gate(*control, *target),
@@ -491,7 +508,7 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
         }
         QirInstruction::OutputRecording(_, _, _) => {
             // Ignore for now
-            return None;
+            return Vec::new();
         }
         QirInstruction::ThreeQubitGate(..) => panic!("unsupported instruction: {qir_inst:?}"),
         QirInstruction::CorrelatedNoise(_, table_id, qubit_args) => {
@@ -503,7 +520,7 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
             Op::new_readout_noise_gate(*p_zero_as_one as f32, *p_one_as_zero as f32, *result_id)
         }
     };
-    Some(op)
+    vec![op]
 }
 
 fn check_shot_result_codes(codes: &[u32]) -> PyResult<()> {
