@@ -376,7 +376,6 @@ pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
 ) -> qdk_simulators::noise_config::NoiseConfig<T, Q> {
     let value = value.borrow();
     qdk_simulators::noise_config::NoiseConfig {
-        i: qdk_simulators::noise_config::NoiseTable::noiseless(1),
         x: from_noise_table_ref(value.x.borrow(py)),
         y: from_noise_table_ref(value.y.borrow(py)),
         z: from_noise_table_ref(value.z.borrow(py)),
