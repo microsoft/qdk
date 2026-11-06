@@ -9,6 +9,7 @@ mod calls;
 mod classical_args;
 mod debug_metadata;
 mod dynamic_vars;
+mod evaluation_context;
 mod intrinsics;
 mod ir_functions;
 mod loops;
