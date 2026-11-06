@@ -1,0 +1,67 @@
+[
+  {
+    "id": "deterministic-measurement",
+    "source_file": "measurement.qs",
+    "entry": "Main()",
+    "oracle": {
+      "kind": "deterministic",
+      "expected": { "type": "result", "value": 1 }
+    },
+    "notes": "X followed by MResetZ must return One in every shot."
+  },
+  {
+    "id": "typed-output",
+    "source_file": "typed-output.qs",
+    "entry": "Main()",
+    "profiles": ["Adaptive_RIF", "Adaptive"],
+    "oracle": {
+      "kind": "deterministic",
+      "expected": {
+        "type": "tuple",
+        "items": [
+          { "type": "int", "value": 42 },
+          { "type": "bool", "value": true },
+          { "type": "double", "value": "0x1.0000000000000p-1" },
+          {
+            "type": "array",
+            "items": [{ "type": "result", "value": 1 }]
+          },
+          { "type": "unit" }
+        ]
+      }
+    },
+    "notes": "Checks nested output parsing, multiplicity, and an ordinary finite Double. Double output requires Adaptive_RIF or Adaptive."
+  },
+  {
+    "id": "integer-output",
+    "source": "operation Main() : (Int, Bool, Result[]) { use q = Qubit(); X(q); (42, true, [MResetZ(q)]) }",
+    "entry": "Main()",
+    "profiles": ["Adaptive_RIF", "Adaptive"],
+    "oracle": { "kind": "deterministic" }
+  },
+  {
+    "id": "stochastic-measurement",
+    "source": "operation Main() : Result { use q = Qubit(); H(q); MResetZ(q) }",
+    "entry": "Main()",
+    "oracle": { "kind": "observe" },
+    "shots": 32,
+    "notes": "Output frequencies are evidence, not an exact-seed equivalence assertion."
+  },
+  {
+    "id": "callable-api",
+    "adapter": "callable.py",
+    "oracle": {
+      "kind": "deterministic",
+      "expected": { "type": "result", "value": 1 }
+    }
+  },
+  {
+    "id": "project-with-local-dependency",
+    "project_root": "project",
+    "entry": "Example.Main()",
+    "oracle": {
+      "kind": "deterministic",
+      "expected": { "type": "result", "value": 1 }
+    }
+  }
+]
