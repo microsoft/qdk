@@ -77,11 +77,11 @@ operation Count(q : Qubit) : Int {
   use q = Qubit(); let n = Count(q); use qs = Qubit[n]; let rs = MResetEachZ(qs);
   (n + (MResetZ(q) == One ? 10 | 0), rs)
 }`);
-      const qir = await vscode.commands.executeCommand<string>(
-        "qsharp-vscode.getQir",
-      );
-      assert.isString(qir);
-      assert.include(qir!, "ENTRYPOINT");
+      await vscode.commands.executeCommand("qsharp-vscode.getQir");
+      const qirDocument = vscode.window.activeTextEditor?.document;
+      assert.exists(qirDocument);
+      assert.equal(qirDocument!.uri.scheme, "untitled");
+      assert.include(qirDocument!.getText(), "ENTRYPOINT");
       const warnings = vscode.languages
         .getDiagnostics(fallbackUri)
         .filter(isFallbackWarning);
@@ -111,7 +111,7 @@ operation Count(q : Qubit) : Int {
           let rs = MResetEachZ(qs); (n + (MResetZ(q) == One ? 10 | 0), rs)
         }`,
       );
-      await vscode.commands.executeCommand<string>("qsharp-vscode.getQir");
+      await vscode.commands.executeCommand("qsharp-vscode.getQir");
       assert.isTrue(
         vscode.languages.getDiagnostics(fallbackUri).some(isFallbackWarning),
       );
@@ -127,10 +127,11 @@ operation Count(q : Qubit) : Int {
         ),
       );
       await doc.save();
-      const qir = await vscode.commands.executeCommand<string>(
-        "qsharp-vscode.getQir",
-      );
-      assert.isString(qir);
+      await vscode.commands.executeCommand("qsharp-vscode.getQir");
+      const qirDocument = vscode.window.activeTextEditor?.document;
+      assert.exists(qirDocument);
+      assert.equal(qirDocument!.uri.scheme, "untitled");
+      assert.include(qirDocument!.getText(), "ENTRYPOINT");
       assert.isFalse(
         vscode.languages.getDiagnostics(fallbackUri).some(isFallbackWarning),
       );
