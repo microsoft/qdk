@@ -1354,7 +1354,7 @@
         ],
         "toolReferenceName": "qdkLearningShow",
         "displayName": "QDK Learning: Show Activity",
-        "modelDescription": "Show the current learning activity. Opens the interactive Katas panel for lessons and exercises. Use to start or resume a learning session.",
+        "modelDescription": "Show the current learning activity. Opens the Lesson panel for Q# courses or the current activity in the workbook for notebook courses. Use to start or resume a learning session.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
@@ -1373,7 +1373,7 @@
         ],
         "toolReferenceName": "qdkLearningGetState",
         "displayName": "QDK Learning: Get State",
-        "modelDescription": "Read the current learning position and progress without opening the panel or requiring initialization. Returns { initialized: false } if the workspace is not yet set up. Use at startup to check status before calling show.",
+        "modelDescription": "Read the current learning position and progress without opening the active learning surface or requiring initialization. Returns { initialized: false } if the workspace is not yet set up. Use at startup to check status before calling show.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
@@ -1449,7 +1449,7 @@
         ],
         "toolReferenceName": "qdkLearningSwitchCourse",
         "displayName": "QDK Learning: Switch Course",
-        "modelDescription": "Switch the active learning course. Moves to the first incomplete activity in that course and updates the panel. Use a courseId from list-courses.",
+        "modelDescription": "Switch the active learning course. Moves to its first incomplete activity and opens the Lesson panel for Q# courses or that unit's workbook at the top for notebook courses. Use a courseId from list-courses.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
@@ -1537,7 +1537,7 @@
         ],
         "toolReferenceName": "qdkLearningGoto",
         "displayName": "QDK Learning: Go To",
-        "modelDescription": "Jump to a specific course, unit, and optionally an activity. Use courseId + unitId from list-units or get-state. courseId defaults to 'katas' (Quantum Katas).",
+        "modelDescription": "Jump to a specific course, unit, and optionally an activity. Use courseId + unitId from list-units or get-state. courseId defaults to the active course. For notebook courses, omitting activityId opens the unit at the top; specifying activityId reveals that activity.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
@@ -1545,7 +1545,7 @@
           "properties": {
             "courseId": {
               "type": "string",
-              "description": "ID of the course. Defaults to 'katas' (built-in Quantum Katas)."
+              "description": "ID of the course. Omit to use the active course."
             },
             "unitId": {
               "type": "string",
@@ -1553,7 +1553,7 @@
             },
             "activityId": {
               "type": "string",
-              "description": "Activity ID within the unit. Omit to jump to the first activity."
+              "description": "Activity ID within the unit. Omit to start the unit; notebook courses open at the top."
             }
           },
           "required": [
