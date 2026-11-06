@@ -534,32 +534,23 @@ pub fn build_global_call_with_one_param<S: AsRef<str>>(
 }
 
 #[must_use]
-pub fn build_gate_call_with_params_and_callee(
-    param_expr: ast::Expr,
-    callee_expr: Expr,
-    expr_span: Span,
-) -> ast::Expr {
-    let call_kind = ast::ExprKind::Call(Box::new(callee_expr), Box::new(param_expr));
-    ast::Expr {
-        kind: Box::new(call_kind),
-        span: expr_span,
+pub fn build_call_expr(callee: Expr, args: Expr, call_span: Span) -> Expr {
+    Expr {
+        kind: Box::new(ExprKind::Call(Box::new(callee), Box::new(args))),
+        span: call_span,
         ..Default::default()
     }
 }
 
 #[must_use]
-pub fn build_gate_call_param_expr(args: Vec<Expr>, remaining: usize) -> Expr {
-    if args.len() == 1 && remaining > 0 {
-        return args[0].clone();
-    }
-    let param_expr_kind = if args.len() == 1 {
-        ast::ExprKind::Paren(Box::new(args[0].clone()))
+pub fn build_call_args_expr(mut args: Vec<Expr>) -> Expr {
+    let kind = if args.len() == 1 {
+        ExprKind::Paren(Box::new(args.remove(0)))
     } else {
-        let args: Vec<_> = args.into_iter().map(Box::new).collect();
-        ast::ExprKind::Tuple(args.into_boxed_slice())
+        ExprKind::Tuple(boxed_list_from_iter(args))
     };
-    ast::Expr {
-        kind: Box::new(param_expr_kind),
+    Expr {
+        kind: Box::new(kind),
         ..Default::default()
     }
 }
