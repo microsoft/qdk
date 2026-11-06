@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::qir::tests::check;
+use crate::compiler::tests::check;
 use expect_test::expect;
 use indoc::indoc;
 
