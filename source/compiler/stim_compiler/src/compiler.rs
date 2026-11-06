@@ -105,6 +105,7 @@ fn build_intrinsic_decl(
 }
 
 /// The Q# standard library operations emitted by the compiler.
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QSharpOp {
     X,
@@ -1264,9 +1265,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn finish_correlated_noise(&mut self) -> Option<ast::Stmt> {
-        if self.noise_accumulator.current_correlated_group.is_none() {
-            return None;
-        }
+        self.noise_accumulator.current_correlated_group.as_ref()?;
         let (noise_table, qubits, span) = match self.noise_accumulator.flush_correlated_group() {
             Ok(flushed) => flushed,
             Err(error) => {
