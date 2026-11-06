@@ -8,7 +8,7 @@ use crate::format_stim_errors;
 
 fn check(source: &str, expect: &Expect) {
     let mut noise = NoiseConfig::NOISELESS;
-    match crate::compile(source, &mut noise) {
+    match crate::compile_to_qir(source, &mut noise) {
         Ok(qir) => expect.assert_eq(&qir),
         Err(errors) => {
             let errors = format_stim_errors(errors);
