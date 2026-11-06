@@ -9,14 +9,14 @@ use qdk_simulators::noise_config::{
 };
 
 use qsc_ast::ast;
-use qsc_openqasm_compiler::ast_builder::{
+use qsc_ast::builder::{
     build_arg_pat, build_assignment_statement, build_attr, build_binary_expr, build_block,
-    build_break_stmt, build_continue_stmt, build_expr_array_expr, build_gate_call_param_expr,
-    build_gate_call_with_params_and_callee, build_if_expr_then_block, build_implicit_return_stmt,
-    build_index_expr, build_lit_bool_expr, build_lit_double_expr, build_lit_int_expr,
-    build_lit_result_expr, build_local_decl, build_operation_with_stmts, build_path_ident_expr,
-    build_path_ident_ty, build_stmt_semi_from_expr, build_top_level_ns_with_items,
-    build_unary_op_expr, build_while_stmt, managed_qubit_alloc_array,
+    build_break_stmt, build_call_args_expr, build_call_expr, build_continue_stmt,
+    build_expr_array_expr, build_if_expr_then_block, build_implicit_return_stmt, build_index_expr,
+    build_lit_bool_expr, build_lit_double_expr, build_lit_int_expr, build_lit_result_expr,
+    build_local_decl, build_operation_with_stmts, build_path_ident_expr, build_path_ident_ty,
+    build_stmt_semi_from_expr, build_top_level_ns_with_items, build_unary_op_expr,
+    build_while_stmt, managed_qubit_alloc_array,
 };
 
 use crate::parser::Pauli;
@@ -1517,9 +1517,8 @@ impl<'noise> Compiler<'noise> {
         if controlled {
             callee = build_unary_op_expr(ast::UnOp::Functor(ast::Functor::Ctl), callee, span);
         }
-        // One argument becomes `(a)`, several become `(a, b, …)`.
-        let args = build_gate_call_param_expr(args, 0);
-        build_gate_call_with_params_and_callee(args, callee, span)
+        let args = build_call_args_expr(args);
+        build_call_expr(callee, args, span)
     }
 
     /// `let {prefix}_n = value;` with a fresh name. Returns the name, to refer to the binding
@@ -1550,8 +1549,8 @@ impl<'noise> Compiler<'noise> {
     /// `{name}(args…)` for a QDK intrinsic, e.g. `__quantum__qis__peek_loss__body(qs[0])`.
     fn intrinsic_expr(&mut self, name: &str, args: Vec<ast::Expr>, span: Span) -> ast::Expr {
         let callee = build_path_ident_expr(name, span, span);
-        let args = build_gate_call_param_expr(args, 0);
-        build_gate_call_with_params_and_callee(args, callee, span)
+        let args = build_call_args_expr(args);
+        build_call_expr(callee, args, span)
     }
 
     /// Records the declaration of the intrinsic `name`, unless one is already recorded.
