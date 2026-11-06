@@ -140,6 +140,7 @@ pub(crate) fn map_variable_use_in_block(
     block: &mut Block,
     var_map: &mut FxHashMap<VariableId, OperandMapping>,
     var_stor_to_keep: &FxHashSet<VariableId>,
+    used_vars: Option<&FxHashSet<VariableId>>,
 ) {
     let mut reverse_deep_map = populate_reverse_deep_map(var_map);
 
@@ -156,9 +157,14 @@ pub(crate) fn map_variable_use_in_block(
                     var_map.remove(&var.variable_id);
                 } else if let Operand::Variable(mapped_var) = operand.mapped(var_map)
                     && var_stor_to_keep.contains(&mapped_var.variable_id)
+                    && used_vars.is_some_and(|uv| uv.contains(&var.variable_id))
                 {
-                    *operand = Operand::Variable(mapped_var);
                     var_map.remove(&var.variable_id);
+
+                    // Turn this store instruction into a direct load instruction from
+                    // the mapped variable into the target variable.
+                    block.0.push(Instruction::Load(mapped_var, *var));
+                    continue;
                 } else {
                     update_variable_mapping(var_map, &mut reverse_deep_map, operand, var);
                     continue;

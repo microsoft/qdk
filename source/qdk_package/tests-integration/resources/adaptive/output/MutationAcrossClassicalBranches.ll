@@ -3,7 +3,6 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_0 = alloca i64
-  %var_4 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   store i64 0, ptr %var_0
   store i64 5, ptr %var_0
@@ -14,10 +13,8 @@ block_1:
   store i64 1, ptr %var_0
   br label %block_2
 block_2:
-  %var_7 = load i64, ptr %var_0
-  store i64 %var_7, ptr %var_4
-  %var_9 = load i64, ptr %var_4
-  call void @__quantum__rt__int_record_output(i64 %var_9, ptr @0)
+  %var_4 = load i64, ptr %var_0
+  call void @__quantum__rt__int_record_output(i64 %var_4, ptr @0)
   ret i64 0
 }
 
