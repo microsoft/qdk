@@ -31,7 +31,8 @@ use qsc_passes::{PackageType, lower_hir_to_fir};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::codegen::qir::{
-    CallableArgsBackend, get_qir, get_qir_from_ast, get_rir, prepare_codegen_fir_from_callable_args,
+    CallableArgsBackend, QirGenerationResult, get_qir, get_qir_from_ast, get_rir,
+    prepare_codegen_fir_from_callable_args,
 };
 
 use super::qir::seed_entry_with_callables;
@@ -80,6 +81,13 @@ fn compile_source_to_qir_result(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> Result<String, Vec<crate::interpret::Error>> {
+    compile_source_to_qir_with_diagnostics(source, capabilities).map(|result| result.qir)
+}
+
+fn compile_source_to_qir_with_diagnostics(
+    source: &str,
+    capabilities: TargetCapabilityFlags,
+) -> Result<QirGenerationResult, Vec<crate::interpret::Error>> {
     let sources = source_map_from_source(source);
     let language_features = LanguageFeatures::default();
 
@@ -91,7 +99,6 @@ fn compile_source_to_qir_result(
         store,
         &[(std_id, None)],
     )
-    .map(|result| result.qir)
 }
 
 fn qir_entry_body(qir: &str) -> &str {
