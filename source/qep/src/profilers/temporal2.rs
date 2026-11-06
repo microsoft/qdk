@@ -10,8 +10,13 @@ use crate::{
     profilers::factories::TFactory,
 };
 use rand::{SeedableRng, rngs::StdRng};
+use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
-use std::{collections::VecDeque, marker::PhantomData};
+use std::{
+    cmp::{Ordering, Reverse},
+    collections::{BinaryHeap, VecDeque},
+    marker::PhantomData,
+};
 use strum::EnumCount;
 
 /// State of functional unit.
@@ -63,7 +68,42 @@ impl FunctionalUnit {
 #[derive(Copy, Clone)]
 pub(super) struct FunctionalUnitId(pub(super) FUKind, pub(super) usize);
 
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
 struct EventId(usize);
+
+enum Event<M: QpuModel> {
+    OperationEnd(PerfomedOperation<M>),
+}
+
+struct QueuedEvent<M: QpuModel> {
+    time_nanos: usize,
+    id: EventId,
+    operation_ref: ScheduledOperationRef,
+    event: Event<M>,
+}
+
+impl<M: QpuModel> PartialEq for QueuedEvent<M> {
+    /// Compares scheduling keys without comparing model-specific operations.
+    fn eq(&self, other: &Self) -> bool {
+        (self.time_nanos, &self.id) == (other.time_nanos, &other.id)
+    }
+}
+
+impl<M: QpuModel> Eq for QueuedEvent<M> {}
+
+impl<M: QpuModel> PartialOrd for QueuedEvent<M> {
+    /// Uses chronological ordering with FIFO tie-breaking.
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<M: QpuModel> Ord for QueuedEvent<M> {
+    /// Orders events by time, then insertion sequence.
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.time_nanos, &self.id).cmp(&(other.time_nanos, &other.id))
+    }
+}
 
 /// Contsais functional unit plus necessary metadata.
 pub(super) struct FunctionalUnitWrapper {
@@ -219,9 +259,12 @@ pub struct TemporalProfiler2<M: QpuModel> {
     state: TemporalProfilerState<M>,
     model: M,
 
-    /// Scheduled operations. `None` means operation is already executed.
+    /// Scheduled operations. `None` means operation has started.
     scheduled_operations: VecDeque<Option<ScheduledOperation<M>>>,
+    running_operations: FxHashSet<ScheduledOperationRef>,
     next_operation_ref: ScheduledOperationRef,
+    events_queue: BinaryHeap<Reverse<QueuedEvent<M>>>,
+    next_event_id: usize,
 }
 
 impl<M: QpuModel> TemporalProfiler2<M> {
@@ -231,7 +274,10 @@ impl<M: QpuModel> TemporalProfiler2<M> {
             state: TemporalProfilerState::new(None),
             model,
             scheduled_operations: Default::default(),
+            running_operations: Default::default(),
             next_operation_ref: ScheduledOperationRef(0),
+            events_queue: BinaryHeap::new(),
+            next_event_id: 0,
         }
     }
 
@@ -242,9 +288,10 @@ impl<M: QpuModel> TemporalProfiler2<M> {
             return true;
         }
         self.scheduled_operations[op_ref.0 - offset].is_none()
+            && !self.running_operations.contains(&op_ref)
     }
 
-    /// Returns reference to scheduled operation, or None if it's already done.
+    /// Returns a scheduled operation, or None if it has already started.
     fn get_scheduled_operation(
         &self,
         op_ref: ScheduledOperationRef,
@@ -275,7 +322,7 @@ impl<M: QpuModel> TemporalProfiler2<M> {
         }
         let index = op_ref.0 - offset;
         let Some(op) = self.scheduled_operations[index].as_ref() else {
-            // Operation is done.
+            // Operation has already started.
             return;
         };
         let ready = op
@@ -293,15 +340,60 @@ impl<M: QpuModel> TemporalProfiler2<M> {
             .expect("ready operation must remain scheduled");
         let op = self.model.perform_operation(op, &mut self.state);
 
-        // TODO: perform operation.
+        self.running_operations.insert(op_ref);
+        self.enqueue_operation_end(op_ref, op);
+    }
 
-        // Clean up queue front.
+    /// Queues an owned operation for completion, preserving FIFO order at equal times.
+    fn enqueue_operation_end(
+        &mut self,
+        operation_ref: ScheduledOperationRef,
+        op: PerfomedOperation<M>,
+    ) {
+        self.events_queue.push(Reverse(QueuedEvent {
+            time_nanos: op.end_time_nanos,
+            id: EventId(self.next_event_id),
+            operation_ref,
+            event: Event::OperationEnd(op),
+        }));
+        self.next_event_id += 1;
+    }
+
+    /// Notifies the model of completion and starts newly enabled operations.
+    fn process_event(&mut self, operation_ref: ScheduledOperationRef, event: Event<M>) {
+        match event {
+            Event::OperationEnd(op) => self.model.on_operation_finished(&op, &mut self.state),
+        }
+        self.running_operations.remove(&operation_ref);
+
+        let mut offset = self.next_operation_ref.0 - self.scheduled_operations.len();
         while self
             .scheduled_operations
             .front()
             .is_some_and(|op| op.is_none())
+            && !self
+                .running_operations
+                .contains(&ScheduledOperationRef(offset))
         {
             self.scheduled_operations.pop_front();
+            offset += 1;
+        }
+
+        for index in offset..self.next_operation_ref.0 {
+            self.try_operation_start(ScheduledOperationRef(index));
+        }
+    }
+
+    /// Processes the earliest events until all scheduled operations have completed.
+    fn event_loop(&mut self) {
+        while !self.scheduled_operations.is_empty() {
+            let Reverse(event) = self
+                .events_queue
+                .pop()
+                .expect("event queue exhausted before the batch completed");
+            debug_assert!(event.time_nanos >= self.state.current_time_nanos);
+            self.state.current_time_nanos = event.time_nanos;
+            self.process_event(event.operation_ref, event.event);
         }
     }
 }
@@ -324,7 +416,11 @@ impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
             // Add precondition that for all FUs touched by this operation, previous operation on
             // that FU must complete.
             for target_id in &op.targets {
-                if let Some(prev_op_ref) = self.state.units.get(&target_id).last_scheduled_operation
+                if let Some(prev_op_ref) = self
+                    .state
+                    .units
+                    .get_mut(&self.model, target_id)
+                    .last_scheduled_operation
                 {
                     op.preconditions
                         .push(Precondition::OperationDone(prev_op_ref));
@@ -362,6 +458,7 @@ impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
         for op_ref in scheduled_ops {
             self.try_operation_start(op_ref);
         }
+        self.event_loop();
 
         // Return batch result.
         Ok(std::mem::take(&mut self.state.current_batch_result))
@@ -371,7 +468,6 @@ impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn basic_test() {
         let model = DemoModel1::default();

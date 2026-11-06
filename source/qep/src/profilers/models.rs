@@ -32,6 +32,13 @@ pub(super) trait QpuModel: Sized {
         op: ScheduledOperation<Self>,
         state: &mut TemporalProfilerState<Self>,
     ) -> PerfomedOperation<Self>;
+
+    /// Applies model-specific effects when an operation finishes.
+    fn on_operation_finished(
+        &self,
+        op: &PerfomedOperation<Self>,
+        state: &mut TemporalProfilerState<Self>,
+    );
 }
 
 pub(super) enum DemoModel1_NativeOperation {
@@ -205,5 +212,14 @@ impl QpuModel for DemoModel1 {
             start_time_nanos: state.current_time_nanos,
             end_time_nanos: state.current_time_nanos + duration,
         }
+    }
+
+    /// Applies model-specific completion effects.
+    fn on_operation_finished(
+        &self,
+        _op: &PerfomedOperation<Self>,
+        _state: &mut TemporalProfilerState<Self>,
+    ) {
+        todo!()
     }
 }
