@@ -9,9 +9,10 @@ use num_bigint::BigInt;
 use qsc_data_structures::span::Span;
 
 use crate::ast::{
-    self, Attr, Block, Expr, ExprKind, FieldAccess, FunctorExpr, FunctorExprKind, Ident, Lit,
-    Mutability, NodeId, Pat, PatKind, Path, PathKind, QubitInit, QubitInitKind, QubitSource, Stmt,
-    StmtKind, TopLevelNode, Ty, TyKind,
+    self, Attr, BinOp, Block, CallableBody, CallableDecl, CallableKind, Expr, ExprKind,
+    FieldAccess, Functor, FunctorExpr, FunctorExprKind, Ident, Item, ItemKind, Lit, Mutability,
+    Namespace, NamespaceKind, NodeId, Pat, PatKind, Path, PathKind, QubitInit, QubitInitKind,
+    QubitSource, SetOp, Stmt, StmtKind, TopLevelNode, Ty, TyKind, UnOp,
 };
 
 #[must_use]
@@ -20,15 +21,12 @@ pub fn boxed_list_from_iter<T>(iter: impl IntoIterator<Item = T>) -> Box<[Box<T>
 }
 
 #[must_use]
-pub fn build_managed_qubit_alloc<S>(
+pub fn build_managed_qubit_alloc<S: AsRef<str>>(
     name: S,
     stmt_span: Span,
     name_span: Span,
     source: QubitSource,
-) -> Stmt
-where
-    S: AsRef<str>,
-{
+) -> Stmt {
     let qubit_init = QubitInitKind::Single;
 
     let qubit = QubitInit {
@@ -60,17 +58,14 @@ where
 }
 
 #[must_use]
-pub fn managed_qubit_alloc_array<S>(
+pub fn managed_qubit_alloc_array<S: AsRef<str>>(
     name: S,
     size: u32,
     stmt_span: Span,
     name_span: Span,
     designator_span: Span,
     source: QubitSource,
-) -> Stmt
-where
-    S: AsRef<str>,
-{
+) -> Stmt {
     let qubit_init = QubitInitKind::Array(Box::new(Expr {
         span: designator_span,
         kind: Box::new(ExprKind::Lit(Box::new(Lit::Int(i64::from(size))))),
@@ -127,7 +122,7 @@ pub fn build_lit_result_array_expr<I: IntoIterator<Item = ast::Result>>(
 }
 
 #[must_use]
-pub fn build_expr_array_expr(values: Vec<ast::Expr>, span: Span) -> Expr {
+pub fn build_expr_array_expr(values: Vec<Expr>, span: Span) -> Expr {
     let exprs: Vec<_> = values.into_iter().map(Box::new).collect();
     Expr {
         id: NodeId::default(),
@@ -204,17 +199,17 @@ pub fn build_field_expr(expr: Expr, field: &str, span: Span) -> Expr {
 #[must_use]
 pub fn build_binary_expr(
     is_assignment: bool,
-    qsop: ast::BinOp,
-    lhs: ast::Expr,
-    rhs: ast::Expr,
+    qsop: BinOp,
+    lhs: Expr,
+    rhs: Expr,
     span: Span,
-) -> ast::Expr {
+) -> Expr {
     let expr_kind = if is_assignment {
-        ast::ExprKind::AssignOp(qsop, Box::new(lhs), Box::new(rhs))
+        ExprKind::AssignOp(qsop, Box::new(lhs), Box::new(rhs))
     } else {
-        ast::ExprKind::BinOp(qsop, Box::new(lhs), Box::new(rhs))
+        ExprKind::BinOp(qsop, Box::new(lhs), Box::new(rhs))
     };
-    ast::Expr {
+    Expr {
         id: NodeId::default(),
         span,
         kind: Box::new(expr_kind),
@@ -259,24 +254,20 @@ pub fn build_math_call_from_exprs(name: &str, exprs: Vec<Expr>, span: Span) -> E
 }
 
 #[must_use]
-pub fn build_path_ident_expr<S: AsRef<str>>(
-    name: S,
-    name_span: Span,
-    expr_span: Span,
-) -> ast::Expr {
-    let ident = ast::Ident {
+pub fn build_path_ident_expr<S: AsRef<str>>(name: S, name_span: Span, expr_span: Span) -> Expr {
+    let ident = Ident {
         id: NodeId::default(),
         span: name_span,
         name: Rc::from(name.as_ref()),
     };
-    let path = ast::Path {
+    let path = Path {
         id: NodeId::default(),
         span: name_span,
         segments: None,
         name: Box::new(ident),
     };
-    let path_kind = ast::ExprKind::Path(PathKind::Ok(Box::new(path)));
-    ast::Expr {
+    let path_kind = ExprKind::Path(PathKind::Ok(Box::new(path)));
+    Expr {
         id: NodeId::default(),
         span: expr_span,
         kind: Box::new(path_kind),
@@ -284,15 +275,15 @@ pub fn build_path_ident_expr<S: AsRef<str>>(
 }
 
 #[must_use]
-pub fn build_assignment_statement(lhs: Expr, rhs: Expr, assignment_span: Span) -> ast::Stmt {
-    let expr_kind = ast::ExprKind::Assign(Box::new(lhs), Box::new(rhs));
-    let expr = ast::Expr {
+pub fn build_assignment_statement(lhs: Expr, rhs: Expr, assignment_span: Span) -> Stmt {
+    let expr_kind = ExprKind::Assign(Box::new(lhs), Box::new(rhs));
+    let expr = Expr {
         id: NodeId::default(),
         span: assignment_span,
         kind: Box::new(expr_kind),
     };
-    let semi = ast::StmtKind::Semi(Box::new(expr));
-    ast::Stmt {
+    let semi = StmtKind::Semi(Box::new(expr));
+    Stmt {
         id: NodeId::default(),
         span: assignment_span,
         kind: Box::new(semi),
@@ -390,7 +381,7 @@ pub fn build_if_expr_then_block_else_expr(
     let else_expr = else_expr.map(Box::new);
     let if_kind = ExprKind::If(Box::new(cond), Box::new(then_expr), else_expr);
 
-    ast::Expr {
+    Expr {
         id: NodeId::default(),
         span,
         kind: Box::new(if_kind),
@@ -412,7 +403,7 @@ pub fn build_if_expr_then_expr_else_expr(
         ))),
     );
 
-    ast::Expr {
+    Expr {
         id: NodeId::default(),
         span,
         kind: Box::new(if_kind),
@@ -432,7 +423,7 @@ pub fn build_if_expr_then_block_else_block(
         Some(Box::new(build_wrapped_block_expr(else_block))),
     );
 
-    ast::Expr {
+    Expr {
         id: NodeId::default(),
         span,
         kind: Box::new(if_kind),
@@ -443,7 +434,7 @@ pub fn build_if_expr_then_block_else_block(
 pub fn build_if_expr_then_block(cond: Expr, then_block: Block, span: Span) -> Expr {
     let if_kind = ExprKind::If(Box::new(cond), Box::new(then_block), None);
 
-    ast::Expr {
+    Expr {
         id: NodeId::default(),
         span,
         kind: Box::new(if_kind),
@@ -452,11 +443,11 @@ pub fn build_if_expr_then_block(cond: Expr, then_block: Block, span: Span) -> Ex
 
 #[must_use]
 pub fn build_measure_call(
-    expr: ast::Expr,
+    expr: Expr,
     name_span: Span,
     operand_span: Span,
     stmt_span: Span,
-) -> ast::Expr {
+) -> Expr {
     build_call_with_param(
         "M",
         &["Std", "Intrinsic"],
@@ -469,11 +460,11 @@ pub fn build_measure_call(
 
 #[must_use]
 pub fn build_measureeachz_call(
-    expr: ast::Expr,
+    expr: Expr,
     name_span: Span,
     operand_span: Span,
     stmt_span: Span,
-) -> ast::Expr {
+) -> Expr {
     build_call_with_param(
         "MeasureEachZ",
         &["Std", "Measurement"],
@@ -485,32 +476,32 @@ pub fn build_measureeachz_call(
 }
 
 #[must_use]
-pub fn build_reset_call(expr: ast::Expr, name_span: Span, operand_span: Span) -> ast::Expr {
+pub fn build_reset_call(expr: Expr, name_span: Span, operand_span: Span) -> Expr {
     build_global_call_with_one_param("Reset", expr, name_span, operand_span)
 }
 
 #[must_use]
-pub fn build_reset_all_call(expr: ast::Expr, name_span: Span, operand_span: Span) -> ast::Expr {
+pub fn build_reset_all_call(expr: Expr, name_span: Span, operand_span: Span) -> Expr {
     build_global_call_with_one_param("ResetAll", expr, name_span, operand_span)
 }
 
 #[must_use]
 pub fn build_global_call_with_one_param<S: AsRef<str>>(
     name: S,
-    expr: ast::Expr,
+    expr: Expr,
     name_span: Span,
     operand_span: Span,
-) -> ast::Expr {
+) -> Expr {
     let expr_span = expr.span;
-    let ident = ast::Ident {
+    let ident = Ident {
         id: NodeId::default(),
         span: name_span,
         name: Rc::from(name.as_ref()),
     };
-    let callee_expr = ast::Expr {
+    let callee_expr = Expr {
         id: NodeId::default(),
         span: name_span,
-        kind: Box::new(ast::ExprKind::Path(PathKind::Ok(Box::new(ast::Path {
+        kind: Box::new(ExprKind::Path(PathKind::Ok(Box::new(Path {
             id: NodeId::default(),
             span: name_span,
             segments: None,
@@ -518,15 +509,15 @@ pub fn build_global_call_with_one_param<S: AsRef<str>>(
         })))),
     };
 
-    let param_expr_kind = ast::ExprKind::Paren(Box::new(expr));
+    let param_expr_kind = ExprKind::Paren(Box::new(expr));
 
-    let param_expr = ast::Expr {
+    let param_expr = Expr {
         kind: Box::new(param_expr_kind),
         span: operand_span,
         ..Default::default()
     };
-    let call_kind = ast::ExprKind::Call(Box::new(callee_expr), Box::new(param_expr));
-    ast::Expr {
+    let call_kind = ExprKind::Call(Box::new(callee_expr), Box::new(param_expr));
+    Expr {
         kind: Box::new(call_kind),
         span: expr_span,
         ..Default::default()
@@ -715,7 +706,7 @@ pub fn build_wrapped_block_expr(block: Block) -> Expr {
     Expr {
         id: NodeId::default(),
         span: block.span,
-        kind: Box::new(ast::ExprKind::Block(Box::new(block))),
+        kind: Box::new(ExprKind::Block(Box::new(block))),
     }
 }
 
@@ -787,11 +778,11 @@ pub fn build_implicit_return_stmt(output_expr: Expr) -> Stmt {
 
 #[must_use]
 pub fn build_path_ident_ty<S: AsRef<str>>(name: S) -> Ty {
-    let ident = ast::Ident {
+    let ident = Ident {
         name: Rc::from(name.as_ref()),
         ..Default::default()
     };
-    let path = ast::PathKind::Ok(Box::new(ast::Path {
+    let path = PathKind::Ok(Box::new(Path {
         name: Box::new(ident),
         segments: Option::default(),
         id: NodeId::default(),
@@ -806,11 +797,11 @@ pub fn build_path_ident_ty<S: AsRef<str>>(name: S) -> Ty {
 
 #[must_use]
 pub fn build_complex_ty_ident() -> Ty {
-    let ident = ast::Ident {
+    let ident = Ident {
         name: Rc::from("Complex"),
         ..Default::default()
     };
-    let path = ast::PathKind::Ok(Box::new(ast::Path {
+    let path = PathKind::Ok(Box::new(Path {
         name: Box::new(ident),
         segments: build_idents(&["Std", "Math"]),
         id: NodeId::default(),
@@ -827,9 +818,9 @@ pub fn build_complex_ty_ident() -> Ty {
 pub fn build_top_level_ns_with_items<S: AsRef<str>>(
     whole_span: Span,
     ns: S,
-    items: Vec<ast::Item>,
+    items: Vec<Item>,
 ) -> TopLevelNode {
-    TopLevelNode::Namespace(ast::Namespace {
+    TopLevelNode::Namespace(Namespace {
         id: NodeId::default(),
         span: whole_span,
         name: [Ident {
@@ -844,7 +835,7 @@ pub fn build_top_level_ns_with_items<S: AsRef<str>>(
             .collect::<Vec<_>>()
             .into_boxed_slice(),
         doc: "".into(),
-        kind: ast::NamespaceKind::Implicit,
+        kind: NamespaceKind::Implicit,
     })
 }
 
@@ -853,19 +844,19 @@ pub fn build_operation_with_stmts<S: AsRef<str>>(
     name: S,
     input_pats: Vec<Pat>,
     output_ty: Ty,
-    stmts: Vec<ast::Stmt>,
+    stmts: Vec<Stmt>,
     whole_span: Span,
     add_entry_point: bool,
-) -> ast::Item {
+) -> Item {
     let mut attrs = vec![];
     // If there are no input parameters, add an attribute to mark this
     // as an entry point. We will get a Q# compilation error if we
     // attribute an operation with EntryPoint and it has input parameters.
     if input_pats.is_empty() && add_entry_point {
-        attrs.push(Box::new(ast::Attr {
+        attrs.push(Box::new(Attr {
             id: NodeId::default(),
             span: Span::default(),
-            name: Box::new(ast::Ident {
+            name: Box::new(Ident {
                 name: Rc::from("EntryPoint"),
                 ..Default::default()
             }),
@@ -874,30 +865,26 @@ pub fn build_operation_with_stmts<S: AsRef<str>>(
     }
     let input_pats = input_pats.into_iter().map(Box::new).collect::<Vec<_>>();
     let input = match input_pats.len() {
-        0 => Box::new(Pat {
-            kind: Box::new(ast::PatKind::Tuple(input_pats.into_boxed_slice())),
-            ..Default::default()
-        }),
         1 => Box::new(Pat {
-            kind: Box::new(ast::PatKind::Paren(input_pats[0].clone())),
+            kind: Box::new(PatKind::Paren(input_pats[0].clone())),
             ..Default::default()
         }),
-        _ => Box::new(ast::Pat {
-            kind: Box::new(ast::PatKind::Tuple(input_pats.into_boxed_slice())),
+        _ => Box::new(Pat {
+            kind: Box::new(PatKind::Tuple(input_pats.into_boxed_slice())),
             ..Default::default()
         }),
     };
 
-    ast::Item {
+    Item {
         id: NodeId::default(),
         span: whole_span,
         doc: "".into(),
         attrs: attrs.into_boxed_slice(),
-        kind: Box::new(ast::ItemKind::Callable(Box::new(ast::CallableDecl {
+        kind: Box::new(ItemKind::Callable(Box::new(CallableDecl {
             id: NodeId::default(),
             span: whole_span,
-            kind: ast::CallableKind::Operation,
-            name: Box::new(ast::Ident {
+            kind: CallableKind::Operation,
+            name: Box::new(Ident {
                 name: Rc::from(name.as_ref()),
                 ..Default::default()
             }),
@@ -905,7 +892,7 @@ pub fn build_operation_with_stmts<S: AsRef<str>>(
             input,
             output: Box::new(output_ty),
             functors: None,
-            body: Box::new(ast::CallableBody::Block(Box::new(build_block(
+            body: Box::new(CallableBody::Block(Box::new(build_block(
                 stmts, whole_span,
             )))),
         }))),
@@ -914,9 +901,9 @@ pub fn build_operation_with_stmts<S: AsRef<str>>(
 
 #[must_use]
 pub fn build_arg_pat(name: String, span: Span, ty: Ty) -> Pat {
-    ast::Pat {
-        kind: Box::new(ast::PatKind::Bind(
-            Box::new(ast::Ident {
+    Pat {
+        kind: Box::new(PatKind::Bind(
+            Box::new(Ident {
                 name: Rc::from(name),
                 span,
                 ..Default::default()
@@ -929,10 +916,10 @@ pub fn build_arg_pat(name: String, span: Span, ty: Ty) -> Pat {
 }
 
 #[must_use]
-pub fn build_unary_op_expr(op: ast::UnOp, expr: ast::Expr, prefix_span: Span) -> ast::Expr {
-    ast::Expr {
+pub fn build_unary_op_expr(op: UnOp, expr: Expr, prefix_span: Span) -> Expr {
+    Expr {
         span: prefix_span,
-        kind: Box::new(ast::ExprKind::UnOp(op, Box::new(expr))),
+        kind: Box::new(ExprKind::UnOp(op, Box::new(expr))),
         ..Default::default()
     }
 }
@@ -1035,21 +1022,21 @@ pub fn build_index_expr(expr: Expr, index_expr: Expr, span: Span) -> Expr {
 #[must_use]
 pub fn build_adj_plus_ctl_functor() -> FunctorExpr {
     let adj = Box::new(FunctorExpr {
-        kind: Box::new(FunctorExprKind::Lit(ast::Functor::Adj)),
-        id: Default::default(),
-        span: Default::default(),
+        kind: Box::new(FunctorExprKind::Lit(Functor::Adj)),
+        id: NodeId::default(),
+        span: Span::default(),
     });
 
     let ctl = Box::new(FunctorExpr {
-        kind: Box::new(FunctorExprKind::Lit(ast::Functor::Ctl)),
-        id: Default::default(),
-        span: Default::default(),
+        kind: Box::new(FunctorExprKind::Lit(Functor::Ctl)),
+        id: NodeId::default(),
+        span: Span::default(),
     });
 
     FunctorExpr {
-        kind: Box::new(FunctorExprKind::BinOp(ast::SetOp::Union, adj, ctl)),
-        id: Default::default(),
-        span: Default::default(),
+        kind: Box::new(FunctorExprKind::BinOp(SetOp::Union, adj, ctl)),
+        id: NodeId::default(),
+        span: Span::default(),
     }
 }
 
@@ -1057,9 +1044,9 @@ pub fn build_adj_plus_ctl_functor() -> FunctorExpr {
 #[must_use]
 pub fn build_adj_functor() -> FunctorExpr {
     FunctorExpr {
-        kind: Box::new(FunctorExprKind::Lit(ast::Functor::Adj)),
-        id: Default::default(),
-        span: Default::default(),
+        kind: Box::new(FunctorExprKind::Lit(Functor::Adj)),
+        id: NodeId::default(),
+        span: Span::default(),
     }
 }
 
@@ -1067,9 +1054,9 @@ pub fn build_adj_functor() -> FunctorExpr {
 #[must_use]
 pub fn build_ctl_functor() -> FunctorExpr {
     FunctorExpr {
-        kind: Box::new(FunctorExprKind::Lit(ast::Functor::Ctl)),
-        id: Default::default(),
-        span: Default::default(),
+        kind: Box::new(FunctorExprKind::Lit(Functor::Ctl)),
+        id: NodeId::default(),
+        span: Span::default(),
     }
 }
 
@@ -1105,11 +1092,7 @@ pub fn build_idents(idents: &[&str]) -> Option<Box<[Ident]>> {
 }
 
 #[must_use]
-pub fn build_attr<S, T>(name: S, value: Option<T>, span: Span) -> Attr
-where
-    S: AsRef<str>,
-    T: AsRef<str>,
-{
+pub fn build_attr<S: AsRef<str>, T: AsRef<str>>(name: S, value: Option<T>, span: Span) -> Attr {
     let name = Box::new(Ident {
         span,
         name: name.as_ref().into(),
@@ -1122,7 +1105,7 @@ where
             kind: Box::new(ExprKind::Paren(Box::new(Expr {
                 span,
                 kind: Box::new(ExprKind::Path(PathKind::Ok(Box::new(Path {
-                    id: Default::default(),
+                    id: NodeId::default(),
                     span,
                     segments: None,
                     name: Box::new(Ident {
@@ -1131,15 +1114,15 @@ where
                         ..Default::default()
                     }),
                 })))),
-                id: Default::default(),
+                id: NodeId::default(),
             }))),
-            id: Default::default(),
+            id: NodeId::default(),
         })
     } else {
         Box::new(Expr {
             span,
             kind: Box::new(ExprKind::Tuple(Box::default())),
-            id: Default::default(),
+            id: NodeId::default(),
         })
     };
 
@@ -1147,6 +1130,6 @@ where
         span,
         name,
         arg,
-        id: Default::default(),
+        id: NodeId::default(),
     }
 }
