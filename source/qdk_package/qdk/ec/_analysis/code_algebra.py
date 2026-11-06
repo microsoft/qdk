@@ -481,7 +481,7 @@ def _pairs_anticommute(basis: Sequence[Pauli]) -> bool:
 
 def _is_non_degenerate(basis: Sequence[Pauli]) -> bool:
     support = set().union(*(set(pauli.support) for pauli in basis)) if basis else set()
-    qubit_count = len(support)
+    qubit_count = max(support, default=-1) + 1
     dense_basis = [DensePauli.from_sparse(abs(pauli), qubit_count) for pauli in basis]
     for index, (logical_x, logical_z) in enumerate(chunked(dense_basis, 2)):
         remaining = dense_basis[2 * index + 2 :]
