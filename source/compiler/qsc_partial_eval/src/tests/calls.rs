@@ -1299,7 +1299,27 @@ fn call_to_unresolved_callee_producing_dynamic_value_fails() {
 }
 
 #[test]
-fn recursive_scalar_call_with_dynamic_argument_is_supported() {
+fn recursive_scalar_call_with_dynamic_argument_is_rejected_in_adaptive_rif() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            let n = MResetZ(q) == One ? 3 | 2;
+            Sum(n)
+        }
+        "},
+        Profile::AdaptiveRIF.into(),
+    );
+
+    assert!(matches!(error, crate::Error::UnexpectedDynamicValue(_)));
+}
+
+#[test]
+fn recursive_scalar_call_with_dynamic_argument_is_supported_in_adaptive() {
     let program = get_rir_program_with_capabilities(
         indoc! {"
         function Sum(n : Int) : Int {
