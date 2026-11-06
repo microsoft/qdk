@@ -4,7 +4,9 @@
 mod aggregators;
 mod counting;
 mod factories;
+mod models;
 mod temporal;
+mod temporal2;
 
 use crate::{
     QuantumBackend, QuantumBackendInstruction, run_adaptive_program, run_qir, run_qsharp_call,
