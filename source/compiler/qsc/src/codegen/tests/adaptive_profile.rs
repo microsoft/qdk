@@ -5,6 +5,7 @@ use expect_test::expect;
 use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
 
 use super::compile_source_to_qir;
+use super::compile_source_to_qir_with_diagnostics;
 use super::compile_source_to_qir_with_library;
 use super::compile_source_to_rir;
 
@@ -18,6 +19,67 @@ static CAPABILITIES_DYNAMIC_QUBIT_ALLOC: std::sync::LazyLock<TargetCapabilityFla
         TargetCapabilityFlags::from(Profile::Adaptive)
             | TargetCapabilityFlags::DynamicQubitAllocation
     });
+
+#[test]
+fn issue_4077_classical_sum_preserves_constant_under_adaptive() {
+    let result = compile_source_to_qir_with_diagnostics(
+        r#"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        operation Main() : Int {
+            Sum(3)
+        }
+        "#,
+        *CAPABILITIES,
+    )
+    .expect("QIR should compile");
+
+    assert_eq!(result.capabilities, *CAPABILITIES);
+    assert!(result.warnings.is_empty());
+    assert!(
+        result
+            .qir
+            .contains("call void @__quantum__rt__int_record_output(i64 6,")
+    );
+    assert!(result.qir.contains("!\"qir_major_version\", i32 2"));
+}
+
+#[test]
+fn issue_4077_classical_loop_bound_stays_adaptive() {
+    let result = compile_source_to_qir_with_diagnostics(
+        r#"
+        function Count(xs : Double[]) : Int {
+            mutable t = 0;
+            for i in 0..Length(xs) - 1 {
+                set t += 1;
+            }
+            mutable s = 0;
+            for k in 0..t - 1 {
+                set s += k;
+            }
+            s
+        }
+        function Caller(xs : Double[]) : Int {
+            Count(Std.Arrays.Mapped(x -> x, xs))
+        }
+        operation Main() : Int {
+            Caller([1.0, 2.0, 3.0])
+        }
+        "#,
+        *CAPABILITIES,
+    )
+    .expect("QIR should compile");
+
+    assert_eq!(result.capabilities, *CAPABILITIES);
+    assert!(result.warnings.is_empty());
+    assert!(
+        result
+            .qir
+            .contains("call void @__quantum__rt__int_record_output(i64 3,")
+    );
+    assert!(result.qir.contains("!\"qir_major_version\", i32 2"));
+}
 
 #[test]
 fn returned_scalar_callable_in_mutable_loop_compiles_to_qir() {

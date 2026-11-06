@@ -1299,6 +1299,26 @@ fn call_to_unresolved_callee_producing_dynamic_value_fails() {
 }
 
 #[test]
+fn recursive_scalar_call_with_variable_return_is_rejected() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            let n = MResetZ(q) == One ? 3 | 2;
+            Sum(n)
+        }
+        "},
+        Profile::Adaptive.into(),
+    );
+
+    assert!(matches!(error, crate::Error::UnexpectedDynamicValue(_)));
+}
+
+#[test]
 fn call_to_unresolved_callee_via_closure_with_dynamic_arg_fails() {
     let error = get_partial_evaluation_error_with_capabilities(
         indoc! {"

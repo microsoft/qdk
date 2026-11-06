@@ -4,9 +4,34 @@
 use expect_test::expect;
 use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
 
-use super::compile_source_to_qir;
+use super::{compile_source_to_qir, compile_source_to_qir_with_diagnostics};
 static CAPABILITIES: std::sync::LazyLock<TargetCapabilityFlags> =
     std::sync::LazyLock::new(|| TargetCapabilityFlags::from(Profile::AdaptiveRIF));
+
+#[test]
+fn issue_4077_classical_sum_preserves_constant_under_rif() {
+    let result = compile_source_to_qir_with_diagnostics(
+        r#"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        operation Main() : Int {
+            Sum(3)
+        }
+        "#,
+        *CAPABILITIES,
+    )
+    .expect("QIR should compile");
+
+    assert_eq!(result.capabilities, *CAPABILITIES);
+    assert!(result.warnings.is_empty());
+    assert!(
+        result
+            .qir
+            .contains("call void @__quantum__rt__int_record_output(i64 6,")
+    );
+    assert!(result.qir.contains("!\"qir_major_version\", i32 1"));
+}
 
 #[test]
 fn simple() {

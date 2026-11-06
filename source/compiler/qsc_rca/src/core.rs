@@ -6,7 +6,10 @@ use std::rc::Rc;
 use crate::{
     ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ComputePropertiesLookup,
     ElementParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
-    applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
+    applications::{
+        ApplicationInstance, DeferredRecursiveCall, GeneratorSetsBuilder, LocalComputeKind,
+        RecursiveCall,
+    },
     common::{
         Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, LocalsLookup, try_resolve_callee,
     },
@@ -36,6 +39,7 @@ pub struct Analyzer<'a> {
     target_capabilities: TargetCapabilityFlags,
     last_analyzed_compute_kind: Option<ComputeKind>,
     in_parallel_expr: bool,
+    deferred_recursive_calls: Vec<DeferredRecursiveCall>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -51,6 +55,7 @@ impl<'a> Analyzer<'a> {
             target_capabilities,
             last_analyzed_compute_kind: None,
             in_parallel_expr: false,
+            deferred_recursive_calls: Vec::new(),
         }
     }
 
@@ -58,6 +63,7 @@ impl<'a> Analyzer<'a> {
         for (package_id, package) in self.package_store {
             self.analyze_package_internal(package_id, package);
         }
+        self.finalize_recursive_calls();
         self.package_store_compute_properties
     }
 
@@ -67,7 +73,63 @@ impl<'a> Analyzer<'a> {
     ) -> InternalPackageStoreComputeProperties {
         let package = self.package_store.get(package_id);
         self.analyze_package_internal(package_id, package);
+        self.finalize_recursive_calls();
         self.package_store_compute_properties
+    }
+
+    fn finalize_recursive_calls(&mut self) {
+        // A cycle can enter a parallel expression from a normal specialization.
+        // Its parallel summary may not have been requested by any other call.
+        // Complete those missing summaries without revisiting any cached ones.
+        let mut index = 0;
+        while index < self.deferred_recursive_calls.len() {
+            let call = &self.deferred_recursive_calls[index].call;
+            let callee = call.callee;
+            let parallel = call.parallel;
+            if self
+                .package_store_compute_properties
+                .find_specialization(callee, parallel)
+                .is_none()
+            {
+                let Some(Global::Callable(decl)) = self.package_store.get_global(callee.callable)
+                else {
+                    panic!("recursive callee must be a callable");
+                };
+                let previous_parallel = self.in_parallel_expr;
+                self.in_parallel_expr = parallel;
+                self.analyze_spec(callee, decl);
+                self.in_parallel_expr = previous_parallel;
+            }
+            index += 1;
+        }
+
+        // A recursive edge can target an unfinished ancestor, so wait until all
+        // summaries are complete. Only the call-local annotation is updated.
+        for deferred in self.deferred_recursive_calls.drain(..) {
+            let generator = self
+                .package_store_compute_properties
+                .get_spec(deferred.call.callee, deferred.call.parallel);
+            let output = &self.package_store.get_expr(deferred.expr).ty;
+            if scalar_output_requires_inlining(
+                output,
+                generator.generate_application_compute_kind(&deferred.call.args),
+                generator.generate_ir_function_application_compute_kind(),
+            ) {
+                let properties = self
+                    .package_store_compute_properties
+                    .get_mut(deferred.expr.package, deferred.parallel)
+                    .exprs
+                    .get_mut(deferred.expr.expr)
+                    .expect("recursive call expression properties should exist");
+                let ComputeKind::Dynamic {
+                    runtime_features, ..
+                } = deferred.application.compute_kind_mut(properties)
+                else {
+                    panic!("recursive call should have dynamic compute properties");
+                };
+                *runtime_features |= RuntimeFeatureFlags::MustBeInlined;
+            }
+        }
     }
 
     fn analyze_expr_array(&mut self, exprs: &Vec<ExprId>) -> ComputeKind {
@@ -410,6 +472,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_call(
         &mut self,
+        expr_id: ExprId,
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
         expr_type: &Ty,
@@ -436,7 +499,7 @@ impl<'a> Analyzer<'a> {
                 value_kind,
             }
         } else {
-            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
+            self.analyze_expr_call_with_static_callee(expr_id, callee_expr_id, args_expr_id)
         };
 
         // Recursive and unresolved calls bypass the resolved-callee eligibility
@@ -520,54 +583,18 @@ impl<'a> Analyzer<'a> {
             .package_store_compute_properties
             .get_spec(callee_id, self.in_parallel_expr);
 
-        // We need to split controls and specialization input arguments so we can derive the correct callable
-        // application.
-        let package_id = self.get_current_package_id();
-        let args_package = self.package_store.get(package_id);
-        let (args_controls, args_input_id) = split_controls_and_input(
-            args_expr_id,
-            callee.functor_app,
-            args_package,
-            &self.get_current_application_instance().locals_map,
-        );
-
-        // To map the input pattern to input expressions we need to provide global (store-level) pattern and expression
-        // identifiers since the callable can be in a different package than the input expressions.
-        let callee_input_pattern_id =
-            StorePatId::from((callee_id.callable.package, callable_decl.input));
-        let args_input_id = StoreExprId::from((package_id, args_input_id));
-        let arg_exprs = map_input_pattern_to_input_expressions(
-            callee_input_pattern_id,
-            args_input_id,
-            self.package_store,
-            fixed_args.as_ref().map(Vec::len),
-        );
+        let (args_controls, arg_compute_kinds) =
+            self.derive_call_args(callee, callable_decl, args_expr_id, fixed_args);
         let application_instance = self.get_current_application_instance();
-
-        // Derive the compute kind based on the value kind of the arguments.
-        let arg_compute_kinds = if let Some(fixed_args) = fixed_args {
-            // In items that come from lifted lambdas, fixed arguments that capture local variables, if any, come before
-            // other arguments, so we use the `fixed_args` as the base of the chain of values and concatenate the rest of
-            // the arguments when building the full list of arguments for a callable application.
-            fixed_args
-                .into_iter()
-                .map(|local_var_id| {
-                    application_instance
-                        .locals_map
-                        .find_local_compute_kind(local_var_id)
-                        .map_or(ComputeKind::Static, |v| v.compute_kind)
-                })
-                .chain(self.derive_arg_compute_kinds(&arg_exprs))
-                .collect()
-        } else {
-            self.derive_arg_compute_kinds(&arg_exprs)
-        };
         let mut compute_kind =
             application_generator_set.generate_application_compute_kind(&arg_compute_kinds);
         let ir_function_compute_kind =
             application_generator_set.generate_ir_function_application_compute_kind();
 
-        let input_ty = &self.package_store.get_pat(callee_input_pattern_id).ty;
+        let input_ty = &self
+            .package_store
+            .get_pat((callee_id.callable.package, callable_decl.input).into())
+            .ty;
         // Check the signature before considering an IR-function application:
         // making callable arguments dynamic would introduce spurious capabilities.
         let must_inline = self
@@ -647,6 +674,57 @@ impl<'a> Analyzer<'a> {
         compute_kind
     }
 
+    fn derive_call_args(
+        &self,
+        callee: &Callee,
+        callable_decl: &CallableDecl,
+        args_expr_id: ExprId,
+        fixed_args: Option<Vec<LocalVarId>>,
+    ) -> (Vec<ExprId>, Vec<ComputeKind>) {
+        // We need to split controls and specialization input arguments so we can derive the correct callable
+        // application.
+        let package_id = self.get_current_package_id();
+        let args_package = self.package_store.get(package_id);
+        let (args_controls, args_input_id) = split_controls_and_input(
+            args_expr_id,
+            callee.functor_app,
+            args_package,
+            &self.get_current_application_instance().locals_map,
+        );
+
+        // To map the input pattern to input expressions we need to provide global (store-level) pattern and expression
+        // identifiers since the callable can be in a different package than the input expressions.
+        let callee_input_pattern_id = StorePatId::from((callee.item.package, callable_decl.input));
+        let args_input_id = StoreExprId::from((package_id, args_input_id));
+        let arg_exprs = map_input_pattern_to_input_expressions(
+            callee_input_pattern_id,
+            args_input_id,
+            self.package_store,
+            fixed_args.as_ref().map(Vec::len),
+        );
+        let application_instance = self.get_current_application_instance();
+
+        // Derive the compute kind based on the value kind of the arguments.
+        let arg_compute_kinds = if let Some(fixed_args) = fixed_args {
+            // In items that come from lifted lambdas, fixed arguments that capture local variables, if any, come before
+            // other arguments, so we use the `fixed_args` as the base of the chain of values and concatenate the rest of
+            // the arguments when building the full list of arguments for a callable application.
+            fixed_args
+                .into_iter()
+                .map(|local_var_id| {
+                    application_instance
+                        .locals_map
+                        .find_local_compute_kind(local_var_id)
+                        .map_or(ComputeKind::Static, |v| v.compute_kind)
+                })
+                .chain(self.derive_arg_compute_kinds(&arg_exprs))
+                .collect()
+        } else {
+            self.derive_arg_compute_kinds(&arg_exprs)
+        };
+        (args_controls, arg_compute_kinds)
+    }
+
     fn type_contains_callable(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Arrow(_) => true,
@@ -683,7 +761,11 @@ impl<'a> Analyzer<'a> {
 
         // Inline only when promoting the arguments would lose a known scalar result.
         // Parameter-independent constants can cross an IR-call boundary without expanding effects.
-        if scalar_output && !compute_kind.is_variable_value_kind() && !constant_ir_output {
+        if scalar_output_requires_inlining(
+            &callable_decl.output,
+            *compute_kind,
+            ir_function_compute_kind,
+        ) {
             return true;
         }
         if !constant_ir_output && !matches!(ir_function_compute_kind, ComputeKind::Static) {
@@ -728,6 +810,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_call_with_static_callee(
         &mut self,
+        expr_id: ExprId,
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
     ) -> ComputeKind {
@@ -758,6 +841,28 @@ impl<'a> Analyzer<'a> {
         };
 
         if self.callee_in_active_contexts(&callee) {
+            if self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::CallSupport)
+                && matches!(
+                    self.get_expr(expr_id).ty,
+                    Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
+                )
+            {
+                let Some(Global::Callable(decl)) = self.package_store.get_global(callee.item)
+                else {
+                    panic!("recursive callee must be a callable");
+                };
+                let (_, args) = self.derive_call_args(&callee, decl, args_expr_id, fixed_args);
+                let call = RecursiveCall {
+                    callee: (callee.item, callee.functor_app.functor_set_value()).into(),
+                    args,
+                    parallel: self.in_parallel_expr,
+                };
+                self.get_current_application_instance_mut()
+                    .recursive_calls
+                    .insert(expr_id, call);
+            }
             // This is a recursive call, which we allow with some deferred capabilities checks at runtime.
             // We treat the call as if it were an unresolved callee, like above, such that partial evaluation will perform
             // extra validation on the capabilities at runtime. By adding the call expression to the list of unresolved callees,
@@ -1564,8 +1669,13 @@ impl<'a> Analyzer<'a> {
                 self.insert_expr_compute_kind(entry_expr_id, entry_compute_kind);
             }
         }
-        let top_level_context = self.pop_top_level_context();
+        let mut top_level_context = self.pop_top_level_context();
         assert!(top_level_context.package_id == package_id);
+        self.deferred_recursive_calls.extend(
+            top_level_context
+                .builder
+                .take_recursive_calls(package_id, self.in_parallel_expr),
+        );
 
         // Save the analysis of the top-level elements to the corresponding package compute properties.
         let package_compute_properties = self
@@ -1652,8 +1762,13 @@ impl<'a> Analyzer<'a> {
         let package_id = self.get_current_package_id();
         self.set_current_spec_context(decl, functor_set_value);
         self.visit_spec_decl(decl);
-        let spec_context = self.clear_current_spec_context();
+        let mut spec_context = self.clear_current_spec_context();
         assert!(spec_context.functor_set_value == functor_set_value);
+        self.deferred_recursive_calls.extend(
+            spec_context
+                .builder
+                .take_recursive_calls(package_id, self.in_parallel_expr),
+        );
 
         // Save the analysis to the corresponding package compute properties.
         let package_compute_properties = self
@@ -2115,6 +2230,16 @@ impl<'a> Analyzer<'a> {
     }
 }
 
+fn scalar_output_requires_inlining(
+    output: &Ty,
+    actual: ComputeKind,
+    promoted: ComputeKind,
+) -> bool {
+    matches!(output, Ty::Prim(Prim::Int | Prim::Double | Prim::Bool))
+        && !actual.is_variable_value_kind()
+        && promoted.is_variable_value_kind()
+}
+
 fn update_features_for_type(
     local_type: &Ty,
     dynamic_runtime_features: &mut RuntimeFeatureFlags,
@@ -2249,6 +2374,9 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
     }
 
     fn visit_expr(&mut self, expr_id: ExprId) {
+        self.get_current_application_instance_mut()
+            .recursive_calls
+            .remove(&expr_id);
         let expr = self.get_expr(expr_id);
         let compute_kind = match &expr.kind {
             ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) => self.analyze_expr_array(exprs),
@@ -2276,7 +2404,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             }
             ExprKind::Block(block_id) => self.analyze_expr_block(*block_id),
             ExprKind::Call(callee_expr_id, args_expr_id) => {
-                self.analyze_expr_call(*callee_expr_id, *args_expr_id, &expr.ty)
+                self.analyze_expr_call(expr_id, *callee_expr_id, *args_expr_id, &expr.ty)
             }
             ExprKind::Closure(..) => ComputeKind::Static,
             ExprKind::Fail(msg_expr_id) => self.analyze_expr_fail(*msg_expr_id),

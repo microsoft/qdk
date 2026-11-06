@@ -31,7 +31,8 @@ use qsc_passes::{PackageType, lower_hir_to_fir};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::codegen::qir::{
-    CallableArgsBackend, get_qir, get_qir_from_ast, get_rir, prepare_codegen_fir_from_callable_args,
+    CallableArgsBackend, QirGenerationResult, get_qir, get_qir_from_ast, get_rir,
+    prepare_codegen_fir_from_callable_args,
 };
 
 use super::qir::seed_entry_with_callables;
@@ -80,6 +81,13 @@ fn compile_source_to_qir_result(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> Result<String, Vec<crate::interpret::Error>> {
+    compile_source_to_qir_with_diagnostics(source, capabilities).map(|result| result.qir)
+}
+
+fn compile_source_to_qir_with_diagnostics(
+    source: &str,
+    capabilities: TargetCapabilityFlags,
+) -> Result<QirGenerationResult, Vec<crate::interpret::Error>> {
     let sources = source_map_from_source(source);
     let language_features = LanguageFeatures::default();
 
@@ -91,7 +99,6 @@ fn compile_source_to_qir_result(
         store,
         &[(std_id, None)],
     )
-    .map(|result| result.qir)
 }
 
 fn qir_entry_body(qir: &str) -> &str {
@@ -5365,6 +5372,33 @@ fn interpreter_with_capabilities(
         Default::default(),
     )
     .expect("interpreter should be created")
+}
+
+#[test]
+fn issue_4077_entry_expression_preserves_static_recursion() {
+    let capabilities = Profile::Adaptive.into();
+    let mut interpreter = interpreter_with_capabilities(capabilities);
+    eval_fragments(
+        &mut interpreter,
+        r#"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        operation Main() : Int {
+            Sum(3)
+        }
+        "#,
+    );
+
+    let result = interpreter.qirgen("Main()").expect("QIR should compile");
+    assert_eq!(result.capabilities, capabilities);
+    assert!(result.warnings.is_empty());
+    assert!(
+        result
+            .qir
+            .contains("call void @__quantum__rt__int_record_output(i64 6,")
+    );
+    assert!(result.qir.contains("!\"qir_major_version\", i32 2"));
 }
 
 fn runtime_argument_global(interpreter: &crate::interpret::Interpreter, name: &str) -> Value {

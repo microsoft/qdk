@@ -3,16 +3,76 @@
 
 use crate::{
     ApplicationGeneratorSet, ComputeKind, RuntimeFeatureFlags, ValueKind,
-    common::{Local, LocalKind, LocalsLookup, initialize_locals_map},
+    common::{GlobalSpecId, Local, LocalKind, LocalsLookup, initialize_locals_map},
     scaffolding::InternalPackageComputeProperties,
 };
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::{
     extensions::{InputParam, InputParamIndex},
-    fir::{BlockId, ExprId, LocalVarId, StmtId},
+    fir::{BlockId, ExprId, LocalVarId, PackageId, StmtId, StoreExprId},
     ty::Ty,
 };
 use rustc_hash::FxHashMap;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub enum ApplicationInstanceId {
+    #[default]
+    Inherent,
+    ElementConstant(InputParamIndex),
+    ElementVariable(InputParamIndex),
+    ArrayConstantContent(InputParamIndex),
+    ArrayStaticSize(InputParamIndex),
+    ArrayDynamicSize(InputParamIndex),
+}
+
+impl ApplicationInstanceId {
+    pub fn compute_kind_mut(self, generator: &mut ApplicationGeneratorSet) -> &mut ComputeKind {
+        use crate::ParamApplication;
+        match self {
+            Self::Inherent => &mut generator.inherent,
+            Self::ElementConstant(index) | Self::ElementVariable(index) => {
+                let ParamApplication::Element(param) =
+                    &mut generator.dynamic_param_applications[usize::from(index)]
+                else {
+                    panic!("element application must refer to an element parameter");
+                };
+                match self {
+                    Self::ElementConstant(_) => &mut param.constant,
+                    _ => &mut param.variable,
+                }
+            }
+            Self::ArrayConstantContent(index)
+            | Self::ArrayStaticSize(index)
+            | Self::ArrayDynamicSize(index) => {
+                let ParamApplication::Array(param) =
+                    &mut generator.dynamic_param_applications[usize::from(index)]
+                else {
+                    panic!("array application must refer to an array parameter");
+                };
+                match self {
+                    Self::ArrayConstantContent(_) => &mut param.constant_content,
+                    Self::ArrayStaticSize(_) => &mut param.static_size,
+                    _ => &mut param.dynamic_size,
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RecursiveCall {
+    pub callee: GlobalSpecId,
+    pub args: Vec<ComputeKind>,
+    pub parallel: bool,
+}
+
+#[derive(Debug)]
+pub struct DeferredRecursiveCall {
+    pub expr: StoreExprId,
+    pub application: ApplicationInstanceId,
+    pub parallel: bool,
+    pub call: RecursiveCall,
+}
 
 /// Auxiliary data structure used to build multiple related application generator sets from individual application
 /// instances for a particular callable specialization.
@@ -154,6 +214,26 @@ impl GeneratorSetsBuilder {
         self.flattened_application_instances_mut()
             .nth(current_application_instance)
             .expect("nth application instance does not exist")
+    }
+
+    pub fn take_recursive_calls(
+        &mut self,
+        package: PackageId,
+        parallel: bool,
+    ) -> impl Iterator<Item = DeferredRecursiveCall> + '_ {
+        self.flattened_application_instances_mut()
+            .flat_map(move |instance| {
+                let application = instance.id;
+                instance
+                    .recursive_calls
+                    .drain()
+                    .map(move |(expr, call)| DeferredRecursiveCall {
+                        expr: (package, expr).into(),
+                        application,
+                        parallel,
+                        call,
+                    })
+            })
     }
 
     /// Saves the contents of the builder to the package compute properties data structure.
@@ -462,6 +542,7 @@ impl GeneratorSetsBuilder {
 /// An instance of a callable application.
 #[derive(Debug, Default)]
 pub struct ApplicationInstance {
+    id: ApplicationInstanceId,
     /// A map of locals with their associated compute kind.
     pub locals_map: LocalsComputeKindMap,
     /// The currently active dynamic scopes in the application instance.
@@ -479,6 +560,7 @@ pub struct ApplicationInstance {
     /// The compute kind of the expressions related to the application instance.
     exprs: Vec<(ExprId, ComputeKind)>,
     pub unresolved_callee_exprs: Vec<ExprId>,
+    pub recursive_calls: FxHashMap<ExprId, RecursiveCall>,
 }
 
 // Default starting capacities for the per-callable application instance data structures.
@@ -514,6 +596,7 @@ impl ApplicationInstance {
 
     pub(crate) fn reset_expr_compute_kind(&mut self, id: ExprId) {
         self.exprs.retain(|(expr_id, _)| *expr_id != id);
+        self.recursive_calls.remove(&id);
     }
 
     pub(crate) fn insert_stmt_compute_kind(&mut self, id: StmtId, value: ComputeKind) {
@@ -570,7 +653,34 @@ impl ApplicationInstance {
                 },
             );
         }
+        let id = match dynamic_param {
+            None => ApplicationInstanceId::Inherent,
+            Some((
+                index,
+                ComputeKind::Dynamic {
+                    runtime_features,
+                    value_kind,
+                },
+            )) => match (&input_params[usize::from(index)].ty, value_kind) {
+                (Ty::Array(_), ValueKind::Constant) => {
+                    ApplicationInstanceId::ArrayConstantContent(index)
+                }
+                (Ty::Array(_), ValueKind::Variable)
+                    if runtime_features
+                        .contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) =>
+                {
+                    ApplicationInstanceId::ArrayDynamicSize(index)
+                }
+                (Ty::Array(_), ValueKind::Variable) => {
+                    ApplicationInstanceId::ArrayStaticSize(index)
+                }
+                (_, ValueKind::Constant) => ApplicationInstanceId::ElementConstant(index),
+                (_, ValueKind::Variable) => ApplicationInstanceId::ElementVariable(index),
+            },
+            Some((_, ComputeKind::Static)) => panic!("parameter application must be dynamic"),
+        };
         Self {
+            id,
             locals_map,
             active_dynamic_scopes: Vec::new(),
             return_expressions: Vec::new(),
@@ -579,6 +689,7 @@ impl ApplicationInstance {
             stmts: Vec::with_capacity(INITIAL_STMTS_CAPACITY),
             exprs: Vec::with_capacity(INITIAL_EXPRS_CAPACITY),
             unresolved_callee_exprs: Vec::new(),
+            recursive_calls: FxHashMap::default(),
         }
     }
 

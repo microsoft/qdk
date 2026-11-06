@@ -2,10 +2,16 @@
 // Licensed under the MIT License.
 
 use super::{
-    CompilationContext, check_callable_compute_properties, check_last_statement_compute_properties,
+    CompilationContext, PipelineContext, check_callable_compute_properties,
+    check_last_statement_compute_properties,
+};
+use crate::{
+    ApplicationGeneratorSet, ComputeKind, ComputePropertiesLookup, PackageStoreComputeProperties,
+    ParamApplication, RuntimeFeatureFlags, ValueKind,
 };
 use expect_test::expect;
 use qsc_data_structures::target::Profile;
+use qsc_fir::fir::{ExprKind, ItemKind, PackageLookup, PackageStore, Res};
 
 #[test]
 fn effectful_call_with_constant_output_preserves_value_for_allocation() {
@@ -37,11 +43,29 @@ fn assert_call_sites_must_inline(
     expected: bool,
     count: usize,
 ) {
-    use crate::{ComputeKind, ComputePropertiesLookup, RuntimeFeatureFlags};
-    use qsc_fir::fir::{ExprKind, ItemKind, PackageLookup, Res};
+    for properties in call_sites(
+        &context.fir_store,
+        context.get_compute_properties(),
+        name,
+        false,
+        count,
+    ) {
+        let must_inline = matches!(properties.inherent, ComputeKind::Dynamic { runtime_features, .. }
+            if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
+        assert_eq!(must_inline, expected, "{name}: {properties:?}");
+    }
+}
 
-    let mut found = 0;
-    for (package_id, package) in &context.fir_store {
+fn call_sites<'a>(
+    store: &PackageStore,
+    properties: &'a PackageStoreComputeProperties,
+    name: &str,
+    parallel: bool,
+    count: usize,
+) -> Vec<&'a ApplicationGeneratorSet> {
+    assert!(count > 0, "call-site assertions must not be vacuous");
+    let mut found = Vec::new();
+    for (package_id, package) in store {
         for (expr_id, expr) in &package.exprs {
             let ExprKind::Call(callee, _) = expr.kind else {
                 continue;
@@ -49,27 +73,257 @@ fn assert_call_sites_must_inline(
             let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
                 continue;
             };
-            let ItemKind::Callable(decl) =
-                &context.fir_store.get(item.package).get_item(item.item).kind
-            else {
+            let ItemKind::Callable(decl) = &store.get(item.package).get_item(item.item).kind else {
                 continue;
             };
             if decl.name.name.as_ref() != name {
                 continue;
             }
-            let properties = context
-                .get_compute_properties()
-                .get_expr((package_id, expr_id).into(), false);
-            let must_inline = matches!(properties.inherent, ComputeKind::Dynamic { runtime_features, .. }
-                if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
-            assert_eq!(
-                must_inline, expected,
-                "{name} at {package_id}/{expr_id}: {properties:?}"
-            );
-            found += 1;
+            if let Some(properties) = properties.find_expr((package_id, expr_id).into(), parallel) {
+                found.push(properties);
+            }
         }
     }
-    assert_eq!(found, count, "the test must cover all expected call sites");
+    assert_eq!(found.len(), count, "expected {count} calls to {name}");
+    found
+}
+
+#[test]
+fn recursive_scalar_call_is_marked_inline_by_whole_store_analysis() {
+    let context = PipelineContext::new(
+        r#"
+        namespace Test {
+            function Sum(n : Int) : Int { if n == 0 { 0 } else { n + Sum(n - 1) } }
+            operation Main() : Int { Sum(3) }
+        }
+        "#,
+        "Test.Main()",
+        Profile::Adaptive.into(),
+    );
+    check_callable_compute_properties(
+        &context.fir_store,
+        &context.compute_properties,
+        "Sum",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(0x0)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                                value_kind: Variable
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+    let sites = call_sites(
+        &context.fir_store,
+        &context.compute_properties,
+        "Sum",
+        false,
+        2,
+    );
+    for site in sites {
+        assert_eq!(
+            site.inherent,
+            ComputeKind::Dynamic {
+                runtime_features: RuntimeFeatureFlags::MustBeInlined,
+                value_kind: ValueKind::Constant,
+            }
+        );
+    }
+}
+
+#[test]
+fn mutual_scalar_recursion_marks_both_call_edges_inline() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update(
+        r#"
+        function First(n : Int) : Int { if n == 0 { 0 } else { n + Second(n - 1) } }
+        function Second(n : Int) : Int { if n == 0 { 0 } else { n + First(n - 1) } }
+        "#,
+    );
+    assert_call_sites_must_inline(&context, "First", true, 1);
+    assert_call_sites_must_inline(&context, "Second", true, 1);
+}
+
+#[test]
+fn mutual_scalar_recursion_marks_both_edges_with_reversed_declarations() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update(
+        r#"
+        function Second(n : Int) : Int { if n == 0 { 0 } else { n + First(n - 1) } }
+        function First(n : Int) : Int { if n == 0 { 0 } else { n + Second(n - 1) } }
+        "#,
+    );
+    assert_call_sites_must_inline(&context, "First", true, 1);
+    assert_call_sites_must_inline(&context, "Second", true, 1);
+}
+
+#[test]
+fn recursive_unit_return_does_not_require_inlining() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update(
+        "operation Repeat(n : Int, q : Qubit) : Unit { if n > 0 { X(q); Repeat(n - 1, q); } }",
+    );
+    assert_call_sites_must_inline(&context, "Repeat", false, 1);
+}
+
+#[test]
+fn recursive_operation_with_parameter_independent_result_does_not_require_inlining() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update(
+        r#"
+        operation Repeat(n : Int, q : Qubit) : Int {
+            if n > 0 { X(q); let _ = Repeat(n - 1, q); }
+            7
+        }
+        "#,
+    );
+    let site = call_sites(
+        &context.fir_store,
+        &context.compute_properties,
+        "Repeat",
+        false,
+        1,
+    )[0];
+    assert_eq!(
+        site.generate_ir_function_application_compute_kind(),
+        ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::UseOfDynamicInt,
+            value_kind: ValueKind::Constant,
+        }
+    );
+}
+
+#[test]
+fn recursive_function_with_variable_input_and_constant_result_does_not_require_inlining() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update("function Repeat(n : Int) : Int { if n > 0 { let _ = Repeat(n - 1); } 7 }");
+    let site = call_sites(
+        &context.fir_store,
+        &context.compute_properties,
+        "Repeat",
+        false,
+        1,
+    )[0];
+    assert_eq!(
+        site.generate_application_compute_kind(&[ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::UseOfDynamicInt,
+            value_kind: ValueKind::Variable,
+        }]),
+        ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::UseOfDynamicInt,
+            value_kind: ValueKind::Constant,
+        }
+    );
+}
+
+#[test]
+fn recursive_scalar_call_under_rif_does_not_acquire_call_support_inline_flag() {
+    let mut context = CompilationContext::new(Profile::AdaptiveRIF.into());
+    context.update("function Sum(n : Int) : Int { if n == 0 { 0 } else { n + Sum(n - 1) } }");
+    assert_call_sites_must_inline(&context, "Sum", false, 1);
+}
+
+#[test]
+fn recursive_inline_annotations_survive_incremental_package_reanalysis() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update("function Sum(n : Int) : Int { if n == 0 { 0 } else { n + Sum(n - 1) } }");
+    assert_call_sites_must_inline(&context, "Sum", true, 1);
+    context.update("Sum(3)");
+    assert_call_sites_must_inline(&context, "Sum", true, 2);
+    context.update("Sum(2)");
+    assert_call_sites_must_inline(&context, "Sum", true, 3);
+}
+
+#[test]
+fn recursive_inline_annotations_are_finalized_in_normal_and_parallel_properties() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update(
+        r#"
+        operation Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + parallel { Sum(n - 1) } }
+        }
+        "#,
+    );
+    assert_call_sites_must_inline(&context, "Sum", true, 1);
+    context.update("let _ = parallel { Sum(3) };");
+    assert_call_sites_must_inline(&context, "Sum", true, 2);
+    let site = call_sites(
+        &context.fir_store,
+        &context.compute_properties,
+        "Sum",
+        true,
+        1,
+    )[0];
+    assert_eq!(
+        site.inherent,
+        ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::MustBeInlined,
+            value_kind: ValueKind::Constant,
+        }
+    );
+}
+
+#[test]
+fn recursive_inline_annotations_preserve_mixed_array_and_scalar_application_slots() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update(
+        r#"
+        function Sum(values : Int[], n : Int) : Int {
+            if n == 0 { values[0] } else { n + Sum(values, n - 1) }
+        }
+        "#,
+    );
+    let site = call_sites(
+        &context.fir_store,
+        &context.compute_properties,
+        "Sum",
+        false,
+        1,
+    )[0];
+    assert_eq!(site.dynamic_param_applications.len(), 2);
+    let ParamApplication::Array(array) = &site.dynamic_param_applications[0] else {
+        panic!("first input should be an array");
+    };
+    let ParamApplication::Element(element) = &site.dynamic_param_applications[1] else {
+        panic!("second input should be a scalar");
+    };
+    let constant_inline = ComputeKind::Dynamic {
+        runtime_features: RuntimeFeatureFlags::MustBeInlined,
+        value_kind: ValueKind::Constant,
+    };
+    assert_eq!(site.inherent, constant_inline);
+    assert_eq!(array.constant_content, constant_inline);
+    assert_eq!(
+        array.static_size,
+        ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::empty(),
+            value_kind: ValueKind::Constant,
+        }
+    );
+    assert_eq!(
+        array.dynamic_size,
+        ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
+            value_kind: ValueKind::Constant,
+        }
+    );
+    assert_eq!(element.constant, constant_inline);
+    assert_eq!(
+        element.variable,
+        ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::UseOfDynamicInt,
+            value_kind: ValueKind::Constant,
+        }
+    );
 }
 
 #[test]
