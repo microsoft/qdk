@@ -137,7 +137,7 @@ fn indent_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> String {
 /// expected formatted QIR or yields the expected errors.
 fn check(source: &str, expect: &Expect) {
     let mut noise = NoiseConfig::NOISELESS;
-    match crate::compile(source, &mut noise) {
+    match crate::compile_to_qir(source, &mut noise) {
         Ok(qir) => {
             let formatted_qir = format_qir(&qir, &noise);
             expect.assert_eq(&formatted_qir);

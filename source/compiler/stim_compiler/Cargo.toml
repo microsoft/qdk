@@ -6,6 +6,7 @@ version.workspace = true
 [dependencies]
 enum-iterator.workspace = true
 qdk_simulators = { path = "../../simulators", default-features = false }
+qsc = { path = "../qsc" }
 qsc_ast = { path = "../qsc_ast" }
 qsc_data_structures = { path = "../qsc_data_structures" }
 rustc-hash = { workspace = true }
