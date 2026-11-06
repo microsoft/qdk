@@ -58,6 +58,7 @@ pub(crate) static QIR_RUNTIME_NAMESPACE: &[&str] = &["QIR", "Runtime"];
 #[diagnostic(transparent)]
 #[error(transparent)]
 pub enum Error {
+    AdaptiveFallbackProof(AdaptiveFallbackAnalysisError),
     BorrowCk(borrowck::Error),
     CallableLimits(callable_limits::Error),
     CapabilitiesCk(qsc_rca::errors::Error),
@@ -72,6 +73,42 @@ pub enum Error {
     Reset(reset::Error),
     SpecGen(spec_gen::Error),
     TestAttribute(test_attribute::TestAttributeError),
+}
+
+/// Adds a failed-fallback note while preserving an original Adaptive diagnostic.
+#[derive(Clone, Debug, Diagnostic, Error)]
+#[error("{error}")]
+#[diagnostic(forward(error), help("{help}"))]
+pub struct AdaptiveFallbackAnalysisError {
+    pub error: Box<Error>,
+    help: String,
+}
+
+impl AdaptiveFallbackAnalysisError {
+    /// Preserves the original diagnostic's help and appends one failed-fallback note.
+    #[must_use]
+    pub fn new(error: Error) -> Self {
+        let note = "Adaptive_RIF fallback was also rejected; these diagnostics describe the requested Adaptive profile.";
+        let help = error
+            .help()
+            .map_or_else(|| note.to_string(), |help| format!("{help}\n\n{note}"));
+        Self {
+            error: Box::new(error),
+            help,
+        }
+    }
+}
+
+impl Error {
+    /// Returns the capability diagnostic, including a failed fallback attempt.
+    #[must_use]
+    pub fn capability_error(&self) -> Option<&qsc_rca::errors::Error> {
+        match self {
+            Self::CapabilitiesCk(error) => Some(error),
+            Self::AdaptiveFallbackProof(context) => context.error.capability_error(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

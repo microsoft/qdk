@@ -17,8 +17,11 @@ pub mod qir {
     use qsc_fir::ty::{FunctorSet, GenericArg, ParamId, Ty};
 
     use qsc_data_structures::{
-        error::WithSource, functors::FunctorApp, language_features::LanguageFeatures,
-        source::SourceMap, target::TargetCapabilityFlags,
+        error::WithSource,
+        functors::FunctorApp,
+        language_features::LanguageFeatures,
+        source::SourceMap,
+        target::{Profile, TargetCapabilityFlags},
     };
     use qsc_frontend::compile::{Dependencies, PackageStore};
     use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
@@ -26,6 +29,178 @@ pub mod qir {
     use rustc_hash::{FxHashMap, FxHashSet};
 
     use crate::interpret::Error;
+
+    /// Successful generation, including nonfatal source-located diagnostics.
+    /// A recovered full-Adaptive request emits `Adaptive_RIF` / QIR 1.0.
+    #[derive(Debug)]
+    pub struct QirGenerationResult {
+        pub qir: String,
+        pub capabilities: TargetCapabilityFlags,
+        pub warnings: Vec<Error>,
+    }
+
+    /// Raw and transformed RIR for the selected backend, with nonfatal diagnostics.
+    pub struct RirGenerationResult {
+        pub rir: Vec<String>,
+        pub capabilities: TargetCapabilityFlags,
+        pub warnings: Vec<Error>,
+    }
+
+    #[derive(Clone, Debug, miette::Diagnostic, thiserror::Error)]
+    #[error(
+        "requested Adaptive used Adaptive_RIF fallback after RCA capability rejection ({reason}); effective output is QIR 1.0"
+    )]
+    #[diagnostic(
+        code("Qdk.Qsc.Codegen.AdaptiveProfileFallback"),
+        severity(warning),
+        forward(reason)
+    )]
+    pub struct AdaptiveProfileFallback {
+        pub reason: Box<Error>,
+    }
+
+    impl CodegenFir {
+        fn take_generation_warnings(&mut self) -> Vec<Error> {
+            if let Some(reason) = self.fallback_reason.take() {
+                self.warnings
+                    .push(Error::AdaptiveProfileFallback(AdaptiveProfileFallback {
+                        reason: Box::new(reason),
+                    }));
+            }
+            std::mem::take(&mut self.warnings)
+        }
+
+        pub(crate) fn generated(mut self, qir: String) -> QirGenerationResult {
+            let warnings = self.take_generation_warnings();
+            QirGenerationResult {
+                qir,
+                capabilities: self.capabilities,
+                warnings,
+            }
+        }
+
+        pub(crate) fn generated_rir(mut self, rir: Vec<String>) -> RirGenerationResult {
+            let warnings = self.take_generation_warnings();
+            RirGenerationResult {
+                rir,
+                capabilities: self.capabilities,
+                warnings,
+            }
+        }
+    }
+
+    /// Profile-specific analysis of the unchanged transformed program.
+    pub struct QirAnalysis {
+        pub compute_properties: qsc_rca::PackageStoreComputeProperties,
+        pub capabilities: TargetCapabilityFlags,
+        pub fallback_reason: Option<qsc_passes::Error>,
+    }
+
+    /// Allows one `Adaptive_RIF` attempt after any nonempty full-Adaptive RCA rejection.
+    ///
+    /// Error kinds do not determine whether the narrower backend can compile the
+    /// program. The retry must independently pass capability analysis and codegen.
+    #[must_use]
+    pub fn adaptive_fallback_eligible(
+        capabilities: TargetCapabilityFlags,
+        errors: &[qsc_passes::Error],
+    ) -> bool {
+        capabilities == Profile::Adaptive.into() && !errors.is_empty()
+    }
+
+    /// Analyzes FIR runtime capabilities and validates support, with bounded
+    /// fallback from full Adaptive to `Adaptive_RIF`.
+    ///
+    /// Analyzes the store under the requested capabilities, then checks the
+    /// supplied callable, or `package_id` when no callable is supplied. If
+    /// [`adaptive_fallback_eligible`] accepts the errors, repeats that analysis
+    /// and validation once under `Adaptive_RIF` on the same unchanged FIR.
+    ///
+    /// Returns the successful analysis, its effective capabilities, and the
+    /// original rejection that prompted fallback, if any. This function neither
+    /// generates IR nor publishes warnings; callers report fallback only after
+    /// generation succeeds, not when merely checking support.
+    ///
+    /// # Errors
+    /// Returns the original capability errors when fallback is ineligible.
+    /// If fallback also fails, retains the original diagnostics and adds one
+    /// failed-fallback note to the first diagnostic's help.
+    pub fn analyze_capabilities_with_fallback(
+        fir_store: &qsc_fir::fir::PackageStore,
+        package_id: qsc_fir::fir::PackageId,
+        callable: Option<qsc_fir::fir::StoreItemId>,
+        capabilities: TargetCapabilityFlags,
+    ) -> Result<QirAnalysis, Vec<qsc_passes::Error>> {
+        let analyze = |capabilities| {
+            if let Some(callable) = callable {
+                let properties = qsc_rca::Analyzer::init(fir_store, capabilities).analyze_all();
+                let errors = run_rca_for_callable(fir_store, &properties, callable, capabilities);
+                if errors.is_empty() {
+                    Ok(properties)
+                } else {
+                    Err(errors)
+                }
+            } else {
+                PassContext::run_fir_passes_on_fir(fir_store, package_id, capabilities)
+            }
+        };
+        run_rca_with_adaptive_fallback(capabilities, analyze)
+    }
+
+    /// Runs runtime capability analysis (RCA) with at most one Adaptive-to-`Adaptive_RIF` retry.
+    ///
+    /// Calls `analyze` with `capabilities` first. Any nonempty RCA rejection under
+    /// full Adaptive triggers a second call with `Adaptive_RIF`, regardless of
+    /// the individual error kinds. The callback must perform only capability
+    /// analysis and validation on the same unchanged FIR, computing fresh
+    /// properties for each invocation's capabilities.
+    ///
+    /// Returns the successful compute properties and effective capabilities.
+    /// After successful fallback, `fallback_reason` contains the first error
+    /// from the original attempt; otherwise it is `None`. This function neither
+    /// generates IR nor publishes diagnostics.
+    ///
+    /// # Errors
+    /// Returns the original errors unchanged when fallback is ineligible.
+    /// If fallback also fails, preserves the original errors' messages, codes,
+    /// spans, and order, adding one failed-fallback note to the first error's help.
+    pub(super) fn run_rca_with_adaptive_fallback(
+        capabilities: TargetCapabilityFlags,
+        mut analyze: impl FnMut(
+            TargetCapabilityFlags,
+        ) -> Result<
+            qsc_rca::PackageStoreComputeProperties,
+            Vec<qsc_passes::Error>,
+        >,
+    ) -> Result<QirAnalysis, Vec<qsc_passes::Error>> {
+        match analyze(capabilities) {
+            Ok(compute_properties) => Ok(QirAnalysis {
+                compute_properties,
+                capabilities,
+                fallback_reason: None,
+            }),
+            Err(mut errors) if adaptive_fallback_eligible(capabilities, &errors) => {
+                let effective: TargetCapabilityFlags = Profile::AdaptiveRIF.into();
+                if let Ok(compute_properties) = analyze(effective) {
+                    Ok(QirAnalysis {
+                        compute_properties,
+                        capabilities: effective,
+                        fallback_reason: Some(errors.remove(0)),
+                    })
+                } else {
+                    let original = errors.remove(0);
+                    errors.insert(
+                        0,
+                        qsc_passes::Error::AdaptiveFallbackProof(
+                            qsc_passes::AdaptiveFallbackAnalysisError::new(original),
+                        ),
+                    );
+                    Err(errors)
+                }
+            }
+            Err(errors) => Err(errors),
+        }
+    }
 
     /// Flat Intermediate Representation (FIR) ready for QIR/RIR code generation.
     ///
@@ -49,6 +224,48 @@ pub mod qir {
         /// pipeline cannot convert). These are carried alongside the codegen
         /// FIR rather than dropped so the codegen caller can surface them.
         pub warnings: Vec<Error>,
+        pub capabilities: TargetCapabilityFlags,
+        pub fallback_reason: Option<Error>,
+    }
+
+    fn prepare_analysis(
+        sources: &PackageStore,
+        store: &qsc_fir::fir::PackageStore,
+        package: qsc_fir::fir::PackageId,
+        callable: Option<qsc_fir::fir::StoreItemId>,
+        capabilities: TargetCapabilityFlags,
+        allow_fallback: bool,
+    ) -> Result<QirAnalysis, Vec<Error>> {
+        let result = if allow_fallback {
+            analyze_capabilities_with_fallback(store, package, callable, capabilities)
+        } else if let Some(callable) = callable {
+            let properties = qsc_rca::Analyzer::init(store, capabilities).analyze_all();
+            let errors = run_rca_for_callable(store, &properties, callable, capabilities);
+            if errors.is_empty() {
+                Ok(QirAnalysis {
+                    compute_properties: properties,
+                    capabilities,
+                    fallback_reason: None,
+                })
+            } else {
+                Err(errors)
+            }
+        } else {
+            PassContext::run_fir_passes_on_fir(store, package, capabilities).map(
+                |compute_properties| QirAnalysis {
+                    compute_properties,
+                    capabilities,
+                    fallback_reason: None,
+                },
+            )
+        };
+        result.map_err(|errors| {
+            map_pass_errors(
+                sources,
+                qsc_lowerer::map_fir_package_to_hir(package),
+                errors,
+            )
+        })
     }
 
     /// Dispatch signal indicating which QIR-generation route a consumer of
@@ -487,7 +704,7 @@ pub mod qir {
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         seeds: &[qsc_fir::fir::StoreItemId],
-    ) -> Result<(), Vec<Error>> {
+    ) -> Result<Vec<Error>, Vec<Error>> {
         let pipeline_result = qsc_fir_transforms::run_signature_preserving_subpipeline(
             fir_store,
             fir_package_id,
@@ -506,10 +723,19 @@ pub mod qir {
                 .collect());
         }
 
-        Ok(())
+        Ok(pipeline_result
+            .warnings
+            .into_iter()
+            .map(|warning| {
+                Error::FirTransform(crate::compile::attach_fir_transform_source(
+                    package_store,
+                    warning,
+                ))
+            })
+            .collect())
     }
 
-    fn map_pass_errors(
+    pub(super) fn map_pass_errors(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
         errors: Vec<qsc_passes::Error>,
@@ -519,37 +745,15 @@ pub mod qir {
             .map(|e| {
                 // A capability error can point into a dependency, so resolve it
                 // against the package that actually owns its span.
-                let owner = match &e {
-                    qsc_passes::Error::CapabilitiesCk(inner) => {
-                        qsc_lowerer::map_fir_package_to_hir(inner.span().package)
-                    }
-                    _ => package_id,
-                };
+                let owner = e.capability_error().map_or(package_id, |inner| {
+                    qsc_lowerer::map_fir_package_to_hir(inner.span().package)
+                });
                 let source_package = package_store
                     .get(owner)
                     .expect("package should be in store");
                 Error::Pass(WithSource::from_map(&source_package.sources, e))
             })
             .collect()
-    }
-
-    fn validate_callable_capabilities(
-        package_store: &PackageStore,
-        fir_store: &qsc_fir::fir::PackageStore,
-        compute_properties: &qsc_rca::PackageStoreComputeProperties,
-        callable: qsc_fir::fir::StoreItemId,
-        capabilities: TargetCapabilityFlags,
-    ) -> Result<(), Vec<Error>> {
-        let errors = run_rca_for_callable(fir_store, compute_properties, callable, capabilities);
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(map_pass_errors(
-                package_store,
-                qsc_lowerer::map_fir_package_to_hir(callable.package),
-                errors,
-            ))
-        }
     }
 
     /// Returns true if a type is, or structurally contains, a callable arrow type.
@@ -1712,6 +1916,25 @@ pub mod qir {
         args: &Value,
         capabilities: TargetCapabilityFlags,
     ) -> Result<(CodegenFir, CallableArgsBackend), Vec<Error>> {
+        prepare_codegen_fir_from_typed_callable_args_with_policy(
+            package_store,
+            callable,
+            type_args,
+            args,
+            capabilities,
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn prepare_codegen_fir_from_typed_callable_args_with_policy(
+        package_store: &PackageStore,
+        callable: qsc_hir::hir::ItemId,
+        type_args: &TypeArgs,
+        args: &Value,
+        capabilities: TargetCapabilityFlags,
+        allow_fallback: bool,
+    ) -> Result<(CodegenFir, CallableArgsBackend), Vec<Error>> {
         let mut concrete_callables = FxHashSet::default();
         collect_concrete_qsharp_callables(args, &mut concrete_callables);
 
@@ -1731,8 +1954,12 @@ pub mod qir {
             panic!("target must be callable");
         };
         if concrete_callables.is_empty() && source_decl.generics.is_empty() {
-            let codegen_fir =
-                prepare_codegen_fir_from_callable(package_store, callable, capabilities)?;
+            let codegen_fir = prepare_codegen_fir_from_callable_with_policy(
+                package_store,
+                callable,
+                capabilities,
+                allow_fallback,
+            )?;
             return Ok((
                 codegen_fir,
                 CallableArgsBackend::ReinvokeOriginal {
@@ -1773,6 +2000,7 @@ pub mod qir {
                 capabilities,
                 concrete_callables,
                 &mut budget,
+                allow_fallback,
             )?;
             return Ok((
                 codegen_fir,
@@ -1817,15 +2045,25 @@ pub mod qir {
 
         // Validate capabilities across the whole reachable program (the synthetic
         // entry and everything it specializes), mirroring the entry-expression path.
-        let compute_properties =
-            PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, capabilities)
-                .map_err(|errors| map_pass_errors(package_store, callable.package, errors))?;
+        let analysis = prepare_analysis(
+            package_store,
+            &fir_store,
+            fir_package_id,
+            None,
+            capabilities,
+            allow_fallback,
+        )?;
+        let fallback_reason = analysis
+            .fallback_reason
+            .map(|reason| map_pass_errors(package_store, callable.package, vec![reason]).remove(0));
 
         Ok((
             CodegenFir {
                 fir_store,
                 fir_package_id,
-                compute_properties,
+                compute_properties: analysis.compute_properties,
+                capabilities: analysis.capabilities,
+                fallback_reason,
                 warnings,
             },
             backend,
@@ -1846,6 +2084,7 @@ pub mod qir {
         capabilities: TargetCapabilityFlags,
         mut concrete_callables: FxHashSet<qsc_fir::fir::StoreItemId>,
         budget: &mut qsc_fir_transforms::SpecializationBudget,
+        allow_fallback: bool,
     ) -> Result<CodegenFir, Vec<Error>> {
         let fir_package_id = target_callable.package;
         // Specialize dependencies of pinned higher-order bodies without applying
@@ -1897,27 +2136,37 @@ pub mod qir {
         // returns inside dynamic branches become flag-guarded forward control
         // flow. This must run BEFORE `analyze_all` so RCA sees the
         // post-return-unify shape (no `ReturnWithinDynamicScope`) and
-        // `validate_callable_capabilities` passes under Adaptive profiles.
-        run_codegen_signature_preserving_subpipeline(
+        // the shared callable-root analysis sees the supported shape.
+        warnings.extend(run_codegen_signature_preserving_subpipeline(
             package_store,
             qsc_lowerer::map_fir_package_to_hir(target_callable.package),
             &mut fir_store,
             fir_package_id,
             &pinned_callables,
-        )?;
-        let compute_properties = qsc_rca::Analyzer::init(&fir_store, capabilities).analyze_all();
-        validate_callable_capabilities(
+        )?);
+        let analysis = prepare_analysis(
             package_store,
             &fir_store,
-            &compute_properties,
-            target_callable,
+            fir_package_id,
+            Some(target_callable),
             capabilities,
+            allow_fallback,
         )?;
+        let fallback_reason = analysis.fallback_reason.map(|reason| {
+            map_pass_errors(
+                package_store,
+                qsc_lowerer::map_fir_package_to_hir(fir_package_id),
+                vec![reason],
+            )
+            .remove(0)
+        });
 
         Ok(CodegenFir {
             fir_store,
             fir_package_id,
-            compute_properties,
+            compute_properties: analysis.compute_properties,
+            capabilities: analysis.capabilities,
+            fallback_reason,
             warnings,
         })
     }
@@ -1961,6 +2210,7 @@ pub mod qir {
         package_id: qsc_hir::hir::PackageId,
         package_override: Option<&qsc_hir::hir::Package>,
         capabilities: TargetCapabilityFlags,
+        allow_fallback: bool,
     ) -> Result<CodegenFir, Vec<Error>> {
         let (fir_store, fir_package_id, _) =
             lower_to_fir(package_store, package_id, package_override, None);
@@ -1971,6 +2221,7 @@ pub mod qir {
             fir_store,
             fir_package_id,
             capabilities,
+            allow_fallback,
         )
     }
 
@@ -1980,17 +2231,28 @@ pub mod qir {
         mut fir_store: qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         capabilities: TargetCapabilityFlags,
+        allow_fallback: bool,
     ) -> Result<CodegenFir, Vec<Error>> {
         let warnings = run_codegen_pipeline(package_store, &mut fir_store, fir_package_id)?;
 
-        let compute_properties =
-            PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, capabilities)
-                .map_err(|errors| map_pass_errors(package_store, package_id, errors))?;
+        let analysis = prepare_analysis(
+            package_store,
+            &fir_store,
+            fir_package_id,
+            None,
+            capabilities,
+            allow_fallback,
+        )?;
+        let fallback_reason = analysis
+            .fallback_reason
+            .map(|reason| map_pass_errors(package_store, package_id, vec![reason]).remove(0));
 
         Ok(CodegenFir {
             fir_store,
             fir_package_id,
-            compute_properties,
+            compute_properties: analysis.compute_properties,
+            capabilities: analysis.capabilities,
+            fallback_reason,
             warnings,
         })
     }
@@ -2000,7 +2262,15 @@ pub mod qir {
         package_id: qsc_hir::hir::PackageId,
         capabilities: TargetCapabilityFlags,
     ) -> Result<CodegenFir, Vec<Error>> {
-        prepare_codegen_fir_inner(package_store, package_id, None, capabilities)
+        prepare_codegen_fir_inner(package_store, package_id, None, capabilities, false)
+    }
+
+    pub(crate) fn prepare_qir_fir(
+        package_store: &PackageStore,
+        package_id: qsc_hir::hir::PackageId,
+        capabilities: TargetCapabilityFlags,
+    ) -> Result<CodegenFir, Vec<Error>> {
+        prepare_codegen_fir_inner(package_store, package_id, None, capabilities, true)
     }
 
     pub fn prepare_codegen_fir_from_fir_store(
@@ -2016,6 +2286,24 @@ pub mod qir {
             fir_store.clone(),
             fir_package_id,
             capabilities,
+            false,
+        )
+    }
+
+    pub(crate) fn prepare_qir_fir_from_fir_store(
+        package_store: &PackageStore,
+        package_id: qsc_hir::hir::PackageId,
+        fir_store: &qsc_fir::fir::PackageStore,
+        fir_package_id: qsc_fir::fir::PackageId,
+        capabilities: TargetCapabilityFlags,
+    ) -> Result<CodegenFir, Vec<Error>> {
+        prepare_codegen_fir_from_lowered_store(
+            package_store,
+            package_id,
+            fir_store.clone(),
+            fir_package_id,
+            capabilities,
+            true,
         )
     }
 
@@ -2028,6 +2316,15 @@ pub mod qir {
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
         capabilities: TargetCapabilityFlags,
+    ) -> Result<CodegenFir, Vec<Error>> {
+        prepare_codegen_fir_from_callable_with_policy(package_store, callable, capabilities, false)
+    }
+
+    fn prepare_codegen_fir_from_callable_with_policy(
+        package_store: &PackageStore,
+        callable: qsc_hir::hir::ItemId,
+        capabilities: TargetCapabilityFlags,
+        allow_fallback: bool,
     ) -> Result<CodegenFir, Vec<Error>> {
         let (mut fir_store, fir_package_id, _assigner) =
             lower_to_fir(package_store, callable.package, None, None);
@@ -2042,28 +2339,35 @@ pub mod qir {
                 fir_store,
                 fir_package_id,
                 warnings: Vec::new(),
+                capabilities,
+                fallback_reason: None,
             });
         }
 
         seed_entry_with_callable(&mut fir_store, fir_package_id, callable);
         let warnings = run_codegen_pipeline(package_store, &mut fir_store, fir_package_id)?;
 
-        let compute_properties = qsc_rca::Analyzer::init(&fir_store, capabilities).analyze_all();
-        validate_callable_capabilities(
+        let analysis = prepare_analysis(
             package_store,
             &fir_store,
-            &compute_properties,
-            qsc_fir::fir::StoreItemId {
+            fir_package_id,
+            Some(qsc_fir::fir::StoreItemId {
                 package: qsc_lowerer::map_hir_package_to_fir(callable.package),
                 item: qsc_lowerer::map_hir_local_item_to_fir(callable.item),
-            },
+            }),
             capabilities,
+            allow_fallback,
         )?;
+        let fallback_reason = analysis
+            .fallback_reason
+            .map(|reason| map_pass_errors(package_store, callable.package, vec![reason]).remove(0));
 
         Ok(CodegenFir {
             fir_store,
             fir_package_id,
-            compute_properties,
+            compute_properties: analysis.compute_properties,
+            capabilities: analysis.capabilities,
+            fallback_reason,
             warnings,
         })
     }
@@ -2074,6 +2378,7 @@ pub mod qir {
         capabilities: TargetCapabilityFlags,
         package_store: &mut PackageStore,
         dependencies: &Dependencies,
+        allow_fallback: bool,
     ) -> Result<(qsc_hir::hir::PackageId, CodegenFir), Vec<Error>> {
         if capabilities == TargetCapabilityFlags::all() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
@@ -2092,17 +2397,36 @@ pub mod qir {
         }
 
         let package_id = package_store.insert(unit);
-        let prepared_fir = prepare_codegen_fir(package_store, package_id, capabilities)?;
+        let prepared_fir = prepare_codegen_fir_inner(
+            package_store,
+            package_id,
+            None,
+            capabilities,
+            allow_fallback,
+        )?;
         Ok((package_id, prepared_fir))
     }
 
+    /// Generates QIR from an AST, retaining nonfatal diagnostics for the caller
+    /// to present. Does not log or publish warnings.
     pub fn get_qir_from_ast(
         store: &mut PackageStore,
         dependencies: &Dependencies,
         ast_package: qsc_ast::ast::Package,
         sources: SourceMap,
         capabilities: TargetCapabilityFlags,
-    ) -> Result<String, Vec<Error>> {
+    ) -> Result<QirGenerationResult, Vec<Error>> {
+        get_qir_from_ast_with_diagnostics(store, dependencies, ast_package, sources, capabilities)
+    }
+
+    /// Generates QIR and retains nonfatal diagnostics, including profile fallback.
+    pub fn get_qir_from_ast_with_diagnostics(
+        store: &mut PackageStore,
+        dependencies: &Dependencies,
+        ast_package: qsc_ast::ast::Package,
+        sources: SourceMap,
+        capabilities: TargetCapabilityFlags,
+    ) -> Result<QirGenerationResult, Vec<Error>> {
         if capabilities == TargetCapabilityFlags::all() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
@@ -2122,19 +2446,13 @@ pub mod qir {
         }
 
         let package_id = store.insert(unit);
-        let prepared_fir = prepare_codegen_fir(store, package_id, capabilities)?;
+        let prepared_fir = prepare_qir_fir(store, package_id, capabilities)?;
         let entry = entry_from_codegen_fir(&prepared_fir);
-        let CodegenFir {
-            fir_store,
-            compute_properties,
-            ..
-        } = prepared_fir;
-
-        fir_to_qir(
-            &fir_store,
-            capabilities,
+        let qir = fir_to_qir(
+            &prepared_fir.fir_store,
+            prepared_fir.capabilities,
             LanguageFeatures::default(),
-            &compute_properties,
+            &prepared_fir.compute_properties,
             &entry,
         )
         .map_err(|e| {
@@ -2146,34 +2464,68 @@ pub mod qir {
                 &source_package.sources,
                 e,
             ))]
-        })
+        })?;
+        Ok(prepared_fir.generated(qir))
     }
 
     pub fn get_rir(
         sources: SourceMap,
         language_features: LanguageFeatures,
         capabilities: TargetCapabilityFlags,
-        mut package_store: PackageStore,
+        package_store: PackageStore,
         dependencies: &Dependencies,
     ) -> Result<Vec<String>, Vec<Error>> {
+        get_rir_with_policy(
+            sources,
+            language_features,
+            capabilities,
+            package_store,
+            dependencies,
+            false,
+        )
+        .map(|result| result.rir)
+    }
+
+    /// Generates backend-preview RIR using the same bounded fallback as QIR.
+    /// The original `get_rir` API remains strict for diagnostic consumers.
+    pub fn get_rir_with_diagnostics(
+        sources: SourceMap,
+        language_features: LanguageFeatures,
+        capabilities: TargetCapabilityFlags,
+        package_store: PackageStore,
+        dependencies: &Dependencies,
+    ) -> Result<RirGenerationResult, Vec<Error>> {
+        get_rir_with_policy(
+            sources,
+            language_features,
+            capabilities,
+            package_store,
+            dependencies,
+            true,
+        )
+    }
+
+    fn get_rir_with_policy(
+        sources: SourceMap,
+        language_features: LanguageFeatures,
+        capabilities: TargetCapabilityFlags,
+        mut package_store: PackageStore,
+        dependencies: &Dependencies,
+        allow_fallback: bool,
+    ) -> Result<RirGenerationResult, Vec<Error>> {
         let (_, prepared_fir) = compile_to_codegen_fir(
             sources,
             language_features,
             capabilities,
             &mut package_store,
             dependencies,
+            allow_fallback,
         )?;
         let entry = entry_from_codegen_fir(&prepared_fir);
-        let CodegenFir {
-            fir_store,
-            compute_properties,
-            ..
-        } = prepared_fir;
-
         let (raw, ssa) = fir_to_rir(
-            &fir_store,
-            capabilities,
-            &compute_properties,
+            &prepared_fir.fir_store,
+            prepared_fir.capabilities,
+            &prepared_fir.compute_properties,
             &entry,
             PartialEvalConfig {
                 generate_debug_metadata: true,
@@ -2190,35 +2542,51 @@ pub mod qir {
                 e,
             ))]
         })?;
-        Ok(vec![raw.to_string(), ssa.to_string()])
+        Ok(prepared_fir.generated_rir(vec![raw.to_string(), ssa.to_string()]))
     }
 
+    /// Generates QIR and retains nonfatal diagnostics for the caller to present.
+    /// Does not log or publish warnings. A proven full-Adaptive
+    /// fallback emits `Adaptive_RIF` / QIR 1.0 without recompiling source.
     pub fn get_qir(
+        sources: SourceMap,
+        language_features: LanguageFeatures,
+        capabilities: TargetCapabilityFlags,
+        package_store: PackageStore,
+        dependencies: &Dependencies,
+    ) -> Result<QirGenerationResult, Vec<Error>> {
+        get_qir_with_diagnostics(
+            sources,
+            language_features,
+            capabilities,
+            package_store,
+            dependencies,
+        )
+    }
+
+    /// Generates QIR without dropping warnings. Successful fallback changes the
+    /// effective backend to `Adaptive_RIF` and QIR 1.0, not frontend selection.
+    pub fn get_qir_with_diagnostics(
         sources: SourceMap,
         language_features: LanguageFeatures,
         capabilities: TargetCapabilityFlags,
         mut package_store: PackageStore,
         dependencies: &Dependencies,
-    ) -> Result<String, Vec<Error>> {
+    ) -> Result<QirGenerationResult, Vec<Error>> {
         let (_, prepared_fir) = compile_to_codegen_fir(
             sources,
             language_features,
             capabilities,
             &mut package_store,
             dependencies,
+            true,
         )?;
         let entry = entry_from_codegen_fir(&prepared_fir);
-        let CodegenFir {
-            fir_store,
-            compute_properties,
-            ..
-        } = prepared_fir;
-
-        fir_to_qir(
-            &fir_store,
-            capabilities,
+        let qir = fir_to_qir(
+            &prepared_fir.fir_store,
+            prepared_fir.capabilities,
             language_features,
-            &compute_properties,
+            &prepared_fir.compute_properties,
             &entry,
         )
         .map_err(|e| {
@@ -2230,6 +2598,7 @@ pub mod qir {
                 &source_package.sources,
                 e,
             ))]
-        })
+        })?;
+        Ok(prepared_fir.generated(qir))
     }
 }

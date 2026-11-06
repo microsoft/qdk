@@ -3,6 +3,7 @@
 
 #![allow(clippy::too_many_lines)]
 
+mod adaptive_fallback;
 mod adaptive_profile;
 mod adaptive_ri_profile;
 mod adaptive_rif_profile;
@@ -90,6 +91,7 @@ fn compile_source_to_qir_result(
         store,
         &[(std_id, None)],
     )
+    .map(|result| result.qir)
 }
 
 fn qir_entry_body(qir: &str) -> &str {
@@ -2388,7 +2390,10 @@ fn loop_condition_assignment_qir_reads_value_after_one_iteration() {
         eval_fragments(&mut interpreter, "Main()"),
         Value::Tuple(vec![Value::Int(1), Value::Int(1)].into(), None),
     );
-    let qir = interpreter.qirgen("Main()").expect("one-iteration QIR");
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("one-iteration QIR");
     expect![[r#"
         block_0:
           %var_1 = alloca i64
@@ -2449,7 +2454,10 @@ fn loop_condition_assignment_qir_reads_value_after_two_iterations() {
         eval_fragments(&mut interpreter, "Main()"),
         Value::Tuple(vec![Value::Int(1), Value::Int(2)].into(), None),
     );
-    let qir = interpreter.qirgen("Main()").expect("two-iteration QIR");
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("two-iteration QIR");
     expect![[r#"
         block_0:
           %var_1 = alloca i64
@@ -2726,7 +2734,7 @@ fn expanding_polymorphic_recursion_reports_source_errors_on_every_compile_profil
             eval_fragments(&mut interpreter, source);
             for result in [
                 compile_source_to_qir_result(source, capabilities),
-                interpreter.qirgen("Main()"),
+                interpreter.qirgen("Main()").map(|result| result.qir),
             ] {
                 let errors = result.expect_err("expanding specialization must not produce QIR");
                 assert_eq!(errors.len(), 1, "{profile:?}: {errors:?}");
@@ -2755,7 +2763,12 @@ fn expanding_polymorphic_recursion_reports_source_errors_on_every_compile_profil
                 &mut interpreter,
                 "operation Safe() : Result { use q = Qubit(); X(q); MResetZ(q) }",
             );
-            assert!(interpreter.qirgen("Safe()").is_ok());
+            assert!(
+                interpreter
+                    .qirgen("Safe()")
+                    .map(|result| result.qir)
+                    .is_ok()
+            );
         }
     }
 }
@@ -2793,9 +2806,10 @@ fn finite_recursive_type_cycle_generates_qir_for_all_entry_surfaces() {
             compile_and_locate_items(source, &[("Main", true)], capabilities);
         for qir in [
             compile_source_to_qir(source, capabilities),
-            interpreter
-                .qirgen("Main()")
-                .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors))),
+            interpreter.qirgen("Main()").map_or_else(
+                |errors| panic!("{}", format_interpret_errors(errors)),
+                |result| result.qir,
+            ),
             callable_args_to_qir(&store, package, items["Main"], &Value::unit(), capabilities),
         ] {
             assert_eq!(
@@ -2865,9 +2879,10 @@ fn recursive_callable_factory_is_inlined_in_adaptive_qir() {
         let capabilities = profile.into();
         let mut interpreter = interpreter_with_capabilities(capabilities);
         eval_fragments(&mut interpreter, source);
-        let incremental_qir = interpreter
-            .qirgen("Test.Main()")
-            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        let incremental_qir = interpreter.qirgen("Test.Main()").map_or_else(
+            |errors| panic!("{}", format_interpret_errors(errors)),
+            |result| result.qir,
+        );
         for qir in [compile_source_to_qir(source, capabilities), incremental_qir] {
             assert!(!qir.contains("@Make"), "factory must be inlined: {qir}");
             assert_eq!(
@@ -3081,6 +3096,7 @@ fn compile_source_to_qir_with_library_result(
         store,
         &user_dependencies,
     )
+    .map(|result| result.qir)
 }
 
 #[test]
@@ -3191,6 +3207,7 @@ fn compile_source_to_qir_from_ast_result(
         sources,
         capabilities,
     )
+    .map(|result| result.qir)
 }
 
 fn compile_source_to_rir(source: &str, capabilities: TargetCapabilityFlags) -> Vec<String> {
@@ -3269,7 +3286,7 @@ fn code_with_errors_returns_errors() {
             ],
         )
     "#]]
-    .assert_debug_eq(&get_qir(sources, language_features, capabilities, store, &[(std_id, None)]));
+    .assert_debug_eq(&get_qir(sources, language_features, capabilities, store, &[(std_id, None)]).map(|result| result.qir));
 }
 
 #[test]
@@ -5400,6 +5417,7 @@ fn runtime_callable_argument_generic_bindings_are_consistent_and_scoped() {
         eval_fragments(&mut interpreter, source);
         let errors = interpreter
             .qirgen("Test.Wrong(Test.Identity)")
+            .map(|result| result.qir)
             .expect_err("source typing must reject inconsistent generic arguments");
         assert!(format!("{errors:?}").contains("TyMismatch"));
 
@@ -5407,12 +5425,14 @@ fn runtime_callable_argument_generic_bindings_are_consistent_and_scoped() {
             checked_runtime_invocation(&mut interpreter, "Test.Pair", "1, Test.Identity");
         interpreter
             .qirgen_from_callable(&pair, args)
+            .map(|result| result.qir)
             .expect("checked shared type arguments should compile");
 
         let (independent, args) =
             checked_runtime_invocation(&mut interpreter, "Test.Independent", "0.5, Test.Identity");
         interpreter
             .qirgen_from_callable(&independent, args)
+            .map(|result| result.qir)
             .expect("distinct declarations' type parameters must not conflict");
     }
 }
@@ -5455,8 +5475,12 @@ fn runtime_callable_argument_valid_values_match_source_qir() {
             let (target, args) = checked_runtime_invocation(&mut interpreter, target, argument);
             let qir = interpreter
                 .qirgen_from_callable(&target, args)
+                .map(|result| result.qir)
                 .expect("valid callable arguments must still compile");
-            let source_qir = interpreter.qirgen(&source_call).expect("source invocation");
+            let source_qir = interpreter
+                .qirgen(&source_call)
+                .map(|result| result.qir)
+                .expect("source invocation");
             assert_eq!(qir, source_qir, "{profile:?}: {source_call}");
         }
     }
@@ -5497,8 +5521,12 @@ fn runtime_callable_argument_functor_shapes_match_source_qir() {
             let args = eval_fragments(&mut interpreter, argument);
             let qir = interpreter
                 .qirgen_from_callable(&target, args)
+                .map(|result| result.qir)
                 .expect("supported extra functors and runtime control layers must remain valid");
-            let source_qir = interpreter.qirgen(&source_call).expect("source invocation");
+            let source_qir = interpreter
+                .qirgen(&source_call)
+                .map(|result| result.qir)
+                .expect("source invocation");
             assert_eq!(qir, source_qir, "{profile:?}: {source_call}");
         }
     }
@@ -5586,20 +5614,26 @@ fn check_runtime_controlled_generic_callable(
             );
             let actual = interpreter
                 .qirgen_from_callable(&target, argument)
-                .unwrap_or_else(|errors| {
-                    panic!(
-                        "{context}: runtime codegen: {}",
-                        format_interpret_errors(errors)
-                    );
-                });
+                .map_or_else(
+                    |errors| {
+                        panic!(
+                            "{context}: runtime codegen: {}",
+                            format_interpret_errors(errors)
+                        );
+                    },
+                    |result| result.qir,
+                );
             let expected = interpreter
                 .qirgen(&format!("Run({functor} Generic)"))
-                .unwrap_or_else(|errors| {
-                    panic!(
-                        "{context}: source codegen: {}",
-                        format_interpret_errors(errors)
-                    );
-                });
+                .map_or_else(
+                    |errors| {
+                        panic!(
+                            "{context}: source codegen: {}",
+                            format_interpret_errors(errors)
+                        );
+                    },
+                    |result| result.qir,
+                );
             assert_eq!(
                 actual, expected,
                 "{context}: preserve control layers and type arguments"
@@ -6050,11 +6084,15 @@ fn check_runtime_checked_type_arguments(
         let (target_value, value) = checked_runtime_invocation(&mut interpreter, target, argument);
         let actual = interpreter
             .qirgen_from_callable(&target_value, value)
-            .unwrap_or_else(|errors| {
-                panic!("{context}: {}", format_interpret_errors(errors));
-            });
+            .map_or_else(
+                |errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                },
+                |result| result.qir,
+            );
         let reference = interpreter
             .qirgen(&format!("{target}({argument})"))
+            .map(|result| result.qir)
             .expect("source call has concrete type evidence");
         assert_eq!(
             actual, reference,
@@ -6111,6 +6149,7 @@ fn runtime_callable_entry_rejects_uninferred_type_arguments() {
         ] {
             let errors = interpreter
                 .qirgen_from_callable(&runtime_argument_global(&interpreter, name), args)
+                .map(|result| result.qir)
                 .expect_err("missing type evidence must not be replaced with Unit");
             assert_eq!(errors.len(), 1, "{profile:?}, {name}: {errors:?}");
             assert_eq!(
@@ -6169,11 +6208,15 @@ fn runtime_callable_entry_accepts_concrete_type_evidence() {
             let (target, argument) = checked_runtime_invocation(&mut interpreter, name, expression);
             let actual = interpreter
                 .qirgen_from_callable(&target, argument)
-                .unwrap_or_else(|errors| {
-                    panic!("{profile:?}, {name}: {}", format_interpret_errors(errors));
-                });
+                .map_or_else(
+                    |errors| {
+                        panic!("{profile:?}, {name}: {}", format_interpret_errors(errors));
+                    },
+                    |result| result.qir,
+                );
             let expected = interpreter
                 .qirgen(&format!("{name}({expression})"))
+                .map(|result| result.qir)
                 .expect("source call has concrete type evidence");
             assert_eq!(
                 actual, expected,
@@ -6299,20 +6342,26 @@ fn check_runtime_functor_generic_callable(
         );
         let actual = interpreter
             .qirgen_from_callable(&target, argument)
-            .unwrap_or_else(|errors| {
-                panic!(
-                    "{context}: runtime codegen: {}",
-                    format_interpret_errors(errors)
-                );
-            });
+            .map_or_else(
+                |errors| {
+                    panic!(
+                        "{context}: runtime codegen: {}",
+                        format_interpret_errors(errors)
+                    );
+                },
+                |result| result.qir,
+            );
         let expected = interpreter
             .qirgen(&format!("Run({functor} ApplyOp)"))
-            .unwrap_or_else(|errors| {
-                panic!(
-                    "{context}: source codegen: {}",
-                    format_interpret_errors(errors)
-                );
-            });
+            .map_or_else(
+                |errors| {
+                    panic!(
+                        "{context}: source codegen: {}",
+                        format_interpret_errors(errors)
+                    );
+                },
+                |result| result.qir,
+            );
         assert_eq!(
             actual, expected,
             "{context}: preserve implicit functor arguments"
@@ -6364,6 +6413,7 @@ fn runtime_callable_argument_preserves_nominal_udt_identity() {
         ] {
             let source_errors = interpreter
                 .qirgen(&format!("{target}({argument})"))
+                .map(|result| result.qir)
                 .expect_err("source type checker must reject the same nominal mismatch");
             assert!(format!("{source_errors:?}").contains("TyMismatch"));
         }
@@ -6377,9 +6427,11 @@ fn runtime_callable_argument_preserves_nominal_udt_identity() {
                 checked_runtime_invocation(&mut interpreter, target, argument);
             let native = interpreter
                 .qirgen_from_callable(&target_value, args)
+                .map(|result| result.qir)
                 .expect("matching UDT declarations and erased payloads must remain valid");
             let source = interpreter
                 .qirgen(&format!("{target}({argument})"))
+                .map(|result| result.qir)
                 .expect("valid source call");
             assert_eq!(native, source, "{profile:?}: {target}({argument})");
         }
@@ -6443,11 +6495,12 @@ fn runtime_callable_argument_generic_nominal_callbacks_accept_matching_values() 
                     &format!("Test.{target}"),
                     &arguments,
                 );
-                interpreter
-                    .qirgen_from_callable(&callee, args)
-                    .unwrap_or_else(|errors| {
+                interpreter.qirgen_from_callable(&callee, args).map_or_else(
+                    |errors| {
                         panic!("{profile:?}: {target}, {callback}: {errors:?}");
-                    });
+                    },
+                    |result| result.qir,
+                );
             }
         }
     }
@@ -6474,7 +6527,9 @@ fn runtime_callable_argument_generic_nominal_callbacks_check_deferred_aggregates
                     &arguments,
                 );
                 let context = format!("{profile:?}: {target}, {reader}");
-                let result = interpreter.qirgen_from_callable(&callee, args);
+                let result = interpreter
+                    .qirgen_from_callable(&callee, args)
+                    .map(|result| result.qir);
                 result.unwrap_or_else(|errors| panic!("{context}: {errors:?}"));
             }
         }
@@ -6529,9 +6584,10 @@ fn check_nested_selector_qir(selection: &str, target: usize) {
             let context = format!("{profile:?}, selection={selection}, invocation={invocation}");
             let mut interpreter = interpreter_with_capabilities(profile.into());
             eval_fragments(&mut interpreter, &source);
-            let qir = interpreter
-                .qirgen("Main()")
-                .unwrap_or_else(|errors| panic!("{context}:\n{}", format_interpret_errors(errors)));
+            let qir = interpreter.qirgen("Main()").map_or_else(
+                |errors| panic!("{context}:\n{}", format_interpret_errors(errors)),
+                |result| result.qir,
+            );
             assert_x_targets_with_context(&qir, &[target], &context);
         }
     }
@@ -6664,9 +6720,12 @@ fn check_runtime_callable_captures(
         };
         let qir = interpreter
             .qirgen_from_callable(&callable, args)
-            .unwrap_or_else(|errors| {
-                panic!("{context}: {}", format_interpret_errors(errors));
-            });
+            .map_or_else(
+                |errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                },
+                |result| result.qir,
+            );
         if profile == Profile::Adaptive {
             let entry_body = qir_entry_body(&qir);
             let x_name = if factory.starts_with("Adjoint ") {
@@ -6853,15 +6912,21 @@ fn check_runtime_captured_adjoint_phases(controlled: bool) {
             );
             let qir = interpreter
                 .qirgen_from_callable(&target, captured)
-                .unwrap_or_else(|errors| {
-                    panic!("{context}: {}", format_interpret_errors(errors));
-                });
-            let expected_qir = interpreter.qirgen("Expected()").unwrap_or_else(|errors| {
-                panic!(
-                    "{context}: reference QIR: {}",
-                    format_interpret_errors(errors)
+                .map_or_else(
+                    |errors| {
+                        panic!("{context}: {}", format_interpret_errors(errors));
+                    },
+                    |result| result.qir,
                 );
-            });
+            let expected_qir = interpreter.qirgen("Expected()").map_or_else(
+                |errors| {
+                    panic!(
+                        "{context}: reference QIR: {}",
+                        format_interpret_errors(errors)
+                    );
+                },
+                |result| result.qir,
+            );
             assert_eq!(
                 qir, expected_qir,
                 "{context}: captured adjoints must invert each operation and reverse their order"
@@ -7126,12 +7191,15 @@ fn check_runtime_mixed_callable_captures(scenario: &str, make_flip: &str) {
             // would bypass the closure-value reconstruction that failed.
             let qir = interpreter
                 .qirgen_from_callable(&global("Run"), composed)
-                .unwrap_or_else(|errors| {
-                    panic!(
-                        "{context}: QIR generation: {}",
-                        format_interpret_errors(errors)
-                    );
-                });
+                .map_or_else(
+                    |errors| {
+                        panic!(
+                            "{context}: QIR generation: {}",
+                            format_interpret_errors(errors)
+                        );
+                    },
+                    |result| result.qir,
+                );
             if profile == Profile::Adaptive {
                 let calls = qir
                     .lines()
@@ -7259,12 +7327,15 @@ fn check_runtime_callable_arrays(case: &str) {
                 );
                 let qir = interpreter
                     .qirgen_from_callable(&global("Run"), composed.clone())
-                    .unwrap_or_else(|errors| {
-                        panic!(
-                            "{context}: QIR generation: {}",
-                            format_interpret_errors(errors)
-                        );
-                    });
+                    .map_or_else(
+                        |errors| {
+                            panic!(
+                                "{context}: QIR generation: {}",
+                                format_interpret_errors(errors)
+                            );
+                        },
+                        |result| result.qir,
+                    );
                 let calls = qir
                     .lines()
                     .map(str::trim)
@@ -7289,12 +7360,15 @@ fn check_runtime_callable_arrays(case: &str) {
                 if case == "partial" {
                     let repeated = interpreter
                         .qirgen_from_callable(&global("Run"), composed)
-                        .unwrap_or_else(|errors| {
-                            panic!(
-                                "{context}: repeated QIR generation: {}",
-                                format_interpret_errors(errors)
-                            );
-                        });
+                        .map_or_else(
+                            |errors| {
+                                panic!(
+                                    "{context}: repeated QIR generation: {}",
+                                    format_interpret_errors(errors)
+                                );
+                            },
+                            |result| result.qir,
+                        );
                     assert_eq!(
                         qir, repeated,
                         "{context}: compilation must preserve reusable runtime values"
@@ -8006,12 +8080,15 @@ fn synthetic_captureless_lambda_array_preserves_input() {
         let args = eval_fragments(&mut interpreter, "[q => X(q)]");
         let qir = interpreter
             .qirgen_from_callable(&callable, args)
-            .unwrap_or_else(|errors| {
-                panic!(
-                    "lambda array failed on {profile:?}: {}",
-                    format_interpret_errors(errors)
-                )
-            });
+            .map_or_else(
+                |errors| {
+                    panic!(
+                        "lambda array failed on {profile:?}: {}",
+                        format_interpret_errors(errors)
+                    )
+                },
+                |result| result.qir,
+            );
         assert_eq!(
             qir.matches("call void @__quantum__qis__x__body(").count(),
             1,
@@ -8302,12 +8379,15 @@ fn synthetic_closure_arrays_preserve_scalar_and_tuple_inputs() {
             let args = eval_fragments(&mut interpreter, &format!("[{lambda}]"));
             let qir = interpreter
                 .qirgen_from_callable(&callable, args)
-                .unwrap_or_else(|errors| {
-                    panic!(
-                        "{input} closure array failed on {profile:?}: {}",
-                        format_interpret_errors(errors)
-                    )
-                });
+                .map_or_else(
+                    |errors| {
+                        panic!(
+                            "{input} closure array failed on {profile:?}: {}",
+                            format_interpret_errors(errors)
+                        )
+                    },
+                    |result| result.qir,
+                );
             assert!(
                 qir.contains(&format!(
                     "call void @__quantum__rt__int_record_output(i64 {expected},"
@@ -8563,6 +8643,7 @@ fn aliased_guards_select_expected_gate() {
                     "interpreter",
                     interpreter
                         .qirgen("Demo.Main()")
+                        .map(|result| result.qir)
                         .expect("issue 3768 must generate QIR"),
                 ),
             ] {
@@ -8754,14 +8835,15 @@ fn synthetic_path_returned_for_each_with_generic_global_capture_generates_qir() 
         None,
     );
 
-    let qir = interpreter
-        .qirgen_from_callable(&apply, args)
-        .unwrap_or_else(|errors| {
+    let qir = interpreter.qirgen_from_callable(&apply, args).map_or_else(
+        |errors| {
             panic!(
                 "returned ForEach callable should compile, got: {}",
                 format_interpret_errors(errors)
             )
-        });
+        },
+        |result| result.qir,
+    );
     assert!(
         qir.contains("i64 2") && qir.contains("i64 1"),
         "expected QIR to contain the computed lengths [2, 1]:\n{qir}"
@@ -8804,14 +8886,15 @@ fn synthetic_path_returned_for_each_direct_length_closure_generates_qir() {
         None,
     );
 
-    let qir = interpreter
-        .qirgen_from_callable(&apply, args)
-        .unwrap_or_else(|errors| {
+    let qir = interpreter.qirgen_from_callable(&apply, args).map_or_else(
+        |errors| {
             panic!(
                 "returned direct ForEach callable should compile, got: {}",
                 format_interpret_errors(errors)
             )
-        });
+        },
+        |result| result.qir,
+    );
     assert!(
         qir.contains("i64 2") && qir.contains("i64 1"),
         "expected QIR to contain the computed lengths [2, 1]:\n{qir}"
@@ -11339,9 +11422,10 @@ fn chemistry_like_iqpe_with_udt_capture_closure_generates_base_profile_qir() {
         "#,
     );
 
-    let qir = interpreter
-        .qirgen_from_callable(&target, args)
-        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+    let qir = interpreter.qirgen_from_callable(&target, args).map_or_else(
+        |errors| panic!("{}", format_interpret_errors(errors)),
+        |result| result.qir,
+    );
     assert!(
         qir.contains("define i64 @ENTRYPOINT__main()"),
         "expected entry point in QIR:\n{qir}"
@@ -13257,9 +13341,10 @@ fn generic_lambda_dependencies_compile_through_incremental_entries() {
     check_generic_lambda_dependency_qir(|source, capabilities| {
         let mut interpreter = interpreter_with_capabilities(capabilities);
         eval_fragments(&mut interpreter, source);
-        interpreter
-            .qirgen("Main()")
-            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)))
+        interpreter.qirgen("Main()").map_or_else(
+            |errors| panic!("{}", format_interpret_errors(errors)),
+            |result| result.qir,
+        )
     });
 }
 
@@ -13444,6 +13529,7 @@ fn explicit_generic_entry_call_requires_type_evidence() {
     );
     let errors = interpreter
         .qirgen("Generic()")
+        .map(|result| result.qir)
         .expect_err("ordinary explicit calls still need type evidence");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(

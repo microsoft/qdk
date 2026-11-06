@@ -1231,7 +1231,7 @@ mod given_interpreter {
                    [line_0] [x]
             "#]],
             );
-            let res = interpreter.qirgen("{Foo();}");
+            let res = interpreter.qirgen("{Foo();}").map(|result| result.qir);
             expect![[r#"
                 Err(
                     [
@@ -1421,7 +1421,10 @@ mod given_interpreter {
                 indoc! {"operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; } "},
             );
             is_only_value(&result, &output, &Value::unit());
-            let res = interpreter.qirgen("Foo()").expect("expected success");
+            let res = interpreter
+                .qirgen("Foo()")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -1498,7 +1501,10 @@ mod given_interpreter {
             );
             is_only_value(&result, &output, &Value::unit());
 
-            interpreter.qirgen("Foo()").expect("expected success");
+            interpreter
+                .qirgen("Foo()")
+                .map(|result| result.qir)
+                .expect("expected success");
 
             let (result, output) = line(&mut interpreter, "Foo()");
             is_only_value(
@@ -1647,9 +1653,11 @@ mod given_interpreter {
 
             let first = interpreter
                 .qirgen("Foo()")
+                .map(|result| result.qir)
                 .expect("first qirgen should succeed");
             let second = interpreter
                 .qirgen("Foo()")
+                .map(|result| result.qir)
                 .expect("second qirgen should succeed");
             assert_eq!(
                 first, second,
@@ -1672,6 +1680,7 @@ mod given_interpreter {
 
             let res = interpreter
                 .qirgen_from_callable(&callable, Value::unit())
+                .map(|result| result.qir)
                 .expect("expected success");
 
             expect![[r#"
@@ -1751,6 +1760,7 @@ mod given_interpreter {
                     &invoke_with_qubits,
                     Value::Tuple(vec![Value::Int(3), all_h].into(), None),
                 )
+                .map(|result| result.qir)
                 .expect("expected success");
 
             assert_qir_has_three_h_gates(&qir);
@@ -1786,6 +1796,7 @@ mod given_interpreter {
                     &invoke_with_qubits,
                     Value::Tuple(vec![Value::Int(3), apply_h].into(), None),
                 )
+                .map(|result| result.qir)
                 .expect("expected success");
 
             assert_qir_has_three_h_gates(&qir);
@@ -1827,6 +1838,7 @@ mod given_interpreter {
 
             let qir = interpreter
                 .qirgen_from_callable(&invoke_one, outer)
+                .map(|result| result.qir)
                 .expect("expected success");
 
             assert_eq!(
@@ -1865,6 +1877,7 @@ mod given_interpreter {
 
             let errors = interpreter
                 .qirgen_from_callable(&invoke_with_measured_int, rotate_by_int)
+                .map(|result| result.qir)
                 .expect_err("expected runtime capability error");
 
             assert!(
@@ -1907,6 +1920,7 @@ mod given_interpreter {
 
             let qir = interpreter
                 .qirgen_from_callable(&main, Value::unit())
+                .map(|result| result.qir)
                 .expect("expected success");
 
             assert_eq!(
@@ -1950,6 +1964,7 @@ mod given_interpreter {
 
             let errors = interpreter
                 .qirgen_from_callable(&main, Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected partial eval error");
             assert!(
                 errors
@@ -1993,6 +2008,7 @@ mod given_interpreter {
 
             let errors = interpreter
                 .qirgen_from_callable(&main, Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected partial eval error");
             assert!(
                 errors
@@ -2029,6 +2045,7 @@ mod given_interpreter {
 
             let int_errors = interpreter
                 .qirgen_from_callable(&user_global(&interpreter, "ReturnInt"), Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected integer output rejection");
             is_error(
                 &int_errors,
@@ -2040,6 +2057,7 @@ mod given_interpreter {
 
             let double_errors = interpreter
                 .qirgen_from_callable(&user_global(&interpreter, "ReturnDouble"), Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected double output rejection");
             is_error(
                 &double_errors,
@@ -2051,6 +2069,7 @@ mod given_interpreter {
 
             let bool_errors = interpreter
                 .qirgen_from_callable(&user_global(&interpreter, "ReturnBool"), Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected bool output rejection");
             is_error(
                 &bool_errors,
@@ -2062,6 +2081,7 @@ mod given_interpreter {
 
             let advanced_errors = interpreter
                 .qirgen_from_callable(&user_global(&interpreter, "ReturnString"), Value::unit())
+                .map(|result| result.qir)
                 .expect_err("expected advanced output rejection");
             is_error(
                 &advanced_errors,
@@ -2085,6 +2105,7 @@ mod given_interpreter {
 
             interpreter
                 .qirgen_from_callable(&callable, Value::unit())
+                .map(|result| result.qir)
                 .expect("expected success");
 
             let mut cursor = Cursor::new(Vec::<u8>::new());
@@ -2132,7 +2153,10 @@ mod given_interpreter {
             );
             _ = line(&mut interpreter, source);
 
-            let qir = interpreter.qirgen("Main()").expect("expected success");
+            let qir = interpreter
+                .qirgen("Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -2202,7 +2226,10 @@ mod given_interpreter {
                 },
             );
             is_only_value(&result, &output, &Value::unit());
-            let res = interpreter.qirgen("Test.Main()").expect("expected success");
+            let res = interpreter
+                .qirgen("Test.Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -2370,7 +2397,10 @@ mod given_interpreter {
             );
             is_only_value(&result, &output, &Value::unit());
 
-            let qir = interpreter.qirgen("Test.Main()").expect("expected success");
+            let qir = interpreter
+                .qirgen("Test.Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
 
             assert!(
                 qir.contains("call void @__quantum__rt__int_record_output(i64 %var_"),
@@ -2408,7 +2438,10 @@ mod given_interpreter {
             );
             is_only_value(&result, &output, &Value::unit());
 
-            let qir = interpreter.qirgen("Test.Main()").expect("expected success");
+            let qir = interpreter
+                .qirgen("Test.Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
 
             assert!(
                 qir.contains(
@@ -2441,7 +2474,10 @@ mod given_interpreter {
                 },
             );
             is_only_value(&result, &output, &Value::unit());
-            let res = interpreter.qirgen("Test.Main()").expect("expected success");
+            let res = interpreter
+                .qirgen("Test.Main()")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -2509,6 +2545,7 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             let res = interpreter
                 .qirgen("if M(q) == One { set x = 2; }")
+                .map(|result| result.qir)
                 .expect_err("expected error");
             is_error(
                 &res,
@@ -2527,7 +2564,10 @@ mod given_interpreter {
                 indoc! {"operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; } "},
             );
             is_only_value(&result, &output, &Value::unit());
-            let res = interpreter.qirgen("{Foo()}").expect("expected success");
+            let res = interpreter
+                .qirgen("{Foo()}")
+                .map(|result| result.qir)
+                .expect("expected success");
             expect![[r#"
                 %Result = type opaque
                 %Qubit = type opaque
@@ -2577,6 +2617,7 @@ mod given_interpreter {
 
             let res = interpreter
                 .qirgen("{ use qs = Qubit[4]; ApplyToEach(SX, qs); }")
+                .map(|result| result.qir)
                 .expect("expected success");
 
             assert!(
@@ -2596,6 +2637,7 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             let res = interpreter
                 .qirgen("{operation Bar() : Unit {}; Foo()}")
+                .map(|result| result.qir)
                 .expect("expected success");
             expect![[r#"
                 %Result = type opaque
@@ -2655,6 +2697,7 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             let res = interpreter
                 .qirgen("Foo(); operation Bar() : Unit {}; Foo()")
+                .map(|result| result.qir)
                 .expect_err("expected error");
             is_error(
                 &res,
@@ -2675,6 +2718,7 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             let res = interpreter
                 .qirgen("{operation Bar() : Unit {}; Foo()}")
+                .map(|result| result.qir)
                 .expect("expected success");
             expect![[r#"
                 %Result = type opaque
@@ -2733,7 +2777,7 @@ mod given_interpreter {
         fn qirgen_define_operation_use_it() {
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
             let res = interpreter
-                .qirgen("{ operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; }; Foo() }")
+                .qirgen("{ operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; }; Foo() }").map(|result| result.qir)
                 .expect("expected success");
             expect![[r#"
                 %Result = type opaque
@@ -2777,6 +2821,7 @@ mod given_interpreter {
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
             let res = interpreter
                 .qirgen("1")
+                .map(|result| result.qir)
                 .expect_err("expected qirgen to fail");
             is_error(
                 &res,
@@ -2792,7 +2837,7 @@ mod given_interpreter {
             let mut interpreter =
                 get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
             let res = interpreter
-                .qirgen("{ operation check_result(r : Result) : Bool { body intrinsic; }; operation Foo() : Bool { use q = Qubit(); let r = MResetZ(q); check_result(r) } Foo() }")
+                .qirgen("{ operation check_result(r : Result) : Bool { body intrinsic; }; operation Foo() : Bool { use q = Qubit(); let r = MResetZ(q); check_result(r) } Foo() }").map(|result| result.qir)
                 .expect("expected success");
             expect![[r#"
                 %Result = type opaque
@@ -3434,7 +3479,10 @@ mod given_interpreter {
             "#,
             );
             is_only_value(&result, &output, &Value::unit());
-            interpreter.qirgen("Main()").expect("inactive source QIR");
+            interpreter
+                .qirgen("Main()")
+                .map(|result| result.qir)
+                .expect("inactive source QIR");
             interpreter.get_rir("Main()").expect("inactive RIR");
             let (result, output) = line(&mut interpreter, "Main()");
             is_only_value(&result, &output, &Value::Int(4));
@@ -3469,7 +3517,10 @@ mod given_interpreter {
                 Default::default(),
             )
             .unwrap_or_else(|errors| panic!("closed library callable: {errors:?}"));
-            interpreter.qirgen("Test.Select()").expect("library QIR");
+            interpreter
+                .qirgen("Test.Select()")
+                .map(|result| result.qir)
+                .expect("library QIR");
             let (result, output) = line(&mut interpreter, "Test.Select()");
             assert_eq!(result.expect("library simulation"), Value::Int(6));
             assert_eq!(output, "selected");

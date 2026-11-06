@@ -9,6 +9,16 @@ from qdk import qsharp
 from qdk._native import QSharpError
 from qdk.simulation import run_qir
 from expecttest import assert_expected_inline
+from test_qsharp import ADAPTIVE_FALLBACK_SOURCE
+
+
+def test_adaptive_fallback_callable_warning() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with pytest.warns(UserWarning, match="Qdk.Qsc.Codegen.AdaptiveProfileFallback") as caught:
+        program = str(ctx.compile(ctx.code.Main))
+    assert len(caught) == 1
+    assert run_qir(program, shots=1, type="cpu") == [(13, [qsharp.Result.Zero] * 3)]
 
 
 @pytest.mark.parametrize(

@@ -41,6 +41,7 @@ thiserror = { workspace = true }
 allocator = { path = "../../allocator" }
 
 [dev-dependencies]
+miette = { workspace = true, features = ["fancy-no-syscall"] }
 criterion = { workspace = true, features = ["cargo_bench_support"] }
 expect-test = { workspace = true }
 indoc = { workspace = true }
