@@ -465,15 +465,19 @@ impl<'noise> Compiler<'noise> {
         let span = circuit.span;
         let record_ids = 0..self.id_map.record_count;
 
-        // use qs = Qubit[N];
-        let mut stmts = vec![managed_qubit_alloc_array(
-            QUBIT_REGISTER,
-            self.id_map.num_qubits(),
-            span,
-            span,
-            span,
-            ast::QubitSource::Fresh,
-        )];
+        // use qs = Qubit[N];, omitted when the circuit uses no qubits.
+        let num_qubits = self.id_map.num_qubits();
+        let mut stmts = Vec::new();
+        if num_qubits > 0 {
+            stmts.push(managed_qubit_alloc_array(
+                QUBIT_REGISTER,
+                num_qubits,
+                span,
+                span,
+                span,
+                ast::QubitSource::Fresh,
+            ));
+        }
 
         // mutable r_k = Zero;
         stmts.extend(record_ids.clone().map(|r| Self::declare_record(r, span)));
