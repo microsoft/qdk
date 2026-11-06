@@ -18,9 +18,10 @@ use crate::{
         build_angle_cast_call_by_name, build_angle_convert_call_with_two_params,
         build_argument_validation_stmts, build_barrier_call, build_classical_decl,
         build_convert_cast_call_by_name, build_end_stmt, build_for_stmt,
-        build_function_or_operation, build_lit_angle_expr, build_lit_complex_expr,
-        build_qasm_convert_call_with_one_param, build_qasm_import_decl, build_qasm_import_items,
-        build_qasmstd_convert_call_with_two_params, map_qsharp_type_to_ast_ty,
+        build_function_or_operation, build_gate_call_param_expr, build_lit_angle_expr,
+        build_lit_complex_expr, build_qasm_convert_call_with_one_param, build_qasm_import_decl,
+        build_qasm_import_items, build_qasmstd_convert_call_with_two_params,
+        map_qsharp_type_to_ast_ty,
     },
     get_errors_from_analysis_result,
     parser_types::{ParserSpanExt, to_qsharp_source_map},
@@ -45,11 +46,10 @@ use qdk_openqasm::{
 use qsc_ast::ast::{self as qsast, NodeId, Package};
 use qsc_ast::builder::{
     boxed_list_from_iter, build_arg_pat, build_array_reverse_expr, build_assignment_statement,
-    build_attr, build_binary_expr, build_block, build_break_stmt, build_call_no_params,
-    build_call_stmt_no_params, build_call_with_param, build_call_with_params,
+    build_attr, build_binary_expr, build_block, build_break_stmt, build_call_expr,
+    build_call_no_params, build_call_stmt_no_params, build_call_with_param, build_call_with_params,
     build_complex_from_expr, build_continue_stmt, build_convert_call_expr, build_expr_array_expr,
-    build_field_expr, build_functor_from_constraints, build_gate_call_param_expr,
-    build_gate_call_with_params_and_callee, build_if_expr_then_block,
+    build_field_expr, build_functor_from_constraints, build_if_expr_then_block,
     build_if_expr_then_block_else_block, build_if_expr_then_block_else_expr,
     build_if_expr_then_expr_else_expr, build_implicit_return_stmt, build_index_expr,
     build_lit_bigint_expr, build_lit_bool_expr, build_lit_double_expr, build_lit_int_expr,
@@ -1349,7 +1349,7 @@ impl QasmCompiler {
             }
         }
 
-        let expr = build_gate_call_with_params_and_callee(args, callee, stmt_span);
+        let expr = build_call_expr(callee, args, stmt_span);
         Some(build_stmt_semi_from_expr(expr))
     }
 

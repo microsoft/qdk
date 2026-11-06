@@ -7,11 +7,11 @@ use qsc_ast::ast::{
     Mutability, NodeId, Pat, PatKind, Path, PathKind, Stmt, StmtKind, Ty, TyKind,
 };
 use qsc_ast::builder::{
-    boxed_list_from_iter, build_binary_expr, build_block, build_call_no_params,
-    build_call_with_param, build_complex_ty_ident, build_ident, build_idents, build_index_expr,
-    build_lit_double_expr, build_lit_int_expr, build_local_decl, build_math_call_from_exprs,
-    build_path_ident_expr, build_path_ident_ty, build_stmt_semi_from_expr,
-    build_stmt_semi_from_expr_with_span, wrap_array_ty_by_dims,
+    boxed_list_from_iter, build_binary_expr, build_block, build_call_args_expr,
+    build_call_no_params, build_call_with_param, build_complex_ty_ident, build_ident, build_idents,
+    build_index_expr, build_lit_double_expr, build_lit_int_expr, build_local_decl,
+    build_math_call_from_exprs, build_path_ident_expr, build_path_ident_ty,
+    build_stmt_semi_from_expr, build_stmt_semi_from_expr_with_span, wrap_array_ty_by_dims,
 };
 use qsc_data_structures::span::Span;
 
@@ -402,6 +402,15 @@ pub(crate) fn build_end_stmt(span: Span) -> Stmt {
 pub(crate) fn build_barrier_call(span: Span) -> Stmt {
     let expr = build_call_no_params("__quantum__qis__barrier__body", &[], span, span);
     build_stmt_semi_from_expr(expr)
+}
+
+/// Builds the gate call argument. A single argument is left unwrapped when control
+/// qubits remain, since the `ctrl`/`negctrl` modifiers wrap it in a tuple anyway.
+pub(crate) fn build_gate_call_param_expr(mut args: Vec<Expr>, remaining: usize) -> Expr {
+    if args.len() == 1 && remaining > 0 {
+        return args.remove(0);
+    }
+    build_call_args_expr(args)
 }
 
 pub(crate) fn build_argument_validation_stmts(name: &String, ty: &Type, span: Span) -> Vec<Stmt> {
