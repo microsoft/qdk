@@ -110,7 +110,7 @@ fn instruction_with_result(
     }
 }
 
-/// Replaces the current backend with a fresh selected backend, without transpilers.
+/// Replaces the current backend, adapting non-native instructions for the temporal profiler.
 ///
 /// # Safety
 ///
@@ -145,7 +145,9 @@ pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
                 record_trace: true,
                 ..TemporalProfilerConfig::default()
             };
-            BackendWrapper::for_profiler(TemporalProfiler::new(config))
+            BackendWrapper::for_profiler(qep::ResultAdapter::new(
+                qep::TranspilingAdapter::with_defaults(TemporalProfiler::new(config)),
+            ))
         }
         _ => abort_with_error(&format!(
             "qdk_init() unknown backend `{backend}`; expected sparse_sim, counting_profiler, or temporal_profiler"
@@ -538,6 +540,41 @@ mod tests {
             expected.len() + 1
         );
         *lock_backend() = None;
+    }
+
+    /// Preserves result registers and decomposes combined measurement/reset for profiling.
+    #[test]
+    fn profiles_adapted_measurements() {
+        let _test_lock = TEST_LOCK.lock().expect("test mutex must not be poisoned");
+        // SAFETY: The backend name is a static, NUL-terminated string.
+        unsafe { qdk_init(c"temporal_profiler".as_ptr()) };
+        qdk_mz_store_reset(0, 0);
+        let stored = qdk_read_result(0);
+        assert!(stored <= 1);
+        assert_eq!(qdk_read_result(0), stored);
+        assert!(qdk_mz_reset(0) <= 1);
+        assert_eq!(qdk_read_result(0), stored);
+        let mut backend = lock_backend();
+        let BackendKind::Profiler(profiler) = backend
+            .as_ref()
+            .expect("backend must be initialized")
+            .batcher
+            .get_backend()
+        else {
+            panic!("temporal profiler must retain profiling support");
+        };
+        let result = profiler.get_result();
+        assert!((result.totals.total_runtime_sec - 4_000e-9).abs() < 1e-15);
+        for metric in ["mz rate", "reset rate"] {
+            let profile = result
+                .profiles
+                .profiles
+                .iter()
+                .find(|profile| profile.metric_name == metric)
+                .expect("measurements and resets must be profiled separately");
+            assert!((profile.series[0].1 - 2.0).abs() < 1e-12);
+        }
+        *backend = None;
     }
 
     #[test]

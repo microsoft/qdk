@@ -26,7 +26,9 @@ See [qep_interop.h](include/qep_interop.h) for the full list of exposed function
 For now, we support only three backends, specified by name:
  * "sparse_sim" - a sparse simulator.
  * "counting_profiler" - CountingProfiler with default parameters.
- * "temporal_profiler" - TemporalProfiler with default parameters.
+ * "temporal_profiler" - TemporalProfiler with default parameters, result-register support,
+   and default instruction transpilers. Combined measurement/reset is profiled as separate
+   measurement and reset operations.
 
 Coming soon: profilers will load configuration from a file. Meanwhile, if you need
 to instantiate backend with custom parameters, define custom backend name (e.g. 

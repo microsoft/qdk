@@ -4,7 +4,10 @@
 use crate::{
     BatchResult, QuantumBackend, QuantumBackendInstruction, RzQftTranspiler,
     interface::Driver,
-    transpilers::{DecomposeToffoliTranspiler, SwapTransplier, Transpiler},
+    transpilers::{
+        CliffordTranspiler, DecomposeToffoliTranspiler, MzResetTranspiler, SwapTransplier,
+        Transpiler,
+    },
 };
 use rustc_hash::FxHashMap;
 
@@ -38,7 +41,7 @@ impl<B: QuantumBackend> TranspilingAdapter<B> {
         })
     }
 
-    /// Wraps a backend with SWAP and Toffoli decomposition.
+    /// Wraps a backend with Clifford, SWAP, Toffoli, measurement/reset, and QFT-rotation decompositions.
     pub fn with_defaults(backend: B) -> Self {
         Self::new(
             backend,
@@ -46,6 +49,10 @@ impl<B: QuantumBackend> TranspilingAdapter<B> {
                 Box::new(SwapTransplier),
                 Box::new(DecomposeToffoliTranspiler),
                 Box::new(RzQftTranspiler),
+                Box::new(MzResetTranspiler),
+                Box::new(CliffordTranspiler::Cy),
+                Box::new(CliffordTranspiler::Cz),
+                Box::new(CliffordTranspiler::Sx),
             ],
         )
         .unwrap_or_else(|error| panic!("{error}"))

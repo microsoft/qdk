@@ -22,7 +22,7 @@ use std::{
 pub struct TemporalProfilerConfig {
     /// Duration of a Clifford instruction in nanoseconds.
     pub clifford_gate_time_nanos: usize,
-    /// Duration of measurement, reset, or their combination in nanoseconds.
+    /// Duration of a measurement or reset in nanoseconds.
     pub measurment_time_nanos: usize,
     pub aggregation_window_nanos: usize,
     pub t_factories_count: usize,
@@ -64,17 +64,15 @@ impl Default for TemporalProfilerConfig {
 /// We charge every Clifford one logical step. Actual costs differ: Pauli gates
 /// can be tracked classically, and lattice-surgery CNOTs can require several
 /// stages. Destructive logical readout need not take d rounds (Section 1);
-/// the default allows one physical code cycle for measurement, reset, or their combination,
+/// the default allows one physical code cycle for each measurement or reset,
 /// rather than modeling their separate hardware and decoding latencies.
 fn instruction_time_nanos(
     instruction: &QuantumBackendInstruction,
     config: &TemporalProfilerConfig,
 ) -> usize {
     match instruction.instruction_name {
-        "cx" | "cy" | "cz" | "h" | "s" | "sadj" | "sx" | "x" | "y" | "z" | "swap" => {
-            config.clifford_gate_time_nanos
-        }
-        "mz" | "mz_reset" | "mz_store" | "mz_store_reset" | "reset" => config.measurment_time_nanos,
+        "cx" | "h" | "s" | "sadj" | "x" | "y" | "z" => config.clifford_gate_time_nanos,
+        "mz" | "reset" => config.measurment_time_nanos,
         // Explicit injection: CNOT + measurement + worst-case conditional S,
         // with CNOT and S each charged one Clifford step: 11_000 ns by default. We omit
         // extra classical feedforward latency and assume a distilled state is
@@ -87,7 +85,6 @@ fn instruction_time_nanos(
             .and_then(|time| time.checked_add(config.measurment_time_nanos))
             .expect("T injection duration overflow"),
 
-        "read_result" => 0,
         "t" | "tadj" => panic!("These should be implemented by inject gates"),
         _ => panic!("Unsupported temporal-profiler instruction: {instruction:?}"),
     }
@@ -155,17 +152,16 @@ impl InstructionState {
     }
 }
 
-/// Simulates QIR execution with per-qubit and measurement-result dependencies.
+/// Simulates a minimal Clifford+T instruction set with per-qubit dependencies.
 ///
 /// Each instruction depends on the latest earlier operation touching each target qubit;
-/// `read_result` also depends on the latest writer of its result ID. Independent instructions run
-/// concurrently, and a completed instruction may unblock multiple successors. Global instruction
-/// references and the latest qubit/result writers persist across backend batches, so adaptive
-/// measurement barriers preserve dependencies.
+/// independent instructions run concurrently, and completion can unblock multiple successors.
+/// Per-qubit dependencies persist across batches. Use ResultAdapter outside a
+/// TranspilingAdapter for result registers and non-native instructions.
 ///
 /// A simulated event clock schedules instruction completions and factory distillation rounds.
 /// Events at the same timestamp are handled in insertion order. Instruction durations use
-/// the configured logical timing model; `read_result` takes no time. Each factory holds at most one T-state and restarts after a failed
+/// the configured logical timing model. Each factory holds at most one T-state and restarts after a failed
 /// round or after the injection consuming its state completes.
 ///
 /// Distillation and measurement randomness share a seedable RNG. Instruction and round intervals
@@ -179,8 +175,6 @@ pub struct TemporalProfiler {
     qubits: Vec<LogicalQubit>,
     /// Factories.
     factories: Vec<TFactory>,
-    /// Latest measurement instruction writing each result ID.
-    result_writers: FxHashMap<usize, InstructionRef>,
     /// Measurement and readout results for the batch being executed.
     current_batch_result: BatchResult,
     /// Events are ordered by time and then by insertion sequence.
@@ -225,7 +219,6 @@ impl TemporalProfiler {
             config,
             qubits: Vec::new(),
             factories: vec![TFactory::new(config.ecc_distance); config.t_factories_count],
-            result_writers: FxHashMap::default(),
             current_batch_result: BatchResult::default(),
             events_queue: BinaryHeap::new(),
             next_event_sequence: 0,
@@ -280,16 +273,12 @@ impl TemporalProfiler {
         );
     }
 
-    /// Stores batch instructions and records their qubit and result dependencies.
+    /// Stores batch instructions and records their qubit dependencies.
     fn enqueue_instructions(&mut self, instructions: &[QuantumBackendInstruction]) {
         let mut instruction_refs = Vec::with_capacity(instructions.len());
 
         for instruction in instructions {
-            let result_index = matches!(
-                instruction.instruction_name,
-                "read_result" | "mz" | "mz_reset"
-            )
-            .then(|| {
+            let result_index = (instruction.instruction_name == "mz").then(|| {
                 let index = self.current_batch_result.results.len();
                 self.current_batch_result
                     .results
@@ -312,19 +301,6 @@ impl TemporalProfiler {
                 }
                 self.qubits[qubit].last_instruction = Some(instruction_ref);
             }
-            if instruction.instruction_name == "read_result"
-                && let Some(Parameter::ResultId(result_id)) = instruction.parameters.first()
-                && let Some(dependency) = self.result_writers.get(result_id)
-            {
-                dependencies.insert(*dependency);
-            }
-            if matches!(instruction.instruction_name, "mz_store" | "mz_store_reset")
-                && let [Parameter::QubitId(_), Parameter::ResultId(result_id)] =
-                    instruction.parameters.as_slice()
-            {
-                self.result_writers.insert(*result_id, instruction_ref);
-            }
-
             for dependency in dependencies {
                 if !self.is_instruction_done(dependency) {
                     let dependency_index = dependency.0 - self.all_instructions_offset;
@@ -597,6 +573,16 @@ impl QuantumBackend for TemporalProfiler {
         &mut self,
         instructions: &[QuantumBackendInstruction],
     ) -> Result<BatchResult, String> {
+        for instruction in instructions {
+            if !matches!(
+                instruction.instruction_name,
+                "cx" | "h" | "s" | "sadj" | "x" | "y" | "z" | "t" | "tadj" | "mz" | "reset"
+            ) {
+                return Err(format!(
+                    "Unsupported temporal-profiler instruction: {instruction:?}"
+                ));
+            }
+        }
         self.current_batch_result = BatchResult::default();
         let batch_start = self.all_instructions_offset + self.all_instructions.len();
 
@@ -687,7 +673,7 @@ mod tests {
     use crate::tests::compile_qsharp_to_qir;
     use crate::{
         Parameter::{FactoryId as FactoryParameter, QubitId},
-        Profiler, QuantumBackend, QuantumBackendInstruction, TemporalProfilerConfig,
+        Profiler, QuantumBackend, QuantumBackendInstruction, ResultAdapter, TemporalProfilerConfig,
         TranspilingAdapter,
     };
     use expect_test::expect;
@@ -701,6 +687,11 @@ mod tests {
             record_trace: true,
             ..TemporalProfilerConfig::default()
         })
+    }
+
+    /// Wraps the seeded profiler with result-register and default instruction adapters.
+    fn adapted_profiler() -> ResultAdapter<TranspilingAdapter<TemporalProfiler>> {
+        ResultAdapter::new(TranspilingAdapter::with_defaults(seeded_profiler()))
     }
     #[test]
     /// Profiles the Shor's algorithm QIR fixture, saves the result, and reports elapsed time.
@@ -722,7 +713,7 @@ mod tests {
             record_trace: false,
             ..TemporalProfilerConfig::default()
         });
-        let mut profiler = TranspilingAdapter::with_defaults(profiler);
+        let mut profiler = ResultAdapter::new(TranspilingAdapter::with_defaults(profiler));
         let start = Instant::now();
 
         // SAFETY: The checked-in QIR fixture was produced by a trusted compiler.
@@ -761,7 +752,7 @@ mod tests {
             }
         "#;
         let file = compile_qsharp_to_qir(source, Profile::Base);
-        let mut profiler = seeded_profiler();
+        let mut profiler = adapted_profiler();
 
         // SAFETY: The QIR was generated by the in-tree Q# compiler from trusted source.
         let _ = unsafe { profiler.profile_qir(file.path()?) }?;
@@ -784,11 +775,9 @@ mod tests {
             55000-66000: inject_t 0 0
             55000-66000: inject_tadj 1 1
             66000-121000: round 0
-            66000-67000: mz_store 0 0
+            66000-67000: mz 0
             66000-121000: round 1
-            66000-67000: mz_store 1 1
-            67000-67000: read_result 0
-            67000-67000: read_result 1"#]]
+            66000-67000: mz 1"#]]
         .assert_eq(&format!(
             "{:?}",
             result
@@ -802,18 +791,9 @@ mod tests {
     #[test]
     fn instruction_durations_use_logical_timing_assumptions() {
         for (names, expected) in [
-            (
-                &[
-                    "cx", "cy", "cz", "h", "s", "sadj", "sx", "x", "y", "z", "swap",
-                ][..],
-                5_000,
-            ),
-            (
-                &["mz", "mz_reset", "mz_store", "mz_store_reset", "reset"][..],
-                1_000,
-            ),
+            (&["cx", "h", "s", "sadj", "x", "y", "z"][..], 5_000),
+            (&["mz", "reset"][..], 1_000),
             (&["inject_t", "inject_tadj"][..], 11_000),
-            (&["read_result"][..], 0),
         ] {
             for &instruction_name in names {
                 assert_eq!(
@@ -941,7 +921,7 @@ mod tests {
             }
         "#;
         let file = compile_qsharp_to_qir(source, Profile::Adaptive);
-        let mut profiler = seeded_profiler();
+        let mut profiler = adapted_profiler();
 
         // SAFETY: The QIR was generated by the in-tree Q# compiler from trusted source.
         let _ = unsafe { profiler.profile_qir(file.path()?) }?;
@@ -1078,8 +1058,8 @@ mod tests {
     /// The same seed reproduces distillation, immediate results, and reads across batches.
     #[test]
     fn seeded_randomness_reproduces_execution() -> Result<(), String> {
-        let mut first = seeded_profiler();
-        let mut second = seeded_profiler();
+        let mut first = adapted_profiler();
+        let mut second = adapted_profiler();
         for _ in 0..8 {
             let instructions = [
                 QuantumBackendInstruction {
@@ -1089,6 +1069,10 @@ mod tests {
                 QuantumBackendInstruction {
                     instruction_name: "mz",
                     parameters: smallvec::smallvec![QubitId(0)],
+                },
+                QuantumBackendInstruction {
+                    instruction_name: "mz_store_reset",
+                    parameters: smallvec::smallvec![QubitId(0), crate::Parameter::ResultId(0)],
                 },
                 QuantumBackendInstruction {
                     instruction_name: "read_result",
@@ -1102,6 +1086,40 @@ mod tests {
         }
         assert_eq!(first.get_result(), second.get_result());
         Ok(())
+    }
+
+    /// Rejects non-native instructions before scheduling any part of a batch.
+    #[test]
+    fn rejects_instructions_requiring_adapters() {
+        let mut profiler = seeded_profiler();
+        let initial = profiler.get_result();
+        for name in [
+            "cy",
+            "cz",
+            "sx",
+            "swap",
+            "ccx",
+            "rz",
+            "mz_reset",
+            "mz_store",
+            "mz_store_reset",
+            "read_result",
+        ] {
+            let error = profiler
+                .execute_batch(&[
+                    QuantumBackendInstruction {
+                        instruction_name: "h",
+                        parameters: smallvec::smallvec![QubitId(0)],
+                    },
+                    QuantumBackendInstruction {
+                        instruction_name: name,
+                        parameters: smallvec::smallvec![],
+                    },
+                ])
+                .expect_err("non-native instructions require adapters");
+            assert!(error.contains(name));
+            assert_eq!(profiler.get_result(), initial);
+        }
     }
 
     /// Idle factories retain one state across batches without delaying resource-free work.

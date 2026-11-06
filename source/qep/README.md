@@ -296,12 +296,13 @@ and a proof-of-concept for the whole QEP project.
 ### Advanced profiler: event queue based profiler.
 
 `TemporalProfiler` is a prototype event-driven model with a simulated clock:
-* Instructions are ordered by their per-qubit and measurement-result dependencies. Independent
+* Native instructions are `cx`, `h`, `s`, `sadj`, `x`, `y`, `z`, `t`, `tadj`, `mz`, and `reset`.
+* Instructions are ordered by their per-qubit dependencies. Independent
   instructions can run concurrently, including successors unblocked by the same operation.
 * Instruction completion events are ordered by timestamp, with equal-time events processed FIFO.
 * Clifford instructions use `TemporalProfilerConfig.clifford_gate_time_nanos` (5,000 ns by default).
-  Measurement, reset, and combined measurement/reset use `measurment_time_nanos`
-  (1,000 ns by default); `read_result` takes 0 ns. These timings do not scale with ECC distance.
+  Measurement and reset each use `measurment_time_nanos` (1,000 ns by default).
+  These timings do not scale with ECC distance.
 * Every T factory starts an 11 ns distillation round at startup. Each attempt succeeds with
   probability 0.5; failures immediately retry. A successful factory holds one T-state and pauses
   until that state is consumed.
@@ -309,12 +310,26 @@ and a proof-of-concept for the whole QEP project.
   `[FactoryId, QubitId]`. Injection takes twice the Clifford duration plus the measurement
   duration (11,000 ns by default). The factory starts its next round only when injection finishes.
   Ready factories are selected FIFO within each resource type.
-* Instruction references and qubit/result dependencies persist across QIR batches, including the
-  adaptive-profile result barrier.
+* Instruction references and qubit dependencies persist across QIR batches, including the
+  adaptive-profile result barrier. `ResultAdapter` maintains result registers across batches.
 * `TemporalProfilerConfig` configures the aggregation window, factory count, ECC distance, and optional
   `seed`. Defaults use ten factories and no seed. A fixed seed reproduces both distillation
   outcomes and measurement bits. Construction requires at least one factory and a nonzero window.
 
+For QIR and non-native gates, wrap the Rust profiler in this order:
+
+```rust
+ResultAdapter::new(TranspilingAdapter::with_defaults(TemporalProfiler::new(config)))
+```
+
+`ResultAdapter` maps `mz_store` to `mz`, `mz_store_reset` to `mz_reset`, and handles
+`read_result` without scheduling a quantum operation. The inner transpiling adapter decomposes
+`mz_reset` into `mz` followed by `reset` (2,000 ns total by default). It also decomposes CY, CZ,
+SX, SWAP, Toffoli, and supported QFT rotations into native gates. Profiles and traces report the
+decomposed operations, not result-register accesses or the original composite gates.
+
+The C temporal-profiler entry point installs these adapters automatically.
+Python integration with the reduced native instruction set is deferred during the refactor.
 Python requires both timing arguments explicitly; `TemporalProfiler` requires a configuration:
 
 ```python

@@ -1,10 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod clifford;
+mod mz_reset;
 mod rz_qft;
 mod swap;
 mod tolffoli;
 
+pub use clifford::CliffordTranspiler;
+pub use mz_reset::MzResetTranspiler;
 pub use rz_qft::RzQftTranspiler;
 pub use swap::SwapTransplier;
 pub use tolffoli::DecomposeToffoliTranspiler;
