@@ -5,6 +5,7 @@ use expect_test::expect;
 use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
 
 use super::compile_source_to_qir;
+use super::compile_source_to_qir_with_diagnostics;
 use super::compile_source_to_qir_with_library;
 use super::compile_source_to_rir;
 
@@ -18,6 +19,151 @@ static CAPABILITIES_DYNAMIC_QUBIT_ALLOC: std::sync::LazyLock<TargetCapabilityFla
         TargetCapabilityFlags::from(Profile::Adaptive)
             | TargetCapabilityFlags::DynamicQubitAllocation
     });
+
+#[test]
+fn classical_sum_preserves_recursive_call_under_adaptive() {
+    let result = compile_source_to_qir_with_diagnostics(
+        r#"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        operation Main() : Int {
+            Sum(3)
+        }
+        "#,
+        *CAPABILITIES,
+    )
+    .expect("QIR should compile");
+
+    assert_eq!(result.capabilities, *CAPABILITIES);
+    assert!(result.warnings.is_empty());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          %var_9 = call i64 @Sum(i64 2)
+          %var_10 = add i64 3, %var_9
+          call void @__quantum__rt__int_record_output(i64 %var_10, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        define internal i64 @Sum(i64 %var_0) {
+        block_1:
+          %var_1 = alloca i64
+          %var_3 = alloca i64
+          %var_4 = alloca i64
+          %var_5 = alloca i64
+          store i64 %var_0, ptr %var_1
+          %var_12 = load i64, ptr %var_1
+          %var_2 = icmp eq i64 %var_12, 0
+          br i1 %var_2, label %block_2, label %block_3
+        block_2:
+          store i64 0, ptr %var_3
+          br label %block_4
+        block_3:
+          store i64 %var_0, ptr %var_4
+          store i64 %var_0, ptr %var_5
+          %var_15 = load i64, ptr %var_5
+          %var_6 = sub i64 %var_15, 1
+          %var_7 = call i64 @Sum(i64 %var_6)
+          %var_16 = load i64, ptr %var_4
+          %var_8 = add i64 %var_16, %var_7
+          store i64 %var_8, ptr %var_3
+          br label %block_4
+        block_4:
+          %var_18 = load i64, ptr %var_3
+          ret i64 %var_18
+        }
+
+        declare void @__quantum__rt__int_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
+    "#]].assert_eq(&result.qir);
+}
+
+#[test]
+fn classical_loop_bound_stays_adaptive() {
+    let result = compile_source_to_qir_with_diagnostics(
+        r#"
+        function Count(xs : Double[]) : Int {
+            mutable t = 0;
+            for i in 0..Length(xs) - 1 {
+                set t += 1;
+            }
+            mutable s = 0;
+            for k in 0..t - 1 {
+                set s += k;
+            }
+            s
+        }
+        function Caller(xs : Double[]) : Int {
+            Count(Std.Arrays.Mapped(x -> x, xs))
+        }
+        operation Main() : Int {
+            Caller([1.0, 2.0, 3.0])
+        }
+        "#,
+        *CAPABILITIES,
+    )
+    .expect("QIR should compile");
+
+    assert_eq!(result.capabilities, *CAPABILITIES);
+    assert!(result.warnings.is_empty());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__rt__int_record_output(i64 3, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @__quantum__rt__int_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
+    "#]].assert_eq(&result.qir);
+}
 
 #[test]
 fn returned_scalar_callable_in_mutable_loop_compiles_to_qir() {

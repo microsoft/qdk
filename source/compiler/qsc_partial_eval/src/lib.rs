@@ -1934,10 +1934,14 @@ impl<'a> PartialEvaluator<'a> {
                     return Err(Error::CapabilityError(error));
                 }
 
-                // If the call produces a variable value, we treat it as an error because we know that later
-                // analysis has not taken that variable into account and further partial evaluation may fail
+                // If the call produces a variable value that prior analysis did not account for, we treat it as an error because we know that later
+                // use of that variable is not taken into account by the prior analysis and further partial evaluation may fail
                 // when it encounters that value.
-                if value_kind == ValueKind::Variable {
+                if value_kind == ValueKind::Variable
+                    && !self
+                        .get_expr_compute_kind(call_expr_id)
+                        .is_variable_value_kind()
+                {
                     return Err(Error::UnexpectedDynamicValue(
                         self.get_expr_package_span(call_expr_id),
                     ));

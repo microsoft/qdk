@@ -637,6 +637,331 @@ fn recursive_callee_is_emitted() {
 }
 
 #[test]
+fn static_recursive_int_function_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            Sum(3)
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Sum",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(9, Integer) = Call id(2), args( Integer(2), )
+                Variable(10, Integer) = Add Integer(3), Variable(9, Integer)
+                Call id(3), args( Variable(10, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Variable(1, Integer) = Store Variable(0, Integer)
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Integer), Integer(0)
+                Branch Variable(2, Boolean), 3, 4
+            Block 2:Block:
+                Return Variable(3, Integer)
+            Block 3:Block:
+                Variable(3, Integer) = Store Integer(0)
+                Jump(2)
+            Block 4:Block:
+                Variable(4, Integer) = Store Variable(0, Integer)
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Variable(6, Integer) = Sub Variable(5, Integer), Integer(1)
+                Variable(7, Integer) = Call id(2), args( Variable(6, Integer), )
+                Variable(8, Integer) = Add Variable(4, Integer), Variable(7, Integer)
+                Variable(3, Integer) = Store Variable(8, Integer)
+                Jump(2)"#]],
+    );
+}
+
+#[test]
+fn static_mutually_recursive_int_functions_are_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        function SumA(n : Int) : Int {
+            if n == 0 { 0 } else { n + SumB(n - 1) }
+        }
+        function SumB(n : Int) : Int {
+            if n == 0 { 0 } else { n + SumA(n - 1) }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            SumA(3)
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "SumA",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(16, Integer) = Call id(2), args( Integer(1), )
+                Variable(17, Integer) = Add Integer(2), Variable(16, Integer)
+                Variable(18, Integer) = Add Integer(3), Variable(17, Integer)
+                Call id(3), args( Variable(18, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Variable(1, Integer) = Store Variable(0, Integer)
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Integer), Integer(0)
+                Branch Variable(2, Boolean), 3, 4
+            Block 2:Block:
+                Return Variable(3, Integer)
+            Block 3:Block:
+                Variable(3, Integer) = Store Integer(0)
+                Jump(2)
+            Block 4:Block:
+                Variable(4, Integer) = Store Variable(0, Integer)
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Variable(6, Integer) = Sub Variable(5, Integer), Integer(1)
+                Variable(7, Integer) = Store Variable(6, Integer)
+                Variable(8, Boolean) = Icmp Eq, Variable(7, Integer), Integer(0)
+                Branch Variable(8, Boolean), 6, 7
+            Block 5:Block:
+                Variable(15, Integer) = Add Variable(4, Integer), Variable(9, Integer)
+                Variable(3, Integer) = Store Variable(15, Integer)
+                Jump(2)
+            Block 6:Block:
+                Variable(9, Integer) = Store Integer(0)
+                Jump(5)
+            Block 7:Block:
+                Variable(10, Integer) = Store Variable(6, Integer)
+                Variable(11, Integer) = Store Variable(6, Integer)
+                Variable(12, Integer) = Sub Variable(11, Integer), Integer(1)
+                Variable(13, Integer) = Call id(2), args( Variable(12, Integer), )
+                Variable(14, Integer) = Add Variable(10, Integer), Variable(13, Integer)
+                Variable(9, Integer) = Store Variable(14, Integer)
+                Jump(5)"#]],
+    );
+}
+
+#[test]
+fn static_recursive_double_function_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        function Sum(n : Int) : Double {
+            if n == 0 { 0.0 } else { 1.5 + Sum(n - 1) }
+        }
+        @EntryPoint()
+        operation Main() : Double {
+            Sum(3)
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Sum",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(8, Double) = Call id(2), args( Integer(2), )
+                Variable(9, Double) = Fadd Double(1.5), Variable(8, Double)
+                Call id(3), args( Variable(9, Double), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Variable(1, Integer) = Store Variable(0, Integer)
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Integer), Integer(0)
+                Branch Variable(2, Boolean), 3, 4
+            Block 2:Block:
+                Return Variable(3, Double)
+            Block 3:Block:
+                Variable(3, Double) = Store Double(0)
+                Jump(2)
+            Block 4:Block:
+                Variable(4, Integer) = Store Variable(0, Integer)
+                Variable(5, Integer) = Sub Variable(4, Integer), Integer(1)
+                Variable(6, Double) = Call id(2), args( Variable(5, Integer), )
+                Variable(7, Double) = Fadd Double(1.5), Variable(6, Double)
+                Variable(3, Double) = Store Variable(7, Double)
+                Jump(2)"#]],
+    );
+}
+
+#[test]
+fn static_recursive_bool_function_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        function Odd(n : Int) : Bool {
+            if n == 0 { false } else { not Odd(n - 1) }
+        }
+        @EntryPoint()
+        operation Main() : Bool {
+            Odd(3)
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Odd",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(8, Boolean) = Call id(2), args( Integer(2), )
+                Variable(9, Boolean) = LogicalNot Variable(8, Boolean)
+                Call id(3), args( Variable(9, Boolean), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Variable(1, Integer) = Store Variable(0, Integer)
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Integer), Integer(0)
+                Branch Variable(2, Boolean), 3, 4
+            Block 2:Block:
+                Return Variable(3, Boolean)
+            Block 3:Block:
+                Variable(3, Boolean) = Store Bool(false)
+                Jump(2)
+            Block 4:Block:
+                Variable(4, Integer) = Store Variable(0, Integer)
+                Variable(5, Integer) = Sub Variable(4, Integer), Integer(1)
+                Variable(6, Boolean) = Call id(2), args( Variable(5, Integer), )
+                Variable(7, Boolean) = LogicalNot Variable(6, Boolean)
+                Variable(3, Boolean) = Store Variable(7, Boolean)
+                Jump(2)"#]],
+    );
+}
+
+#[test]
+fn static_recursive_scalar_operation_preserves_effects() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Recurse(n : Int, q : Qubit) : Int {
+            if n == 0 {
+                0
+            } else {
+                X(q);
+                1 + Recurse(n - 1, q)
+            }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            Recurse(3, q)
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Recurse",
+                "X",
+            ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(12, Integer) = Call id(2), args( Integer(3), Qubit(0), )
+                Variable(13, Integer) = Store Variable(12, Integer)
+                Call id(5), args( Variable(13, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Variable(2, Integer) = Store Variable(0, Integer)
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Integer), Integer(0)
+                Branch Variable(3, Boolean), 3, 4
+            Block 2:Block:
+                Return Variable(4, Integer)
+            Block 3:Block:
+                Variable(4, Integer) = Store Integer(0)
+                Jump(2)
+            Block 4:Block:
+                Call id(3), args( Variable(1, Qubit), )
+                Variable(6, Integer) = Store Variable(0, Integer)
+                Variable(7, Integer) = Sub Variable(6, Integer), Integer(1)
+                Variable(8, Integer) = Store Variable(7, Integer)
+                Variable(9, Qubit) = Store Variable(1, Qubit)
+                Variable(10, Integer) = Call id(2), args( Variable(8, Integer), Variable(9, Qubit), )
+                Variable(11, Integer) = Add Integer(1), Variable(10, Integer)
+                Variable(4, Integer) = Store Variable(11, Integer)
+                Jump(2)
+            Block 5:Block:
+                Call id(4), args( Variable(5, Qubit), )
+                Return"#]],
+    );
+}
+
+#[test]
+fn parameter_independent_scalar_output_retains_ir_call() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Prep(q : Qubit) : Int {
+            X(q);
+            3
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            Prep(q)
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Prep",
+                "X",
+            ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(2, Integer) = Call id(2), args( Qubit(0), )
+                Call id(5), args( Integer(3), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Call id(3), args( Variable(0, Qubit), )
+                Return Integer(3)
+            Block 2:Block:
+                Call id(4), args( Variable(1, Qubit), )
+                Return"#]],
+    );
+}
+
+#[test]
 fn recursive_operation_factory_is_inlined_before_calling_returned_operation() {
     let source = r#"
         namespace Test {
