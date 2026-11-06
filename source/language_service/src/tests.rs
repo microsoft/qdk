@@ -69,6 +69,22 @@ operation Count(q : Qubit) : Int {
 }
 
 #[tokio::test]
+async fn adaptive_library_reports_no_diagnostics_for_rif_supported_struct_return() {
+    let errors = adaptive_fallback_diagnostics(
+        r#"
+struct Counted { Count : Int }
+operation Tally(q : Qubit) : Counted {
+    mutable n = 0;
+    for _ in 1..3 { X(q); set n += 1; }
+    new Counted { Count = n }
+}
+"#,
+    )
+    .await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[tokio::test]
 async fn adaptive_fallback_live_genuine_dynamic_stays_error() {
     let errors = adaptive_fallback_diagnostics("@EntryPoint() operation Main() : Result[] { use q = Qubit(); let n = MResetZ(q) == One ? 3 | 2; use qs = Qubit[n]; MResetEachZ(qs) }").await;
     assert!(

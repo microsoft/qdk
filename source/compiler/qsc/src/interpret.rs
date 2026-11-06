@@ -105,18 +105,21 @@ fn runtime_functors_to_hir(
 /// Checks target capabilities without changing the interpreter's execution FIR.
 ///
 /// Raw FIR can contain constructs that codegen removes, such as a skipped return
-/// or an indirect callable dispatch. If the ordinary capability check rejects
-/// the package, try to prove each failing scope supported by running the codegen
-/// transform pipeline and capability checks on a disposable copy.
+/// or an indirect callable dispatch. If full Adaptive rejects the package,
+/// first try the unchanged store under `Adaptive_RIF`. If that also fails, try
+/// to prove each failing scope supported by running the codegen transform
+/// pipeline and capability checks on a disposable copy.
 ///
-/// This fallback only admits closed roots: nongeneric Unit-input callables
-/// without a callable parent, or direct item calls to such callables with literal
-/// Unit arguments and no generic arguments. It never invents argument values or
-/// consults live interpreter locals. Every failing scope must pass independently.
+/// The transformed proof only admits closed roots: nongeneric Unit-input
+/// callables without a callable parent, or direct item calls to such callables
+/// with literal Unit arguments and no generic arguments. It never invents
+/// argument values or consults live interpreter locals. Every failing scope
+/// must pass independently.
 ///
-/// On success, the returned compute properties describe the original store, not
-/// the transformed copies. They can still contain features eliminated only in
-/// those copies; acceptance does not rewrite the FIR used for execution/debugging.
+/// On success, the returned compute properties describe the original store and
+/// requested capabilities, not the proof's profile or transformed copies.
+/// Acceptance does not rewrite the FIR used for execution/debugging or select
+/// the backend for later code generation.
 ///
 /// # Errors
 /// Returns the original capability diagnostics if a scope is outside the proof
@@ -142,6 +145,12 @@ pub fn validate_increment_capabilities(
     // The failed check returned errors rather than its analysis. Recompute
     // properties for scope attribution and for the eventual original-store result.
     let properties = qsc_rca::Analyzer::init(store, capabilities).analyze_all();
+    if crate::codegen::qir::adaptive_fallback_eligible(capabilities, &original_errors)
+        && PassContext::run_fir_passes_on_fir(store, package_id, Profile::AdaptiveRIF.into())
+            .is_ok()
+    {
+        return Ok(properties);
+    }
     // Some(item) identifies a declaration body; None identifies the entry.
     // Group by owner rather than filtering particular diagnostic codes.
     let scopes =

@@ -24,14 +24,14 @@ operation Main() : (Int, Result[]) {
 }
 "#;
 
-const STRUCT_RETURN_SOURCE: &str = r#"
+const STRUCT_RETURN_LIBRARY: &str = r#"
 struct Counted { Count : Int }
 operation Tally(q : Qubit) : Counted {
     mutable n = 0;
     for _ in 1..3 { X(q); set n += 1; }
     new Counted { Count = n }
 }
-operation Main() : (Int, Result) {
+operation Run() : (Int, Result) {
     use q = Qubit();
     let v = Tally(q);
     use qs = Qubit[v.Count];
@@ -39,6 +39,10 @@ operation Main() : (Int, Result) {
     (Length(qs), MResetZ(qs[0]))
 }
 "#;
+
+fn struct_return_program() -> String {
+    format!("{STRUCT_RETURN_LIBRARY}\n@EntryPoint() operation Main() : (Int, Result) {{ Run() }}")
+}
 
 const FAILED_FALLBACK_NOTE: &str = "Adaptive_RIF fallback was also rejected; these diagnostics describe the requested Adaptive profile.";
 
@@ -79,11 +83,12 @@ fn assert_original_errors_with_fallback_note<T: miette::Diagnostic>(errors: &[T]
 
 #[test]
 fn adaptive_fallback_struct_return_allocation_matches_explicit_rif() {
-    let result = detailed(STRUCT_RETURN_SOURCE);
+    let source = struct_return_program();
+    let result = detailed(&source);
     assert_eq!(result.capabilities, Profile::AdaptiveRIF.into());
     assert_eq!(
         result.qir,
-        compile_source_to_qir(STRUCT_RETURN_SOURCE, Profile::AdaptiveRIF.into())
+        compile_source_to_qir(&source, Profile::AdaptiveRIF.into())
     );
     assert!(matches!(
         result.warnings.as_slice(),
@@ -92,18 +97,112 @@ fn adaptive_fallback_struct_return_allocation_matches_explicit_rif() {
 }
 
 #[test]
-fn adaptive_fallback_struct_return_parameterized_fragment_remains_rejected() {
+fn adaptive_fallback_incremental_struct_return_is_admitted_and_compiles() {
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, STRUCT_RETURN_LIBRARY);
+    let result = interpreter.qirgen("Run()").expect("fallback QIR");
+    assert_eq!(result.capabilities, Profile::AdaptiveRIF.into());
+    assert!(matches!(
+        result.warnings.as_slice(),
+        [crate::interpret::Error::AdaptiveProfileFallback(_)]
+    ));
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Run()").to_string(),
+        "(3, Zero)"
+    );
+}
+
+#[test]
+fn entryless_adaptive_library_admits_rif_supported_struct_return() {
+    let caps = Profile::Adaptive.into();
+    let (std_id, store) = crate::compile::package_store_with_stdlib(caps);
+    let mut interpreter = crate::interpret::Interpreter::new(
+        source_map_from_source(STRUCT_RETURN_LIBRARY),
+        PackageType::Lib,
+        caps,
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+        Default::default(),
+    )
+    .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+
+    let result = interpreter.qirgen("test.Run()").expect("fallback QIR");
+    assert_eq!(result.capabilities, Profile::AdaptiveRIF.into());
+    assert_eq!(
+        result.qir,
+        compile_source_to_qir(&struct_return_program(), Profile::AdaptiveRIF.into())
+    );
+    assert!(matches!(
+        result.warnings.as_slice(),
+        [crate::interpret::Error::AdaptiveProfileFallback(_)]
+    ));
+    assert_eq!(
+        eval_fragments(&mut interpreter, "test.Run()").to_string(),
+        "(3, Zero)"
+    );
+}
+
+#[test]
+fn adaptive_fallback_admission_preserves_requested_analysis_and_original_fir() {
+    let caps = Profile::Adaptive.into();
+    let (store, package_id, _) = compile_and_locate_items(STRUCT_RETURN_LIBRARY, &[], caps);
+    let (fir_store, package_id, _) = lower_hir_to_fir(&store, package_id);
+    assert!(fir_store.get(package_id).entry.is_none());
+    let original_fir = format!("{fir_store:?}");
+    assert!(
+        qsc_passes::PassContext::run_fir_passes_on_fir(&fir_store, package_id, caps).is_err(),
+        "the fixture must require fallback admission"
+    );
+    let expected = format!(
+        "{:?}",
+        qsc_rca::Analyzer::init(&fir_store, caps).analyze_all()
+    );
+    let rif = qsc_passes::PassContext::run_fir_passes_on_fir(
+        &fir_store,
+        package_id,
+        Profile::AdaptiveRIF.into(),
+    )
+    .expect("the unchanged library must pass RIF validation");
+    assert_ne!(
+        expected,
+        format!("{rif:?}"),
+        "the fixture must distinguish requested-profile analysis from fallback analysis"
+    );
+
+    let actual = crate::interpret::validate_increment_capabilities(&fir_store, package_id, caps)
+        .expect("fallback admission");
+    assert_eq!(format!("{actual:?}"), expected);
+    assert_eq!(format!("{fir_store:?}"), original_fir);
+}
+
+#[test]
+fn adaptive_fallback_admission_does_not_change_supported_codegen_profile() {
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, STRUCT_RETURN_LIBRARY);
+    let result = interpreter
+        .qirgen("{ use q = Qubit(); MResetZ(q) }")
+        .expect("supported Adaptive entry");
+    assert_eq!(result.capabilities, Profile::Adaptive.into());
+    assert!(result.warnings.is_empty());
+}
+
+#[test]
+fn parameterized_measurement_sized_allocation_is_rejected() {
     let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
     let mut cursor = Cursor::new(Vec::new());
     let mut receiver = CursorReceiver::new(&mut cursor);
     let errors = interpreter
-        .eval_fragments(&mut receiver, STRUCT_RETURN_SOURCE)
-        .expect_err("parameterized roots still require a separate admission strategy");
+        .eval_fragments(
+            &mut receiver,
+            "operation Bad(q : Qubit) : Result[] { let n = MResetZ(q) == One ? 3 | 2; use qs = Qubit[n]; MResetEachZ(qs) }",
+        )
+        .expect_err("neither profile supports measurement-dependent allocation");
     assert!(errors.iter().any(|error| matches!(
         error,
         crate::interpret::Error::Pass(error)
             if matches!(error.error().capability_error(),
-                Some(qsc_rca::errors::Error::UseOfDynamicUdt(_)))
+                Some(qsc_rca::errors::Error::UseOfDynamicallySizedArray(_)))
     )));
 }
 
