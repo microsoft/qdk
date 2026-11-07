@@ -219,12 +219,9 @@ fn select_block_no_require() {
                     mutable r_0 = Zero;
                     mutable r_1 = Zero;
                     mutable r_2 = Zero;
-                    while true {
-                        set r_0 = M(qs[0]);
-                        set r_1 = M(qs[1]);
-                        set r_2 = M(qs[2]);
-                        break;
-                    }
+                    set r_0 = M(qs[0]);
+                    set r_1 = M(qs[1]);
+                    set r_2 = M(qs[2]);
                     [r_0, r_1, r_2]
                 }
             }"#]],
@@ -243,9 +240,6 @@ fn empty_select_block() {
             namespace Stim {
                 @EntryPoint()
                 operation Main() : Result[] {
-                    while true {
-                        break;
-                    }
                     []
                 }
             }"#]],
@@ -380,10 +374,7 @@ fn outer_select_reaches_into_inner_select() {
                     use qs = Qubit[1];
                     mutable r_0 = Zero;
                     while true {
-                        while true {
-                            set r_0 = M(qs[0]);
-                            break;
-                        }
+                        set r_0 = M(qs[0]);
                         let loss_0 = IsLossResult(r_0);
                         let parity_0 = r_0 == One;
                         let restart_0 = loss_0 or parity_0;
@@ -419,13 +410,7 @@ fn outer_select_reaches_into_deeply_nested_inner_select() {
                     use qs = Qubit[1];
                     mutable r_0 = Zero;
                     while true {
-                        while true {
-                            while true {
-                                set r_0 = M(qs[0]);
-                                break;
-                            }
-            break;
-                        }
+                        set r_0 = M(qs[0]);
                         let loss_0 = IsLossResult(r_0);
                         let parity_0 = r_0 == One;
                         let restart_0 = loss_0 or parity_0;

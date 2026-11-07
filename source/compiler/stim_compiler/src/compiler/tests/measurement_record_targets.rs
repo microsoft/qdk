@@ -193,12 +193,9 @@ fn cx_with_rec_control_crossing_select_boundary() {
                     use qs = Qubit[2];
                     mutable r_0 = Zero;
                     set r_0 = M(qs[0]);
-                    while true {
-                        if r_0 == One {
-                            X(qs[1]);
-                        };
-                        break;
-                    }
+                    if r_0 == One {
+                        X(qs[1]);
+                    };
                     [r_0]
                 }
             }"#]],
@@ -221,10 +218,7 @@ fn top_level_classical_control_reaches_into_select() {
                 operation Main() : Result[] {
                     use qs = Qubit[2];
                     mutable r_0 = Zero;
-                    while true {
-                        set r_0 = M(qs[0]);
-                        break;
-                    }
+                    set r_0 = M(qs[0]);
                     if r_0 == One {
                         X(qs[1]);
                     };
