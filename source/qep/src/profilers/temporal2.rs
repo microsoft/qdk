@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::models::{DemoModel1, QpuModel};
+use super::{
+    Profiler, ProfilerResult, TotalCounts,
+    models::{DemoModel1, QpuModel},
+};
 use crate::{
     QuantumBackendResult, TemporalProfilerConfig,
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
@@ -31,16 +34,18 @@ pub(super) enum Precondition<M: QpuModel> {
 pub struct TemporalProfilerState<M: QpuModel> {
     current_time_nanos: usize,
     current_batch_result: BatchResult,
+    event_recorder: EventRecorder,
     pub rng: StdRng,
     model: PhantomData<M>,
 }
 
 impl<M: QpuModel> TemporalProfilerState<M> {
-    /// Creates model-specific state with an optional random seed.
-    fn new(seed: Option<u64>) -> Self {
+    /// Creates model-specific state with an event recorder and optional random seed.
+    fn new(seed: Option<u64>, event_recorder: EventRecorder) -> Self {
         TemporalProfilerState {
             current_time_nanos: 0,
             current_batch_result: BatchResult::default(),
+            event_recorder,
             rng: seed.map_or_else(|| StdRng::from_rng(&mut rand::rng()), StdRng::seed_from_u64),
             model: PhantomData::default(),
         }
@@ -76,7 +81,6 @@ impl<M: QpuModel> TemporalProfilerState<M> {
 pub struct TemporalProfiler2<M: QpuModel> {
     state: TemporalProfilerState<M>,
     model: M,
-    event_recorder: EventRecorder,
 }
 
 impl<M: QpuModel> TemporalProfiler2<M> {
@@ -88,9 +92,11 @@ impl<M: QpuModel> TemporalProfiler2<M> {
         seed: Option<u64>,
     ) -> Self {
         TemporalProfiler2 {
-            state: TemporalProfilerState::new(seed),
+            state: TemporalProfilerState::new(
+                seed,
+                EventRecorder::new(record_trace, aggregation_window_nanos),
+            ),
             model,
-            event_recorder: EventRecorder::new(record_trace, aggregation_window_nanos),
         }
     }
 }
@@ -118,6 +124,18 @@ impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
 
         // Return batch result.
         Ok(std::mem::take(&mut self.state.current_batch_result))
+    }
+}
+
+impl<M: QpuModel> Profiler for TemporalProfiler2<M> {
+    /// Returns recorded profiles and trace with placeholder zero totals.
+    fn get_result(&self) -> ProfilerResult {
+        ProfilerResult {
+            totals: TotalCounts::default(),
+            profiles: self.state.event_recorder.get_profiles(),
+            trace: self.state.event_recorder.get_trace(),
+            infos: vec![],
+        }
     }
 }
 
