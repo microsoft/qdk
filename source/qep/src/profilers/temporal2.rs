@@ -124,6 +124,13 @@ impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
         // Initialize the batch result.
         self.state.current_batch_result = BatchResult::default();
 
+        for instruction in instructions {
+            self.model
+                .on_instruction_received(instruction, &mut self.state)?;
+        }
+
+        // TODO: process pending events until all results are ready.
+
         // Return batch result.
         Ok(std::mem::take(&mut self.state.current_batch_result))
     }
