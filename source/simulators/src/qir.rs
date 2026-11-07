@@ -42,9 +42,8 @@
 //!
 //! The machine computes what the bytecode's reference interpreter
 //! (`bytecode::runtime::run_shot`) computes: every shot records what
-//! `run_shot` records, but in a few cases, each marked
-//! `COMPATIBILITY NOTE` or `DISCUSS COMPATIBILITY`, with its reason, at
-//! the check or the test of this crate that pins it.
+//! `run_shot` records, but in a few cases, listed with their reasons in
+//! the header of `tests/run_shot_compatibility/main.rs`, in this crate.
 //!
 //! An introduction, with an example, is in `src/qir/README.md`.
 

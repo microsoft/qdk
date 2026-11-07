@@ -1777,10 +1777,13 @@ dependencies = [
  "num-complex",
  "num-traits",
  "paulimer",
+ "qdk_simulators",
  "qsc_data_structures",
  "rand 0.10.2",
  "regex-lite",
  "rustc-hash",
+ "serde",
+ "serde_json",
  "wgpu",
 ]
 
