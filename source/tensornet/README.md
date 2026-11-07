@@ -25,14 +25,14 @@ engines. Each promise is stated once, in the rustdoc of the item that keeps
 it: the contract an implementer reads in their editor. The refusal of a call
 whose arguments break the contract is made once, by the functions of
 `checks`, which every engine calls, so engines agree on it. An exact engine,
-`ExactReference`, gives the answer every engine with enough bond must give,
-so that an engine's answers can be checked against it.
+`ExactReference`, and a conformance kit that compares an engine with it make
+the contract checkable: an engine's own tests call the kit.
 
-The evidence is the crate's tests, in [`src/tests/`](src/tests/): the
-reference's amplitudes are those of the QDK's sparse state simulator on
-random circuits, and its chain has the Schmidt ranks a singular value
-decomposition gives; and the checks of each method refuse each fault and
-accept its edges.
+The evidence is the kit's own tests, in
+[`src/tests/engine/conformance/`](src/tests/engine/conformance/): the
+reference conforms, and so do test engines that truncate, or that keep a
+bond larger than the state needs after a measurement; and each rule the kit
+checks, broken in turn by a test engine, fails the kit, naming its case.
 
 ## The model
 
@@ -62,6 +62,9 @@ accept its edges.
   most 20 sites that never truncates: the exact answer every engine with
   enough bond must give, within the limits its rustdoc states. It is for
   tests, not for simulation (feature `conformance`).
+- The conformance kit, [`conformance::check`](src/engine/conformance.rs)
+  (feature `conformance`), runs the same operations on an engine and on the
+  reference and returns every case where they differ, refusals included.
 
 A Bell pair on the reference, read three ways (the crate's doctest in
 [`src/lib.rs`](src/lib.rs), which every `cargo test` runs: the crate's
@@ -154,6 +157,31 @@ engine's own failure. The module doc of
 [`src/engine.rs`](src/engine.rs) says how the method draws values, and the
 three ways' promises.
 
+## Checking an engine
+
+An engine's crate enables the `conformance` feature in its
+`[dev-dependencies]`, which also brings the reference, and runs the kit in a
+test; `check` returns every failure, each naming its case (`bell`, `layout`,
+`sample`, …) and what differed. The reference's own test, in
+[`tests/conformance_tests.rs`](tests/conformance_tests.rs):
+
+```rust
+let engine = tensornet::reference::ExactReference::new();
+let failures = tensornet::conformance::check(&engine);
+assert!(failures.is_empty(), "{failures:#?}");
+```
+
+The rustdoc of [`src/engine/conformance.rs`](src/engine/conformance.rs)
+lists the cases, its tolerances, what it assumes of an engine, and the odds
+that its sampling checks fail a correct engine; each case's file, in
+[`src/engine/conformance/`](src/engine/conformance/), states what the case
+checks, and
+[`src/engine/conformance/statistics.rs`](src/engine/conformance/statistics.rs)
+derives the sampling bounds. The tests in
+[`src/tests/engine/conformance/`](src/tests/engine/conformance/), one file
+per contract area as the cases are, check that each rule the kit checks,
+broken in turn, fails the kit, naming its case.
+
 ## Planned
 
 - **`apply_kraus`**, a non-unitary operator (a Kraus operator of amplitude
@@ -177,8 +205,11 @@ three ways' promises.
 | `src/engine/reference.rs`           | `ExactReference`, the exact engine, with `ReferenceState` and `ReferenceError` (feature `conformance`)                                    |
 | `src/engine/sampling.rs`            | `sample_by_conditionals` and `TooManyValues`: the sampling every engine shares                                                            |
 | `src/engine/sampling/splitmix64.rs` | `SplitMix64`, the generator the shared sampler draws its uniforms from (internal)                                                         |
+| `src/engine/conformance.rs`         | `check` and `Failure`: run the cases every engine must pass (feature `conformance`)                                                       |
+| `src/engine/conformance/`           | the kit's cases, one file per contract area, and what they share: gates, observables, twins, the Schmidt truncation, sample statistics    |
 | `src/shape.rs`                      | `MpsShape`, the shape of a chain, and `MpsShapeError`                                                                                     |
 | `src/pauli.rs`                      | `Pauli`, `PauliTerm`, `PauliSum` and `PauliError`: the observables of `expectation`                                                       |
 | `src/refusal.rs`                    | `Refusal`, why a call was refused, and `MpsEngineError`, how an engine's error exposes it                                                 |
 | `src/tests/`                        | the crate's tests, one file per module, in the same folders                                                                               |
+| `tests/`                            | `conformance_tests.rs`: the reference passes the kit, run outside the crate as an engine's tests run it                                   |
 | `design.md`                         | why a chain is described by its extents, refusals versus failures, what libraries offer, the reference's arithmetic, and what is left out |

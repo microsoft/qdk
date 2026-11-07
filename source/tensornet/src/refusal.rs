@@ -22,6 +22,8 @@
 /// function of its method, before the state changes. Which refusal a call
 /// with several faults gets is unspecified, but for `apply`, whose
 /// [`checks::apply`](crate::checks::apply) states the order it checks in.
+/// The conformance kit checks the exact refusal of calls with one fault
+/// each.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum Refusal {
@@ -109,7 +111,8 @@ pub enum Refusal {
 /// device error, a limit of its own), and holds a [`Refusal`] beside them,
 /// built from one by `From`, so that an engine's method passes a check's
 /// refusal on with `?`. It displays as the refusal it holds, word for word,
-/// so a user reads the same message whatever engine refused the call.
+/// so a user reads the same message whatever engine refused the call; the
+/// conformance kit checks both.
 ///
 /// ```
 /// use tensornet::{MpsEngineError, Refusal};

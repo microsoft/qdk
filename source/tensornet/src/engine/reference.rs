@@ -16,7 +16,8 @@
 //!   on it where no other engine is available.
 //!
 //! It is for tests and small examples only, so it builds only with the
-//! feature `conformance`: a crate's normal build does not include it.
+//! feature `conformance`, as the kit: a crate's normal build does not
+//! include it.
 //!
 //! It holds all 2ⁿ amplitudes of a state, so it gives the exact answer of
 //! every operation, and it reports the exact chain: the bond at each cut is
@@ -138,8 +139,7 @@ impl ReferenceState {
 
     /// The state with these amplitudes, basis state `i` with site `k` as
     /// bit `k`: a state no sequence of calls need reach, such as a
-    /// truncated one, for tests.
-    #[cfg(test)]
+    /// truncated one, for the conformance kit and its tests.
     pub(crate) fn from_amplitudes(amplitudes: &[Complex64]) -> Self {
         let sites = amplitudes.len().trailing_zeros() as usize;
         assert!(
