@@ -15,6 +15,9 @@
 //! which order its shots' batches run, while the program's classical part
 //! stays in the machine.
 
+#[cfg(any(test, feature = "conformance"))]
+pub mod conformance;
+
 use std::fmt;
 use std::future::Future;
 use std::pin::pin;
@@ -55,7 +58,8 @@ impl fmt::Display for QirShotId {
 /// A resumer chooses where the quantum state lives (a simulator, a device)
 /// and in which order it runs its shots' batches: shot by shot, or several
 /// shots' batches together. Whatever it chooses, the contract of
-/// [`run`](Self::run) holds.
+/// [`run`](Self::run) holds; the `conformance` module (with the feature of
+/// that name) checks it.
 pub trait QirResumer {
     /// What fails in the resumer's own work, apart from a trap of the
     /// program: a device's error, say.

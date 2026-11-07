@@ -11,6 +11,9 @@ repository.workspace = true
 [features]
 default = ["gpu"]
 gpu = ["dep:futures", "dep:wgpu"]
+# The `qir::conformance` module: checks of `QirResumer`'s rules, for
+# implementers' tests.
+conformance = []
 
 [dependencies]
 binar = { workspace = true }
