@@ -47,9 +47,7 @@ fn tpp_single_z_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    within {} apply {
-                        T(qs[0]);
-                    };
+                    T(qs[0]);
                     []
                 }
             }"#]],
@@ -107,9 +105,7 @@ fn tpp_dag_single_z_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    within {} apply {
-                        Adjoint T(qs[0]);
-                    };
+                    Adjoint T(qs[0]);
                     []
                 }
             }"#]],
@@ -149,9 +145,7 @@ fn tpp_negated_product_applies_inverse() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    within {} apply {
-                        Adjoint T(qs[0]);
-                    };
+                    Adjoint T(qs[0]);
                     []
                 }
             }"#]],
@@ -167,9 +161,7 @@ fn tpp_dag_negated_product_applies_inverse() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    within {} apply {
-                        T(qs[0]);
-                    };
+                    T(qs[0]);
                     []
                 }
             }"#]],
@@ -368,9 +360,7 @@ fn r_pauli_single_z_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    within {} apply {
-                        Rz(0.7853981633974483, qs[0]);
-                    };
+                    Rz(0.7853981633974483, qs[0]);
                     []
                 }
             }"#]],
@@ -451,9 +441,7 @@ fn r_pauli_negated_product_negates_angle() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    within {} apply {
-                        Rz(-0.7853981633974483, qs[0]);
-                    };
+                    Rz(-0.7853981633974483, qs[0]);
                     []
                 }
             }"#]],
