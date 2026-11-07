@@ -46,6 +46,19 @@ fn build_conjugate_expr(within: ast::Block, apply: ast::Block, span: Span) -> as
     }
 }
 
+/// `within { within } apply { apply };`, or just the `apply` statements if `within` is empty.
+fn build_conjugate_stmts(
+    within: Vec<ast::Stmt>,
+    apply: Vec<ast::Stmt>,
+    span: Span,
+) -> Vec<ast::Stmt> {
+    if within.is_empty() {
+        return apply;
+    }
+    let expr = build_conjugate_expr(build_block(within, span), build_block(apply, span), span);
+    vec![build_stmt_semi_from_expr(expr)]
+}
+
 /// `@{attr}() operation {name}(arg0 : {param_tys[0]}, …) : {output} { body intrinsic; }`
 fn build_intrinsic_decl(
     name: &str,
@@ -929,7 +942,7 @@ impl<'noise> Compiler<'noise> {
         };
 
         let op = if product.negated { op.adjoint() } else { op };
-        vec![self.conjugate_gate(product, op, span)]
+        self.conjugate_gate(product, op, span)
     }
 
     fn compile_pauli_product_rotation(
@@ -942,7 +955,7 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         }
         let angle = if product.negated { -angle } else { angle };
-        vec![self.conjugate_rotation(product, angle, span)]
+        self.conjugate_rotation(product, angle, span)
     }
 
     fn compile_classical_control(
@@ -1140,7 +1153,7 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         }
 
-        vec![self.conjugate_measure(product, readout_noise, span)]
+        self.conjugate_measure(product, readout_noise, span)
     }
 
     fn compile_peek_loss(
@@ -1351,11 +1364,10 @@ impl<'noise> Compiler<'noise> {
         product: &semantic::PauliProduct,
         op: QSharpOp,
         span: Span,
-    ) -> ast::Stmt {
+    ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
         let apply = vec![self.gate_call(op, &[product.factors[0].q], span)];
-        let expr = build_conjugate_expr(build_block(within, span), build_block(apply, span), span);
-        build_stmt_semi_from_expr(expr)
+        build_conjugate_stmts(within, apply, span)
     }
 
     /// `within { <product to Z on its first qubit> } apply { Rz(angle, q_0); }`
@@ -1364,11 +1376,10 @@ impl<'noise> Compiler<'noise> {
         product: &semantic::PauliProduct,
         angle: Radians,
         span: Span,
-    ) -> ast::Stmt {
+    ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
         let apply = vec![self.rotation_call(QSharpOp::Rz, angle, &[product.factors[0].q], span)];
-        let expr = build_conjugate_expr(build_block(within, span), build_block(apply, span), span);
-        build_stmt_semi_from_expr(expr)
+        build_conjugate_stmts(within, apply, span)
     }
 
     /// `within` { <product to Z on its first qubit> } apply { r_k = M(q_0); }
@@ -1378,16 +1389,14 @@ impl<'noise> Compiler<'noise> {
         product: &semantic::PauliProduct,
         readout_noise: f64,
         span: Span,
-    ) -> ast::Stmt {
+    ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
         let (result_id, mut measure_stmts) =
             self.measure(QSharpOp::M, product.factors[0].q, product.negated, span);
         if readout_noise > 0.0 {
             measure_stmts.push(self.readout_noise_call(readout_noise, result_id, span));
         }
-        let apply = measure_stmts;
-        let expr = build_conjugate_expr(build_block(within, span), build_block(apply, span), span);
-        build_stmt_semi_from_expr(expr)
+        build_conjugate_stmts(within, measure_stmts, span)
     }
 
     /// Rotates each factor to the Z basis, then folds their parity onto the first qubit with

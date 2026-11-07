@@ -61,9 +61,7 @@ fn mpp_single_z_yields_expected_qsharp() {
                 operation Main() : Result[] {
                     use qs = Qubit[1];
                     mutable r_0 = Zero;
-                    within {} apply {
-                        set r_0 = M(qs[0]);
-                    };
+                    set r_0 = M(qs[0]);
                     [r_0]
                 }
             }"#]],
@@ -81,11 +79,9 @@ fn mpp_negated_single_pauli_yields_expected_qsharp() {
                 operation Main() : Result[] {
                     use qs = Qubit[1];
                     mutable r_0 = Zero;
-                    within {} apply {
-                        X(qs[0]);
-                        set r_0 = M(qs[0]);
-                        X(qs[0]);
-                    };
+                    X(qs[0]);
+                    set r_0 = M(qs[0]);
+                    X(qs[0]);
                     [r_0]
                 }
             }"#]],
@@ -224,9 +220,7 @@ fn spp_single_z_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    within {} apply {
-                        S(qs[0]);
-                    };
+                    S(qs[0]);
                     []
                 }
             }"#]],
@@ -370,9 +364,7 @@ fn spp_dag_single_z_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    within {} apply {
-                        Adjoint S(qs[0]);
-                    };
+                    Adjoint S(qs[0]);
                     []
                 }
             }"#]],
