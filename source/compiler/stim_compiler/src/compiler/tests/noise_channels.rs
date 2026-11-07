@@ -11,16 +11,18 @@ fn correlated_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -36,9 +38,12 @@ fn correlated_error_repeated_pauli_on_same_qubit_cancels() {
     check(
         source,
         &expect![[r#"
-        [metadata]
-          required_num_qubits = 0
-          required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -48,22 +53,24 @@ fn correlated_error_composes_paulis_on_same_qubit() {
     check(
         source,
         &expect![[r#"
-        [entry_point]
-            call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    noise_intrinsic_0(qs[0], qs[1]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit, arg1 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
-        [declarations]
-          declare void @noise_intrinsic_0(ptr, ptr) #2
-
-        [metadata]
-          required_num_qubits = 2
-          required_num_results = 0
-          uses_noise = true
-
-        NoiseConfig:
-        intrinsics:
-            0: NoiseTable:
-                qubits: 2
-                ZZ: 0.1"#]],
+            NoiseConfig:
+            intrinsics:
+                0: NoiseTable:
+                    qubits: 2
+                    ZZ: 0.1"#]],
     );
 }
 
@@ -73,22 +80,24 @@ fn correlated_error_loss_absorbs_paulis_on_same_qubit() {
     check(
         source,
         &expect![[r#"
-        [entry_point]
-            call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
-        [declarations]
-          declare void @noise_intrinsic_0(ptr) #2
-
-        [metadata]
-          required_num_qubits = 1
-          required_num_results = 0
-          uses_noise = true
-
-        NoiseConfig:
-        intrinsics:
-            0: NoiseTable:
-                qubits: 1
-                L: 0.1"#]],
+            NoiseConfig:
+            intrinsics:
+                0: NoiseTable:
+                    qubits: 1
+                    L: 0.1"#]],
     );
 }
 
@@ -101,22 +110,24 @@ fn correlated_error_chain_cancelled_row_still_consumes_probability() {
     check(
         source,
         &expect![[r#"
-        [entry_point]
-            call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
-        [declarations]
-          declare void @noise_intrinsic_0(ptr) #2
-
-        [metadata]
-          required_num_qubits = 1
-          required_num_results = 0
-          uses_noise = true
-
-        NoiseConfig:
-        intrinsics:
-            0: NoiseTable:
-                qubits: 1
-                Z: 0.25"#]],
+            NoiseConfig:
+            intrinsics:
+                0: NoiseTable:
+                    qubits: 1
+                    Z: 0.25"#]],
     );
 }
 
@@ -130,16 +141,18 @@ fn correlated_error_chain_merges_duplicate_outcome_probabilities() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -161,16 +174,18 @@ fn correlated_error_chain_merges_nonconsecutive_duplicate_outcomes() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -190,16 +205,18 @@ fn correlated_error_chain_merges_reordered_pauli_and_loss_outcomes() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr, ptr, ptr) #2
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    noise_intrinsic_0(qs[0], qs[1], qs[2]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit, arg1 : Qubit, arg2 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -218,16 +235,18 @@ fn correlated_error_chain_unreachable_duplicate_preserves_probability() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -249,16 +268,18 @@ fn correlated_error_chain_with_input_probabilities_summing_above_one_is_valid() 
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -280,16 +301,18 @@ fn correlated_error_chain_with_common_qubit_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr, ptr, ptr) #2
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    noise_intrinsic_0(qs[0], qs[1], qs[2]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit, arg1 : Qubit, arg2 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -311,16 +334,18 @@ fn correlated_error_chain_with_disjoint_qubits_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 4 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr, ptr, ptr, ptr, ptr) #2
-
-            [metadata]
-              required_num_qubits = 5
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[5];
+                    noise_intrinsic_0(qs[0], qs[1], qs[2], qs[3], qs[4]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit, arg1 : Qubit, arg2 : Qubit, arg3 : Qubit, arg4 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -342,16 +367,18 @@ fn else_correlated_error_with_preceding_else_correlated_error_yields_expected_qi
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -553,16 +580,18 @@ fn depolarize1_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -580,16 +609,18 @@ fn depolarize2_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr, ptr) #2
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    noise_intrinsic_0(qs[0], qs[1]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit, arg1 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -619,16 +650,18 @@ fn pauli_channel_1_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -646,16 +679,18 @@ fn pauli_channel_2_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr, ptr) #2
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    noise_intrinsic_0(qs[0], qs[1]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit, arg1 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -685,16 +720,18 @@ fn x_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -710,16 +747,18 @@ fn y_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -735,16 +774,18 @@ fn z_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -760,16 +801,18 @@ fn loss_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    noise_intrinsic_0(qs[0]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -789,19 +832,24 @@ X_ERROR(0.01) 2
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-                call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
-                call void @noise_intrinsic_0(ptr inttoptr (i64 2 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-              declare void @noise_intrinsic_1(ptr) #2
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    noise_intrinsic_0(qs[0]);
+                    noise_intrinsic_1(qs[1]);
+                    noise_intrinsic_0(qs[2]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_1(arg0 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:
@@ -826,17 +874,19 @@ fn correlated_error_chains_with_same_shape_are_memoized() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @noise_intrinsic_0(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr, ptr) #2
-
-            [metadata]
-              required_num_qubits = 4
-              required_num_results = 0
-              uses_noise = true
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[4];
+                    noise_intrinsic_0(qs[0], qs[1]);
+                    noise_intrinsic_0(qs[2], qs[3]);
+                    []
+                }
+                @NoiseIntrinsic()
+                operation noise_intrinsic_0(arg0 : Qubit, arg1 : Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
 
             NoiseConfig:
             intrinsics:

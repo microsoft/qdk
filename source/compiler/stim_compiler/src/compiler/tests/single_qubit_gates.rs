@@ -10,9 +10,12 @@ fn i_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [metadata]
-              required_num_qubits = 0
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -22,15 +25,14 @@ fn x_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    X(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -40,15 +42,14 @@ fn y_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__y__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__y__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Y(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -58,15 +59,14 @@ fn z_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Z(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -76,19 +76,16 @@ fn c_nxyz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Adjoint S(qs[0]);
+                    H(qs[0]);
+                    Z(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -98,19 +95,16 @@ fn c_nzyx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Z(qs[0]);
+                    H(qs[0]);
+                    Adjoint S(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -120,17 +114,15 @@ fn c_xnyz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    S(qs[0]);
+                    H(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -140,19 +132,16 @@ fn c_xynz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    S(qs[0]);
+                    H(qs[0]);
+                    Z(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -162,17 +151,15 @@ fn c_xyz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Adjoint S(qs[0]);
+                    H(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -182,17 +169,15 @@ fn c_znyx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    H(qs[0]);
+                    Adjoint S(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -202,19 +187,16 @@ fn c_zynx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Z(qs[0]);
+                    H(qs[0]);
+                    S(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -224,17 +206,15 @@ fn c_zyx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    H(qs[0]);
+                    S(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -244,15 +224,14 @@ fn h_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    H(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -262,17 +241,15 @@ fn h_nxy_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__s__body(ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    S(qs[0]);
+                    X(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -282,18 +259,16 @@ fn h_nxz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Z(qs[0]);
+                    H(qs[0]);
+                    Z(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -303,17 +278,15 @@ fn h_nyz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__sx__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__sx__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Z(qs[0]);
+                    SX(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -323,17 +296,15 @@ fn h_xy_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__s__body(ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    X(qs[0]);
+                    S(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -343,17 +314,15 @@ fn h_yz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__sx__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__sx__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    SX(qs[0]);
+                    Z(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -363,15 +332,14 @@ fn s_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    S(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -381,15 +349,14 @@ fn sqrt_x_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__sx__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__sx__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    SX(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -399,18 +366,16 @@ fn sqrt_x_dag_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    S(qs[0]);
+                    H(qs[0]);
+                    S(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -420,17 +385,15 @@ fn sqrt_y_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Z(qs[0]);
+                    H(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -440,17 +403,15 @@ fn sqrt_y_dag_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    H(qs[0]);
+                    Z(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -460,14 +421,13 @@ fn s_dag_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Adjoint S(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }

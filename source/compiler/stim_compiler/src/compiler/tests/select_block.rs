@@ -17,24 +17,24 @@ fn simple_select_block() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %restart_0 = or i1 %l_0, %r_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        let loss_0 = IsLossResult(r_0);
+                        let parity_0 = r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -49,30 +49,26 @@ fn require_with_negated_record_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %n_0 = xor i1 %r_0, true
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %loss_0 = or i1 %l_0, %l_1
-                %parity_0 = xor i1 %n_0, %r_1
-                %restart_0 = or i1 %loss_0, %parity_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 2"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        set r_1 = M(qs[1]);
+                        let loss_0 = IsLossResult(r_1) or IsLossResult(r_0);
+                        let parity_0 = r_1 == Zero != r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1]
+                }
+            }"#]],
     );
 }
 
@@ -92,39 +88,31 @@ fn long_select_block() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %loss_0 = or i1 %l_0, %l_1
-                %loss_1 = or i1 %loss_0, %l_2
-                %parity_0 = xor i1 %r_0, %r_1
-                %parity_1 = xor i1 %parity_0, %r_2
-                %restart_0 = or i1 %loss_1, %parity_1
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 3"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    mutable r_2 = Zero;
+                    while true {
+                        X(qs[0]);
+                        set r_0 = M(qs[0]);
+                        H(qs[1]);
+                        X(qs[1]);
+                        set r_1 = M(qs[1]);
+                        set r_2 = M(qs[2]);
+                        let loss_0 = IsLossResult(r_2) or IsLossResult(r_1) or IsLossResult(r_0);
+                        let parity_0 = r_2 == One != r_1 == One != r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1, r_2]
+                }
+            }"#]],
     );
 }
 
@@ -141,34 +129,32 @@ fn multiple_requires_in_block() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %restart_0 = or i1 %l_0, %r_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %loss_0 = or i1 %l_1, %l_2
-                %parity_0 = xor i1 %r_1, %r_2
-                %restart_1 = or i1 %loss_0, %parity_0
-                br i1 %restart_1, label %select_0, label %continue_1
-              continue_1:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 2"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        let loss_0 = IsLossResult(r_0);
+                        let parity_0 = r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        set r_1 = M(qs[1]);
+                        let loss_1 = IsLossResult(r_1) or IsLossResult(r_0);
+                        let parity_1 = r_1 == One != r_0 == One;
+                        let restart_1 = loss_1 or parity_1;
+                        if restart_1 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1]
+                }
+            }"#]],
     );
 }
 
@@ -186,39 +172,30 @@ fn multiple_targets_in_require() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 3 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
-                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
-                %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %l_3 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_3 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %loss_0 = or i1 %l_0, %l_1
-                %loss_1 = or i1 %loss_0, %l_2
-                %loss_2 = or i1 %loss_1, %l_3
-                %parity_0 = xor i1 %r_0, %r_1
-                %parity_1 = xor i1 %parity_0, %r_2
-                %parity_2 = xor i1 %parity_1, %r_3
-                %restart_0 = or i1 %loss_2, %parity_2
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 4
-              required_num_results = 4"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[4];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    mutable r_2 = Zero;
+                    mutable r_3 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        set r_1 = M(qs[1]);
+                        set r_2 = M(qs[2]);
+                        set r_3 = M(qs[3]);
+                        let loss_0 = IsLossResult(r_3) or IsLossResult(r_2) or IsLossResult(r_1) or IsLossResult(r_0);
+                        let parity_0 = r_3 == One != r_2 == One != r_1 == One != r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1, r_2, r_3]
+                }
+            }"#]],
     );
 }
 
@@ -235,19 +212,22 @@ fn select_block_no_require() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 3"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    mutable r_2 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        set r_1 = M(qs[1]);
+                        set r_2 = M(qs[2]);
+                        break;
+                    }
+                    [r_0, r_1, r_2]
+                }
+            }"#]],
     );
 }
 
@@ -260,13 +240,15 @@ fn empty_select_block() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-
-            [metadata]
-              required_num_qubits = 0
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    while true {
+                        break;
+                    }
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -285,32 +267,35 @@ fn nested_select_blocks() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                br label %select_1
-              select_1:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %restart_0 = or i1 %l_0, %r_0
-                br i1 %restart_0, label %select_1, label %continue_0
-              continue_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %restart_1 = or i1 %l_1, %r_1
-                br i1 %restart_1, label %select_0, label %continue_1
-              continue_1:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 2"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    while true {
+                        while true {
+                            set r_0 = M(qs[0]);
+                            let loss_0 = IsLossResult(r_0);
+                            let parity_0 = r_0 == One;
+                            let restart_0 = loss_0 or parity_0;
+                            if restart_0 {
+                                continue;
+                            };
+                            break;
+                        }
+                        set r_1 = M(qs[1]);
+                        let loss_1 = IsLossResult(r_1);
+                        let parity_1 = r_1 == One;
+                        let restart_1 = loss_1 or parity_1;
+                        if restart_1 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1]
+                }
+            }"#]],
     );
 }
 
@@ -333,40 +318,46 @@ fn deeply_nested_select_blocks() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                br label %select_1
-              select_1:
-                br label %select_2
-              select_2:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %restart_0 = or i1 %l_0, %r_0
-                br i1 %restart_0, label %select_2, label %continue_0
-              continue_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %restart_1 = or i1 %l_1, %r_1
-                br i1 %restart_1, label %select_1, label %continue_1
-              continue_1:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-                %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
-                %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
-                %restart_2 = or i1 %l_2, %r_2
-                br i1 %restart_2, label %select_0, label %continue_2
-              continue_2:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 3"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    mutable r_2 = Zero;
+                    while true {
+                        while true {
+                            while true {
+                                set r_0 = M(qs[0]);
+                                let loss_0 = IsLossResult(r_0);
+                                let parity_0 = r_0 == One;
+                                let restart_0 = loss_0 or parity_0;
+                                if restart_0 {
+                                    continue;
+                                };
+                                break;
+                            }
+                            set r_1 = M(qs[1]);
+                            let loss_1 = IsLossResult(r_1);
+                            let parity_1 = r_1 == One;
+                            let restart_1 = loss_1 or parity_1;
+                            if restart_1 {
+                                continue;
+                            };
+                            break;
+                        }
+                        set r_2 = M(qs[2]);
+                        let loss_2 = IsLossResult(r_2);
+                        let parity_2 = r_2 == One;
+                        let restart_2 = loss_2 or parity_2;
+                        if restart_2 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1, r_2]
+                }
+            }"#]],
     );
 }
 
@@ -383,26 +374,27 @@ fn outer_select_reaches_into_inner_select() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                br label %select_1
-              select_1:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %restart_0 = or i1 %l_0, %r_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    while true {
+                        while true {
+                            set r_0 = M(qs[0]);
+                            break;
+                        }
+                        let loss_0 = IsLossResult(r_0);
+                        let parity_0 = r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -421,28 +413,30 @@ fn outer_select_reaches_into_deeply_nested_inner_select() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                br label %select_1
-              select_1:
-                br label %select_2
-              select_2:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %restart_0 = or i1 %l_0, %r_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    while true {
+                        while true {
+                            while true {
+                                set r_0 = M(qs[0]);
+                                break;
+                            }
+            break;
+                        }
+                        let loss_0 = IsLossResult(r_0);
+                        let parity_0 = r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -461,32 +455,35 @@ fn sibling_select_blocks() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %restart_0 = or i1 %l_0, %r_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-                br label %select_1
-              select_1:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %restart_1 = or i1 %l_1, %r_1
-                br i1 %restart_1, label %select_1, label %continue_1
-              continue_1:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 2"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        let loss_0 = IsLossResult(r_0);
+                        let parity_0 = r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    while true {
+                        set r_1 = M(qs[1]);
+                        let loss_1 = IsLossResult(r_1);
+                        let parity_1 = r_1 == One;
+                        let restart_1 = loss_1 or parity_1;
+                        if restart_1 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1]
+                }
+            }"#]],
     );
 }
 
@@ -501,21 +498,22 @@ fn simple_notleaked() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                br i1 %l_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        let loss_0 = IsLossResult(r_0);
+                        if loss_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -533,30 +531,28 @@ fn multiple_targets_in_notleaked() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 3 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
-                %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %l_3 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %loss_0 = or i1 %l_0, %l_1
-                %loss_1 = or i1 %loss_0, %l_2
-                %loss_2 = or i1 %loss_1, %l_3
-                br i1 %loss_2, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 4
-              required_num_results = 4"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[4];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    mutable r_2 = Zero;
+                    mutable r_3 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        set r_1 = M(qs[1]);
+                        set r_2 = M(qs[2]);
+                        set r_3 = M(qs[3]);
+                        let loss_0 = IsLossResult(r_3) or IsLossResult(r_2) or IsLossResult(r_1) or IsLossResult(r_0);
+                        if loss_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1, r_2, r_3]
+                }
+            }"#]],
     );
 }
 
@@ -573,27 +569,28 @@ fn multiple_notleakeds_in_block() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                br i1 %l_0, label %select_0, label %continue_0
-              continue_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %loss_0 = or i1 %l_1, %l_2
-                br i1 %loss_0, label %select_0, label %continue_1
-              continue_1:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 2"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        let loss_0 = IsLossResult(r_0);
+                        if loss_0 {
+                            continue;
+                        };
+                        set r_1 = M(qs[1]);
+                        let loss_1 = IsLossResult(r_1) or IsLossResult(r_0);
+                        if loss_1 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1]
+                }
+            }"#]],
     );
 }
 
@@ -610,28 +607,30 @@ fn require_and_notleaked_in_block() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %restart_0 = or i1 %l_0, %r_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                br i1 %l_1, label %select_0, label %continue_1
-              continue_1:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 2"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        set r_1 = M(qs[1]);
+                        let loss_0 = IsLossResult(r_1);
+                        let parity_0 = r_1 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        let loss_1 = IsLossResult(r_0);
+                        if loss_1 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1]
+                }
+            }"#]],
     );
 }
 
@@ -649,38 +648,31 @@ fn require_and_notleaked_with_multiple_targets() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %loss_0 = or i1 %l_0, %l_1
-                br i1 %loss_0, label %select_0, label %continue_0
-              continue_0:
-                %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
-                %l_3 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %l_4 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %loss_1 = or i1 %l_2, %l_3
-                %loss_2 = or i1 %loss_1, %l_4
-                %parity_0 = xor i1 %r_0, %r_1
-                %parity_1 = xor i1 %parity_0, %r_2
-                %restart_0 = or i1 %loss_2, %parity_1
-                br i1 %restart_0, label %select_0, label %continue_1
-              continue_1:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 3"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    mutable r_2 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        set r_1 = M(qs[1]);
+                        set r_2 = M(qs[2]);
+                        let loss_0 = IsLossResult(r_2) or IsLossResult(r_1);
+                        if loss_0 {
+                            continue;
+                        };
+                        let loss_1 = IsLossResult(r_2) or IsLossResult(r_1) or IsLossResult(r_0);
+                        let parity_0 = r_2 == One != r_1 == One != r_0 == One;
+                        let restart_0 = loss_1 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1, r_2]
+                }
+            }"#]],
     );
 }

@@ -10,21 +10,19 @@ fn mxx_measurement_yields_correct_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    CNOT(qs[0], qs[1]);
+                    H(qs[0]);
+                    set r_0 = M(qs[0]);
+                    H(qs[0]);
+                    CNOT(qs[0], qs[1]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -34,24 +32,21 @@ fn mxx_with_target_negated_yields_correct_qir() {
     check(
         "MXX !0 1",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    CNOT(qs[0], qs[1]);
+                    H(qs[0]);
+                    X(qs[0]);
+                    set r_0 = M(qs[0]);
+                    X(qs[0]);
+                    H(qs[0]);
+                    CNOT(qs[0], qs[1]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -60,24 +55,24 @@ fn mxx_with_readout_noise_yields_correct_qir() {
     check(
         "MXX(0.01) 0 1",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__rt__readout_noise(double 0.01, double 0.01, ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__rt__readout_noise(double, double, ptr) #2
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1
-              uses_noise = true"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    CNOT(qs[0], qs[1]);
+                    H(qs[0]);
+                    set r_0 = M(qs[0]);
+                    __quantum__rt__readout_noise(0.01, 0.01, r_0);
+                    H(qs[0]);
+                    CNOT(qs[0], qs[1]);
+                    [r_0]
+                }
+                @NoiseIntrinsic()
+                operation __quantum__rt__readout_noise(arg0 : Double, arg1 : Double, arg2 : Result) : Unit {
+                    body intrinsic;
+                }
+            }"#]],
     );
 }
 
@@ -87,28 +82,24 @@ fn myy_measurement_yields_correct_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    S(qs[0]);
+                    S(qs[1]);
+                    CNOT(qs[0], qs[1]);
+                    H(qs[0]);
+                    set r_0 = M(qs[0]);
+                    Z(qs[1]);
+                    H(qs[0]);
+                    CNOT(qs[0], qs[1]);
+                    S(qs[0]);
+                    S(qs[1]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -118,17 +109,16 @@ fn mzz_measurement_yields_correct_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    CNOT(qs[0], qs[1]);
+                    set r_0 = M(qs[1]);
+                    CNOT(qs[0], qs[1]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
