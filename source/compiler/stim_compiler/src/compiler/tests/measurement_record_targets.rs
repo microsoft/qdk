@@ -6,7 +6,7 @@ use expect_test::expect;
 use indoc::indoc;
 
 #[test]
-fn cx_with_rec_control_yields_expected_qir() {
+fn cx_with_rec_control_yields_expected_qsharp() {
     let source = indoc! {"
         M 0
         CX rec[-1] 1
@@ -30,7 +30,7 @@ fn cx_with_rec_control_yields_expected_qir() {
 }
 
 #[test]
-fn cx_with_older_rec_control_yields_expected_qir() {
+fn cx_with_older_rec_control_yields_expected_qsharp() {
     let source = indoc! {"
         M 0
         M 1
@@ -57,7 +57,7 @@ fn cx_with_older_rec_control_yields_expected_qir() {
 }
 
 #[test]
-fn cy_with_rec_control_yields_expected_qir() {
+fn cy_with_rec_control_yields_expected_qsharp() {
     let source = indoc! {"
         M 0
         CY rec[-1] 1
@@ -81,7 +81,7 @@ fn cy_with_rec_control_yields_expected_qir() {
 }
 
 #[test]
-fn cz_with_rec_on_first_target_yields_expected_qir() {
+fn cz_with_rec_on_first_target_yields_expected_qsharp() {
     let source = indoc! {"
         M 0
         CZ rec[-1] 1
@@ -105,7 +105,7 @@ fn cz_with_rec_on_first_target_yields_expected_qir() {
 }
 
 #[test]
-fn cz_with_rec_on_second_target_yields_expected_qir() {
+fn cz_with_rec_on_second_target_yields_expected_qsharp() {
     let source = indoc! {"
         M 0
         CZ 1 rec[-1]
@@ -129,7 +129,7 @@ fn cz_with_rec_on_second_target_yields_expected_qir() {
 }
 
 #[test]
-fn xcz_with_rec_on_second_target_yields_expected_qir() {
+fn xcz_with_rec_on_second_target_yields_expected_qsharp() {
     let source = indoc! {"
         M 0
         XCZ 1 rec[-1]
@@ -153,7 +153,7 @@ fn xcz_with_rec_on_second_target_yields_expected_qir() {
 }
 
 #[test]
-fn ycz_with_rec_on_second_target_yields_expected_qir() {
+fn ycz_with_rec_on_second_target_yields_expected_qsharp() {
     let source = indoc! {"
         M 0
         YCZ 1 rec[-1]

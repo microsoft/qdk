@@ -6,7 +6,7 @@ use expect_test::expect;
 use indoc::indoc;
 
 #[test]
-fn mpp_single_x_yields_expected_qir() {
+fn mpp_single_x_yields_expected_qsharp() {
     // same as MX 0
     check(
         "MPP X0",
@@ -28,7 +28,7 @@ fn mpp_single_x_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_single_y_yields_expected_qir() {
+fn mpp_single_y_yields_expected_qsharp() {
     // same as MY 0
     check(
         "MPP Y0",
@@ -51,7 +51,7 @@ fn mpp_single_y_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_single_z_yields_expected_qir() {
+fn mpp_single_z_yields_expected_qsharp() {
     // same as MZ 0
     check(
         "MPP Z0",
@@ -71,7 +71,7 @@ fn mpp_single_z_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_negated_single_pauli_yields_expected_qir() {
+fn mpp_negated_single_pauli_yields_expected_qsharp() {
     // same as MZ !5
     check(
         "MPP !Z5",
@@ -93,7 +93,7 @@ fn mpp_negated_single_pauli_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_two_factor_product_yields_expected_qir() {
+fn mpp_two_factor_product_yields_expected_qsharp() {
     check(
         "MPP X1*Y2",
         &expect![[r#"
@@ -117,7 +117,7 @@ fn mpp_two_factor_product_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_three_factor_product_yields_expected_qir() {
+fn mpp_three_factor_product_yields_expected_qsharp() {
     // order of qubit indices in the output is not guaranteed to match the order of qubit indices in the input
     check(
         "MPP Z3*Z4*Z5",
@@ -140,7 +140,7 @@ fn mpp_three_factor_product_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_product_of_all_three_bases_yields_expected_qir() {
+fn mpp_product_of_all_three_bases_yields_expected_qsharp() {
     check(
         "MPP X0*Y1*Z2",
         &expect![[r#"
@@ -165,7 +165,7 @@ fn mpp_product_of_all_three_bases_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_negated_product_yields_expected_qir() {
+fn mpp_negated_product_yields_expected_qsharp() {
     // order of qubit indices in the output is not guaranteed to match the order of qubit indices in the input
     check(
         "MPP !Z3*Z4*Z5",
@@ -190,7 +190,7 @@ fn mpp_negated_product_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_with_readout_noise_yields_expected_qir() {
+fn mpp_with_readout_noise_yields_expected_qsharp() {
     check(
         "MPP(0.01) Z1*Z2",
         &expect![[r#"
@@ -216,7 +216,7 @@ fn mpp_with_readout_noise_yields_expected_qir() {
 }
 
 #[test]
-fn spp_single_z_yields_expected_qir() {
+fn spp_single_z_yields_expected_qsharp() {
     check(
         "SPP Z1",
         &expect![[r#"
@@ -234,7 +234,7 @@ fn spp_single_z_yields_expected_qir() {
 }
 
 #[test]
-fn spp_single_x_yields_expected_qir() {
+fn spp_single_x_yields_expected_qsharp() {
     check(
         "SPP X1",
         &expect![[r#"
@@ -254,7 +254,7 @@ fn spp_single_x_yields_expected_qir() {
 }
 
 #[test]
-fn spp_negated_single_x_yields_expected_qir() {
+fn spp_negated_single_x_yields_expected_qsharp() {
     check(
         "SPP !X1",
         &expect![[r#"
@@ -274,7 +274,7 @@ fn spp_negated_single_x_yields_expected_qir() {
 }
 
 #[test]
-fn spp_two_factor_product_yields_expected_qir() {
+fn spp_two_factor_product_yields_expected_qsharp() {
     check(
         "SPP X1*X2",
         &expect![[r#"
@@ -296,7 +296,7 @@ fn spp_two_factor_product_yields_expected_qir() {
 }
 
 #[test]
-fn spp_negated_three_factor_product_yields_expected_qir() {
+fn spp_negated_three_factor_product_yields_expected_qsharp() {
     check(
         "SPP !X1*Y2*Z3",
         &expect![[r#"
@@ -320,7 +320,7 @@ fn spp_negated_three_factor_product_yields_expected_qir() {
 }
 
 #[test]
-fn spp_mixed_basis_product_yields_expected_qir() {
+fn spp_mixed_basis_product_yields_expected_qsharp() {
     check(
         "SPP X0*Y1*Z2",
         &expect![[r#"
@@ -362,7 +362,7 @@ fn spp_identity_products_are_noops() {
 }
 
 #[test]
-fn spp_dag_single_z_yields_expected_qir() {
+fn spp_dag_single_z_yields_expected_qsharp() {
     check(
         "SPP_DAG Z1",
         &expect![[r#"
@@ -380,7 +380,7 @@ fn spp_dag_single_z_yields_expected_qir() {
 }
 
 #[test]
-fn spp_dag_single_x_yields_expected_qir() {
+fn spp_dag_single_x_yields_expected_qsharp() {
     check(
         "SPP_DAG X1",
         &expect![[r#"
@@ -400,7 +400,7 @@ fn spp_dag_single_x_yields_expected_qir() {
 }
 
 #[test]
-fn spp_dag_negated_single_x_yields_expected_qir() {
+fn spp_dag_negated_single_x_yields_expected_qsharp() {
     check(
         "SPP_DAG !X1",
         &expect![[r#"
@@ -420,7 +420,7 @@ fn spp_dag_negated_single_x_yields_expected_qir() {
 }
 
 #[test]
-fn spp_dag_two_factor_product_yields_expected_qir() {
+fn spp_dag_two_factor_product_yields_expected_qsharp() {
     check(
         "SPP_DAG X1*X2",
         &expect![[r#"
@@ -442,7 +442,7 @@ fn spp_dag_two_factor_product_yields_expected_qir() {
 }
 
 #[test]
-fn spp_dag_negated_three_factor_product_yields_expected_qir() {
+fn spp_dag_negated_three_factor_product_yields_expected_qsharp() {
     check(
         "SPP_DAG !X1*Y2*Z3",
         &expect![[r#"

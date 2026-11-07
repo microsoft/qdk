@@ -27,7 +27,7 @@ fn peek_loss_single_qubit() {
 }
 
 #[test]
-fn peek_loss_with_readout_noise_yields_expected_qir() {
+fn peek_loss_with_readout_noise_yields_expected_qsharp() {
     check(
         "PEEK_LOSS(0.5) 0",
         &expect![[r#"

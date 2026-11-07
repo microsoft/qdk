@@ -39,7 +39,7 @@ fn simple_select_block() {
 }
 
 #[test]
-fn require_with_negated_record_yields_expected_qir() {
+fn require_with_negated_record_yields_expected_qsharp() {
     let source = indoc! {"
       SELECT {
         M 0 1

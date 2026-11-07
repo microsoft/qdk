@@ -6,7 +6,7 @@ use expect_test::expect;
 use indoc::indoc;
 
 #[test]
-fn t_gate_yields_expected_qir() {
+fn t_gate_yields_expected_qsharp() {
     check(
         "T 0",
         &expect![[r#"
@@ -22,7 +22,7 @@ fn t_gate_yields_expected_qir() {
 }
 
 #[test]
-fn t_dag_gate_yields_expected_qir() {
+fn t_dag_gate_yields_expected_qsharp() {
     check(
         "T_DAG 0",
         &expect![[r#"
@@ -38,7 +38,7 @@ fn t_dag_gate_yields_expected_qir() {
 }
 
 #[test]
-fn tpp_single_z_yields_expected_qir() {
+fn tpp_single_z_yields_expected_qsharp() {
     // same as T 0
     check(
         "TPP Z0",
@@ -57,7 +57,7 @@ fn tpp_single_z_yields_expected_qir() {
 }
 
 #[test]
-fn tpp_single_x_yields_expected_qir() {
+fn tpp_single_x_yields_expected_qsharp() {
     check(
         "TPP X0",
         &expect![[r#"
@@ -77,7 +77,7 @@ fn tpp_single_x_yields_expected_qir() {
 }
 
 #[test]
-fn tpp_single_y_yields_expected_qir() {
+fn tpp_single_y_yields_expected_qsharp() {
     check(
         "TPP Y0",
         &expect![[r#"
@@ -98,7 +98,7 @@ fn tpp_single_y_yields_expected_qir() {
 }
 
 #[test]
-fn tpp_dag_single_z_yields_expected_qir() {
+fn tpp_dag_single_z_yields_expected_qsharp() {
     // same as T_DAG 0
     check(
         "TPP_DAG Z0",
@@ -117,7 +117,7 @@ fn tpp_dag_single_z_yields_expected_qir() {
 }
 
 #[test]
-fn tpp_three_factor_product_yields_expected_qir() {
+fn tpp_three_factor_product_yields_expected_qsharp() {
     check(
         "TPP X0*Y1*Z2",
         &expect![[r#"
@@ -195,7 +195,7 @@ fn tpp_identity_products_are_noops() {
 }
 
 #[test]
-fn ch_gate_yields_expected_qir() {
+fn ch_gate_yields_expected_qsharp() {
     check(
         "CH 0 1",
         &expect![[r#"
@@ -211,7 +211,7 @@ fn ch_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ccz_gate_yields_expected_qir() {
+fn ccz_gate_yields_expected_qsharp() {
     check(
         "CCZ 0 1 2",
         &expect![[r#"
@@ -229,7 +229,7 @@ fn ccz_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ccx_gate_yields_expected_qir() {
+fn ccx_gate_yields_expected_qsharp() {
     check(
         "CCX 0 1 2",
         &expect![[r#"
@@ -245,7 +245,7 @@ fn ccx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn r_x_yields_expected_qir() {
+fn r_x_yields_expected_qsharp() {
     check(
         "R_X(0.25) 0",
         &expect![[r#"
@@ -261,7 +261,7 @@ fn r_x_yields_expected_qir() {
 }
 
 #[test]
-fn r_y_yields_expected_qir() {
+fn r_y_yields_expected_qsharp() {
     check(
         "R_Y(-0.375) 0",
         &expect![[r#"
@@ -277,7 +277,7 @@ fn r_y_yields_expected_qir() {
 }
 
 #[test]
-fn r_z_yields_expected_qir() {
+fn r_z_yields_expected_qsharp() {
     check(
         "R_Z(123.432) 0",
         &expect![[r#"
@@ -293,7 +293,7 @@ fn r_z_yields_expected_qir() {
 }
 
 #[test]
-fn u3_yields_expected_qir() {
+fn u3_yields_expected_qsharp() {
     check(
         "U3(0.1, 0.2, 0.3) 0",
         &expect![[r#"
@@ -311,7 +311,7 @@ fn u3_yields_expected_qir() {
 }
 
 #[test]
-fn r_xx_yields_expected_qir() {
+fn r_xx_yields_expected_qsharp() {
     check(
         "R_XX(0.25) 0 1",
         &expect![[r#"
@@ -327,7 +327,7 @@ fn r_xx_yields_expected_qir() {
 }
 
 #[test]
-fn r_yy_yields_expected_qir() {
+fn r_yy_yields_expected_qsharp() {
     check(
         "R_YY(-0.6) 0 1",
         &expect![[r#"
@@ -343,7 +343,7 @@ fn r_yy_yields_expected_qir() {
 }
 
 #[test]
-fn r_zz_yields_expected_qir() {
+fn r_zz_yields_expected_qsharp() {
     check(
         "R_ZZ(0.25) 0 1",
         &expect![[r#"
@@ -359,7 +359,7 @@ fn r_zz_yields_expected_qir() {
 }
 
 #[test]
-fn r_pauli_single_z_yields_expected_qir() {
+fn r_pauli_single_z_yields_expected_qsharp() {
     // same as R_Z(0.25) 0
     check(
         "R_PAULI(0.25) Z0",
@@ -378,7 +378,7 @@ fn r_pauli_single_z_yields_expected_qir() {
 }
 
 #[test]
-fn r_pauli_single_x_yields_expected_qir() {
+fn r_pauli_single_x_yields_expected_qsharp() {
     check(
         "R_PAULI(0.25) X0",
         &expect![[r#"
@@ -398,7 +398,7 @@ fn r_pauli_single_x_yields_expected_qir() {
 }
 
 #[test]
-fn r_pauli_single_y_yields_expected_qir() {
+fn r_pauli_single_y_yields_expected_qsharp() {
     check(
         "R_PAULI(0.25) Y0",
         &expect![[r#"
@@ -419,7 +419,7 @@ fn r_pauli_single_y_yields_expected_qir() {
 }
 
 #[test]
-fn r_pauli_mixed_basis_product_yields_expected_qir() {
+fn r_pauli_mixed_basis_product_yields_expected_qsharp() {
     check(
         "R_PAULI(0.25) X0*Y1*Z2",
         &expect![[r#"
