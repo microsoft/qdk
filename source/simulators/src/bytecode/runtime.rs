@@ -19,141 +19,21 @@ use crate::{
     bytecode::{AdaptiveProgram, Instruction},
 };
 
-// ---------------------------------------------------------------------------
-// Opcode constants — must stay in sync with the Python `_adaptive_bytecode.py`
-// and the WGSL `gpu_statevector_shaders.wgsl` shader.
-// ---------------------------------------------------------------------------
-
-// Flags (pre-shifted to bit 16+)
-const FLAG_SRC0_IMM: u64 = 1 << 16;
-const FLAG_SRC1_IMM: u64 = 1 << 17;
-const FLAG_DST_IMM: u64 = 1 << 18;
-const FLAG_AUX0_IMM: u64 = 1 << 19;
-const FLAG_AUX1_IMM: u64 = 1 << 20;
-const FLAG_AUX2_IMM: u64 = 1 << 21;
-const FLAG_AUX3_IMM: u64 = 1 << 22;
-
-// Control flow
-const OP_NOP: u8 = 0x00;
-const OP_RET: u8 = 0x02;
-const OP_JUMP: u8 = 0x04;
-const OP_BRANCH: u8 = 0x05;
-const OP_SWITCH: u8 = 0x06;
-const OP_CALL: u8 = 0x07;
-const OP_CALL_RETURN: u8 = 0x08;
-
-// Quantum
-const OP_QUANTUM_GATE: u8 = 0x10;
-const OP_MEASURE: u8 = 0x11;
-const OP_RESET: u8 = 0x12;
-const OP_READ_RESULT: u8 = 0x13;
-const OP_RECORD_OUTPUT: u8 = 0x14;
-const OP_READ_LOSS: u8 = 0x15;
-const OP_PEEK_LOSS: u8 = 0x16;
-const OP_READOUT_NOISE: u8 = 0x17;
-const OP_WRITE_RESULT: u8 = 0x18;
-
-// Integer arithmetic
-const OP_ADD: u8 = 0x20;
-const OP_SUB: u8 = 0x21;
-const OP_MUL: u8 = 0x22;
-const OP_UDIV: u8 = 0x23;
-const OP_SDIV: u8 = 0x24;
-const OP_UREM: u8 = 0x25;
-const OP_SREM: u8 = 0x26;
-
-// Bitwise / shift
-const OP_AND: u8 = 0x28;
-const OP_OR: u8 = 0x29;
-const OP_XOR: u8 = 0x2A;
-const OP_SHL: u8 = 0x2B;
-const OP_LSHR: u8 = 0x2C;
-const OP_ASHR: u8 = 0x2D;
-
-// Comparison
-const OP_ICMP: u8 = 0x30;
-const OP_FCMP: u8 = 0x31;
-
-// Float arithmetic
-const OP_FADD: u8 = 0x38;
-const OP_FSUB: u8 = 0x39;
-const OP_FMUL: u8 = 0x3A;
-const OP_FDIV: u8 = 0x3B;
-const OP_FREM: u8 = 0x3C;
-
-// Type conversion
-const OP_ZEXT: u8 = 0x40;
-const OP_SEXT: u8 = 0x41;
-const OP_TRUNC: u8 = 0x42;
-const OP_FPEXT: u8 = 0x43;
-const OP_FPTRUNC: u8 = 0x44;
-const OP_INTTOPTR: u8 = 0x45;
-const OP_FPTOSI: u8 = 0x46;
-const OP_SITOFP: u8 = 0x47;
-const OP_FPTOUI: u8 = 0x48;
-const OP_UITOFP: u8 = 0x49;
-
-// SSA / data movement
-const OP_PHI: u8 = 0x50;
-const OP_SELECT: u8 = 0x51;
-const OP_MOV: u8 = 0x52;
-const OP_CONST: u8 = 0x53;
-
-// Memory operations
-const OP_ALLOCA: u8 = 0x60;
-const OP_LOAD: u8 = 0x61;
-const OP_STORE: u8 = 0x62;
-const OP_GEP: u8 = 0x63;
-
-// ICmp condition codes (sub-opcode)
-const ICMP_EQ: u8 = 0;
-const ICMP_NE: u8 = 1;
-const ICMP_SLT: u8 = 2;
-const ICMP_SLE: u8 = 3;
-const ICMP_SGT: u8 = 4;
-const ICMP_SGE: u8 = 5;
-const ICMP_ULT: u8 = 6;
-const ICMP_ULE: u8 = 7;
-const ICMP_UGT: u8 = 8;
-const ICMP_UGE: u8 = 9;
-
-// FCmp condition codes (sub-opcode)
-const FCMP_OEQ: u8 = 1;
-const FCMP_OGT: u8 = 2;
-const FCMP_OGE: u8 = 3;
-const FCMP_OLT: u8 = 4;
-const FCMP_OLE: u8 = 5;
-const FCMP_ONE: u8 = 6;
-
-// Quantum op IDs — must match `shader_types.rs` `OpID` and `GATE_MAP` in `_adaptive_pass.py`.
-const OPID_RESETZ: u64 = 1;
-const OPID_X: u64 = 2;
-const OPID_Y: u64 = 3;
-const OPID_Z: u64 = 4;
-const OPID_H: u64 = 5;
-const OPID_S: u64 = 6;
-const OPID_S_ADJ: u64 = 7;
-const OPID_T: u64 = 8;
-const OPID_T_ADJ: u64 = 9;
-const OPID_SX: u64 = 10;
-const OPID_SX_ADJ: u64 = 11;
-const OPID_RX: u64 = 12;
-const OPID_RY: u64 = 13;
-const OPID_RZ: u64 = 14;
-const OPID_CX: u64 = 15;
-const OPID_CZ: u64 = 16;
-const OPID_RXX: u64 = 17;
-const OPID_RYY: u64 = 18;
-const OPID_RZZ: u64 = 19;
-const OPID_MZ: u64 = 21;
-const OPID_MRESETZ: u64 = 22;
-const OPID_SWAP: u64 = 24;
-const OPID_MOVE: u64 = 28;
-const OPID_CY: u64 = 29;
-const OPID_CORRELATED_NOISE: u64 = 131;
-
-// Sentinel
-const VOID_RETURN: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+use super::encoding::{
+    FCMP_OEQ, FCMP_OGE, FCMP_OGT, FCMP_OLE, FCMP_OLT, FCMP_ONE, FLAG_AUX0_IMM, FLAG_AUX1_IMM,
+    FLAG_AUX2_IMM, FLAG_AUX3_IMM, FLAG_DST_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM, ICMP_EQ, ICMP_NE,
+    ICMP_SGE, ICMP_SGT, ICMP_SLE, ICMP_SLT, ICMP_UGE, ICMP_UGT, ICMP_ULE, ICMP_ULT, OP_ADD,
+    OP_ALLOCA, OP_AND, OP_ASHR, OP_BRANCH, OP_CALL, OP_CALL_RETURN, OP_CONST, OP_FADD, OP_FCMP,
+    OP_FDIV, OP_FMUL, OP_FPEXT, OP_FPTOSI, OP_FPTOUI, OP_FPTRUNC, OP_FREM, OP_FSUB, OP_GEP,
+    OP_ICMP, OP_INTTOPTR, OP_JUMP, OP_LOAD, OP_LSHR, OP_MEASURE, OP_MOV, OP_MUL, OP_NOP, OP_OR,
+    OP_PEEK_LOSS, OP_PHI, OP_QUANTUM_GATE, OP_READ_LOSS, OP_READ_RESULT, OP_READOUT_NOISE,
+    OP_RECORD_OUTPUT, OP_RESET, OP_RET, OP_SDIV, OP_SELECT, OP_SEXT, OP_SHL, OP_SITOFP, OP_SREM,
+    OP_STORE, OP_SUB, OP_SWITCH, OP_TRUNC, OP_UDIV, OP_UITOFP, OP_UREM, OP_WRITE_RESULT, OP_XOR,
+    OP_ZEXT, OPID_CORRELATED_NOISE, OPID_CX, OPID_CY, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ,
+    OPID_MZ, OPID_RESETZ, OPID_RX, OPID_RXX, OPID_RY, OPID_RYY, OPID_RZ, OPID_RZZ, OPID_S,
+    OPID_S_ADJ, OPID_SWAP, OPID_SX, OPID_SX_ADJ, OPID_T, OPID_T_ADJ, OPID_X, OPID_Y, OPID_Z,
+    VOID_RETURN,
+};
 
 // ---------------------------------------------------------------------------
 // Runtime state
