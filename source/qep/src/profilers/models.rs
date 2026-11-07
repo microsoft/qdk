@@ -53,7 +53,7 @@ pub(super) enum DemoModel1_NativeOperation {
     DistillationRound(usize),                     // FactoryId.
 }
 
-/// Serialization of native instructions, needed only for visualizing trace.
+/// Serialization of native operations, needed only for visualizing trace.
 impl From<DemoModel1_NativeOperation> for LoggedInstruction {
     fn from(operation: DemoModel1_NativeOperation) -> Self {
         use DemoModel1_NativeOperation::{
@@ -134,7 +134,7 @@ impl Default for DemoModel1 {
 impl DemoModel1 {
     /// Using TemporalProfilerConfig only temporary for ease of migration.
     /// TODO: remove all model-specific fields from TemporalProfilerConfig.
-    fn from_config(config: TemporalProfilerConfig) -> Self {
+    pub fn from_config(config: TemporalProfilerConfig) -> Self {
         DemoModel1::new(
             config.clifford_gate_time_nanos,
             config.measurment_time_nanos,

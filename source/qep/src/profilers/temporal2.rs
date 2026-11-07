@@ -1,13 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#[cfg(test)]
-use super::models::DemoModel1;
-use super::models::QpuModel;
+use super::models::{DemoModel1, QpuModel};
 use crate::{
-    QuantumBackendResult,
+    QuantumBackendResult, TemporalProfilerConfig,
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
-    profilers::factories::TFactory,
+    profilers::{event_recorder::EventRecorder, factories::TFactory},
 };
 use rand::{SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashSet;
@@ -78,16 +76,35 @@ impl<M: QpuModel> TemporalProfilerState<M> {
 pub struct TemporalProfiler2<M: QpuModel> {
     state: TemporalProfilerState<M>,
     model: M,
+    event_recorder: EventRecorder,
 }
 
 impl<M: QpuModel> TemporalProfiler2<M> {
-    /// Creates a profiler with no allocated functional units.
-    fn new(model: M) -> Self {
+    /// Creates a profiler with configured recording and randomness, without allocated functional units.
+    fn new(
+        model: M,
+        record_trace: bool,
+        aggregation_window_nanos: usize,
+        seed: Option<u64>,
+    ) -> Self {
         TemporalProfiler2 {
-            state: TemporalProfilerState::new(None),
+            state: TemporalProfilerState::new(seed),
             model,
+            event_recorder: EventRecorder::new(record_trace, aggregation_window_nanos),
         }
     }
+}
+
+/// Temporary helper to create TemporalProfiler2 with observable behaviour equivalent to
+/// TemporalProfiler.
+/// In the future, we will split model and config.
+fn make_profiler(config: TemporalProfilerConfig) -> TemporalProfiler2<DemoModel1> {
+    TemporalProfiler2::<DemoModel1>::new(
+        DemoModel1::from_config(config),
+        config.record_trace,
+        config.aggregation_window_nanos,
+        config.seed,
+    )
 }
 
 impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
@@ -107,9 +124,10 @@ impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Creates a profiler instance.
     #[test]
     fn basic_test() {
-        let model = DemoModel1::default();
-        let p = TemporalProfiler2::new(model);
+        let _profiler = make_profiler(TemporalProfilerConfig::default());
     }
 }
