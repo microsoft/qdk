@@ -76,6 +76,15 @@ pub struct LoggedInstruction {
     pub parameters: Vec<LoggedInstructionParameter>,
 }
 
+/// Provides an operation name for metrics and a detailed representation for traces.
+pub(super) trait LoggableOperation {
+    /// Returns the operation name without constructing a trace entry.
+    fn get_name(&self) -> &str;
+
+    /// Builds the instruction representation recorded in execution traces.
+    fn to_logged_instruction(&self) -> LoggedInstruction;
+}
+
 impl From<&QuantumBackendInstruction> for LoggedInstruction {
     /// Copies instruction data into the trace representation without cloning the backend instruction.
     fn from(instruction: &QuantumBackendInstruction) -> Self {

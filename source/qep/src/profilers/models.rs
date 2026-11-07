@@ -1,5 +1,5 @@
 use super::{
-    profile_types::{LoggedInstruction, LoggedInstructionParameter},
+    profile_types::{LoggableOperation, LoggedInstruction, LoggedInstructionParameter},
     temporal2::{Precondition, TemporalProfilerState},
 };
 use crate::{
@@ -10,8 +10,8 @@ use rand::RngExt;
 use std::{collections::VecDeque, hash::Hash};
 
 pub(super) trait QpuModel: Sized {
-    /// Retained until completion and cloned for start-time trace conversion.
-    type NativeOperation: Clone + Into<LoggedInstruction>;
+    /// Retained until completion and borrowed for start-time trace conversion.
+    type NativeOperation: LoggableOperation;
     type Resource: Clone + Eq + Hash;
     type FunctionalUnitId: Eq + Hash;
 
@@ -52,7 +52,6 @@ pub(super) trait QpuModel: Sized {
     ) -> Option<QuantumBackendResult>;
 }
 
-#[derive(Clone)]
 pub(super) enum DemoModel1_NativeOperation {
     SingleQubitCliffordGate(&'static str, usize), // Gate name, QubitId.
     CnotGate(usize, usize),                       // QubitId, QubitId.
@@ -62,41 +61,43 @@ pub(super) enum DemoModel1_NativeOperation {
     DistillationRound(usize),                     // FactoryId.
 }
 
-/// Serialization of native operations, needed only for visualizing trace.
-impl From<DemoModel1_NativeOperation> for LoggedInstruction {
+impl LoggableOperation for DemoModel1_NativeOperation {
+    /// Returns the native operation's static metric and trace name.
+    fn get_name(&self) -> &str {
+        match self {
+            Self::SingleQubitCliffordGate(name, _) => name,
+            Self::CnotGate(..) => "cx",
+            Self::Measurement(_) => "mz",
+            Self::Reset(_) => "reset",
+            Self::InjectT(_, _, false) => "inject_t",
+            Self::InjectT(_, _, true) => "inject_tadj",
+            Self::DistillationRound(_) => "round",
+        }
+    }
+
     /// Preserves trace names and parameter order for native operations.
-    fn from(operation: DemoModel1_NativeOperation) -> Self {
-        use DemoModel1_NativeOperation::{
-            CnotGate, DistillationRound, InjectT, Measurement, Reset, SingleQubitCliffordGate,
-        };
+    fn to_logged_instruction(&self) -> LoggedInstruction {
         use LoggedInstructionParameter::{FactoryId, QubitId};
 
-        let instruction_name = match &operation {
-            SingleQubitCliffordGate(name, _) => *name,
-            CnotGate(..) => "cx",
-            Measurement(_) => "mz",
-            Reset(_) => "reset",
-            InjectT(_, _, false) => "inject_t",
-            InjectT(_, _, true) => "inject_tadj",
-            DistillationRound(_) => "round",
-        };
-        let parameters = match operation {
-            SingleQubitCliffordGate(_, qubit) | Measurement(qubit) | Reset(qubit) => {
-                vec![QubitId(qubit)]
+        let parameters = match self {
+            Self::SingleQubitCliffordGate(_, qubit)
+            | Self::Measurement(qubit)
+            | Self::Reset(qubit) => {
+                vec![QubitId(*qubit)]
             }
-            CnotGate(control, target) => vec![QubitId(control), QubitId(target)],
-            InjectT(factory, qubit, _) => {
+            Self::CnotGate(control, target) => vec![QubitId(*control), QubitId(*target)],
+            Self::InjectT(factory, qubit, _) => {
                 let mut parameters = Vec::with_capacity(2);
                 if let Some(factory) = factory {
-                    parameters.push(FactoryId(factory));
+                    parameters.push(FactoryId(*factory));
                 }
-                parameters.push(QubitId(qubit));
+                parameters.push(QubitId(*qubit));
                 parameters
             }
-            DistillationRound(factory) => vec![FactoryId(factory)],
+            Self::DistillationRound(factory) => vec![FactoryId(*factory)],
         };
-        Self {
-            instruction_name: instruction_name.into(),
+        LoggedInstruction {
+            instruction_name: self.get_name().to_owned().into(),
             parameters,
         }
     }
@@ -369,12 +370,15 @@ mod tests {
             (InjectT(None, 9, true), "inject_tadj", vec![QubitId(9)]),
             (DistillationRound(10), "round", vec![FactoryId(10)]),
         ] {
-            let logged: LoggedInstruction = operation.into();
+            assert_eq!(operation.get_name(), name);
+            let logged = operation.to_logged_instruction();
             assert_eq!(logged.instruction_name, name);
             assert_eq!(logged.parameters, parameters);
         }
         for name in ["h", "s", "sadj", "x", "y", "z"] {
-            let logged: LoggedInstruction = SingleQubitCliffordGate(name, 11).into();
+            let operation = SingleQubitCliffordGate(name, 11);
+            assert_eq!(operation.get_name(), name);
+            let logged = operation.to_logged_instruction();
             assert_eq!(logged.instruction_name, name);
             assert_eq!(logged.parameters, vec![QubitId(11)]);
         }

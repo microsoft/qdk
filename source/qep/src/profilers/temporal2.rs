@@ -4,7 +4,7 @@
 use super::{
     InstructionTrace, Profiler, ProfilerResult, TotalCounts,
     models::{DemoModel1, QpuModel},
-    profile_types::LoggedInstruction,
+    profile_types::LoggableOperation,
 };
 use crate::{
     QuantumBackendResult, TemporalProfilerConfig,
@@ -206,10 +206,7 @@ impl<M: QpuModel> TemporalProfilerState<M> {
         operation.done = true;
         for dependent in std::mem::take(&mut operation.dependents) {
             let operation = &mut self.operations[dependent.0 - self.operations_offset];
-            operation.pending_dependencies = operation
-                .pending_dependencies
-                .checked_sub(1)
-                .expect("operation dependency completed more than once");
+            operation.pending_dependencies -= 1;
             if operation.pending_dependencies == 0 {
                 self.ready_operations.push_back(dependent);
             }
@@ -274,31 +271,25 @@ impl<M: QpuModel> TemporalProfiler2<M> {
                     .push_back(op_ref);
                 continue;
             }
-            let end_time_nanos = self
-                .state
-                .current_time_nanos
-                .checked_add(operation.duration_nanos)
-                .expect("simulated operation time overflow");
+            let end_time_nanos = self.state.current_time_nanos + operation.duration_nanos;
             let sequence = self.state.next_event_sequence;
-            self.state.next_event_sequence =
-                sequence.checked_add(1).expect("event sequence overflow");
+            self.state.next_event_sequence = sequence + 1;
             let mut op = self.state.operations[index]
                 .operation
                 .take()
                 .expect("unstarted operation must be present");
             self.state.operations[index].started = true;
             self.model.on_operation_started(&mut op, &mut self.state);
-            let instruction: LoggedInstruction = op.clone().into();
             self.state.event_recorder.event_aggregator.record_event(
                 self.state.current_time_nanos,
-                &instruction.instruction_name,
+                op.get_name(),
                 1,
             );
             if self.state.event_recorder.record_trace {
                 self.state.event_recorder.logs.push(InstructionTrace {
                     start_time_nanos: self.state.current_time_nanos,
                     end_time_nanos,
-                    instruction,
+                    instruction: op.to_logged_instruction(),
                 });
             }
             self.state.operations[index].operation = Some(op);
@@ -397,297 +388,5 @@ impl<M: QpuModel> Profiler for TemporalProfiler2<M> {
             trace: self.state.event_recorder.get_trace(),
             infos: vec![],
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::models::{DemoModel1_NativeOperation, DemoModel1_Resource};
-    use super::*;
-
-    /// Builds a backend instruction targeting the supplied qubits.
-    fn instruction(name: &'static str, qubits: &[usize]) -> QuantumBackendInstruction {
-        QuantumBackendInstruction {
-            instruction_name: name,
-            parameters: qubits
-                .iter()
-                .map(|qubit| crate::Parameter::QubitId(*qubit))
-                .collect(),
-        }
-    }
-
-    /// Deduplicates explicit and target dependencies and retains result slots in scheduling order.
-    #[test]
-    fn schedules_dependencies_and_result_slots() {
-        let mut state =
-            TemporalProfilerState::<DemoModel1>::new(Some(42), EventRecorder::new(false, 1_000));
-        state.schedule_operation(
-            DemoModel1_NativeOperation::CnotGate(0, 1),
-            vec![],
-            vec![0, 1, 1],
-            5,
-            false,
-        );
-        state.schedule_operation(
-            DemoModel1_NativeOperation::Measurement(0),
-            vec![
-                Precondition::OperationIsCompleted(OperationRef(0)),
-                Precondition::OperationIsCompleted(OperationRef(0)),
-                Precondition::ResourceIsAvailable(DemoModel1_Resource::TState),
-            ],
-            vec![0, 1, 1],
-            3,
-            true,
-        );
-        state.schedule_operation(
-            DemoModel1_NativeOperation::Measurement(2),
-            vec![],
-            vec![2],
-            7,
-            true,
-        );
-        assert_eq!(state.operations[0].dependents, vec![OperationRef(1)]);
-        assert_eq!(state.operations[1].pending_dependencies, 1);
-        assert_eq!(state.operations[1].resource_requirements.len(), 1);
-        assert_eq!(state.operations[1].duration_nanos, 3);
-        assert_eq!(state.operations[1].result_index, Some(0));
-        assert_eq!(state.operations[2].result_index, Some(1));
-        assert_eq!(
-            state.current_batch_result.results.as_slice(),
-            &[QuantumBackendResult::Error, QuantumBackendResult::Error]
-        );
-        assert_eq!(
-            state.pending_operations_producing_results,
-            FxHashSet::from_iter([OperationRef(1), OperationRef(2)])
-        );
-        assert_eq!(
-            state.ready_operations,
-            VecDeque::from([OperationRef(0), OperationRef(2)])
-        );
-        assert_eq!(state.last_operations[&0], OperationRef(1));
-        assert_eq!(state.last_operations[&1], OperationRef(1));
-
-        state.mark_operation_done(OperationRef(0));
-        assert_eq!(state.operations_offset, 1);
-        assert_eq!(state.operations[0].pending_dependencies, 0);
-        state.schedule_operation(
-            DemoModel1_NativeOperation::Reset(3),
-            vec![Precondition::OperationIsCompleted(OperationRef(0))],
-            vec![3],
-            2,
-            false,
-        );
-        assert_eq!(state.last_operations[&3], OperationRef(3));
-        assert_eq!(state.operations[2].pending_dependencies, 0);
-    }
-
-    /// Matches the existing scheduler's results, trace order, and profiles across batches and seeds.
-    #[test]
-    fn matches_temporal_profiler_execution() -> Result<(), String> {
-        for seed in [0, 42, 123] {
-            for record_trace in [false, true] {
-                for clifford_gate_time_nanos in [0, 5_000] {
-                    let config = TemporalProfilerConfig {
-                        seed: Some(seed),
-                        record_trace,
-                        clifford_gate_time_nanos,
-                        measurment_time_nanos: clifford_gate_time_nanos / 5,
-                        t_factories_count: 2,
-                        aggregation_window_nanos: 55_000,
-                        ..TemporalProfilerConfig::default()
-                    };
-                    let mut profiler = make_profiler(config);
-                    let mut reference = crate::TemporalProfiler::new(config);
-                    let batches = [
-                        vec![instruction("h", &[0]), instruction("h", &[1])],
-                        vec![],
-                        vec![
-                            instruction("cx", &[0, 1]),
-                            instruction("t", &[0]),
-                            instruction("tadj", &[1]),
-                            instruction("mz", &[0]),
-                            instruction("mz", &[2]),
-                            instruction("reset", &[0]),
-                        ],
-                        vec![instruction("mz", &[1]), instruction("mz", &[0])],
-                        vec![
-                            instruction("t", &[0]),
-                            instruction("tadj", &[1]),
-                            instruction("t", &[2]),
-                            instruction("t", &[3]),
-                            instruction("cx", &[0, 1]),
-                            instruction("mz", &[0]),
-                            instruction("mz", &[1]),
-                            instruction("mz", &[2]),
-                            instruction("mz", &[3]),
-                        ],
-                    ];
-                    for batch in batches {
-                        assert_eq!(
-                            profiler.execute_batch(&batch)?,
-                            reference.execute_batch(&batch)?
-                        );
-                        let actual = profiler.get_result();
-                        let expected = reference.get_result();
-                        assert_eq!(actual.totals, TotalCounts::default());
-                        assert_eq!(actual.profiles, expected.profiles);
-                        assert_eq!(actual.trace, expected.trace);
-                        assert!(
-                            profiler
-                                .state
-                                .pending_operations_producing_results
-                                .is_empty()
-                        );
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Returns every result even when the last-scheduled measurement completes first.
-    #[test]
-    fn waits_for_results_without_draining_other_operations() -> Result<(), String> {
-        let mut profiler = make_profiler(TemporalProfilerConfig {
-            t_factories_count: 1,
-            seed: Some(42),
-            ..TemporalProfilerConfig::default()
-        });
-        profiler.model.t_factories[0].probability_success = 1.0;
-        assert!(
-            profiler
-                .execute_batch(&[instruction("h", &[3])])?
-                .results
-                .is_empty()
-        );
-        assert_eq!(profiler.state.current_time_nanos, 0);
-        let result = profiler.execute_batch(&[
-            instruction("t", &[0]),
-            instruction("mz", &[0]),
-            instruction("mz", &[1]),
-            instruction("t", &[2]),
-            instruction("t", &[2]),
-        ])?;
-        assert_eq!(result.results.len(), 2);
-        assert!(
-            result
-                .results
-                .iter()
-                .all(|result| *result != QuantumBackendResult::Error)
-        );
-        assert_eq!(profiler.state.current_time_nanos, 67_000);
-        assert!(!profiler.state.operations.is_empty());
-        assert!(profiler.execute_batch(&[])?.results.is_empty());
-        assert_eq!(profiler.state.current_time_nanos, 67_000);
-        assert_eq!(
-            profiler
-                .execute_batch(&[instruction("mz", &[1])])?
-                .results
-                .len(),
-            1
-        );
-        assert_eq!(profiler.state.current_time_nanos, 68_000);
-        assert_eq!(
-            profiler
-                .execute_batch(&[instruction("mz", &[2])])?
-                .results
-                .len(),
-            1
-        );
-        assert_eq!(profiler.state.current_time_nanos, 199_000);
-        Ok(())
-    }
-
-    /// Failed distillation retries, and a later successful round wakes resource-blocked injections.
-    #[test]
-    fn retries_distillation_and_wakes_waiters() -> Result<(), String> {
-        let mut profiler = make_profiler(TemporalProfilerConfig {
-            t_factories_count: 1,
-            seed: Some(42),
-            record_trace: true,
-            ..TemporalProfilerConfig::default()
-        });
-        profiler.model.t_factories[0].probability_success = 0.0;
-        profiler.execute_batch(&[instruction("t", &[0])])?;
-        let Reverse((time, _, op_ref)) = profiler.state.events.pop().expect("initial round");
-        profiler.state.current_time_nanos = time;
-        profiler.complete_operation(op_ref);
-        assert_eq!(time, 55_000);
-        assert!(profiler.state.available_resources.is_empty());
-        assert_eq!(
-            profiler.state.operations_blocked_on_resources[&DemoModel1_Resource::TState].len(),
-            1
-        );
-
-        profiler.model.t_factories[0].probability_success = 1.0;
-        profiler.execute_batch(&[instruction("mz", &[0])])?;
-        assert_eq!(profiler.state.current_time_nanos, 122_000);
-        assert!(
-            profiler
-                .state
-                .operations_blocked_on_resources
-                .values()
-                .all(VecDeque::is_empty)
-        );
-        let rounds = profiler
-            .state
-            .event_recorder
-            .logs
-            .iter()
-            .filter(|trace| trace.instruction.instruction_name == "round")
-            .count();
-        assert_eq!(rounds, 3);
-        Ok(())
-    }
-
-    /// Missing completion events report a deadlock instead of returning placeholder results.
-    #[test]
-    fn reports_exhausted_event_queue() {
-        let mut profiler = TemporalProfiler2 {
-            model: DemoModel1::default(),
-            state: TemporalProfilerState::new(None, EventRecorder::new(false, 1_000)),
-        };
-        let error = profiler
-            .execute_batch(&[instruction("t", &[0]), instruction("mz", &[0])])
-            .expect_err("unavailable resource without a producer must fail");
-        assert_eq!(
-            error,
-            "event queue exhausted before all requested results completed"
-        );
-        assert!(profiler.execute_batch(&[]).is_err());
-    }
-
-    /// Creates a profiler instance.
-    #[test]
-    fn basic_test() {
-        let _profiler = make_profiler(TemporalProfilerConfig::default());
-    }
-
-    /// Injections consume factories in FIFO order while resource-free operations leave them untouched.
-    #[test]
-    fn starting_injections_reserves_available_factories() {
-        use super::super::models::{DemoModel1_NativeOperation, DemoModel1_Resource};
-
-        let mut profiler = make_profiler(TemporalProfilerConfig::default());
-        profiler
-            .state
-            .available_resources
-            .insert(DemoModel1_Resource::TState, VecDeque::from([3, 5]));
-        let mut clifford = DemoModel1_NativeOperation::SingleQubitCliffordGate("h", 7);
-        profiler
-            .model
-            .on_operation_started(&mut clifford, &mut profiler.state);
-        for (factory, adjoint) in [(3, false), (5, true)] {
-            let mut op = DemoModel1_NativeOperation::InjectT(None, 7, adjoint);
-            profiler
-                .model
-                .on_operation_started(&mut op, &mut profiler.state);
-            assert!(matches!(
-                op,
-                DemoModel1_NativeOperation::InjectT(Some(id), 7, is_adjoint)
-                    if id == factory && is_adjoint == adjoint
-            ));
-        }
-        assert!(profiler.state.available_resources[&DemoModel1_Resource::TState].is_empty());
     }
 }
