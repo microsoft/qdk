@@ -1,54 +1,57 @@
-use super::temporal2::{
-    FUKind, FUState, FunctionalUnitId, LogicalComputeQubit, PerfomedOperation, Precondition,
-    ScheduledOperation, TemporalProfilerState,
-};
+use super::temporal2::{Precondition, TemporalProfilerState};
 use crate::{
-    Parameter, QuantumBackendResult,
-    interface::QuantumBackendInstruction,
-    profilers::{factories::TFactory, temporal2::FunctionalUnit},
+    Parameter, QuantumBackendResult, TemporalProfilerConfig, interface::QuantumBackendInstruction,
+    profilers::factories::TFactory,
 };
 use rand::RngExt;
-use smallvec::{SmallVec, smallvec};
 
 pub(super) trait QpuModel: Sized {
     type NativeOperation;
+    type Resource;
+    type FunctionalUnitId;
 
-    fn create_functional_unit(&self, kind: FUKind) -> FunctionalUnit;
+    /// Initializes model on startup.
+    /// Example: initialize factories.
+    fn on_start(&mut self, state: &mut TemporalProfilerState<Self>);
 
-    /// Translates QSP instruction to native operation.
-    ///
-    /// If instruction produces result, must set result_index to Some(...), value doesn't matter.
-    /// Otherwise, must set result_index to None.
-    fn schedule_instruction(
-        &self,
-        instr: &QuantumBackendInstruction,
-    ) -> Result<ScheduledOperation<Self>, String>;
-
-    /// Given scheduled operation, "performs" it by specifying on which functional units it should
-    /// be performed, and what is start and end time.
-    /// This method can assume that all precoinditions are satisfied, and panic if they are not.
-    fn perform_operation(
-        &self,
-        op: ScheduledOperation<Self>,
+    /// Does necessary conversion to native operation and calls state.schedule_operation. Also computes prerequisites
+    ///  For example, for T gate it will schedule InjectT with prerequisite on having resource TState.
+    ///  The intention is that TemporalProfiler2.execute_batch() will call model.on_instruction_received() in a loop for all instructions in batch.
+    fn on_instruction_received(
+        &mut self,
+        instruction: &QuantumBackendInstruction,
         state: &mut TemporalProfilerState<Self>,
-    ) -> PerfomedOperation<Self>;
+    ) -> Result<(), String>;
 
-    /// Applies model-specific effects when an operation finishes.
+    /// Does necessary updates to model operation start.
+    /// Allowed to mutate operation.
+    /// For example, for "InjectT" it will:
+    ///   - find T factory with available T State.
+    ///   - internally mark it as such that cannot be used (consume state).
+    ///   - change op to contain selected factory_id.
+    fn on_operation_started(&mut self, op: &mut Self::NativeOperation);
+
+    /// Does necessary updates to model operation completion.
+    /// Returns result if this operation produces result, otherwise retuns None.
     fn on_operation_finished(
-        &self,
-        op: &PerfomedOperation<Self>,
+        &mut self,
+        op: &Self::NativeOperation,
         state: &mut TemporalProfilerState<Self>,
-    );
+    ) -> Option<QuantumBackendResult>;
 }
 
 pub(super) enum DemoModel1_NativeOperation {
-    SingleQubitCliffordGate(&'static str),
-    CnotGate,
-    Measurement,
-    Reset,
-    InjectT,
-    InjectTAdj,
-    DistillationRound,
+    SingleQubitCliffordGate(&'static str, usize), // Gate name, QubitId.
+    CnotGate(usize, usize),                       // QubitId, QubitId.
+    Measurement(usize),                           // QubitId.
+    Reset(usize),                                 // QubitId.
+    InjectT(Option<usize>, usize),                // FactoryId, QubitId.
+    InjectTAdj(Option<usize>, usize),             // FactoryId, QubitId.
+    DistillationRound(usize),                     // FactoryId.
+}
+
+pub(super) enum DemoModel1_Resource {
+    TState,
 }
 
 /// Simplisitic model for demos:
@@ -71,7 +74,7 @@ pub(super) struct DemoModel1 {
     pub clifford_gate_time_nanos: usize,
     /// Duration of measurement, reset, or their combination in nanoseconds.
     pub measurment_time_nanos: usize,
-    pub t_factories_count: usize,
+    pub t_factories: Vec<TFactory>,
     /// Distance of the error-coorecting code.
     /// Assumes that all logical qubits have the same error correcting code.
     /// TODO: change it to specify different ECCs for different qubits.
@@ -81,145 +84,142 @@ pub(super) struct DemoModel1 {
 impl Default for DemoModel1 {
     /// Uses ten factories, one-second windows, unseeded randomness, and no trace recording.
     fn default() -> Self {
-        Self {
-            clifford_gate_time_nanos: 5_000,
-            measurment_time_nanos: 1_000,
-            t_factories_count: 10,
-            ecc_distance: 5,
-        }
+        Self::from_config(TemporalProfilerConfig::default())
     }
 }
 
 impl DemoModel1 {
+    /// Using TemporalProfilerConfig only temporary for ease of migration.
+    /// TODO: remove all model-specific fields from TemporalProfilerConfig.
+    fn from_config(config: TemporalProfilerConfig) -> Self {
+        DemoModel1::new(
+            config.clifford_gate_time_nanos,
+            config.measurment_time_nanos,
+            config.t_factories_count,
+            config.ecc_distance,
+        )
+    }
+
+    /// Creates the configured factories and sets the model's operation durations.
+    fn new(
+        clifford_gate_time_nanos: usize,
+        measurment_time_nanos: usize,
+        t_factories_count: usize,
+        ecc_distance: usize,
+    ) -> Self {
+        Self {
+            clifford_gate_time_nanos,
+            measurment_time_nanos,
+            t_factories: vec![TFactory::new(ecc_distance); t_factories_count],
+            ecc_distance,
+        }
+    }
+
     /// Time to perform "InjectT" or "InjectT Adjoint" gate.
     fn inject_t_time(&self) -> usize {
         2 * self.clifford_gate_time_nanos + self.measurment_time_nanos
+    }
+
+    /// Schedules and records one distillation attempt on an unoccupied factory.
+    fn start_distillation_round(
+        &mut self,
+        factory_id: usize,
+        state: &mut TemporalProfilerState<Self>,
+    ) {
+        let op = DemoModel1_NativeOperation::DistillationRound(factory_id);
+        let duration = self.t_factories[factory_id].distillation_round_duration_nanos();
+        state.schedule_operation_immediately(op, duration);
+
+        // TODO: record trace and call aggregattors similar to TemporalProfiler::start_distillation_round
     }
 }
 
 impl QpuModel for DemoModel1 {
     type NativeOperation = DemoModel1_NativeOperation;
+    type Resource = DemoModel1_Resource;
+    type FunctionalUnitId = usize;
 
-    fn create_functional_unit(&self, kind: FUKind) -> FunctionalUnit {
-        let d = self.ecc_distance;
-        match kind {
-            FUKind::LogicalComputeQubit => {
-                FunctionalUnit::LogicalComputeQubit(LogicalComputeQubit {
-                    physical_qubits: (2 * d * d - 1),
-                })
-            }
-            FUKind::TFactory => FunctionalUnit::TFactory(TFactory::new(d)),
+    /// Starts the first distillation round on every configured T factory.
+    fn on_start(&mut self, state: &mut TemporalProfilerState<Self>) {
+        // Start distillation round on each factory.
+        for factory_id in 0..self.t_factories.len() {
+            self.start_distillation_round(factory_id, state);
         }
     }
 
-    fn schedule_instruction(
-        &self,
+    /// Schedules native operations with resource requirements and dependencies on each target qubit.
+    fn on_instruction_received(
+        &mut self,
         instruction: &QuantumBackendInstruction,
-    ) -> Result<ScheduledOperation<Self>, String> {
-        let targets: SmallVec<[FunctionalUnitId; 2]> = instruction
-            .parameters
-            .iter()
-            .filter_map(|p| match p {
-                Parameter::QubitId(id) => Some(FunctionalUnitId(FUKind::LogicalComputeQubit, *id)),
-                _ => None,
-            })
-            .collect();
-
-        let native_instruction = match instruction.instruction_name {
-            "h" | "s" | "sadj" | "x" | "y" | "z" => {
-                DemoModel1_NativeOperation::SingleQubitCliffordGate(instruction.instruction_name)
+        state: &mut TemporalProfilerState<Self>,
+    ) -> Result<(), String> {
+        let op = match (
+            instruction.instruction_name,
+            instruction.parameters.as_slice(),
+        ) {
+            ("cx", [Parameter::QubitId(control), Parameter::QubitId(target)]) => {
+                DemoModel1_NativeOperation::CnotGate(*control, *target)
             }
-            "cx" => DemoModel1_NativeOperation::CnotGate,
-            "mz" => DemoModel1_NativeOperation::Measurement,
-            "reset" => DemoModel1_NativeOperation::Reset,
-            "t" => DemoModel1_NativeOperation::InjectT,
-            "t_adj" => DemoModel1_NativeOperation::InjectTAdj,
-            // All other instructions have to be transpiled.
+            (name @ ("h" | "s" | "sadj" | "x" | "y" | "z"), [Parameter::QubitId(qubit)]) => {
+                DemoModel1_NativeOperation::SingleQubitCliffordGate(name, *qubit)
+            }
+            ("mz", [Parameter::QubitId(qubit)]) => DemoModel1_NativeOperation::Measurement(*qubit),
+            ("reset", [Parameter::QubitId(qubit)]) => DemoModel1_NativeOperation::Reset(*qubit),
+            ("t", [Parameter::QubitId(qubit)]) => DemoModel1_NativeOperation::InjectT(None, *qubit),
+            ("tadj", [Parameter::QubitId(qubit)]) => {
+                DemoModel1_NativeOperation::InjectTAdj(None, *qubit)
+            }
+            _ => return Err(format!("Unsupported instruction: {instruction:?}")),
+        };
+
+        let duration_nanos = match instruction.instruction_name {
+            "cx" | "h" | "s" | "sadj" | "x" | "y" | "z" => self.clifford_gate_time_nanos,
+            "mz" | "reset" => self.measurment_time_nanos,
+            "t" | "tadj" => self.inject_t_time(),
             _ => {
                 return Err(format!("Unsupported instruction: {instruction:?}"));
             }
         };
 
         let preconditions = match instruction.instruction_name {
-            "t" | "t_adj" => smallvec![Precondition::ResourceAvailable(
-                FUKind::TFactory,
-                FUState::StateReady,
-                1
+            "t" | "tadj" => vec![Precondition::ResourceIsAvailable(
+                DemoModel1_Resource::TState,
             )],
-            _ => smallvec![],
+            _ => vec![],
         };
 
-        let result_index = match instruction.instruction_name {
-            "mz" => Some(0),
-            _ => None,
-        };
+        let targets = instruction
+            .parameters
+            .iter()
+            .filter_map(|parameter| match parameter {
+                Parameter::QubitId(qubit) => Some(*qubit),
+                _ => None,
+            })
+            .collect();
 
-        Ok(ScheduledOperation {
-            op: native_instruction,
-            targets,
-            preconditions,
-            result_index,
-        })
+        state.schedule_operation(op, preconditions, targets, duration_nanos);
+        Ok(())
     }
 
-    fn perform_operation(
-        &self,
-        op: ScheduledOperation<Self>,
-        state: &mut TemporalProfilerState<Self>,
-    ) -> PerfomedOperation<Self> {
-        let duration = match op.op {
-            DemoModel1_NativeOperation::SingleQubitCliffordGate(_) => self.clifford_gate_time_nanos,
-            DemoModel1_NativeOperation::CnotGate => self.clifford_gate_time_nanos,
-            DemoModel1_NativeOperation::Measurement => self.measurment_time_nanos,
-            DemoModel1_NativeOperation::Reset => self.measurment_time_nanos,
-            DemoModel1_NativeOperation::InjectT => self.inject_t_time(),
-            DemoModel1_NativeOperation::InjectTAdj => self.inject_t_time(),
-            DemoModel1_NativeOperation::DistillationRound => {
-                let FunctionalUnit::TFactory(factory) = &state.units.get(&op.targets[0]).unit
-                else {
-                    panic!("distillation round requires a TFactory");
-                };
-                factory.distillation_round_duration_nanos()
-            }
-        };
-        let mut targets = op.targets;
-
-        // Only for InjectT and its adjoint: find factory that has available T-state, consume that
-        // T state, and add factory to list of units on which this operation operates.
-        if matches!(
-            op.op,
-            DemoModel1_NativeOperation::InjectT | DemoModel1_NativeOperation::InjectTAdj
-        ) {
-            let available_factories = state
-                .units
-                .get_units_in_state(FUKind::TFactory, FUState::StateReady);
-            let factory_id = available_factories.iter().next().unwrap().clone();
-            state
-                .units
-                .change_state(&factory_id, FUState::StateReady, FUState::Idle);
-            targets.push(factory_id);
-        }
-
-        // Only for measurment - write measurment result into batch.
-        if matches!(op.op, DemoModel1_NativeOperation::Measurement) {
-            state.current_batch_result.results[op.result_index.unwrap()] =
-                QuantumBackendResult::from(state.rng.random::<bool>());
-        }
-
-        PerfomedOperation {
-            op: op.op,
-            targets,
-            start_time_nanos: state.current_time_nanos,
-            end_time_nanos: state.current_time_nanos + duration,
-        }
-    }
-
-    /// Applies model-specific completion effects.
-    fn on_operation_finished(
-        &self,
-        _op: &PerfomedOperation<Self>,
-        _state: &mut TemporalProfilerState<Self>,
-    ) {
+    fn on_operation_started(&mut self, op: &mut Self::NativeOperation) {
         todo!()
+        // TODO: for T/TAdj, find what factory we are going to use, and mutate op to refer to that
+        // factory.
+    }
+
+    fn on_operation_finished(
+        &mut self,
+        op: &Self::NativeOperation,
+        state: &mut TemporalProfilerState<Self>,
+    ) -> Option<QuantumBackendResult> {
+        match op {
+            DemoModel1_NativeOperation::Measurement(_) => {
+                Some(QuantumBackendResult::from(state.rng.random::<bool>()))
+            }
+            _ => None,
+        }
+
+        // TODO: if this is InjectT/InjectTAdj, must release factory.
+        // TODO: logging for profiling.
     }
 }
