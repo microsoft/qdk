@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-mod boilerplate;
 mod collapsing_gates;
 mod generalized_pauli_product_gates;
 mod measurement_record_targets;
@@ -9,6 +8,7 @@ mod noise_channels;
 mod non_clifford_gates;
 mod pair_measurements;
 mod peek_loss;
+mod qir_generation;
 mod repeat;
 mod select_block;
 mod single_qubit_gates;

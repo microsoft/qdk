@@ -5,7 +5,7 @@ use crate::compiler::tests::check;
 use expect_test::expect;
 
 #[test]
-fn m_gate_yields_expected_qir() {
+fn m_gate_yields_expected_qsharp() {
     let source = "M 0";
     check(
         source,
@@ -23,7 +23,7 @@ fn m_gate_yields_expected_qir() {
 }
 
 #[test]
-fn m_gate_with_negated_target_yields_expected_qir() {
+fn m_gate_with_negated_target_yields_expected_qsharp() {
     check(
         "M !0",
         &expect![[r#"
@@ -42,7 +42,7 @@ fn m_gate_with_negated_target_yields_expected_qir() {
 }
 
 #[test]
-fn m_gate_with_readout_noise_yields_expected_qir() {
+fn m_gate_with_readout_noise_yields_expected_qsharp() {
     check(
         "M(0.1) 0",
         &expect![[r#"
@@ -64,7 +64,7 @@ fn m_gate_with_readout_noise_yields_expected_qir() {
 }
 
 #[test]
-fn mr_gate_yields_expected_qir() {
+fn mr_gate_yields_expected_qsharp() {
     let source = "MR 0";
     check(
         source,
@@ -82,7 +82,7 @@ fn mr_gate_yields_expected_qir() {
 }
 
 #[test]
-fn mr_gate_with_negated_target_yields_expected_qir() {
+fn mr_gate_with_negated_target_yields_expected_qsharp() {
     check(
         "MR !0",
         &expect![[r#"
@@ -100,7 +100,7 @@ fn mr_gate_with_negated_target_yields_expected_qir() {
 }
 
 #[test]
-fn mrx_gate_yields_expected_qir() {
+fn mrx_gate_yields_expected_qsharp() {
     let source = "MRX 0";
     check(
         source,
@@ -120,7 +120,7 @@ fn mrx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn mry_gate_yields_expected_qir() {
+fn mry_gate_yields_expected_qsharp() {
     let source = "MRY 0";
     check(
         source,
@@ -142,7 +142,7 @@ fn mry_gate_yields_expected_qir() {
 }
 
 #[test]
-fn mx_gate_yields_expected_qir() {
+fn mx_gate_yields_expected_qsharp() {
     let source = "MX 0";
     check(
         source,
@@ -162,7 +162,7 @@ fn mx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn my_gate_yields_expected_qir() {
+fn my_gate_yields_expected_qsharp() {
     let source = "MY 0";
     check(
         source,
@@ -184,7 +184,7 @@ fn my_gate_yields_expected_qir() {
 }
 
 #[test]
-fn r_gate_yields_expected_qir() {
+fn r_gate_yields_expected_qsharp() {
     let source = "R 0";
     check(
         source,
@@ -201,7 +201,7 @@ fn r_gate_yields_expected_qir() {
 }
 
 #[test]
-fn rx_gate_yields_expected_qir() {
+fn rx_gate_yields_expected_qsharp() {
     let source = "RX 0";
     check(
         source,
@@ -219,7 +219,7 @@ fn rx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ry_gate_yields_expected_qir() {
+fn ry_gate_yields_expected_qsharp() {
     let source = "RY 0";
     check(
         source,

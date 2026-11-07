@@ -5,7 +5,7 @@ use super::check;
 use expect_test::expect;
 
 #[test]
-fn cx_gate_yields_expected_qir() {
+fn cx_gate_yields_expected_qsharp() {
     let source = "CX 0 1";
     check(
         source,
@@ -22,7 +22,7 @@ fn cx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn cxswap_gate_yields_expected_qir() {
+fn cxswap_gate_yields_expected_qsharp() {
     let source = "CXSWAP 0 1";
     check(
         source,
@@ -40,7 +40,7 @@ fn cxswap_gate_yields_expected_qir() {
 }
 
 #[test]
-fn cy_gate_yields_expected_qir() {
+fn cy_gate_yields_expected_qsharp() {
     let source = "CY 0 1";
     check(
         source,
@@ -57,7 +57,7 @@ fn cy_gate_yields_expected_qir() {
 }
 
 #[test]
-fn cz_gate_yields_expected_qir() {
+fn cz_gate_yields_expected_qsharp() {
     let source = "CZ 0 1";
     check(
         source,
@@ -74,7 +74,7 @@ fn cz_gate_yields_expected_qir() {
 }
 
 #[test]
-fn czswap_gate_yields_expected_qir() {
+fn czswap_gate_yields_expected_qsharp() {
     let source = "CZSWAP 0 1";
     check(
         source,
@@ -94,7 +94,7 @@ fn czswap_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ii_gate_yields_expected_qir() {
+fn ii_gate_yields_expected_qsharp() {
     let source = "II 0 1";
     check(
         source,
@@ -109,7 +109,7 @@ fn ii_gate_yields_expected_qir() {
 }
 
 #[test]
-fn iswap_gate_yields_expected_qir() {
+fn iswap_gate_yields_expected_qsharp() {
     let source = "ISWAP 0 1";
     check(
         source,
@@ -131,7 +131,7 @@ fn iswap_gate_yields_expected_qir() {
 }
 
 #[test]
-fn iswap_dag_gate_yields_expected_qir() {
+fn iswap_dag_gate_yields_expected_qsharp() {
     let source = "ISWAP_DAG 0 1";
     check(
         source,
@@ -153,7 +153,7 @@ fn iswap_dag_gate_yields_expected_qir() {
 }
 
 #[test]
-fn sqrt_xx_gate_yields_expected_qir() {
+fn sqrt_xx_gate_yields_expected_qsharp() {
     let source = "SQRT_XX 0 1";
     check(
         source,
@@ -176,7 +176,7 @@ fn sqrt_xx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn sqrt_xx_dag_gate_yields_expected_qir() {
+fn sqrt_xx_dag_gate_yields_expected_qsharp() {
     let source = "SQRT_XX_DAG 0 1";
     check(
         source,
@@ -199,7 +199,7 @@ fn sqrt_xx_dag_gate_yields_expected_qir() {
 }
 
 #[test]
-fn sqrt_yy_gate_yields_expected_qir() {
+fn sqrt_yy_gate_yields_expected_qsharp() {
     let source = "SQRT_YY 0 1";
     check(
         source,
@@ -226,7 +226,7 @@ fn sqrt_yy_gate_yields_expected_qir() {
 }
 
 #[test]
-fn sqrt_yy_dag_gate_yields_expected_qir() {
+fn sqrt_yy_dag_gate_yields_expected_qsharp() {
     let source = "SQRT_YY_DAG 0 1";
     check(
         source,
@@ -253,7 +253,7 @@ fn sqrt_yy_dag_gate_yields_expected_qir() {
 }
 
 #[test]
-fn sqrt_zz_gate_yields_expected_qir() {
+fn sqrt_zz_gate_yields_expected_qsharp() {
     let source = "SQRT_ZZ 0 1";
     check(
         source,
@@ -274,7 +274,7 @@ fn sqrt_zz_gate_yields_expected_qir() {
 }
 
 #[test]
-fn sqrt_zz_dag_gate_yields_expected_qir() {
+fn sqrt_zz_dag_gate_yields_expected_qsharp() {
     let source = "SQRT_ZZ_DAG 0 1";
     check(
         source,
@@ -295,7 +295,7 @@ fn sqrt_zz_dag_gate_yields_expected_qir() {
 }
 
 #[test]
-fn swap_gate_yields_expected_qir() {
+fn swap_gate_yields_expected_qsharp() {
     let source = "SWAP 0 1";
     check(
         source,
@@ -312,7 +312,7 @@ fn swap_gate_yields_expected_qir() {
 }
 
 #[test]
-fn swapcx_gate_yields_expected_qir() {
+fn swapcx_gate_yields_expected_qsharp() {
     let source = "SWAPCX 0 1";
     check(
         source,
@@ -330,7 +330,7 @@ fn swapcx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn xcx_gate_yields_expected_qir() {
+fn xcx_gate_yields_expected_qsharp() {
     let source = "XCX 0 1";
     check(
         source,
@@ -349,7 +349,7 @@ fn xcx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn xcy_gate_yields_expected_qir() {
+fn xcy_gate_yields_expected_qsharp() {
     let source = "XCY 0 1";
     check(
         source,
@@ -370,7 +370,7 @@ fn xcy_gate_yields_expected_qir() {
 }
 
 #[test]
-fn xcz_gate_yields_expected_qir() {
+fn xcz_gate_yields_expected_qsharp() {
     let source = "XCZ 0 1";
     check(
         source,
@@ -387,7 +387,7 @@ fn xcz_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ycx_gate_yields_expected_qir() {
+fn ycx_gate_yields_expected_qsharp() {
     let source = "YCX 0 1";
     check(
         source,
@@ -408,7 +408,7 @@ fn ycx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ycy_gate_yields_expected_qir() {
+fn ycy_gate_yields_expected_qsharp() {
     let source = "YCY 0 1";
     check(
         source,
@@ -431,7 +431,7 @@ fn ycy_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ycz_gate_yields_expected_qir() {
+fn ycz_gate_yields_expected_qsharp() {
     let source = "YCZ 0 1";
     check(
         source,

@@ -6,7 +6,7 @@ use expect_test::expect;
 use indoc::indoc;
 
 #[test]
-fn correlated_error_yields_expected_qir() {
+fn correlated_error_yields_expected_qsharp() {
     let source = "CORRELATED_ERROR(0.01) X0";
     check(
         source,
@@ -292,7 +292,7 @@ fn correlated_error_chain_with_input_probabilities_summing_above_one_is_valid() 
 }
 
 #[test]
-fn correlated_error_chain_with_common_qubit_yields_expected_qir() {
+fn correlated_error_chain_with_common_qubit_yields_expected_qsharp() {
     let source = indoc! {"
         CORRELATED_ERROR(0.01) X0
         ELSE_CORRELATED_ERROR(0.02) Z0 L1
@@ -325,7 +325,7 @@ fn correlated_error_chain_with_common_qubit_yields_expected_qir() {
 }
 
 #[test]
-fn correlated_error_chain_with_disjoint_qubits_yields_expected_qir() {
+fn correlated_error_chain_with_disjoint_qubits_yields_expected_qsharp() {
     let source = indoc! {"
         CORRELATED_ERROR(0.01) X0
         ELSE_CORRELATED_ERROR(0.02) Z1 L2
@@ -358,7 +358,7 @@ fn correlated_error_chain_with_disjoint_qubits_yields_expected_qir() {
 }
 
 #[test]
-fn else_correlated_error_with_preceding_else_correlated_error_yields_expected_qir() {
+fn else_correlated_error_with_preceding_else_correlated_error_yields_expected_qsharp() {
     let source = indoc! {"
         CORRELATED_ERROR(0.01) X0
         ELSE_CORRELATED_ERROR(0.02) Y0
@@ -575,7 +575,7 @@ fn correlated_error_chain_does_not_continue_out_of_repeat_block() {
 }
 
 #[test]
-fn depolarize1_yields_expected_qir() {
+fn depolarize1_yields_expected_qsharp() {
     let source = "DEPOLARIZE1(0.01) 0";
     check(
         source,
@@ -604,7 +604,7 @@ fn depolarize1_yields_expected_qir() {
 }
 
 #[test]
-fn depolarize2_yields_expected_qir() {
+fn depolarize2_yields_expected_qsharp() {
     let source = "DEPOLARIZE2(0.01) 0 1";
     check(
         source,
@@ -645,7 +645,7 @@ fn depolarize2_yields_expected_qir() {
 }
 
 #[test]
-fn pauli_channel_1_yields_expected_qir() {
+fn pauli_channel_1_yields_expected_qsharp() {
     let source = "PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0";
     check(
         source,
@@ -674,7 +674,7 @@ fn pauli_channel_1_yields_expected_qir() {
 }
 
 #[test]
-fn pauli_channel_2_yields_expected_qir() {
+fn pauli_channel_2_yields_expected_qsharp() {
     let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1";
     check(
         source,
@@ -715,7 +715,7 @@ fn pauli_channel_2_yields_expected_qir() {
 }
 
 #[test]
-fn x_error_yields_expected_qir() {
+fn x_error_yields_expected_qsharp() {
     let source = "X_ERROR(0.01) 0";
     check(
         source,
@@ -742,7 +742,7 @@ fn x_error_yields_expected_qir() {
 }
 
 #[test]
-fn y_error_yields_expected_qir() {
+fn y_error_yields_expected_qsharp() {
     let source = "Y_ERROR(0.01) 0";
     check(
         source,
@@ -769,7 +769,7 @@ fn y_error_yields_expected_qir() {
 }
 
 #[test]
-fn z_error_yields_expected_qir() {
+fn z_error_yields_expected_qsharp() {
     let source = "Z_ERROR(0.01) 0";
     check(
         source,
@@ -796,7 +796,7 @@ fn z_error_yields_expected_qir() {
 }
 
 #[test]
-fn loss_error_yields_expected_qir() {
+fn loss_error_yields_expected_qsharp() {
     let source = "LOSS_ERROR(0.01) 0";
     check(
         source,

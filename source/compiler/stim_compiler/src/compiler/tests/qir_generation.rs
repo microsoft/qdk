@@ -17,7 +17,6 @@ fn check(source: &str, expect: &Expect) {
     }
 }
 
-// Check that the QIR boilerplate is generally correct
 #[test]
 fn empty_src() {
     check(
@@ -60,7 +59,7 @@ fn empty_src() {
 
 // Checks the result_record_output calls are correctly generated
 #[test]
-fn measured_qir_has_expected_boilerplate() {
+fn measured_circuit_has_expected_qir() {
     check(
         "M 0 1",
         &expect![[r#"
@@ -111,7 +110,7 @@ fn measured_qir_has_expected_boilerplate() {
 
 // Checks that the qdk_noise attribute is correctly generated whenever there is noise.
 #[test]
-fn noisy_qir_has_expected_boilerplate() {
+fn noisy_circuit_has_expected_qir() {
     check(
         "M(0.1) 0",
         &expect![[r#"

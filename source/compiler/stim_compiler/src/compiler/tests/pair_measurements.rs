@@ -5,7 +5,7 @@ use crate::compiler::tests::check;
 use expect_test::expect;
 
 #[test]
-fn mxx_measurement_yields_correct_qir() {
+fn mxx_measurement_yields_correct_qsharp() {
     let source = "MXX 0 1";
     check(
         source,
@@ -27,7 +27,7 @@ fn mxx_measurement_yields_correct_qir() {
 }
 
 #[test]
-fn mxx_with_target_negated_yields_correct_qir() {
+fn mxx_with_target_negated_yields_correct_qsharp() {
     // negation is already normalized in semantic pass, so this test suffices
     check(
         "MXX !0 1",
@@ -51,7 +51,7 @@ fn mxx_with_target_negated_yields_correct_qir() {
 }
 
 #[test]
-fn mxx_with_readout_noise_yields_correct_qir() {
+fn mxx_with_readout_noise_yields_correct_qsharp() {
     check(
         "MXX(0.01) 0 1",
         &expect![[r#"
@@ -77,7 +77,7 @@ fn mxx_with_readout_noise_yields_correct_qir() {
 }
 
 #[test]
-fn myy_measurement_yields_correct_qir() {
+fn myy_measurement_yields_correct_qsharp() {
     let source = "MYY 0 1";
     check(
         source,
@@ -104,7 +104,7 @@ fn myy_measurement_yields_correct_qir() {
 }
 
 #[test]
-fn mzz_measurement_yields_correct_qir() {
+fn mzz_measurement_yields_correct_qsharp() {
     let source = "MZZ 0 1";
     check(
         source,
