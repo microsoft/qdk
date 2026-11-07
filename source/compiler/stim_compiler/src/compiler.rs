@@ -541,7 +541,7 @@ impl<'noise> Compiler<'noise> {
                 stmts.extend(self.compile_repeat_block(*count, body))
             }
             semantic::Block::SelectBlock { body } => {
-                stmts.push(self.compile_select_block(body, Span::default()))
+                stmts.extend(self.compile_select_block(body, Span::default()))
             }
         }
         stmts
@@ -568,7 +568,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     /// Compile a select block into a while true loop with a break at the end
-    fn compile_select_block(&mut self, body: &[semantic::Item], span: Span) -> ast::Stmt {
+    fn compile_select_block(&mut self, body: &[semantic::Item], span: Span) -> Vec<ast::Stmt> {
         let mut body_stmts = Vec::new();
         for item in body {
             body_stmts.extend(self.compile_item(item));
@@ -577,12 +577,31 @@ impl<'noise> Compiler<'noise> {
         // Block boundaries interrupt E/ELSE_CORRELATED_ERROR chains.
         body_stmts.extend(self.finish_correlated_noise());
 
+        // Without a REQUIRE or NOTLEAKED the block never restarts, so it needs no loop.
+        if !Self::select_block_can_restart(body) {
+            return body_stmts;
+        }
+
         body_stmts.push(build_break_stmt(span));
-        build_while_stmt(
+        vec![build_while_stmt(
             build_lit_bool_expr(true, span),
             build_block(body_stmts, span),
             span,
-        )
+        )]
+    }
+
+    fn select_block_can_restart(body: &[semantic::Item]) -> bool {
+        body.iter().any(|item| match item {
+            semantic::Item::Instruction(instruction) => matches!(
+                instruction.kind,
+                semantic::InstructionKind::Require { .. }
+                    | semantic::InstructionKind::NotLeaked { .. }
+            ),
+            semantic::Item::Block(semantic::Block::RepeatBlock { count, body }) => {
+                *count > 0 && Self::select_block_can_restart(body)
+            }
+            semantic::Item::Block(semantic::Block::SelectBlock { .. }) => false,
+        })
     }
 
     fn compile_instruction(&mut self, instruction: &semantic::Instruction) -> Vec<ast::Stmt> {
