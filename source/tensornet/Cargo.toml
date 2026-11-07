@@ -1,0 +1,30 @@
+[package]
+name = "tensornet"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+num-complex = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The crate itself with the reference, so that its doctests, which use the
+# reference, run in every `cargo test`, the workspace's included.
+tensornet = { path = ".", features = ["conformance"] }
+# Independent implementations the reference's tests compare it with: the
+# QDK's sparse state simulator for its amplitudes, and nalgebra's singular
+# value decomposition for its Schmidt ranks.
+nalgebra = { workspace = true }
+qdk_simulators = { path = "../simulators", default-features = false }
+
+[features]
+# The exact reference, for an engine's tests.
+conformance = []
+
+[lints]
+workspace = true
