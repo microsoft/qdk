@@ -1,37 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{InstructionTrace, TimeSeries};
+use super::TimeSeries;
 use rustc_hash::FxHashMap;
-
-/// Stores optional execution traces and aggregated event metrics.
-pub struct EventRecorder {
-    /// Instruction execution intervals recorded in start order.
-    pub logs: Vec<InstructionTrace>,
-    /// Whether instruction and factory-round intervals should be retained.
-    pub record_trace: bool,
-    /// Collects event counts into fixed-window rate profiles.
-    pub event_aggregator: TumblingWindowAggregator,
-    /// Collects factory busy durations into fixed-window utilization profiles.
-    pub utilization_aggregator: TumblingWindowAggregator,
-}
-
-impl EventRecorder {
-    pub fn new(record_trace: bool, aggregation_window_nanos: usize) -> Self {
-        Self {
-            logs: Vec::new(),
-            record_trace,
-            event_aggregator: TumblingWindowAggregator::new(
-                aggregation_window_nanos,
-                AggregationType::Rate,
-            ),
-            utilization_aggregator: TumblingWindowAggregator::new(
-                aggregation_window_nanos,
-                AggregationType::Utilization,
-            ),
-        }
-    }
-}
 
 pub enum AggregationType {
     /// `record_event` is called for single events.

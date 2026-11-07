@@ -3,7 +3,7 @@
 
 use super::{
     AggregationType, Profiler, ProfilerResult, TemporalProfiles, TotalCounts,
-    aggregators::EventRecorder, factories::TFactory,
+    event_recorder::EventRecorder, factories::TFactory,
 };
 use crate::{
     Parameter, QuantumBackendResult, TumblingWindowAggregator,
