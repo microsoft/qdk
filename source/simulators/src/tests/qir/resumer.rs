@@ -4,6 +4,8 @@
 //! `expect_ready` gives the output of a ready future, and refuses one that
 //! waits.
 
+mod conformance;
+
 use std::future::{pending, ready};
 
 use crate::qir::expect_ready;

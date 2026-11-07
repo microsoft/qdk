@@ -105,7 +105,15 @@ loop {
 ```
 
 A resumer implements [`QirResumer`](resumer.rs), whose `run` states the
-rules it keeps.
+rules it keeps. The [conformance kit](resumer/conformance.rs) checks
+those the compiler cannot. A crate enables it with the feature
+`conformance`, as a dev-dependency, and runs it in a test, as
+[the kit's own tests](../tests/qir/resumer/conformance.rs) do on a toy
+resumer:
+
+```rust
+conformance::check(|| Sequential(Toy::default()));
+```
 
 ## Where a program comes from
 
@@ -133,6 +141,7 @@ encoding.
 | [`QirGate`](gate.rs)                                                               | take a gate call's matrix, at its angle                                            |
 | [`QirFaults`, `QirFault`, `QirFaultSite`, `QirError`, `SideTable`](fault.rs)       | learn every fault building found in the bytecode, where it is and what it is       |
 | [`QirTrap`](trap.rs)                                                               | learn why a context stopped on a fault found while it runs                         |
+| [`conformance`](resumer/conformance.rs)                                            | check a resumer of one's own, with the feature `conformance`                       |
 
 Each file's header gives the rules of its part.
 
@@ -147,7 +156,8 @@ the classical part and hand batches of quantum calls to the target.
 - **One implementation.** One runtime of the bytecode serves every
   target, instead of an interpreter per target.
 - **Open for extension, closed for modification.** A new target or a new
-  resumer is added without changing the machine.
+  resumer is added without changing the machine, and the conformance
+  kit checks that it keeps the rules its callers rely on.
 - **Single responsibility.** Building checks, the machine runs the
   classical part, the resumer runs the batches; each is tested on its
   own.
@@ -159,18 +169,23 @@ the classical part and hand batches of quantum calls to the target.
 The parts were found from concrete needs, each a choice of the resumer
 and none a change to the machine:
 
-| Need                | Case                                                   | Status                                               |
-| ------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
-| A new target        | a matrix-product-state simulator, a device             | the resumer contract: built                          |
-| Efficiency          | the CPU simulators, as fast as `run_shot`              | built; its benchmark: planned                        |
-| Many shots per call | a GPU, a device                                        | the machine: built; a grouping resumer: planned      |
-| Concurrency         | a device that answers later                            | the async trait: built; a device: planned            |
-| Threads             | shots run on several threads                           | the machine: built; a resumer on threads: planned    |
-| Composability       | Qodec's and QEP's codes, noise, an observer in between | planned                                              |
-| Stepping, copying   | a debugger; shots that share a prefix                  | a context can be left or cloned; a debugger: planned |
-| One runtime for all | the GPU simulator, with an interpreter in its shader   | planned: a GPU resumer on the shader's kernels       |
+| Need                | Case                                                   | Status                                                |
+| ------------------- | ------------------------------------------------------ | ----------------------------------------------------- |
+| A new target        | a matrix-product-state simulator, a device             | built, with the conformance kit                       |
+| Efficiency          | the CPU simulators, as fast as `run_shot`              | built; its benchmark: planned                         |
+| Many shots per call | a GPU, a device                                        | the machine: built; a grouping resumer: planned       |
+| Concurrency         | a device that answers later                            | the async trait and its kit: built; a device: planned |
+| Threads             | shots run on several threads                           | the machine: built; a resumer on threads: planned     |
+| Composability       | Qodec's and QEP's codes, noise, an observer in between | planned                                               |
+| Stepping, copying   | a debugger; shots that share a prefix                  | a context can be left or cloned; a debugger: planned  |
+| One runtime for all | the GPU simulator, with an interpreter in its shader   | planned: a GPU resumer on the shader's kernels        |
 
 ## The evidence
+
+- **Rules checked, not only stated.** The conformance kit passes
+  correct resumers, and its own tests show it reports a resumer
+  breaking each of its rules
+  ([the kit's tests](../tests/qir/resumer/conformance.rs)).
 
 [The module's tests](../tests/qir/) pin each rule of building and
 of the machine, one rule per test. Where the machine differs from
