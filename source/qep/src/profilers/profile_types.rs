@@ -77,7 +77,7 @@ pub struct LoggedInstruction {
 }
 
 /// Provides an operation name for metrics and a detailed representation for traces.
-pub(super) trait LoggableOperation {
+pub trait LoggableOperation {
     /// Returns the operation name without constructing a trace entry.
     fn get_name(&self) -> &str;
 

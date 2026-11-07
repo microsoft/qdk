@@ -18,11 +18,14 @@ use std::{
     collections::{BinaryHeap, VecDeque},
 };
 
+#[cfg(test)]
+mod tests;
+
 /// Internal operation reference
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) struct OperationRef(usize);
 
-pub(super) enum Precondition<M: QpuModel> {
+pub enum Precondition<M: QpuModel> {
     ResourceIsAvailable(M::Resource),
 }
 
@@ -222,12 +225,12 @@ impl<M: QpuModel> TemporalProfilerState<M> {
     }
 }
 
-pub struct TemporalProfiler2<M: QpuModel> {
+pub struct TemporalProfiler<M: QpuModel> {
     state: TemporalProfilerState<M>,
     model: M,
 }
 
-impl<M: QpuModel> TemporalProfiler2<M> {
+impl<M: QpuModel> TemporalProfiler<M> {
     /// Initializes the model and starts its initial operations with configured recording and randomness.
     fn new(
         model: M,
@@ -235,7 +238,7 @@ impl<M: QpuModel> TemporalProfiler2<M> {
         aggregation_window_nanos: usize,
         seed: Option<u64>,
     ) -> Self {
-        let mut profiler = TemporalProfiler2 {
+        let mut profiler = TemporalProfiler {
             state: TemporalProfilerState::new(
                 seed,
                 EventRecorder::new(record_trace, aggregation_window_nanos),
@@ -343,11 +346,11 @@ impl<M: QpuModel> TemporalProfiler2<M> {
     }
 }
 
-/// Temporary helper to create TemporalProfiler2 with observable behaviour equivalent to
-/// TemporalProfiler.
-/// In the future, we will split model and config.
-fn make_profiler_for_test(config: TemporalProfilerConfig) -> TemporalProfiler2<DemoModel1> {
-    TemporalProfiler2::<DemoModel1>::new(
+/// Creates the demo-model profiler from the shared temporal profiling configuration.
+pub fn make_profiler_for_demo_model(
+    config: TemporalProfilerConfig,
+) -> TemporalProfiler<DemoModel1> {
+    TemporalProfiler::<DemoModel1>::new(
         DemoModel1::from_config(config),
         config.record_trace,
         config.aggregation_window_nanos,
@@ -355,7 +358,7 @@ fn make_profiler_for_test(config: TemporalProfilerConfig) -> TemporalProfiler2<D
     )
 }
 
-impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
+impl<M: QpuModel> QuantumBackend for TemporalProfiler<M> {
     /// Schedules a batch and runs only until all requested results are available, without a final drain.
     fn execute_batch(
         &mut self,
@@ -379,7 +382,7 @@ impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
     }
 }
 
-impl<M: QpuModel> Profiler for TemporalProfiler2<M> {
+impl<M: QpuModel> Profiler for TemporalProfiler<M> {
     /// Returns model resource counts together with recorded profiles and trace.
     fn get_result(&self) -> ProfilerResult {
         ProfilerResult {

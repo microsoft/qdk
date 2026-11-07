@@ -43,8 +43,8 @@ mod tests {
     use crate::{
         Parameter, Profiler, QuantumBackend,
         QuantumBackendResult::{One, Zero},
-        QuantumBackends, ResultAdapter, TemporalProfiler, TemporalProfilerConfig,
-        TranspilingAdapter,
+        QuantumBackends, ResultAdapter, TemporalProfilerConfig, TranspilingAdapter,
+        make_profiler_for_demo_model,
     };
 
     /// Rejects invalid source names and operands without emitting partial output.
@@ -107,12 +107,13 @@ mod tests {
     /// Charges separate measurement and reset intervals while returning only one result.
     #[test]
     fn profiles_measurement_then_reset() -> Result<(), String> {
-        let mut profiler =
-            TranspilingAdapter::with_defaults(TemporalProfiler::new(TemporalProfilerConfig {
+        let mut profiler = TranspilingAdapter::with_defaults(make_profiler_for_demo_model(
+            TemporalProfilerConfig {
                 record_trace: true,
                 seed: Some(42),
                 ..TemporalProfilerConfig::default()
-            }));
+            },
+        ));
         let result = profiler.execute_batch(&[QuantumBackendInstruction {
             instruction_name: "mz_reset",
             parameters: smallvec![QubitId(2)],

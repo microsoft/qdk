@@ -294,9 +294,32 @@ It's not doing much more than logical counter (`counts.rs`), but it's a starting
 and a proof-of-concept for the whole QEP project.
 
 
-### Advanced profiler: event queue based profiler.
+### Advanced profiler: TemporalProfiler
 
-`TemporalProfiler` is a prototype event-driven model with a simulated clock:
+`TemporalProfiler<M>` is an event-driven profiler that separates operation scheduling
+from the quantum hardware model. The generic scheduler maintains the simulated clock,
+per-functional-unit dependencies, resource availability, completion events, and batch results.
+Independent operations can run concurrently once their dependencies and resource requirements
+are satisfied.
+
+The `QpuModel` implementation defines native operations, resources, and functional units:
+* `on_start` schedules initial work, such as factory distillation rounds.
+* `on_instruction_received` converts a backend instruction into native operations and schedules
+  them with their targets, resource requirements, durations, and result requirements.
+* `on_operation_started` assigns available resources and updates the operation before logging.
+* `on_operation_finished` produces results, publishes resources, and schedules follow-up work.
+* `get_total_counts` computes model-specific resource estimates from the current profiler state.
+
+`TemporalProfilerState::schedule_operation` automatically orders operations sharing a target.
+Resources published through `add_resource` wake waiting operations. Factory rounds use the
+same scheduling machinery as gate operations. `EventRecorder` collects profiles and optional
+traces; native operations implement `LoggableOperation` to provide their metric names and
+trace representation.
+
+#### Demo hardware model
+
+`make_profiler_for_demo_model(config)` constructs a `TemporalProfiler<DemoModel1>` using
+`TemporalProfilerConfig`. This model has the following behavior:
 * Native instructions are `cx`, `h`, `s`, `sadj`, `x`, `y`, `z`, `t`, `tadj`, `mz`, and `reset`.
 * Instructions are ordered by their per-qubit dependencies. Independent
   instructions can run concurrently, including successors unblocked by the same operation.
@@ -304,7 +327,7 @@ and a proof-of-concept for the whole QEP project.
 * Clifford instructions use `TemporalProfilerConfig.clifford_gate_time_nanos` (5,000 ns by default).
   Measurement and reset each use `measurment_time_nanos` (1,000 ns by default).
   These timings do not scale with ECC distance.
-* Every T factory starts an 11 ns distillation round at startup. Each attempt succeeds with
+* Every T factory starts an `11 * ecc_distance * 1,000` ns distillation round at startup. Each attempt succeeds with
   probability 0.5; failures immediately retry. A successful factory holds one T-state and pauses
   until that state is consumed.
 * `t` and `tadj` reserve a ready factory and execute as `inject_t` and `inject_tadj`, with operands
@@ -317,10 +340,12 @@ and a proof-of-concept for the whole QEP project.
   `seed`. Defaults use ten factories and no seed. A fixed seed reproduces both distillation
   outcomes and measurement bits. Construction requires at least one factory and a nonzero window.
 
+#### Construction and adapters
+
 For QIR and non-native gates, wrap the Rust profiler in this order:
 
 ```rust
-ResultAdapter::new(TranspilingAdapter::with_defaults(TemporalProfiler::new(config)))
+ResultAdapter::new(TranspilingAdapter::with_defaults(make_profiler_for_demo_model(config)))
 ```
 
 `ResultAdapter` maps `mz_store` to `mz`, `mz_store_reset` to `mz_reset`, and handles
@@ -330,7 +355,7 @@ SX, SWAP, Toffoli, and supported QFT rotations into native gates. Profiles and t
 decomposed operations, not result-register accesses or the original composite gates.
 
 The C temporal-profiler entry point installs these adapters automatically.
-Python integration with the reduced native instruction set is deferred during the refactor.
+The Python binding also uses `make_profiler_for_demo_model` with these adapters internally.
 Python requires both timing arguments explicitly; `TemporalProfiler` requires a configuration:
 
 ```python
@@ -344,8 +369,11 @@ profiler = TemporalProfiler(TemporalProfilerConfig(
 
 Changing instruction timings does not change the separate factory distillation duration.
 
+#### Results and execution boundaries
+
 `TemporalProfiler.get_result()` returns logical qubit usage, simulated elapsed time, operation
-counts, rate profiles, and a detailed execution trace. Round starts count as `round` operations;
+counts, rate profiles, and an execution trace when enabled. Operations are logged when they
+start, with their scheduled completion times. Round starts count as `round` operations;
 injections count as `inject_t`/`inject_tadj`, not `t`/`tadj`. The trace includes all scheduled round
 intervals, even rounds extending beyond execution. Pending rounds do not extend the reported
 runtime: each batch stops as soon as all its result-producing instructions finish.

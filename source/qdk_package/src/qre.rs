@@ -425,7 +425,9 @@ impl TemporalProfiler {
             ecc_distance: config.ecc_distance,
         };
         PyClassInitializer::from(Profiler {
-            backend: Some(Box::new(qep::TemporalProfiler::new(config))),
+            backend: Some(Box::new(qep::ResultAdapter::new(
+                qep::TranspilingAdapter::with_defaults(qep::make_profiler_for_demo_model(config)),
+            ))),
         })
         .add_subclass(Self)
     }

@@ -1,8 +1,8 @@
 use qep::interface::Driver;
 use qep::{
     Batcher, DEFAULT_MAX_BATCH_SIZE, OPERATION_COUNT, Parameter, Profiler, QuantumBackend,
-    QuantumBackendInstruction, QuantumBackends, SequentialCountingProfiler, TemporalProfiler,
-    TemporalProfilerConfig, instruction_id_to_name,
+    QuantumBackendInstruction, QuantumBackends, SequentialCountingProfiler, TemporalProfilerConfig,
+    instruction_id_to_name, make_profiler_for_demo_model,
 };
 use smallvec::{SmallVec, smallvec};
 use std::{
@@ -146,7 +146,7 @@ pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
                 ..TemporalProfilerConfig::default()
             };
             BackendWrapper::for_profiler(qep::ResultAdapter::new(
-                qep::TranspilingAdapter::with_defaults(TemporalProfiler::new(config)),
+                qep::TranspilingAdapter::with_defaults(make_profiler_for_demo_model(config)),
             ))
         }
         _ => abort_with_error(&format!(
@@ -564,7 +564,8 @@ mod tests {
             panic!("temporal profiler must retain profiling support");
         };
         let result = profiler.get_result();
-        assert!((result.totals.total_runtime_sec - 4_000e-9).abs() < 1e-15);
+        // The last reset starts at the result barrier but is not drained.
+        assert!((result.totals.total_runtime_sec - 3_000e-9).abs() < 1e-15);
         for metric in ["mz rate", "reset rate"] {
             let profile = result
                 .profiles

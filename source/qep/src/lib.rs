@@ -32,8 +32,9 @@ pub use interface::{
     BatchResult, Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
 };
 pub use profilers::{
-    AggregationType, Profiler, ProfilerResult, SequentialCountingProfiler, TemporalProfiler,
-    TemporalProfilerConfig, TemporalProfiles, TimeSeries, TotalCounts, TumblingWindowAggregator,
+    AggregationType, DemoModel1, Profiler, ProfilerResult, SequentialCountingProfiler,
+    TemporalProfiler, TemporalProfilerConfig, TemporalProfiles, TimeSeries, TotalCounts,
+    TumblingWindowAggregator, make_profiler_for_demo_model,
 };
 pub use runner::{
     Batcher, DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, QsharpRunError, RunOutput,

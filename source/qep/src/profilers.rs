@@ -7,8 +7,8 @@ mod event_recorder;
 mod factories;
 mod models;
 mod profile_types;
-mod temporal;
-mod temporal2;
+mod temporal_old;
+mod temporal_profiler;
 
 use crate::{QuantumBackend, run_adaptive_program, run_qir, run_qsharp_call, run_qsharp_expr};
 use qdk_simulators::bytecode::AdaptiveProgram;
@@ -23,10 +23,12 @@ use std::{
 
 pub use aggregators::{AggregationType, TumblingWindowAggregator};
 pub use counting::SequentialCountingProfiler;
+pub use models::DemoModel1;
 pub use profile_types::{
     ExecutionTrace, InstructionTrace, TemporalProfiles, TimeSeries, TotalCounts,
 };
-pub use temporal::{TemporalProfiler, TemporalProfilerConfig};
+pub use temporal_old::TemporalProfilerConfig;
+pub use temporal_profiler::{TemporalProfiler, make_profiler_for_demo_model};
 
 /// Profiling data collected during quantum execution.
 #[derive(Clone, PartialEq, Serialize)]
@@ -99,7 +101,9 @@ mod tests {
                 10,
                 FxHashMap::from_iter([("x".into(), 1.0)]),
             )?),
-            Box::new(TemporalProfiler::new(TemporalProfilerConfig::default())),
+            Box::new(make_profiler_for_demo_model(
+                TemporalProfilerConfig::default(),
+            )),
         ];
         for (mut profiler, expected_runtime) in profilers.into_iter().zip([1.0, 0.0]) {
             assert_eq!(profiler.get_result().totals.logical_compute_qubits, 0);
@@ -150,7 +154,9 @@ mod tests {
                 10,
                 FxHashMap::from_iter([("x".into(), 0.25)]),
             )?),
-            Box::new(TemporalProfiler::new(TemporalProfilerConfig::default())),
+            Box::new(make_profiler_for_demo_model(
+                TemporalProfilerConfig::default(),
+            )),
         ];
         for (mut profiler, expected_runtime) in profilers.into_iter().zip([0.25, 0.0]) {
             let result = profiler.profile_adaptive_program(&program)?;

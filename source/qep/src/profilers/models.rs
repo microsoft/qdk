@@ -1,6 +1,6 @@
 use super::{
     profile_types::{LoggableOperation, LoggedInstruction, LoggedInstructionParameter},
-    temporal2::{Precondition, TemporalProfilerState},
+    temporal_profiler::{Precondition, TemporalProfilerState},
 };
 use crate::{
     Parameter, QuantumBackendResult, TemporalProfilerConfig, TotalCounts,
@@ -9,7 +9,7 @@ use crate::{
 use rand::RngExt;
 use std::{collections::VecDeque, hash::Hash};
 
-pub(super) trait QpuModel: Sized {
+pub trait QpuModel: Sized {
     /// Retained until completion and borrowed for start-time trace conversion.
     type NativeOperation: LoggableOperation;
     type Resource: Clone + Eq + Hash;
@@ -21,7 +21,7 @@ pub(super) trait QpuModel: Sized {
 
     /// Does necessary conversion to native operation and calls state.schedule_operation. Also computes prerequisites
     ///  For example, for T gate it will schedule InjectT with prerequisite on having resource TState.
-    ///  The intention is that TemporalProfiler2.execute_batch() will call model.on_instruction_received() in a loop for all instructions in batch.
+    ///  The intention is that TemporalProfiler.execute_batch() will call model.on_instruction_received() in a loop for all instructions in batch.
     fn on_instruction_received(
         &mut self,
         instruction: &QuantumBackendInstruction,
@@ -55,13 +55,37 @@ pub(super) trait QpuModel: Sized {
     fn get_total_counts(&self, state: &TemporalProfilerState<Self>) -> TotalCounts;
 }
 
-pub(super) enum DemoModel1_NativeOperation {
+pub enum DemoModel1_NativeOperation {
     SingleQubitCliffordGate(&'static str, usize), // Gate name, QubitId.
     CnotGate(usize, usize),                       // QubitId, QubitId.
     Measurement(usize),                           // QubitId.
     Reset(usize),                                 // QubitId.
     InjectT(Option<usize>, usize, bool),          // FactoryId, QubitId, is_adjoint.
     DistillationRound(usize),                     // FactoryId.
+}
+
+impl TryFrom<&QuantumBackendInstruction> for DemoModel1_NativeOperation {
+    type Error = String;
+
+    /// Validates the backend instruction and maps it to a native operation.
+    fn try_from(instruction: &QuantumBackendInstruction) -> Result<Self, Self::Error> {
+        match (
+            instruction.instruction_name,
+            instruction.parameters.as_slice(),
+        ) {
+            ("cx", [Parameter::QubitId(control), Parameter::QubitId(target)]) => {
+                Ok(Self::CnotGate(*control, *target))
+            }
+            (name @ ("h" | "s" | "sadj" | "x" | "y" | "z"), [Parameter::QubitId(qubit)]) => {
+                Ok(Self::SingleQubitCliffordGate(name, *qubit))
+            }
+            ("mz", [Parameter::QubitId(qubit)]) => Ok(Self::Measurement(*qubit)),
+            ("reset", [Parameter::QubitId(qubit)]) => Ok(Self::Reset(*qubit)),
+            ("t", [Parameter::QubitId(qubit)]) => Ok(Self::InjectT(None, *qubit, false)),
+            ("tadj", [Parameter::QubitId(qubit)]) => Ok(Self::InjectT(None, *qubit, true)),
+            _ => Err(format!("Unsupported instruction: {instruction:?}")),
+        }
+    }
 }
 
 impl LoggableOperation for DemoModel1_NativeOperation {
@@ -107,7 +131,7 @@ impl LoggableOperation for DemoModel1_NativeOperation {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub(super) enum DemoModel1_Resource {
+pub enum DemoModel1_Resource {
     TState,
 }
 
@@ -126,12 +150,12 @@ pub(super) enum DemoModel1_Resource {
 ///      * Each measurments returns |0> or |1> with probability 50%.
 ///    * Supports T gates which is implemented by InjectT operation which consumes TState.
 ///    * Supports AdjointT gates which is implemented by InjectAdjointT operation which consumes TState.
-pub(super) struct DemoModel1 {
+pub struct DemoModel1 {
     /// Duration of a Clifford instruction in nanoseconds.
     pub clifford_gate_time_nanos: usize,
     /// Duration of measurement, reset, or their combination in nanoseconds.
     pub measurment_time_nanos: usize,
-    pub t_factories: Vec<TFactory>,
+    pub(super) t_factories: Vec<TFactory>,
     /// Distance of the error-coorecting code.
     /// Assumes that all logical qubits have the same error correcting code.
     /// TODO: change it to specify different ECCs for different qubits.
@@ -231,26 +255,7 @@ impl QpuModel for DemoModel1 {
         instruction: &QuantumBackendInstruction,
         state: &mut TemporalProfilerState<Self>,
     ) -> Result<(), String> {
-        let op = match (
-            instruction.instruction_name,
-            instruction.parameters.as_slice(),
-        ) {
-            ("cx", [Parameter::QubitId(control), Parameter::QubitId(target)]) => {
-                DemoModel1_NativeOperation::CnotGate(*control, *target)
-            }
-            (name @ ("h" | "s" | "sadj" | "x" | "y" | "z"), [Parameter::QubitId(qubit)]) => {
-                DemoModel1_NativeOperation::SingleQubitCliffordGate(name, *qubit)
-            }
-            ("mz", [Parameter::QubitId(qubit)]) => DemoModel1_NativeOperation::Measurement(*qubit),
-            ("reset", [Parameter::QubitId(qubit)]) => DemoModel1_NativeOperation::Reset(*qubit),
-            ("t", [Parameter::QubitId(qubit)]) => {
-                DemoModel1_NativeOperation::InjectT(None, *qubit, false)
-            }
-            ("tadj", [Parameter::QubitId(qubit)]) => {
-                DemoModel1_NativeOperation::InjectT(None, *qubit, true)
-            }
-            _ => return Err(format!("Unsupported instruction: {instruction:?}")),
-        };
+        let op = DemoModel1_NativeOperation::try_from(instruction)?;
 
         let duration_nanos = match instruction.instruction_name {
             "cx" | "h" | "s" | "sadj" | "x" | "y" | "z" => self.clifford_gate_time_nanos,
