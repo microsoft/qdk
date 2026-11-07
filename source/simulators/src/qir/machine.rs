@@ -150,8 +150,8 @@ use walk::Stop;
 /// address panics ("capacity overflow"). A recursion without end grows the
 /// function calls under way, and the registers they save, without end.
 ///
-/// Where these behaviours differ from the bytecode runtime's `run_shot`, the
-/// test that pins them says why (`COMPATIBILITY NOTE`).
+/// Where these behaviours differ from the bytecode runtime's `run_shot`, and
+/// why: the header of `tests/run_shot_compatibility/main.rs`, in this crate.
 ///
 /// [`QirError::NoSuchResult`]: super::QirError::NoSuchResult
 #[derive(Clone, Copy, Debug)]

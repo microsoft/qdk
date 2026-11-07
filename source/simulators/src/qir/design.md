@@ -16,7 +16,8 @@ code.
 | Lost and missing readouts                          | [`call.rs`](call.rs) (`QirReadout`)                                                                                                            |
 | A resumer's rules, and the kit that checks them    | [`resumer.rs`](resumer.rs), [`resumer/conformance.rs`](resumer/conformance.rs)                                                                 |
 | How a quantum instruction becomes a call           | [`quantum_instruction_encoding.rs`](quantum_instruction_encoding.rs), [`program/prepared_quantum_calls.rs`](program/prepared_quantum_calls.rs) |
-| Where the machine differs from `run_shot`, and why | the `COMPATIBILITY` notes of [the module's tests](../tests/qir/)                                                                               |
+| Where the machine differs from `run_shot`, and why | [the `run_shot` compatibility test](../../tests/run_shot_compatibility/main.rs)                                                                |
+| What a shot costs                                  | [the benchmark](../../benches/qir_machine.rs)                                                                                                  |
 
 ## One shot, from QIR to its records
 
