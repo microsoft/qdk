@@ -14,7 +14,7 @@ code.
 | What building refuses, and why                     | [`fault.rs`](fault.rs) (`QirError`), [`program/check.rs`](program/check.rs)                                                                    |
 | When a context stops, and what traps               | [`machine.rs`](machine.rs) (`QirMachine`), [`trap.rs`](trap.rs)                                                                                |
 | Lost and missing readouts                          | [`call.rs`](call.rs) (`QirReadout`)                                                                                                            |
-| A resumer's rules                                  | [`resumer.rs`](resumer.rs)                                                                                                                     |
+| A resumer's rules, and the kit that checks them    | [`resumer.rs`](resumer.rs), [`resumer/conformance.rs`](resumer/conformance.rs)                                                                 |
 | How a quantum instruction becomes a call           | [`quantum_instruction_encoding.rs`](quantum_instruction_encoding.rs), [`program/prepared_quantum_calls.rs`](program/prepared_quantum_calls.rs) |
 | Where the machine differs from `run_shot`, and why | the `COMPATIBILITY` notes of [the module's tests](../tests/qir/)                                                                               |
 
