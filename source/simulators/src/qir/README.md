@@ -104,15 +104,34 @@ loop {
 }
 ```
 
-A resumer implements [`QirResumer`](resumer.rs), whose `run` states the
-rules it keeps. The [conformance kit](resumer/conformance.rs) checks
-those the compiler cannot. A crate enables it with the feature
-`conformance`, as a dev-dependency, and runs it in a test, as
-[the kit's own tests](../tests/qir/resumer/conformance.rs) do on a toy
-resumer:
+The example [`qir_resumers`](../../examples/qir_resumers/main.rs) has
+two resumers written this way on the module's public API, as any
+implementer's would be:
+
+- [`QirSimulatorResumer`](../../examples/qir_resumers/simulator_resumer.rs)
+  runs each shot on a simulator of this crate, one after another;
+- [`QirGroupingResumer`](../../examples/qir_resumers/grouping_resumer.rs)
+  runs the shots together and sends one call per group of shots whose
+  next batch is equal, as a target that runs a batch on many shots at
+  once (a GPU, a device) would need.
+
+`cargo run -p qdk_simulators --example qir_resumers` runs a program that
+branches on a mid-circuit measurement through both, and shows that they
+give each shot the same records, the grouping resumer in 4 calls of the
+target instead of 24.
+
+A resumer of one's own implements [`QirResumer`](resumer.rs), whose
+`run` states the rules it keeps. The
+[conformance kit](resumer/conformance.rs) checks those the compiler
+cannot. A crate enables it with the feature `conformance`, as a
+dev-dependency, and runs it in a test, as
+[the simulator resumer's test](../../tests/resumers/tests/simulator_resumer.rs)
+does:
 
 ```rust
-conformance::check(|| Sequential(Toy::default()));
+// A fresh resumer per run of the kit, each shot on a full-state
+// simulator seeded by its id (`full_state`), as the kit's rule 7 needs.
+conformance::check(|| QirSimulatorResumer::new(full_state));
 ```
 
 ## Where a program comes from
@@ -126,7 +145,7 @@ run the pass and hand its `as_dict()` to Rust, where
 ([`qir_simulation.rs`](../../../qdk_package/src/qir_simulation.rs)) makes
 the `AdaptiveProgram<u64>` that `run_shot` runs today. Nothing in the
 package builds a `QirProgram` yet, so the tests write the bytecode by
-hand.
+hand or read the JSON form of `as_dict()`.
 [`bytecode/encoding.rs`](../bytecode/encoding.rs) mirrors the pass's
 encoding.
 
@@ -169,28 +188,44 @@ the classical part and hand batches of quantum calls to the target.
 The parts were found from concrete needs, each a choice of the resumer
 and none a change to the machine:
 
-| Need                | Case                                                   | Status                                                |
-| ------------------- | ------------------------------------------------------ | ----------------------------------------------------- |
-| A new target        | a matrix-product-state simulator, a device             | built, with the conformance kit                       |
-| Efficiency          | the CPU simulators, as fast as `run_shot`              | built; its benchmark: planned                         |
-| Many shots per call | a GPU, a device                                        | the machine: built; a grouping resumer: planned       |
-| Concurrency         | a device that answers later                            | the async trait and its kit: built; a device: planned |
-| Threads             | shots run on several threads                           | the machine: built; a resumer on threads: planned     |
-| Composability       | Qodec's and QEP's codes, noise, an observer in between | planned                                               |
-| Stepping, copying   | a debugger; shots that share a prefix                  | a context can be left or cloned; a debugger: planned  |
-| One runtime for all | the GPU simulator, with an interpreter in its shader   | planned: a GPU resumer on the shader's kernels        |
+| Need                | Case                                                   | Status                                                 |
+| ------------------- | ------------------------------------------------------ | ------------------------------------------------------ |
+| A new target        | a matrix-product-state simulator, a device             | built, with the conformance kit                        |
+| Efficiency          | the CPU simulators, as fast as `run_shot`              | built, with its benchmark                              |
+| Many shots per call | a GPU, a device                                        | the example's grouping resumer; a real target: planned |
+| Concurrency         | a device that answers later                            | the async trait and its kit: built; a device: planned  |
+| Threads             | shots run on several threads                           | the machine: built; a resumer on threads: planned      |
+| Composability       | Qodec's and QEP's codes, noise, an observer in between | planned                                                |
+| Stepping, copying   | a debugger; shots that share a prefix                  | a context can be left or cloned; a debugger: planned   |
+| One runtime for all | the GPU simulator, with an interpreter in its shader   | planned: a GPU resumer on the shader's kernels         |
 
 ## The evidence
 
-- **Rules checked, not only stated.** The conformance kit passes
-  correct resumers, and its own tests show it reports a resumer
+- **Same records as today.** The 244 cases of the Python tests of
+  `run_shot` run through the machine, with each of the example's two
+  resumers: every shot meets what its test expects and records what
+  `run_shot` records, on the same simulator seeded alike
+  ([the `run_shot` compatibility test](../../tests/run_shot_compatibility/main.rs),
+  whose header lists the few programs, none in the corpus, on which the
+  two differ). The test goes once the simulators run QIR through the
+  machine.
+- **Small cost.** On a full-state simulator, a shot costs what it costs
+  through `run_shot` (0.98 to 1.01 times) with the simulator resumer,
+  and 1.33 to 1.35 times with the grouping resumer; the machine alone
+  costs 0.59 to 0.60 times `run_shot`
+  ([the benchmark](../../benches/qir_machine.rs)).
+- **A new resumer, with no change.** The grouping resumer calls its
+  target 4 times for 100 shots of a program that branches on a
+  mid-circuit measurement, against 300 shot by shot, and each shot gives
+  the records it gives shot by shot
+  ([its tests](../../tests/resumers/tests/grouping_resumer.rs)).
+- **Rules checked, not only stated.** Both resumers pass the
+  conformance kit, and the kit's own tests show it reports a resumer
   breaking each of its rules
   ([the kit's tests](../tests/qir/resumer/conformance.rs)).
 
-[The module's tests](../tests/qir/) pin each rule of building and
-of the machine, one rule per test. Where the machine differs from
-`run_shot`, the test or the check says why (`COMPATIBILITY NOTE`), or
-asks for a review (`DISCUSS COMPATIBILITY`).
+The tests that pin each rule are [the module's](../tests/qir/) and
+[the resumers'](../../tests/resumers/).
 
 ## Planned optimizations
 
