@@ -63,7 +63,8 @@ trait QuantumBackend {
 }
 ```
 
-`execute_batch` processes all instructions synchronously and in order before returning.
+`execute_batch` returns the requested results synchronously. The temporal profiler may
+leave result-free instructions pending, while preserving their dependency order.
 The driver reuses its instruction buffer across calls.
 Backend failures are returned as `Err(String)` and propagated by adapters and the QIR runner.
 
@@ -347,7 +348,14 @@ Changing instruction timings does not change the separate factory distillation d
 counts, rate profiles, and a detailed execution trace. Round starts count as `round` operations;
 injections count as `inject_t`/`inject_tadj`, not `t`/`tadj`. The trace includes all scheduled round
 intervals, even rounds extending beyond execution. Pending rounds do not extend the reported
-runtime: each batch stops as soon as its instructions finish.
+runtime: each batch stops as soon as all its result-producing instructions finish.
+Independent results can complete out of submission order; all requested results are returned
+in submission order. Batches without results, including empty batches, do not advance the
+event loop. Pending instructions retain their dependencies across batches.
+
+No final drain is performed: trailing result-free work may remain pending even when
+program execution returns. Profiling results describe work processed so far, not necessarily
+the complete submitted program.
 
 `Factory utilization` sums distillation-round durations in nanoseconds and divides by the
 aggregation window size in nanoseconds, reporting the average number of factories in use

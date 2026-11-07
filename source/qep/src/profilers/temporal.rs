@@ -169,7 +169,7 @@ impl InstructionState {
 /// Distillation and measurement randomness share a seedable RNG. Instruction and round intervals
 /// are optionally recorded in the trace and always aggregated into operation counts and rate profiles. Instructions
 /// with no resource dependency may start while distillation events remain scheduled, and each batch
-/// runs the event loop only until that batch completes.
+/// runs the event loop only until all requested results are available.
 pub struct TemporalProfiler {
     /// Configuration used for instruction durations.
     config: TemporalProfilerConfig,
@@ -179,6 +179,8 @@ pub struct TemporalProfiler {
     factories: Vec<TFactory>,
     /// Measurement and readout results for the batch being executed.
     current_batch_result: BatchResult,
+    /// Instructions whose results must be available before returning the current batch.
+    pending_results: FxHashSet<InstructionRef>,
     /// Events are ordered by time and then by insertion sequence.
     events_queue: BinaryHeap<Reverse<(usize, u64, Event)>>,
     /// Sequence number assigned to the next event to break timestamp ties.
@@ -216,6 +218,7 @@ impl TemporalProfiler {
             qubits: Vec::new(),
             factories: vec![TFactory::new(config.ecc_distance); config.t_factories_count],
             current_batch_result: BatchResult::default(),
+            pending_results: FxHashSet::default(),
             events_queue: BinaryHeap::new(),
             next_event_sequence: 0,
             current_time_nanos: 0,
@@ -278,6 +281,9 @@ impl TemporalProfiler {
             });
             let instruction_ref =
                 InstructionRef(self.all_instructions_offset + self.all_instructions.len());
+            if result_index.is_some() {
+                self.pending_results.insert(instruction_ref);
+            }
             self.all_instructions
                 .push_back(InstructionState::new(instruction.clone(), result_index));
             instruction_refs.push(instruction_ref);
@@ -504,6 +510,7 @@ impl TemporalProfiler {
                 if let Some(result_index) = result_index {
                     self.current_batch_result.results[result_index] =
                         QuantumBackendResult::from(self.rng.random::<bool>());
+                    self.pending_results.remove(&instruction_ref);
                 }
                 let instruction = &self.all_instructions[index].instruction;
                 if matches!(instruction.instruction_name, "inject_t" | "inject_tadj") {
@@ -537,13 +544,13 @@ impl TemporalProfiler {
         }
     }
 
-    /// Processes events until every instruction in the current batch is complete.
-    fn event_loop(&mut self, batch_end: usize) {
-        while self.all_instructions_offset < batch_end {
+    /// Processes events until every requested result is available.
+    fn event_loop(&mut self) {
+        while !self.pending_results.is_empty() {
             let Reverse((time_nanos, _, event)) = self
                 .events_queue
                 .pop()
-                .expect("event queue exhausted before the batch completed");
+                .expect("event queue exhausted before all requested results completed");
             debug_assert!(time_nanos >= self.current_time_nanos);
             self.current_time_nanos = time_nanos;
             self.process_event(event);
@@ -559,7 +566,7 @@ impl Default for TemporalProfiler {
 }
 
 impl QuantumBackend for TemporalProfiler {
-    /// Builds dependencies, simulates the batch, and returns measurement results.
+    /// Schedules the batch and advances simulation only until all requested results are available.
     fn execute_batch(
         &mut self,
         instructions: &[QuantumBackendInstruction],
@@ -575,7 +582,6 @@ impl QuantumBackend for TemporalProfiler {
             }
         }
         self.current_batch_result = BatchResult::default();
-        let batch_start = self.all_instructions_offset + self.all_instructions.len();
 
         // Grow the qubit reference array to fit all instructions.
         let max_qubit_id: usize = instructions
@@ -594,8 +600,7 @@ impl QuantumBackend for TemporalProfiler {
 
         self.enqueue_instructions(instructions);
 
-        let batch_end = batch_start + instructions.len();
-        self.event_loop(batch_end);
+        self.event_loop();
         Ok(std::mem::take(&mut self.current_batch_result))
     }
 }
@@ -663,6 +668,98 @@ mod tests {
     /// Wraps the seeded profiler with result-register and default instruction adapters.
     fn adapted_profiler() -> ResultAdapter<TranspilingAdapter<TemporalProfiler>> {
         ResultAdapter::new(TranspilingAdapter::with_defaults(seeded_profiler()))
+    }
+
+    /// Advances scheduler-focused tests through all submitted instructions, not background rounds.
+    fn complete_scheduled_instructions(profiler: &mut TemporalProfiler) {
+        while !profiler.all_instructions.is_empty() {
+            let Reverse((time, _, event)) =
+                profiler.events_queue.pop().expect("pending instruction");
+            profiler.current_time_nanos = time;
+            profiler.process_event(event);
+        }
+    }
+
+    /// Waits for every result despite out-of-order completion, without draining unrelated work.
+    #[test]
+    fn waits_for_all_results_not_all_instructions() -> Result<(), String> {
+        use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+        let mut profiler = seeded_profiler();
+        for factory in &mut profiler.factories {
+            factory.probability_success = 1.0;
+        }
+        let instructions: Vec<_> = [("t", 2), ("h", 0), ("mz", 0), ("mz", 1), ("x", 0)]
+            .into_iter()
+            .map(|(instruction_name, qubit)| QuantumBackendInstruction {
+                instruction_name,
+                parameters: smallvec::smallvec![QubitId(qubit)],
+            })
+            .collect();
+        let result = profiler.execute_batch(&instructions)?;
+        let mut rng = StdRng::seed_from_u64(42);
+        let first_completed = crate::QuantumBackendResult::from(rng.random::<bool>());
+        let second_completed = crate::QuantumBackendResult::from(rng.random::<bool>());
+        assert_eq!(
+            result.results.as_slice(),
+            &[second_completed, first_completed]
+        );
+        assert_eq!(profiler.current_time_nanos, 6_000);
+        assert!(profiler.pending_results.is_empty());
+        assert_eq!(profiler.all_instructions_offset, 0);
+        assert!(!profiler.all_instructions[0].done);
+        assert!(!profiler.all_instructions[4].done);
+
+        let result = profiler.execute_batch(&[QuantumBackendInstruction {
+            instruction_name: "mz",
+            parameters: smallvec::smallvec![QubitId(1)],
+        }])?;
+        assert_eq!(
+            result.results.as_slice(),
+            &[crate::QuantumBackendResult::from(rng.random::<bool>())]
+        );
+        assert_eq!(profiler.current_time_nanos, 7_000);
+
+        let result = profiler.execute_batch(&[QuantumBackendInstruction {
+            instruction_name: "mz",
+            parameters: smallvec::smallvec![QubitId(2)],
+        }])?;
+        assert_eq!(result.results.len(), 1);
+        assert_ne!(result.results[0], crate::QuantumBackendResult::Error);
+        assert_eq!(profiler.current_time_nanos, 67_000);
+        assert!(profiler.pending_results.is_empty());
+        assert!(profiler.all_instructions.is_empty());
+        Ok(())
+    }
+
+    /// Result-free and empty batches do not advance time; later results honor queued dependencies.
+    #[test]
+    fn queues_result_free_batches_without_a_completion_barrier() -> Result<(), String> {
+        let mut profiler = seeded_profiler();
+        for qubit in [0, 1] {
+            let result = profiler.execute_batch(&[QuantumBackendInstruction {
+                instruction_name: "h",
+                parameters: smallvec::smallvec![QubitId(qubit)],
+            }])?;
+            assert!(result.results.is_empty());
+            assert_eq!(profiler.current_time_nanos, 0);
+        }
+        assert!(profiler.execute_batch(&[])?.results.is_empty());
+        assert_eq!(profiler.current_time_nanos, 0);
+        assert_eq!(profiler.all_instructions.len(), 2);
+
+        let instructions: Vec<_> = [0, 1]
+            .into_iter()
+            .map(|qubit| QuantumBackendInstruction {
+                instruction_name: "mz",
+                parameters: smallvec::smallvec![QubitId(qubit)],
+            })
+            .collect();
+        assert_eq!(profiler.execute_batch(&instructions)?.results.len(), 2);
+        assert_eq!(profiler.current_time_nanos, 6_000);
+        assert!(profiler.pending_results.is_empty());
+        assert!(profiler.all_instructions.is_empty());
+        Ok(())
     }
     #[test]
     /// Profiles the Shor's algorithm QIR fixture, saves the result, and reports elapsed time.
@@ -803,6 +900,7 @@ mod tests {
             })
             .collect();
         profiler.execute_batch(&instructions)?;
+        complete_scheduled_instructions(&mut profiler);
         let durations: Vec<_> = profiler
             .event_recorder
             .logs
@@ -830,6 +928,7 @@ mod tests {
             .collect();
 
         profiler.execute_batch(&instructions)?;
+        complete_scheduled_instructions(&mut profiler);
 
         let intervals: Vec<_> = profiler
             .event_recorder
@@ -969,6 +1068,7 @@ mod tests {
             })
             .collect();
         profiler.execute_batch(&instructions)?;
+        complete_scheduled_instructions(&mut profiler);
         let injections: Vec<_> = profiler
             .event_recorder
             .logs
@@ -1007,6 +1107,7 @@ mod tests {
             instruction_name: "tadj",
             parameters: smallvec::smallvec![QubitId(0)],
         }])?;
+        complete_scheduled_instructions(&mut profiler);
         assert!(profiler.event_recorder.logs.iter().any(
             |trace| trace.instruction.instruction_name == "inject_tadj"
                 && trace.instruction.parameters.as_slice()
@@ -1103,6 +1204,8 @@ mod tests {
             parameters: smallvec::smallvec![QubitId(0)],
         };
         profiler.execute_batch(&vec![h; 40])?;
+        assert_eq!(profiler.current_time_nanos, 0);
+        complete_scheduled_instructions(&mut profiler);
         assert_eq!(profiler.current_time_nanos, 200_000);
         assert!(profiler.events_queue.is_empty());
         assert_eq!(
@@ -1125,6 +1228,7 @@ mod tests {
             instruction_name: "t",
             parameters: smallvec::smallvec![QubitId(0)],
         }])?;
+        complete_scheduled_instructions(&mut profiler);
         assert_eq!(profiler.current_time_nanos, 211_000);
         assert_eq!(
             profiler.available_resources[&ResourceType::TState],
@@ -1195,6 +1299,7 @@ mod tests {
                 instruction_name: "t",
                 parameters: smallvec::smallvec![QubitId(0)],
             }])?;
+            complete_scheduled_instructions(&mut profiler);
 
             let result = profiler.get_result();
             assert_eq!(result, profiler.get_result());

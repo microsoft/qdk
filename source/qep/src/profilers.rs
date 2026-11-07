@@ -101,7 +101,7 @@ mod tests {
             )?),
             Box::new(TemporalProfiler::new(TemporalProfilerConfig::default())),
         ];
-        for mut profiler in profilers {
+        for (mut profiler, expected_runtime) in profilers.into_iter().zip([1.0, 0.0]) {
             assert_eq!(profiler.get_result().totals.logical_compute_qubits, 0);
             profiler.execute_batch(&[QuantumBackendInstruction {
                 instruction_name: "x",
@@ -112,7 +112,7 @@ mod tests {
             let json = serde_json::to_value(&result).expect("profile should serialize");
             assert_eq!(json["totals"]["logical_compute_qubits"], 1);
             assert!(result.totals.total_operations_count > 0);
-            assert!(result.totals.total_runtime_sec > 0.0);
+            assert_eq!(result.totals.total_runtime_sec, expected_runtime);
         }
         Ok(())
     }
@@ -152,11 +152,11 @@ mod tests {
             )?),
             Box::new(TemporalProfiler::new(TemporalProfilerConfig::default())),
         ];
-        for mut profiler in profilers {
+        for (mut profiler, expected_runtime) in profilers.into_iter().zip([0.25, 0.0]) {
             let result = profiler.profile_adaptive_program(&program)?;
             assert_eq!(result.totals.logical_compute_qubits, 1);
             assert!(result.totals.total_operations_count > 0);
-            assert!(result.totals.total_runtime_sec > 0.0);
+            assert_eq!(result.totals.total_runtime_sec, expected_runtime);
         }
         Ok(())
     }
