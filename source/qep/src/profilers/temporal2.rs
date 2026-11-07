@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::{
-    InstructionTrace, Profiler, ProfilerResult, TotalCounts,
+    InstructionTrace, Profiler, ProfilerResult,
     models::{DemoModel1, QpuModel},
     profile_types::LoggableOperation,
 };
@@ -67,7 +67,7 @@ pub struct TemporalProfilerState<M: QpuModel> {
     /// Global operation index corresponding to the front of `operations`.
     operations_offset: usize,
     /// Latest scheduled operation touching each functional unit.
-    last_operations: FxHashMap<M::FunctionalUnitId, OperationRef>,
+    pub(super) last_operations: FxHashMap<M::FunctionalUnitId, OperationRef>,
     /// Dependency-ready operations awaiting a resource check and start attempt.
     ready_operations: VecDeque<OperationRef>,
     /// FIFO waiters grouped by their first unavailable resource.
@@ -380,13 +380,65 @@ impl<M: QpuModel> QuantumBackend for TemporalProfiler2<M> {
 }
 
 impl<M: QpuModel> Profiler for TemporalProfiler2<M> {
-    /// Returns recorded profiles and trace with placeholder zero totals.
+    /// Returns model resource counts together with recorded profiles and trace.
     fn get_result(&self) -> ProfilerResult {
         ProfilerResult {
-            totals: TotalCounts::default(),
+            totals: self.model.get_total_counts(&self.state),
             profiles: self.state.event_recorder.get_profiles(),
             trace: self.state.event_recorder.get_trace(),
             infos: vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Parameter::QubitId, TemporalProfiler};
+
+    /// Matches existing totals for sparse qubit IDs and factory work, without allocating on empty batches.
+    #[test]
+    fn total_counts_match_temporal_profiler() -> Result<(), String> {
+        for record_trace in [false, true] {
+            let config = TemporalProfilerConfig {
+                t_factories_count: 2,
+                ecc_distance: 3,
+                seed: Some(42),
+                record_trace,
+                ..TemporalProfilerConfig::default()
+            };
+            let mut profiler = make_profiler(config);
+            let mut reference = TemporalProfiler::new(config);
+            let initial = profiler.get_result().totals;
+            assert_eq!(initial, reference.get_result().totals);
+            assert_eq!(initial.logical_compute_qubits, 0);
+            assert_eq!(initial.logical_qubits, 10);
+            assert_eq!(initial.physical_qubits, 170);
+            profiler.execute_batch(&[])?;
+            assert_eq!(profiler.get_result().totals, initial);
+
+            for name in ["h", "mz", "t", "mz"] {
+                let batch = [QuantumBackendInstruction {
+                    instruction_name: name,
+                    parameters: smallvec::smallvec![QubitId(7)],
+                }];
+                assert_eq!(
+                    profiler.execute_batch(&batch)?,
+                    reference.execute_batch(&batch)?
+                );
+                let totals = profiler.get_result().totals;
+                assert_eq!(totals, reference.get_result().totals);
+                assert_eq!(totals.logical_compute_qubits, 8);
+                assert_eq!(totals.logical_qubits, 18);
+                assert_eq!(totals.physical_qubits, 306);
+                assert!(totals.calls_per_operation.is_empty());
+                assert!(totals.runtime_sec_per_operation.is_empty());
+            }
+            assert!(profiler.get_result().totals.total_runtime_sec > 0.0);
+            let completed = profiler.get_result().totals;
+            profiler.execute_batch(&[])?;
+            assert_eq!(profiler.get_result().totals, completed);
+        }
+        Ok(())
     }
 }

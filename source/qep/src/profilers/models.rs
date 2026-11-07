@@ -3,8 +3,8 @@ use super::{
     temporal2::{Precondition, TemporalProfilerState},
 };
 use crate::{
-    Parameter, QuantumBackendResult, TemporalProfilerConfig, interface::QuantumBackendInstruction,
-    profilers::factories::TFactory,
+    Parameter, QuantumBackendResult, TemporalProfilerConfig, TotalCounts,
+    interface::QuantumBackendInstruction, profilers::factories::TFactory,
 };
 use rand::RngExt;
 use std::{collections::VecDeque, hash::Hash};
@@ -50,6 +50,9 @@ pub(super) trait QpuModel: Sized {
         op: &Self::NativeOperation,
         state: &mut TemporalProfilerState<Self>,
     ) -> Option<QuantumBackendResult>;
+
+    /// Returns resource counts for resource estimation.
+    fn get_total_counts(&self, state: &TemporalProfilerState<Self>) -> TotalCounts;
 }
 
 pub(super) enum DemoModel1_NativeOperation {
@@ -337,6 +340,34 @@ impl QpuModel for DemoModel1 {
                 None
             }
             _ => None,
+        }
+    }
+
+    /// Counts dense compute-qubit IDs, factory resources, elapsed time, and recorded events.
+    fn get_total_counts(&self, state: &TemporalProfilerState<Self>) -> TotalCounts {
+        let logical_compute_qubits = state
+            .last_operations
+            .keys()
+            .max()
+            .map_or(0, |qubit| qubit + 1);
+        let factory_logical_qubits: usize = self
+            .t_factories
+            .iter()
+            .map(|factory| factory.logical_qubits)
+            .sum();
+        let factory_physical_qubits: usize =
+            self.t_factories.iter().map(TFactory::physical_qubits).sum();
+        let d = self.ecc_distance;
+        #[allow(clippy::cast_precision_loss)]
+        let total_runtime_sec = state.current_time_nanos as f64 / 1e9;
+        TotalCounts {
+            logical_qubits: logical_compute_qubits + factory_logical_qubits,
+            logical_compute_qubits,
+            physical_qubits: logical_compute_qubits * (2 * d * d - 1) + factory_physical_qubits,
+            total_runtime_sec,
+            total_operations_count: state.event_recorder.event_aggregator.total_event_count(),
+            calls_per_operation: Default::default(),
+            runtime_sec_per_operation: Default::default(),
         }
     }
 }
