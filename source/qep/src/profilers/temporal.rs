@@ -8,11 +8,13 @@ use super::{
 use crate::{
     Parameter, QuantumBackendResult, TumblingWindowAggregator,
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
-    profilers::{ExecutionTrace, InstructionTrace},
+    profilers::{
+        ExecutionTrace, InstructionTrace,
+        profile_types::{LoggedInstruction, LoggedInstructionParameter},
+    },
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
-use smallvec::smallvec;
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, VecDeque},
@@ -247,9 +249,9 @@ impl TemporalProfiler {
             self.event_recorder.logs.push(InstructionTrace {
                 start_time_nanos: self.current_time_nanos,
                 end_time_nanos,
-                instruction: QuantumBackendInstruction {
-                    instruction_name: "round",
-                    parameters: smallvec![Parameter::FactoryId(factory.0)],
+                instruction: LoggedInstruction {
+                    instruction_name: "round".into(),
+                    parameters: vec![LoggedInstructionParameter::FactoryId(factory.0)],
                 },
             });
         }
@@ -404,7 +406,7 @@ impl TemporalProfiler {
             self.event_recorder.logs.push(InstructionTrace {
                 start_time_nanos: self.current_time_nanos,
                 end_time_nanos,
-                instruction: instruction.clone(),
+                instruction: instruction.into(),
             });
         }
 
@@ -666,11 +668,13 @@ mod tests {
     use std::time::Instant;
 
     use super::{Event, FactoryId, ResourceType, TemporalProfiler, instruction_time_nanos};
+    use crate::profilers::profile_types::LoggedInstructionParameter::{
+        FactoryId as FactoryParameter, QubitId as LoggedQubitId,
+    };
     use crate::tests::compile_qsharp_to_qir;
     use crate::{
-        Parameter::{FactoryId as FactoryParameter, QubitId},
-        Profiler, QuantumBackend, QuantumBackendInstruction, ResultAdapter, TemporalProfilerConfig,
-        TranspilingAdapter,
+        Parameter::QubitId, Profiler, QuantumBackend, QuantumBackendInstruction, ResultAdapter,
+        TemporalProfilerConfig, TranspilingAdapter,
     };
     use expect_test::expect;
     use qsc::target::Profile;
@@ -862,7 +866,7 @@ mod tests {
             .iter()
             .map(|trace| {
                 (
-                    trace.instruction.instruction_name,
+                    trace.instruction.instruction_name.as_ref(),
                     trace.start_time_nanos,
                     trace.end_time_nanos,
                 )
@@ -1009,13 +1013,12 @@ mod tests {
             assert_eq!(trace.instruction.instruction_name, name);
             assert_eq!(
                 trace.instruction.parameters.as_slice(),
-                &[FactoryParameter(factory), QubitId(qubit)]
+                &[FactoryParameter(factory), LoggedQubitId(qubit)]
             );
             assert_eq!(
                 (trace.start_time_nanos, trace.end_time_nanos),
                 (start, start + 11_000)
             );
-            crate::validate_instruction(&trace.instruction);
         }
         assert_eq!(profiler.current_time_nanos, 132_000);
         assert_eq!(
@@ -1035,7 +1038,8 @@ mod tests {
         }])?;
         assert!(profiler.event_recorder.logs.iter().any(
             |trace| trace.instruction.instruction_name == "inject_tadj"
-                && trace.instruction.parameters.as_slice() == [FactoryParameter(1), QubitId(0)]
+                && trace.instruction.parameters.as_slice()
+                    == [FactoryParameter(1), LoggedQubitId(0)]
                 && trace.start_time_nanos == 132_000
                 && trace.end_time_nanos == 143_000
         ));

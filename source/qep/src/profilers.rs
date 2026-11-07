@@ -210,9 +210,9 @@ mod tests {
                     InstructionTrace {
                         start_time_nanos: 0,
                         end_time_nanos: 5,
-                        instruction: QuantumBackendInstruction {
-                            instruction_name: "hidden_instruction",
-                            parameters: smallvec::smallvec![],
+                        instruction: profile_types::LoggedInstruction {
+                            instruction_name: "hidden_instruction".into(),
+                            parameters: vec![],
                         },
                     };
                     4
