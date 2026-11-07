@@ -7,12 +7,13 @@ use crate::{
     profilers::factories::TFactory,
 };
 use rand::RngExt;
-use std::collections::VecDeque;
+use std::{collections::VecDeque, hash::Hash};
 
 pub(super) trait QpuModel: Sized {
-    type NativeOperation: Into<LoggedInstruction>;
-    type Resource;
-    type FunctionalUnitId;
+    /// Retained until completion and cloned for start-time trace conversion.
+    type NativeOperation: Clone + Into<LoggedInstruction>;
+    type Resource: Clone + Eq + Hash;
+    type FunctionalUnitId: Eq + Hash;
 
     /// Initializes model on startup.
     /// Example: initialize factories.
@@ -43,6 +44,7 @@ pub(super) trait QpuModel: Sized {
 
     /// Does necessary updates to model operation completion.
     /// Returns result if this operation produces result, otherwise retuns None.
+    /// Publish generated resources through `state.add_resource` to wake waiting operations.
     fn on_operation_finished(
         &mut self,
         op: &Self::NativeOperation,
@@ -50,6 +52,7 @@ pub(super) trait QpuModel: Sized {
     ) -> Option<QuantumBackendResult>;
 }
 
+#[derive(Clone)]
 pub(super) enum DemoModel1_NativeOperation {
     SingleQubitCliffordGate(&'static str, usize), // Gate name, QubitId.
     CnotGate(usize, usize),                       // QubitId, QubitId.
@@ -61,6 +64,7 @@ pub(super) enum DemoModel1_NativeOperation {
 
 /// Serialization of native operations, needed only for visualizing trace.
 impl From<DemoModel1_NativeOperation> for LoggedInstruction {
+    /// Preserves trace names and parameter order for native operations.
     fn from(operation: DemoModel1_NativeOperation) -> Self {
         use DemoModel1_NativeOperation::{
             CnotGate, DistillationRound, InjectT, Measurement, Reset, SingleQubitCliffordGate,
@@ -98,7 +102,7 @@ impl From<DemoModel1_NativeOperation> for LoggedInstruction {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) enum DemoModel1_Resource {
     TState,
 }
@@ -156,6 +160,7 @@ impl DemoModel1 {
         t_factories_count: usize,
         ecc_distance: usize,
     ) -> Self {
+        assert!(t_factories_count > 0, "at least one T factory is required");
         Self {
             clifford_gate_time_nanos,
             measurment_time_nanos,
@@ -169,7 +174,7 @@ impl DemoModel1 {
         2 * self.clifford_gate_time_nanos + self.measurment_time_nanos
     }
 
-    /// Schedules and records one distillation attempt on an unoccupied factory.
+    /// Schedules one distillation attempt on an unoccupied factory.
     fn start_distillation_round(
         &mut self,
         factory_id: usize,
@@ -178,10 +183,9 @@ impl DemoModel1 {
         let op = DemoModel1_NativeOperation::DistillationRound(factory_id);
         let duration = self.t_factories[factory_id].distillation_round_duration_nanos();
         state.schedule_operation_immediately(op, duration);
-
-        // TODO: record trace and call aggregattors similar to TemporalProfiler::start_distillation_round
     }
 
+    /// Publishes a successful T state or schedules another distillation attempt after failure.
     fn on_distillation_round_finished(
         &mut self,
         factory_id: usize,
@@ -194,12 +198,7 @@ impl DemoModel1 {
                 "T state produced",
                 1,
             );
-            state
-                .available_resources
-                .entry(DemoModel1_Resource::TState)
-                .or_default()
-                .push_back(factory_id);
-            // TODO: communictae to state that this might unblock another instruction.
+            state.add_resource(DemoModel1_Resource::TState, factory_id);
         } else {
             // State generation failed, need retry.
             self.start_distillation_round(factory_id, state);
@@ -274,7 +273,13 @@ impl QpuModel for DemoModel1 {
             })
             .collect();
 
-        state.schedule_operation(op, preconditions, targets, duration_nanos);
+        state.schedule_operation(
+            op,
+            preconditions,
+            targets,
+            duration_nanos,
+            instruction.instruction_name == "mz",
+        );
         Ok(())
     }
 
@@ -296,8 +301,16 @@ impl QpuModel for DemoModel1 {
                 .expect("instruction requires an available factory");
             *opt_factory_id = Some(factory_id);
         }
+        if let DemoModel1_NativeOperation::DistillationRound(factory_id) = op {
+            state.event_recorder.utilization_aggregator.record_event(
+                state.current_time_nanos,
+                "Factory utilization",
+                self.t_factories[*factory_id].distillation_round_duration_nanos(),
+            );
+        }
     }
 
+    /// Produces measurement results and advances the factory lifecycle after each operation.
     fn on_operation_finished(
         &mut self,
         op: &Self::NativeOperation,
@@ -309,6 +322,17 @@ impl QpuModel for DemoModel1 {
             }
             DemoModel1_NativeOperation::DistillationRound(factory_id) => {
                 self.on_distillation_round_finished(*factory_id, state);
+                None
+            }
+            DemoModel1_NativeOperation::InjectT(factory_id, _, _) => {
+                let factory_id =
+                    factory_id.expect("finished injection must have an assigned factory");
+                state.event_recorder.event_aggregator.record_event(
+                    state.current_time_nanos,
+                    "T state consumed",
+                    1,
+                );
+                self.start_distillation_round(factory_id, state);
                 None
             }
             _ => None,
