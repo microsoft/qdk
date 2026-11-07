@@ -11,7 +11,7 @@ use crate::{
     profilers::{event_recorder::EventRecorder, factories::TFactory},
 };
 use rand::{SeedableRng, rngs::StdRng};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::{
     cmp::{Ordering, Reverse},
@@ -32,11 +32,13 @@ pub(super) enum Precondition<M: QpuModel> {
 }
 
 pub struct TemporalProfilerState<M: QpuModel> {
-    current_time_nanos: usize,
+    pub current_time_nanos: usize,
     current_batch_result: BatchResult,
-    event_recorder: EventRecorder,
+    pub event_recorder: EventRecorder,
     pub rng: StdRng,
-    model: PhantomData<M>,
+
+    /// For each resource, holds a list of functional units that have that resource.
+    pub(super) available_resources: FxHashMap<M::Resource, VecDeque<M::FunctionalUnitId>>,
 }
 
 impl<M: QpuModel> TemporalProfilerState<M> {
@@ -47,7 +49,7 @@ impl<M: QpuModel> TemporalProfilerState<M> {
             current_batch_result: BatchResult::default(),
             event_recorder,
             rng: seed.map_or_else(|| StdRng::from_rng(&mut rand::rng()), StdRng::seed_from_u64),
-            model: PhantomData::default(),
+            available_resources: FxHashMap::default(),
         }
     }
 
@@ -147,5 +149,33 @@ mod tests {
     #[test]
     fn basic_test() {
         let _profiler = make_profiler(TemporalProfilerConfig::default());
+    }
+
+    /// Injections consume factories in FIFO order while resource-free operations leave them untouched.
+    #[test]
+    fn starting_injections_reserves_available_factories() {
+        use super::super::models::{DemoModel1_NativeOperation, DemoModel1_Resource};
+
+        let mut profiler = make_profiler(TemporalProfilerConfig::default());
+        profiler
+            .state
+            .available_resources
+            .insert(DemoModel1_Resource::TState, VecDeque::from([3, 5]));
+        let mut clifford = DemoModel1_NativeOperation::SingleQubitCliffordGate("h", 7);
+        profiler
+            .model
+            .on_operation_started(&mut clifford, &mut profiler.state);
+        for (factory, adjoint) in [(3, false), (5, true)] {
+            let mut op = DemoModel1_NativeOperation::InjectT(None, 7, adjoint);
+            profiler
+                .model
+                .on_operation_started(&mut op, &mut profiler.state);
+            assert!(matches!(
+                op,
+                DemoModel1_NativeOperation::InjectT(Some(id), 7, is_adjoint)
+                    if id == factory && is_adjoint == adjoint
+            ));
+        }
+        assert!(profiler.state.available_resources[&DemoModel1_Resource::TState].is_empty());
     }
 }

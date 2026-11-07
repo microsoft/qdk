@@ -7,6 +7,7 @@ use crate::{
     profilers::factories::TFactory,
 };
 use rand::RngExt;
+use std::collections::VecDeque;
 
 pub(super) trait QpuModel: Sized {
     type NativeOperation: Into<LoggedInstruction>;
@@ -32,7 +33,13 @@ pub(super) trait QpuModel: Sized {
     ///   - find T factory with available T State.
     ///   - internally mark it as such that cannot be used (consume state).
     ///   - change op to contain selected factory_id.
-    fn on_operation_started(&mut self, op: &mut Self::NativeOperation);
+    /// It is guaranteed that all prerequisites are met, and it's allowed to panic if they are not
+    /// met.
+    fn on_operation_started(
+        &mut self,
+        op: &mut Self::NativeOperation,
+        state: &mut TemporalProfilerState<Self>,
+    );
 
     /// Does necessary updates to model operation completion.
     /// Returns result if this operation produces result, otherwise retuns None.
@@ -48,8 +55,7 @@ pub(super) enum DemoModel1_NativeOperation {
     CnotGate(usize, usize),                       // QubitId, QubitId.
     Measurement(usize),                           // QubitId.
     Reset(usize),                                 // QubitId.
-    InjectT(Option<usize>, usize),                // FactoryId, QubitId.
-    InjectTAdj(Option<usize>, usize),             // FactoryId, QubitId.
+    InjectT(Option<usize>, usize, bool),          // FactoryId, QubitId, is_adjoint.
     DistillationRound(usize),                     // FactoryId.
 }
 
@@ -57,8 +63,7 @@ pub(super) enum DemoModel1_NativeOperation {
 impl From<DemoModel1_NativeOperation> for LoggedInstruction {
     fn from(operation: DemoModel1_NativeOperation) -> Self {
         use DemoModel1_NativeOperation::{
-            CnotGate, DistillationRound, InjectT, InjectTAdj, Measurement, Reset,
-            SingleQubitCliffordGate,
+            CnotGate, DistillationRound, InjectT, Measurement, Reset, SingleQubitCliffordGate,
         };
         use LoggedInstructionParameter::{FactoryId, QubitId};
 
@@ -67,8 +72,8 @@ impl From<DemoModel1_NativeOperation> for LoggedInstruction {
             CnotGate(..) => "cx",
             Measurement(_) => "mz",
             Reset(_) => "reset",
-            InjectT(..) => "inject_t",
-            InjectTAdj(..) => "inject_tadj",
+            InjectT(_, _, false) => "inject_t",
+            InjectT(_, _, true) => "inject_tadj",
             DistillationRound(_) => "round",
         };
         let parameters = match operation {
@@ -76,7 +81,7 @@ impl From<DemoModel1_NativeOperation> for LoggedInstruction {
                 vec![QubitId(qubit)]
             }
             CnotGate(control, target) => vec![QubitId(control), QubitId(target)],
-            InjectT(factory, qubit) | InjectTAdj(factory, qubit) => {
+            InjectT(factory, qubit, _) => {
                 let mut parameters = Vec::with_capacity(2);
                 if let Some(factory) = factory {
                     parameters.push(FactoryId(factory));
@@ -93,6 +98,7 @@ impl From<DemoModel1_NativeOperation> for LoggedInstruction {
     }
 }
 
+#[derive(PartialEq, Eq, Hash)]
 pub(super) enum DemoModel1_Resource {
     TState,
 }
@@ -175,11 +181,37 @@ impl DemoModel1 {
 
         // TODO: record trace and call aggregattors similar to TemporalProfiler::start_distillation_round
     }
+
+    fn on_distillation_round_finished(
+        &mut self,
+        factory_id: usize,
+        state: &mut TemporalProfilerState<Self>,
+    ) {
+        if state.rng.random::<f64>() < self.t_factories[factory_id].probability_success {
+            // State generated successfully, can use it.
+            state.event_recorder.event_aggregator.record_event(
+                state.current_time_nanos,
+                "T state produced",
+                1,
+            );
+            state
+                .available_resources
+                .entry(DemoModel1_Resource::TState)
+                .or_default()
+                .push_back(factory_id);
+            // TODO: communictae to state that this might unblock another instruction.
+        } else {
+            // State generation failed, need retry.
+            self.start_distillation_round(factory_id, state);
+        }
+    }
 }
 
 impl QpuModel for DemoModel1 {
     type NativeOperation = DemoModel1_NativeOperation;
     type Resource = DemoModel1_Resource;
+
+    /// Hack! We use the same "address space" for factroies and qubits, which needs to be fixed.
     type FunctionalUnitId = usize;
 
     /// Starts the first distillation round on every configured T factory.
@@ -208,9 +240,11 @@ impl QpuModel for DemoModel1 {
             }
             ("mz", [Parameter::QubitId(qubit)]) => DemoModel1_NativeOperation::Measurement(*qubit),
             ("reset", [Parameter::QubitId(qubit)]) => DemoModel1_NativeOperation::Reset(*qubit),
-            ("t", [Parameter::QubitId(qubit)]) => DemoModel1_NativeOperation::InjectT(None, *qubit),
+            ("t", [Parameter::QubitId(qubit)]) => {
+                DemoModel1_NativeOperation::InjectT(None, *qubit, false)
+            }
             ("tadj", [Parameter::QubitId(qubit)]) => {
-                DemoModel1_NativeOperation::InjectTAdj(None, *qubit)
+                DemoModel1_NativeOperation::InjectT(None, *qubit, true)
             }
             _ => return Err(format!("Unsupported instruction: {instruction:?}")),
         };
@@ -244,10 +278,24 @@ impl QpuModel for DemoModel1 {
         Ok(())
     }
 
-    fn on_operation_started(&mut self, op: &mut Self::NativeOperation) {
-        todo!()
-        // TODO: for T/TAdj, find what factory we are going to use, and mutate op to refer to that
-        // factory.
+    /// Reserves the oldest available T-state factory for an injection.
+    fn on_operation_started(
+        &mut self,
+        op: &mut Self::NativeOperation,
+        state: &mut TemporalProfilerState<Self>,
+    ) {
+        if let DemoModel1_NativeOperation::InjectT(opt_factory_id, _, _) = op {
+            assert!(
+                opt_factory_id.is_none(),
+                "injection already has an assigned factory"
+            );
+            let factory_id: usize = state
+                .available_resources
+                .get_mut(&DemoModel1_Resource::TState)
+                .and_then(VecDeque::pop_front)
+                .expect("instruction requires an available factory");
+            *opt_factory_id = Some(factory_id);
+        }
     }
 
     fn on_operation_finished(
@@ -259,11 +307,12 @@ impl QpuModel for DemoModel1 {
             DemoModel1_NativeOperation::Measurement(_) => {
                 Some(QuantumBackendResult::from(state.rng.random::<bool>()))
             }
+            DemoModel1_NativeOperation::DistillationRound(factory_id) => {
+                self.on_distillation_round_finished(*factory_id, state);
+                None
+            }
             _ => None,
         }
-
-        // TODO: if this is InjectT/InjectTAdj, must release factory.
-        // TODO: logging for profiling.
     }
 }
 
@@ -271,8 +320,7 @@ impl QpuModel for DemoModel1 {
 mod tests {
     use super::*;
     use DemoModel1_NativeOperation::{
-        CnotGate, DistillationRound, InjectT, InjectTAdj, Measurement, Reset,
-        SingleQubitCliffordGate,
+        CnotGate, DistillationRound, InjectT, Measurement, Reset, SingleQubitCliffordGate,
     };
     use LoggedInstructionParameter::{FactoryId, QubitId};
 
@@ -284,17 +332,17 @@ mod tests {
             (Measurement(4), "mz", vec![QubitId(4)]),
             (Reset(5), "reset", vec![QubitId(5)]),
             (
-                InjectT(Some(6), 7),
+                InjectT(Some(6), 7, false),
                 "inject_t",
                 vec![FactoryId(6), QubitId(7)],
             ),
-            (InjectT(None, 7), "inject_t", vec![QubitId(7)]),
+            (InjectT(None, 7, false), "inject_t", vec![QubitId(7)]),
             (
-                InjectTAdj(Some(8), 9),
+                InjectT(Some(8), 9, true),
                 "inject_tadj",
                 vec![FactoryId(8), QubitId(9)],
             ),
-            (InjectTAdj(None, 9), "inject_tadj", vec![QubitId(9)]),
+            (InjectT(None, 9, true), "inject_tadj", vec![QubitId(9)]),
             (DistillationRound(10), "round", vec![FactoryId(10)]),
         ] {
             let logged: LoggedInstruction = operation.into();
