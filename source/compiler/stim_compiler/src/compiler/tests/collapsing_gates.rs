@@ -10,15 +10,15 @@ fn m_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    set r_0 = M(qs[0]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -27,18 +27,17 @@ fn m_gate_with_negated_target_yields_expected_qir() {
     check(
         "M !0",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    X(qs[0]);
+                    set r_0 = M(qs[0]);
+                    X(qs[0]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -47,18 +46,20 @@ fn m_gate_with_readout_noise_yields_expected_qir() {
     check(
         "M(0.1) 0",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__rt__readout_noise(double 0.1, double 0.1, ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__rt__readout_noise(double, double, ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1
-              uses_noise = true"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    set r_0 = M(qs[0]);
+                    __quantum__rt__readout_noise(0.1, 0.1, r_0);
+                    [r_0]
+                }
+                @NoiseIntrinsic()
+                operation __quantum__rt__readout_noise(arg0 : Double, arg1 : Double, arg2 : Result) : Unit {
+                    body intrinsic;
+                }
+            }"#]],
     );
 }
 
@@ -68,15 +69,15 @@ fn mr_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__mresetz__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    set r_0 = MResetZ(qs[0]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -85,17 +86,16 @@ fn mr_gate_with_negated_target_yields_expected_qir() {
     check(
         "MR !0",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__mresetz__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    X(qs[0]);
+                    set r_0 = MResetZ(qs[0]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -105,18 +105,17 @@ fn mrx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__mresetz__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    H(qs[0]);
+                    set r_0 = MResetZ(qs[0]);
+                    H(qs[0]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -126,22 +125,19 @@ fn mry_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__mresetz__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    Adjoint S(qs[0]);
+                    H(qs[0]);
+                    set r_0 = MResetZ(qs[0]);
+                    H(qs[0]);
+                    S(qs[0]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -151,18 +147,17 @@ fn mx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    H(qs[0]);
+                    set r_0 = M(qs[0]);
+                    H(qs[0]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -172,22 +167,19 @@ fn my_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    Adjoint S(qs[0]);
+                    H(qs[0]);
+                    set r_0 = M(qs[0]);
+                    H(qs[0]);
+                    S(qs[0]);
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -197,15 +189,14 @@ fn r_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__reset__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Reset(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -215,17 +206,15 @@ fn rx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__reset__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Reset(qs[0]);
+                    H(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -235,18 +224,15 @@ fn ry_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__reset__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    Reset(qs[0]);
+                    H(qs[0]);
+                    S(qs[0]);
+                    []
+                }
+            }"#]],
     );
 }

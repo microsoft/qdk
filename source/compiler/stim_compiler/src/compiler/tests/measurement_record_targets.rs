@@ -14,30 +14,18 @@ fn cx_with_rec_control_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [definitions]
-              define void @classical_control_cx(ptr %result, ptr %qubit) {
-              block_cx_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cx_apply, label %block_cx_exit
-              block_cx_apply:
-                call void @__quantum__qis__x__body(ptr %qubit)
-                br label %block_cx_exit
-              block_cx_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    set r_0 = M(qs[0]);
+                    if r_0 == One {
+                        X(qs[1]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -51,31 +39,20 @@ fn cx_with_older_rec_control_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
-
-            [definitions]
-              define void @classical_control_cx(ptr %result, ptr %qubit) {
-              block_cx_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cx_apply, label %block_cx_exit
-              block_cx_apply:
-                call void @__quantum__qis__x__body(ptr %qubit)
-                br label %block_cx_exit
-              block_cx_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 2"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    set r_0 = M(qs[0]);
+                    set r_1 = M(qs[1]);
+                    if r_0 == One {
+                        X(qs[2]);
+                    };
+                    [r_0, r_1]
+                }
+            }"#]],
     );
 }
 
@@ -88,30 +65,18 @@ fn cy_with_rec_control_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @classical_control_cy(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [definitions]
-              define void @classical_control_cy(ptr %result, ptr %qubit) {
-              block_cy_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cy_apply, label %block_cy_exit
-              block_cy_apply:
-                call void @__quantum__qis__y__body(ptr %qubit)
-                br label %block_cy_exit
-              block_cy_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__y__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    set r_0 = M(qs[0]);
+                    if r_0 == One {
+                        Y(qs[1]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -124,30 +89,18 @@ fn cz_with_rec_on_first_target_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @classical_control_cz(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [definitions]
-              define void @classical_control_cz(ptr %result, ptr %qubit) {
-              block_cz_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cz_apply, label %block_cz_exit
-              block_cz_apply:
-                call void @__quantum__qis__z__body(ptr %qubit)
-                br label %block_cz_exit
-              block_cz_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    set r_0 = M(qs[0]);
+                    if r_0 == One {
+                        Z(qs[1]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -155,35 +108,23 @@ fn cz_with_rec_on_first_target_yields_expected_qir() {
 fn cz_with_rec_on_second_target_yields_expected_qir() {
     let source = indoc! {"
         M 0
-        CZ 0 rec[-1]
+        CZ 1 rec[-1]
     "};
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @classical_control_cz(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            [definitions]
-              define void @classical_control_cz(ptr %result, ptr %qubit) {
-              block_cz_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cz_apply, label %block_cz_exit
-              block_cz_apply:
-                call void @__quantum__qis__z__body(ptr %qubit)
-                br label %block_cz_exit
-              block_cz_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    set r_0 = M(qs[0]);
+                    if r_0 == One {
+                        Z(qs[1]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -196,30 +137,18 @@ fn xcz_with_rec_on_second_target_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [definitions]
-              define void @classical_control_cx(ptr %result, ptr %qubit) {
-              block_cx_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cx_apply, label %block_cx_exit
-              block_cx_apply:
-                call void @__quantum__qis__x__body(ptr %qubit)
-                br label %block_cx_exit
-              block_cx_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    set r_0 = M(qs[0]);
+                    if r_0 == One {
+                        X(qs[1]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -232,30 +161,18 @@ fn ycz_with_rec_on_second_target_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @classical_control_cy(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [definitions]
-              define void @classical_control_cy(ptr %result, ptr %qubit) {
-              block_cy_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cy_apply, label %block_cy_exit
-              block_cy_apply:
-                call void @__quantum__qis__y__body(ptr %qubit)
-                br label %block_cy_exit
-              block_cy_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__y__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    set r_0 = M(qs[0]);
+                    if r_0 == One {
+                        Y(qs[1]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -270,32 +187,21 @@ fn cx_with_rec_control_crossing_select_boundary() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                br label %select_0
-              select_0:
-                call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [definitions]
-              define void @classical_control_cx(ptr %result, ptr %qubit) {
-              block_cx_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cx_apply, label %block_cx_exit
-              block_cx_apply:
-                call void @__quantum__qis__x__body(ptr %qubit)
-                br label %block_cx_exit
-              block_cx_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    set r_0 = M(qs[0]);
+                    while true {
+                        if r_0 == One {
+                            X(qs[1]);
+                        };
+                        break;
+                    }
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -310,31 +216,20 @@ fn top_level_classical_control_reaches_into_select() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [definitions]
-              define void @classical_control_cx(ptr %result, ptr %qubit) {
-              block_cx_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cx_apply, label %block_cx_exit
-              block_cx_apply:
-                call void @__quantum__qis__x__body(ptr %qubit)
-                br label %block_cx_exit
-              block_cx_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    while true {
+                        set r_0 = M(qs[0]);
+                        break;
+                    }
+                    if r_0 == One {
+                        X(qs[1]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }

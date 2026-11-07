@@ -10,15 +10,19 @@ fn peek_loss_single_qubit() {
     check(
         "PEEK_LOSS 0",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    set r_0 = __quantum__qis__peek_loss__body(qs[0]);
+                    [r_0]
+                }
+                @Measurement()
+                operation __quantum__qis__peek_loss__body(arg0 : Qubit) : Result {
+                    body intrinsic;
+                }
+            }"#]],
     );
 }
 
@@ -27,18 +31,24 @@ fn peek_loss_with_readout_noise_yields_expected_qir() {
     check(
         "PEEK_LOSS(0.5) 0",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__rt__readout_noise(double 0.5, double 0.5, ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
-              declare void @__quantum__rt__readout_noise(double, double, ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1
-              uses_noise = true"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    set r_0 = __quantum__qis__peek_loss__body(qs[0]);
+                    __quantum__rt__readout_noise(0.5, 0.5, r_0);
+                    [r_0]
+                }
+                @Measurement()
+                operation __quantum__qis__peek_loss__body(arg0 : Qubit) : Result {
+                    body intrinsic;
+                }
+                @NoiseIntrinsic()
+                operation __quantum__rt__readout_noise(arg0 : Double, arg1 : Double, arg2 : Result) : Unit {
+                    body intrinsic;
+                }
+            }"#]],
     );
 }
 
@@ -51,30 +61,22 @@ fn peek_loss_referenced_by_classical_control() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [definitions]
-              define void @classical_control_cx(ptr %result, ptr %qubit) {
-              block_cx_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cx_apply, label %block_cx_exit
-              block_cx_apply:
-                call void @__quantum__qis__x__body(ptr %qubit)
-                br label %block_cx_exit
-              block_cx_exit:
-                ret void
-              }
-
-            [declarations]
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    set r_0 = __quantum__qis__peek_loss__body(qs[0]);
+                    if r_0 == One {
+                        X(qs[1]);
+                    };
+                    [r_0]
+                }
+                @Measurement()
+                operation __quantum__qis__peek_loss__body(arg0 : Qubit) : Result {
+                    body intrinsic;
+                }
+            }"#]],
     );
 }
 
@@ -113,24 +115,28 @@ fn peek_loss_referenced_by_require_in_select_block() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %restart_0 = or i1 %l_0, %r_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    while true {
+                        set r_0 = __quantum__qis__peek_loss__body(qs[0]);
+                        let loss_0 = IsLossResult(r_0);
+                        let parity_0 = r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0]
+                }
+                @Measurement()
+                operation __quantum__qis__peek_loss__body(arg0 : Qubit) : Result {
+                    body intrinsic;
+                }
+            }"#]],
     );
 }
 
@@ -144,18 +150,23 @@ fn peek_loss_interleaved_with_measurements() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 3"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    mutable r_2 = Zero;
+                    set r_0 = M(qs[0]);
+                    set r_1 = __quantum__qis__peek_loss__body(qs[1]);
+                    set r_2 = M(qs[2]);
+                    [r_0, r_1, r_2]
+                }
+                @Measurement()
+                operation __quantum__qis__peek_loss__body(arg0 : Qubit) : Result {
+                    body intrinsic;
+                }
+            }"#]],
     );
 }
 
@@ -196,29 +207,29 @@ fn require_allows_peek_record_mixed_with_measurement() {
     check(
         source,
         &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %loss_0 = or i1 %l_0, %l_1
-                %parity_0 = xor i1 %r_0, %r_1
-                %restart_0 = or i1 %loss_0, %parity_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 2"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    mutable r_1 = Zero;
+                    while true {
+                        set r_0 = __quantum__qis__peek_loss__body(qs[0]);
+                        set r_1 = M(qs[1]);
+                        let loss_0 = IsLossResult(r_1) or IsLossResult(r_0);
+                        let parity_0 = r_1 == One != r_0 == One;
+                        let restart_0 = loss_0 or parity_0;
+                        if restart_0 {
+                            continue;
+                        };
+                        break;
+                    }
+                    [r_0, r_1]
+                }
+                @Measurement()
+                operation __quantum__qis__peek_loss__body(arg0 : Qubit) : Result {
+                    body intrinsic;
+                }
+            }"#]],
     );
 }

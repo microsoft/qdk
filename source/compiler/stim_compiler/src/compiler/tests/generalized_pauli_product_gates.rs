@@ -11,18 +11,19 @@ fn mpp_single_x_yields_expected_qir() {
     check(
         "MPP X0",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    within {
+                        H(qs[0]);
+                    } apply {
+                        set r_0 = M(qs[0]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -32,22 +33,20 @@ fn mpp_single_y_yields_expected_qir() {
     check(
         "MPP Y0",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    within {
+                        Adjoint S(qs[0]);
+                        H(qs[0]);
+                    } apply {
+                        set r_0 = M(qs[0]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -57,15 +56,17 @@ fn mpp_single_z_yields_expected_qir() {
     check(
         "MPP Z0",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    within {} apply {
+                        set r_0 = M(qs[0]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -75,18 +76,19 @@ fn mpp_negated_single_pauli_yields_expected_qir() {
     check(
         "MPP !Z5",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    mutable r_0 = Zero;
+                    within {} apply {
+                        X(qs[0]);
+                        set r_0 = M(qs[0]);
+                        X(qs[0]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -95,27 +97,22 @@ fn mpp_two_factor_product_yields_expected_qir() {
     check(
         "MPP X1*Y2",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    within {
+                        H(qs[0]);
+                        Adjoint S(qs[1]);
+                        H(qs[1]);
+                        CNOT(qs[1], qs[0]);
+                    } apply {
+                        set r_0 = M(qs[0]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -125,20 +122,20 @@ fn mpp_three_factor_product_yields_expected_qir() {
     check(
         "MPP Z3*Z4*Z5",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    mutable r_0 = Zero;
+                    within {
+                        CNOT(qs[0], qs[1]);
+                        CNOT(qs[2], qs[1]);
+                    } apply {
+                        set r_0 = M(qs[1]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -147,29 +144,23 @@ fn mpp_product_of_all_three_bases_yields_expected_qir() {
     check(
         "MPP X0*Y1*Z2",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    mutable r_0 = Zero;
+                    within {
+                        H(qs[0]);
+                        Adjoint S(qs[1]);
+                        H(qs[1]);
+                        CNOT(qs[1], qs[0]);
+                        CNOT(qs[2], qs[0]);
+                    } apply {
+                        set r_0 = M(qs[0]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -179,23 +170,22 @@ fn mpp_negated_product_yields_expected_qir() {
     check(
         "MPP !Z3*Z4*Z5",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 1"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    mutable r_0 = Zero;
+                    within {
+                        CNOT(qs[0], qs[1]);
+                        CNOT(qs[2], qs[1]);
+                    } apply {
+                        X(qs[1]);
+                        set r_0 = M(qs[1]);
+                        X(qs[1]);
+                    };
+                    [r_0]
+                }
+            }"#]],
     );
 }
 
@@ -204,21 +194,24 @@ fn mpp_with_readout_noise_yields_expected_qir() {
     check(
         "MPP(0.01) Z1*Z2",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__rt__readout_noise(double 0.01, double 0.01, ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__rt__readout_noise(double, double, ptr) #2
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1
-              uses_noise = true"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    mutable r_0 = Zero;
+                    within {
+                        CNOT(qs[0], qs[1]);
+                    } apply {
+                        set r_0 = M(qs[1]);
+                        __quantum__rt__readout_noise(0.01, 0.01, r_0);
+                    };
+                    [r_0]
+                }
+                @NoiseIntrinsic()
+                operation __quantum__rt__readout_noise(arg0 : Double, arg1 : Double, arg2 : Result) : Unit {
+                    body intrinsic;
+                }
+            }"#]],
     );
 }
 
@@ -227,15 +220,16 @@ fn spp_single_z_yields_expected_qir() {
     check(
         "SPP Z1",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    within {} apply {
+                        S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -244,18 +238,18 @@ fn spp_single_x_yields_expected_qir() {
     check(
         "SPP X1",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    within {
+                        H(qs[0]);
+                    } apply {
+                        S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -264,18 +258,18 @@ fn spp_negated_single_x_yields_expected_qir() {
     check(
         "SPP !X1",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    within {
+                        H(qs[0]);
+                    } apply {
+                        Adjoint S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -284,23 +278,20 @@ fn spp_two_factor_product_yields_expected_qir() {
     check(
         "SPP X1*X2",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    within {
+                        H(qs[0]);
+                        H(qs[1]);
+                        CNOT(qs[1], qs[0]);
+                    } apply {
+                        S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -309,28 +300,22 @@ fn spp_negated_three_factor_product_yields_expected_qir() {
     check(
         "SPP !X1*Y2*Z3",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    within {
+                        H(qs[0]);
+                        Adjoint S(qs[1]);
+                        H(qs[1]);
+                        CNOT(qs[1], qs[0]);
+                        CNOT(qs[2], qs[0]);
+                    } apply {
+                        Adjoint S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -339,28 +324,22 @@ fn spp_mixed_basis_product_yields_expected_qir() {
     check(
         "SPP X0*Y1*Z2",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    within {
+                        H(qs[0]);
+                        Adjoint S(qs[1]);
+                        H(qs[1]);
+                        CNOT(qs[1], qs[0]);
+                        CNOT(qs[2], qs[0]);
+                    } apply {
+                        S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -373,9 +352,12 @@ fn spp_identity_products_are_noops() {
     check(
         source,
         &expect![[r#"
-            [metadata]
-              required_num_qubits = 0
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -384,15 +366,16 @@ fn spp_dag_single_z_yields_expected_qir() {
     check(
         "SPP_DAG Z1",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    within {} apply {
+                        Adjoint S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -401,18 +384,18 @@ fn spp_dag_single_x_yields_expected_qir() {
     check(
         "SPP_DAG X1",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    within {
+                        H(qs[0]);
+                    } apply {
+                        Adjoint S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -421,18 +404,18 @@ fn spp_dag_negated_single_x_yields_expected_qir() {
     check(
         "SPP_DAG !X1",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    within {
+                        H(qs[0]);
+                    } apply {
+                        S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -441,23 +424,20 @@ fn spp_dag_two_factor_product_yields_expected_qir() {
     check(
         "SPP_DAG X1*X2",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    within {
+                        H(qs[0]);
+                        H(qs[1]);
+                        CNOT(qs[1], qs[0]);
+                    } apply {
+                        Adjoint S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
 
@@ -466,27 +446,21 @@ fn spp_dag_negated_three_factor_product_yields_expected_qir() {
     check(
         "SPP_DAG !X1*Y2*Z3",
         &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 0"#]],
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    within {
+                        H(qs[0]);
+                        Adjoint S(qs[1]);
+                        H(qs[1]);
+                        CNOT(qs[1], qs[0]);
+                        CNOT(qs[2], qs[0]);
+                    } apply {
+                        S(qs[0]);
+                    };
+                    []
+                }
+            }"#]],
     );
 }
