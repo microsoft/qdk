@@ -15,7 +15,8 @@
 //!   arguments once, for every engine.
 //! - [`PauliSum`]: the observable an engine reads, on sites.
 //! - `reference::ExactReference`: the exact engine every other one is
-//!   checked against, for an engine's tests (feature `conformance`).
+//!   checked against, and the `conformance` kit that checks them, both for
+//!   an engine's tests (feature `conformance`).
 //!
 //! A Bell pair on the reference (feature `conformance`), read three ways:
 //!
@@ -66,6 +67,8 @@ mod shape;
 
 pub use engine::MpsEngine;
 pub use engine::checks;
+#[cfg(any(test, feature = "conformance"))]
+pub use engine::conformance;
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::reference;
 pub use pauli::{Pauli, PauliError, PauliSum, PauliTerm};

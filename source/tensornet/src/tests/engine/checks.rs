@@ -1,43 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::conformance::fused_gates;
 use crate::tests::{c, cx, hadamard};
 use crate::{MpsShape, Pauli, PauliSum, PauliTerm, Refusal, checks};
 use num_complex::Complex64;
 
 fn diagonal(a: f64, b: f64) -> [Complex64; 4] {
     [c(a, 0.0), c(0.0, 0.0), c(0.0, 0.0), c(b, 0.0)]
-}
-
-/// A two-site unitary built as the product of many gates, as fusion builds
-/// one: unitary to rounding only.
-fn fused_gates(count: usize) -> Vec<Complex64> {
-    let (h, t) = (
-        hadamard(),
-        [
-            c(1.0, 0.0),
-            c(0.0, 0.0),
-            c(0.0, 0.0),
-            Complex64::from_polar(1.0, 0.7),
-        ],
-    );
-    let h_t: Vec<Complex64> = (0..16)
-        .map(|at| h[(at / 8) * 2 + (at % 4) / 2] * t[((at / 4) % 2) * 2 + at % 2])
-        .collect();
-    let layers = [cx().to_vec(), h_t];
-    let identity: Vec<Complex64> = (0..16)
-        .map(|at| c(if at % 5 == 0 { 1.0 } else { 0.0 }, 0.0))
-        .collect();
-    (0..count).fold(identity, |fused, k| {
-        let layer = &layers[k % layers.len()];
-        (0..16)
-            .map(|at| {
-                (0..4)
-                    .map(|j| layer[at / 4 * 4 + j] * fused[j * 4 + at % 4])
-                    .sum()
-            })
-            .collect()
-    })
 }
 
 fn z_terms(sites: &[&[usize]]) -> PauliSum {

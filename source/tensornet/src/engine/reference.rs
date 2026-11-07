@@ -8,7 +8,7 @@
 //! every operation, and it reports the exact chain: the bond at each cut is
 //! the Schmidt rank of the state there, found by an elimination that counts
 //! a pivot below 1e-10 as zero. It is for tests and small examples
-//! (feature `conformance`), up to [`ExactReference::MAX_SITES`]
+//! (feature `conformance`, as the kit), up to [`ExactReference::MAX_SITES`]
 //! sites, and depends on nothing but this crate, so it runs wherever the
 //! crate builds.
 //!
@@ -119,8 +119,7 @@ impl ReferenceState {
 
     /// The state with these amplitudes, basis state `i` with site `k` as
     /// bit `k`: a state no sequence of calls need reach, such as a
-    /// truncated one, for tests.
-    #[cfg(test)]
+    /// truncated one, for the conformance kit and its tests.
     pub(crate) fn from_amplitudes(amplitudes: &[Complex64]) -> Self {
         let sites = amplitudes.len().trailing_zeros() as usize;
         assert!(

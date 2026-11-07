@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 mod checks;
+mod conformance;
 mod reference;
 
 use super::{c, cx, hadamard};
@@ -176,4 +177,14 @@ fn the_default_conditional_probability_refuses_a_condition_of_probability_zero()
         conditional(&ghz, 2, &[(0, true), (1, false)]),
         Err(Some(Refusal::ZeroProbabilityOutcome))
     );
+}
+
+/// An engine with no projected contraction of its own: the default reads
+/// the GHZ condition's probability as exactly zero in either order, so it
+/// refuses it as the kit requires, and answers the other conditions within
+/// the kit's tolerance.
+#[test]
+fn an_engine_with_the_default_conditional_probability_conforms() {
+    let failures = crate::conformance::check(&DefaultConditional);
+    assert!(failures.is_empty(), "{failures:#?}");
 }

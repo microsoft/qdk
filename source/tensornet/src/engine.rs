@@ -44,6 +44,8 @@
 
 pub mod checks;
 #[cfg(any(test, feature = "conformance"))]
+pub mod conformance;
+#[cfg(any(test, feature = "conformance"))]
 pub mod reference;
 
 #[cfg(doc)]
@@ -73,8 +75,10 @@ use num_complex::Complex64;
 /// drop it: no use case continues after a device error (the method fails
 /// the shot), so no engine must undo what the failed call began.
 ///
-/// `tensornet::reference::ExactReference` (feature `conformance`) gives the
-/// exact answer every engine with enough bond must give.
+/// The conformance kit (`tensornet::conformance`, feature `conformance`)
+/// checks an engine against `tensornet::reference::ExactReference` (same
+/// feature), the exact answer every engine with enough bond must give, and
+/// checks its refusals.
 pub trait MpsEngine {
     /// One matrix product state the engine holds. Dropping it releases it.
     type State;
@@ -228,11 +232,11 @@ pub trait MpsEngine {
     /// drawn takes a fork.
     ///
     /// The copy holds the state it copies, truncated or not: it reads what
-    /// `state` reads and has its retained weight, to rounding. So a fork
-    /// copies the chain `state` holds: a state recomputed from |0…0⟩ by the
-    /// same operators truncates along another path and is another
-    /// approximation, with another retained weight, so grouped shots would
-    /// depend on how the shots are grouped.
+    /// `state` reads and has its retained weight, to the conformance kit's
+    /// tolerance. So a fork copies the chain `state` holds: a state
+    /// recomputed from |0…0⟩ by the same operators truncates along another
+    /// path and is another approximation, with another retained weight, so
+    /// grouped shots would depend on how the shots are grouped.
     ///
     /// # Errors
     ///
