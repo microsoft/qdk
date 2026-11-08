@@ -26,10 +26,24 @@
 //!   computed only when a read needs it, and refuses a call that breaks the
 //!   contract as every engine does ([`EngineError`]).
 //!
+//! A user setting the GPU up reads [`diagnose`]'s [`Diagnosis`]: what was
+//! found, whether an engine runs on the device, and what to fix. A Python
+//! environment's NVIDIA wheels are found by the caller and passed to
+//! [`discover_with`] ([`PackagedLibraries`]).
+//!
 //! The crate's `docs/loading.md` shows the steps of discovery and the faults
 //! each one can find, and its `docs/engine.md` how the engine calls
 //! cuTensorNet.
 
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(
+        dead_code,
+        reason = "off Linux x86-64 no CUDA Runtime reads the devices; the rules stay compiled so their host tests run"
+    )
+)]
+mod devices;
+mod diagnosis;
 mod discovery;
 #[cfg_attr(
     not(all(target_os = "linux", target_arch = "x86_64")),
@@ -50,6 +64,11 @@ mod libraries;
 #[cfg(test)]
 mod tests;
 
-pub use discovery::{Availability, discover, error::AvailabilityError, report::AvailabilityReport};
+pub use devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
+pub use diagnosis::{Diagnosis, diagnose};
+pub use discovery::{
+    Availability, PackagedLibraries, discover, discover_with, error::AvailabilityError,
+    report::AvailabilityReport,
+};
 pub use engine::{CuTensorNetEngine, CuTensorNetState, EngineError};
 pub use libraries::report::{LibraryFault, LibraryReport, Version};

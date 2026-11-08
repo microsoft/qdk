@@ -4,8 +4,9 @@
 //! The engine's native calls on the loaded libraries: `SessionCalls`,
 //! `MemoryCalls` and `StateCalls`, implemented for `LoadedLibraries`
 //! (`crate::libraries`) through the function tables discovery looked up,
-//! one file per trait (`loaded_libraries/session_calls.rs`,
-//! `loaded_libraries/memory_calls.rs`, `loaded_libraries/state_calls.rs`).
+//! and the setup check's `DeviceCalls`, one file per trait
+//! (`loaded_libraries/session_calls.rs`, `loaded_libraries/memory_calls.rs`,
+//! `loaded_libraries/state_calls.rs`, `loaded_libraries/device_calls.rs`).
 //! This file holds what they share: turning a status into an `EngineError`
 //! with the library's message.
 //!
@@ -25,6 +26,7 @@ use crate::engine::EngineError;
 use crate::libraries::{LoadedLibraries, cuda_runtime::cudart_12, cutensornet::v2_13};
 use std::ffi::CStr;
 
+mod device_calls;
 mod memory_calls;
 mod session_calls;
 mod state_calls;

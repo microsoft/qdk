@@ -17,6 +17,8 @@
 //! only, where it is always present. They, and the loader's tests, rely on
 //! the host's system loader.
 
+mod devices;
+mod diagnosis;
 mod discovery;
 mod engine;
 mod libraries;

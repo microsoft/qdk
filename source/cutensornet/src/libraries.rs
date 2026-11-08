@@ -5,8 +5,9 @@
 //!
 //! Each library has its own module, which holds everything the crate assumes
 //! of it, as its implementation of `NativeLibrary`, so a reader finds a
-//! library's settings in one place. This module holds what the libraries
-//! share: the way from one library to the set a GPU run needs.
+//! library's settings in one place, with what the setup check tells a user
+//! about it (`diagnosis`). This module holds what the libraries share: the
+//! way from one library to the set a GPU run needs.
 //!
 //! ```text
 //! NativeLibrary     one library, as the crate needs it (one module per
@@ -23,8 +24,12 @@
 //! ```
 //!
 //! `open` checks a library from this machine's files: the paths to try (its
-//! override variable's, or its default paths), the file loaded and its
-//! functions looked up (`loader`), and its versions probed.
+//! override variable's, or else its path among the `PackagedLibraries` the
+//! caller found, then its default paths), the file loaded and its functions
+//! looked up (`loader`), its versions probed, and the other copies of it
+//! visible beside the one loaded. `LoadedLibraries` also lists the
+//! libraries' setup guides (`SETUP_GUIDES`, checked against what discovery
+//! opens), and `PackagedLibraries` has a field per library.
 //! The MPS engine calls the loaded libraries through their tables, in
 //! `engine::native_calls::loaded_libraries`.
 //!
@@ -38,18 +43,22 @@
 //!    bind it; and assert at compile time the layout of each type passed by
 //!    value (as cuTensorNet's `layout`);
 //! 2. add its module here, whose type implements `NativeLibrary`: its name,
-//!    override variable and default paths, its table of functions
-//!    (`function_table!`), and how its versions are read and which are
-//!    accepted, asserted at compile time to be the version its header
-//!    declares, where the header declares one;
+//!    override variable, packaged path and default paths, its table of
+//!    functions (`function_table!`), how its versions are read and which
+//!    are accepted, asserted at compile time to be the version its header
+//!    declares, where the header declares one, and what the setup check
+//!    shows of it and advises;
 //! 3. add its field to `LoadedLibraries` before the fields of the libraries
-//!    it runs on, so that it is closed first, and open it in
-//!    `LoadedLibraries::open` after them;
+//!    it runs on, so that it is closed first, open it in
+//!    `LoadedLibraries::open` after them, and add its guide to
+//!    `LoadedLibraries::SETUP_GUIDES` in field order; its packaged path
+//!    is a field of `PackagedLibraries`;
 //! 4. test its table and versions in `tests/libraries/`, and add its
 //!    variable, paths and versions to the README.
 //!
 //! Discovery and the public report, a list with one entry per library, do
-//! not change.
+//! not change: adding a library adds its packaged path to
+//! `PackagedLibraries` and changes no other public type.
 //!
 //! Only the audited versions are accepted: the bindings were checked against
 //! them, and a newer library is not assumed compatible, so any other version
@@ -62,11 +71,15 @@ pub(crate) mod loader;
 pub(crate) mod report;
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use crate::{PackagedLibraries, diagnosis::SetupGuide};
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use loader::{FunctionTable, OpenLibraryFile, SymbolResolver, load_library};
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 use report::LibraryFault;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use report::{LibraryReport, Version};
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use std::path::Path;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 use std::{ffi::OsString, path::PathBuf};
 
@@ -98,6 +111,13 @@ impl LoadedLibraries {
             cuda_runtime: cuda_runtime?,
         })
     }
+
+    /// What the setup check tells a user about each library, in field
+    /// order: so it lists cuTensorNet, then the CUDA Runtime it runs on.
+    pub(crate) const SETUP_GUIDES: [SetupGuide; 2] = [
+        SetupGuide::of::<cutensornet::CuTensorNet>(),
+        SetupGuide::of::<cuda_runtime::CudaRuntime>(),
+    ];
 }
 
 /// One native library: where it is looked for, the table of its functions,
@@ -113,8 +133,19 @@ pub(crate) trait NativeLibrary {
     const VARIABLE: &'static str;
     /// The paths tried, in order, when the variable is not set.
     const DEFAULTS: &'static [&'static str];
+    /// What the setup check advises installing, for instance
+    /// `cuTensorNet 2.13`: the library at its audited version.
+    const INSTALL: &'static str;
+    /// What the setup check advises when a call that reads one of its
+    /// versions fails; `None` when no such call can fail, and the check
+    /// advises the install.
+    const VERSION_PROBE_ADVICE: Option<&'static str> = None;
     /// The table of the functions looked up in it.
     type Functions: FunctionTable;
+
+    /// Its path among the `packaged` libraries, tried before the defaults
+    /// when the variable is not set.
+    fn packaged(packaged: &PackagedLibraries) -> Option<&Path>;
 
     /// Reads the library's versions through `resolver` and checks them.
     ///
@@ -123,6 +154,17 @@ pub(crate) trait NativeLibrary {
     /// of another version is often what lacks them. A version whose
     /// functions are missing is not read; the table reports them.
     fn probe_versions<R: SymbolResolver>(resolver: &R) -> ProbedVersions;
+
+    /// What the setup check shows of the library once every library is
+    /// usable, one line per item: where it was loaded from and its
+    /// versions.
+    fn describe(report: &LibraryReport) -> Vec<String>;
+
+    /// A problem of the host that the usable library's report reveals, in
+    /// words for the user with its fix: none by default.
+    fn host_problem(_report: &LibraryReport) -> Option<String> {
+        None
+    }
 }
 
 /// An open library with the table of its functions.
@@ -183,33 +225,42 @@ pub(crate) trait CheckLibrary {
 }
 
 /// The libraries installed on this machine, each opened and checked by
-/// `open`, with the override variables read by the function it holds.
+/// `open`, with the override variables read by `read_variable` and the
+/// packaged libraries `packaged`.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) struct InstalledLibraries<F>(pub(crate) F);
+pub(crate) struct InstalledLibraries<'a, F> {
+    pub(crate) read_variable: F,
+    pub(crate) packaged: &'a PackagedLibraries,
+}
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-impl<F: Fn(&'static str) -> Option<OsString>> CheckLibrary for InstalledLibraries<F> {
+impl<F: Fn(&'static str) -> Option<OsString>> CheckLibrary for InstalledLibraries<'_, F> {
     fn check<L: NativeLibrary>(&self) -> Checked<L> {
-        open::<L>(&self.0)
+        open::<L>(&self.read_variable, self.packaged)
     }
 }
 
 /// Opens `L` and checks it.
 ///
-/// The override comes from `read_variable`. A fault before the library is
-/// open (its override, or no file to load) is its only fault; once it is
-/// open, every missing function and every version fault is reported.
+/// The override comes from `read_variable`, and the packaged path from
+/// `packaged`. A fault before the library is open (its override, or no file
+/// to load) is its only fault; once it is open, every missing function and
+/// every version fault is reported, with the other copies of the library
+/// visible beside it.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn open<L: NativeLibrary>(
     read_variable: impl Fn(&'static str) -> Option<OsString>,
+    packaged: &PackagedLibraries,
 ) -> Checked<L> {
     let mut report = LibraryReport {
         library: L::NAME,
         path: None,
         versions: Vec::new(),
         faults: Vec::new(),
+        other_copies: Vec::new(),
+        loaded_from_override: false,
     };
-    let library = match candidates::<L>(read_variable).and_then(load_library) {
+    let library = match candidates::<L>(&read_variable, packaged).and_then(load_library) {
         Ok(library) => library,
         Err(fault) => {
             report.faults.push(fault);
@@ -217,6 +268,10 @@ pub(crate) fn open<L: NativeLibrary>(
         }
     };
     report.path = Some(library.path().to_path_buf());
+    // A set override is the only candidate, so a library loaded while it is
+    // set was loaded from it.
+    report.loaded_from_override = read_variable(L::VARIABLE).is_some();
+    report.other_copies = other_copies::<L>(library.path(), &read_variable, packaged);
     let functions = inspect::<L, _>(&library, &mut report);
     let bound = functions.map(|functions| BoundLibrary { functions, library });
     (report, bound)
@@ -239,17 +294,57 @@ pub(crate) fn inspect<L: NativeLibrary, R: SymbolResolver>(
 }
 
 /// The paths to try for `L`: the override that `read_variable` gives for its
-/// variable, alone, or else its default paths.
+/// variable, alone; or else its path in `packaged`, if any, then its default
+/// paths.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn candidates<L: NativeLibrary>(
     read_variable: impl Fn(&'static str) -> Option<OsString>,
+    packaged: &PackagedLibraries,
 ) -> Result<Vec<PathBuf>, LibraryFault> {
     Ok(
         match validate_override_path(L::VARIABLE, read_variable(L::VARIABLE))? {
             Some(path) => vec![path],
-            None => L::DEFAULTS.iter().map(PathBuf::from).collect(),
+            None => L::packaged(packaged)
+                .into_iter()
+                .map(Path::to_path_buf)
+                .chain(L::DEFAULTS.iter().map(PathBuf::from))
+                .collect(),
         },
     )
+}
+
+/// The other copies of `L` the setup makes visible beside `loaded`: the
+/// files among its override, its path in `packaged` and its default
+/// absolute paths that exist and are not `loaded` (links followed), each
+/// once, in that order. A bare file name the system loader searches for is
+/// not looked at.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) fn other_copies<L: NativeLibrary>(
+    loaded: &Path,
+    read_variable: impl Fn(&'static str) -> Option<OsString>,
+    packaged: &PackagedLibraries,
+) -> Vec<PathBuf> {
+    let loaded = loaded.canonicalize().ok();
+    let mut seen = Vec::new();
+    let mut copies = Vec::new();
+    let paths = read_variable(L::VARIABLE)
+        .map(PathBuf::from)
+        .into_iter()
+        .chain(L::packaged(packaged).map(Path::to_path_buf))
+        .chain(L::DEFAULTS.iter().map(PathBuf::from));
+    for path in paths {
+        if !path.is_absolute() || !path.is_file() {
+            continue;
+        }
+        let Ok(real) = path.canonicalize() else {
+            continue;
+        };
+        if loaded.as_ref() != Some(&real) && !seen.contains(&real) {
+            seen.push(real);
+            copies.push(path);
+        }
+    }
+    copies
 }
 
 /// The path an override variable names, if it is set.

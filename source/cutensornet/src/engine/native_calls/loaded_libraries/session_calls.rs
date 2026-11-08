@@ -21,7 +21,8 @@ impl SessionCalls for LoadedLibraries {
     }
 
     fn set_device(&self, ordinal: i32) -> Result<(), EngineError> {
-        // SAFETY: the session validates this ordinal against the device count.
+        // SAFETY: the call takes no pointer, and CUDA checks the ordinal,
+        // returning an error for an invalid one.
         let status = unsafe { (self.cuda_runtime.functions.set_device)(ordinal) };
         self.check_cuda("cudaSetDevice", status)
     }

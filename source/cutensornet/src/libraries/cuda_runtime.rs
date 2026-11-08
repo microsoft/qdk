@@ -45,15 +45,33 @@ pub(crate) use generated::cudart_12;
 use super::{NativeLibrary, ProbedVersions};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::{
-    LibraryFault,
+    LibraryFault, LibraryReport, PackagedLibraries,
+    diagnosis::or_unread,
     libraries::loader::{FunctionTable, SymbolResolver},
 };
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use std::ffi::CStr;
+use std::{ffi::CStr, path::Path};
 
 /// The CUDA Runtime.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) struct CudaRuntime;
+
+/// The oldest CUDA a driver must support, as CUDA encodes it: 12.0. The
+/// floor is NVIDIA's for CUDA 12 (driver [`minimum_driver!`]); the QDK adds
+/// none.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+const MINIMUM_DRIVER_CUDA: i128 = 12_000;
+
+/// The oldest NVIDIA driver for CUDA 12, `525.60.13`, as every piece of
+/// advice that names it writes it. A macro rather than a `const`, since
+/// `concat!` builds the constant advice texts from it and takes literals
+/// only.
+macro_rules! minimum_driver {
+    () => {
+        "525.60.13"
+    };
+}
+pub(crate) use minimum_driver;
 
 /// The CUDA Runtime 12.9, the release the bindings were audited against.
 /// cuTensorNet must also have been built against it.
@@ -77,7 +95,18 @@ impl NativeLibrary for CudaRuntime {
         "/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12",
         "libcudart.so.12",
     ];
+    const INSTALL: &'static str = "the CUDA Runtime 12.9";
+    const VERSION_PROBE_ADVICE: Option<&'static str> = Some(concat!(
+        "CUDA could not report its version, usually because the NVIDIA driver is missing or \
+         older than CUDA 12 needs (",
+        minimum_driver!(),
+        "): check `nvidia-smi`"
+    ));
     type Functions = CudaFunctions;
+
+    fn packaged(packaged: &PackagedLibraries) -> Option<&Path> {
+        packaged.cuda_runtime.as_deref()
+    }
 
     /// Reads the CUDA Runtime's version, which must be 12.9, and the
     /// driver's, which is not checked.
@@ -106,6 +135,42 @@ impl NativeLibrary for CudaRuntime {
         }
         probed
     }
+
+    /// Its path and version, and the CUDA the driver supports.
+    fn describe(report: &LibraryReport) -> Vec<String> {
+        vec![
+            format!(
+                "CUDA Runtime: {} ({})",
+                or_unread(report.path.as_ref().map(|path| path.display())),
+                or_unread(report.version("CUDA Runtime").map(cuda_version)),
+            ),
+            format!(
+                "CUDA driver: supports CUDA {}",
+                or_unread(report.version("CUDA driver").map(cuda_version))
+            ),
+        ]
+    }
+
+    /// A driver that supports no CUDA 12.
+    fn host_problem(report: &LibraryReport) -> Option<String> {
+        let driver = report.version("CUDA driver")?;
+        (driver < MINIMUM_DRIVER_CUDA).then(|| {
+            format!(
+                concat!(
+                    "the NVIDIA driver supports CUDA {} only: install a driver for CUDA 12 (",
+                    minimum_driver!(),
+                    " or later)"
+                ),
+                cuda_version(driver)
+            )
+        })
+    }
+}
+
+/// CUDA's `1000·major + 10·minor` as `major.minor`.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(super) fn cuda_version(version: i128) -> String {
+    format!("{}.{}", version / 1000, version % 1000 / 10)
 }
 
 /// `cudaStreamLegacy`, `((cudaStream_t)0x1)`: the legacy default stream,
@@ -119,7 +184,7 @@ super::loader::function_table! {
     /// Every CUDA Runtime function discovery looks up.
     #[expect(
         dead_code,
-        reason = "the version rows are only looked up, so that a missing one is reported (the versions are read through CudaVersionFunctions); the setup check, added later, calls device_get_attribute"
+        reason = "the version rows are only looked up, so that a missing one is reported (the versions are read through CudaVersionFunctions)"
     )]
     struct CudaFunctions, declared in cudart_12 {
         required runtime_get_version: RuntimeGetVersionFn = cudaRuntimeGetVersion,

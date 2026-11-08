@@ -33,9 +33,11 @@ pub(crate) mod report;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::libraries::{CheckLibrary, InstalledLibraries, LoadedLibraries, Opening};
 use crate::{AvailabilityError, AvailabilityReport};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use crate::{DeviceReport, EngineError, devices};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use std::ffi::OsString;
-use std::fmt;
+use std::{fmt, path::PathBuf};
 
 /// The loaded and checked libraries, with their [`AvailabilityReport`].
 ///
@@ -59,10 +61,25 @@ impl Availability {
         &self.report
     }
 
+    /// Every CUDA device, with its compute capability and memory, in
+    /// ordinal order: what the setup check reports. Each is read with its
+    /// own device current, so the last one is left current; the engine
+    /// selects its own device on every call.
+    ///
+    /// # Errors
+    ///
+    /// When the CUDA Runtime fails to count or read the devices (with no
+    /// device or no driver, say).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn devices(&self) -> Result<Vec<DeviceReport>, EngineError> {
+        devices::device_reports(self.libraries.as_ref())
+    }
+
     /// The loaded libraries, for the engines of this crate. They stay
     /// private to it: a caller outside sees their paths and versions in
-    /// [`report`](Self::report), and calls them only through an engine,
-    /// which checks each call against its contract.
+    /// [`report`](Self::report), and reaches them only through this crate's
+    /// API: an engine, which checks each call against its contract, or
+    /// [`devices`](Self::devices).
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     pub(crate) fn libraries(&self) -> &std::sync::Arc<LoadedLibraries> {
         &self.libraries
@@ -78,8 +95,22 @@ impl fmt::Debug for Availability {
     }
 }
 
+/// Where Python packages installed the libraries, for [`discover_with`]:
+/// NVIDIA's wheels (`cutensornet-cu12`, `nvidia-cuda-runtime-cu12`) put them
+/// inside a Python environment, where only the QDK's Python package, which
+/// reads the environment's installed distributions, can find them. A path
+/// is absolute; `None` when the package is not installed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PackagedLibraries {
+    /// `libcutensornet.so.2` as a package installed it.
+    pub cutensornet: Option<PathBuf>,
+    /// `libcudart.so.12` as a package installed it.
+    pub cuda_runtime: Option<PathBuf>,
+}
+
 /// Finds, loads and checks the native libraries a GPU run needs, today the
-/// CUDA Runtime and cuTensorNet.
+/// CUDA Runtime and cuTensorNet, as [`discover_with`] does with no packaged
+/// libraries.
 ///
 /// It selects no device, allocates nothing and runs no GPU work. Each
 /// library has an override variable, today `QDK_CUDART_LIBRARY` and
@@ -96,27 +127,50 @@ impl fmt::Debug for Availability {
 /// lacks required functions, a version probe fails, or a version is not the
 /// audited one. Its report lists every fault of every library.
 pub fn discover() -> Result<Availability, AvailabilityError> {
-    discover_on_this_platform()
+    discover_with(&PackagedLibraries::default())
+}
+
+/// Finds, loads and checks the native libraries a GPU run needs, trying for
+/// each library its override, alone, when set; or else its path in
+/// `packaged`, then its default paths (README, "Where the libraries are
+/// looked for"). So a user who installed NVIDIA's wheels in a Python
+/// environment needs no `LD_LIBRARY_PATH`, and a set override still
+/// decides.
+///
+/// # Errors
+///
+/// As [`discover`].
+pub fn discover_with(packaged: &PackagedLibraries) -> Result<Availability, AvailabilityError> {
+    discover_on_this_platform(packaged)
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn discover_on_this_platform() -> Result<Availability, AvailabilityError> {
-    discover_from(std::env::var_os)
+fn discover_on_this_platform(
+    packaged: &PackagedLibraries,
+) -> Result<Availability, AvailabilityError> {
+    discover_from(std::env::var_os, packaged)
 }
 
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-fn discover_on_this_platform() -> Result<Availability, AvailabilityError> {
+fn discover_on_this_platform(
+    _packaged: &PackagedLibraries,
+) -> Result<Availability, AvailabilityError> {
     Err(AvailabilityError::UnsupportedPlatform {
         platform: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
     })
 }
 
-/// Discovery, with the override variables read by `read_variable`.
+/// Discovery, with the override variables read by `read_variable` and the
+/// packaged libraries `packaged`.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn discover_from(
     read_variable: impl Fn(&'static str) -> Option<OsString>,
+    packaged: &PackagedLibraries,
 ) -> Result<Availability, AvailabilityError> {
-    availability_of(InstalledLibraries(read_variable))
+    availability_of(InstalledLibraries {
+        read_variable,
+        packaged,
+    })
 }
 
 /// Discovery, with `checker` opening and checking each library: an

@@ -64,6 +64,10 @@ pub(crate) use generated::v2_13;
 use super::loader::{FunctionTable, SymbolResolver};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use super::{NativeLibrary, ProbedVersions, cuda_runtime};
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use crate::{LibraryReport, PackagedLibraries, diagnosis::or_unread};
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use std::path::Path;
 
 /// cuTensorNet.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
@@ -90,7 +94,12 @@ impl NativeLibrary for CuTensorNet {
         "/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2",
         "libcutensornet.so.2",
     ];
+    const INSTALL: &'static str = "cuTensorNet 2.13";
     type Functions = CuTensorNetFunctions;
+
+    fn packaged(packaged: &PackagedLibraries) -> Option<&Path> {
+        packaged.cutensornet.as_deref()
+    }
 
     /// Reads cuTensorNet's version, which must be 2.13.0, and the CUDA
     /// Runtime's it was built against, which must be 12.9. Neither call can
@@ -113,6 +122,31 @@ impl NativeLibrary for CuTensorNet {
         );
         probed
     }
+
+    /// Its path and version, and the CUDA Runtime it was built for.
+    fn describe(report: &LibraryReport) -> Vec<String> {
+        vec![format!(
+            "cuTensorNet: {} ({}, built for CUDA Runtime {})",
+            or_unread(report.path.as_ref().map(|path| path.display())),
+            or_unread(report.version("cuTensorNet").map(cutensornet_version)),
+            or_unread(
+                report
+                    .version("cuTensorNet's CUDA Runtime")
+                    .map(cuda_runtime::cuda_version)
+            ),
+        )]
+    }
+}
+
+/// cuTensorNet's `10000·major + 100·minor + patch` as `major.minor.patch`.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+fn cutensornet_version(version: i128) -> String {
+    format!(
+        "{}.{}.{}",
+        version / 10_000,
+        version / 100 % 100,
+        version % 100
+    )
 }
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]

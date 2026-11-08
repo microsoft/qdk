@@ -32,6 +32,16 @@ pub struct LibraryReport {
     pub versions: Vec<Version>,
     /// Every fault found, in the order found; empty when it is usable.
     pub faults: Vec<LibraryFault>,
+    /// Other copies of the library the setup makes visible, not loaded: a
+    /// wheel's beside an override or a system install, say. Two copies may
+    /// be of different versions, and a dependency of the one loaded may be
+    /// found beside the other, so the setup check warns of them. Empty when
+    /// it was not loaded.
+    pub other_copies: Vec<PathBuf>,
+    /// Whether it was loaded from the path its override variable names, so
+    /// that the setup check's warning of another copy says to unset the
+    /// variable rather than set it. `false` when it was not loaded.
+    pub loaded_from_override: bool,
 }
 
 impl LibraryReport {

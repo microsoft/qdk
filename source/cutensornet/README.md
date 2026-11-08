@@ -20,7 +20,8 @@ cuTensorNet's call order on the CPU; on an A100, the engine passes
 answers as on the CPU. The [unit tests](src/tests) drive each way discovery
 fails without NVIDIA's libraries, and
 [`tests/availability.rs`](tests/availability.rs) discovers the audited
-libraries where they are installed.
+libraries where they are installed and, with a CUDA device, finds the setup
+ready.
 
 ## The MPS engine
 
@@ -156,8 +157,9 @@ missing.
 - **One audited surface.** The functions the engine may call are the rows
   of one table per library, each checked against NVIDIA's header when the
   crate compiles ([The bindings](docs/loading.md#the-bindings)).
-- **Open to more libraries.** Each library is one module; adding one changes
-  no public type, as the report is a list with an entry per library.
+- **Open to more libraries.** Each library is one module; adding one adds
+  its packaged path to `PackagedLibraries` and changes no other public type,
+  as the report is a list with an entry per library.
 - **Explicit, no global state.** Nothing happens until `discover` is called,
   and its result is a value the caller holds, so tests and threads choose
   what they share.
@@ -217,10 +219,25 @@ and how the bindings are made and checked.
 
 An override must be an absolute path to a file, or to a symlink to one, and
 is then the only path tried, so a wrong setting fails instead of loading
-another installation. A default path is skipped when there is no file
-there; a bare file name is searched for on the system loader's usual path.
-A library that is found but fails to load, for instance for a missing
-dependency, fails discovery.
+another installation. Without one, `discover_with` first tries the library's
+path among the `PackagedLibraries` its caller found (NVIDIA's wheels in a
+Python environment, which only the Python package can locate), then the
+default paths; `discover` passes none. A default path is skipped when there
+is no file there; a bare file name is searched for on the system loader's
+usual path. A library that is found but fails to load, for instance for a
+missing dependency, fails discovery.
+
+### Diagnosis
+
+`diagnose` is the setup check, for a user setting the GPU up: it never
+fails, and its `Diagnosis` lists what was found (the libraries, other copies
+of them, the driver's CUDA version, each device) and, for the first problem
+met, what to fix. [`src/diagnosis.rs`](src/diagnosis.rs) lists what it
+reports and the order it looks for problems in, and
+[`src/devices.rs`](src/devices.rs) how it reads the devices. Its rules are
+pinned in [`src/tests/diagnosis.rs`](src/tests/diagnosis.rs),
+[`src/tests/devices.rs`](src/tests/devices.rs) and, for other copies,
+[`src/tests/libraries.rs`](src/tests/libraries.rs).
 
 ### Versions
 
@@ -237,12 +254,12 @@ component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
 What the crate requires is checked when it runs; where it has run is listed
 apart. Anything else is expected to work, but not verified.
 
-| Requirement   | Checked by                                                    | Verified on                                                                                      |
-| ------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                   | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
-| The libraries | `discover`: the exact versions of [Versions](#versions)       | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
-| A CUDA driver | not checked: its version is reported only                     | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
-| An NVIDIA GPU | `CuTensorNetEngine::new`: `EngineError::NoDevice` without one | an A100 80GB, where the engine passes `tensornet`'s conformance kit                              |
+| Requirement   | Checked by                                                                                                                          | Verified on                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                                                                                         | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
+| The libraries | `discover`: the exact versions of [Versions](#versions)                                                                             | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
+| A CUDA driver | not checked by `discover`, which reports its version; `diagnose` advises a driver for CUDA 12                                       | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
+| An NVIDIA GPU | `CuTensorNetEngine::new`: `EngineError::NoDevice` without one; `diagnose` advises a compute capability of 7.5 or later for device 0 | an A100 80GB (compute capability 8.0), where the engine passes `tensornet`'s conformance kit     |
 
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the

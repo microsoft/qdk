@@ -12,7 +12,7 @@ mod report;
 
 use crate::{Availability, AvailabilityError};
 #[cfg(unix)]
-use crate::{LibraryFault, discovery::discover_from};
+use crate::{LibraryFault, PackagedLibraries, discovery::discover_from};
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use crate::{
     LibraryReport,
@@ -57,7 +57,9 @@ fn every_library_is_checked_and_reported() {
         "QDK_CUTENSORNET_LIBRARY" => Some(OsString::from("libcutensornet.so.2")),
         _ => None,
     };
-    let Err(AvailabilityError::Unusable(report)) = discover_from(read_variable) else {
+    let Err(AvailabilityError::Unusable(report)) =
+        discover_from(read_variable, &PackagedLibraries::default())
+    else {
         panic!("neither library can be used");
     };
     let libraries: Vec<_> = report.libraries.iter().map(|l| l.library).collect();
@@ -85,6 +87,8 @@ fn usable<L: NativeLibrary>() -> Checked<L> {
         path: Some(library.path().to_path_buf()),
         versions: Vec::new(),
         faults: Vec::new(),
+        other_copies: Vec::new(),
+        loaded_from_override: false,
     };
     let functions = L::Functions::resolve(&StandInResolver::audited())
         .expect("the stand-ins resolve every name");
@@ -101,6 +105,8 @@ fn not_found<L: NativeLibrary>() -> Checked<L> {
         faults: vec![LibraryFault::NotFound {
             attempted: vec![PathBuf::from("libabsent.so")],
         }],
+        other_copies: Vec::new(),
+        loaded_from_override: false,
     };
     (report, None)
 }
