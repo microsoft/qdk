@@ -15,6 +15,7 @@
 //! [`MpsEngineError::refusal`] tells a refusal from a failure.
 
 use crate::linear_algebra::FactorizationError;
+use tensornet::sampling::TooManyValues;
 use tensornet::{MpsEngineError, Refusal};
 
 #[cfg(doc)]
@@ -58,6 +59,12 @@ pub enum CpuMpsError {
     /// for [`Self::Factorization`], and the caller must drop it.
     #[error("a truncation would take the retained weight below the smallest normal f64")]
     WeightUnderflow,
+}
+
+impl From<TooManyValues> for CpuMpsError {
+    fn from(TooManyValues { shots, sites }: TooManyValues) -> Self {
+        Self::TooManyValues { shots, sites }
+    }
 }
 
 impl MpsEngineError for CpuMpsError {

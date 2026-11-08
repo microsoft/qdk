@@ -40,14 +40,14 @@
 //! - [`split`]: splitting a block back into two sites by one SVD, the one place
 //!   where the engine truncates;
 //! - [`reads`]: probabilities, projections and expectations;
-//! - [`sampling`]: drawing samples;
-//! - here, `fork`, `shape` and `retained_weight`, which split a pending block,
-//!   then copy or read the chain.
+//! - here, `sample`, which draws by `tensornet`'s shared sampler from the
+//!   conditional probabilities of [`reads`], and `fork`, `shape` and
+//!   `retained_weight`, which split a pending block, then copy or read the
+//!   chain.
 
 mod canonical_form;
 mod gates;
 mod reads;
-pub(crate) mod sampling;
 mod split;
 
 use crate::{
@@ -57,7 +57,7 @@ use crate::{
 };
 use num_complex::Complex64;
 use std::cell::RefCell;
-use tensornet::{MpsEngine, MpsShape, PauliSum, checks};
+use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 
 /// The cutoff of [`CpuMpsEngine::default`]: a split discards the smallest
 /// singular values whose squares sum to at most this fraction of the sum of
@@ -252,12 +252,16 @@ impl MpsEngine for CpuMpsEngine {
         self.0.fork(state)
     }
 
-    /// Draws each shot's values in order, One when a uniform from the
-    /// `SplitMix64` stream (Steele, Lea and Flood, 2014) seeded with `seed` is
+    /// Draws by `tensornet`'s shared sampler,
+    /// [`sample_by_conditionals`](tensornet::sampling::sample_by_conditionals):
+    /// each shot's values in order, One when a uniform from the
+    /// `SplitMix64` stream seeded with `seed` is
     /// below P(One | the shot's earlier values). Shots that drew the same
     /// values so far share that probability, so it is computed once per
-    /// distinct prefix. A value of probability exactly zero is never drawn:
-    /// the other value's probability is then exactly one. Fails with
+    /// distinct prefix; each new nonempty prefix projects its values on a
+    /// fork, a copy of the chain, so the state is not projected. A value
+    /// of probability exactly zero is never drawn: the other value's
+    /// probability is then exactly one. Fails with
     /// [`CpuMpsError::TooManyValues`] when the values cannot be held
     /// (`shots × sites.len()` overflows a `usize`, or the allocation fails),
     /// and returns at once when there are none.
@@ -413,7 +417,9 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
         seed: u64,
     ) -> Result<Vec<bool>, CpuMpsError> {
         checks::sample(state.chain.borrow().sites.len(), sites)?;
-        self.draw_shots(state, sites, shots, seed)
+        sampling::sample_by_conditionals(sites, shots, seed, |site, given| {
+            Ok(self.conditional_probabilities(state, site, given)?[1])
+        })
     }
 
     fn expectation(

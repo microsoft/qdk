@@ -335,7 +335,7 @@ mod scale {
         let error = CpuLinearAlgebra
             .svd(a.view())
             .expect_err("values of 14 bits");
-        assert_eq!((error.factorization, error.rows, error.cols), ("SVD", 6, 4));
+        assert_eq!((error.rows, error.cols), (6, 4));
     }
 
     /// A matrix of entries up to 2^1023 (about 9e307), the 6 × 4 matrix
@@ -357,7 +357,7 @@ mod scale {
         let error = CpuLinearAlgebra
             .svd(a.view())
             .expect_err("a value above f64::MAX");
-        assert_eq!((error.factorization, error.rows, error.cols), ("SVD", 6, 4));
+        assert_eq!((error.rows, error.cols), (6, 4));
     }
 }
 
@@ -458,9 +458,6 @@ mod routes {
             Some((u, values.iter().map(|s| s * 1.01).collect(), v))
         };
         let error = checked(a.view(), trimmed_thin_svd(a.view(), &off)).expect_err("values 1% off");
-        assert_eq!(
-            (error.factorization, error.rows, error.cols),
-            ("SVD", 64, 64)
-        );
+        assert_eq!((error.rows, error.cols), (64, 64));
     }
 }

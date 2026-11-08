@@ -26,7 +26,7 @@
 //! - [`CanonicalMps`]: a state, one per shot, and [`SplitStatistics`], what
 //!   keeping it small cost.
 //! - [`CpuMpsError`]: a call the contract refuses, or one the engine failed;
-//!   [`FactorizationError`] says which factorization failed.
+//!   [`FactorizationError`] says why an SVD failed.
 //!
 //! A caller may rely on the contract, checked by its conformance kit against
 //! the exact reference, and on the rules stated on [`CpuMpsEngine`]. A gate's

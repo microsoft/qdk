@@ -69,7 +69,6 @@ impl LinearAlgebra for FailingSvds {
         }
         Err(FactorizationError {
             reason: "did not converge",
-            factorization: "SVD",
             rows: a.rows(),
             cols: a.cols(),
         })

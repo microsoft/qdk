@@ -201,21 +201,20 @@ pub(crate) struct Svd {
     pub(crate) v_adjoint: Matrix,
 }
 
-/// A factorization the engine could not compute, which fails the call
-/// that needed it ([`CpuMpsError::Factorization`]): an SVD whose rotations
-/// did not converge, or whose factors failed its accuracy checks.
+/// An SVD the engine could not compute, which fails the call that needed
+/// it ([`CpuMpsError::Factorization`]): one whose rotations did not
+/// converge, or whose factors failed its accuracy checks. The SVD is the
+/// engine's only factorization that can fail.
 ///
 /// [`CpuMpsError::Factorization`]: crate::CpuMpsError::Factorization
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("the {factorization} of a {rows} × {cols} matrix {reason}")]
+#[error("the SVD of a {rows} × {cols} matrix {reason}")]
 pub struct FactorizationError {
     /// What went wrong: `"did not converge"` when the rotations still
     /// rotated after their last sweep, or `"failed its accuracy checks"`
     /// when the factors were not finite, did not give back the matrix, or
     /// had singular vectors that are not orthonormal.
     pub reason: &'static str,
-    /// The factorization, such as "SVD".
-    pub factorization: &'static str,
     /// The matrix's rows.
     pub rows: usize,
     /// The matrix's columns.

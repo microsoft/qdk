@@ -9,7 +9,7 @@
 //! value it drew, and reads expectations, as a program with mid-circuit
 //! measurements does on every shot. These reads serve [`MpsEngine`]'s
 //! `probability_of_one`, `conditional_probability_of_one`, `project` and
-//! `expectation`, and the engine's [`sampling`](super::sampling). With the
+//! `expectation`, and the engine's `sample`. With the
 //! centre on a site, the rest of the chain drops out ([`chain`](crate::chain)),
 //! so a read of one qubit reads its site alone. The reads guarantee:
 //!

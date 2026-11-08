@@ -31,7 +31,6 @@ use crate::linear_algebra::{
 pub(crate) fn checked(a: MatrixRef<'_>, answer: Option<Svd>) -> Result<Svd, FactorizationError> {
     let error = |reason| FactorizationError {
         reason,
-        factorization: "SVD",
         rows: a.rows(),
         cols: a.cols(),
     };

@@ -151,8 +151,8 @@ fn refuses_an_svd_that_is_not_finite() {
         let answer = Some(spoiled(a.view(), factor, imaginary));
         let error = checked(a.view(), answer).expect_err("not finite");
         assert_eq!(
-            (error.factorization, error.rows, error.cols),
-            ("SVD", 5, 3),
+            (error.rows, error.cols),
+            (5, 3),
             "factor {factor}, imaginary {imaginary}"
         );
     }
@@ -172,8 +172,8 @@ fn refuses_factors_that_do_not_give_back_the_matrix() {
     assert_eq!(taken.singular_values, off_by(a.view(), 0.9).singular_values);
     let error = checked(a.view(), over).expect_err("an error over the bound");
     assert_eq!(
-        (error.reason, error.factorization, error.rows, error.cols),
-        ("failed its accuracy checks", "SVD", 5, 3)
+        (error.reason, error.rows, error.cols),
+        ("failed its accuracy checks", 5, 3)
     );
 }
 
@@ -238,8 +238,8 @@ fn refuses_singular_vectors_that_are_not_orthonormal() {
             let error = checked(a.view(), over)
                 .expect_err(&format!("{kind}: over the bound, V† {on_v_adjoint}"));
             assert_eq!(
-                (error.factorization, error.rows, error.cols),
-                ("SVD", 5, 3),
+                (error.rows, error.cols),
+                (5, 3),
                 "{kind}: V† {on_v_adjoint}"
             );
         }
@@ -254,7 +254,7 @@ fn fails_when_the_svd_reports_a_failure() {
     let a = matrix(5, 3, 7);
     let error = checked(a.view(), None).expect_err("a failure");
     assert_eq!(
-        (error.reason, error.factorization, error.rows, error.cols),
-        ("did not converge", "SVD", 5, 3)
+        (error.reason, error.rows, error.cols),
+        ("did not converge", 5, 3)
     );
 }
