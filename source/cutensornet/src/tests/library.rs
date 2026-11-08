@@ -9,12 +9,12 @@
 //! that are not shared objects, or paths and names that do not exist.
 
 use super::unique_temp_path;
-use crate::AvailabilityError;
 use crate::library::{
     CUDA_RUNTIME, CUTENSORNET, Candidates, SymbolResolver, load_library, no_file_of_that_name,
     probe_cuda_version,
     symbols::{CuTensorNetFunctions, CudaFunctions},
 };
+use crate::{AvailabilityError, PackagedLibraries};
 use std::{
     ffi::{OsString, c_char},
     fs,
@@ -196,10 +196,10 @@ fn each_library_is_overridden_by_its_own_variable() {
     let read_variable =
         |variable: &'static str| (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from(&path));
     let cudart = CUDA_RUNTIME
-        .candidates(read_variable)
+        .candidates(read_variable, &PackagedLibraries::default())
         .expect("the override names a file");
     let cutensornet = CUTENSORNET
-        .candidates(read_variable)
+        .candidates(read_variable, &PackagedLibraries::default())
         .expect("no cuTensorNet override is set");
     assert_eq!(cudart.paths, std::slice::from_ref(&path));
     assert!(!cutensornet.paths.contains(&path));
@@ -210,10 +210,10 @@ fn each_library_is_overridden_by_its_own_variable() {
 #[test]
 fn without_an_override_the_default_paths_are_tried() {
     let cudart = CUDA_RUNTIME
-        .candidates(|_| None)
+        .candidates(|_| None, &PackagedLibraries::default())
         .expect("no override is set");
     let cutensornet = CUTENSORNET
-        .candidates(|_| None)
+        .candidates(|_| None, &PackagedLibraries::default())
         .expect("no override is set");
     assert_eq!(
         cudart.paths,
@@ -230,6 +230,139 @@ fn without_an_override_the_default_paths_are_tried() {
             "libcutensornet.so.2"
         ]
         .map(PathBuf::from)
+    );
+}
+
+/// A library a Python package installed is tried before the default paths:
+/// a user who installed NVIDIA's wheels needs no `LD_LIBRARY_PATH`.
+#[test]
+fn a_packaged_library_is_tried_before_the_default_paths() {
+    let packaged = PackagedLibraries {
+        cutensornet: Some(PathBuf::from("/env/cuquantum/lib/libcutensornet.so.2")),
+        cuda_runtime: Some(PathBuf::from(
+            "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
+        )),
+    };
+    let cudart = CUDA_RUNTIME
+        .candidates(|_| None, &packaged)
+        .expect("no override is set");
+    let cutensornet = CUTENSORNET
+        .candidates(|_| None, &packaged)
+        .expect("no override is set");
+    assert_eq!(
+        cudart.paths,
+        [
+            "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
+            "/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12",
+            "libcudart.so.12"
+        ]
+        .map(PathBuf::from)
+    );
+    assert_eq!(
+        cutensornet.paths,
+        [
+            "/env/cuquantum/lib/libcutensornet.so.2",
+            "/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2",
+            "libcutensornet.so.2"
+        ]
+        .map(PathBuf::from)
+    );
+}
+
+/// A set override is still the only path tried when a package installed
+/// the library: the user's setting decides.
+#[test]
+fn an_override_is_tried_alone_even_beside_a_packaged_library() {
+    let (path, _remove) = not_a_shared_object("override-beside-packaged");
+    let read_variable =
+        |variable: &'static str| (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from(&path));
+    let packaged = PackagedLibraries {
+        cutensornet: None,
+        cuda_runtime: Some(PathBuf::from(
+            "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
+        )),
+    };
+    let cudart = CUDA_RUNTIME
+        .candidates(read_variable, &packaged)
+        .expect("the override names a file");
+    assert_eq!(cudart.paths, std::slice::from_ref(&path));
+}
+
+/// The other copies `library` reports beside `loaded`, among the test's
+/// own files (a host's system copies, if any, left out).
+fn other_test_copies(
+    library: &'static crate::library::NativeLibrary,
+    loaded: &Path,
+    read_variable: impl Fn(&'static str) -> Option<OsString>,
+    packaged: &PackagedLibraries,
+) -> Vec<PathBuf> {
+    let temporary = unique_temp_path("");
+    let directory = temporary
+        .parent()
+        .expect("a temporary file has a directory");
+    library
+        .other_copies(loaded, read_variable, packaged)
+        .into_iter()
+        .filter(|path| path.starts_with(directory))
+        .collect()
+}
+
+/// A user who overrides the CUDA Runtime while a wheel's copy is installed
+/// is told of the wheel's copy; loaded from the wheel, with no override,
+/// there is no other copy; and cuTensorNet does not report the CUDA
+/// Runtime's wheel.
+#[test]
+fn a_wheels_copy_beside_an_override_is_another_copy() {
+    let (loaded, _remove_loaded) = not_a_shared_object("loaded-copy");
+    let (wheel, _remove_wheel) = not_a_shared_object("wheel-copy");
+    let read_variable = |variable: &'static str| {
+        (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from(&loaded))
+    };
+    let packaged = PackagedLibraries {
+        cutensornet: None,
+        cuda_runtime: Some(wheel.clone()),
+    };
+    assert_eq!(
+        other_test_copies(&CUDA_RUNTIME, &loaded, read_variable, &packaged),
+        vec![wheel.clone()]
+    );
+    assert!(other_test_copies(&CUDA_RUNTIME, &wheel, |_| None, &packaged).is_empty());
+    assert!(other_test_copies(&CUTENSORNET, &loaded, |_| None, &packaged).is_empty());
+}
+
+/// A link to the loaded file is no other copy, nor is the file a link
+/// loaded names; and one file named twice (by the override and by a link)
+/// is reported once.
+#[test]
+fn a_link_to_a_copy_is_that_copy() {
+    let (loaded, _remove_loaded) = not_a_shared_object("loaded-linked");
+    let (other, _remove_other) = not_a_shared_object("other-linked");
+    let link_to_loaded = unique_temp_path("link-to-loaded");
+    let link_to_other = unique_temp_path("link-to-other");
+    std::os::unix::fs::symlink(&loaded, &link_to_loaded).expect("a link is made");
+    let _remove_link_to_loaded = RemoveFile(link_to_loaded.clone());
+    std::os::unix::fs::symlink(&other, &link_to_other).expect("a link is made");
+    let _remove_link_to_other = RemoveFile(link_to_other.clone());
+    let packaged = |path: &PathBuf| PackagedLibraries {
+        cutensornet: None,
+        cuda_runtime: Some(path.clone()),
+    };
+    assert!(
+        other_test_copies(&CUDA_RUNTIME, &loaded, |_| None, &packaged(&link_to_loaded)).is_empty()
+    );
+    assert!(
+        other_test_copies(&CUDA_RUNTIME, &link_to_loaded, |_| None, &packaged(&loaded)).is_empty()
+    );
+    let read_variable =
+        |variable: &'static str| (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from(&other));
+    assert_eq!(
+        other_test_copies(
+            &CUDA_RUNTIME,
+            &loaded,
+            read_variable,
+            &packaged(&link_to_other)
+        ),
+        vec![other.clone()]
     );
 }
 

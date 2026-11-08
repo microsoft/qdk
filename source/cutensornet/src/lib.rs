@@ -25,6 +25,11 @@
 //!   when a read needs it, and refuses a call that breaks the contract as
 //!   every engine does ([`EngineError`]).
 //!
+//! A user setting the GPU up reads [`diagnose`]'s [`Diagnosis`]: what was
+//! found, whether an engine runs on the device, and what to fix. A Python
+//! environment's NVIDIA wheels are found by the caller and passed to
+//! [`discover_with`] ([`PackagedLibraries`]).
+//!
 //! The crate's `README.md` shows the steps of discovery and the error each
 //! one can return, and how the engine calls cuTensorNet.
 
@@ -33,6 +38,15 @@
     reason = "the generated cuTensorNet bindings and the audited CUDA Runtime ones sit side by side under bindings/"
 )]
 mod bindings;
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(
+        dead_code,
+        reason = "off Linux x86-64 no CUDA Runtime reads the devices; the rules stay compiled so their host tests run"
+    )
+)]
+mod devices;
+mod diagnosis;
 #[cfg_attr(
     not(all(target_os = "linux", target_arch = "x86_64")),
     allow(
@@ -56,6 +70,8 @@ mod tests;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 mod version;
 
+pub use devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
+pub use diagnosis::{Diagnosis, diagnose};
 pub use engine::{CuTensorNetEngine, CuTensorNetState, EngineError};
 pub use error::AvailabilityError;
 
@@ -81,6 +97,13 @@ pub struct AvailabilityReport {
     /// The CUDA driver's version (`cudaDriverGetVersion`), for diagnostics
     /// only.
     pub cuda_driver_version: i32,
+    /// Other copies of cuTensorNet the setup makes visible, not loaded: a
+    /// wheel's beside an override or a system install, say. Two copies may
+    /// be of different versions, and a dependency of the one loaded may be
+    /// found beside the other, so the setup check warns of them.
+    pub other_cutensornet_copies: Vec<PathBuf>,
+    /// Other copies of the CUDA Runtime the setup makes visible, not loaded.
+    pub other_cuda_runtime_copies: Vec<PathBuf>,
 }
 
 /// The loaded and checked libraries, with their [`AvailabilityReport`].
@@ -103,6 +126,18 @@ impl Availability {
     #[must_use]
     pub fn report(&self) -> &AvailabilityReport {
         &self.report
+    }
+
+    /// Every CUDA device, with its compute capability and memory, in
+    /// ordinal order: what the setup check reports.
+    ///
+    /// # Errors
+    ///
+    /// When the CUDA Runtime fails to count or read the devices (with no
+    /// device or no driver, say).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn devices(&self) -> Result<Vec<DeviceReport>, EngineError> {
+        devices::device_reports(self.libraries.as_ref())
     }
 
     /// An MPS engine on CUDA device 0. A split discards at most 1e-14 of
@@ -131,7 +166,21 @@ impl fmt::Debug for Availability {
     }
 }
 
-/// Finds, loads and checks the CUDA Runtime and cuTensorNet.
+/// Where Python packages installed the two libraries, for [`discover_with`]:
+/// NVIDIA's wheels (`cutensornet-cu12`, `nvidia-cuda-runtime-cu12`) put them
+/// inside a Python environment, where only the QDK's Python package, which
+/// reads the environment's installed distributions, can find them. A path
+/// is absolute; `None` when the package is not installed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PackagedLibraries {
+    /// `libcutensornet.so.2` as a package installed it.
+    pub cutensornet: Option<PathBuf>,
+    /// `libcudart.so.12` as a package installed it.
+    pub cuda_runtime: Option<PathBuf>,
+}
+
+/// Finds, loads and checks the CUDA Runtime and cuTensorNet, as
+/// [`discover_with`] does with no packaged libraries.
 ///
 /// It selects no device, allocates nothing and runs no GPU work.
 /// `QDK_CUTENSORNET_LIBRARY` and `QDK_CUDART_LIBRARY`, when set, name the
@@ -146,16 +195,33 @@ impl fmt::Debug for Availability {
 /// when a version probe fails; or when a version is not the audited one.
 /// Each case is an [`AvailabilityError`] variant.
 pub fn discover() -> Result<Availability, AvailabilityError> {
-    discover_on_this_platform()
+    discover_with(&PackagedLibraries::default())
+}
+
+/// Finds, loads and checks the CUDA Runtime and cuTensorNet, trying for each
+/// library its override, alone, when set; or else its path in `packaged`,
+/// then the default paths (README, "Where the libraries are looked for").
+/// So a user who installed NVIDIA's wheels in a Python environment needs no
+/// `LD_LIBRARY_PATH`, and a set override still decides.
+///
+/// # Errors
+///
+/// As [`discover`].
+pub fn discover_with(packaged: &PackagedLibraries) -> Result<Availability, AvailabilityError> {
+    discover_on_this_platform(packaged)
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn discover_on_this_platform() -> Result<Availability, AvailabilityError> {
-    library::discover(std::env::var_os)
+fn discover_on_this_platform(
+    packaged: &PackagedLibraries,
+) -> Result<Availability, AvailabilityError> {
+    library::discover(std::env::var_os, packaged)
 }
 
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-fn discover_on_this_platform() -> Result<Availability, AvailabilityError> {
+fn discover_on_this_platform(
+    _packaged: &PackagedLibraries,
+) -> Result<Availability, AvailabilityError> {
     Err(AvailabilityError::UnsupportedPlatform {
         platform: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
     })

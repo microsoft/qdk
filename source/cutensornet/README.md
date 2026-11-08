@@ -130,11 +130,31 @@ of the process.
 
 An override must be an absolute path to a file, or to a symlink to one.
 When set, it is the only path tried, so a wrong setting fails instead of
-loading another installation. A default absolute path that does not exist is
+loading another installation. Without one, `discover_with` first tries the
+library's path among the `PackagedLibraries` its caller found (NVIDIA's
+wheels in a Python environment, which only the Python package can locate),
+then the default paths; `discover` passes none. A default absolute path that does not exist is
 skipped; a bare file name is searched for by the system loader on its usual
 search path, and skipped when the loader finds no file of that name. A
 library that is found but fails to load, for instance because a library it
 needs is missing, fails discovery.
+
+### Diagnosis
+
+`diagnose` is the setup check, for a user setting the GPU up: it never
+fails, and its `Diagnosis` lists the libraries loaded with their versions,
+any other copy of them the setup makes visible (a warning: a wheel's copy
+beside an override or a system install), the CUDA version the driver
+supports, each device's compute capability and free and total memory
+(`DeviceReport`, read with `cudaGetDeviceCount`, `cudaSetDevice`,
+`cudaDeviceGetAttribute` and `cudaMemGetInfo`), whether an MPS engine ran
+one gate on device 0, and for the first problem met, what to fix: the
+install, an override variable, a driver for CUDA 12 (NVIDIA's floor,
+525.60.13; the QDK adds none), a device of compute capability 7.5 or later
+for device 0, or the driver and device (`nvidia-smi`). Its rules are pinned
+in [`src/tests/diagnosis.rs`](src/tests/diagnosis.rs),
+[`src/tests/devices.rs`](src/tests/devices.rs) and, for other copies,
+[`src/tests/library.rs`](src/tests/library.rs).
 
 ### Versions
 

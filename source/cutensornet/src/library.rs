@@ -16,7 +16,7 @@
 //! cuTensorNet and the CUDA Runtime through it.
 
 use crate::{
-    Availability, AvailabilityError, AvailabilityReport, bindings::cudart_12,
+    Availability, AvailabilityError, AvailabilityReport, PackagedLibraries, bindings::cudart_12,
     validate_override_path, version::check_versions,
 };
 use libloading::{Library, os::unix as unix_library};
@@ -33,19 +33,22 @@ pub(super) mod symbols;
 use symbols::{CuTensorNetFunctions, CudaFunctions};
 
 /// One of the two libraries discovery loads: the name its errors give it,
-/// the variable that overrides its path, and the paths tried otherwise.
+/// the variable that overrides its path, its path among the packaged
+/// libraries, and the paths tried otherwise.
 ///
 /// Each library has one, so that no step can read one library's variable,
 /// or try its paths, for the other.
 pub(super) struct NativeLibrary {
     pub(super) name: &'static str,
     variable: &'static str,
+    packaged: fn(&PackagedLibraries) -> Option<&Path>,
     defaults: &'static [&'static str],
 }
 
 pub(super) static CUTENSORNET: NativeLibrary = NativeLibrary {
     name: "cuTensorNet",
     variable: "QDK_CUTENSORNET_LIBRARY",
+    packaged: |packaged| packaged.cutensornet.as_deref(),
     defaults: &[
         "/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2",
         "libcutensornet.so.2",
@@ -55,6 +58,7 @@ pub(super) static CUTENSORNET: NativeLibrary = NativeLibrary {
 pub(super) static CUDA_RUNTIME: NativeLibrary = NativeLibrary {
     name: "CUDA Runtime",
     variable: "QDK_CUDART_LIBRARY",
+    packaged: |packaged| packaged.cuda_runtime.as_deref(),
     defaults: &[
         "/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12",
         "libcudart.so.12",
@@ -69,19 +73,59 @@ pub(super) struct Candidates {
 
 impl NativeLibrary {
     /// The override that `read_variable` gives for this library's variable,
-    /// alone, or else the default paths.
+    /// alone; or else its path in `packaged`, if any, then the default
+    /// paths.
     pub(super) fn candidates(
         &'static self,
         read_variable: impl Fn(&'static str) -> Option<OsString>,
+        packaged: &PackagedLibraries,
     ) -> Result<Candidates, AvailabilityError> {
         let paths = match validate_override_path(self.variable, read_variable(self.variable))? {
             Some(path) => vec![path],
-            None => self.defaults.iter().map(PathBuf::from).collect(),
+            None => (self.packaged)(packaged)
+                .into_iter()
+                .map(Path::to_path_buf)
+                .chain(self.defaults.iter().map(PathBuf::from))
+                .collect(),
         };
         Ok(Candidates {
             library: self,
             paths,
         })
+    }
+
+    /// The other copies of this library the setup makes visible beside
+    /// `loaded`: the files among its override, its path in `packaged` and
+    /// its default absolute paths that exist and are not `loaded` (links
+    /// followed), each once, in that order. A bare file name the system
+    /// loader searches for is not looked at.
+    pub(super) fn other_copies(
+        &self,
+        loaded: &Path,
+        read_variable: impl Fn(&'static str) -> Option<OsString>,
+        packaged: &PackagedLibraries,
+    ) -> Vec<PathBuf> {
+        let loaded = loaded.canonicalize().ok();
+        let mut seen = Vec::new();
+        let mut copies = Vec::new();
+        let candidates = read_variable(self.variable)
+            .map(PathBuf::from)
+            .into_iter()
+            .chain((self.packaged)(packaged).map(Path::to_path_buf))
+            .chain(self.defaults.iter().map(PathBuf::from));
+        for path in candidates {
+            if !path.is_absolute() || !path.is_file() {
+                continue;
+            }
+            let Ok(real) = path.canonicalize() else {
+                continue;
+            };
+            if loaded.as_ref() != Some(&real) && !seen.contains(&real) {
+                seen.push(real);
+                copies.push(path);
+            }
+        }
+        copies
     }
 }
 
@@ -131,9 +175,10 @@ impl SymbolResolver for LoadedLibrary {
 
 pub(crate) fn discover(
     read_variable: impl Fn(&'static str) -> Option<OsString>,
+    packaged: &PackagedLibraries,
 ) -> Result<Availability, AvailabilityError> {
-    let cudart_candidates = CUDA_RUNTIME.candidates(&read_variable)?;
-    let cutensornet_candidates = CUTENSORNET.candidates(&read_variable)?;
+    let cudart_candidates = CUDA_RUNTIME.candidates(&read_variable, packaged)?;
+    let cutensornet_candidates = CUTENSORNET.candidates(&read_variable, packaged)?;
 
     let cudart = load_library(cudart_candidates)?;
     let cuda_functions = CudaFunctions::resolve(&cudart, &cudart.path)?;
@@ -163,6 +208,16 @@ pub(crate) fn discover(
         cutensornet_cuda_runtime_version,
         cuda_runtime_version,
         cuda_driver_version,
+        other_cutensornet_copies: CUTENSORNET.other_copies(
+            &cutensornet.path,
+            &read_variable,
+            packaged,
+        ),
+        other_cuda_runtime_copies: CUDA_RUNTIME.other_copies(
+            &cudart.path,
+            &read_variable,
+            packaged,
+        ),
     };
     check_versions(&report)?;
     Ok(Availability {

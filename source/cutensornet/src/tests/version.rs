@@ -16,6 +16,8 @@ fn audited() -> AvailabilityReport {
         cutensornet_cuda_runtime_version: 12_090,
         cuda_runtime_version: 12_090,
         cuda_driver_version: 12_090,
+        other_cutensornet_copies: Vec::new(),
+        other_cuda_runtime_copies: Vec::new(),
     }
 }
 

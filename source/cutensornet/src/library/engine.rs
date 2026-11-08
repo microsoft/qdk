@@ -3,7 +3,8 @@
 
 //! The engine's native calls on the loaded libraries: `SessionCalls`,
 //! `MemoryCalls` and `StateCalls`, implemented for
-//! `LoadedLibraries` through the function tables discovery looked up.
+//! `LoadedLibraries` through the function tables discovery looked up; and
+//! the setup check's `DeviceCalls`.
 //!
 //! It is the only code that calls cuTensorNet and the CUDA Runtime, so it is
 //! where every foreign-function obligation is kept: each `unsafe` call says
@@ -18,6 +19,7 @@
 
 use super::LoadedLibraries;
 use crate::bindings::{cudart_12, v2_13};
+use crate::devices::DeviceCalls;
 use crate::engine::{
     Complex64Abi, EngineError, MemoryCalls, MpsLayout, NativeCapacity, OpaqueHandle, SessionCalls,
     StateCalls, StateF64Configuration, StateU32Configuration, Stream,
@@ -155,6 +157,38 @@ impl SessionCalls for LoadedLibraries {
         // children.
         let status = unsafe { (self.cutensornet_functions.destroy)(handle.as_ptr()) };
         self.check_cutensornet("cutensornetDestroy", status)
+    }
+}
+
+impl DeviceCalls for LoadedLibraries {
+    fn device_count(&self) -> Result<i32, EngineError> {
+        SessionCalls::device_count(self)
+    }
+
+    fn set_device(&self, ordinal: i32) -> Result<(), EngineError> {
+        SessionCalls::set_device(self, ordinal)
+    }
+
+    fn compute_capability(&self, ordinal: i32) -> Result<(i32, i32), EngineError> {
+        let attribute = |attribute| -> Result<i32, EngineError> {
+            let mut value = 0;
+            // SAFETY: `value` is a valid writable `int` out-pointer, the
+            // attribute is one of the header's, and `ordinal` is below the
+            // device count the caller read.
+            let status = unsafe {
+                (self.cuda_functions.device_get_attribute)(&raw mut value, attribute, ordinal)
+            };
+            self.check_cuda("cudaDeviceGetAttribute", status)?;
+            Ok(value)
+        };
+        Ok((
+            attribute(cudart_12::CUDA_DEV_ATTR_COMPUTE_CAPABILITY_MAJOR)?,
+            attribute(cudart_12::CUDA_DEV_ATTR_COMPUTE_CAPABILITY_MINOR)?,
+        ))
+    }
+
+    fn memory_info(&self) -> Result<(usize, usize), EngineError> {
+        MemoryCalls::memory_info(self)
     }
 }
 

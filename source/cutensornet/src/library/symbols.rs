@@ -88,10 +88,6 @@ macro_rules! function_table {
 
 function_table! {
     /// Every CUDA Runtime function the loader looks up.
-    #[expect(
-        dead_code,
-        reason = "the setup check, added later, calls device_get_attribute"
-    )]
     struct CudaFunctions in CUDA_RUNTIME, declared in cudart_12 {
         required runtime_get_version: cudart_12::CudaRuntimeGetVersionFn = cudaRuntimeGetVersion,
         required driver_get_version: cudart_12::CudaDriverGetVersionFn = cudaDriverGetVersion,

@@ -16,7 +16,7 @@
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 #[allow(
     dead_code,
-    reason = "off Linux x86-64 the bindings serve the loader's tests only; the setup check, added later, reads the device attributes"
+    reason = "off Linux x86-64 the bindings serve the loader's tests only"
 )]
 pub(crate) mod cudart_12;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]

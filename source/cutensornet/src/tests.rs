@@ -9,6 +9,8 @@
 //! double of cuTensorNet (`src/engine/double.rs`). The loader compiles for its
 //! tests on any Unix host, so they run off Linux x86-64 too.
 
+mod devices;
+mod diagnosis;
 mod discovery;
 mod engine;
 #[cfg(unix)]
