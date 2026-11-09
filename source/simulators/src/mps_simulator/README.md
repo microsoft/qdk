@@ -182,7 +182,9 @@ in [the design notes](design.md#the-calls-of-each-phase).
 The public types, each linked to the file that says how it works:
 
 - [`MpsResumer`](resumer.rs): the resumer, its settings
-  (`with_max_bond_dimension`, `with_gate_fusion`).
+  (`with_max_bond_dimension`, `with_gate_fusion`, and `with_stop`, a flag
+  that stops a run between batches, for a user's interrupt: a program that
+  is one batch (Base profile) runs all its gates before the flag is read).
 - [`GateFusion`](resumer/rewrites/fusion.rs): `Pairs` (the default) or
   `Unfused`.
 - [`MpsRunReport`, `TruncationWarning`](resumer/report.rs): the

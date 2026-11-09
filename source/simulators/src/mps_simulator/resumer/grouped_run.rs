@@ -25,10 +25,13 @@
 //!
 //! **Failures.** `fail` keeps the failure of the first shot in the order of
 //! the shots; since a group's shots keep that order, `run` drops unrun a
-//! waiting group whose first shot comes after it.
+//! waiting group whose first shot comes after it. A run may also be stopped
+//! (`MpsResumer::with_stop`): `run_group` reads the flag before each batch,
+//! and no shot failed then: the shot named is the first that had not ended.
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::OutputRecord;
 use crate::qir::{
@@ -59,6 +62,8 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
     /// needs no state.
     capacity: Option<MpsShape>,
     fusion: GateFusion,
+    /// The flag that stops the run, if any.
+    stop: Option<&'r AtomicBool>,
     report: &'r mut MpsRunReport,
     /// The groups split off that wait their turn, the last to run next.
     waiting: Vec<Group<E::State>>,
@@ -122,11 +127,19 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             layout: QubitOrder::for_program(program),
             capacity,
             fusion,
+            stop: None,
             report,
             waiting,
             records: vec![None; shots.len()],
             failure: None,
         })
+    }
+
+    /// The run stopping once `stop` is set
+    /// ([`MpsResumer::with_stop`]).
+    pub(super) fn with_stop(mut self, stop: Option<&'r AtomicBool>) -> Self {
+        self.stop = stop;
+        self
     }
 
     /// Runs the groups one at a time, the last split off first, until none
@@ -189,6 +202,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         group: &mut Group<E::State>,
     ) -> Result<Vec<OutputRecord>, GroupFailure<E::Error>> {
         loop {
+            self.check_stop()?;
             while let Some(step) = group.steps.get(group.next).cloned() {
                 group.next += 1;
                 self.run_step(&step, group)?;
@@ -210,6 +224,14 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 }
             }
         }
+    }
+
+    /// Fails with [`MpsResumerError::Stopped`] once the stop flag is set.
+    fn check_stop(&self) -> Result<(), GroupFailure<E::Error>> {
+        if self.stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+            return Err(GroupFailure::Resumer(MpsResumerError::Stopped));
+        }
+        Ok(())
     }
 
     /// Runs `step` on `group`: an operator is applied, a measurement or a

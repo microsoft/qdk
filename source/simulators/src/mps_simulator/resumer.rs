@@ -16,6 +16,8 @@
 //! settings.
 
 use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::OutputRecord;
 use crate::qir::{QirMachine, QirResumeError, QirResumer, QirShotId};
@@ -58,6 +60,7 @@ pub struct MpsResumer<E: MpsEngine> {
     seed: u64,
     max_bond_dimension: NonZeroUsize,
     fusion: GateFusion,
+    stop: Option<Arc<AtomicBool>>,
     last_run: MpsRunReport,
 }
 
@@ -77,6 +80,7 @@ impl<E: MpsEngine> MpsResumer<E> {
             seed,
             max_bond_dimension: DEFAULT_MAX_BOND_DIMENSION,
             fusion: GateFusion::default(),
+            stop: None,
             last_run: MpsRunReport::new(DEFAULT_MAX_BOND_DIMENSION.get()),
         }
     }
@@ -87,6 +91,20 @@ impl<E: MpsEngine> MpsResumer<E> {
     #[must_use]
     pub fn with_max_bond_dimension(mut self, max_bond_dimension: NonZeroUsize) -> Self {
         self.max_bond_dimension = max_bond_dimension;
+        self
+    }
+
+    /// The resumer stopping its runs once `stop` is set: a user who
+    /// interrupts a run of hours (Ctrl-C from Python, say) gets it back
+    /// between batches, its states freed. The flag is read before each
+    /// batch a group runs, and before a group split off by a draw runs on,
+    /// so a program that is one batch (Base profile) runs all the gates of
+    /// the group under way before the flag is read. Once it is set, the run
+    /// fails with [`MpsResumerError::Stopped`], naming the first shot that
+    /// had not ended. Whoever sets it clears it before the next run.
+    #[must_use]
+    pub fn with_stop(mut self, stop: Arc<AtomicBool>) -> Self {
+        self.stop = Some(stop);
         self
     }
 
@@ -147,6 +165,7 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
             self.fusion,
             &mut self.last_run,
         )?
+        .with_stop(self.stop.as_deref())
         .run()
     }
 }
