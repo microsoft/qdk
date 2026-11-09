@@ -358,7 +358,7 @@ impl BinaryOpExpr {
 
                 match lhs_ty {
                     Type::UInt(Some(size), _) => rewrap_lit!(lhs, Int(lhs), {
-                        let mask = (1 << size) - 1;
+                        let mask = 1_i64.checked_shl(*size).unwrap_or(0).wrapping_sub(1);
                         Int((overflowing_shl(lhs, rhs)) & mask)
                     }),
                     Type::UInt(..) => {
