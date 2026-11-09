@@ -4,6 +4,7 @@
 mod correlated_noise;
 pub(crate) mod cpu_simulators;
 pub(crate) mod gpu_full_state;
+pub(crate) mod tensor_network;
 
 use std::fmt::{Display, Write};
 

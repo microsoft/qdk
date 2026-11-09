@@ -19,6 +19,10 @@ qsc = { path = "../compiler/qsc" }
 qdk_openqasm = { path = "../qdk_openqasm" }
 stim_compiler = { path = "../compiler/stim_compiler" }
 qdk_simulators = { path = "../simulators", features = ["gpu"] }
+qdk_cutensornet = { path = "../cutensornet" }
+# The exact reference engine, which the package's tests run the MPS method on
+# where there is no GPU (`tensornetwork_qir`'s private `engine="reference"`).
+tensornet = { path = "../tensornet", features = ["conformance"] }
 resource_estimator = { path = "../resource_estimator" }
 qre = { path = "../qre" }
 miette = { workspace = true, features = ["fancy"] }

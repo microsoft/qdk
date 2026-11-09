@@ -22,6 +22,11 @@ This module exposes the core building blocks for noise-aware quantum simulation:
 - :func:`~qdk.simulation.run_qir` — simulates QIR as given in one of
   three backend simulators: clifford, gpu or cpu.
 
+- :func:`~qdk.simulation.tensornetwork_qir` — simulates QIR with a
+  tensor-network method: shots on a matrix product state on an NVIDIA GPU
+  (``pip install "qdk[tensornetwork]"``), with the run's report;
+  :func:`~qdk.simulation.check_tensornetwork_setup` checks the GPU setup.
+
 - :class:`~qdk.simulation.DensityMatrixSimulator` — an experimental simulator that uses
   a density-matrix to track its state.
 
@@ -31,6 +36,15 @@ This module exposes the core building blocks for noise-aware quantum simulation:
 
 from .._device._atom import NeutralAtomDevice
 from ._simulation import NoiseConfig, LossPolicy, run_qir
+from ._tensor_network import (
+    MpsOptions,
+    Sample,
+    TensorNetworkSetup,
+    TensorNetworkReport,
+    TensorNetworkResults,
+    check_tensornetwork_setup,
+    tensornetwork_qir,
+)
 from ._noisy_simulator import (
     NoisySimulatorError,
     DensityMatrixSimulator,
@@ -46,6 +60,13 @@ __all__ = [
     "NoiseConfig",
     "LossPolicy",
     "run_qir",
+    "tensornetwork_qir",
+    "check_tensornetwork_setup",
+    "Sample",
+    "MpsOptions",
+    "TensorNetworkResults",
+    "TensorNetworkReport",
+    "TensorNetworkSetup",
     "NoisySimulatorError",
     "Operation",
     "Instrument",
