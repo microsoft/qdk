@@ -9,19 +9,19 @@ We define a universal interface between 2 components of a quantum system.
 * These names are only in context of this interface, the same component can be Driver
     relative to one component, and backend for other.
 * Examples:
-    * QIR runner is a Driver which performs all classical instructions and sends 
-        instructions from QIR ISA to Backend.
+    * The adaptive bytecode runner is a Driver which performs classical instructions
+        and sends quantum instructions to Backend.
     * A simulator can implement Backend.
     * A profiler can implement Backend. Profiler is similar to simulator, but it doesn't
        maintain wavefunction. Instead, it tracks calls and after execution reports
        resource estimates for program (runtime, physical qubits).
     * Qodec is a Driver relative to some Backend (which can be real quantum computer, profiler or simulator).
-    * Qodec is a Backend relative to QIR runner.
+    * Qodec is a Backend relative to the bytecode runner.
     * Qodec can be composed of multiple qodecs connected via Driver-Backend interface.
     * Real quantum computer can implement Backend.
     * We might insert networking layer in place of Backend-Driver interface. For example:
        * We have a client on local machine. It implements Backend interface. 
-       * We have QIR runner running on local machine, using the client as its Backend.
+       * We have a bytecode runner running on the local machine, using the client as its Backend.
        * We have a real quantum engine running on remote machine, implementing Backend Interface.
        * We have a server running on remote machine, using real quantum engine as its Backend.
        * Server and client talk to each other over HTTP.
@@ -30,24 +30,25 @@ We define a universal interface between 2 components of a quantum system.
 
 The driver passes ordered slices of instructions to the backend. Batching avoids the
 per-instruction synchronization and allocation costs of communicating through channels.
-The QIR runner accumulates instructions until it reaches either:
+The runners accumulate instructions until they reach either:
 
-* A `read_result` instruction, which is always the last instruction in its batch.
+* A result-producing instruction (`read_result`, `mz`, or `mz_reset`), which is
+  always the last instruction in its batch.
 * The configured maximum batch size. The default is 10,000 instructions.
 
 Backends execute instructions in order and return exactly one result for each
-named `read_result` instruction, in the same order. Reads can occur anywhere in a
+`read_result`, `mz`, or `mz_reset` instruction, in the same order. Reads can occur anywhere in a
 batch, and a batch can contain multiple reads.
 
-The QIR runner continues to submit batches with at most one `read_result`, always
-as the final instruction. It validates backend responses as follows:
-* A batch ending in `read_result` must return exactly one `QuantumBackendResult::Zero`
+The runners submit batches with at most one result-producing instruction, always
+as the final instruction. They validate backend responses as follows:
+* A batch ending in a result-producing instruction must return exactly one `QuantumBackendResult::Zero`
   or `QuantumBackendResult::One`.
 * A batch without `read_result` must return an empty result list.
 * A `QuantumBackendResult::Error` fails execution; unexpected or extra results are rejected.
 
 `BatchResult.results` is an ordered `SmallVec<[QuantumBackendResult; 1]>`. It supports
-arbitrary-length result lists, but keeps the QIR runner's zero-or-one-result case
+arbitrary-length result lists, but keeps the runners' zero-or-one-result case
 inline without heap allocation. Larger lists allocate only when the inline capacity
 is exceeded. `smallvec` avoids requiring a default result value, unlike `tinyvec`.
 Backends can use `QuantumBackendResult::from(bool)` (or `.into()`) to convert
@@ -66,7 +67,7 @@ trait QuantumBackend {
 `execute_batch` returns the requested results synchronously. The temporal profiler may
 leave result-free instructions pending, while preserving their dependency order.
 The driver reuses its instruction buffer across calls.
-Backend failures are returned as `Err(String)` and propagated by adapters and the QIR runner.
+Backend failures are returned as `Err(String)` and propagated by adapters and the runners.
 
 `QuantumBackends::sparse_sim()` creates a sparse simulator wrapped in
 `QsBackendShim`, supporting all QEP instructions. Qubits are allocated lazily;
@@ -90,7 +91,7 @@ synthesis is not yet implemented. Non-rotation instructions and backend results
 pass through unchanged.
 
 `QuantumBackendInstruction` directly stores the instruction name and a unified
-operand list in `classical_parameters`. The QIR runner emits it directly, and
+operand list in `classical_parameters`. The bytecode runner emits it directly, and
 backends dispatch on literal `instruction_name` strings and operand slices.
 Names are `&'static str`; the operand list uses `SmallVec<[Parameter; 3]>`.
 Every supported QIR instruction fits inline, without per-instruction heap allocation.
@@ -157,30 +158,20 @@ error is retained until interpretation finishes; subsequent backend calls are
 suppressed and pending instructions are discarded. Already-executed backend
 changes are not rolled back.
 
-## QIR Runner
+## Q# expression runner
 
-QIR Runner is a Driver.
- * It reads QIR from file, and executes it. 
- * It owns a Backend. 
- * It forwards quantum instructions from QIR to Backend.
+`run_qsharp_expr` executes an expression in an existing Q# interpreter and forwards
+quantum instructions to a backend. `run_qsharp_call` invokes an already-resolved callable.
+Both discard classical output and return values, and flush buffered gates on success.
 
-Measurements are done in somewhat weird way, according to QIR spec:
- * There is a "measurement array" and it must be maintained by Backend. 
- * When QIR Runner sees QIR measurements (`m` or `mz`, or `mresetz`), it enqueues
-     the corresponding QEP operation (`mz_store` or `mz_store_reset`)
-     and doesn't wait for it, as per QIR spec. Backend will perform measurement and write result to 
-     specified index at measurement array.
- * When it sees QIR instruction that instructs it to read result from result register (read_result or *_record_output),
-    it finishes the current batch with a Read command containing result_id and synchronously obtains
-    the returned bit. Then it uses that value in classical flow.
- * It is responsibility of Backend to perform measurement that writes to result_id before responding to ReadResult.
- * There is __quantum__rt__write_result operation that technically means that we send classical bit from Driver to Backend
-    and Backend must store it at specified index in results array. It exists only for Stim simulator.
-    Our QIR runner doesn't implement it, it will fail during execution when encounters this command.
-    So write_result is not included in the instruction table.
+Each measurement emits `mz_store` or `mz_store_reset`, followed immediately by
+`read_result`, so the interpreter receives a concrete result before continuing.
+`ResultAdapter` can translate these result-register operations for backends that
+only support immediate measurements.
 
-"QIR ABI" refers to specific set of instructions which roughly corresponds to library/std/src/Intrinsic.qs
-and for its exact definition see the instruction table in `instructions.rs`.
+The native QIR file runner has been removed. QIR files can be parsed and lowered
+to adaptive bytecode in Python with PyQIR; the Rust QEP crate does not require
+LLVM development libraries.
 
 ## Quantum Execution Profiler
 
@@ -213,7 +204,7 @@ instructions that have already reached the backend.
 Profiler can be implemented as:
  * Rust struct implementing `trait QuantumBackend`.
  * A library with any language that implements QIR ABI (or other ISA for physical profilers)
-     that is then statically linked with QIR Runner, which will require a shim. That shim will be a rust implementation
+     that is then statically linked with a driver, which will require a shim. That shim will be a rust implementation
      of `trait Backend` that implements instructions as function calls.
      (TODO: implement this shim and then just refer to it here)
  * A web server that implements QIR ABI (or other ISA for physical profilers) as HTTP endpoints
@@ -406,9 +397,7 @@ On a high level, resource estimation looks like this:
     and runtime per operation.
 
 Rust profilers can execute Q# directly with `Profiler::profile_qsharp_expr`, given an interpreter
-and an entry expression. The Rust `Profiler` trait no longer provides `profile_qir`; code that
-needs the native QIR runner can call `run_qir` with the profiler as its backend, then retrieve
-the collected data with `get_result`.
+and an entry expression, or execute lowered bytecode with `Profiler::profile_adaptive_program`.
 
 ### Python API
 

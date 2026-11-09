@@ -14,7 +14,6 @@ rustc-hash = { workspace = true }
 smallvec = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-inkwell = { version = "0.11.0", default-features = false, features = ["llvm20-1-prefer-dynamic"] }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
 qdk_simulators = { path = "../simulators", default-features = false }

@@ -3,14 +3,16 @@
 
 //! Quantum Execution Profiler: backend interfaces for quantum instructions.
 //!
-//! QIR execution requires LLVM 20 development libraries
-//! (`LLVM_SYS_201_PREFIX` can specify their installation).
+//! Programs execute through the Q# interpreter or adaptive bytecode runner.
+//! Neither runner requires LLVM development libraries.
 //!
-//! The runner supports static qubit/result IDs, adaptive control flow, and
-//! structured output recording. Dynamic allocation and legacy runtime calls
-//! are rejected. It does not depend on or modify QIR Runner.
+//! The bytecode runner supports static qubit/result IDs, adaptive control flow,
+//! and leaf output records. The Q# runner delegates quantum instructions through
+//! a batched backend interface.
 //!
 //! Run the test suite with `cargo test -p qep`.
+
+#![forbid(unsafe_code)]
 
 #[cfg(test)]
 mod tests;
@@ -38,7 +40,7 @@ pub use profilers::{
 };
 pub use runner::{
     Batcher, DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, QsharpRunError, RunOutput,
-    run_adaptive_program, run_qir, run_qir_with_batch_size, run_qsharp_call, run_qsharp_expr,
+    run_adaptive_program, run_qsharp_call, run_qsharp_expr,
 };
 pub use transpilers::{
     CliffordTranspiler, MzResetTranspiler, RzQftTranspiler, SwapTransplier, Transpiler,

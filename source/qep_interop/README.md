@@ -40,9 +40,7 @@ to instantiate backend with custom parameters, define custom backend name (e.g.
 
 ### C/C++
 
-1. Install Rust/Cargo and a C or C++ compiler. The `qep` dependency also requires
-   LLVM 20 development libraries. If LLVM is not found automatically, set
-   `LLVM_SYS_201_PREFIX` to its installation directory.
+1. Install Rust/Cargo and a C or C++ compiler. LLVM development libraries are not required.
 2. Include `qep_interop.h` in your source file. Add this package's `include`
    directory to your compiler's include path.
 3. Call `qdk_init(...)` before executing quantum instructions.
@@ -76,7 +74,7 @@ all functions in the C header. These interfaces use `bind(C)` and
 `iso_c_binding`; no additional Rust library or wrapper is required.
 
 1. Install a Fortran compiler supporting Fortran 2008, such as `gfortran`, plus
-   the Rust and LLVM prerequisites listed in the C/C++ section.
+   the Rust prerequisites listed in the C/C++ section.
 2. Include `qep_interop.fi` in the specification part of your free-form source,
    after `implicit none` and before executable statements. Add this package's
    `include` directory to the compiler's include path.
