@@ -4,11 +4,14 @@
 //! [`Observed`]: the exact reference, observed: it counts the gates it
 //! applies, the states it prepares and forks, and the states alive at once;
 //! keeps the capacities it is given; and, as a test sets it, reports a
-//! retained weight below one, as an engine that truncates would, or fails
-//! where a device would.
+//! retained weight below one, as an engine that truncates would, fails
+//! where a device would, or sets a stop flag at a given gate, as a user's
+//! interrupt would.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use num_complex::Complex64;
 use tensornet::reference::{ExactReference, ReferenceError, ReferenceState};
@@ -39,6 +42,8 @@ pub(super) struct Observed {
     reference: ExactReference,
     weight: Weight,
     failing: Failing,
+    /// The flag it sets when it applies its gate of this count (from 1).
+    stop_at_apply: Option<(usize, Arc<AtomicBool>)>,
     prepared: RefCell<Vec<MpsShape>>,
     applies: Cell<usize>,
     forks: Cell<usize>,
@@ -84,6 +89,7 @@ impl Observed {
             reference: ExactReference::new(),
             weight,
             failing,
+            stop_at_apply: None,
             prepared: RefCell::new(Vec::new()),
             applies: Cell::new(0),
             forks: Cell::new(0),
@@ -100,6 +106,15 @@ impl Observed {
     /// The gates it applied.
     pub(super) fn applies(&self) -> usize {
         self.applies.get()
+    }
+
+    /// The reference, setting `stop` when it applies its gate number
+    /// `apply` (from 1).
+    pub(super) fn stopping_at_apply(apply: usize, stop: Arc<AtomicBool>) -> Self {
+        Self {
+            stop_at_apply: Some((apply, stop)),
+            ..Self::new()
+        }
     }
 
     /// The states it forked.
@@ -179,6 +194,11 @@ impl MpsEngine for Observed {
         matrix: &[Complex64],
     ) -> Result<(), ObservedError> {
         self.applies.set(self.applies.get() + 1);
+        if let Some((apply, stop)) = &self.stop_at_apply
+            && *apply == self.applies.get()
+        {
+            stop.store(true, Ordering::Relaxed);
+        }
         Ok(self.reference.apply(&mut state.state, sites, matrix)?)
     }
 

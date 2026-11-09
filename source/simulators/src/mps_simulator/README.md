@@ -63,7 +63,9 @@ distribution within 10⁻⁹ of the exact one in total variation distance.
 ## The model
 
 - [`MpsResumer`](resumer.rs): the resumer, its settings
-  (`with_max_bond_dimension`, `with_gate_fusion`) and the grouped run.
+  (`with_max_bond_dimension`, `with_gate_fusion`, and `with_stop`, a flag
+  that stops a run within one batch, for a user's interrupt) and the
+  grouped run.
 - [`GateFusion`](fusion.rs): `Pairs` (the default) or `Unfused`.
 - [`MpsRunReport`, `TruncationWarning`](report.rs): the last run's
   largest bond and least retained weight, and the warning.

@@ -9,6 +9,8 @@ mod order;
 mod splitmix64;
 
 use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::bytecode::Instruction;
 use crate::qir::{
@@ -392,6 +394,68 @@ fn a_run_holds_at_most_log2_of_its_shots_plus_one_states() {
         "{}",
         resumer.engine().most_live()
     );
+}
+
+/// A run whose stop flag is already set fails before any gate, naming its
+/// first shot.
+#[test]
+fn a_set_stop_flag_fails_the_run_before_any_gate() {
+    let stop = Arc::new(AtomicBool::new(true));
+    let mut resumer = MpsResumer::new(Observed::new(), 7).with_stop(stop);
+    let result = run(&mut resumer, &coins(4), &ids(&[3, 1, 2]));
+    assert!(
+        matches!(
+            result,
+            Err(QirResumeError::Resumer {
+                shot: QirShotId(3),
+                error: MpsResumerError::Stopped,
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(resumer.engine().applies(), 0);
+}
+
+/// A flag set during a run stops it within one batch: set at the first
+/// gate of eight coins on 16 shots, whose draws split the shots into many
+/// groups, the run applies at most the eight gates of one group's batch.
+#[test]
+fn a_stop_flag_set_during_a_run_stops_it_within_a_batch() {
+    let stop = Arc::new(AtomicBool::new(false));
+    let engine = Observed::stopping_at_apply(1, Arc::clone(&stop));
+    let mut resumer = MpsResumer::new(engine, 7).with_stop(stop);
+    let result = run(&mut resumer, &coins(8), &QirShotId::first(16));
+    assert!(
+        matches!(
+            result,
+            Err(QirResumeError::Resumer {
+                error: MpsResumerError::Stopped,
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert!(
+        resumer.engine().applies() <= 8,
+        "{} gates applied",
+        resumer.engine().applies()
+    );
+}
+
+/// A flag that is never set changes no record.
+#[test]
+fn an_unset_stop_flag_changes_no_record() {
+    let shots = QirShotId::first(16);
+    let without = run(
+        &mut MpsResumer::new(ExactReference::new(), 7),
+        &coins(4),
+        &shots,
+    )
+    .expect("the program runs");
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut resumer = MpsResumer::new(ExactReference::new(), 7).with_stop(stop);
+    let with = run(&mut resumer, &coins(4), &shots).expect("the flag is never set");
+    assert_eq!(with, without);
 }
 
 /// Coins on qubits `0..coins`, read into their results; then a trap (a

@@ -51,6 +51,10 @@ pub enum MpsResumerError<E> {
         source: MpsShapeError,
     },
 
+    /// The run was stopped: its stop flag was set
+    /// ([`MpsResumer::with_stop`](crate::MpsResumer::with_stop)).
+    Stopped,
+
     /// The engine failed, or refused a call (a gate whose angle is not
     /// finite has a matrix that is not unitary, say).
     Engine(E),
@@ -74,6 +78,7 @@ impl<E: fmt::Display> fmt::Display for MpsResumerError<E> {
                 f,
                 "{qubits} qubits with bonds of at most {max_bond_dimension} make no chain: {source}"
             ),
+            Self::Stopped => write!(f, "the run was stopped"),
             Self::Engine(error) => write!(f, "the MPS engine failed: {error}"),
         }
     }
@@ -84,7 +89,7 @@ impl<E: std::error::Error + 'static> std::error::Error for MpsResumerError<E> {
         match self {
             Self::Capacity { source, .. } => Some(source),
             Self::Engine(error) => Some(error),
-            Self::Unsupported { .. } | Self::RepeatedQubit { .. } => None,
+            Self::Unsupported { .. } | Self::RepeatedQubit { .. } | Self::Stopped => None,
         }
     }
 }

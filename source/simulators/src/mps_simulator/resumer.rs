@@ -48,6 +48,8 @@
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::OutputRecord;
 use crate::qir::{
@@ -91,6 +93,7 @@ pub struct MpsResumer<E: MpsEngine> {
     seed: u64,
     max_bond_dimension: NonZeroUsize,
     fusion: GateFusion,
+    stop: Option<Arc<AtomicBool>>,
     last_run: MpsRunReport,
 }
 
@@ -104,6 +107,7 @@ impl<E: MpsEngine> MpsResumer<E> {
             seed,
             max_bond_dimension: DEFAULT_MAX_BOND_DIMENSION,
             fusion: GateFusion::default(),
+            stop: None,
             last_run: MpsRunReport::new(DEFAULT_MAX_BOND_DIMENSION.get()),
         }
     }
@@ -114,6 +118,18 @@ impl<E: MpsEngine> MpsResumer<E> {
     #[must_use]
     pub fn with_max_bond_dimension(mut self, max_bond_dimension: NonZeroUsize) -> Self {
         self.max_bond_dimension = max_bond_dimension;
+        self
+    }
+
+    /// The resumer stopping its runs once `stop` is set: a user who
+    /// interrupts a run of hours (Ctrl-C from Python, say) gets it back
+    /// within one batch, its states freed. The flag is read before each
+    /// batch a group runs; once it is set, the run fails with
+    /// [`MpsResumerError::Stopped`], naming the first shot that had not
+    /// ended. Whoever sets it clears it before the next run.
+    #[must_use]
+    pub fn with_stop(mut self, stop: Arc<AtomicBool>) -> Self {
+        self.stop = Some(stop);
         self
     }
 
@@ -172,6 +188,7 @@ impl<E: MpsEngine> MpsResumer<E> {
             order: QubitOrder::for_program(program),
             capacity,
             fusion: self.fusion,
+            stop: self.stop.as_deref(),
             report: &mut self.last_run,
             failure: None,
         };
@@ -314,6 +331,8 @@ struct Run<'r, E: MpsEngine> {
     /// needs no state.
     capacity: Option<MpsShape>,
     fusion: GateFusion,
+    /// The flag that stops the run, if any.
+    stop: Option<&'r AtomicBool>,
     report: &'r mut MpsRunReport,
     /// The first failing shot's place in the order of the run's shots, and
     /// why it failed.
@@ -342,6 +361,7 @@ impl<E: MpsEngine> Run<'_, E> {
         pending: &mut Vec<Group<E::State>>,
     ) -> Result<Vec<OutputRecord>, GroupFailure<E::Error>> {
         loop {
+            self.check_stop()?;
             while let Some(step) = group.steps.get(group.next).cloned() {
                 group.next += 1;
                 self.run_step(&step, group, pending)?;
@@ -495,6 +515,14 @@ impl<E: MpsEngine> Run<'_, E> {
             self.engine
                 .apply(state, &[site], x.row_major())
                 .map_err(engine_failure)?;
+        }
+        Ok(())
+    }
+
+    /// Fails with [`MpsResumerError::Stopped`] once the stop flag is set.
+    fn check_stop(&self) -> Result<(), GroupFailure<E::Error>> {
+        if self.stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+            return Err(GroupFailure::Resumer(MpsResumerError::Stopped));
         }
         Ok(())
     }
