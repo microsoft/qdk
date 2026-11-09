@@ -293,7 +293,10 @@ per-functional-unit dependencies, resource availability, completion events, and 
 Independent operations can run concurrently once their dependencies and resource requirements
 are satisfied.
 
-The `QpuModel` implementation defines native operations, resources, and functional units:
+The [`QpuModel`](src/models.rs) implementation defines native operations, resources, and functional units.
+Hardware models live under [`src/models/`](src/models/), with
+[`DemoModel1`](src/models/demo_model1.rs) using the factory and logical-qubit models there.
+The model callbacks are:
 * `on_start` schedules initial work, such as factory distillation rounds.
 * `on_instruction_received` converts a backend instruction into native operations and schedules
   them with their targets, resource requirements, durations, and result requirements.

@@ -1,59 +1,14 @@
-use super::{
-    profile_types::{LoggableOperation, LoggedInstruction, LoggedInstructionParameter},
-    temporal_profiler::{Precondition, TemporalProfilerState},
-};
+use super::{QpuModel, factories::TFactory, qubits::LogicalQubit};
 use crate::{
-    Parameter, QuantumBackendResult, TotalCounts, interface::QuantumBackendInstruction,
-    profilers::factories::TFactory, profilers::qubits::LogicalQubit,
+    Parameter, QuantumBackendResult, TotalCounts,
+    interface::QuantumBackendInstruction,
+    profilers::{
+        LoggableOperation, LoggedInstruction, LoggedInstructionParameter, Precondition,
+        TemporalProfilerState,
+    },
 };
 use rand::RngExt;
-use std::{collections::VecDeque, hash::Hash, os::linux::raw::stat};
-
-pub trait QpuModel: Sized {
-    /// Retained until completion and borrowed for start-time trace conversion.
-    type NativeOperation: LoggableOperation;
-    type Resource: Clone + Eq + Hash;
-    type FunctionalUnitId: Eq + Hash;
-
-    /// Initializes model on startup.
-    /// Example: initialize factories.
-    fn on_start(&mut self, state: &mut TemporalProfilerState<Self>);
-
-    /// Does necessary conversion to native operation and calls state.schedule_operation. Also computes prerequisites
-    ///  For example, for T gate it will schedule InjectT with prerequisite on having resource TState.
-    ///  The intention is that TemporalProfiler.execute_batch() will call model.on_instruction_received() in a loop for all instructions in batch.
-    fn on_instruction_received(
-        &mut self,
-        instruction: &QuantumBackendInstruction,
-        state: &mut TemporalProfilerState<Self>,
-    ) -> Result<(), String>;
-
-    /// Does necessary updates to model operation start.
-    /// Allowed to mutate operation.
-    /// For example, for "InjectT" it will:
-    ///   - find T factory with available T State.
-    ///   - internally mark it as such that cannot be used (consume state).
-    ///   - change op to contain selected factory_id.
-    /// It is guaranteed that all prerequisites are met, and it's allowed to panic if they are not
-    /// met.
-    fn on_operation_started(
-        &mut self,
-        op: &mut Self::NativeOperation,
-        state: &mut TemporalProfilerState<Self>,
-    );
-
-    /// Does necessary updates to model operation completion.
-    /// Returns result if this operation produces result, otherwise retuns None.
-    /// Publish generated resources through `state.add_resource` to wake waiting operations.
-    fn on_operation_finished(
-        &mut self,
-        op: &Self::NativeOperation,
-        state: &mut TemporalProfilerState<Self>,
-    ) -> Option<QuantumBackendResult>;
-
-    /// Returns resource counts for resource estimation.
-    fn get_total_counts(&self, state: &TemporalProfilerState<Self>) -> TotalCounts;
-}
+use std::collections::VecDeque;
 
 pub enum DemoModel1_NativeOperation {
     SingleQubitCliffordGate(&'static str, usize), // Gate name, QubitId.
@@ -167,7 +122,7 @@ pub struct DemoModel1 {
 
     /// Functional units.
     qubits: Vec<LogicalQubit>,
-    pub(super) t_factories: Vec<TFactory>,
+    pub(crate) t_factories: Vec<TFactory>,
 }
 
 impl Default for DemoModel1 {

@@ -1,14 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{
-    InstructionTrace, Profiler, ProfilerResult,
-    models::{DemoModel1, QpuModel},
-    profile_types::LoggableOperation,
-};
+use super::{InstructionTrace, Profiler, ProfilerResult, profile_types::LoggableOperation};
 use crate::{
     QuantumBackendResult,
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
+    models::{DemoModel1, QpuModel},
     profilers::event_recorder::EventRecorder,
 };
 use rand::{SeedableRng, rngs::StdRng};
@@ -84,7 +81,7 @@ pub struct TemporalProfilerState<M: QpuModel> {
 
     /// For each resource, holds a list of functional units that have that resource.
     /// Models consume entries here and publish new entries through `add_resource`.
-    pub(super) available_resources: FxHashMap<M::Resource, VecDeque<M::FunctionalUnitId>>,
+    pub(crate) available_resources: FxHashMap<M::Resource, VecDeque<M::FunctionalUnitId>>,
 
     /// Operations whose results must be available before the current batch returns.
     pending_operations_producing_results: FxHashSet<OperationRef>,
@@ -103,7 +100,7 @@ pub struct TemporalProfilerState<M: QpuModel> {
     /// Sequence number assigned to the next completion event to break timestamp ties.
     next_event_sequence: u64,
     /// Accumulated measurment error.
-    pub(super) error: f64,
+    pub(crate) error: f64,
 }
 
 impl<M: QpuModel> TemporalProfilerState<M> {

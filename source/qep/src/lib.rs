@@ -21,6 +21,7 @@ mod adapters;
 mod backends;
 pub mod instructions;
 pub mod interface;
+mod models;
 mod profilers;
 mod runner;
 mod transpilers;
@@ -33,10 +34,11 @@ pub use instructions::{
 pub use interface::{
     BatchResult, Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
 };
+pub use models::DemoModel1;
 pub use profilers::{
-    AggregationType, DemoModel1, Profiler, ProfilerResult, SequentialCountingProfiler,
-    TemporalProfiler, TemporalProfilerConfig, TemporalProfiles, TimeSeries, TotalCounts,
-    TumblingWindowAggregator, make_profiler_for_demo_model,
+    AggregationType, Profiler, ProfilerResult, SequentialCountingProfiler, TemporalProfiler,
+    TemporalProfilerConfig, TemporalProfiles, TimeSeries, TotalCounts, TumblingWindowAggregator,
+    make_profiler_for_demo_model,
 };
 pub use runner::{
     Batcher, DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, QsharpRunError, RunOutput,

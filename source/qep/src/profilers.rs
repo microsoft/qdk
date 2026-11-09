@@ -4,10 +4,7 @@
 mod aggregators;
 mod counting;
 mod event_recorder;
-mod factories;
-mod models;
 mod profile_types;
-mod qubits;
 mod temporal_profiler;
 
 use crate::{QuantumBackend, run_adaptive_program, run_qsharp_call, run_qsharp_expr};
@@ -23,10 +20,11 @@ use std::{
 
 pub use aggregators::{AggregationType, TumblingWindowAggregator};
 pub use counting::SequentialCountingProfiler;
-pub use models::DemoModel1;
 pub use profile_types::{
     ExecutionTrace, InstructionTrace, TemporalProfiles, TimeSeries, TotalCounts,
 };
+pub(crate) use profile_types::{LoggableOperation, LoggedInstruction, LoggedInstructionParameter};
+pub(crate) use temporal_profiler::{Precondition, TemporalProfilerState};
 pub use temporal_profiler::{
     TemporalProfiler, TemporalProfilerConfig, make_profiler_for_demo_model,
 };

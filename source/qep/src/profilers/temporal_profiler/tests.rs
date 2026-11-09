@@ -5,8 +5,9 @@ use std::cmp::Reverse;
 use std::path::PathBuf;
 
 use super::TemporalProfiler;
-use crate::profilers::models::{
-    DemoModel1, DemoModel1_NativeOperation, DemoModel1_Resource, QpuModel,
+use crate::models::{
+    QpuModel,
+    demo_model1::{DemoModel1, DemoModel1_NativeOperation, DemoModel1_Resource},
 };
 use crate::profilers::profile_types::LoggedInstructionParameter::{
     FactoryId as FactoryParameter, QubitId as LoggedQubitId,
