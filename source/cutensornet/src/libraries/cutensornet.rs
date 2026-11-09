@@ -120,7 +120,7 @@ super::loader::function_table! {
     /// Every cuTensorNet function discovery looks up.
     #[expect(
         dead_code,
-        reason = "discovery only looks the functions up; the MPS engine, added later, calls them"
+        reason = "the version rows are only looked up, so that a missing one is reported; the versions are read through CuTensorNetVersionFunctions"
     )]
     struct CuTensorNetFunctions, declared in v2_13 {
         required create: context::CreateFn = cutensornetCreate,
