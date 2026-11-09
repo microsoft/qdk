@@ -62,7 +62,7 @@ parameters:
           QDK_GPU_TESTS: "1"
       - name: linux_aarch64
         poolName: "Azure-Pipelines-DevTools-ARM64-EO"
-        imageName: "azurelinux-3.0-gen2-arm64"
+        imageName: "azurelinux-3.0-gen2-arm64-backup"
         os: linux
         arch: aarch64
       - name: mac_x86_64
