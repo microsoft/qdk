@@ -5,8 +5,12 @@
 //!
 //! None needs a GPU or NVIDIA's libraries: the loader is driven through
 //! files that are not libraries, paths that do not exist and a resolver that
-//! hands out stand-in functions (`stand_ins`). The loader compiles for its
-//! tests on any Unix host, so they run off Linux x86-64 too.
+//! hands out stand-in functions (`stand_ins`); the engine runs its real code
+//! against fake libraries, cuTensorNet and the CUDA Runtime simulated on the
+//! CPU (`src/engine/native_calls/fake_libraries.rs`), so its tests run on
+//! every host.
+//! The loader compiles for its tests on any Unix host, so they run off
+//! Linux x86-64 too.
 //!
 //! The tests that need a library open, to check what discovery reports of it
 //! or concludes from it, open the C library instead, on Linux with glibc
@@ -14,6 +18,7 @@
 //! the host's system loader.
 
 mod discovery;
+mod engine;
 mod libraries;
 #[cfg(unix)]
 mod stand_ins;
