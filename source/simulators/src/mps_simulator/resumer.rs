@@ -39,9 +39,12 @@
 //! memory whatever the program draws.
 //!
 //! **Failures.** A shot fails with its group: its context traps, a call is
-//! refused, or the engine fails. The run names the first failing shot in
-//! the order of the shots, and groups whose shots all come after it are
-//! dropped unrun.
+//! refused, or the engine fails. Where a group splits, the copy for the
+//! part that waits is forked and projected after the shots are split, so
+//! its failure fails that part's shots only, and the part that goes on
+//! runs on: it may end, or fail on its own. The run names the first
+//! failing shot in the order of the shots, and the waiting groups whose
+//! shots all come after it are dropped unrun.
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;
@@ -170,6 +173,7 @@ impl<E: MpsEngine> MpsResumer<E> {
             capacity,
             fusion: self.fusion,
             report: &mut self.last_run,
+            failure: None,
         };
         let mut pending = vec![Group {
             shots: shots
@@ -188,11 +192,10 @@ impl<E: MpsEngine> MpsResumer<E> {
             grown: false,
         }];
         let mut records: Vec<Option<Vec<OutputRecord>>> = vec![None; shots.len()];
-        // The first failing shot's place, and its error.
-        let mut failure: Option<(usize, QirResumeError<MpsResumerError<E::Error>>)> = None;
         while let Some(mut group) = pending.pop() {
             // A group's shots are in the order of the run's: a split keeps it.
-            if failure
+            if run
+                .failure
                 .as_ref()
                 .is_some_and(|(place, _)| *place < group.shots[0].place)
             {
@@ -204,23 +207,19 @@ impl<E: MpsEngine> MpsResumer<E> {
                         records[shot.place] = Some(ended.clone());
                     }
                 }
-                Err(failed) => {
-                    // The group's shots now, which failed: a split may have
-                    // moved its first shots to a part that went on apart.
-                    let first = group.shots[0].place;
-                    let shot = shots[first];
-                    let error = match failed {
-                        GroupFailure::Trapped(trap) => QirResumeError::Trapped { shot, trap },
-                        GroupFailure::Resumer(error) => QirResumeError::Resumer { shot, error },
-                    };
-                    if failure.as_ref().is_none_or(|(place, _)| first < *place) {
-                        failure = Some((first, error));
-                    }
-                }
+                // The group's shots now, which failed: a split may have
+                // moved its first shots to a part that went on apart.
+                Err(failed) => run.fail(group.shots[0].place, failed),
             }
         }
-        match failure {
-            Some((_, error)) => Err(error),
+        match run.failure {
+            Some((place, failed)) => {
+                let shot = shots[place];
+                Err(match failed {
+                    GroupFailure::Trapped(trap) => QirResumeError::Trapped { shot, trap },
+                    GroupFailure::Resumer(error) => QirResumeError::Resumer { shot, error },
+                })
+            }
             None => Ok(records
                 .into_iter()
                 .map(|records| records.expect("every shot ended or the run failed"))
@@ -316,9 +315,24 @@ struct Run<'r, E: MpsEngine> {
     capacity: Option<MpsShape>,
     fusion: GateFusion,
     report: &'r mut MpsRunReport,
+    /// The first failing shot's place in the order of the run's shots, and
+    /// why it failed.
+    failure: Option<(usize, GroupFailure<E::Error>)>,
 }
 
 impl<E: MpsEngine> Run<'_, E> {
+    /// Keeps `failure` as the run's when the shot at `place` comes before
+    /// every shot that failed so far.
+    fn fail(&mut self, place: usize, failure: GroupFailure<E::Error>) {
+        if self
+            .failure
+            .as_ref()
+            .is_none_or(|(first, _)| place < *first)
+        {
+            self.failure = Some((place, failure));
+        }
+    }
+
     /// Runs `group` until its context ends, giving its records; the groups
     /// that split off it are pushed onto `pending`.
     fn run_group(
@@ -382,7 +396,9 @@ impl<E: MpsEngine> Run<'_, E> {
     /// on a tie) goes on as `group`, and the other waits on `pending`, with
     /// a fork of the state. Each part's state keeps its value, and is
     /// returned to |0⟩ when `reset`; `result`, when given, is answered with
-    /// the value.
+    /// the value. When the waiting part's fork, or its projection, fails,
+    /// it fails that part's shots only (kept in the run's failure), and
+    /// `group` goes on.
     fn draw(
         &mut self,
         group: &mut Group<E::State>,
@@ -411,11 +427,6 @@ impl<E: MpsEngine> Run<'_, E> {
         } else {
             // The part with fewer shots goes on; Zero's on a tie.
             let one = 2 * ones < draws.len();
-            // Forked after P(One) is read, so each copy is the state a shot
-            // alone would project; and before the shots are split, so that
-            // a failed fork fails every shot of the group.
-            let mut fork = self.engine.fork(state).map_err(engine_failure)?;
-            self.settle(&mut fork, site, !one, reset)?;
             let (mut going_on, mut waiting) = (Vec::new(), Vec::new());
             for (shot, &drew) in std::mem::take(&mut group.shots).into_iter().zip(&draws) {
                 if drew == one {
@@ -425,22 +436,45 @@ impl<E: MpsEngine> Run<'_, E> {
                 }
             }
             group.shots = going_on;
-            let mut outcomes = group.outcomes.clone();
-            outcomes.extend(answer(result, !one));
-            pending.push(Group {
-                shots: waiting,
-                context: group.context.clone(),
-                state: Some(fork),
-                outcomes,
-                steps: Rc::clone(&group.steps),
-                next: group.next,
-                grown: false,
-            });
+            match self.fork_keeping(state, site, !one, reset) {
+                Ok(fork) => {
+                    let mut outcomes = group.outcomes.clone();
+                    outcomes.extend(answer(result, !one));
+                    pending.push(Group {
+                        shots: waiting,
+                        context: group.context.clone(),
+                        state: Some(fork),
+                        outcomes,
+                        steps: Rc::clone(&group.steps),
+                        next: group.next,
+                        grown: false,
+                    });
+                }
+                // Only the shots that wait met the failure: those going on
+                // run on, and may end, or fail first in the order.
+                Err(failed) => self.fail(waiting[0].place, failed),
+            }
             one
         };
         self.settle(state, site, one, reset)?;
         group.outcomes.extend(answer(result, one));
         Ok(())
+    }
+
+    /// A fork of `state` keeping the value One (`one` true) or Zero (`one`
+    /// false) of `site`, as [`Self::settle`] keeps it. Forked before
+    /// `state` is settled, after its P(One) is read: so the fork is the
+    /// state a shot alone would project.
+    fn fork_keeping(
+        &self,
+        state: &E::State,
+        site: usize,
+        one: bool,
+        reset: bool,
+    ) -> Result<E::State, GroupFailure<E::Error>> {
+        let mut fork = self.engine.fork(state).map_err(engine_failure)?;
+        self.settle(&mut fork, site, one, reset)?;
+        Ok(fork)
     }
 
     /// Keeps the value One (`one` true) or Zero (`one` false) of `site` in
