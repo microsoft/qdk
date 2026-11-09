@@ -13,6 +13,7 @@ use pyo3::{
     prelude::*,
     types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple, PyType},
 };
+use qep::DemoModel1;
 use qre::TraceTransform;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -415,18 +416,20 @@ impl TemporalProfiler {
     /// Creates a temporal profiler using the required explicit timing configuration.
     #[new]
     fn new(config: &TemporalProfilerConfig) -> PyClassInitializer<Self> {
+        let model = DemoModel1::new(
+            config.clifford_gate_time_nanos,
+            config.measurment_time_nanos,
+            config.t_factories_count,
+            config.ecc_distance,
+        );
         let config = qep::TemporalProfilerConfig {
-            clifford_gate_time_nanos: config.clifford_gate_time_nanos,
-            measurment_time_nanos: config.measurment_time_nanos,
             aggregation_window_nanos: config.aggregation_window_nanos,
-            t_factories_count: config.t_factories_count,
             seed: config.seed,
             record_trace: config.record_trace,
-            ecc_distance: config.ecc_distance,
         };
         PyClassInitializer::from(Profiler {
             backend: Some(Box::new(qep::ResultAdapter::new(
-                qep::TranspilingAdapter::with_defaults(qep::make_profiler_for_demo_model(config)),
+                qep::TranspilingAdapter::with_defaults(qep::TemporalProfiler::new(model, config)),
             ))),
         })
         .add_subclass(Self)

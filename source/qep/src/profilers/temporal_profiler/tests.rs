@@ -22,12 +22,14 @@ use qsc::target::Profile;
 
 /// Creates a repeatable five-factory profiler with tracing enabled for timing assertions.
 fn seeded_profiler() -> TemporalProfiler<DemoModel1> {
-    make_profiler_for_demo_model(TemporalProfilerConfig {
-        t_factories_count: 5,
-        seed: Some(42),
-        record_trace: true,
-        ..TemporalProfilerConfig::default()
-    })
+    TemporalProfiler::new(
+        DemoModel1::new(5_000, 1_000, 5, 5),
+        TemporalProfilerConfig {
+            seed: Some(42),
+            record_trace: true,
+            ..TemporalProfilerConfig::default()
+        },
+    )
 }
 
 /// Wraps the seeded profiler with result-register and default instruction adapters.
@@ -169,13 +171,14 @@ fn temporal_profiler_shors_qir() -> Result<(), String> {
     let qir_path = qir_path
         .to_str()
         .ok_or("Shor's algorithm QIR path is not valid UTF-8")?;
-    let profiler = make_profiler_for_demo_model(TemporalProfilerConfig {
-        aggregation_window_nanos: 1_000_000_000,
-        t_factories_count: 5,
-        seed: Some(42),
-        record_trace: false,
-        ..TemporalProfilerConfig::default()
-    });
+    let profiler = TemporalProfiler::new(
+        DemoModel1::new(5_000, 1_000, 5, 5),
+        TemporalProfilerConfig {
+            aggregation_window_nanos: 1_000_000_000,
+            seed: Some(42),
+            record_trace: false,
+        },
+    );
     let mut profiler = ResultAdapter::new(TranspilingAdapter::with_defaults(profiler));
     let start = Instant::now();
 
@@ -292,13 +295,14 @@ fn instruction_durations_use_logical_timing_assumptions() {
 /// Checks that configured durations reach the scheduler, including T injection.
 #[test]
 fn schedules_configured_instruction_durations() -> Result<(), String> {
-    let mut profiler = make_profiler_for_demo_model(TemporalProfilerConfig {
-        clifford_gate_time_nanos: 700,
-        measurment_time_nanos: 300,
-        record_trace: true,
-        seed: Some(42),
-        ..TemporalProfilerConfig::default()
-    });
+    let mut profiler = TemporalProfiler::new(
+        DemoModel1::new(700, 300, 10, 5),
+        TemporalProfilerConfig {
+            record_trace: true,
+            seed: Some(42),
+            ..TemporalProfilerConfig::default()
+        },
+    );
     for factory in &mut profiler.model.t_factories {
         factory.probability_success = 1.0;
     }
@@ -472,12 +476,14 @@ fn retries_failed_rounds_and_holds_one_ready_state() {
 /// Two factories serve concurrent gates and cannot be reused until injection finishes.
 #[test]
 fn reserves_factories_until_injection_completes() -> Result<(), String> {
-    let mut profiler = make_profiler_for_demo_model(TemporalProfilerConfig {
-        t_factories_count: 2,
-        seed: Some(42),
-        record_trace: true,
-        ..TemporalProfilerConfig::default()
-    });
+    let mut profiler = TemporalProfiler::new(
+        DemoModel1::new(5_000, 1_000, 2, 5),
+        TemporalProfilerConfig {
+            seed: Some(42),
+            record_trace: true,
+            ..TemporalProfilerConfig::default()
+        },
+    );
     for factory in &mut profiler.model.t_factories {
         factory.probability_success = 1.0;
     }
@@ -668,12 +674,14 @@ fn holds_ready_states_across_resource_free_batches() -> Result<(), String> {
 #[test]
 fn reports_factory_utilization_in_factories() -> Result<(), String> {
     for factory_count in [1, 2, 5] {
-        let mut profiler = make_profiler_for_demo_model(TemporalProfilerConfig {
-            t_factories_count: factory_count,
-            aggregation_window_nanos: 55_000,
-            seed: Some(42),
-            ..TemporalProfilerConfig::default()
-        });
+        let mut profiler = TemporalProfiler::new(
+            DemoModel1::new(5_000, 1_000, factory_count, 5),
+            TemporalProfilerConfig {
+                aggregation_window_nanos: 55_000,
+                seed: Some(42),
+                ..TemporalProfilerConfig::default()
+            },
+        );
         for factory in &mut profiler.model.t_factories {
             factory.probability_success = 1.0;
         }
@@ -727,8 +735,5 @@ fn reports_factory_utilization_in_factories() -> Result<(), String> {
 #[test]
 #[should_panic(expected = "at least one T factory is required")]
 fn rejects_zero_factories() {
-    let _ = make_profiler_for_demo_model(TemporalProfilerConfig {
-        t_factories_count: 0,
-        ..TemporalProfilerConfig::default()
-    });
+    let _ = DemoModel1::new(5_000, 1_000, 0, 5);
 }

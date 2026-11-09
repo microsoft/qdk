@@ -3,8 +3,8 @@ use super::{
     temporal_profiler::{Precondition, TemporalProfilerState},
 };
 use crate::{
-    Parameter, QuantumBackendResult, TemporalProfilerConfig, TotalCounts,
-    interface::QuantumBackendInstruction, profilers::factories::TFactory,
+    Parameter, QuantumBackendResult, TotalCounts, interface::QuantumBackendInstruction,
+    profilers::factories::TFactory,
 };
 use rand::RngExt;
 use std::{collections::VecDeque, hash::Hash};
@@ -163,26 +163,15 @@ pub struct DemoModel1 {
 }
 
 impl Default for DemoModel1 {
-    /// Uses ten factories, one-second windows, unseeded randomness, and no trace recording.
+    /// Uses ten distance-five factories, 5,000 ns Cliffords, and 1,000 ns measurements.
     fn default() -> Self {
-        Self::from_config(TemporalProfilerConfig::default())
+        Self::new(5_000, 1_000, 10, 5)
     }
 }
 
 impl DemoModel1 {
-    /// Using TemporalProfilerConfig only temporary for ease of migration.
-    /// TODO: remove all model-specific fields from TemporalProfilerConfig.
-    pub fn from_config(config: TemporalProfilerConfig) -> Self {
-        DemoModel1::new(
-            config.clifford_gate_time_nanos,
-            config.measurment_time_nanos,
-            config.t_factories_count,
-            config.ecc_distance,
-        )
-    }
-
     /// Creates the configured factories and sets the model's operation durations.
-    fn new(
+    pub fn new(
         clifford_gate_time_nanos: usize,
         measurment_time_nanos: usize,
         t_factories_count: usize,

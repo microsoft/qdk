@@ -24,35 +24,22 @@ mod tests;
 /// Configuration for temporal quantum profiling.
 #[derive(Clone, Copy)]
 pub struct TemporalProfilerConfig {
-    /// Duration of a Clifford instruction in nanoseconds.
-    pub clifford_gate_time_nanos: usize,
-    /// Duration of a measurement or reset in nanoseconds.
-    pub measurment_time_nanos: usize,
+    /// Width of each aggregation window in nanoseconds.
     pub aggregation_window_nanos: usize,
-    pub t_factories_count: usize,
     /// Seed for temporal-profiler distillation and measurement randomness.
     pub seed: Option<u64>,
     /// Records temporal instruction and factory-round intervals when true.
     /// Disabling this leaves metrics unchanged and returns no execution trace.
     pub record_trace: bool,
-
-    /// Distance of the error-coorecting code.
-    /// Assumes that all logical qubits have the same error correcting code.
-    /// TODO: change it to specify different ECCs for different qubits.
-    pub ecc_distance: usize,
 }
 
 impl Default for TemporalProfilerConfig {
-    /// Uses ten factories, one-second windows, unseeded randomness, and no trace recording.
+    /// Uses one-second windows, unseeded randomness, and no trace recording.
     fn default() -> Self {
         Self {
-            clifford_gate_time_nanos: 5_000,
-            measurment_time_nanos: 1_000,
             aggregation_window_nanos: 1_000_000_000,
-            t_factories_count: 10,
             seed: None,
             record_trace: false,
-            ecc_distance: 5,
         }
     }
 }
@@ -268,16 +255,11 @@ pub struct TemporalProfiler<M: QpuModel> {
 
 impl<M: QpuModel> TemporalProfiler<M> {
     /// Initializes the model and starts its initial operations with configured recording and randomness.
-    fn new(
-        model: M,
-        record_trace: bool,
-        aggregation_window_nanos: usize,
-        seed: Option<u64>,
-    ) -> Self {
+    pub fn new(model: M, config: TemporalProfilerConfig) -> Self {
         let mut profiler = TemporalProfiler {
             state: TemporalProfilerState::new(
-                seed,
-                EventRecorder::new(record_trace, aggregation_window_nanos),
+                config.seed,
+                EventRecorder::new(config.record_trace, config.aggregation_window_nanos),
             ),
             model,
         };
@@ -382,16 +364,11 @@ impl<M: QpuModel> TemporalProfiler<M> {
     }
 }
 
-/// Creates the demo-model profiler from the shared temporal profiling configuration.
+/// Creates a default demo model with the supplied temporal profiling settings.
 pub fn make_profiler_for_demo_model(
     config: TemporalProfilerConfig,
 ) -> TemporalProfiler<DemoModel1> {
-    TemporalProfiler::<DemoModel1>::new(
-        DemoModel1::from_config(config),
-        config.record_trace,
-        config.aggregation_window_nanos,
-        config.seed,
-    )
+    TemporalProfiler::new(DemoModel1::default(), config)
 }
 
 impl<M: QpuModel> QuantumBackend for TemporalProfiler<M> {

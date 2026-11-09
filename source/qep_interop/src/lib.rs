@@ -1,8 +1,8 @@
 use qep::interface::Driver;
 use qep::{
-    Batcher, DEFAULT_MAX_BATCH_SIZE, OPERATION_COUNT, Parameter, Profiler, QuantumBackend,
-    QuantumBackendInstruction, QuantumBackends, SequentialCountingProfiler, TemporalProfilerConfig,
-    instruction_id_to_name, make_profiler_for_demo_model,
+    Batcher, DEFAULT_MAX_BATCH_SIZE, DemoModel1, OPERATION_COUNT, Parameter, Profiler,
+    QuantumBackend, QuantumBackendInstruction, QuantumBackends, SequentialCountingProfiler,
+    TemporalProfiler, TemporalProfilerConfig, instruction_id_to_name,
 };
 use smallvec::{SmallVec, smallvec};
 use std::{
@@ -141,12 +141,14 @@ pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
         }
         "temporal_profiler" => {
             let config = TemporalProfilerConfig {
-                t_factories_count: 1,
                 record_trace: true,
                 ..TemporalProfilerConfig::default()
             };
             BackendWrapper::for_profiler(qep::ResultAdapter::new(
-                qep::TranspilingAdapter::with_defaults(make_profiler_for_demo_model(config)),
+                qep::TranspilingAdapter::with_defaults(TemporalProfiler::new(
+                    DemoModel1::default(),
+                    config,
+                )),
             ))
         }
         _ => abort_with_error(&format!(
