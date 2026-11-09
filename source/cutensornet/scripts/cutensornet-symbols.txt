@@ -1,0 +1,50 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# The cuTensorNet functions this crate binds, one per row.
+#
+# scripts/generate-bindings.sh takes its bindgen allowlist from this file, and
+# the crate's tests check that the rows of the cuTensorNet table in
+# src/library/symbols.rs are exactly these. Widening the surface is a row
+# here, the bindings regenerated, and the row added to the table by hand.
+#
+# Columns: <c_symbol>  <rust_field>  <required|optional>
+#
+# A `required` symbol's absence fails discovery; an `optional` one is `None`.
+
+# context
+cutensornetCreate                                  create                               required
+cutensornetDestroy                                 destroy                              required
+cutensornetGetCudartVersion                        get_cudart_version                   required
+cutensornetGetErrorString                          get_error_string                     required
+cutensornetGetLastError                            get_last_error                       optional
+cutensornetGetVersion                              get_version                          required
+
+# state
+cutensornetStateApplyTensorOperator                apply_tensor_operator                required
+cutensornetStateCaptureMPS                         capture_mps                          required
+cutensornetCreateState                             create_state                         required
+cutensornetDestroyState                            destroy_state                        required
+cutensornetStateFinalizeMPS                        finalize_mps                         required
+cutensornetStateInitializeMPS                      initialize_mps                       required
+cutensornetStateCompute                            state_compute                        required
+cutensornetStateConfigure                          state_configure                      required
+cutensornetStatePrepare                            state_prepare                        required
+
+# workspace
+cutensornetCreateWorkspaceDescriptor               create_workspace                     required
+cutensornetDestroyWorkspaceDescriptor              destroy_workspace                    required
+cutensornetWorkspaceGetMemorySize                  workspace_get_memory_size            required
+cutensornetWorkspaceSetMemory                      workspace_set_memory                 required
+
+# operator
+cutensornetNetworkOperatorAppendProduct            append_product                       required
+cutensornetCreateNetworkOperator                   create_network_operator              required
+cutensornetDestroyNetworkOperator                  destroy_network_operator             required
+
+# expectation
+cutensornetCreateExpectation                       create_expectation                   required
+cutensornetDestroyExpectation                      destroy_expectation                  required
+cutensornetExpectationCompute                      expectation_compute                  required
+cutensornetExpectationConfigure                    expectation_configure                required
+cutensornetExpectationPrepare                      expectation_prepare                  required

@@ -1853,6 +1853,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "qdk_cutensornet"
+version = "0.0.0"
+dependencies = [
+ "libloading",
+ "thiserror",
+]
+
+[[package]]
 name = "qdk_openqasm"
 version = "0.0.0"
 dependencies = [
