@@ -1,0 +1,3 @@
+# The bindings scripts/generate_bindings.py writes, never edited or reviewed
+# by hand: GitHub hides them in a pull request's diff.
+src/libraries/*/generated/** linguist-generated=true

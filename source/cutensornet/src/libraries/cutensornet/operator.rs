@@ -1,0 +1,33 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! cuTensorNet's functions for network operators: sums of products of
+//! one-site factors.
+
+use super::v2_13;
+
+/// Function pointer for `cutensornetNetworkOperatorAppendProduct`.
+pub(crate) type AppendProductFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkOperator_t,
+    v2_13::cuDoubleComplex,
+    i32,
+    *const i32,
+    *mut *const i32,
+    *mut *const i64,
+    *mut *const ::std::os::raw::c_void,
+    *mut i64,
+) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetCreateNetworkOperator`.
+pub(crate) type CreateNetworkOperatorFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    i32,
+    *const i64,
+    v2_13::cudaDataType_t,
+    *mut v2_13::cutensornetNetworkOperator_t,
+) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetDestroyNetworkOperator`.
+pub(crate) type DestroyNetworkOperatorFn =
+    unsafe extern "C" fn(v2_13::cutensornetNetworkOperator_t) -> v2_13::cutensornetStatus_t;
