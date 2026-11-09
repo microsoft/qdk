@@ -191,6 +191,7 @@ impl<B: QuantumBackend> Simulator for BackendSimulator<'_, B> {
         s => "s"(q); s_adj => "sadj"(q); sx => "sx"(q);
         t => "t"(q); t_adj => "tadj"(q);
         cx => "cx"(control, target); cy => "cy"(control, target);
+        ccx => "ccx"(control0, control1, target);
         cz => "cz"(control, target); swap => "swap"(q1, q2);
         resetz => "reset"(q)
     }

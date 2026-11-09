@@ -269,9 +269,9 @@ def test_rotation_error_psspc():
     for psspc in _enumerate_instances(PSSPC, ccx_magic_states=False):
         transformed = psspc.transform(trace)
         assert transformed is not None
-        assert transformed.base_error < 1.0, (
-            f"Base error too high: {transformed.base_error} for {psspc.num_ts_per_rotation} T states per rotation"
-        )
+        assert (
+            transformed.base_error < 1.0
+        ), f"Base error too high: {transformed.base_error} for {psspc.num_ts_per_rotation} T states per rotation"
 
 
 def test_trace_iter_simple():
@@ -326,20 +326,19 @@ def test_trace_iter_gate_attributes():
 def test_qsharp_application_profile(use_qir: bool, tmp_path: Path):
     """Test profiling Q# code through the Python API."""
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    app = QSharpApplication(
-        """
+    app = QSharpApplication("""
         {
             use qs = Qubit[2];
             X(qs[0]);
             X(qs[1]);
             [M(qs[0]),M(qs[1])]
         }
-        """
-    )
+        """)
     profiler = SequentialCountingProfiler(
         physical_qubits_per_logical=10,
-        gate_time_sec={"x": 0.25, "mz_store": 0.5, "read_result": 0.125},
+        gate_time_sec={"x": 0.25, "mz": 0.5},
     )
+    profiler.add_adapter("result_adapter")
 
     result = app.profile(profiler, use_qir=use_qir)
 
@@ -349,17 +348,9 @@ def test_qsharp_application_profile(use_qir: bool, tmp_path: Path):
     assert result.totals.logical_qubits == 2
     assert result.totals.logical_compute_qubits == 2
     assert result.totals.physical_qubits == 20
-    assert result.totals.calls_per_operation == {
-        "x": 2,
-        "mz_store": 2,
-        "read_result": 2,
-    }
-    assert result.totals.runtime_sec_per_operation == {
-        "x": 0.5,
-        "mz_store": 1.0,
-        "read_result": 0.25,
-    }
-    assert result.totals.total_runtime_sec == 0.875 * 2
+    assert result.totals.calls_per_operation == {"x": 2, "mz": 2}
+    assert result.totals.runtime_sec_per_operation == {"x": 0.5, "mz": 1.0}
+    assert result.totals.total_runtime_sec == 1.5
     assert isinstance(result.profiles, TemporalProfiles)
     assert result.profiles.profiles == []
     assert result.profiles.aggregation_window_sec is None
@@ -368,7 +359,7 @@ def test_qsharp_application_profile(use_qir: bool, tmp_path: Path):
     assert summary.startswith("ProfilerResult { totals: TotalCounts {")
     assert "logical_qubits: 2" in summary
     assert "physical_qubits: 20" in summary
-    assert "total_operations_count: 6" in summary
+    assert "total_operations_count: 4" in summary
     assert "time_series_count: 0" in summary
     assert "trace_operations_count" not in summary
     path = tmp_path / "profile.json"
@@ -380,8 +371,8 @@ def test_qsharp_application_profile(use_qir: bool, tmp_path: Path):
                 "logical_qubits": 2,
                 "logical_compute_qubits": 2,
                 "physical_qubits": 20,
-                "total_runtime_sec": 1.75,
-                "total_operations_count": 6,
+                "total_runtime_sec": 1.5,
+                "total_operations_count": 4,
                 "calls_per_operation": result.totals.calls_per_operation,
                 "runtime_sec_per_operation": result.totals.runtime_sec_per_operation,
             },
@@ -398,14 +389,12 @@ def test_qsharp_application_profile(use_qir: bool, tmp_path: Path):
 def test_qsharp_application_profile_no_gate_times():
     """Test profiling Q# code through the Python API."""
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    app = QSharpApplication(
-        """
+    app = QSharpApplication("""
         {
             use qs = Qubit();
             X(qs);
         }
-        """
-    )
+        """)
     profiler = SequentialCountingProfiler(
         physical_qubits_per_logical=10,
         gate_time_sec={},
@@ -422,25 +411,23 @@ def test_qsharp_application_profile_no_gate_times():
     assert result.infos == ["These gates did not have time configured, assumed 0: [x]"]
 
 
-
 @pytest.mark.parametrize("use_qir", [False, True])
 def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
-    """Profile gate dependencies and seeded T-state production from Python."""
+    """Profile CCX decomposition, gate dependencies, and seeded T-state production."""
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    app = QSharpApplication(
-        """
+    app = QSharpApplication("""
         {
-            use qs = Qubit[2];
+            use qs = Qubit[3];
             X(qs[0]);
             H(qs[0]);
             H(qs[1]);
             CNOT(qs[0], qs[1]);
+            CCNOT(qs[0], qs[1], qs[2]);
             T(qs[0]);
             Adjoint T(qs[1]);
-            [M(qs[0]), M(qs[1])]
+            [M(qs[0]), M(qs[1]), M(qs[2])]
         }
-        """
-    )
+        """)
     config = TemporalProfilerConfig(
         clifford_gate_time_nanos=5000,
         measurment_time_nanos=1000,
@@ -451,6 +438,8 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
         ecc_distance=7,
     )
     profiler = TemporalProfiler(config)
+    profiler.add_adapter("result_adapter")
+    profiler.add_adapter("transpiler")
 
     result = app.profile(profiler, use_qir=use_qir)
     summary = repr(result)
@@ -460,7 +449,6 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
     result.to_json(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["totals"]["logical_qubits"] == result.totals.logical_qubits
-    assert result.totals.logical_qubits == 27
-    assert result.totals.logical_compute_qubits == 2
-    assert data["totals"]["logical_compute_qubits"] == 2
- 
+    assert result.totals.logical_qubits == 28
+    assert result.totals.logical_compute_qubits == 3
+    assert data["totals"]["logical_compute_qubits"] == 3

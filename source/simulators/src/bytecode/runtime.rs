@@ -145,6 +145,7 @@ const OPID_CZ: u64 = 16;
 const OPID_RXX: u64 = 17;
 const OPID_RYY: u64 = 18;
 const OPID_RZZ: u64 = 19;
+const OPID_CCX: u64 = 20;
 const OPID_MZ: u64 = 21;
 const OPID_MRESETZ: u64 = 22;
 const OPID_SWAP: u64 = 24;
@@ -282,6 +283,10 @@ fn dispatch_quantum_gate<S: Simulator>(
             OPID_RY => sim.ry(angle, q1),
             OPID_RZ => sim.rz(angle, q1),
             OPID_CX => sim.cx(q1, q2),
+            OPID_CCX => {
+                let q3 = rt.resolve_u64(instr.aux3, instr.opcode, 6) as QubitID;
+                sim.ccx(q1, q2, q3);
+            }
             OPID_CY => sim.cy(q1, q2),
             OPID_CZ => sim.cz(q1, q2),
             OPID_RXX => sim.rxx(angle, q1, q2),

@@ -6,10 +6,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Callable
 
+import pyqir
+
 from ... import qsharp, telemetry_events
+from ..._adaptive_pass import AdaptiveProfilePass, Bytecode
 from ..._interpreter import _get_context_or_default
 from ...estimator import LogicalCounts
 from .._application import Application
@@ -77,7 +79,7 @@ class QSharpApplication(Application[None]):
             f.write(str(qir))
 
     def profile(self, profiler: Profiler, use_qir: bool = True) -> ProfilerResult:
-        """Profile through QIR, or directly using the Q# interpreter.
+        """Profile through QIR-derived adaptive bytecode, or the Q# interpreter.
 
         Raises:
             ValueError: If ``use_qir=False`` and the entry expression is not
@@ -86,10 +88,11 @@ class QSharpApplication(Application[None]):
         context = _get_context_or_default(self.entry_expr)
 
         if use_qir:
-            with TemporaryDirectory() as temporary_directory:
-                qir_path = Path(temporary_directory) / "program.ll"
-                self.to_qir(str(qir_path))
-                return profiler.profile_qir(str(qir_path))
+            assert not isinstance(self.entry_expr, LogicalCounts)
+            qir = qsharp.compile(self.entry_expr, *self.args)
+            module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+            program = AdaptiveProfilePass(Bytecode.Bit64).run(module)
+            return profiler.profile_adaptive_program(program.as_dict())
 
         if isinstance(self.entry_expr, str):
             return profiler.profile_qsharp_expr(context._interpreter, self.entry_expr)
