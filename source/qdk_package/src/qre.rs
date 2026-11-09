@@ -246,12 +246,16 @@ impl Profiler {
 impl Profiler {
     /// Wraps this profiler in the named adapter, preserving its collected data.
     fn add_adapter(&mut self, adapter: &str) -> PyResult<()> {
+        let backend = self.backend.take().expect("no backend");
         match adapter {
             "transpiler" => {
-                let backend = self.backend.take().expect("profiler backend is installed");
                 self.backend = Some(Box::new(qep::TranspilingAdapter::with_defaults(backend)));
             }
+            "result_adapter" => {
+                self.backend = Some(Box::new(qep::ResultAdapter::new(backend)));
+            }
             _ => {
+                self.backend = Some(backend);
                 return Err(PyValueError::new_err(format!(
                     "Unknown profiler adapter {adapter:?}; supported adapters: transpiler"
                 )));
@@ -427,10 +431,9 @@ impl TemporalProfiler {
             seed: config.seed,
             record_trace: config.record_trace,
         };
+        let profiler = qep::TemporalProfiler::new(model, config);
         PyClassInitializer::from(Profiler {
-            backend: Some(Box::new(qep::ResultAdapter::new(
-                qep::TranspilingAdapter::with_defaults(qep::TemporalProfiler::new(model, config)),
-            ))),
+            backend: Some(Box::new(profiler)),
         })
         .add_subclass(Self)
     }
