@@ -17,6 +17,7 @@ pub(crate) type CudaError = c_uint;
 pub(crate) type CudaMemcpyKind = c_uint;
 
 pub(crate) const CUDA_MEMCPY_HOST_TO_DEVICE: CudaMemcpyKind = 1;
+pub(crate) const CUDA_MEMCPY_DEVICE_TO_DEVICE: CudaMemcpyKind = 3;
 pub(crate) const CUDA_STREAM_NON_BLOCKING: c_uint = 1;
 /// `cudaDeviceAttr`, the attribute `cudaDeviceGetAttribute` reads.
 pub(crate) type CudaDeviceAttr = c_uint;
@@ -24,6 +25,9 @@ pub(crate) type CudaDeviceAttr = c_uint;
 pub(crate) const CUDA_DEV_ATTR_COMPUTE_CAPABILITY_MAJOR: CudaDeviceAttr = 75;
 /// `cudaDevAttrComputeCapabilityMinor`.
 pub(crate) const CUDA_DEV_ATTR_COMPUTE_CAPABILITY_MINOR: CudaDeviceAttr = 76;
+/// `cudaStreamLegacy`, `((cudaStream_t)0x1)`: the legacy default stream,
+/// which `cudaMemcpy` runs on.
+pub(crate) const CUDA_STREAM_LEGACY: usize = 1;
 
 pub(crate) type CudaRuntimeGetVersionFn = unsafe extern "C" fn(*mut c_int) -> CudaError;
 pub(crate) type CudaDriverGetVersionFn = unsafe extern "C" fn(*mut c_int) -> CudaError;

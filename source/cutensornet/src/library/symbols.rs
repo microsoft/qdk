@@ -3,8 +3,8 @@
 
 //! The tables of the functions that discovery looks up in each library.
 //!
-//! The MPS engine, added in a later change, calls cuTensorNet and the CUDA
-//! Runtime only through these tables, so that no NVIDIA symbol is linked
+//! The MPS engine calls cuTensorNet and the CUDA Runtime only through these
+//! tables, so that no NVIDIA symbol is linked
 //! into the QDK. Each table is a list of rows `required field: Type =
 //! symbol` (or `optional`), from which `function_table!` makes the field,
 //! its lookup by the symbol's name, and a compile-time check that `Type` is
@@ -90,7 +90,7 @@ function_table! {
     /// Every CUDA Runtime function the loader looks up.
     #[expect(
         dead_code,
-        reason = "discovery calls only the version probes; the MPS engine and the setup check, added later, call the rest"
+        reason = "the setup check, added later, calls device_get_attribute"
     )]
     struct CudaFunctions in CUDA_RUNTIME, declared in cudart_12 {
         required runtime_get_version: cudart_12::CudaRuntimeGetVersionFn = cudaRuntimeGetVersion,
@@ -113,10 +113,6 @@ function_table! {
 
 function_table! {
     /// Every cuTensorNet function the loader looks up.
-    #[expect(
-        dead_code,
-        reason = "discovery calls only the version probes; the MPS engine, added later, calls the rest"
-    )]
     struct CuTensorNetFunctions in CUTENSORNET, declared in v2_13 {
         required create: context::CreateFn = cutensornetCreate,
         required destroy: context::DestroyFn = cutensornetDestroy,

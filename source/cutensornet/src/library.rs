@@ -12,8 +12,8 @@
 //! closes the libraries it opened.
 //!
 //! [`LoadedLibraries`] holds both tables and both libraries, so that no
-//! function pointer outlives its library. The MPS engine, added in a later
-//! change, calls cuTensorNet and the CUDA Runtime through it.
+//! function pointer outlives its library. The MPS engine (`engine`) calls
+//! cuTensorNet and the CUDA Runtime through it.
 
 use crate::{
     Availability, AvailabilityError, AvailabilityReport, bindings::cudart_12,
@@ -26,6 +26,8 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod engine;
 pub(super) mod symbols;
 
 use symbols::{CuTensorNetFunctions, CudaFunctions};
@@ -98,7 +100,7 @@ pub(super) struct LoadedLibrary {
 /// whoever calls a function that creates one owns it.
 #[expect(
     dead_code,
-    reason = "the libraries are held to keep the tables valid; the MPS engine, added later, reads the tables"
+    reason = "the libraries are held, never read, to keep the tables valid"
 )]
 pub(crate) struct LoadedLibraries {
     cutensornet: LoadedLibrary,

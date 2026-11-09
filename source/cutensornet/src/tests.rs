@@ -5,10 +5,12 @@
 //!
 //! None needs a GPU or NVIDIA's libraries: the loader is driven through
 //! files that are not libraries, paths that do not exist and a resolver that
-//! hands out stand-in pointers. The loader compiles for its tests on any
-//! Unix host, so they run off Linux x86-64 too.
+//! hands out stand-in pointers; the engine runs its real code against a CPU
+//! double of cuTensorNet (`src/engine/double.rs`). The loader compiles for its
+//! tests on any Unix host, so they run off Linux x86-64 too.
 
 mod discovery;
+mod engine;
 #[cfg(unix)]
 mod library;
 mod version;
