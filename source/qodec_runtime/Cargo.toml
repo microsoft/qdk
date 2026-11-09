@@ -13,6 +13,10 @@ qodec = { workspace = true }
 rustc-hash = { workspace = true }
 smallvec = { workspace = true }
 
+[dev-dependencies]
+deq-runtime = { workspace = true }
+serde_json = { workspace = true }
+
 [lints]
 workspace = true
 

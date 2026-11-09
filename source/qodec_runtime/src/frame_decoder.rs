@@ -15,7 +15,7 @@
 use super::{
     actions::{CliffordMap, PauliExpr, action_clifford, action_extent, clifford_map},
     backend::{Bit, PlanError, Status},
-    decoder::{BlockRef, Decoded, Decoder, DecoderPlan, DecoderRuntime, Invocation, Step},
+    decoder::{BlockRef, Decoded, DecoderPicker, DecoderPlan, DecoderRuntime, Invocation, Step},
     parity::{Basis, BinarySystem, Inconsistent, Parity, Side, Var},
     pauli::{Clifford, DensePauli, Pauli, PauliOp},
     plan::{GadgetPlan, InstructionPlan, LayerPlan},
@@ -25,15 +25,11 @@ use qodec::Action;
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
-/// The Pauli-frame [`Decoder`].
+/// Picks the Pauli-frame decoder for every layer.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameDecoder;
 
-impl<R: 'static> Decoder<R> for FrameDecoder {
-    fn deferrable(&self) -> bool {
-        true
-    }
-
+impl<R: 'static> DecoderPicker<R> for FrameDecoder {
     fn plan(&self, layer: &Rc<LayerPlan>) -> Result<Box<dyn DecoderPlan<R>>, PlanError> {
         Ok(Box::new(FrameDecoderPlan::new(layer)?))
     }

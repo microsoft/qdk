@@ -2,17 +2,27 @@
 // Licensed under the MIT License.
 
 use super::{
-    Backend, BackendInstruction, BasicReadout, BatchResult, FrameDecoder, FrameDecoderPlan,
-    LayerPlan, LayerRuntime, OwnedParam, QodecError, QodecPlan, QodecRuntimeError, Readout,
-    Resources, Status,
-    parity::{BinarySystem, Inconsistent, Parity, Var},
+    Backend, BackendInstruction, BasicReadout, BatchResult, Bit, BlockRef, Decoded, DecoderPicker,
+    DecoderPlan, DecoderRuntime, FrameDecoder, FrameDecoderPlan, Invocation, LayerPlan,
+    LayerRuntime, OwnedParam, PlanError, QodecError, QodecPlan, QodecRuntimeError, Readout,
+    Resources, Status, Step,
+    parity::{Basis, BinarySystem, Inconsistent, Parity, Side, Var},
     pauli::{Clifford, DensePauli, Pauli},
-    spec::{CompiledSelect, TypeTable, accepts, bind_operands, compile_select},
+    plan::{GadgetPlan, InstructionPlan},
+    spec::{CompiledSelect, RefScope, TypeTable, accepts, bind_operands, compile_select, expr},
+};
+use deq_runtime::{
+    decoder::{
+        blackbox_decoder::{DecodingHypergraph, Hyperedge},
+        mwpm_decoder::MwpmDecoderInstance,
+        thread_pooling::{DecodeRequest, DecoderInstance},
+    },
+    misc::{bit_vector, validation},
 };
 use qodec::{BlockOperand, Instruction, InstructionSet, Qodec, SelectPattern};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::{rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 // ── Spec helpers ────────────────────────────────────────────────────────────
 
@@ -288,26 +298,25 @@ fn repetition3() -> Qodec {
     Qodec::from_bundle_str(&bundle).expect("bundle should load")
 }
 
-/// A logical layer with a trivial one-qubit code on top of repetition3.
-fn logical_over_repetition3() -> Qodec {
-    let bundle = format!(
-        r#"qodec.yaml:
-  name: logical
-  layers:
-    - instruction_set: logical.isa.yaml
-      codes: {{lq: trivial.code.yaml}}
+/// A logical layer with a trivial one-qubit code, to put on top of
+/// repetition3. `flip` and `phase` have no gadget.
+const LOGICAL_LAYER: &str = r"    - instruction_set: logical.isa.yaml
+      codes: {lq: trivial.code.yaml}
       gadgets:
         prepare: prepare.gadget.yaml
         measure: measure.gadget.yaml
-{REPETITION3_LAYER}    - instruction_set: physical.isa.yaml
+";
+
+const LOGICAL_ARTIFACTS: &str = r#"
 ---
 logical.isa.yaml:
   name: logical
-  blocks: {{lq: 1}}
+  blocks: {lq: 1}
   instructions:
-    - {{mnemonic: prepare, description: '', out: [lq], action: [stabilize: Z_0]}}
-    - {{mnemonic: measure, description: '', in: [lq], action: [observe: Z_0]}}
-    - {{mnemonic: flip, description: '', in: [lq], out: [lq], action: [pauli: X_0]}}
+    - {mnemonic: prepare, description: '', out: [lq], action: [stabilize: Z_0]}
+    - {mnemonic: measure, description: '', in: [lq], action: [observe: Z_0]}
+    - {mnemonic: flip, description: '', in: [lq], out: [lq], action: [pauli: X_0]}
+    - {mnemonic: phase, description: '', in: [lq], out: [lq], action: [pauli: Z_0]}
 ---
 trivial.code.yaml:
   name: trivial
@@ -316,12 +325,52 @@ trivial.code.yaml:
   z: [Z_0]
 ---
 prepare.gadget.yaml:
-  circuit: {{source: [{{prepare_z: [0]}}]}}
+  circuit: {source: [{prepare_z: [0]}]}
 ---
 measure.gadget.yaml:
-  circuit: {{source: [{{__quantum__qis__m__body: [0]}}]}}
+  circuit: {source: [{__quantum__qis__m__body: [0]}]}
   readouts: [["circuit.readouts[0]", "in[0].z[0]"]]
-{REPETITION3_ARTIFACTS}"#
+"#;
+
+/// A logical layer with a trivial one-qubit code on top of repetition3.
+fn logical_over_repetition3() -> Qodec {
+    let bundle = format!(
+        "qodec.yaml:\n  name: logical\n  layers:\n{LOGICAL_LAYER}{REPETITION3_LAYER}    - instruction_set: physical.isa.yaml\n{LOGICAL_ARTIFACTS}{REPETITION3_ARTIFACTS}"
+    );
+    Qodec::from_bundle_str(&bundle).expect("bundle should load")
+}
+
+/// A second trivial-code layer on top of [`logical_over_repetition3`], so that
+/// two layers sit above the one that lowers to the physical ISA. `flip` has no
+/// gadget; the logical layer applies it with its own `flip`, and it needs a
+/// `z` Pauli there too, which `phase` provides.
+fn outer_over_logical_over_repetition3() -> Qodec {
+    let bundle = format!(
+        r#"qodec.yaml:
+  name: outer
+  layers:
+    - instruction_set: outer.isa.yaml
+      codes: {{oq: trivial.code.yaml}}
+      gadgets:
+        prepare: outer_prepare.gadget.yaml
+        measure: outer_measure.gadget.yaml
+{LOGICAL_LAYER}{REPETITION3_LAYER}    - instruction_set: physical.isa.yaml
+---
+outer.isa.yaml:
+  name: outer
+  blocks: {{oq: 1}}
+  instructions:
+    - {{mnemonic: prepare, description: '', out: [oq], action: [stabilize: Z_0]}}
+    - {{mnemonic: measure, description: '', in: [oq], action: [observe: Z_0]}}
+    - {{mnemonic: flip, description: '', in: [oq], out: [oq], action: [pauli: X_0]}}
+---
+outer_prepare.gadget.yaml:
+  circuit: {{source: [{{prepare: [0]}}]}}
+---
+outer_measure.gadget.yaml:
+  circuit: {{source: [{{measure: [0]}}]}}
+  readouts: [["circuit.readouts[0]", "in[0].z[0]"]]
+{LOGICAL_ARTIFACTS}{REPETITION3_ARTIFACTS}"#
     );
     Qodec::from_bundle_str(&bundle).expect("bundle should load")
 }
@@ -336,6 +385,8 @@ struct BitSim {
     fixed_size: Option<usize>,
     batches: usize,
     fail: bool,
+    /// Qubits that suffer a bit-flip error right before their next measurement.
+    flips: Vec<usize>,
 }
 
 impl BitSim {
@@ -402,11 +453,17 @@ impl Backend<usize, OwnedParam, BasicReadout> for BitSim {
             };
             match self.mnemonics[ins.instruction_id].as_str() {
                 "R" => self.bits[q(0)] = false,
-                "M" | "MZ" => results.push(BasicReadout::new(
-                    &[Some(self.bits[q(0)])],
-                    &[],
-                    Status::default(),
-                )),
+                "M" | "MZ" => {
+                    if let Some(i) = self.flips.iter().position(|&f| f == q(0)) {
+                        self.flips.swap_remove(i);
+                        self.bits[q(0)] ^= true;
+                    }
+                    results.push(BasicReadout::new(
+                        &[Some(self.bits[q(0)])],
+                        &[],
+                        Status::default(),
+                    ));
+                }
                 "CX" => {
                     if self.bits[q(0)] {
                         self.bits[q(1)] ^= true;
@@ -432,7 +489,7 @@ type TestLayer = LayerRuntime<usize, OwnedParam, BasicReadout, BitSim>;
 fn single_layer(qodec: &Qodec) -> TestLayer {
     let layers = qodec.layers();
     let plan =
-        Rc::new(LayerPlan::new(&layers[0], &layers[1].instruction_set, true).expect("plan builds"));
+        Rc::new(LayerPlan::new(&layers[0], &layers[1].instruction_set).expect("plan builds"));
     let decoder_plan = FrameDecoderPlan::new(&plan).expect("decoder plans");
     LayerRuntime::new(plan, &decoder_plan, BitSim::new(&layers[1].instruction_set))
 }
@@ -471,7 +528,7 @@ const X: &str = "__quantum__qis__x__body";
 fn required_resources_include_scratch() {
     let qodec = repetition3();
     let layers = qodec.layers();
-    let plan = LayerPlan::new(&layers[0], &layers[1].instruction_set, true).expect("plan");
+    let plan = LayerPlan::new(&layers[0], &layers[1].instruction_set).expect("plan");
     // Three data qubits per block, plus the idle gadget's two ancillas.
     assert_eq!(
         plan.required_resources(&one_block()),
@@ -672,6 +729,403 @@ fn required_resources_reject_unknown_block_types() {
     assert!(qodec_plan.required_resources(unknown).is_err());
 }
 
+/// A logical layer over a physical ISA with no Pauli instructions. With `flip`,
+/// the logical layer has a Pauli-only instruction without a gadget.
+fn logical_over_pauli_free_isa(flip: bool) -> Qodec {
+    let flip = if flip {
+        "    - {mnemonic: flip, description: '', in: [lq], out: [lq], action: [pauli: X_0]}\n"
+    } else {
+        ""
+    };
+    let bundle = format!(
+        r#"qodec.yaml:
+  name: pauli_free
+  layers:
+    - instruction_set: logical.isa.yaml
+      codes: {{lq: trivial.code.yaml}}
+      gadgets:
+        prepare: prepare.gadget.yaml
+        measure: measure.gadget.yaml
+    - instruction_set: physical.isa.yaml
+---
+logical.isa.yaml:
+  name: logical
+  blocks: {{lq: 1}}
+  instructions:
+    - {{mnemonic: prepare, description: '', out: [lq], action: [stabilize: Z_0]}}
+    - {{mnemonic: measure, description: '', in: [lq], action: [observe: Z_0]}}
+{flip}---
+physical.isa.yaml:
+  name: physical
+  blocks: {{qubit: 1}}
+  instructions:
+    - {{mnemonic: R, description: '', out: [qubit], action: [stabilize: Z_0]}}
+    - {{mnemonic: M, description: '', in: [qubit], action: [observe: Z_0]}}
+---
+trivial.code.yaml:
+  name: trivial
+  stabilizers: []
+  x: [X_0]
+  z: [Z_0]
+---
+prepare.gadget.yaml:
+  circuit: {{source: [{{R: [0]}}]}}
+---
+measure.gadget.yaml:
+  circuit: {{source: [{{M: [0]}}]}}
+  readouts: [["circuit.readouts[0]", "in[0].z[0]"]]
+"#
+    );
+    Qodec::from_bundle_str(&bundle).expect("bundle should load")
+}
+
+/// Picks the frame decoder's plan for every layer, but reports it as not
+/// deferrable, as a decoder that issues corrections would.
+struct Correcting;
+
+struct CorrectingPlan(FrameDecoderPlan);
+
+impl DecoderPicker<BasicReadout> for Correcting {
+    fn plan(&self, layer: &Rc<LayerPlan>) -> Result<Box<dyn DecoderPlan<BasicReadout>>, PlanError> {
+        Ok(Box::new(CorrectingPlan(FrameDecoderPlan::new(layer)?)))
+    }
+}
+
+impl DecoderPlan<BasicReadout> for CorrectingPlan {
+    fn deferrable(&self) -> bool {
+        false
+    }
+
+    fn instantiate(&self) -> Box<dyn DecoderRuntime<BasicReadout>> {
+        DecoderPlan::<BasicReadout>::instantiate(&self.0)
+    }
+}
+
+#[test]
+fn only_layers_that_issue_pauli_corrections_need_lower_paulis() {
+    let qodec = logical_over_pauli_free_isa(false);
+    assert!(QodecPlan::<BasicReadout>::new(&qodec, &FrameDecoder).is_ok());
+    let err = QodecPlan::<BasicReadout>::new(&qodec, &Correcting)
+        .err()
+        .expect("a decoder that corrects needs `x` below");
+    assert_eq!(
+        err,
+        PlanError("layer 0: the lower ISA has no `x` Pauli for block type `qubit`".to_string())
+    );
+}
+
+#[test]
+fn logical_paulis_need_lower_paulis_whatever_the_decoder() {
+    let qodec = logical_over_pauli_free_isa(true);
+    let err = QodecPlan::<BasicReadout>::new(&qodec, &FrameDecoder)
+        .err()
+        .expect("`flip` is applied through `x` below");
+    assert_eq!(
+        err,
+        PlanError("layer 0: the lower ISA has no `x` Pauli for block type `qubit`".to_string())
+    );
+}
+
+// ── deq decoders ────────────────────────────────────────────────────────────
+
+/// Picks a [`DeqPlan`] for the layer that lowers to `bottom`, and the frame
+/// decoder for every other layer. Records each choice by the layer's upper ISA.
+struct DeqAtBottom {
+    bottom: Arc<InstructionSet>,
+    picked: RefCell<Vec<(String, &'static str)>>,
+}
+
+impl DeqAtBottom {
+    fn new(bottom: &Arc<InstructionSet>) -> Self {
+        Self {
+            bottom: Arc::clone(bottom),
+            picked: RefCell::default(),
+        }
+    }
+}
+
+impl DecoderPicker<BasicReadout> for DeqAtBottom {
+    fn plan(&self, layer: &Rc<LayerPlan>) -> Result<Box<dyn DecoderPlan<BasicReadout>>, PlanError> {
+        let deq = Arc::ptr_eq(&layer.lower_isa, &self.bottom);
+        self.picked
+            .borrow_mut()
+            .push((layer.isa.name.clone(), if deq { "deq" } else { "frame" }));
+        if deq {
+            Ok(Box::new(DeqPlan::new(layer)?))
+        } else {
+            DecoderPicker::<BasicReadout>::plan(&FrameDecoder, layer)
+        }
+    }
+}
+
+/// The configuration of deq's MWPM decoder: all defaults.
+fn mwpm_config() -> serde_json::Value {
+    serde_json::json!({})
+}
+
+/// A decoder that corrects each gadget's circuit readouts with deq's MWPM
+/// decoder, then gives them to the frame decoder, which tracks block signs and
+/// computes the gadget's results.
+///
+/// deq decodes a gadget's detectors: its checks that compare circuit readouts
+/// with input stabilizer signs. Each circuit readout is one error mechanism,
+/// which flips the detectors it appears in, as a bit flip right before a
+/// measurement does.
+///
+/// It takes every input stabilizer sign as 0. That holds in these tests: each
+/// repetition3 block comes from `prepare_z`, whose `R`s leave every stabilizer
+/// at +1, and the only error is injected into the final measurement. The frame
+/// decoder can't check this: no gadget's checks determine those signs, so it
+/// doesn't know them. A real integration needs them declared by the gadgets or
+/// tracked by the decoder.
+struct DeqPlan {
+    frame: FrameDecoderPlan,
+    /// Per upper instruction; `None` for instructions without a gadget and for
+    /// gadgets without detectors.
+    gadgets: Rc<Vec<Option<DeqGadget>>>,
+}
+
+/// The decoding problem of one gadget, fixed once per layer.
+struct DeqGadget {
+    /// The checks deq decodes.
+    detectors: Vec<Parity>,
+    /// Per hyperedge of `hypergraph`: the circuit readout that it flips.
+    errors: Vec<usize>,
+    /// One vertex per detector, and one hyperedge per circuit readout that
+    /// some detector reads.
+    hypergraph: DecodingHypergraph,
+}
+
+impl DeqPlan {
+    fn new(layer: &LayerPlan) -> Result<Self, PlanError> {
+        let gadgets = layer
+            .instructions
+            .iter()
+            .map(|instruction_plan| match instruction_plan {
+                InstructionPlan::Gadget(gp) => {
+                    DeqGadget::new(gp).map_err(|e| PlanError(format!("gadget `{}`: {e}", gp.name)))
+                }
+                _ => Ok(None),
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            frame: FrameDecoderPlan::new(layer)?,
+            gadgets: Rc::new(gadgets),
+        })
+    }
+}
+
+impl DeqGadget {
+    /// `None` if the gadget has no detectors.
+    fn new(gp: &GadgetPlan) -> Result<Option<Self>, String> {
+        let scope = RefScope {
+            record_len: gp.body.record_len,
+            readouts_len: gp.gadget.readouts.len(),
+            inputs: &gp.inputs,
+            outputs: &gp.outputs,
+        };
+        let mut detectors = Vec::new();
+        for check in &gp.gadget.checks {
+            let parity = expr(check, &scope)?;
+            // A check with an output sign determines that sign; it detects
+            // nothing.
+            let detects = parity.vars().iter().all(|v| {
+                matches!(
+                    v,
+                    Var::Rec(_)
+                        | Var::Enc {
+                            side: Side::In,
+                            basis: Basis::Stabilizers,
+                            ..
+                        }
+                )
+            });
+            if detects {
+                detectors.push(parity);
+            }
+        }
+        if detectors.is_empty() {
+            return Ok(None);
+        }
+
+        let mut errors = Vec::new();
+        let mut hyperedges = Vec::new();
+        for i in 0..gp.body.record_len {
+            let vertices: Vec<u64> = (0..detectors.len())
+                .filter(|&d| detectors[d].contains(Var::Rec(i)))
+                .map(|d| u64::try_from(d).expect("small index"))
+                .collect();
+            if !vertices.is_empty() {
+                errors.push(i);
+                hyperedges.push(Hyperedge {
+                    vertices,
+                    // Arbitrary: every readout is equally likely to flip.
+                    probability: 0.01,
+                    observable_flips: None,
+                });
+            }
+        }
+        let hypergraph = DecodingHypergraph {
+            vertex_num: u64::try_from(detectors.len()).expect("small count"),
+            hyperedges,
+        };
+        validation::validate_hypergraph(&hypergraph)?;
+        MwpmDecoderInstance::validate_hypergraph(&hypergraph, &mwpm_config())?;
+        Ok(Some(Self {
+            detectors,
+            errors,
+            hypergraph,
+        }))
+    }
+}
+
+impl DecoderPlan<BasicReadout> for DeqPlan {
+    fn deferrable(&self) -> bool {
+        // deq's corrections are applied to the readouts, not to the qubits.
+        true
+    }
+
+    fn instantiate(&self) -> Box<dyn DecoderRuntime<BasicReadout>> {
+        Box::new(DeqRuntime {
+            gadgets: Rc::clone(&self.gadgets),
+            solvers: self.gadgets.iter().map(|_| None).collect(),
+            frame: DecoderPlan::<BasicReadout>::instantiate(&self.frame),
+        })
+    }
+}
+
+struct DeqRuntime {
+    gadgets: Rc<Vec<Option<DeqGadget>>>,
+    /// One MWPM solver per gadget, built on its first decode.
+    solvers: Vec<Option<MwpmDecoderInstance>>,
+    frame: Box<dyn DecoderRuntime<BasicReadout>>,
+}
+
+impl DecoderRuntime<BasicReadout> for DeqRuntime {
+    fn decode(&mut self, inv: &Invocation, raw: &[Bit]) -> Step<Decoded> {
+        let gadgets = Rc::clone(&self.gadgets);
+        let index = inv.gadget.index;
+        // With an unknown readout, the syndrome is unknown: leave it to the
+        // frame decoder.
+        let (Some(Some(gadget)), Some(mut bits)) = (
+            gadgets.get(index),
+            raw.iter().copied().collect::<Option<Vec<bool>>>(),
+        ) else {
+            return self.frame.decode(inv, raw);
+        };
+
+        // An input stabilizer sign counts as 0 (see `DeqPlan`).
+        let defects: Vec<u64> = (0..gadget.detectors.len())
+            .filter(|&d| {
+                let detector = &gadget.detectors[d];
+                detector
+                    .vars()
+                    .iter()
+                    .fold(detector.constant, |fired, v| match v {
+                        Var::Rec(i) => fired ^ bits[*i],
+                        _ => fired,
+                    })
+            })
+            .map(|d| u64::try_from(d).expect("small index"))
+            .collect();
+        let syndrome = bit_vector::from_sparse_indices(gadget.hypergraph.vertex_num, &defects);
+        let solver = self.solvers[index]
+            .get_or_insert_with(|| MwpmDecoderInstance::new(&gadget.hypergraph, &mwpm_config()));
+        let correction = solver
+            .decode(DecodeRequest {
+                syndrome: &syndrome,
+                decoder_seed: None,
+                reweights: &[],
+                loss: None,
+            })
+            .expect("deq decodes");
+        for h in correction.subgraph {
+            bits[gadget.errors[usize::try_from(h).expect("small index")]] ^= true;
+        }
+        let corrected: Vec<Bit> = bits.into_iter().map(Some).collect();
+        self.frame.decode(inv, &corrected)
+    }
+
+    fn resume_decode(&mut self, last: Option<&BasicReadout>) -> Step<Decoded> {
+        self.frame.resume_decode(last)
+    }
+
+    fn discarded(&mut self, refs: &[BlockRef]) {
+        self.frame.discarded(refs);
+    }
+}
+
+#[test]
+fn a_picker_runs_deq_below_frame_decoders() {
+    let qodec = outer_over_logical_over_repetition3();
+    let isa = Arc::clone(&qodec.layers()[0].instruction_set);
+    let bottom_isa = Arc::clone(&qodec.layers()[3].instruction_set);
+    let picker = DeqAtBottom::new(&bottom_isa);
+    let qodec_plan = QodecPlan::new(&qodec, &picker).expect("qodec plans");
+    assert_eq!(
+        picker.picked.take(),
+        [
+            ("outer".to_string(), "frame"),
+            ("logical".to_string(), "frame"),
+            ("repetition3".to_string(), "deq"),
+        ]
+    );
+
+    // `measure` runs the repetition3 measurement gadget, which deq decodes.
+    for flip in [false, true] {
+        let mut ops = vec![op(&isa, "prepare", &[0])];
+        if flip {
+            ops.push(op(&isa, "flip", &[0]));
+        }
+        ops.push(op(&isa, "measure", &[0]));
+        let batch = qodec_plan
+            .instantiate(BitSim::new(&bottom_isa))
+            .execute_batch(&ops)
+            .expect("runs");
+        assert_eq!(outcomes(&batch), vec![Some(flip)]);
+        assert_eq!(batch.results[0].status, Status::default());
+    }
+}
+
+#[test]
+fn deq_corrects_a_bit_flip_that_the_frame_decoder_misses() {
+    let qodec = outer_over_logical_over_repetition3();
+    let isa = Arc::clone(&qodec.layers()[0].instruction_set);
+    let bottom_isa = Arc::clone(&qodec.layers()[3].instruction_set);
+    let program = [
+        op(&isa, "prepare", &[0]),
+        op(&isa, "flip", &[0]),
+        op(&isa, "measure", &[0]),
+    ];
+    let noisy = |qubit| BitSim {
+        flips: vec![qubit],
+        ..BitSim::new(&bottom_isa)
+    };
+
+    // `prepare` puts the repetition code on physical qubits 0 to 2. Flip each
+    // in turn right before the final measurement: deq corrects it.
+    let with_deq = QodecPlan::new(&qodec, &DeqAtBottom::new(&bottom_isa)).expect("qodec plans");
+    for qubit in 0..3 {
+        let batch = with_deq
+            .instantiate(noisy(qubit))
+            .execute_batch(&program)
+            .expect("runs");
+        assert_eq!(outcomes(&batch), vec![Some(true)], "flip on qubit {qubit}");
+        assert_eq!(batch.results[0].status, Status::default());
+    }
+
+    // The frame decoder alone misses the flip of qubit 0, the one the logical
+    // readout reads. No gadget's checks determine the stabilizer signs that
+    // `prepare_z` leaves, so the measurement's checks only solve for them.
+    let frame_only = QodecPlan::new(&qodec, &FrameDecoder).expect("qodec plans");
+    let batch = frame_only
+        .instantiate(noisy(0))
+        .execute_batch(&program)
+        .expect("runs");
+    assert_eq!(outcomes(&batch), vec![Some(false)]);
+    assert_eq!(batch.results[0].status, Status::default());
+}
+
 #[test]
 fn single_layer_qodecs_pass_through_to_the_bottom_backend() {
     let bundle = r"qodec.yaml:
@@ -845,7 +1299,7 @@ chain.gadget.yaml:
     );
     let qodec = Qodec::from_bundle_str(&bundle).expect("bundle should load");
     let layers = qodec.layers();
-    let plan = LayerPlan::new(&layers[0], &layers[1].instruction_set, true).expect("plan builds");
+    let plan = LayerPlan::new(&layers[0], &layers[1].instruction_set).expect("plan builds");
     let super::plan::InstructionPlan::Gadget(gp) = &plan.instructions[0] else {
         panic!("chain has a gadget");
     };

@@ -55,6 +55,7 @@ bitflags = "2.13"
 memchr = "2.8"
 clap = "4.4"
 criterion = { version = "0.8", default-features = false }
+deq-runtime = { version = "0.6.0", default-features = false, features = ["mwpm"] }
 difference = "2.0"
 enum-iterator = "2.3"
 env_logger = "0.11"

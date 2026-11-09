@@ -2,8 +2,9 @@
 // Licensed under the MIT License.
 
 //! The decoder interface, and the runtime types shared by a layer runtime and
-//! its decoder. A [`Decoder`] (the chosen algorithm) is planned once per layer
-//! into a [`DecoderPlan`], which instantiates a [`DecoderRuntime`] per shot.
+//! its decoder. A [`DecoderPicker`], chosen for a whole qodec, plans a decoder
+//! for each layer as a [`DecoderPlan`], which instantiates a [`DecoderRuntime`]
+//! per shot.
 
 use super::{
     backend::{Bit, PlanError, Status},
@@ -12,21 +13,16 @@ use super::{
 use qodec::Argument;
 use std::{collections::BTreeMap, rc::Rc};
 
-/// A decoding algorithm, chosen for a whole qodec. It is planned once per
-/// layer into a [`DecoderPlan`].
-pub trait Decoder<R> {
-    /// Whether plans of this algorithm are deferrable. See
-    /// [`DecoderPlan::deferrable`] for what that means. It must equal the
-    /// `deferrable` of every plan this decoder builds.
-    ///
-    /// The algorithm must answer as well as its plans because a plan is built
-    /// from a [`LayerPlan`], and [`LayerPlan::new`] needs the answer first. A
-    /// decoder that isn't deferrable may issue `x` or `z` corrections, so
-    /// planning then checks that the lower ISA has those instructions. If this
-    /// wrongly says `true`, that check is skipped, and a correction can fail at
-    /// run time with `NoImplementation`.
-    fn deferrable(&self) -> bool;
-    /// Plans this decoder for one layer.
+/// Chooses and plans the decoder of each layer of a qodec.
+///
+/// [`QodecPlan::new`](crate::QodecPlan::new) calls [`Self::plan`] once per
+/// layer, top first. Different layers may get different decoders, so whether a
+/// decoder is deferrable is a property of each [`DecoderPlan`], not of the
+/// picker.
+pub trait DecoderPicker<R> {
+    /// Plans the decoder of one layer. It can choose based on anything in
+    /// `layer`, such as the names of its instruction sets (`layer.isa.name`,
+    /// `layer.lower_isa.name`), its codes, or its gadgets.
     fn plan(&self, layer: &Rc<LayerPlan>) -> Result<Box<dyn DecoderPlan<R>>, PlanError>;
 }
 
@@ -50,6 +46,10 @@ pub trait DecoderPlan<R> {
     /// decode and runs them when it flushes. Otherwise, the layer decodes each
     /// gadget right after its body, flushing first if the body's results are
     /// still pending, and sends any corrections before it runs the next gadget.
+    ///
+    /// A decoder that isn't deferrable may correct with `x` and `z`, so
+    /// [`QodecPlan::new`](crate::QodecPlan::new) then requires the lower ISA to
+    /// have those instructions (see [`LayerPlan::check_pauli_corrections`]).
     fn deferrable(&self) -> bool;
     /// Instantiates a fresh decoder runtime for one shot.
     fn instantiate(&self) -> Box<dyn DecoderRuntime<R>>;

@@ -14,7 +14,7 @@
 
 use super::{
     backend::{Backend, InstructionId, OwnedParam, Param, PlanError, Readout},
-    decoder::{Decoder, DecoderPlan},
+    decoder::{DecoderPicker, DecoderPlan},
     parity::Parity,
     resolver::Resolver,
     runtime::QodecRuntime,
@@ -35,11 +35,11 @@ pub struct QodecPlan<R> {
 }
 
 impl<R: Readout + 'static> QodecPlan<R> {
-    /// Plans every layer of `qodec` except the bottom one, and plans `decoder`
-    /// for each of them.
-    pub fn new(qodec: &Qodec, decoder: &dyn Decoder<R>) -> Result<Self, PlanError> {
-        let layer_plans = build_layer_plans(qodec.layers(), decoder)?;
-        let decoder_plans = build_decoder_plans(&layer_plans, decoder)?;
+    /// Plans every layer of `qodec` except the bottom one, and has `decoders`
+    /// plan a decoder for each of them.
+    pub fn new(qodec: &Qodec, decoders: &dyn DecoderPicker<R>) -> Result<Self, PlanError> {
+        let layer_plans = build_layer_plans(qodec.layers())?;
+        let decoder_plans = build_decoder_plans(&layer_plans, decoders)?;
 
         Ok(Self {
             layer_plans,
@@ -89,10 +89,7 @@ impl<R: Readout + 'static> QodecPlan<R> {
     }
 }
 
-fn build_layer_plans<R: Readout + 'static>(
-    layers: &[Layer],
-    decoder: &dyn Decoder<R>,
-) -> Result<Vec<Rc<LayerPlan>>, PlanError> {
+fn build_layer_plans(layers: &[Layer]) -> Result<Vec<Rc<LayerPlan>>, PlanError> {
     if layers.is_empty() {
         return Err(PlanError("a qodec needs at least one layer".into()));
     }
@@ -104,27 +101,34 @@ fn build_layer_plans<R: Readout + 'static>(
     let n = layers.len() - 1;
     let layer_plans = (0..n)
         .map(|k| {
-            LayerPlan::new(
-                &layers[k],
-                &layers[k + 1].instruction_set,
-                decoder.deferrable(),
-            )
-            .map(Rc::new)
-            .map_err(|e| PlanError(format!("layer {k}: {e}")))
+            LayerPlan::new(&layers[k], &layers[k + 1].instruction_set)
+                .map(Rc::new)
+                .map_err(|e| PlanError(format!("layer {k}: {e}")))
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(layer_plans)
 }
 
+/// Plans each layer's decoder. A decoder that isn't deferrable may issue Pauli
+/// corrections, so its layer's lower ISA is checked for them here, as soon as
+/// that is known.
 fn build_decoder_plans<R: Readout + 'static>(
     layer_plans: &[Rc<LayerPlan>],
-    decoder: &dyn Decoder<R>,
+    decoders: &dyn DecoderPicker<R>,
 ) -> Result<Vec<Box<dyn DecoderPlan<R>>>, PlanError> {
-    let decoder_plans = layer_plans
+    layer_plans
         .iter()
-        .map(|layer| decoder.plan(layer))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(decoder_plans)
+        .enumerate()
+        .map(|(k, layer)| {
+            let decoder_plan = decoders.plan(layer)?;
+            if !decoder_plan.deferrable() {
+                layer
+                    .check_pauli_corrections()
+                    .map_err(|e| PlanError(format!("layer {k}: {e}")))?;
+            }
+            Ok(decoder_plan)
+        })
+        .collect()
 }
 
 /// The plan of one qodec layer: everything needed to instantiate its runtime.
@@ -190,20 +194,12 @@ pub struct LayerPlan {
 impl LayerPlan {
     /// Plans `layer`, whose gadgets lower it to `lower_isa`.
     ///
-    /// `decoder_deferrable` is whether the chosen [`Decoder`] is deferrable. A
-    /// decoder that is not deferrable may issue Pauli corrections, so planning
-    /// then requires the lower ISA to bind `x` and `z` directly on logical
-    /// index 0 of every lower type. The same holds when any upper instruction
-    /// is planned as [`InstructionPlan::LogicalPauli`]. This check catches a
-    /// lower ISA without Pauli instructions at plan time. It does not cover
-    /// the other logical indices of a multi-qubit lower type; a correction the
-    /// resolver can't bind there fails when it is issued, with
-    /// `NoImplementation`.
-    pub fn new(
-        layer: &Layer,
-        lower_isa: &Arc<InstructionSet>,
-        decoder_deferrable: bool,
-    ) -> Result<Self, PlanError> {
+    /// If an upper instruction is planned as
+    /// [`InstructionPlan::LogicalPauli`], the layer issues Pauli corrections
+    /// itself, so this also runs [`Self::check_pauli_corrections`]. Whether the
+    /// layer's decoder issues corrections is only known once its
+    /// [`DecoderPlan`] exists; [`QodecPlan::new`] runs the check for it then.
+    pub fn new(layer: &Layer, lower_isa: &Arc<InstructionSet>) -> Result<Self, PlanError> {
         let isa = Arc::clone(&layer.instruction_set);
         let upper = TypeTable::new(&isa);
         let lower = TypeTable::new(lower_isa);
@@ -259,25 +255,6 @@ impl LayerPlan {
             })
             .collect();
 
-        // Only `x` and `z` are required: a `y` correction falls back to them
-        // (see `decompose` in resolver.rs). A layer that never issues Pauli
-        // corrections needs no Pauli instructions below it.
-        if instructions
-            .iter()
-            .any(|h| matches!(h, InstructionPlan::LogicalPauli))
-            || !decoder_deferrable
-        {
-            for (t, name) in lower.names.iter().enumerate() {
-                for op in ["x", "z"] {
-                    if !resolver.binds_directly(op, t, &lower) {
-                        return Err(PlanError(format!(
-                            "the lower ISA has no `{op}` Pauli for block type `{name}`"
-                        )));
-                    }
-                }
-            }
-        }
-
         let upper_needs_result = isa
             .instructions
             .iter()
@@ -288,7 +265,7 @@ impl LayerPlan {
             .iter()
             .map(|i| (i.observe_count(), i.flags.len()))
             .collect();
-        Ok(Self {
+        let plan = Self {
             isa,
             lower_isa: Arc::clone(lower_isa),
             upper,
@@ -301,7 +278,40 @@ impl LayerPlan {
             lower_release,
             upper_needs_result,
             lower_shapes,
-        })
+        };
+        if plan
+            .instructions
+            .iter()
+            .any(|h| matches!(h, InstructionPlan::LogicalPauli))
+        {
+            plan.check_pauli_corrections()?;
+        }
+        Ok(plan)
+    }
+
+    /// Checks that the lower ISA can carry this layer's Pauli corrections: it
+    /// must bind `x` and `z` directly on logical index 0 of every lower type.
+    /// Only `x` and `z` are required, because a `y` correction falls back to
+    /// them (see `decompose` in resolver.rs).
+    ///
+    /// Run it only for a layer that issues Pauli corrections: one with a
+    /// [`InstructionPlan::LogicalPauli`] instruction, or whose decoder is not
+    /// [deferrable](DecoderPlan::deferrable). Other layers need no Pauli
+    /// instructions below them. The check catches a lower ISA without Pauli
+    /// instructions at plan time. It doesn't cover the other logical indices
+    /// of a multi-qubit lower type; a correction the resolver can't bind there
+    /// fails when it is issued, with `NoImplementation`.
+    pub fn check_pauli_corrections(&self) -> Result<(), PlanError> {
+        for (t, name) in self.lower.names.iter().enumerate() {
+            for op in ["x", "z"] {
+                if !self.resolver.binds_directly(op, t, &self.lower) {
+                    return Err(PlanError(format!(
+                        "the lower ISA has no `{op}` Pauli for block type `{name}`"
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The lower resources needed to run a program that needs `upper` resources

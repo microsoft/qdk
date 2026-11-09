@@ -45,7 +45,8 @@ Names follow three domains:
   runtimes (XRuntime) Per-shot state instantiated from a plan: QodecRuntime,
                      LayerRuntime, DecoderRuntime.  Built with plan.instantiate().
 So Qodec → QodecPlan → QodecRuntime, Layer → LayerPlan → LayerRuntime, and a
-chosen Decoder → DecoderPlan (one per layer) → DecoderRuntime (one per shot).
+chosen DecoderPicker → DecoderPlan (one per layer, possibly a different decoder
+for each) → DecoderRuntime (one per shot).
 A plan is independent of any program, and so is its runtime: layer runtimes
 allocate lower block ids on demand, so a program need not know its size
 upfront.  A caller that does know it can ask
@@ -352,14 +353,14 @@ force(b)        = b is Known(v) ? v
                 : (flushIfPending(b.slot);  bitOf(results[b.slot], b.kind, b.index))
 
 Decoder interface  [RUNTIME]   (three domains, like everything else)
-    Decoder                              // the algorithm the caller chooses
+    DecoderPicker                        // what the caller chooses, for all layers
+        plan(layerPlan)  -> DecoderPlan  // once per layer (e.g. §9); may pick a
+                                         // different decoder for each layer
+    DecoderPlan
         deferrable()     -> Bool       // true iff `before` is absent and `decode`
                                        // never yields corrections; such decodes are
                                        // queued and run at flush time (§8.4).  A
-                                       // property of the algorithm, known before
-                                       // any plan exists.
-        plan(layerPlan)  -> DecoderPlan  // once per layer (e.g. §9)
-    DecoderPlan
+                                       // property of each layer's decoder.
         instantiate()    -> DecoderRuntime   // once per shot (§8.3)
     DecoderRuntime                       // per-shot state, dropped with its layer
         before(inv)      -> Coroutine<Correction, None>      (optional)
@@ -573,11 +574,8 @@ function codeQubits(L: EncodingPlan, placement, lowerCaps) -> List<(LowerId, Int
  5. LAYER PLAN  (built once per layer)
 ══════════════════════════════════════════════════════════════════════
 
-function LayerPlan::new(layer, lowerIsa, decoderDeferrable: Bool):
-    // decoderDeferrable: whether the chosen Decoder is deferrable (§2).  It is a
-    // property of the algorithm, known before any decoder plan exists, and it
-    // only affects the Pauli check below.
-    plan.isa          = layer.isa                         // upper ISA: decodes incoming Ids
+function LayerPlan::new(layer, lowerIsa):
+    plan.isa          = layer.isa                         // upper ISA: parses incoming Ids
     plan.lowerIsa     = lowerIsa                          // the next layer's ISA
     plan.capacities   = layer.isa.blocks                  // upper type -> logical qubits
     plan.lowerCaps    = lowerIsa.blocks
@@ -645,13 +643,18 @@ function LayerPlan::new(layer, lowerIsa, decoderDeferrable: Bool):
                         // that type are lazy (§8.6): no instruction is emitted.
                         // A measuring fallback is never used, because below a qodec
                         // layer it would run a whole measurement gadget.
-    // Pauli corrections are checked only where they can occur: when the upper
-    // ISA has a LogicalPauli instruction (§8.6), or when not decoderDeferrable
-    // (the decoder may emit corrections).  In that case resolveLower("x") and
-    // resolveLower("z") must bind on one logical index of every lower type.  A
-    // "y" correction falls back to x·z (§6).  Layers that never emit a Pauli need
-    // no Pauli instructions below them.
+    // Pauli corrections are checked only where they can occur.  A LogicalPauli
+    // instruction (§8.6) is known here, so it is checked now.  A decoder that may
+    // emit corrections (not deferrable, §2) is only known once its DecoderPlan
+    // exists, so QodecPlan::new checks that case (§10.1).
+    if any instruction is LogicalPauli: plan.checkPauliCorrections()
     return plan
+
+// resolveLower("x") and resolveLower("z") must bind on logical index 0 of every
+// lower type.  A "y" correction falls back to x·z (§6).  Layers that never emit
+// a Pauli need no Pauli instructions below them.
+function LayerPlan.checkPauliCorrections():
+    for t in lowerCaps: require resolveLower("x") and resolveLower("z") bind on (t, 0)
 
 // maxMerge: per-key max.  sumMerge: per-key sum.  positivePart: drop keys ≤ 0.
 
@@ -1136,7 +1139,7 @@ function applyCorrections(stream) -> T:
 // fault-tolerant decoder would instead use nonzero checks as a syndrome and
 // yield Corrections (§8.7); it is then not deferrable.
 
-FrameDecoder.deferrable() = true
+FrameDecoderPlan.deferrable() = true
 
 // Plan: per gadget of the layer, fixed once.
 FrameDecoder.plan(layerPlan) -> FrameDecoderPlan:
@@ -1255,14 +1258,17 @@ function actionTransport(inv, sys) -> Map<(e, x|z, k), Parity>:
 ── 10.1 The qodec plan and its runtimes ───────────────────────────────
 
 // Plan: program-independent work, done once per qodec and decoder.
-function QodecPlan::new(manifest, decoder):
+function QodecPlan::new(manifest, decoders: DecoderPicker):
     require len(manifest.layers) ≥ 1                // one layer: a pass-through to the
                                                     // bottom backend (no layer runtimes)
     n = len(manifest.layers) - 1                    // layers 0..n-1 have gadgets
-    layerPlans   = [LayerPlan::new(manifest.layers[k], manifest.layers[k+1].isa,
-                                   decoderDeferrable = decoder.deferrable)
+    layerPlans   = [LayerPlan::new(manifest.layers[k], manifest.layers[k+1].isa)
                     for k in 0..n-1]
-    decoderPlans = [decoder.plan(layerPlans[k]) for k in 0..n-1]      // e.g. §9
+    decoderPlans = [decoders.plan(layerPlans[k]) for k in 0..n-1]     // e.g. §9
+    // A decoder that may yield corrections needs Pauli instructions below its
+    // layer.  Only its DecoderPlan knows, so the check runs here (§5).
+    for k in 0..n-1:
+        if not decoderPlans[k].deferrable(): layerPlans[k].checkPauliCorrections()
     return QodecPlan(layerPlans, decoderPlans)
 
 // Optional sizing, for a caller whose program knows its size: the resources at

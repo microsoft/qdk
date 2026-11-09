@@ -45,7 +45,8 @@
 //! # Usage
 //!
 //! 1. Build a [`QodecPlan`] once per qodec with [`QodecPlan::new`], choosing a
-//!    [`Decoder`] such as [`FrameDecoder`].
+//!    [`DecoderPicker`] such as [`FrameDecoder`], which picks a decoder for
+//!    each layer.
 //! 2. For every shot, call [`QodecPlan::instantiate`] with a bottom backend.
 //!    Layer runtimes allocate lower block ids on demand, so a program need not
 //!    know its size; [`QodecPlan::required_resources`] sizes the bottom
@@ -80,8 +81,8 @@ pub use backend::{
     ParamView, PlanError, QodecError, Readout, Status,
 };
 pub use decoder::{
-    BlockRef, Correction, Decoded, Decoder, DecoderPlan, DecoderRuntime, Invocation, Operation,
-    Step,
+    BlockRef, Correction, Decoded, DecoderPicker, DecoderPlan, DecoderRuntime, Invocation,
+    Operation, Step,
 };
 pub use frame_decoder::{FrameDecoder, FrameDecoderPlan, FrameDecoderRuntime};
 pub use layer_runtime::{LayerRuntime, LiveBlock};
