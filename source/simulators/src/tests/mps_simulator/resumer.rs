@@ -599,6 +599,118 @@ fn an_engine_failure_names_the_first_shot_whose_group_met_it() {
     }
 }
 
+/// One shot that reads 0 on a coin with seed 5, then two that read 1, as
+/// each reads alone: on the split, the shot that reads 0 goes on, the
+/// fewer, and the two wait.
+fn a_zero_then_two_ones() -> [QirShotId; 3] {
+    let coin = coins(1);
+    let reading = |value: u8| {
+        let coin = &coin;
+        QirShotId::first(16).into_iter().filter(move |&shot| {
+            run(&mut MpsResumer::new(Observed::new(), 5), coin, &[shot]).expect("a coin runs")
+                == [results(&[value])]
+        })
+    };
+    let zero = reading(0).next().expect("some of 16 coins read 0");
+    let mut ones = reading(1);
+    let one = ones.next().expect("some of 16 coins read 1");
+    let other_one = ones.next().expect("two of 16 coins read 1");
+    [zero, one, other_one]
+}
+
+/// The engines whose failure meets only the waiting part of a split: one
+/// fails the fork, the other the fork's projection on One, the waiting
+/// part's value here.
+const FAILING_SPLITS: [fn() -> Observed; 2] = [
+    Observed::failing_forks,
+    Observed::failing_projections_on_one,
+];
+
+/// When the copy for the part of a split that waits fails, forked or
+/// projected on its value, only the shots that wait fail: the run names
+/// the first of them, not the shot before it that went on and ends.
+#[test]
+fn a_failed_split_fails_only_the_shots_that_wait() {
+    let shots = a_zero_then_two_ones();
+    let program = coins(1);
+    for engine in FAILING_SPLITS {
+        run(&mut MpsResumer::new(engine(), 5), &program, &shots[..1])
+            .expect("the shot that reads 0 ends alone");
+        let error = run(&mut MpsResumer::new(engine(), 5), &program, &shots)
+            .expect_err("the waiting part's copy fails");
+        assert!(
+            matches!(
+                error,
+                QirResumeError::Resumer {
+                    shot,
+                    error: MpsResumerError::Engine(ObservedError::Device),
+                } if shot == shots[1]
+            ),
+            "{error:?}"
+        );
+    }
+}
+
+/// Between a failed split and a shot that goes on from it and fails later
+/// on its own, the run names whichever shot comes first in the order of
+/// the shots, not the failure met last: one coin, whose shots that read 0
+/// trap; the shot that reads 0 first, then last.
+#[test]
+fn a_failed_split_and_a_later_failure_name_the_first_shot_in_order() {
+    let [zero, one, other_one] = a_zero_then_two_ones();
+    let program = coins_then_trap_unless_all(1, 1);
+    for engine in FAILING_SPLITS {
+        let zero_first = run(
+            &mut MpsResumer::new(engine(), 5),
+            &program,
+            &[zero, one, other_one],
+        );
+        assert_eq!(trapped_shot(zero_first), zero);
+        let zero_last = run(
+            &mut MpsResumer::new(engine(), 5),
+            &program,
+            &[one, other_one, zero],
+        )
+        .expect_err("the waiting part's copy fails");
+        assert!(
+            matches!(
+                zero_last,
+                QirResumeError::Resumer {
+                    shot,
+                    error: MpsResumerError::Engine(ObservedError::Device),
+                } if shot == one
+            ),
+            "{zero_last:?}"
+        );
+    }
+}
+
+/// On a split whose parts are as large, the shots that read 0 go on and
+/// those that read 1 wait: one shot of each on a coin, with an engine whose
+/// forks fail, fails the shot that reads 1, first in the order or not.
+#[test]
+fn on_a_tie_the_shots_that_read_zero_go_on() {
+    let [zero, one, _] = a_zero_then_two_ones();
+    for shots in [[one, zero], [zero, one]] {
+        let error = run(
+            &mut MpsResumer::new(Observed::failing_forks(), 5),
+            &coins(1),
+            &shots,
+        )
+        .expect_err("the fork for the part that waits fails");
+        assert!(
+            matches!(
+                error,
+                QirResumeError::Resumer {
+                    shot,
+                    error: MpsResumerError::Engine(ObservedError::Device),
+                } if shot == one
+            ),
+            "{error:?}"
+        );
+    }
+}
+
 /// A max bond dimension that makes no chain of the program's qubits fails
 /// the run, naming its first shot, before any state is prepared: 64 qubits
 /// with unbounded bonds.

@@ -26,12 +26,19 @@ pub(super) enum Weight {
     ByBasisState,
 }
 
+/// Which calls [`Observed`] fails, as a device's error would.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Failing {
+    Nothing,
+    ProjectionsOnOne,
+    Forks,
+}
+
 /// The exact reference, observed (see the module documentation).
 pub(super) struct Observed {
     reference: ExactReference,
     weight: Weight,
-    /// Projections on One fail, as a device's error would.
-    fail_projections_on_one: bool,
+    failing: Failing,
     prepared: RefCell<Vec<MpsShape>>,
     applies: Cell<usize>,
     forks: Cell<usize>,
@@ -54,24 +61,29 @@ impl Drop for Tracked {
 impl Observed {
     /// The reference, reporting its own retained weight.
     pub(super) fn new() -> Self {
-        Self::with(Weight::Exact, false)
+        Self::with(Weight::Exact, Failing::Nothing)
     }
 
     /// The reference, reporting `weight`.
     pub(super) fn retaining(weight: Weight) -> Self {
-        Self::with(weight, false)
+        Self::with(weight, Failing::Nothing)
     }
 
     /// The reference, failing every projection on One.
     pub(super) fn failing_projections_on_one() -> Self {
-        Self::with(Weight::Exact, true)
+        Self::with(Weight::Exact, Failing::ProjectionsOnOne)
     }
 
-    fn with(weight: Weight, fail_projections_on_one: bool) -> Self {
+    /// The reference, failing every fork.
+    pub(super) fn failing_forks() -> Self {
+        Self::with(Weight::Exact, Failing::Forks)
+    }
+
+    fn with(weight: Weight, failing: Failing) -> Self {
         Self {
             reference: ExactReference::new(),
             weight,
-            fail_projections_on_one,
+            failing,
             prepared: RefCell::new(Vec::new()),
             applies: Cell::new(0),
             forks: Cell::new(0),
@@ -175,13 +187,16 @@ impl MpsEngine for Observed {
     }
 
     fn project(&self, state: &mut Tracked, site: usize, one: bool) -> Result<f64, ObservedError> {
-        if one && self.fail_projections_on_one {
+        if one && self.failing == Failing::ProjectionsOnOne {
             return Err(ObservedError::Device);
         }
         Ok(self.reference.project(&mut state.state, site, one)?)
     }
 
     fn fork(&self, state: &Tracked) -> Result<Tracked, ObservedError> {
+        if self.failing == Failing::Forks {
+            return Err(ObservedError::Device);
+        }
         self.forks.set(self.forks.get() + 1);
         Ok(self.track(self.reference.fork(&state.state)?))
     }
