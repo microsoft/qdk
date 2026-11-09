@@ -6,7 +6,12 @@ use crate::qir_simulation::{
     NoiseConfig, QirInstruction, QirInstructionId, adaptive_program_from_pydict,
     unbind_noise_config,
 };
-use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
+use pyo3::{
+    IntoPyObjectExt,
+    exceptions::{PyRuntimeError, PyValueError},
+    prelude::*,
+    types::PyList,
+};
 use pyo3::{PyResult, pyfunction, types::PyDict};
 use qdk_simulators::{
     MeasurementResult, OutputRecord, Simulator,
@@ -312,7 +317,8 @@ pub fn run_cpu_adaptive<'py>(
         FullStateSimulator::new(num_qubits, num_results, seed, noise)
     };
 
-    let output = run_adaptive(&program, shots, seed, noise, make_simulator);
+    let output = run_adaptive(&program, shots, seed, noise, make_simulator)
+        .map_err(PyRuntimeError::new_err)?;
 
     output_records_to_pylist(py, output)
 }
@@ -337,7 +343,8 @@ pub fn run_clifford_adaptive<'py>(
     let make_simulator = |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig>| {
         StabilizerSimulator::new(num_qubits, num_results, seed, noise)
     };
-    let output = run_adaptive(&program, shots, seed, noise, make_simulator);
+    let output = run_adaptive(&program, shots, seed, noise, make_simulator)
+        .map_err(PyRuntimeError::new_err)?;
 
     output_records_to_pylist(py, output)
 }
@@ -348,7 +355,7 @@ fn run_adaptive<SimulatorBuilder, Noise, S>(
     seed: Option<u32>,
     noise: noise_config::NoiseConfig<f64, f64>,
     make_simulator: SimulatorBuilder,
-) -> Vec<Vec<OutputRecord>>
+) -> Result<Vec<Vec<OutputRecord>>, String>
 where
     SimulatorBuilder: Fn(usize, usize, u32, Arc<Noise>) -> S + Send + Sync,
     Noise: From<noise_config::NoiseConfig<f64, f64>> + Send + Sync,
@@ -382,16 +389,16 @@ where
         .par_iter()
         .map(|shot_seed| {
             let mut simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
-            let records = adaptive_run_shot(program, &mut simulator);
+            let records = adaptive_run_shot(program, &mut simulator)?;
             if has_output_recording {
-                records
+                Ok(records)
             } else {
-                simulator
+                Ok(simulator
                     .take_measurements()
                     .into_iter()
                     .map(OutputRecord::Result)
-                    .collect()
+                    .collect())
             }
         })
-        .collect::<Vec<_>>()
+        .collect()
 }

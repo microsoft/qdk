@@ -894,6 +894,45 @@ def test_int_arith_imm_imm(sim_type, bin_op, lhs, rhs, expected):
     )
 
 
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer"])
+@pytest.mark.parametrize("opcode", ["shl", "lshr", "ashr"])
+@pytest.mark.parametrize("amount", [64, 65, 1 << 32])
+def test_oversized_qir_shift_reports_error(sim_type, opcode, amount):
+    qir = format_qir(
+        f"""
+        %amount = add i64 {amount}, 0
+        %shifted = {opcode} i64 1, %amount
+        """
+    )
+    with pytest.raises(RuntimeError, match="integer too large for operation"):
+        run_qir(qir, shots=1, type=sim_type)
+
+
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer"])
+@pytest.mark.parametrize("operator", ["<<<", ">>>"])
+@pytest.mark.parametrize("amount", [0, 63, -63, 64, -64, -(1 << 63)])
+def test_dynamic_qsharp_shift_checks_amount(sim_type, operator, amount):
+    ctx = qdk.Context(target_profile=qdk.TargetProfile.Adaptive_RIF)
+    ctx.eval(f"""
+        operation D(value : Int) : Int {{
+            use q = Qubit();
+            X(q);
+            MResetZ(q) == One ? value | 0
+        }}
+        operation Main() : Int {{ D(1) {operator} D({amount}) }}
+    """)
+    qir = ctx.compile("Main()")
+    if abs(amount) >= 64:
+        with pytest.raises(RuntimeError, match="integer too large for operation"):
+            run_qir(qir, shots=1, type=sim_type)
+    else:
+        left = (operator == "<<<") == (amount >= 0)
+        expected = 1 << abs(amount) if left else 1 >> abs(amount)
+        if expected >= (1 << 63):
+            expected -= 1 << 64
+        assert run_qir(qir, shots=1, type=sim_type) == [expected]
+
+
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",

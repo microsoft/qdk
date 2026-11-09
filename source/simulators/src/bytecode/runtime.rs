@@ -335,12 +335,27 @@ fn dispatch_reset<S: Simulator>(
 // Main interpreter entry point
 // ---------------------------------------------------------------------------
 
+fn shift_amount(amount: u64) -> Result<u32, String> {
+    u32::try_from(amount)
+        .ok()
+        .filter(|&amount| amount < u64::BITS)
+        .ok_or_else(|| {
+            format!("integer too large for operation: shift amount {amount} must be less than 64")
+        })
+}
+
 /// Runs a single shot of `program` on `sim` and returns the recorded outputs.
 ///
 /// The interpreter runs until the program returns; a program that never
 /// returns will not terminate.
+///
+/// # Errors
+/// Returns an error if an integer shift amount is outside the 64-bit operand width.
 #[allow(clippy::too_many_lines)]
-pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Vec<OutputRecord> {
+pub fn run_shot<S: Simulator>(
+    program: &AdaptiveProgram<u64>,
+    sim: &mut S,
+) -> Result<Vec<OutputRecord>, String> {
     let entry_pc = program.block_table[program.entry_block as usize].instr_offset;
     let mut rt = Runtime::new(
         program.num_registers,
@@ -363,7 +378,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
 
             OP_RET => {
                 rt.exit_code = rt.resolve_u64(instr.dst, flags, 2);
-                return records;
+                return Ok(records);
             }
 
             OP_JUMP => {
@@ -619,22 +634,22 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
 
             OP_SHL => {
                 let a = rt.resolve_u64(instr.src0, flags, 0);
-                let b = rt.resolve_u64(instr.src1, flags, 1) as u32;
-                rt.write_reg(instr.dst, a.wrapping_shl(b));
+                let b = shift_amount(rt.resolve_u64(instr.src1, flags, 1))?;
+                rt.write_reg(instr.dst, a << b);
                 rt.pc += 1;
             }
 
             OP_LSHR => {
                 let a = rt.resolve_u64(instr.src0, flags, 0);
-                let b = rt.resolve_u64(instr.src1, flags, 1) as u32;
-                rt.write_reg(instr.dst, a.wrapping_shr(b));
+                let b = shift_amount(rt.resolve_u64(instr.src1, flags, 1))?;
+                rt.write_reg(instr.dst, a >> b);
                 rt.pc += 1;
             }
 
             OP_ASHR => {
                 let a = rt.resolve_i64(instr.src0, flags, 0);
-                let b = rt.resolve_u64(instr.src1, flags, 1) as u32;
-                rt.write_reg(instr.dst, a.wrapping_shr(b) as u64);
+                let b = shift_amount(rt.resolve_u64(instr.src1, flags, 1))?;
+                rt.write_reg(instr.dst, (a >> b) as u64);
                 rt.pc += 1;
             }
 
