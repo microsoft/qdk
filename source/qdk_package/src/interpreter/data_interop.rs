@@ -396,10 +396,12 @@ fn check_callable_types(
 fn callable_type_accepts(expected: &Ty, actual: &Ty) -> bool {
     match (expected, actual) {
         (Ty::Arrow(expected), Ty::Arrow(actual)) => {
-            let required = expected.functors.borrow().expect_value("resolved functors");
-            let available = actual.functors.borrow().expect_value("resolved functors");
+            // ISSUE #4222: Python callable inputs skip functor validation
+            // Uncomment these two lines and the third below once the corresponding qdk-chemistry fix has shipped
+            // let required = expected.functors.borrow().expect_value("resolved functors");
+            // let available = actual.functors.borrow().expect_value("resolved functors");
             expected.kind == actual.kind
-                && available.intersect(&required) == required
+                // && available.intersect(&required) == required
                 && callable_type_accepts(&actual.input.borrow(), &expected.input.borrow())
                 && callable_type_accepts(&expected.output.borrow(), &actual.output.borrow())
         }
