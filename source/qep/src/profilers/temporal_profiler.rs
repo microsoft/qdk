@@ -7,7 +7,7 @@ use super::{
     profile_types::LoggableOperation,
 };
 use crate::{
-    QuantumBackendResult, TemporalProfilerConfig,
+    QuantumBackendResult,
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
     profilers::event_recorder::EventRecorder,
 };
@@ -20,6 +20,42 @@ use std::{
 
 #[cfg(test)]
 mod tests;
+
+/// Configuration for temporal quantum profiling.
+#[derive(Clone, Copy)]
+pub struct TemporalProfilerConfig {
+    /// Duration of a Clifford instruction in nanoseconds.
+    pub clifford_gate_time_nanos: usize,
+    /// Duration of a measurement or reset in nanoseconds.
+    pub measurment_time_nanos: usize,
+    pub aggregation_window_nanos: usize,
+    pub t_factories_count: usize,
+    /// Seed for temporal-profiler distillation and measurement randomness.
+    pub seed: Option<u64>,
+    /// Records temporal instruction and factory-round intervals when true.
+    /// Disabling this leaves metrics unchanged and returns no execution trace.
+    pub record_trace: bool,
+
+    /// Distance of the error-coorecting code.
+    /// Assumes that all logical qubits have the same error correcting code.
+    /// TODO: change it to specify different ECCs for different qubits.
+    pub ecc_distance: usize,
+}
+
+impl Default for TemporalProfilerConfig {
+    /// Uses ten factories, one-second windows, unseeded randomness, and no trace recording.
+    fn default() -> Self {
+        Self {
+            clifford_gate_time_nanos: 5_000,
+            measurment_time_nanos: 1_000,
+            aggregation_window_nanos: 1_000_000_000,
+            t_factories_count: 10,
+            seed: None,
+            record_trace: false,
+            ecc_distance: 5,
+        }
+    }
+}
 
 /// Internal operation reference
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

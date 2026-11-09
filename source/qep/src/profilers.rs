@@ -7,7 +7,6 @@ mod event_recorder;
 mod factories;
 mod models;
 mod profile_types;
-mod temporal_old;
 mod temporal_profiler;
 
 use crate::{QuantumBackend, run_adaptive_program, run_qir, run_qsharp_call, run_qsharp_expr};
@@ -27,8 +26,9 @@ pub use models::DemoModel1;
 pub use profile_types::{
     ExecutionTrace, InstructionTrace, TemporalProfiles, TimeSeries, TotalCounts,
 };
-pub use temporal_old::TemporalProfilerConfig;
-pub use temporal_profiler::{TemporalProfiler, make_profiler_for_demo_model};
+pub use temporal_profiler::{
+    TemporalProfiler, TemporalProfilerConfig, make_profiler_for_demo_model,
+};
 
 /// Profiling data collected during quantum execution.
 #[derive(Clone, PartialEq, Serialize)]
