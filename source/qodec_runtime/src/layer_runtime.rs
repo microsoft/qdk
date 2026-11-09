@@ -30,7 +30,8 @@ use std::{
     rc::Rc,
 };
 
-/// A layer result whose error wraps the lower backend's error.
+/// A layer's result. Its error is raised by the layer itself or wraps the
+/// lower backend's error `E` in [`QodecError::Lower`].
 pub type LayerResult<T, E> = Result<T, QodecError<E>>;
 
 /// The runtime of one qodec layer for one shot. Implements `Backend` for the
@@ -42,33 +43,48 @@ pub struct LayerRuntime<Id, P, R, B> {
     lower: B,
 
     // Shot state
+    /// Live upper blocks, keyed by label: the upper block id that the caller
+    /// passes as a `Block` operand. (In plan types, a label is a circuit
+    /// label instead.)
     blocks: FxHashMap<u64, LiveBlock>,
     /// Released lower ids, reused lowest first.
     free: BinaryHeap<Reverse<u64>>,
-    /// Lower type of every allocated id, indexed by lower id. Ids are dense, so
-    /// it grows by one per fresh id.
+    /// Lower type per lower id, `None` while the id is free. A `Vec` works
+    /// because ids are dense (see `allocate_lower`).
     type_of: Vec<Option<usize>>,
+    /// Last generation given to each upper label. It is kept when the label's
+    /// block is released, so a reused label never repeats a generation within
+    /// the shot.
     generation: FxHashMap<u64, u64>,
     next_invocation: u64,
     decoder: Box<dyn DecoderRuntime<R>>,
     /// Recoverable conditions raised so far. They stick for the rest of the
     /// shot and are merged into every later result.
     status: Status,
-    /// Poisoned: every further `execute_batch` fails with `Poisoned`.
+    /// Whether the layer is poisoned: an `Err` came after side effects, so this
+    /// layer and the layers below may disagree. Every further `execute_batch`
+    /// then fails with `QodecError::Poisoned`.
     failed: bool,
-    /// Every emit, every write to blocks, free, `type_of`, generation, and every
-    /// decoder call or queued decoder event increments it. It decides whether an
-    /// `Err` poisons the layer.
+    /// Counts changes a failed batch cannot undo: every emit, every write to
+    /// `blocks`, `free`, `type_of`, `generation`, and every decoder call or
+    /// queued decoder event. `execute_batch` poisons the layer on `Err` only if
+    /// this changed during the batch.
     side_effects: u64,
 
     // Lower-traffic buffer
     buffer: Vec<BackendInstruction<Id, P>>,
     buffer_slots: Vec<BufferSlot>,
-    /// Resolved lower results that still have a reader.
+    /// Results of flushed lower instructions, by result slot, kept until their
+    /// last reader removes them.
     results: FxHashMap<u64, R>,
+    /// The next result slot: the id `emit` gives a buffered lower instruction
+    /// that produces a result, to find that result in `results` after a flush.
+    /// Unrelated to the slots of a `SlotPlan`.
     next_slot: u64,
     decoder_log: VecDeque<DecoderEvent>,
-    /// Decoded upper results of the current batch.
+    /// Decoded upper results of the current batch, one per gadget invocation.
+    /// A sink is an index into it. It stays `None` until the invocation's QEC
+    /// decode runs, which for a deferrable decoder is at flush time.
     sinks: Vec<Option<Decoded>>,
     cache: ResolveCache,
 }
@@ -157,7 +173,7 @@ where
         self.lower
     }
 
-    /// The sticky status of the shot.
+    /// The recoverable conditions raised so far in the shot.
     #[must_use]
     pub fn status(&self) -> Status {
         self.status
@@ -188,6 +204,10 @@ where
             let needs_result = self.plan.upper_needs_result[call.index];
             let sink = self.execute_one(call)?;
             if needs_result {
+                // Only a gadget returns a sink, and only a gadget can need a
+                // result: `LogicalPauli` and `Release` instructions have no
+                // observe steps and no flags (`is_pauli_only`, `is_release`), and
+                // `Unsupported` fails above. So `Protocol` here means a bug.
                 wanted.push(sink.ok_or(QodecError::Protocol)?);
             }
         }
@@ -200,8 +220,12 @@ where
         Ok(BatchResult { results })
     }
 
-    // ── Decoding an incoming instruction (pure) ─────────────────────────────
+    // ── Parsing an incoming instruction (pure) ──────────────────────────────
 
+    /// Parses `ins` into a [`Call`] and validates it against the upper ISA.
+    /// `pseudocode.txt` (§8.5) calls this `decodeInstruction`; it is unrelated to
+    /// QEC decoding by `self.decoder`. It only reads state, so a malformed
+    /// instruction adds no side effects.
     fn parse_instruction(&self, ins: &BackendInstruction<Id, P>) -> LayerResult<Call, B::Error> {
         let index = ins.instruction_id.index();
         let instruction = self
@@ -237,7 +261,8 @@ where
 
     // ── Executing one instruction ───────────────────────────────────────────
 
-    /// Returns the sink that will hold the decoded result, if any.
+    /// Returns the invocation's sink, or `None` for an instruction without a
+    /// gadget, which produces no result.
     fn execute_one(&mut self, call: Call) -> LayerResult<Option<usize>, B::Error> {
         let instruction_plan = self.plan.instructions[call.index].clone();
         match instruction_plan {
@@ -262,15 +287,21 @@ where
         }
     }
 
-    /// Places one invocation on live lower blocks. Pure: it only reads state,
-    /// so a failure here never poisons.
+    /// The read-only half of running a gadget; `run_invocation` is the other.
+    /// It binds `call.operands`, checks each input against its live block, and
+    /// builds the placement (see `PreparedInvocation::placement`).
+    ///
+    /// It only reads state, so a failure leaves nothing half done. On `Err`,
+    /// `execute_batch` poisons the layer only if `side_effects` changed, so a
+    /// failure here poisons only when earlier instructions of the same batch
+    /// already had side effects.
     fn prepare_invocation(
         &self,
         gp: Rc<GadgetPlan>,
         call: Call,
     ) -> LayerResult<PreparedInvocation, B::Error> {
-        // Only inputs are constrained by live types; outputs take the
-        // instruction's declared types, so type-changing instructions are allowed.
+        // Live types constrain only the inputs (see `bind_operands`), so an
+        // instruction may change a block's type.
         let input_types = self.input_types(&call.operands);
         let (in_ops, out_ops) = bind_operands(
             &self.plan.upper,
@@ -293,7 +324,10 @@ where
                 return Err(QodecError::InvalidInstruction);
             }
             for (&slot, &lb) in slots.iter().zip(&b.support) {
-                // One label -> one lower block, and no silent retyping.
+                // A slot maps to one lower block, and the live block must already
+                // have the slot's lower type: no silent retyping. The first check
+                // is defensive: `layout_boundary` rejects a circuit label used
+                // twice on one side, so input slots are distinct.
                 if (placement[slot] != UNPLACED && placement[slot] != lb)
                     || self.type_of[ix(lb)] != Some(gp.slots.types[slot])
                 {
@@ -302,7 +336,9 @@ where
                 placement[slot] = lb;
             }
         }
-        // Placement is injective because live blocks never share lower blocks.
+        // Placement is injective: the inputs are distinct labels
+        // (`bind_operands` rejects duplicates), and distinct live blocks never
+        // share a lower block.
         debug_assert!(
             {
                 let mut seen = FxHashSet::default();
@@ -320,6 +356,8 @@ where
         })
     }
 
+    /// The mutating half of running a gadget, after `prepare_invocation`.
+    /// Returns the invocation's sink.
     fn run_invocation(
         &mut self,
         prepared: PreparedInvocation,
@@ -333,7 +371,8 @@ where
         } = prepared;
         let n_in = gp.inputs.len();
 
-        // Overwrite output-only operands.
+        // Operands past the inputs are output-only. A live block under such a
+        // label is overwritten, so release it first.
         for &label in &call.operands[n_in..] {
             self.release(label)?;
         }
@@ -356,7 +395,8 @@ where
         };
 
         // Correction contract: `before` may target input refs and other live
-        // blocks. It runs while inputs are still published.
+        // blocks. It runs while inputs are still published. A deferrable
+        // decoder has no `before`.
         if !self.deferrable {
             self.side_effects += 1;
             let first = self.decoder.before(&inv);
@@ -376,8 +416,8 @@ where
             self.blocks.remove(label);
         }
         self.side_effects += 1;
-        // Outputs never share a lower block: a label is used at most once per
-        // side (see `layout_boundary`), and placement is injective.
+        // Outputs never share a lower block: a circuit label is used at most
+        // once per side (see `layout_boundary`), and placement is injective.
         for ((block_ref, layout), output_slots) in inv
             .output_refs
             .iter()
@@ -396,9 +436,13 @@ where
             );
         }
 
-        // Release scratch and consumed lower blocks. Nothing here depends on
-        // decoding, so it is emitted immediately. Blocks the body consumed
-        // itself (e.g. measured away) are only returned to the free list.
+        // Release every lower block no output holds: scratch, and inputs the
+        // gadget does not pass on. Nothing here depends on decoding, so release
+        // instructions are emitted now. Blocks the body itself consumed
+        // (`SlotPlan::consumed`, e.g. measured away) are already gone below, so
+        // they only return to the free list. Releases go out in increasing
+        // lower-id order, as in pseudocode §8.6, so the lower instruction
+        // stream does not depend on the order of the gadget's labels.
         let mut leftovers: Vec<(u64, usize)> = placement
             .iter()
             .enumerate()
@@ -430,7 +474,8 @@ where
                 .push_back(DecoderEvent::Discarded(input_refs));
             self.side_effects += 2;
         } else {
-            // Decoding now forces `raw`, which flushes the buffer.
+            // Decoding now forces `raw`, which flushes the buffer if a bit is
+            // still pending.
             let decoded = self.decode_now(&inv, &raw, &selects, &slots)?;
             self.sinks[sink] = Some(decoded);
             self.side_effects += 1;
@@ -439,8 +484,8 @@ where
         Ok(sink)
     }
 
-    /// Runs one gadget body. It never sees the backend: it emits through
-    /// the buffer and works with lazy bits.
+    /// Emits one gadget body into the buffer. Returns its readout record as
+    /// lazy bits, with the select checks and result slots its decode needs.
     fn run_body(
         &mut self,
         gp: &GadgetPlan,
@@ -496,8 +541,10 @@ where
                     flag: true,
                     index,
                 }));
-                // The per-call select is a spec hint. It is checked lazily and
-                // becomes a recoverable status.
+                // The spec makes a per-call select only a hint
+                // (https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select).
+                // `decode_now` checks it once the flags are known and reports a
+                // mismatch as a recoverable status.
                 if !pc.select.is_empty() {
                     selects.push((slot, call_index));
                 }
@@ -506,7 +553,8 @@ where
         Ok((record, selects, slots))
     }
 
-    /// Decodes one invocation. `raw` and `selects` are forced here.
+    /// Runs the QEC decoder on one invocation. It forces the bits of `raw` and
+    /// the results named in `selects`, flushing if any is still pending.
     fn decode_now(
         &mut self,
         inv: &Invocation,
@@ -557,8 +605,9 @@ where
         }
     }
 
-    /// Upper Pauli instruction without a gadget: apply the code's logical
-    /// operator as Pauli corrections on the block's code qubits.
+    /// Runs an upper Pauli-only instruction that has no gadget
+    /// (`InstructionPlan::LogicalPauli`): applies the code's logical operator as
+    /// Pauli corrections on the block's code qubits.
     fn apply_logical_pauli(&mut self, call: &Call) -> LayerResult<(), B::Error> {
         let plan = Rc::clone(&self.plan);
         let instruction = &plan.isa.instructions[call.index];
@@ -625,7 +674,9 @@ where
             .collect()
     }
 
-    /// Upper release instruction without a gadget, and output-only overwrite.
+    /// Releases the live upper block `label`, if any. Used for an upper release
+    /// instruction without a gadget, and before an output-only operand is
+    /// overwritten.
     fn release(&mut self, label: u64) -> LayerResult<(), B::Error> {
         let Some(b) = self.blocks.remove(&label) else {
             return Ok(());
@@ -649,8 +700,8 @@ where
     fn release_lower(&mut self, lb: u64) {
         let t = self.type_of[ix(lb)].unwrap_or_default();
         if let Some(index) = self.plan.lower_release[t] {
-            // A release has no observe outcomes or flags, so it produces no
-            // result.
+            // `lower_release` only picks instructions without observe outcomes
+            // or flags, so this emit returns no result slot.
             self.emit(
                 index,
                 SmallVec::from_iter([P::from_view(ParamView::Block(lb))]),
@@ -683,7 +734,9 @@ where
 
     // ── Corrections (decoder → lower layer) ─────────────────────────────────
 
-    /// Runs a correction coroutine to completion.
+    /// Runs a decoder coroutine (`before` or `decode`) to completion: applies
+    /// each correction it yields and resumes it with that correction's result,
+    /// if any.
     fn drive<T>(
         &mut self,
         first: Step<T>,
@@ -702,8 +755,10 @@ where
         }
     }
 
-    /// Lowers one correction. It lowers to at most ONE result-producing lower
-    /// instruction, whose result is returned.
+    /// Lowers one correction and returns the result of its result-producing
+    /// lower instruction, if any. A correction that would lower to more than
+    /// one result-producing instruction fails with `NoImplementation`, because
+    /// the decoder is resumed with a single result.
     fn apply_correction(&mut self, c: &Correction) -> LayerResult<Option<R>, B::Error> {
         let mut seen = FxHashSet::default();
         if !c.blocks.iter().all(|r| seen.insert(r.label)) {
@@ -718,6 +773,9 @@ where
                 .ok_or(QodecError::InvalidInstruction)?;
             qubits.extend_from_slice(&b.qubits);
         }
+        // The targets as (lower block, logical index) pairs, which
+        // `Resolver::resolve` calls slots: neither result slots nor `SlotPlan`
+        // slots.
         let slots: Vec<(u64, usize)> =
             c.op.targets
                 .iter()
@@ -779,7 +837,8 @@ where
 
     // ── Buffering and flushing ──────────────────────────────────────────────
 
-    /// Buffers one lower instruction. Returns a slot iff it requires a result.
+    /// Buffers one lower instruction. Returns its result slot iff it produces a
+    /// result (observe outcomes or flags).
     fn emit(&mut self, index: usize, parameters: SmallVec<[P; 2]>) -> Option<u64> {
         self.side_effects += 1;
         self.buffer.push(BackendInstruction {
@@ -871,18 +930,21 @@ where
     }
 }
 
-/// A live upper block.
+/// A live upper block: the block a label currently names, from a gadget output
+/// that is not yet consumed or released.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveBlock {
     /// The block's current reference.
     pub block_ref: BlockRef,
-    /// Lower blocks holding it.
+    /// The lower block ids holding it, in the order of its output encoding's
+    /// labels.
     pub support: Vec<u64>,
     /// Its code qubits, in code order: (lower block, logical index in it).
     pub qubits: Vec<(u64, usize)>,
 }
 
-/// One result-producing buffered lower instruction, with the R shape it must have.
+/// One result-producing buffered lower instruction: its result slot, and the
+/// `R` shape its result must have.
 #[derive(Clone, Copy, Debug)]
 struct BufferSlot {
     slot: u64,
@@ -890,13 +952,15 @@ struct BufferSlot {
     flags: usize,
 }
 
-/// Deferred decoder work, in program order.
+/// Deferred decoder work, in program order. Queued only for a deferrable
+/// decoder, and run by `flush`.
 enum DecoderEvent {
     Decode {
         inv: Invocation,
         /// The body's circuit readout record.
         raw: Vec<LazyBit>,
-        /// (slot, index of the body call whose select applies).
+        /// (result slot, index into `body.calls` of the call whose select it
+        /// checks).
         selects: Vec<(u64, usize)>,
         /// Every result-producing slot of the body. This decode is their last
         /// reader and frees them.
@@ -919,25 +983,29 @@ struct LazyBit {
     index: usize,
 }
 
-/// An invocation placed on live lower blocks, ready to run.
+/// The output of `prepare_invocation`, consumed by `run_invocation`.
 struct PreparedInvocation {
     gp: Rc<GadgetPlan>,
     call: Call,
     out_ops: Vec<BoundOperand<u64>>,
-    /// Lower block per slot of `gp`, `UNPLACED` until allocated.
+    /// The placement: the lower block id per slot of `gp.slots` (see
+    /// [`SlotPlan`](crate::plan::SlotPlan)). Input slots hold their live
+    /// blocks' ids; the others stay `UNPLACED` until `run_invocation`
+    /// allocates them.
     placement: Vec<u64>,
 }
 
-/// A slot without a lower block yet. Lower ids are dense, so it is never one.
+/// Marks a placement slot without a lower block yet. Lower ids are allocated
+/// densely from 0, so no real id reaches `u64::MAX`.
 const UNPLACED: u64 = u64::MAX;
 
-/// A parsed `BackendInstruction`.
+/// An upper instruction, parsed by `parse_instruction`.
 struct Call {
-    /// Instruction's index into the ISA it belongs to.
+    /// Index into the upper ISA.
     index: usize,
-    /// The block ids the instruction acts on.
+    /// Upper labels, one per block operand.
     operands: Vec<u64>,
-    /// Parameters of the instruction.
+    /// Arguments by parameter name, validated against the instruction.
     args: BTreeMap<String, Argument>,
 }
 

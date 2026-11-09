@@ -3,11 +3,11 @@
 
 //! The qodec runtime.
 //!
-//! A [`QodecRuntime`] is the runtime of one shot: a fresh [`LayerRuntime`] per
-//! layer on top of a bottom backend supplied by the caller, which is any
-//! [`Backend`] for the bottom ISA, such as a simulator, tracer, or profiler. It
-//! is instantiated from a [`QodecPlan`](super::plan::QodecPlan). Dropping it
-//! ends the shot.
+//! A [`QodecRuntime`] is the runtime of one shot: a fresh [`LayerRuntime`] for
+//! every layer except the bottom one, on top of a bottom backend supplied by
+//! the caller, which is any [`Backend`] for the bottom ISA, such as a
+//! simulator, tracer, or profiler. It is instantiated from a
+//! [`QodecPlan`](super::plan::QodecPlan).
 
 use super::{
     backend::{
@@ -19,8 +19,10 @@ use super::{
 };
 use std::{convert::Infallible, fmt, rc::Rc};
 
-/// A member of the runtime with a flattened error. The number of layers is
-/// only known at run time, so the runtime is type-erased.
+/// One node of the stack (a layer runtime or the bottom backend), boxed, with
+/// its error flattened into [`QodecRuntimeError`]. The number of layers is only
+/// known at run time, so the nodes are type-erased instead of nested as
+/// `LayerRuntime<LayerRuntime<...>>`.
 type DynBackend<'a, Id, P, R, E> = Box<dyn Backend<Id, P, R, Error = QodecRuntimeError<E>> + 'a>;
 
 /// The runtime of one shot. It accepts top-ISA instructions. Dropping it ends
@@ -36,7 +38,9 @@ where
     R: Readout + 'static,
     E: 'a,
 {
-    /// Instantiates fresh layer and decoder runtimes over `backend`, bottom up.
+    /// Instantiates fresh layer and decoder runtimes over `backend`. It builds
+    /// them bottom up because each layer runtime owns the node below it.
+    /// `layer_plans[0]` and `decoder_plans[0]` are the top layer's.
     pub(crate) fn new<B>(
         layer_plans: &[Rc<LayerPlan>],
         decoder_plans: &[Box<dyn DecoderPlan<R>>],
@@ -69,7 +73,7 @@ impl<Id, P, R, E> Backend<Id, P, R> for QodecRuntime<'_, Id, P, R, E> {
     }
 }
 
-/// The bottom backend, with its error wrapped in [`QodecRuntimeError::Backend`].
+/// The bottom backend, with its error wrapped in [`QodecRuntimeError::Bottom`].
 struct BottomNode<B>(B);
 
 impl<Id, P, R, B: Backend<Id, P, R>> Backend<Id, P, R> for BottomNode<B> {
@@ -85,7 +89,10 @@ impl<Id, P, R, B: Backend<Id, P, R>> Backend<Id, P, R> for BottomNode<B> {
     }
 }
 
-/// A layer runtime, with its errors flattened.
+/// A layer runtime, with its errors flattened. An error the layer raises itself
+/// is tagged with `depth`, the layer's index (0 = top). A
+/// [`QodecError::Lower`] error was already flattened by the node below, so it
+/// passes through unchanged.
 struct LayerNode<'a, Id, P, R, E> {
     layer: LayerRuntime<Id, P, R, DynBackend<'a, Id, P, R, E>>,
     depth: usize,
@@ -115,12 +122,13 @@ where
     }
 }
 
-/// A [`QodecRuntime`] error, flattened across layers.
+/// A [`QodecRuntime`] error, flattened across layers: instead of nesting one
+/// [`QodecError::Lower`] per layer, it names the layer that raised it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QodecRuntimeError<E> {
     /// The bottom backend returned `Err`.
     Bottom(E),
-    /// Layer `layer` (0 = top) raised `error`.
+    /// A layer raised an error of its own.
     Layer {
         /// The layer's index, 0 being the top.
         layer: usize,

@@ -9,7 +9,8 @@ use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 
 /// The images of the generators listed by a `clifford` step, keyed by
-/// `(qubit, is_x)`.
+/// `(qubit, is_x)`. Generators the step does not list map to themselves and
+/// have no entry.
 pub type CliffordMap = FxHashMap<(usize, bool), Pauli>;
 
 pub fn clifford_map(images: &BTreeMap<PauliString, PauliString>) -> Result<CliffordMap, String> {
@@ -27,7 +28,9 @@ pub fn clifford_map(images: &BTreeMap<PauliString, PauliString>) -> Result<Cliff
         .collect()
 }
 
-/// The largest qubit index an instruction's action addresses, plus one.
+/// The largest qubit index an instruction's action addresses through literal
+/// Paulis, plus one; 0 if there is none. Names of `pauli` parameters are
+/// skipped, because their operators are only known per call.
 #[must_use]
 pub fn action_extent(instruction: &Instruction) -> usize {
     let mut extent = 0;
@@ -54,7 +57,8 @@ pub fn action_extent(instruction: &Instruction) -> usize {
 
 /// The Clifford implemented by an action made only of unguarded `clifford` and
 /// literal `pauli` steps, on `width` flat indices. The identity if the action is
-/// empty; `None` for any other action.
+/// empty; `None` for any other action, or if a step addresses an index outside
+/// `width`.
 #[must_use]
 pub fn action_clifford(instruction: &Instruction, width: usize) -> Option<Clifford> {
     let mut c = Clifford::identity(width);
@@ -95,7 +99,8 @@ impl PauliExpr {
         }
     }
 
-    /// Resolves a parameter from the call's arguments.
+    /// The Pauli for a call with arguments `args`: the literal itself, or the
+    /// parsed argument of the parameter.
     pub fn resolve(&self, args: &BTreeMap<String, Argument>) -> Result<Pauli, String> {
         match self {
             PauliExpr::Literal(p) => Ok(p.clone()),

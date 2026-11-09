@@ -3,11 +3,12 @@
 
 //! The reference decoder: the Pauli-frame decoder.
 //!
-//! It evaluates a gadget's checks, readouts and frames as one GF(2) system, and
-//! carries every block's stabilizer and logical signs from one gadget's `out`
-//! to the next gadget's `in`, as the spec's [frames] section describes. It
-//! never yields corrections, so it is deferrable. A contradiction is reported
-//! as the recoverable status `inconsistent`.
+//! It evaluates a gadget's checks, readouts and frames as one system of parity
+//! equations over GF(2), and carries every block's stabilizer and logical
+//! signs from one gadget's `out` to the next gadget's `in`, as the spec's
+//! [frames] section describes. It never yields corrections, so it is
+//! deferrable. A contradiction is reported as the recoverable status
+//! `inconsistent`.
 //!
 //! [frames]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#frames
 
@@ -80,7 +81,8 @@ impl<R: 'static> DecoderPlan<R> for FrameDecoderPlan {
 /// The per-shot state of the frame decoder.
 pub struct FrameDecoderRuntime {
     gadgets: Rc<Vec<Option<FrameGadgetPlan>>>,
-    /// Known boundary signs.
+    /// Per output block not yet discarded: the signs its decode determined,
+    /// keyed by (basis, index in that basis).
     signs: FxHashMap<BlockRef, FxHashMap<(Basis, usize), bool>>,
 }
 
@@ -163,7 +165,10 @@ impl FrameDecoderRuntime {
                 sys.add(Parity::var(Var::Rec(i)) ^ Parity::constant(*v))?;
             }
         }
-        // Incoming frame.
+        // Signs that the decodes of earlier gadgets determined for the inputs.
+        // The order of `add` calls doesn't change any result, because the system
+        // has the same solutions in any order. Sorting only makes the rows
+        // independent of the hash map's iteration order.
         for (e, block_ref) in inv.input_refs.iter().enumerate() {
             if let Some(signs) = self.signs.get(block_ref) {
                 let mut signs: Vec<_> = signs.iter().collect();
@@ -196,8 +201,9 @@ impl FrameDecoderRuntime {
             };
             &computed
         };
-        // Carry logical signs. Missing frame entries add nothing; they never
-        // reset the transported sign.
+        // Each output logical sign is the XOR of the input signs it carries
+        // (`t`) and the gadget's frame for it, if any. A missing frame entry
+        // adds nothing; it never resets the carried sign.
         for (key @ (e, basis, k), t) in transport {
             let mut row = Parity::var(Var::Enc {
                 side: Side::Out,
@@ -222,9 +228,9 @@ type Transport = Vec<(FrameKey, Parity)>;
 struct FrameGadgetPlan {
     checks: Vec<Parity>,
     readouts: Vec<Parity>,
-    /// Fixed per gadget when the body is Clifford-only (see
-    /// `circuit_transport`); otherwise derived per invocation from the
-    /// instruction's action (see `action_transport`).
+    /// Fixed per gadget when `circuit_transport` can derive it from the body;
+    /// otherwise derived per invocation from the instruction's action by
+    /// `action_transport`.
     transport: Option<Transport>,
 }
 
@@ -273,7 +279,8 @@ fn circuit_transport(gp: &GadgetPlan, layer: &LayerPlan) -> Result<Option<Transp
         return Ok(None);
     }
     let lower = &layer.lower;
-    // Assign each circuit label a range of positions.
+    // Give each gadget label a range of qubit positions, one per qubit of its
+    // lower block.
     let mut start: FxHashMap<&str, usize> = FxHashMap::default();
     let mut width = 0;
     for label in &gp.labels {
@@ -313,7 +320,8 @@ fn circuit_transport(gp: &GadgetPlan, layer: &LayerPlan) -> Result<Option<Transp
         Ok(d)
     };
 
-    // Input generator -> image under U.
+    // The images under `u` of every input stabilizer and logical operator,
+    // each tagged with its input sign variable in `vars`.
     let mut gens = Gf2Basis::default();
     let mut vars = Vec::new();
     for (e, layout) in gp.inputs.iter().enumerate() {
@@ -336,8 +344,8 @@ fn circuit_transport(gp: &GadgetPlan, layer: &LayerPlan) -> Result<Option<Transp
     for (e, layout) in gp.outputs.iter().enumerate() {
         for basis in [Basis::X, Basis::Z] {
             for (k, p) in layout.code.paulis(basis).iter().enumerate() {
-                // Which input generators multiply, up to sign, to this output
-                // logical operator `p`?
+                // Find the input generators whose product is this output
+                // logical operator `p`, up to sign.
                 let combo = gens
                     .solve(place(p, layout)?.bits())
                     .ok_or("circuit does not preserve the code boundary")?;
@@ -355,8 +363,13 @@ fn circuit_transport(gp: &GadgetPlan, layer: &LayerPlan) -> Result<Option<Transp
 }
 
 /// Incremental GF(2) row basis that tracks which inputs make up each row.
+///
+/// `add` reduces every new row by all earlier rows, so no row has a bit set at
+/// an earlier row's pivot, and one pass over `rows` in insertion order fully
+/// reduces a vector. `BinarySystem` relies on the same invariant.
 #[derive(Default)]
 struct Gf2Basis {
+    /// (pivot, row, which inputs XOR to the row).
     rows: Vec<(usize, Vec<bool>, Vec<bool>)>,
 }
 
@@ -396,8 +409,15 @@ fn xor_into(a: &mut Vec<bool>, b: &[bool]) {
 
 // ── Logical-sign transport from the instruction action ─────────────────────
 
-/// Each logical qubit q carries a pair `(z_sign, x_sign)` of parities. `z_sign`
-/// is flipped by an X-type frame on q; `x_sign` by a Z-type frame.
+/// The logical-sign transport of one invocation, derived from the implemented
+/// instruction's action instead of the gadget body. Fails if a guarded or
+/// `stabilize` step touches a qubit whose frame `sys` does not determine to be
+/// zero, if `sys` does not determine that a `rotate` step's Pauli commutes with
+/// the frame, or if a Pauli of the action cannot be resolved.
+///
+/// Each logical qubit q carries a pair `(z_sign, x_sign)` of parities over the
+/// input sign variables. `z_sign` is flipped by an X-type frame on q; `x_sign`
+/// by a Z-type frame.
 fn action_transport(inv: &Invocation, sys: &BinarySystem) -> Result<Transport, Unresolved> {
     let instruction = inv.gadget.instruction();
     let logical = |layouts: &[EncodingPlan]| layouts.iter().map(|l| l.code.x.len()).sum::<usize>();
@@ -457,7 +477,8 @@ fn action_transport(inv: &Invocation, sys: &BinarySystem) -> Result<Transport, U
                 }
             }
             Action::Rotate { pauli, .. } => {
-                // A non-Clifford rotation needs a realized frame.
+                // A frame that anticommutes with the rotation's Pauli would
+                // flip the sign of its angle. `acc` is that anticommutation.
                 let mut acc = Parity::default();
                 for &(q, op) in resolve(pauli)?.terms() {
                     let (z_sign, x_sign) = s.get(q).ok_or(Unresolved)?;

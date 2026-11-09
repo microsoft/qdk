@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! The backend interface, which every layer implements for the layer above and
-//! consumes from the layer below, and its conventions for parameters, results
-//! and errors.
+//! drives on the layer below, and its conventions for instruction ids,
+//! parameters, results and errors.
 
 use smallvec::SmallVec;
 use std::{
@@ -12,13 +12,17 @@ use std::{
     ops::{BitOr, BitOrAssign},
 };
 
-/// Executes ISA instructions. Every qodec layer implements it, and consumes
-/// the `Backend` below it.
+/// Executes batches of instructions of one ISA.
+///
+/// `Id` identifies an instruction (see [`InstructionId`]), `P` is a block
+/// operand or argument (see [`Param`]), and `R` is the result of one
+/// instruction (see [`Readout`]).
 pub trait Backend<Id, P, R> {
     /// An unrecoverable error.
     type Error;
-    /// Produces one result per instruction requiring a result, in input order.
-    /// `Err` reports an unrecoverable error. Recoverable outcomes are encoded in `R`.
+    /// Produces one result per instruction that has observe outcomes or flags,
+    /// in input order. `Err` reports an unrecoverable error. Recoverable
+    /// conditions are reported in `R` instead (see [`Status`]).
     fn execute_batch(
         &mut self,
         instructions: &[BackendInstruction<Id, P>],
@@ -51,22 +55,33 @@ impl<Id, P, R, B: Backend<Id, P, R> + ?Sized> Backend<Id, P, R> for Box<B> {
 /// One instruction sent to a backend.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BackendInstruction<Id, P> {
-    /// The instruction's index in the boundary's ISA.
+    /// The instruction's position in this boundary's ISA.
     pub instruction_id: Id,
     /// Block operands first, then arguments in the order the instruction
     /// declares its parameters.
     pub parameters: SmallVec<[P; 2]>,
 }
 
-/// Ordered backend results, with zero or one result stored without heap allocation.
+/// The results of one [`Backend::execute_batch`] call. Zero or one result is
+/// stored without heap allocation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BatchResult<R> {
-    /// One result per instruction requiring a result, in input order.
+    /// One result per instruction that has observe outcomes or flags, in input
+    /// order.
     pub results: SmallVec<[R; 1]>,
 }
 
-/// The index of an instruction in the ISA of a boundary: its position in the
-/// ISA's instruction list.
+/// Identifies an instruction by its position in one boundary's ISA instruction
+/// list.
+///
+/// The same `Id` type is used at every boundary, but its values are per
+/// boundary: id 3 above a layer and id 3 below it name unrelated instructions
+/// of two different ISAs.
+///
+/// Layers index their plans with `usize` and convert to and from the caller's
+/// `Id` type, which may be more compact, such as `u32`. This is a trait rather
+/// than `From`/`Into` because std has no lossless conversions between `usize`
+/// and `u32`, so each implementation picks its own overflow policy.
 pub trait InstructionId: Copy {
     /// The id of the instruction at `index`.
     fn from_index(index: usize) -> Self;
@@ -83,6 +98,7 @@ impl InstructionId for usize {
     }
 }
 
+/// `from_index` panics if the index does not fit in a `u32`.
 impl InstructionId for u32 {
     fn from_index(index: usize) -> Self {
         u32::try_from(index).expect("instruction index should fit in u32")
@@ -92,7 +108,10 @@ impl InstructionId for u32 {
     }
 }
 
-/// A backend parameter: a block operand or a classical argument.
+/// A backend parameter: a block operand or a classical argument. Layers read
+/// parameters through `view` and build the ones they send below with
+/// `from_view`, so `P` can be any type that converts to and from
+/// [`ParamView`], such as [`OwnedParam`].
 pub trait Param: Clone {
     /// Views this parameter.
     fn view(&self) -> ParamView<'_>;
@@ -100,11 +119,10 @@ pub trait Param: Clone {
     fn from_view(view: ParamView<'_>) -> Self;
 }
 
-/// A view of a parameter. One `P` type carries both block operands and
-/// classical arguments.
+/// A borrowed view of a [`Param`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ParamView<'a> {
-    /// A block (qubit) operand: an id at this boundary.
+    /// A block operand: a block id at this boundary.
     Block(u64),
     /// A `bit` or `boolean` argument.
     Bool(bool),
@@ -115,9 +133,11 @@ pub enum ParamView<'a> {
     Float(f64),
     /// A `string` or `pauli` argument.
     Text(&'a str),
-    /// A list argument of non-negative integers.
+    /// The spec's "list of non-negative integers" [argument](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#inline-yaml-calls).
+    /// The spec has no list parameter kind; [`spec::matches`](crate::spec::matches)
+    /// decides which kinds accept a list.
     IntList(&'a [u64]),
-    /// A list argument of strings.
+    /// The spec's "list of strings" [argument](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#inline-yaml-calls).
     TextList(&'a [String]),
 }
 
@@ -166,8 +186,9 @@ impl Param for OwnedParam {
     }
 }
 
-/// The aggregate result of one instruction: observe outcomes first, then
-/// flags, in the order of a gadget's [`readouts`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#readouts).
+/// The result of one instruction: its observe outcomes, then its flags, in the
+/// order of a gadget's [`readouts`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#readouts),
+/// and a [`Status`].
 pub trait Readout: Sized {
     /// Builds a result.
     fn new(outcomes: &[Bit], flags: &[Bit], status: Status) -> Self;
@@ -175,7 +196,7 @@ pub trait Readout: Sized {
     fn outcomes(&self) -> &[Bit];
     /// The flags, in declaration order.
     fn flags(&self) -> &[Bit];
-    /// The recoverable shot-level conditions.
+    /// The recoverable conditions reported with this result.
     fn status(&self) -> Status;
 }
 
@@ -186,7 +207,7 @@ pub struct BasicReadout {
     pub outcomes: Vec<Bit>,
     /// The flags, in declaration order.
     pub flags: Vec<Bit>,
-    /// The recoverable shot-level conditions.
+    /// The recoverable conditions reported with this result.
     pub status: Status,
 }
 
@@ -209,14 +230,20 @@ impl Readout for BasicReadout {
     }
 }
 
-/// `None` = unresolved (not determinable).
+/// A result bit, or `None` if it could not be determined.
 pub type Bit = Option<bool>;
 
-// TODO: Explain why this is a struct instead of an enum.
-/// Recoverable, shot-level conditions. Statuses merge with field-wise OR.
+/// Recoverable conditions. Several can hold at once, so this is a set of flags
+/// rather than an enum, and statuses merge with field-wise OR.
+///
+/// A layer runtime ORs every condition it raises, or receives in a result from
+/// below, into a shot status, and ORs that into every result it returns for
+/// the rest of the shot. Results are built at the end of a batch, so a result
+/// may carry a condition first raised by a later instruction of the same
+/// batch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Status {
-    /// A select pattern did not match.
+    /// No pattern of a call's `select` matched its flags.
     pub rejected: bool,
     /// Parity evidence contradicts itself.
     pub inconsistent: bool,
@@ -264,20 +291,25 @@ impl BitOr for Status {
     }
 }
 
-/// Unrecoverable errors. Recoverable conditions are reported in [`Status`]
-/// instead.
+/// Unrecoverable errors of a layer whose lower backend fails with `E`.
+/// Recoverable conditions are reported in [`Status`] instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QodecError<E> {
     /// The backend below returned `Err`.
     Lower(E),
     /// The backend below broke the result contract: wrong number of `R`s, or an
-    /// `R` of the wrong shape. Also used when a decoder breaks its output contract.
+    /// `R` with the wrong number of outcomes or flags. Also used when a decoder
+    /// returns the wrong number of outcomes or flags.
     Protocol,
-    /// Unknown Id, bad operands or arguments, block not live.
+    /// Unknown id, bad operands or arguments, or a block that is not live. Also
+    /// used when a decoder's correction targets such a block.
     InvalidInstruction,
-    /// An instruction has no gadget and no other handling.
+    /// The layer cannot lower an instruction or a decoder's correction: no
+    /// gadget or other handling applies.
     NoImplementation,
-    /// A previous `Err` left the layer inconsistent.
+    /// An earlier `Err` in this shot came after the layer had changed state, so
+    /// the layer may disagree with the layers below. An `Err` raised before any
+    /// state change does not poison.
     Poisoned,
 }
 

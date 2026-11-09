@@ -158,7 +158,8 @@ fn named_cliffords_compose() {
     assert_eq!(h.then(&h), Clifford::identity(1));
     assert_eq!(s.then(&s_adj), Clifford::identity(1));
     assert_eq!(s.then(&s), named("z", 1));
-    // Z·X = iY, so these are equal only up to a global phase.
+    // X then Z is Z·X = iY. A tableau has no global phase, so the Cliffords
+    // are equal.
     assert_eq!(named("x", 1).then(&named("z", 1)), named("y", 1));
     // CY = S_t · CX · S_t†.
     let cy = s_adj
@@ -181,8 +182,10 @@ fn clifford_conjugates_signed_paulis() {
 
 // ── End-to-end ──────────────────────────────────────────────────────────────
 
-/// Repetition-3 artifacts shared by the bundles below. The physical ISA adds a
-/// non-destructive `MZ` and a classically controlled `XIF`.
+/// Repetition-3 artifacts shared by the bundles below. Besides `R`, `M`, `CX`,
+/// `X` and `Z`, the physical ISA has a non-destructive `MZ` and a classically
+/// controlled `XIF`, which `measure_reset` uses to feed a readout into a `bit`
+/// parameter.
 const REPETITION3_ARTIFACTS: &str = r#"
 ---
 repetition3.isa.yaml:
@@ -264,6 +267,8 @@ z.gadget.yaml:
   circuit: {source: [{Z: [0]}]}
 "#;
 
+/// The repetition3 layer. `logical_x` and `discard` have no gadget, so the
+/// layer runs them as a logical Pauli and a release.
 const REPETITION3_LAYER: &str = r"    - instruction_set: repetition3.isa.yaml
       codes: {repetition3: repetition3.code.yaml}
       gadgets:
@@ -508,6 +513,8 @@ fn logical_paulis_apply_the_code_operator() {
     let qodec = repetition3();
     let isa = Arc::clone(&qodec.layers()[0].instruction_set);
     let mut layer = single_layer(&qodec);
+    // `logical_x` has no gadget, so this applies the code's logical X, X on all
+    // three data qubits, as Pauli corrections.
     let batch = layer
         .execute_batch(&[
             op(&isa, "prepare_z", &[0]),

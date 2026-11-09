@@ -3,12 +3,13 @@
 
 //! Lower-ISA operation resolver.
 //!
-//! The qodec spec has no generic operations, and its mnemonics are for humans:
-//! as its [design principles][design-principles] put it, "the action is
-//! authoritative". A layer emits generic operations of its own: Pauli
-//! corrections, decoder operations and releases. It matches them against the
-//! LOWER ISA's actions. A mnemonic only breaks a tie between instructions whose
-//! actions match equally well.
+//! A layer issues generic operations of its own, named like `x`, `cx` or `rz`:
+//! Pauli corrections for upper Pauli instructions without a gadget, and decoder
+//! corrections. The qodec spec defines no generic operations, and its mnemonics
+//! are for humans: as its [design principles][design-principles] put it, "the
+//! action is authoritative". So the resolver matches each generic operation
+//! against the LOWER ISA's actions. A mnemonic only breaks a tie between
+//! instructions whose actions match equally well.
 //!
 //! [design-principles]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#design-principles
 
@@ -21,7 +22,7 @@ use qodec::{Action, Argument, InstructionSet, ParameterKind, Scalar};
 use rustc_hash::FxHashMap;
 use std::{collections::BTreeMap, rc::Rc};
 
-/// A matching lower instruction: ((flagged, parameterized), semantics, args).
+/// A matching lower instruction: ((flagged, parameterized) rank, semantics, args).
 type Candidate<'a> = ((bool, bool), &'a Semantics, BTreeMap<String, Argument>);
 
 /// Matches generic operations against the static semantics of a lower ISA.
@@ -31,8 +32,11 @@ pub struct Resolver {
 }
 
 impl Resolver {
-    /// Indexes the instructions of `isa` that have static semantics: no
-    /// variadic operands, no `pauli` parameters and no guarded steps.
+    /// Indexes the instructions of `isa` whose actions have static semantics,
+    /// i.e. do not depend on a call's arguments or outcomes: no variadic
+    /// operands, no `pauli` parameters, no guarded steps, operand types known
+    /// to `types`, and only steps the resolver can model (see `sem_steps`).
+    /// Other instructions never match.
     #[must_use]
     pub fn new(isa: &InstructionSet, types: &TypeTable) -> Self {
         let semantics = isa
@@ -44,8 +48,21 @@ impl Resolver {
         Self { semantics }
     }
 
-    /// Resolves a generic operation on `slots` (lower block, logical index).
-    /// Returns `None` if the lower ISA cannot implement it.
+    /// Resolves the generic operation `op` on the qubits `slots` to lower
+    /// instructions.
+    ///
+    /// Each entry of `slots` is a (lower block id, logical index in that block)
+    /// pair; these are qubits, not the slots of
+    /// [`SlotPlan`](crate::plan::SlotPlan). The distinct blocks, in
+    /// first-appearance order, become the operands of every returned lower
+    /// instruction, and each target becomes a flat index into their
+    /// concatenated logical qubits. For example, `cx` on `[(7, 1), (4, 0)]`,
+    /// where blocks 7 and 4 each hold 2 logical qubits, has operands `[7, 4]`
+    /// and needs an in-place instruction on those two block types whose action
+    /// is a CX from flat index 1 to flat index 2.
+    ///
+    /// Returns `None` if two targets are the same qubit, or if the lower ISA
+    /// cannot implement `op` on them.
     pub fn resolve(
         &self,
         op: &str,
@@ -118,12 +135,18 @@ impl Resolver {
         }
     }
 
-    /// Whether `op` binds directly (without decomposition) on one logical index
-    /// of a block of type `block_type`.
+    /// Whether `op` binds to a single lower instruction, without decomposition,
+    /// on logical index 0 of a block of type `block_type`.
     pub(crate) fn binds_directly(&self, op: &str, block_type: usize, lower: &TypeTable) -> bool {
         self.bind_one(op, &[block_type], &[0], None, lower).is_ok()
     }
 
+    /// Finds the one lower instruction that implements `op` at flat positions
+    /// `pos` of blocks of types `blocks`. Only in-place instructions match,
+    /// with input and output types both equal to `blocks`, because the targets
+    /// are live blocks that must stay live with their types. A named Clifford
+    /// matches the Clifford of a whole action; any other operation matches an
+    /// action of exactly one step with the same name, targets and angle.
     fn bind_one(
         &self,
         op: &str,
@@ -145,6 +168,8 @@ impl Resolver {
                 }
                 continue;
             }
+            // A layer never issues `prepare` or `measure` itself, so they never
+            // bind.
             if op == "prepare" || op == "measure" {
                 continue;
             }
@@ -179,10 +204,13 @@ impl Resolver {
                 _ => {}
             }
         }
-        // Rank (flagged, parameterized), lexicographic, lowest wins. Ties: prefer
-        // "__quantum__qis__<op>__body", else ambiguous. ISAs that QIR programs
-        // target name each instruction after the QIR intrinsic it implements,
-        // so that mnemonic marks the canonical instruction for `op`.
+        // The lowest (flagged, parameterized) rank wins, with false before true:
+        // any unflagged match beats a flagged one, then a match without
+        // parameters beats one with a parameterized angle. Ties prefer the
+        // mnemonic "__quantum__qis__<op>__body", else the operation is
+        // ambiguous. ISAs that QIR programs target name each instruction after
+        // the QIR intrinsic it implements, so that mnemonic marks the canonical
+        // instruction for `op`.
         let best = matches
             .iter()
             .map(|(rank, _, _)| *rank)
@@ -276,8 +304,9 @@ struct Semantics {
     in_place_types: Option<Vec<usize>>,
     parameters: Vec<String>,
     steps: Vec<SemOp>,
-    /// Clifford composition of ALL steps; `None` if the action is empty or has
-    /// any prepare, measure or rotate step.
+    /// The Clifford that all steps compose to, if every step is a `clifford`
+    /// step or an `x`, `y` or `z` op and none addresses an index outside the
+    /// action's width. Otherwise `None`, including when `steps` is empty.
     clifford: Option<Clifford>,
 }
 
@@ -348,8 +377,9 @@ enum SemOp {
 
 type CacheKey = (String, Vec<usize>, Vec<usize>, Option<u64>);
 
-/// Caches resolved `(op, slot types, positions, angle)` results, so repeated
-/// operations cost O(1).
+/// Memoizes [`Resolver::resolve`] by `(op, operand block types, flat target
+/// positions, angle bits)`, which determine its result regardless of the block
+/// ids. Failures are cached too.
 #[derive(Debug, Default)]
 pub struct ResolveCache(FxHashMap<CacheKey, Option<Rc<Vec<Resolved>>>>);
 
@@ -370,12 +400,13 @@ pub struct Resolved {
     /// Arguments, by parameter name (the angle of a parameterized rotation).
     pub args: BTreeMap<String, Argument>,
     /// The layer cannot act on a raised flag for operations it issues itself,
-    /// so it requires all flags to be zero.
+    /// so it requires all flags to be zero. A raised flag sets the recoverable
+    /// `rejected` status instead of failing.
     pub select: CompiledSelect,
 }
 
-/// Decompositions used when an operation does not bind directly. `y` is
-/// `x·z` up to a global phase.
+/// Decompositions used when no lower instruction matches an operation (but not
+/// when several do). `y` is `x·z` up to a global phase.
 fn decompose(op: &str, angle: Option<f64>) -> Option<Vec<(&'static str, Option<f64>)>> {
     match (op, angle) {
         ("y", None) => Some(vec![("x", None), ("z", None)]),
@@ -389,10 +420,11 @@ enum BindError {
     Ambiguous,
 }
 
-/// Python's `math.isclose` defaults: relative tolerance `1e-9`, no absolute
-/// tolerance, so `0.0` only matches `0.0`. The tolerance is a convention, not
-/// measured or required by the spec; it only needs to absorb floating-point
-/// rounding between a requested angle and a literal angle in a lower action.
+/// Whether two angles are equal up to floating-point rounding, with Python's
+/// `math.isclose` defaults: relative tolerance `1e-9`, no absolute tolerance,
+/// so `0.0` only matches `0.0`. The tolerance is a convention, not measured or
+/// required by the spec; it only needs to absorb floating-point rounding
+/// between a requested angle and a literal angle in a lower action.
 fn is_close(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-9 * a.abs().max(b.abs())
 }

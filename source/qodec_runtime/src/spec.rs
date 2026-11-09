@@ -28,8 +28,13 @@ pub type BoundOperands<T> = (Vec<BoundOperand<T>>, Vec<BoundOperand<T>>);
 /// and/or `out[j]`, so targets past the bound inputs are output-only operands.
 /// Each side numbers its qubits from 0, giving the spec's [flat index
 /// space](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#instruction-structure).
-/// `input_types` constrains only the input side, so type-changing
-/// instructions bind.
+/// For example, if block type `pair` encodes 2 qubits, an instruction with
+/// `in: [pair, pair]` and `out: [pair, pair, pair]` called on targets
+/// `[7, 8, 9]` binds inputs `7` and `8` at offsets 0 and 2, and outputs `7`,
+/// `8` and `9` at offsets 0, 2 and 4. Target `9` is output-only.
+///
+/// `input_types` (the targets' known block types) constrains only the input
+/// side, so type-changing instructions bind.
 #[allow(clippy::implicit_hasher)]
 pub fn bind_operands<T: Eq + Hash + Clone>(
     types: &TypeTable,
@@ -92,12 +97,18 @@ fn bind_side<T: Eq + Hash + Clone>(
     Ok(bound)
 }
 
-/// A [variadic](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#variadic-blocks)
-/// side consumes ALL targets. Each variadic operand takes any number of
-/// consecutive targets, including none, and each fixed operand exactly one.
-/// Finds the splittings whose total is `len(targets)` and whose types agree
-/// with `known`, and requires exactly one resulting type list. Each state keeps
-/// at most two distinct type lists, which is enough to detect ambiguity.
+/// The one type list that binds a [variadic](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#variadic-blocks)
+/// side to ALL of `targets`.
+///
+/// Each variadic operand takes any number of consecutive targets, including
+/// none, and each fixed operand exactly one. Of the splittings that use all
+/// targets and agree with `known`, exactly one type list must result; more is
+/// ambiguous.
+///
+/// `states[j]` holds the type lists of the prefixes that use the first `j`
+/// targets, and keeps at most two. That is enough: how a prefix can be
+/// completed depends only on `j`, so two distinct lists in one state either
+/// both complete, which is ambiguous, or neither does.
 fn unique_type_assignment<'a, T: Eq + Hash>(
     operands: &'a [BlockOperand],
     targets: &[T],
@@ -190,8 +201,21 @@ pub fn validate_arguments(
     Ok(())
 }
 
-/// Whether `value` is a valid argument for a parameter of `kind`. A list is all
-/// non-negative Ints or all Strings (possibly empty), and each item must match.
+/// Whether `value` is a valid argument for a parameter of `kind`.
+///
+/// The spec allows lists of non-negative integers and lists of strings as
+/// [argument values](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#inline-yaml-calls),
+/// and [checks them "by element type"](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/validation.md#circuit-sources):
+/// a list matches `kind` if every item does. An empty list has no items, so it
+/// matches every kind. `ParameterKind` has no list kind, so a parameter can't
+/// require or forbid a list: every kind accepts both a single value and a list.
+///
+/// Despite its name and its upstream doc, `Argument::QubitList` is the spec's
+/// list of non-negative integers: the qodec parser produces it for any list of
+/// unsigned integers, including `[]`. The parser never produces
+/// `Argument::Qubit`, so it never matches. Neither does `Argument::Readout`:
+/// the plan replaces readout arguments with bits before this check
+/// (`ArgumentPlan::Readout` in `plan.rs`).
 #[must_use]
 pub fn matches(kind: ParameterKind, value: &Argument) -> bool {
     match value {
@@ -205,6 +229,8 @@ pub fn matches(kind: ParameterKind, value: &Argument) -> bool {
     }
 }
 
+/// The spec lets [integers supply `number` parameters](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/validation.md#circuit-sources)
+/// as well as `integer` ones.
 fn matches_int(kind: ParameterKind, value: i128) -> bool {
     match kind {
         ParameterKind::Number | ParameterKind::Integer => true,
@@ -216,14 +242,18 @@ fn matches_int(kind: ParameterKind, value: i128) -> bool {
 /// Whether `value` is a valid text argument for a parameter of `kind`. A
 /// `circuit.readouts[...]` reference is not text: the spec lets only `bit`
 /// parameters take [readout references](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#threading-readouts-into-bit-parameters),
-/// and supplying one to another parameter is an error.
+/// and supplying one to another parameter is an error. The qodec parser turns
+/// a single text argument of this form into `Argument::Readout` or rejects it,
+/// but leaves string-list items as they are, and text from an upper backend
+/// (see [`value_of`]) is not parsed at all.
 fn matches_text(kind: ParameterKind, value: &str) -> bool {
     matches!(kind, ParameterKind::String | ParameterKind::Pauli)
         && !value.starts_with("circuit.readouts[")
 }
 
-/// Converts a parameter view to a spec argument value. `Block` entries are not
-/// arguments.
+/// Converts a parameter view to a spec argument value. Returns `None` for a
+/// `Block` entry, which is an operand, not an argument, and for a list item
+/// that does not fit `usize`. See [`matches`](fn@matches) on `Argument::QubitList`.
 #[must_use]
 pub fn value_of(view: ParamView<'_>) -> Option<Argument> {
     Some(match view {
@@ -242,8 +272,9 @@ pub fn value_of(view: ParamView<'_>) -> Option<Argument> {
     })
 }
 
-/// Converts a spec argument value to a parameter. It never wraps: values that do
-/// not fit fail.
+/// Converts a spec argument value to a parameter. Returns `None` for
+/// `Argument::Qubit` and `Argument::Readout` (see [`matches`](fn@matches)), and for a list
+/// item that does not fit `u64` instead of wrapping it.
 #[must_use]
 pub fn encode_arg<P: Param>(value: &Argument) -> Option<P> {
     Some(match value {
@@ -310,9 +341,11 @@ pub fn compile_select(
     Ok(compiled)
 }
 
-/// The spec makes [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
-/// a hint for downstream tools. This runtime turns it into a recoverable
-/// status, never an error.
+/// The status of a call's flags under its compiled `select`: `REJECTED` if
+/// [`accepts`] returns `Some(false)`, `UNRESOLVED` if it returns `None`, and
+/// no status otherwise. The spec makes [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
+/// a hint for downstream tools, so this runtime reports a mismatch as a
+/// recoverable status, never an error.
 #[must_use]
 pub fn select_status(compiled: &CompiledSelect, flags: &[Bit]) -> Status {
     match accepts(compiled, flags) {
@@ -330,14 +363,15 @@ const MAX_ENUMERATED_FLAGS: usize = 24;
 // `accepts` enumerates assignments as the bits of a `u32`.
 const _: () = assert!(MAX_ENUMERATED_FLAGS < u32::BITS as usize);
 
-/// Three-valued answer: `Some(true)` iff EVERY completion of the unknown flags
-/// matches some pattern, `Some(false)` iff NO completion does, `None`
-/// otherwise. (A per-pattern scan is not enough: `[{f0:0},{f0:1}]` with `f0`
-/// unknown is accepted by every completion.)
+/// Whether `flags` satisfy `compiled`, where `None` flags are unknown.
+/// `Some(true)` iff EVERY completion of the unknown flags matches some
+/// pattern, `Some(false)` iff NO completion does, `None` otherwise. (A
+/// per-pattern scan is not enough: `[{f0:0},{f0:1}]` with `f0` unknown is
+/// accepted by every completion.)
 ///
 /// The answer is exact except in one case: when deciding it would require
-/// enumerating more than `MAX_ENUMERATED_FLAGS` (24) unknown flags, it is
-/// `None` even if every completion matches.
+/// enumerating more than `MAX_ENUMERATED_FLAGS` unknown flags, it is `None`
+/// even if every completion matches.
 ///
 /// An empty `compiled` returns `Some(true)`: the spec defines an omitted or
 /// empty [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
@@ -391,7 +425,13 @@ pub fn accepts(compiled: &CompiledSelect, flags: &[Bit]) -> Option<bool> {
 pub type FrameKey = (usize, Basis, usize);
 
 /// Parses a gadget's [`frames`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#frames)
-/// into parities of circuit readouts.
+/// into parities of circuit readouts, keyed by the output logical sign each
+/// one flips.
+///
+/// For example, the spec's `"out[0].z[0]": ["circuit.readouts[6]",
+/// "circuit.readouts[8]"]` becomes key `(0, Basis::Z, 0)` with parity
+/// `Rec(6) XOR Rec(8)`: the first logical Z sign of output 0 flips when bits 6
+/// and 8 differ.
 pub fn prepare_frames(
     gadget: &Gadget,
     scope: &RefScope<'_>,
@@ -424,10 +464,11 @@ pub fn prepare_frames(
     Ok(frames)
 }
 
-/// Frame values may use circuit readouts, literals, and `readouts[...]` aliases
-/// that resolve (acyclically) to those. Never `in[...]` or `out[...]`, even if
-/// they would cancel. Each alias is expanded once (memo); without the memo,
-/// chains such as `readouts[i] = [readouts[i-1], readouts[i-1]]` take 2^depth time.
+/// The parity of a frame value. The spec lets [frame values](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#frames)
+/// use circuit readouts, literals, and `readouts[...]` aliases that resolve
+/// (acyclically) to those. Never `in[...]` or `out[...]`, even if they would
+/// cancel. Each alias is expanded once (memo); without the memo, chains such as
+/// `readouts[i] = [readouts[i-1], readouts[i-1]]` take 2^depth time.
 fn local_parity(
     gadget: &Gadget,
     equation: &ParityEquation,
@@ -476,7 +517,9 @@ fn local_parity(
 
 // ── Parity references ───────────────────────────────────────────────────────
 
-/// The parity of an equation. Duplicate references cancel.
+/// The parity of an equation. Duplicate references cancel. For example,
+/// `["circuit.readouts[0:2]", "circuit.readouts[1]", 1]` expands to
+/// `Rec(0) XOR Rec(1) XOR Rec(1) XOR 1`, which is `Rec(0) XOR 1`.
 pub fn expr(equation: &ParityEquation, scope: &RefScope<'_>) -> Result<Parity, String> {
     let mut acc = Parity::default();
     for term in equation {
@@ -494,7 +537,9 @@ pub fn expr(equation: &ParityEquation, scope: &RefScope<'_>) -> Result<Parity, S
 
 /// Expands a reference into single variables, in order and with duplicates.
 /// Only gadget-local references are supported, which is all that `qodec`
-/// accepts in parity equations.
+/// accepts in parity equations. `Reference::expand` also shortens the alias
+/// `in[e].code.x[k]` to `in[e].x[k]` (likewise for `out`, `z` and
+/// `stabilizers`), so aliases need no case here.
 pub fn reference_vars(reference: &Reference, scope: &RefScope<'_>) -> Result<Vec<Var>, String> {
     use ReferenceSegment::{Field, Index};
     let mut vars = Vec::new();
@@ -553,7 +598,8 @@ pub struct RefScope<'a> {
 // ── Encodings and code-qubit addresses ─────────────────────────────────────
 
 /// Plans one side of a gadget boundary: one [`EncodingPlan`] per operand. The
-/// layer binds the code, never the gadget.
+/// code comes from the layer (`codes`, by block type), never from the gadget;
+/// the gadget's encoding must name the same code.
 pub fn layout_boundary(
     operands: &[BlockOperand],
     encodings: &[Encoding],
@@ -606,8 +652,10 @@ pub fn layout_boundary(
                 op.block, code.n
             ));
         }
-        // Distinct operands on the same side must not share lower blocks;
-        // otherwise two live blocks would own the same LowerId (double free).
+        // A support label names one lower block of the gadget's circuit, so it
+        // may appear only once per side, within and across encodings.
+        // Otherwise live blocks would share a lower block id and release it
+        // twice.
         for label in &enc.support {
             if !all_labels.insert(label.as_str()) {
                 return Err(format!("support label `{label}` is used twice on one side"));
@@ -623,8 +671,13 @@ pub fn layout_boundary(
     Ok(layouts)
 }
 
-/// Code-qubit position k → (lower block, logical index inside it),
-/// where `slots` are the encoding's labels as slots of `placement`.
+/// The lower address of each code qubit of `layout`, in code-qubit order:
+/// `(lower block id, logical index inside that block)`.
+///
+/// `slots[i]` is the slot of `layout.labels[i]`, and `placement[slot]` is the
+/// lower block placed there. For example, with two labels of a lower type that
+/// encodes 2 qubits, placed on lower blocks 5 and 9, code qubits 0 to 3 are
+/// `(5, 0), (5, 1), (9, 0), (9, 1)`.
 #[must_use]
 pub fn code_qubits(
     layout: &EncodingPlan,
@@ -652,12 +705,13 @@ pub struct EncodingPlan {
     pub code: Rc<CodePlan>,
     /// Circuit labels, in code-qubit order.
     pub labels: Vec<String>,
-    /// Lower type per label.
+    /// The lower block type of each label, as an index into the lower
+    /// [`TypeTable`].
     pub lower_types: Vec<usize>,
 }
 
 impl EncodingPlan {
-    /// Lower blocks per lower type.
+    /// The number of lower blocks of each lower type, indexed like `lower`.
     #[must_use]
     pub fn resources(&self, lower: &TypeTable) -> Vec<usize> {
         let mut counts = vec![0; lower.len()];

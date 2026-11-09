@@ -1,13 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The plan domain: shot-independent data needed to build a qodec runtime.
+//! Plans: shot-independent data needed to instantiate a qodec runtime.
 //! Derived once from a qodec.
 //!
 //! Building a qodec runtime from a [`Qodec`] requires a non-trivial amount of
-//! pre-processing. In order to cheaply instantiate a new qodec runtime for every
-//! shot in a job requiring ~1M shots, we capture the data resulting from that
-//! pre-processing in a [`QodecPlan`].
+//! pre-processing: matching gadgets to instructions, parsing codes and circuits,
+//! and indexing the lower ISAs.
+//!
+//! In order to cheaply instantiate a new qodec runtime for every shot in a job
+//! requiring many shots (e.g.: ~1M shots), we capture the data resulting from
+//! that pre-processing in a [`QodecPlan`].
 
 use super::{
     backend::{Backend, InstructionId, OwnedParam, Param, PlanError, Readout},
@@ -24,7 +27,8 @@ use qodec::{Argument, Circuit, Gadget, Instruction, InstructionSet, Layer, Param
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 
-/// Holds the data needed to instantiate a fresh qodec runtime.
+/// The plan of a whole qodec, from which [`Self::instantiate`] builds a fresh
+/// runtime.
 pub struct QodecPlan<R> {
     layer_plans: Vec<Rc<LayerPlan>>,
     decoder_plans: Vec<Box<dyn DecoderPlan<R>>>,
@@ -49,15 +53,15 @@ impl<R: Readout + 'static> QodecPlan<R> {
         &self.layer_plans
     }
 
-    /// Optional sizing, for a program that knows it needs `top_resources`: the
-    /// resources at every boundary, `[top, below layer 0, ..., bottom backend]`,
-    /// so the bottom backend can be built large enough. Runtimes do not
-    /// need it.
+    /// The resources needed at every layer boundary to run a program that needs
+    /// `top_resources`: `[top_resources, below layer 0, ..., below the last
+    /// layer]`. The last entry sizes the bottom backend. Calling this is
+    /// optional, because layer runtimes allocate lower blocks on demand (see
+    /// [`Self::instantiate`]).
     pub fn required_resources(
         &self,
         top_resources: Resources,
     ) -> Result<Vec<Resources>, PlanError> {
-        // resources[k] is layer k's UPPER resources; it runs on resources[k+1].
         let mut resources = vec![top_resources];
         for (k, layer) in self.layer_plans.iter().enumerate() {
             let lower = layer
@@ -68,12 +72,12 @@ impl<R: Readout + 'static> QodecPlan<R> {
         Ok(resources)
     }
 
-    /// Instantiates the runtime of one shot: fresh layer and decoder runtimes
-    /// over `backend`, any [`Backend`] for the bottom ISA (a simulator, a
-    /// profiler, ...), in its initial state. Layer runtimes allocate lower block
-    /// ids on demand, densely from 0, so `backend` either holds enough blocks
-    /// upfront (see [`Self::required_resources`]) or grows on demand. Pass
-    /// `&mut backend` to reuse one backend across shots.
+    /// Instantiates a qodec runtime: fresh layer and decoder runtimes
+    /// over `backend`, which is any [`Backend`] for the bottom ISA (a simulator,
+    /// a profiler, ...). Layer runtimes allocate lower block ids on demand,
+    /// densely from 0, so `backend` must either hold enough blocks upfront (see
+    /// [`Self::required_resources`]) or grow on demand. Pass `&mut backend` to
+    /// reuse one backend across shots.
     pub fn instantiate<'a, Id, P, B>(&self, backend: B) -> QodecRuntime<'a, Id, P, R, B::Error>
     where
         Id: InstructionId + 'a,
@@ -93,8 +97,10 @@ fn build_layer_plans<R: Readout + 'static>(
         return Err(PlanError("a qodec needs at least one layer".into()));
     }
 
-    // Layers 0..n-1 have gadgets. With a single layer there are none, and
-    // the runtime passes instructions straight to the bottom backend.
+    // Every layer except the last has gadgets that lower it to the next layer's
+    // ISA; the last layer only supplies the bottom ISA. With a single layer
+    // there are no layer plans, and the runtime passes instructions straight
+    // to the bottom backend.
     let n = layers.len() - 1;
     let layer_plans = (0..n)
         .map(|k| {
@@ -121,10 +127,14 @@ fn build_decoder_plans<R: Readout + 'static>(
     Ok(decoder_plans)
 }
 
-/// The plan of one qodec layer: everything needed to instantiate its runtime, built once.
+/// The plan of one qodec layer: everything needed to instantiate its runtime.
+///
+/// "Upper" refers to this layer's ISA, whose instructions the layer runtime
+/// accepts, and "lower" to the next layer's ISA, whose instructions it emits.
 #[derive(Debug)]
 pub struct LayerPlan {
-    /// Upper ISA: decodes incoming Ids.
+    /// The upper ISA. The layer runtime parses each incoming instruction
+    /// against it.
     pub isa: Arc<InstructionSet>,
     /// The next layer's ISA.
     pub lower_isa: Arc<InstructionSet>,
@@ -134,17 +144,41 @@ pub struct LayerPlan {
     pub lower: TypeTable,
     /// Upper block type -> the plan of its code.
     pub codes: BTreeMap<String, Rc<CodePlan>>,
-    /// Upper block type -> lower blocks per lower type.
+    /// A map from an upper block type to the number of lower blocks of each type
+    /// needed to encode it in the lower ISA.
+    ///
+    /// Each value has one count per lower type, in the order of [`Self::lower`].
+    /// Different gadgets may encode the same upper type on different lower blocks,
+    /// and sizing must fit all of them, so each count is
+    /// the largest that any gadget encoding (`in` or `out`) of that upper type
+    /// needs. Counts are maximized separately per lower type, so they can
+    /// overcount: encodings needing `[2, 0]` and `[0, 2]` give `[2, 2]`.
+    ///
+    /// For example, with lower types `q` and `anc`, in that order:
+    ///
+    /// ```text
+    /// { "lq": [3, 0], "pair": [6, 1] }
+    /// ```
+    ///
+    /// One `lq` block needs 3 `q` blocks and no `anc` block, and one `pair`
+    /// block needs 6 `q` blocks and 1 `anc` block. [`Self::required_resources`]
+    /// sizes 2 `lq` blocks as 2 × 3 = 6 `q` blocks, plus the blocks gadgets use
+    /// beyond their operands' encodings ([`Self::scratch`]).
     pub requirements: BTreeMap<String, Vec<usize>>,
-    /// Lower blocks per lower type reserved for gadget scratch.
+    /// Lower blocks per lower type that a gadget uses beyond its boundary
+    /// encodings, maximized over gadgets (see `gadget_scratch`). Only used for
+    /// sizing, by [`Self::required_resources`].
     pub scratch: Vec<usize>,
     /// Per upper instruction: how the layer handles it.
     pub instructions: Vec<InstructionPlan>,
     /// Matches the layer's own generic operations against the lower ISA.
     pub resolver: Resolver,
-    /// Per lower type `t`: an instruction with `in = [t]` (not variadic),
-    /// `out = []`, no observe and no flags. If a type has none, releases of
-    /// that type are lazy.
+    /// Per lower type `t`: the index of the first lower instruction with
+    /// `in = [t]` (not variadic), `out = []`, no observe outcomes and no flags.
+    /// If a type has none, releasing a block of that type emits nothing: the
+    /// block stays live below until the layer reuses its id. A measuring
+    /// instruction is never used as a fallback release, because below a qodec
+    /// layer it would run a whole measurement gadget.
     pub lower_release: Vec<Option<usize>>,
     /// Per upper instruction: whether it returns a result, which it does iff it
     /// has observe outcomes or flags.
@@ -158,9 +192,13 @@ impl LayerPlan {
     ///
     /// `decoder_deferrable` is whether the chosen [`Decoder`] is deferrable. A
     /// decoder that is not deferrable may issue Pauli corrections, so planning
-    /// then requires the lower ISA to bind `x` and `z` directly on every lower
-    /// type. The same holds when any upper instruction is planned as
-    /// [`InstructionPlan::LogicalPauli`].
+    /// then requires the lower ISA to bind `x` and `z` directly on logical
+    /// index 0 of every lower type. The same holds when any upper instruction
+    /// is planned as [`InstructionPlan::LogicalPauli`]. This check catches a
+    /// lower ISA without Pauli instructions at plan time. It does not cover
+    /// the other logical indices of a multi-qubit lower type; a correction the
+    /// resolver can't bind there fails when it is issued, with
+    /// `NoImplementation`.
     pub fn new(
         layer: &Layer,
         lower_isa: &Arc<InstructionSet>,
@@ -221,7 +259,9 @@ impl LayerPlan {
             })
             .collect();
 
-        // Pauli corrections are checked only where they can occur.
+        // Only `x` and `z` are required: a `y` correction falls back to them
+        // (see `decompose` in resolver.rs). A layer that never issues Pauli
+        // corrections needs no Pauli instructions below it.
         if instructions
             .iter()
             .any(|h| matches!(h, InstructionPlan::LogicalPauli))
@@ -264,8 +304,16 @@ impl LayerPlan {
         })
     }
 
-    /// The lower resources needed to run `upper` resources on this layer.
+    /// The lower resources needed to run a program that needs `upper` resources
+    /// on this layer: [`Self::requirements`] for every upper block, plus
+    /// [`Self::scratch`] once, because invocations run one at a time and each
+    /// releases its scratch blocks before the next starts. The result counts
+    /// qubits when the lower ISA has one block type that holds one qubit, and
+    /// blocks otherwise.
     pub fn required_resources(&self, upper: &Resources) -> Result<Resources, PlanError> {
+        // `upper.qubits` is added as blocks of the upper ISA's only type. That
+        // equals its qubit count because `Resources::qubits` is only meant for an
+        // ISA whose blocks hold one qubit; the block capacity is not checked here.
         let mut need = upper.blocks.clone();
         if upper.qubits > 0 {
             let only = self
@@ -297,8 +345,10 @@ impl LayerPlan {
     }
 }
 
-/// Plans the layer's code bindings: explicit layer codes, completed by gadget
-/// encodings (which `qodec` allows to supply omitted bindings).
+/// Plans the layer's code bindings: the layer's `codes` for block types its
+/// ISA declares, plus, for each operand type the layer leaves unbound, the code
+/// of its gadget encodings. [`layout_boundary`] later rejects any encoding
+/// whose code differs from the result.
 fn plan_codes(layer: &Layer) -> Result<BTreeMap<String, Rc<CodePlan>>, PlanError> {
     let mut raw: BTreeMap<String, Arc<qodec::Code>> = layer
         .codes
@@ -429,7 +479,18 @@ impl GadgetContext<'_> {
     }
 }
 
-/// Lower blocks per type a gadget needs beyond its boundary.
+/// Lower blocks per lower type that a gadget uses beyond its boundary: per
+/// type, its labels minus the larger of its input and output encodings, or 0
+/// (pseudocode §5).
+///
+/// The boundary is already counted per upper block: the caller's resources
+/// count each upper block once, and [`LayerPlan::requirements`] gives it, per
+/// lower type, as many lower blocks as the largest of its encodings uses. That
+/// covers the larger side of an invocation, not both. When a gadget's inputs and outputs use different
+/// labels, as in a teleportation gadget, both sides are live during the
+/// invocation, so the smaller side is counted here as scratch. For example, a
+/// gadget with 4 input labels, 4 different output labels, and 2 ancillas has
+/// 10 labels and a boundary of 4, so it needs 6 scratch blocks.
 fn gadget_scratch(gp: &GadgetPlan, lower: &TypeTable) -> Vec<usize> {
     let sum = |layouts: &[EncodingPlan]| {
         let mut total = vec![0; lower.len()];
@@ -458,7 +519,8 @@ fn max_merge(into: &mut [usize], from: &[usize]) {
     }
 }
 
-/// The action is non-empty and has only unguarded `pauli` steps, the
+/// Whether `instruction` can be planned as [`InstructionPlan::LogicalPauli`]:
+/// the action is non-empty and has only unguarded `pauli` steps, the
 /// instruction has no flags, and its boundary is in place: at least one input,
 /// and outputs identical to the inputs.
 fn is_pauli_only(instruction: &Instruction) -> bool {
@@ -472,6 +534,7 @@ fn is_pauli_only(instruction: &Instruction) -> bool {
         && instruction.inputs == instruction.outputs
 }
 
+/// Whether `instruction` can be planned as [`InstructionPlan::Release`]:
 /// `in = [t]` with `t` not variadic, `out = []`, empty action, no flags.
 fn is_release(instruction: &Instruction) -> bool {
     matches!(instruction.inputs.as_slice(), [op] if !op.is_variadic)
@@ -480,7 +543,8 @@ fn is_release(instruction: &Instruction) -> bool {
         && instruction.flags.is_empty()
 }
 
-/// Qubits (for a single-type ISA whose blocks hold one qubit) and blocks per type.
+/// The resources needed at one layer boundary: qubits, blocks per type, or
+/// both.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Resources {
     /// Qubits, for a single-type ISA whose blocks hold one qubit.
@@ -534,22 +598,26 @@ pub struct GadgetPlan {
     pub gadget: Gadget,
     /// The plan of its circuit.
     pub body: CircuitPlan,
-    /// Input support, body, and output support labels, in that order, without
-    /// duplicates.
+    /// Every circuit label of the gadget, without duplicates: input supports
+    /// first, then body labels, then output supports, each in first-appearance
+    /// order. A label's position here is its slot (see [`SlotPlan`]).
     pub labels: Vec<String>,
     /// One encoding plan per `in` operand.
     pub inputs: Vec<EncodingPlan>,
     /// One encoding plan per `out` operand.
     pub outputs: Vec<EncodingPlan>,
-    /// A label has ONE lower type for the whole gadget.
+    /// Circuit label -> its lower type, which is the same everywhere in the
+    /// gadget.
     pub label_type: FxHashMap<String, usize>,
-    /// Output logical-sign corrections.
+    /// The gadget's `frames`, parsed by [`prepare_frames`]: per output logical
+    /// sign, the parity of circuit readouts that flips it.
     pub frames: FxHashMap<FrameKey, Parity>,
     /// The same gadget as `labels`, `inputs`, `outputs`, and `body`, with every
-    /// label replaced by its slot (see [`SlotPlan`]). It is derived from those
-    /// fields at plan time. The layer runtime places and runs the body from it.
-    /// The label-based fields remain for decoders, which see them through
-    /// `Invocation::gadget`, and for sizing resources.
+    /// label replaced by its slot (see [`SlotPlan`]), derived from them at plan
+    /// time. The layer runtime uses slots wherever the body or an encoding names
+    /// a block, and never looks a label up. The label-based fields remain for
+    /// decoders (`frame_decoder.rs` reads them at plan time and through
+    /// `Invocation::gadget`) and for sizing resources.
     pub slots: SlotPlan,
 }
 
@@ -576,7 +644,8 @@ pub struct SlotPlan {
     pub retained: Vec<bool>,
     /// Per slot: whether the body itself consumes it.
     pub consumed: Vec<bool>,
-    /// Per call of [`CircuitPlan::calls`]: what running it needs.
+    /// One per call of [`CircuitPlan::calls`], in the same order, so the layer
+    /// runtime zips the two.
     pub calls: Vec<CompiledCall>,
 }
 
@@ -670,7 +739,10 @@ pub struct CompiledCall {
     /// The operands, as slots.
     pub operands: Vec<usize>,
     /// The arguments, in the lower instruction's parameter order. `None` if
-    /// they can never be valid, so running the call fails.
+    /// they can never be valid, so running the call fails with
+    /// `InvalidInstruction`. This is not a plan error because the pseudocode
+    /// validates a body's arguments when it runs (`runBody`, §7), so a qodec
+    /// whose broken gadget a program never invokes still plans and runs.
     pub args: Option<Vec<CompiledArg>>,
 }
 
@@ -709,8 +781,9 @@ pub struct CircuitPlan {
     pub block_types: FxHashMap<String, usize>,
     /// The calls, in program order.
     pub calls: Vec<CallPlan>,
-    /// Labels the body itself consumes. They are already gone below, so the
-    /// layer must not release them again.
+    /// Labels the body itself consumes: their last call takes them as an input
+    /// but does not output them, as a destructive measurement does. They are
+    /// already gone below, so the layer must not release them again.
     pub consumed: FxHashSet<String>,
     /// Length of the circuit readout record.
     pub record_len: usize,
@@ -836,7 +909,7 @@ pub struct CallPlan {
     pub observe_count: usize,
     /// Flags the call adds to the record, after its outcomes.
     pub flag_count: usize,
-    /// The call's selection hint.
+    /// The call's `select` patterns, compiled by [`compile_select`].
     pub select: CompiledSelect,
 }
 
@@ -845,7 +918,8 @@ pub struct CallPlan {
 pub enum ArgumentPlan {
     /// A literal value.
     Value(Argument),
-    /// Forwarded from this instruction parameter of the implemented instruction.
+    /// Forwarded from this parameter of the implemented instruction, through
+    /// the gadget's `parameter_bindings`.
     Forwarded(String),
     /// `circuit.readouts[j]`, an earlier record bit.
     Readout(usize),

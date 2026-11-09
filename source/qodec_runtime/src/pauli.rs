@@ -18,10 +18,12 @@ pub struct Clifford {
 }
 
 impl Clifford {
-    /// The Clifford named by a generic operation acting on `arity` qubits, or
-    /// `None` if the operation is not a known Clifford of that arity.
+    /// The Clifford of the generic operation `name` (see [`crate::resolver`])
+    /// on `arity` qubits, or `None` if `name` is not a known Clifford of that
+    /// arity.
     #[must_use]
     pub fn named(name: &str, arity: usize) -> Option<Clifford> {
+        // `(generator, image)` pairs. Only generators that change are listed.
         let images: &[(&str, &str)] = match (name, arity) {
             ("i" | "id", 1) => &[],
             ("x", 1) => &[("Z_0", "-Z_0")],
@@ -51,7 +53,8 @@ impl Clifford {
     }
 
     /// The Clifford of a `clifford` action step (`{generator: image}`).
-    /// Generators that are not listed map to themselves.
+    /// Generators that are not listed map to themselves. The images are not
+    /// checked to preserve commutation relations.
     pub fn from_images(
         images: &BTreeMap<PauliString, PauliString>,
         width: usize,
@@ -89,7 +92,8 @@ impl Clifford {
         Ok(c)
     }
 
-    /// Embeds this Clifford into `width` qubits, with qubit `i` at `positions[i]`.
+    /// Embeds this Clifford into `width` qubits, with qubit `i` at
+    /// `positions[i]` and the identity on the other qubits.
     #[must_use]
     pub fn embed(&self, positions: &[usize], width: usize) -> Clifford {
         let place = |p: &DensePauli| {
@@ -135,6 +139,8 @@ impl Clifford {
     #[must_use]
     pub fn conjugate(&self, p: &DensePauli) -> DensePauli {
         let width = self.width();
+        // `p` is `i^phase · X^x · Z^z`, so the X images multiply before the Z
+        // images.
         let mut acc = DensePauli::identity(width);
         acc.phase = p.phase;
         for q in 0..width {
@@ -179,7 +185,8 @@ pub struct DensePauli {
 }
 
 impl DensePauli {
-    /// Fails if the Pauli acts outside `0..width`.
+    /// Converts a sparse Pauli to a dense one on `width` qubits. Fails if it
+    /// acts outside `0..width`.
     pub fn from_pauli(p: &Pauli, width: usize) -> Result<Self, String> {
         let mut d = Self::identity(width);
         if p.negative {
@@ -276,9 +283,14 @@ impl Pauli {
         Self::parse(&text.0)
     }
 
-    /// Parses the qodec Pauli grammar: whitespace-separated `B[_index]` tokens
-    /// with `B ∈ {I, X, Y, Z}` and a missing index meaning 0, optionally preceded
-    /// by a sign (action Paulis may be signed; code Paulis are not).
+    /// Parses a Pauli in the spec's [sparse format](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#pauli-operator-sparse-format):
+    /// whitespace-separated `B_index` terms with `B ∈ {X, Y, Z}`, optionally
+    /// preceded by `+` or `-`.
+    ///
+    /// It accepts more than the spec grammar: `I` terms (ignored) and a term
+    /// without `_index`, which means qubit 0. It accepts a sign on any Pauli,
+    /// although the spec writes [code operators](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/code.md#pauli-string-format)
+    /// without one.
     pub fn parse(text: &str) -> Result<Self, String> {
         let mut negative = false;
         let mut terms = Vec::new();

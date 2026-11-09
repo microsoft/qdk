@@ -56,6 +56,7 @@ Deliberate differences from the Python reference implementation
 (qdk/simulation/_qodec).  Each fixes a bug found by formal verification or
 complexity analysis:
   - accepts() is exact; it never answers None when the outcome is determined.  §4.3
+    (The Rust `accepts` caps the enumeration; past the cap it answers None.)
   - BinarySystem must iterate its rows in insertion order.                     §4.4
   - Alias expansion in frame values is memoized (it was exponential).          §4.5
   - Encodings may not share lower blocks or retype a lower block.              §4.6 §5 §8
@@ -136,7 +137,7 @@ only needs to view and build values:
         Float(f64),          // `number`
         Text(&'a str),       // `string` and `pauli`
         IntList(&'a [u64]),  // list arguments: non-negative Ints ...
-        TextList(&'a [&'a str]), // ... or Strings
+        TextList(&'a [String]),  // ... or Strings
     }
     pub trait Param: Clone {
         fn view(&self) -> ParamView<'_>;
@@ -463,6 +464,8 @@ function accepts(compiled, flags: List<Bit>) -> Bool | None:
 
 // Worst case is exponential in |U|.  |U| ≤ number of declared flags, which is
 // small in practice.  A tautology check on the DNF can replace the enumeration.
+// The Rust `accepts` enumerates at most MAX_ENUMERATED_FLAGS (24) unknown flags
+// and answers None past that, even if every completion matches.
 
 // [RUNTIME] Selection is a spec hint.  This runtime turns it into a recoverable
 // status, never an error.

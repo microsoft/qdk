@@ -1,14 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Parity expressions over a gadget's [parity references], and the GF(2)
-//! system that solves them.
+//! Parity expressions over a gadget's [parity references], and the system of
+//! XOR equations (linear equations over GF(2), the field of bits) that solves
+//! them.
 //!
 //! [parity references]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#parity-equations-property-path-references
 
 use std::ops::{BitXor, BitXorAssign};
 
-/// GF(2) system with incremental elimination.
+/// A system of XOR equations `p == 0`, solved by incremental Gaussian
+/// elimination.
 ///
 /// `rows` is iterated in INSERTION order, and `add` only appends. Each new row
 /// is reduced by all earlier rows, so no row contains an earlier pivot, and one
@@ -16,7 +18,7 @@ use std::ops::{BitXor, BitXorAssign};
 /// a sorted or hash map), `value` can be wrong and `Inconsistent` can be missed.
 #[derive(Clone, Debug, Default)]
 pub struct BinarySystem {
-    /// Pivot -> reduced row.
+    /// `(pivot, reduced row)`. The pivot is the row's smallest variable.
     rows: Vec<(Var, Parity)>,
 }
 
@@ -27,7 +29,8 @@ impl BinarySystem {
         Self::default()
     }
 
-    /// Adds the equation `p == 0`.
+    /// Adds the equation `p == 0`. If it contradicts the earlier equations, it
+    /// fails and leaves the system unchanged.
     pub fn add(&mut self, p: Parity) -> Result<(), Inconsistent> {
         let q = self.reduce(p);
         if let Some(&pivot) = q.vars.first() {
@@ -59,7 +62,7 @@ impl BinarySystem {
     }
 }
 
-/// XOR of `vars` XOR `constant`.
+/// The XOR of `vars` and `constant`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Parity {
     /// Sorted, without duplicates.
@@ -176,7 +179,8 @@ pub enum Var {
         e: usize,
         /// The kind of sign.
         basis: Basis,
-        /// The index of the operator in the code.
+        /// The index of the operator in the code's `stabilizers`, `x` or `z`
+        /// list, chosen by `basis`.
         k: usize,
     },
 }
@@ -201,6 +205,6 @@ pub enum Basis {
     Z,
 }
 
-/// The parity evidence contradicts itself.
+/// An equation added to a [`BinarySystem`] contradicts the earlier ones.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Inconsistent;

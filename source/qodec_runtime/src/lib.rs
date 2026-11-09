@@ -3,11 +3,15 @@
 
 #![deny(missing_docs)]
 
-//! The qodec runtime: the stack of all layer runtimes plugged together.
+//! Runs programs written for the top instruction set (ISA) of a qodec on a
+//! backend for its bottom ISA.
 //!
-//! It executes instructions of a qodec's top ISA by lowering them one layer at
-//! a time, following the qodec [lowering chain][lowering-chain], and returns
-//! the top layer's results.
+//! A qodec is a stack of ISAs: each layer's gadgets implement the layer's
+//! instructions as circuits of the ISA below, for example the logical
+//! operations of an error-correcting code as physical operations (see the
+//! qodec [lowering chain][lowering-chain]). This crate lowers instructions one
+//! layer at a time, and decodes the lower results back into each layer's
+//! results on the way up.
 //!
 //! ```text
 //!   ┌──────────────────────────────┐  Backend<Id, P, R>   (top ISA instructions)
@@ -21,9 +25,14 @@
 //!      (a simulator, tracer, profiler, ...)
 //! ```
 //!
-//! A qodec with `n + 1` layers has `n` layer runtimes: every layer except the
-//! bottom one lowers to the layer below it, and the bottom layer's ISA is the
-//! bottom backend's.
+//! Every boundary speaks the same [`Backend`] interface: each
+//! [`LayerRuntime`] implements [`Backend`] for the ISA above it, runs gadget
+//! bodies on the [`Backend`] below it, and asks its decoder
+//! ([`DecoderRuntime`]) to turn the lower results into upper results. The
+//! types `Id`, `P` and `R` are the same at every boundary. A qodec with
+//! `n + 1` layers has `n` layer runtimes: every layer except the bottom one
+//! lowers to the layer below it, and the bottom layer's ISA is the bottom
+//! backend's.
 //!
 //! Names follow three domains:
 //! - **qodec data**: the model loaded by the [`qodec`] crate ([`qodec::Qodec`],
@@ -33,17 +42,23 @@
 //! - **runtimes** (`…Runtime`): per-shot state instantiated from a plan, such
 //!   as [`QodecRuntime`], [`LayerRuntime`] and [`DecoderRuntime`].
 //!
-//! So `Qodec → QodecPlan → QodecRuntime`: build a [`QodecPlan`] once per qodec
-//! with [`QodecPlan::new`], then call [`QodecPlan::instantiate`] for every shot.
-//! Layer runtimes allocate lower block ids on demand, so a program need not know
-//! its size; [`QodecPlan::required_resources`] sizes the bottom backend for one
-//! that does.
+//! # Usage
 //!
-//! Links to the qodec spec are pinned to the commit that `qodec` 0.2.1 was
-//! published from (recorded in the crate's `.cargo_vcs_info.json`). Update
-//! them together with the `qodec` dependency.
+//! 1. Build a [`QodecPlan`] once per qodec with [`QodecPlan::new`], choosing a
+//!    [`Decoder`] such as [`FrameDecoder`].
+//! 2. For every shot, call [`QodecPlan::instantiate`] with a bottom backend.
+//!    Layer runtimes allocate lower block ids on demand, so a program need not
+//!    know its size; [`QodecPlan::required_resources`] sizes the bottom
+//!    backend for one that does.
+//! 3. Send top-ISA instructions to the [`QodecRuntime`] with
+//!    [`Backend::execute_batch`]. Recoverable conditions come back in each
+//!    result's [`Status`], unrecoverable errors as a [`QodecRuntimeError`].
+//! 4. Drop the [`QodecRuntime`] to end the shot.
 //!
 //! [lowering-chain]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/model.md#the-lowering-chain
+// Links to the qodec spec are pinned to the commit that `qodec` 0.2.1 was
+// published from (recorded in the crate's `.cargo_vcs_info.json`). Update them
+// together with the `qodec` dependency.
 
 mod actions;
 pub mod backend;
