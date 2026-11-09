@@ -119,12 +119,10 @@ impl Transpiler for RzQftTranspiler {
 mod tests {
     use super::*;
     use crate::{
-        BatchResult, QuantumBackend, QuantumBackends, TranspilingAdapter, run_qir,
-        tests::compile_qsharp_to_qir,
+        BatchResult, QuantumBackend, QuantumBackends, TranspilingAdapter, tests::run_qsharp_main,
     };
     use num_bigint::BigUint;
     use num_complex::Complex64;
-    use qsc::target::Profile;
     use qsc_eval::backend::Backend;
 
     #[test]
@@ -183,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    /// Compares compiled QFT states with and without synthesis, up to global phase.
+    /// Compares Q# QFT states with and without synthesis, up to global phase.
     fn test_rotation_synthesis_qft() -> Result<(), String> {
         if cfg!(debug_assertions) {
             return Ok(()); // Skip in debug mode
@@ -203,17 +201,13 @@ mod tests {
                     }}
                 "#
         );
-        let file = compile_qsharp_to_qir(&source, Profile::Base);
         let mut reference = QuantumBackends::sparse_sim();
         let mut synthesized = TranspilingAdapter::new(
             QuantumBackends::sparse_sim(),
             vec![Box::new(RzQftTranspiler)],
         )?;
-        // SAFETY: The QIR was compiled from the trusted Q# source above.
-        unsafe {
-            run_qir(&file.0, &mut reference)?;
-            run_qir(&file.0, &mut synthesized)?;
-        }
+        run_qsharp_main(&source, &mut reference)?;
+        run_qsharp_main(&source, &mut synthesized)?;
         let expected = reference.backend_mut().capture_quantum_state()?.0;
         let actual = synthesized
             .get_backend_mut()

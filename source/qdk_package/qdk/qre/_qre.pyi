@@ -55,7 +55,6 @@ class ProfilerResult:
 
 class Profiler:
     def add_adapter(self, adapter: str) -> None:
-    def profile_qir(self, qir_file_name: str) -> ProfilerResult: ...
     # Profiles one shot of the dictionary produced by 64-bit AdaptiveProgram.as_dict().
     def profile_adaptive_program(self, program: dict[str, Any]) -> ProfilerResult: ...
     def profile_qsharp_expr(

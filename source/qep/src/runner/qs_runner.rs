@@ -35,6 +35,7 @@ pub enum QsharpRunError {
 /// Qubit allocation and ID swaps are local bookkeeping. Release trusts the caller
 /// to reset qubits before releasing them. State capture and non-destructive zero
 /// checks are unsupported, and quantum seeds cannot be forwarded to the backend.
+/// Global phase is discarded because it has no corresponding backend instruction.
 pub fn run_qsharp_call(
     interpreter: &mut Interpreter,
     callable: Value,
@@ -171,7 +172,7 @@ impl Backend for QsBackendReverseShim<'_> {
         Err("QuantumBackend does not support non-destructive zero checks".into())
     }
 
-    /// Selects full execution for arithmetic helpers and rejects other custom intrinsics.
+    /// Omits global phase, selects full arithmetic execution, and rejects other intrinsics.
     fn custom_intrinsic(
         &mut self,
         name: &str,
@@ -179,6 +180,7 @@ impl Backend for QsBackendReverseShim<'_> {
         _globals: &impl qsc::fir::PackageStoreLookup,
     ) -> Option<Result<Value, String>> {
         match name {
+            "GlobalPhase" => Some(Ok(Value::unit())),
             "IsResourceEstimating" => Some(Ok(Value::Bool(false))),
             _ => Some(Err(format!("Custom intrinsic `{name}` is not supported"))),
         }

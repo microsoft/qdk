@@ -401,15 +401,22 @@ are combined in the result.
 On a high level, resource estimation looks like this:
 * Application is compiled into QIR.
 * We instantiate a profiler for the target quantum computer.
-* We run QIR Runner with profiler as backend.
-* `profile_qir` returns `ProfilerResult` with qubit counts, total runtime, operation counts,
+* In Python, PyQIR parses QIR and lowers it to adaptive bytecode, which runs with the profiler as backend.
+* `QREProfiler.profile_qir(qir_file, profiler)` returns `ProfilerResult` with qubit counts, total runtime, operation counts,
     and runtime per operation.
+
+Rust profilers can execute Q# directly with `Profiler::profile_qsharp_expr`, given an interpreter
+and an entry expression. The Rust `Profiler` trait no longer provides `profile_qir`; code that
+needs the native QIR runner can call `run_qir` with the profiler as its backend, then retrieve
+the collected data with `get_result`.
 
 ### Python API
 
 For Python users we expose:
 * `QSharpApplication`, which is a wrapper around Q# code.
-  * Its `profile` method writes QIR to a temporary file and removes it after profiling.
+  * Its `profile` method compiles Q# to QIR and profiles adaptive bytecode in memory by default.
+* `QREProfiler.profile_qir`, which profiles a QIR file through PyQIR and the bytecode runner.
+  Import `QREProfiler` from `qdk.qre.profiler`; the Python `Profiler` class no longer exposes `profile_qir`.
 * `Profiler`, the base class for profiler implementations.
 * `SequentialCountingProfiler`, one implementation of `Profiler`.
 * `ProfilerResult`, which contains all profiling results.

@@ -302,18 +302,6 @@ impl Profiler {
             .map_err(PyRuntimeError::new_err)
     }
 
-    /// Profiles a QIR file and returns the collected data.
-    fn profile_qir(&mut self, py: Python<'_>, qir_file_name: &str) -> PyResult<ProfilerResult> {
-        use qep::Profiler as _;
-
-        let result = py.detach(|| {
-            // SAFETY: The Python API inherits QEP's requirement that callers provide trusted QIR.
-            unsafe { self.backend_mut().profile_qir(qir_file_name) }
-                .map_err(PyRuntimeError::new_err)
-        })?;
-        Ok(result.into())
-    }
-
     /// Profiles one shot of trusted, well-formed 64-bit adaptive bytecode.
     ///
     /// Accepts the dictionary returned by `AdaptiveProfilePass(Bytecode.Bit64)`

@@ -301,6 +301,19 @@ fn discards_pending_instructions_on_failure() {
 }
 
 #[test]
+/// Accepts global-phase intrinsics without emitting backend instructions.
+fn ignores_global_phase() {
+    let (mut interpreter, value) = callable(
+        "operation GlobalPhase(theta : Double) : Unit { body intrinsic; }
+         () => { GlobalPhase(0.5); }",
+    );
+    let mut backend = RecordingBackend::default();
+    run_qsharp_call(&mut interpreter, value, Value::unit(), &mut backend)
+        .expect("global phase should be supported");
+    assert!(backend.batches.is_empty());
+}
+
+#[test]
 /// Reports unknown custom intrinsics explicitly through interpreter diagnostics.
 fn rejects_custom_intrinsics() {
     let (mut interpreter, value) = callable(

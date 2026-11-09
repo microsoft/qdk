@@ -9,7 +9,7 @@ mod models;
 mod profile_types;
 mod temporal_profiler;
 
-use crate::{QuantumBackend, run_adaptive_program, run_qir, run_qsharp_call, run_qsharp_expr};
+use crate::{QuantumBackend, run_adaptive_program, run_qsharp_call, run_qsharp_expr};
 use qdk_simulators::bytecode::AdaptiveProgram;
 use qsc::interpret::{Interpreter, Value};
 use serde::Serialize;
@@ -246,20 +246,6 @@ mod tests {
 pub trait Profiler: QuantumBackend {
     /// Returns the profiling data collected so far.
     fn get_result(&self) -> ProfilerResult;
-
-    /// Executes a QIR file and returns the profiling data collected afterward.
-    ///
-    /// # Safety
-    ///
-    /// The caller must satisfy the safety requirements of [`run_qir`].
-    unsafe fn profile_qir(&mut self, qir_file_name: &str) -> Result<ProfilerResult, String>
-    where
-        Self: Sized,
-    {
-        // SAFETY: The caller accepts the safety contract inherited from `run_qir`.
-        unsafe { run_qir(qir_file_name, self)? };
-        Ok(self.get_result())
-    }
 
     /// Invokes a Q# callable and returns the profiling data collected afterward.
     fn profile_qsharp(
