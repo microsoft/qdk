@@ -60,6 +60,40 @@ fn pending_instruction_count(profiler: &TemporalProfiler<DemoModel1>) -> usize {
         .count()
 }
 
+/// Checks measured lifetime error, including the additional error from an injected T state.
+#[test]
+fn computes_demo_model_error() -> Result<(), String> {
+    for (names, expected_time, expected_error) in [
+        (&["h", "mz"][..], 6_000, 6_000.0 * 6e-9),
+        (
+            &["h", "t", "mz"][..],
+            67_000,
+            67_000.0 * 6e-9 + 35.0 * 1e-9 + 7.1 * 1e-5,
+        ),
+    ] {
+        let mut profiler = seeded_profiler();
+        for factory in &mut profiler.model.t_factories {
+            factory.probability_success = 1.0;
+        }
+        assert_eq!(profiler.get_result().totals.error, 0.0);
+        let instructions: Vec<_> = names
+            .iter()
+            .map(|&instruction_name| QuantumBackendInstruction {
+                instruction_name,
+                parameters: smallvec::smallvec![QubitId(0)],
+            })
+            .collect();
+        assert_eq!(profiler.execute_batch(&instructions)?.results.len(), 1);
+        assert_eq!(profiler.state.current_time_nanos, expected_time);
+        let actual_error = profiler.get_result().totals.error;
+        assert!(
+            (actual_error - expected_error).abs() < 1e-12,
+            "expected error {expected_error}, got {actual_error} for {names:?}"
+        );
+    }
+    Ok(())
+}
+
 /// Waits for every result despite out-of-order completion, without draining unrelated work.
 #[test]
 fn waits_for_all_results_not_all_instructions() -> Result<(), String> {

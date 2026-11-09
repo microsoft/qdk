@@ -7,6 +7,7 @@ mod event_recorder;
 mod factories;
 mod models;
 mod profile_types;
+mod qubits;
 mod temporal_profiler;
 
 use crate::{QuantumBackend, run_adaptive_program, run_qsharp_call, run_qsharp_expr};

@@ -131,6 +131,12 @@ impl TotalCounts {
     fn runtime_sec_per_operation(&self) -> FxHashMap<String, f64> {
         self.0.runtime_sec_per_operation.clone()
     }
+
+    /// Returns estimated error.
+    #[getter]
+    fn error(&self) -> f64 {
+        self.0.error
+    }
 }
 
 /// Python representation of a time-series profiling metric.

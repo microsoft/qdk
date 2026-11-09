@@ -28,6 +28,9 @@ pub struct TotalCounts {
 
     /// For each operation, time spent in that operation.
     pub runtime_sec_per_operation: FxHashMap<String, f64>,
+
+    /// Error - probability of getting incorrect result.
+    pub error: f64,
 }
 
 /// Examples:

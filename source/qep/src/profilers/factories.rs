@@ -14,7 +14,7 @@
 ///   - with probability `probability_success` it succeeds, now one of its qubits has T state.
 /// * After this T state needs to be used:
 ///   - Either by "InjectT/InjectTAdjoint" gate on some of compute qubits.
-///   - Or it gets moved into memory buffer (this is not implemented for now).  
+///   - Or it gets moved into memory buffer (this is not implemented for now).
 /// * After T state is used, distillation can start again.
 ///
 /// For the demo, I am using 15-1 factory from fig.15 in <https://arxiv.org/pdf/1808.02892>
@@ -29,11 +29,7 @@ pub(super) struct TFactory {
         reason = "The profiler does not yet report factory error rates."
     )]
     input_state_error: f64,
-    #[expect(
-        dead_code,
-        reason = "The profiler does not yet report factory error rates."
-    )]
-    output_state_error: f64,
+    pub(super) output_state_error: f64,
 }
 
 impl TFactory {

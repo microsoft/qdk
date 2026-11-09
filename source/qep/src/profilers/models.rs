@@ -4,10 +4,10 @@ use super::{
 };
 use crate::{
     Parameter, QuantumBackendResult, TotalCounts, interface::QuantumBackendInstruction,
-    profilers::factories::TFactory,
+    profilers::factories::TFactory, profilers::qubits::LogicalQubit,
 };
 use rand::RngExt;
-use std::{collections::VecDeque, hash::Hash};
+use std::{collections::VecDeque, hash::Hash, os::linux::raw::stat};
 
 pub trait QpuModel: Sized {
     /// Retained until completion and borrowed for start-time trace conversion.
@@ -150,16 +150,24 @@ pub enum DemoModel1_Resource {
 ///      * Each measurments returns |0> or |1> with probability 50%.
 ///    * Supports T gates which is implemented by InjectT operation which consumes TState.
 ///    * Supports AdjointT gates which is implemented by InjectAdjointT operation which consumes TState.
+///  * Error model:
+///    * Each qubit has error 0 at start and after reset.
+///    * Qubit accrues proportional to time.
+///    * When TState is injected, add output T state error to qubit error.
+///    * On every measurement, we add qubit error to the resulting program error.
 pub struct DemoModel1 {
     /// Duration of a Clifford instruction in nanoseconds.
     pub clifford_gate_time_nanos: usize,
     /// Duration of measurement, reset, or their combination in nanoseconds.
     pub measurment_time_nanos: usize,
-    pub(super) t_factories: Vec<TFactory>,
     /// Distance of the error-coorecting code.
     /// Assumes that all logical qubits have the same error correcting code.
     /// TODO: change it to specify different ECCs for different qubits.
     pub ecc_distance: usize,
+
+    /// Functional units.
+    qubits: Vec<LogicalQubit>,
+    pub(super) t_factories: Vec<TFactory>,
 }
 
 impl Default for DemoModel1 {
@@ -183,6 +191,7 @@ impl DemoModel1 {
             measurment_time_nanos,
             t_factories: vec![TFactory::new(ecc_distance); t_factories_count],
             ecc_distance,
+            qubits: vec![],
         }
     }
 
@@ -262,7 +271,7 @@ impl QpuModel for DemoModel1 {
             _ => vec![],
         };
 
-        let targets = instruction
+        let targets: Vec<usize> = instruction
             .parameters
             .iter()
             .filter_map(|parameter| match parameter {
@@ -270,6 +279,12 @@ impl QpuModel for DemoModel1 {
                 _ => None,
             })
             .collect();
+
+        // Grow `qubits` as needed.
+        let max_qubit_id: usize = *targets.iter().max().unwrap_or(&0);
+        while self.qubits.len() <= max_qubit_id {
+            self.qubits.push(LogicalQubit::new(self.ecc_distance));
+        }
 
         state.schedule_operation(
             op,
@@ -315,21 +330,33 @@ impl QpuModel for DemoModel1 {
         state: &mut TemporalProfilerState<Self>,
     ) -> Option<QuantumBackendResult> {
         match op {
-            DemoModel1_NativeOperation::Measurement(_) => {
+            DemoModel1_NativeOperation::Measurement(qubit_id) => {
+                state.error += self.qubits[*qubit_id].current_error(state.current_time_nanos);
                 Some(QuantumBackendResult::from(state.rng.random::<bool>()))
+            }
+            DemoModel1_NativeOperation::Reset(qubit_id) => {
+                self.qubits[*qubit_id].reset(state.current_time_nanos);
+                None
             }
             DemoModel1_NativeOperation::DistillationRound(factory_id) => {
                 self.on_distillation_round_finished(*factory_id, state);
                 None
             }
-            DemoModel1_NativeOperation::InjectT(factory_id, _, _) => {
+            DemoModel1_NativeOperation::InjectT(factory_id, qubit_id, _) => {
                 let factory_id =
                     factory_id.expect("finished injection must have an assigned factory");
+
+                // Add produced T-state error to qubit error.
+                self.qubits[*qubit_id].accumulated_error +=
+                    self.t_factories[factory_id].output_state_error;
+
                 state.event_recorder.event_aggregator.record_event(
                     state.current_time_nanos,
                     "T state consumed",
                     1,
                 );
+
+                // Can start next distillation round using this factory immediately.
                 self.start_distillation_round(factory_id, state);
                 None
             }
@@ -339,11 +366,7 @@ impl QpuModel for DemoModel1 {
 
     /// Counts dense compute-qubit IDs, factory resources, elapsed time, and recorded events.
     fn get_total_counts(&self, state: &TemporalProfilerState<Self>) -> TotalCounts {
-        let logical_compute_qubits = state
-            .last_operations
-            .keys()
-            .max()
-            .map_or(0, |qubit| qubit + 1);
+        let logical_compute_qubits = self.qubits.len();
         let factory_logical_qubits: usize = self
             .t_factories
             .iter()
@@ -362,6 +385,7 @@ impl QpuModel for DemoModel1 {
             total_operations_count: state.event_recorder.event_aggregator.total_event_count(),
             calls_per_operation: Default::default(),
             runtime_sec_per_operation: Default::default(),
+            error: state.error,
         }
     }
 }

@@ -102,6 +102,8 @@ pub struct TemporalProfilerState<M: QpuModel> {
     events: BinaryHeap<Reverse<(usize, u64, OperationRef)>>,
     /// Sequence number assigned to the next completion event to break timestamp ties.
     next_event_sequence: u64,
+    /// Accumulated measurment error.
+    pub(super) error: f64,
 }
 
 impl<M: QpuModel> TemporalProfilerState<M> {
@@ -121,6 +123,7 @@ impl<M: QpuModel> TemporalProfilerState<M> {
             operations_blocked_on_resources: FxHashMap::default(),
             events: BinaryHeap::new(),
             next_event_sequence: 0,
+            error: 0.0,
         }
     }
 

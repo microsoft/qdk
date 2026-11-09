@@ -133,6 +133,7 @@ impl Profiler for SequentialCountingProfiler {
                 total_operations_count,
                 calls_per_operation,
                 runtime_sec_per_operation,
+                error: 0.0,
             },
             profiles: TemporalProfiles::default(),
             trace: None,
