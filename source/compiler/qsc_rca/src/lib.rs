@@ -721,6 +721,8 @@ bitflags! {
         const UseOfDynamicLimitInParallelExpr = 1 << 33;
         /// Use of fail in a dynamic context that requires an emitted IR abort.
         const UseOfDynamicFail = 1 << 34;
+        /// A callable changes qubit labels (directly or transitively), requiring inlining.
+        const QubitRelabeling = 1 << 35;
     }
 }
 

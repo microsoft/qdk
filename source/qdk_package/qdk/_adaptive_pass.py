@@ -849,6 +849,8 @@ class AdaptiveProfilePass:
                 self._emit_unary(OP_UITOFP | FLAG_FLOAT, instr)
             case pyqir.Opcode.INT_TO_PTR:
                 self._emit_inttoptr(instr)
+            case pyqir.Opcode.PTR_TO_INT:
+                self._emit_unary(OP_MOV, instr)
             case pyqir.Opcode.ALLOCA:
                 self._emit_alloca(cast(pyqir.Alloca, instr))
             case pyqir.Opcode.LOAD:

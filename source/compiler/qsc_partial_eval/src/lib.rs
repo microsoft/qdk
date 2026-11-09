@@ -15,6 +15,7 @@ mod tests;
 
 mod evaluation_context;
 mod management;
+mod qubit_relabel;
 
 use core::panic;
 use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Scope};
@@ -44,6 +45,7 @@ use qsc_fir::{
     },
     ty::{FunctorSetValue, Prim, Ty},
 };
+use qubit_relabel::RuntimeQubitRelabeling;
 
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 use qsc_lowerer::{map_fir_package_span_to_hir, map_hir_package_to_fir};
@@ -80,14 +82,25 @@ pub fn partially_evaluate(
     capabilities: TargetCapabilityFlags,
     config: PartialEvalConfig,
 ) -> Result<Program, Error> {
-    let partial_evaluator = PartialEvaluator::new(
-        package_store,
-        compute_properties,
-        entry,
-        capabilities,
-        config,
-    );
-    partial_evaluator.eval()
+    let make_evaluator = || {
+        PartialEvaluator::new(
+            package_store,
+            compute_properties,
+            entry,
+            capabilities,
+            config,
+        )
+    };
+    match make_evaluator().eval() {
+        Err(Error::CapabilityError(CapabilityError::UseOfDynamicQubit(_))) => {
+            // Callable-valued arguments can hide relabeling from static analysis. Restart
+            // with runtime bindings before emitting any part of the final program.
+            let mut evaluator = make_evaluator();
+            evaluator.runtime_qubit_relabeling = Some(RuntimeQubitRelabeling::default());
+            evaluator.eval()
+        }
+        result => result,
+    }
 }
 
 /// Partially evaluates a callable with the specified arguments.
@@ -99,14 +112,23 @@ pub fn partially_evaluate_call(
     capabilities: TargetCapabilityFlags,
     config: PartialEvalConfig,
 ) -> Result<Program, Error> {
-    let partial_evaluator = PartialEvaluator::new_from_package_id(
-        package_store,
-        compute_properties,
-        callable.package,
-        capabilities,
-        config,
-    );
-    partial_evaluator.invoke(callable, args)
+    let make_evaluator = || {
+        PartialEvaluator::new_from_package_id(
+            package_store,
+            compute_properties,
+            callable.package,
+            capabilities,
+            config,
+        )
+    };
+    match make_evaluator().invoke(callable, args.clone()) {
+        Err(Error::CapabilityError(CapabilityError::UseOfDynamicQubit(_))) => {
+            let mut evaluator = make_evaluator();
+            evaluator.runtime_qubit_relabeling = Some(RuntimeQubitRelabeling::default());
+            evaluator.invoke(callable, args)
+        }
+        result => result,
+    }
 }
 
 /// A partial evaluation error.
@@ -206,6 +228,7 @@ struct PartialEvaluator<'a> {
     package_store: &'a PackageStore,
     compute_properties: &'a PackageStoreComputeProperties,
     resource_manager: ResourceManager,
+    runtime_qubit_relabeling: Option<RuntimeQubitRelabeling>,
     backend: QuantumIntrinsicsChecker,
     callables_map: FxHashMap<Rc<str>, CallableId>,
     /// Cache of callables emitted as QIR "IR functions", keyed by the specialization they were
@@ -335,6 +358,7 @@ impl<'a> PartialEvaluator<'a> {
             compute_properties,
             eval_context: context,
             resource_manager,
+            runtime_qubit_relabeling: None,
             backend: QuantumIntrinsicsChecker::default(),
             callables_map: FxHashMap::default(),
             ir_function_callables: FxHashMap::default(),
@@ -538,6 +562,10 @@ impl<'a> PartialEvaluator<'a> {
             .result_register_count()
             .try_into()
             .expect("results count should fit into a u32");
+
+        if let Some(relabeling) = self.runtime_qubit_relabeling {
+            relabeling.lower(&mut self.program, &mut self.resource_manager);
+        }
 
         self.program.dbg_info.remove_unused_dbg_metadata();
 
@@ -2082,9 +2110,9 @@ impl<'a> PartialEvaluator<'a> {
             }
             "__quantum__rt__qubit_release" => self.release_qubit(args_value, args_span),
             "PermuteLabels" => {
-                if self.eval_context.is_currently_evaluating_any_branch() {
-                    // If we are in a dynamic branch anywhere up the call stack, we cannot support relabel,
-                    // as later qubit usage would need to be dynamic on whether the branch was taken.
+                if self.runtime_qubit_relabeling.is_none()
+                    && self.eval_context.is_currently_evaluating_any_branch()
+                {
                     return Err(Error::CapabilityError(CapabilityError::UseOfDynamicQubit(
                         fir::PackageSpan::new(
                             map_hir_package_to_fir(callee_expr_span.package),
@@ -2092,8 +2120,21 @@ impl<'a> PartialEvaluator<'a> {
                         ),
                     )));
                 }
+                if !args_statically_known {
+                    return Err(Error::Unimplemented(
+                        "relabeling runtime-selected qubits".to_string(),
+                        args_span,
+                    ));
+                }
                 qubit_relabel(args_value, callee_expr_span, args_span, |q0, q1| {
-                    self.resource_manager.swap_qubit_ids(q0, q1);
+                    if let Some(relabeling) = &mut self.runtime_qubit_relabeling {
+                        let q0 = self.resource_manager.map_qubit_id(q0);
+                        let q1 = self.resource_manager.map_qubit_id(q1);
+                        let instructions = relabeling.swap(q0, q1, &mut self.resource_manager);
+                        self.get_current_rir_block_mut().0.extend(instructions);
+                    } else {
+                        self.resource_manager.swap_qubit_ids(q0, q1);
+                    }
                     Ok(())
                 })
             }
@@ -2310,6 +2351,22 @@ impl<'a> PartialEvaluator<'a> {
         spec_decl: &SpecDecl,
         callable_decl: &CallableDecl,
     ) -> bool {
+        // A runtime relabeling program keeps logical IDs until each intrinsic call.
+        // Inlining prevents physical handles from escaping across an IR-call boundary.
+        if self.runtime_qubit_relabeling.is_some() {
+            return false;
+        }
+
+        if self
+            .spec_application_generator_set(store_item_id, functor_app)
+            .is_some_and(|generator_set| {
+                matches!(generator_set.inherent, ComputeKind::Dynamic { runtime_features, .. }
+                    if runtime_features.contains(RuntimeFeatureFlags::QubitRelabeling))
+            })
+        {
+            return false;
+        }
+
         if !self
             .program
             .config

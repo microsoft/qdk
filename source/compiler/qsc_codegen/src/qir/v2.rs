@@ -302,6 +302,7 @@ fn convert_to_qir(
     let convert_instr = match (operand_ty.as_str(), var_ty.as_str()) {
         ("i64", "double") => "sitofp i64",
         ("double", "i64") => "fptosi double",
+        ("ptr", "i64") if operand.get_type() == rir::Ty::Prim(rir::Prim::Qubit) => "ptrtoint ptr",
         _ => panic!("unsupported conversion from {operand_ty} to {var_ty} in convert instruction"),
     };
 

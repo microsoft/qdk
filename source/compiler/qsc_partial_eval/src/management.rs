@@ -32,9 +32,13 @@ pub struct ResourceManager {
 impl ResourceManager {
     pub fn map_qubit(&self, q: &QubitRef) -> usize {
         let q = q.deref();
+        self.map_qubit_id(q.0)
+    }
+
+    pub fn map_qubit_id(&self, id: usize) -> usize {
         *self
             .qubit_id_map
-            .get(q.0)
+            .get(id)
             .expect("qubit id should be in map")
     }
 

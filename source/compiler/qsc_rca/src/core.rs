@@ -678,6 +678,12 @@ impl<'a> Analyzer<'a> {
         compute_kind: &mut ComputeKind,
         mut ir_function_compute_kind: ComputeKind,
     ) -> bool {
+        if matches!(ir_function_compute_kind, ComputeKind::Dynamic { runtime_features, .. }
+            if runtime_features.contains(RuntimeFeatureFlags::QubitRelabeling))
+        {
+            return true;
+        }
+
         let is_supported_output =
             is_supported_variable_type(&callable_decl.output, self.target_capabilities);
         let constant_ir_output =
@@ -2795,6 +2801,9 @@ fn derive_instrinsic_operation_application_generator_set(
     };
 
     let mut inherent_runtime_features = RuntimeFeatureFlags::empty();
+    if callable_context.name.as_ref() == "PermuteLabels" {
+        inherent_runtime_features |= RuntimeFeatureFlags::QubitRelabeling;
+    }
     if callable_context.attrs.contains(&Attr::Measurement) {
         inherent_runtime_features |= RuntimeFeatureFlags::CallToCustomMeasurement;
     }

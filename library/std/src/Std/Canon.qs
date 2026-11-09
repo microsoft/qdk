@@ -767,6 +767,8 @@ operation ApplyQPE(
 ///
 /// # Remarks
 /// This operation is useful when you need to relabel qubits in a way that does not incur any quantum operations.
+/// Statically allocated qubits can also be relabeled in measurement-dependent branches and loops.
+/// Subsequent uses of any alias of a relabeled qubit refer to its updated physical identity.
 /// Note that when compiling for execution on hardware with limited qubit connectivity, this operation
 /// may not result in any changes to qubit adjacency and one or more `SWAP` gates may still be required.
 ///

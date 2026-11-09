@@ -585,3 +585,16 @@ fn convert_integer_variable_to_double() {
     expect!["  %var_0 = sitofp i64 %var_1 to double"]
         .assert_eq(&inst.to_qir(&rir::Program::default()));
 }
+
+#[test]
+fn convert_qubit_label_to_integer() {
+    let inst = rir::Instruction::Convert(
+        rir::Operand::Variable(rir::Variable {
+            variable_id: rir::VariableId(1),
+            ty: rir::Ty::Prim(rir::Prim::Qubit),
+        }),
+        rir::Variable::new_integer(rir::VariableId(0)),
+    );
+    expect!["  %var_0 = ptrtoint ptr %var_1 to i64"]
+        .assert_eq(&inst.to_qir(&rir::Program::default()));
+}
