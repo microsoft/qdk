@@ -1,0 +1,48 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! cuTensorNet's functions for the expectation value of a network operator
+//! on a state.
+
+use super::v2_13;
+use crate::libraries::cuda_runtime::cudart_12;
+
+/// Function pointer for `cutensornetCreateExpectation`.
+pub(crate) type CreateExpectationFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetState_t,
+    v2_13::cutensornetNetworkOperator_t,
+    *mut v2_13::cutensornetStateExpectation_t,
+) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetDestroyExpectation`.
+pub(crate) type DestroyExpectationFn =
+    unsafe extern "C" fn(v2_13::cutensornetStateExpectation_t) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetExpectationCompute`.
+pub(crate) type ExpectationComputeFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetStateExpectation_t,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+    *mut ::std::os::raw::c_void,
+    *mut ::std::os::raw::c_void,
+    cudart_12::cudaStream_t,
+) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetExpectationConfigure`.
+pub(crate) type ExpectationConfigureFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetStateExpectation_t,
+    v2_13::cutensornetExpectationAttributes_t,
+    *const ::std::os::raw::c_void,
+    usize,
+) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetExpectationPrepare`.
+pub(crate) type ExpectationPrepareFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetStateExpectation_t,
+    usize,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+    cudart_12::cudaStream_t,
+) -> v2_13::cutensornetStatus_t;
