@@ -30,6 +30,7 @@ use crate::{
         gpu_full_state::{
             GpuContext, run_adaptive_parallel_shots, run_parallel_shots, try_create_gpu_adapter,
         },
+        tensor_network::{_check_tensornetwork_setup, _tensor_network_sample},
         unbind_noise_config,
     },
     qre::register_qre_submodule,
@@ -173,6 +174,8 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_clifford_adaptive, m)?)?;
     m.add_function(wrap_pyfunction!(run_parallel_shots, m)?)?;
     m.add_function(wrap_pyfunction!(run_adaptive_parallel_shots, m)?)?;
+    m.add_function(wrap_pyfunction!(_tensor_network_sample, m)?)?;
+    m.add_function(wrap_pyfunction!(_check_tensornetwork_setup, m)?)?;
     m.add("QSharpError", py.get_type::<QSharpError>())?;
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
