@@ -9,6 +9,7 @@ mod adaptive_ri_profile;
 mod adaptive_rif_profile;
 mod base_profile;
 mod callable_evaluation;
+mod early_return_cleanup;
 
 use std::{io::Cursor, rc::Rc, sync::Arc};
 
