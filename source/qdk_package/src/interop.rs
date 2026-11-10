@@ -93,7 +93,7 @@ pub(crate) fn run_qasm_program(
     let user_profile = get_target_profile(&kwargs)?;
     let operation_name = get_operation_name(&kwargs)?;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::OpenQasm)?;
-    let seed = get_seed(&kwargs);
+    let seed = get_seed(&kwargs)?;
     let shots = get_shots(&kwargs)?;
     let search_path = get_search_path(&kwargs)?;
     let sim_type = get_sim_type(&kwargs)?;
@@ -961,9 +961,10 @@ pub(crate) fn get_shots(kwargs: &Bound<'_, PyDict>) -> PyResult<usize> {
 
 /// Extracts the seed from the kwargs dictionary.
 /// If the seed is not present, or is not a valid u64, returns None.
-pub(crate) fn get_seed(kwargs: &Bound<'_, PyDict>) -> Option<u64> {
+pub(crate) fn get_seed(kwargs: &Bound<'_, PyDict>) -> PyResult<Option<u64>> {
     kwargs
-        .get_item("seed")
-        .ok()?
-        .map_or_else(|| None::<u64>, |x| x.extract::<u64>().ok())
+        .get_item("seed")?
+        .filter(|value| !value.is_none())
+        .map(|value| value.extract())
+        .transpose()
 }

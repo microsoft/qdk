@@ -43,6 +43,18 @@ _BROADCAST_SOURCE = """
 # Run
 
 
+@pytest.mark.parametrize("seed", [-1, 1.5, 2**64, 2**128])
+def test_run_rejects_invalid_seed(seed) -> None:
+    error = TypeError if isinstance(seed, float) else OverflowError
+    with pytest.raises(error):
+        run("qubit q; bit c; c = measure q;", shots=1, seed=seed)
+
+
+@pytest.mark.parametrize("seed", [None, 0, 2**64 - 1])
+def test_run_accepts_optional_unsigned_seed(seed) -> None:
+    assert run("qubit q; output bit c; c = measure q;", shots=1, seed=seed) == [Result.Zero]
+
+
 def test_run_with_noise_produces_noisy_results() -> None:
     result = run(
         """
