@@ -6,6 +6,7 @@ use crate::{Parameter::Float, Parameter::QubitId, QuantumBackendInstruction};
 use rsgridsynth::{config::config_from_theta_epsilon, gridsynth::gridsynth_gates};
 use smallvec::smallvec;
 use std::{
+    collections::BTreeMap,
     f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU},
     sync::Mutex,
 };
@@ -16,24 +17,111 @@ static SYNTHESIS_LOCK: Mutex<()> = Mutex::new(());
 /// Decomposes finite Rz rotations into Clifford+T gates, up to global phase.
 pub struct RzTranspiler {
     precision: f64,
+    use_cache: bool,
+    // Positive finite f64 bit patterns have the same ordering as their numeric values.
+    cache: Mutex<BTreeMap<u64, String>>,
 }
 
 impl Default for RzTranspiler {
-    /// Uses an operator-norm synthesis tolerance of 1e-6.
+    /// Uses a synthesis tolerance of 1e-6 with caching disabled.
     fn default() -> Self {
-        Self { precision: 1e-6 }
+        Self {
+            precision: 1e-6,
+            use_cache: false,
+            cache: Mutex::default(),
+        }
     }
 }
 
 impl RzTranspiler {
-    /// Creates a synthesizer with a finite operator-norm tolerance between zero and one.
-    pub fn new(precision: f64) -> Result<Self, String> {
+    /// Creates a synthesizer with the given tolerance in (0, 1) and optional angle caching.
+    pub fn new(precision: f64, use_cache: bool) -> Result<Self, String> {
         if !precision.is_finite() || precision <= 0.0 || precision >= 1.0 {
             return Err(format!(
                 "Rz synthesis precision must be finite and in (0, 1), got {precision}"
             ));
         }
-        Ok(Self { precision })
+        Ok(Self {
+            precision,
+            use_cache,
+            cache: Mutex::default(),
+        })
+    }
+
+    /// Borrows the nearest cached sequence when its angle is strictly within precision.
+    fn lookup_cache<'a>(&self, cache: &'a BTreeMap<u64, String>, residual: f64) -> Option<&'a str> {
+        let key = residual.to_bits();
+        let (distance, gates) = cache
+            .range(..=key)
+            .next_back()
+            .into_iter()
+            .chain(cache.range(key..).next())
+            .map(|(&bits, gates)| ((f64::from_bits(bits) - residual).abs(), gates))
+            .min_by(|(left, _), (right, _)| left.total_cmp(right))?;
+        (distance < self.precision).then_some(gates.as_str())
+    }
+
+    /// Decodes a compact sequence into static backend gate names without copying its string.
+    fn append_sequence(sequence: &str, output: &mut Vec<&'static str>) -> Result<(), String> {
+        for gate in sequence.chars() {
+            output.push(match gate {
+                'h' => "h",
+                't' => "t",
+                's' => "s",
+                'x' => "x",
+                _ => return Err(format!("Unsupported synthesized Rz gate: {gate}")),
+            });
+        }
+        Ok(())
+    }
+
+    /// Appends a cached residual sequence or synthesizes and stores a new one.
+    fn synthesize_residual(
+        &self,
+        residual: f64,
+        output: &mut Vec<&'static str>,
+    ) -> Result<(), String> {
+        let mut cache = if self.use_cache {
+            Some(
+                self.cache
+                    .lock()
+                    .map_err(|error| format!("Rz synthesis cache lock poisoned: {error}"))?,
+            )
+        } else {
+            None
+        };
+        if let Some(cache) = &cache
+            && let Some(gates) = self.lookup_cache(cache, residual)
+        {
+            return Self::append_sequence(gates, output);
+        }
+
+        let _guard = SYNTHESIS_LOCK
+            .lock()
+            .map_err(|error| format!("Rz synthesis lock poisoned: {error}"))?;
+        let mut config = config_from_theta_epsilon(residual, self.precision, 0, false, true)
+            .with_compute_error(true);
+        let result = gridsynth_gates(&mut config);
+        if result.is_correct != Some(true) {
+            return Err(format!(
+                "Rz synthesis failed for residual {residual} at precision {}: error {:?}",
+                self.precision, result.error
+            ));
+        }
+        let mut gates = String::new();
+        // The library returns matrix order; W is a scalar global phase.
+        for gate in result.gates.chars().rev() {
+            match gate {
+                'I' | 'W' => {}
+                'H' | 'T' | 'S' | 'X' => gates.push(gate.to_ascii_lowercase()),
+                _ => return Err(format!("Unsupported rsgridsynth gate: {gate}")),
+            }
+        }
+        Self::append_sequence(&gates, output)?;
+        if let Some(cache) = &mut cache {
+            cache.insert(residual.to_bits(), gates);
+        }
+        Ok(())
     }
 
     /// Extracts exact phase gates and synthesizes only the remaining angle in (0, pi/4).
@@ -54,29 +142,7 @@ impl RzTranspiler {
         }
 
         if residual > self.precision {
-            let _guard = SYNTHESIS_LOCK
-                .lock()
-                .map_err(|error| format!("Rz synthesis lock poisoned: {error}"))?;
-            let mut config = config_from_theta_epsilon(residual, self.precision, 0, false, true)
-                .with_compute_error(true);
-            let result = gridsynth_gates(&mut config);
-            if result.is_correct != Some(true) {
-                return Err(format!(
-                    "Rz synthesis failed for residual {residual} at precision {}: error {:?}",
-                    self.precision, result.error
-                ));
-            }
-            // The library returns matrix order; W is a scalar global phase.
-            for gate in result.gates.chars().rev() {
-                match gate {
-                    'I' | 'W' => {}
-                    'H' => gates.push("h"),
-                    'T' => gates.push("t"),
-                    'S' => gates.push("s"),
-                    'X' => gates.push("x"),
-                    _ => return Err(format!("Unsupported rsgridsynth gate: {gate}")),
-                }
-            }
+            self.synthesize_residual(residual, &mut gates)?;
         }
         if angle < 0.0 {
             gates.reverse();
@@ -145,7 +211,7 @@ mod tests {
     /// Reconstructs both columns of the emitted unitary and measures operator-norm error.
     fn synthesis_error(angle: f64, precision: f64) -> Result<f64, String> {
         let mut output = Vec::new();
-        RzTranspiler::new(precision)?.transpile(&rotation(angle), &mut output)?;
+        RzTranspiler::new(precision, false)?.transpile(&rotation(angle), &mut output)?;
         let zero = Complex64::new(0.0, 0.0);
         let one = Complex64::new(1.0, 0.0);
         let mut matrix = [[one, zero], [zero, one]];
@@ -241,9 +307,9 @@ mod tests {
     }
 
     #[test]
-    /// Compares the 10-qubit QFT with direct Rz execution after cancelling global phase.
+    /// Compares QFT states on 6 qubits in debug and 10 in release, up to global phase.
     fn test_rotation_synthesis_qft() -> Result<(), String> {
-        let num_qubits = 10;
+        let num_qubits = if cfg!(debug_assertions) { 6 } else { 10 };
         let precision = 1e-10;
         let source = format!(
             r#"
@@ -262,7 +328,7 @@ mod tests {
         let mut reference = QuantumBackends::sparse_sim();
         let mut synthesized = TranspilingAdapter::new(
             QuantumBackends::sparse_sim(),
-            vec![Box::new(RzTranspiler::new(precision)?)],
+            vec![Box::new(RzTranspiler::new(precision, true)?)],
         )?;
         run_qsharp_main(&source, &mut reference)?;
         run_qsharp_main(&source, &mut synthesized)?;
@@ -311,10 +377,133 @@ mod tests {
     }
 
     #[test]
+    /// Reuses close residuals across exact phase gates and negative-angle adjoints.
+    fn cache_reuses_normalized_residuals() -> Result<(), String> {
+        let precision = 1e-6;
+        let transpiler = RzTranspiler::new(precision, true)?;
+        let gates = transpiler.synthesize(0.125)?;
+        for angle in [0.125, 0.125 - precision / 2.0, 0.125 + precision / 2.0] {
+            assert_eq!(transpiler.synthesize(angle)?, gates);
+        }
+        let mut shifted = vec!["t"];
+        shifted.extend(&gates);
+        assert_eq!(transpiler.synthesize(FRAC_PI_4 + 0.125)?, shifted);
+        let adjoint: Vec<_> = gates
+            .iter()
+            .rev()
+            .map(|&gate| match gate {
+                "s" => "sadj",
+                "t" => "tadj",
+                other => other,
+            })
+            .collect();
+        assert_eq!(transpiler.synthesize(-0.125)?, adjoint);
+        assert_eq!(
+            transpiler.cache.lock().expect("cache lock poisoned").len(),
+            1
+        );
+        Ok(())
+    }
+
+    #[test]
+    /// Returns a string slice backed by the cached string rather than an allocated copy.
+    fn cache_lookup_borrows_sequence() -> Result<(), String> {
+        let transpiler = RzTranspiler::new(0.015_625, true)?;
+        let key = 0.125_f64.to_bits();
+        let cache = BTreeMap::from([(key, String::from("ht"))]);
+        let gates = transpiler
+            .lookup_cache(&cache, 0.125)
+            .expect("exact cache hit");
+        assert!(std::ptr::eq(
+            gates,
+            cache.get(&key).expect("cached sequence").as_str()
+        ));
+        assert!(transpiler.lookup_cache(&cache, 0.140_625).is_none());
+        Ok(())
+    }
+
+    #[test]
+    /// Distinguishes the closest predecessor and successor, including queries outside the key range.
+    fn cache_selects_nearest_key() -> Result<(), String> {
+        let transpiler = RzTranspiler::new(0.03125, true)?;
+        {
+            let mut cache = transpiler.cache.lock().expect("cache lock poisoned");
+            cache.insert(0.125_f64.to_bits(), String::from("h"));
+            cache.insert(0.15625_f64.to_bits(), String::from("x"));
+        }
+        for (angle, expected) in [
+            (0.117_187_5, vec!["h"]),
+            (0.132_812_5, vec!["h"]),
+            (0.148_437_5, vec!["x"]),
+            (0.164_062_5, vec!["x"]),
+        ] {
+            assert_eq!(transpiler.synthesize(angle)?, expected);
+        }
+        assert_eq!(
+            transpiler.cache.lock().expect("cache lock poisoned").len(),
+            2
+        );
+        Ok(())
+    }
+
+    #[test]
+    /// Inserts new entries when the nearest key is exactly the precision away or farther.
+    fn cache_misses_at_precision_boundary() -> Result<(), String> {
+        let transpiler = RzTranspiler::new(0.015_625, true)?;
+        for angle in [0.125, 0.140_625, 0.25] {
+            transpiler.synthesize(angle)?;
+        }
+        assert_eq!(
+            transpiler.cache.lock().expect("cache lock poisoned").len(),
+            3
+        );
+        Ok(())
+    }
+
+    #[test]
+    /// Leaves the cache empty when caching is disabled.
+    fn disabled_cache() -> Result<(), String> {
+        let transpiler = RzTranspiler::new(1e-6, false)?;
+        let first = transpiler.synthesize(0.125)?;
+        assert_eq!(transpiler.synthesize(0.125)?, first);
+        assert!(
+            transpiler
+                .cache
+                .lock()
+                .expect("cache lock poisoned")
+                .is_empty()
+        );
+        assert!(!RzTranspiler::default().use_cache);
+        Ok(())
+    }
+
+    #[test]
+    /// Shares a single cached result between concurrent requests for the same angle.
+    fn concurrent_cache_requests() -> Result<(), String> {
+        let transpiler = RzTranspiler::new(1e-6, true)?;
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| transpiler.synthesize(0.125));
+            let second = scope.spawn(|| transpiler.synthesize(0.125));
+            assert_eq!(
+                first.join().expect("synthesis thread panicked")?,
+                second.join().expect("synthesis thread panicked")?
+            );
+            Ok::<_, String>(())
+        })?;
+        assert_eq!(
+            transpiler.cache.lock().expect("cache lock poisoned").len(),
+            1
+        );
+        Ok(())
+    }
+
+    #[test]
     /// Rejects invalid tolerances, angles, instruction names, and operands without appending output.
     fn invalid_inputs() {
         for precision in [0.0, -1.0, 1.0, f64::NAN, f64::INFINITY] {
-            assert!(RzTranspiler::new(precision).is_err());
+            for use_cache in [false, true] {
+                assert!(RzTranspiler::new(precision, use_cache).is_err());
+            }
         }
         let mut invalid = vec![
             rotation(f64::NAN),
