@@ -223,18 +223,28 @@ impl GpuResources {
     pub async fn try_get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
-        let adapters = instance.enumerate_adapters(wgpu::Backends::PRIMARY).await;
+        // SPIKE: QDK_GPU_ALLOW_GL=1 also accepts OpenGL adapters (WSL: Mesa's
+        // d3d12 Gallium driver over D3D12, with GALLIUM_DRIVER=d3d12).
+        let allow_gl = std::env::var_os("QDK_GPU_ALLOW_GL").is_some();
+        let backends = if allow_gl {
+            wgpu::Backends::PRIMARY | wgpu::Backends::GL
+        } else {
+            wgpu::Backends::PRIMARY
+        };
+        let adapters = instance.enumerate_adapters(backends).await;
 
         let score_adapter = |adapter: &Adapter| -> (u32, u32, u32, u64) {
             let info = adapter.get_info();
             let device_score = match info.device_type {
                 wgpu::DeviceType::DiscreteGpu => 8,
                 wgpu::DeviceType::IntegratedGpu => 4,
+                wgpu::DeviceType::Other if allow_gl && info.backend == wgpu::Backend::Gl => 2,
                 _ => 0,
             };
             let backend_score = match info.backend {
                 wgpu::Backend::Vulkan | wgpu::Backend::Metal => 2,
                 wgpu::Backend::Dx12 => 1,
+                wgpu::Backend::Gl if allow_gl => 1,
                 _ => 0,
             };
             let limits = adapter.limits();
@@ -259,7 +269,7 @@ impl GpuResources {
                 score.0 > 0 /* discrete or integrated */ &&
                 score.1 > 0 /* supported backend */ &&
                 score.2 >= (1u32 << 14) /* at least 16KB compute workgroup storage (which implies compute capabilities also) */ &&
-                score.3 >= (1u64 << 30) /* at least 1GB storage buffers */
+                score.3 >= if allow_gl { 1u64 << 27 } else { 1u64 << 30 } /* at least 1GB storage buffers */
             })
             .max_by_key(score_adapter)
             .ok_or_else(|| "No suitable GPU adapter found".to_string())?;
@@ -301,7 +311,8 @@ impl GpuResources {
         }
 
         let required_limits = wgpu::Limits {
-            max_storage_buffer_binding_size: 1u64 << 30, // 1GB
+            max_storage_buffer_binding_size: (1u64 << 30)
+                .min(adapter_limits.max_storage_buffer_binding_size), // 1GB
             ..adapter_limits
         };
 
@@ -311,7 +322,8 @@ impl GpuResources {
                 // Note that mappable primary buffers are a native-only feature, but using here to
                 // workaround the Xcode bug described in https://github.com/gfx-rs/wgpu/issues/8111.
                 // This will need to be revisited for web support.
-                required_features: wgpu::Features::MAPPABLE_PRIMARY_BUFFERS, // TODO: Can remove this?
+                required_features: wgpu::Features::MAPPABLE_PRIMARY_BUFFERS
+                    & adapter.features(), // TODO: Can remove this?
                 required_limits,
                 memory_hints: wgpu::MemoryHints::Performance,
                 ..Default::default()
@@ -465,14 +477,29 @@ impl GpuResources {
             ),
             ("OUTPUT_RECORD_COUNT", params.num_output_records.to_string()),
             ("IS_ADAPTIVE", is_adaptive.to_string()),
+            (
+                "TRACE_STOP",
+                format!(
+                    "{}u",
+                    std::env::var("QDK_GPU_TRACE_STOP")
+                        .ok()
+                        .and_then(|v| v.parse::<u32>().ok())
+                        .unwrap_or(0)
+                ),
+            ),
         ];
 
         let mut shader_src =
             stamp_shader_consts(include_str!("gpu_statevector_shaders.wgsl"), &replacements);
 
         // Strip out DX12-incompatible code sections if needed
-        if adapter.get_info().backend == wgpu::Backend::Dx12 {
+        if adapter.get_info().backend == wgpu::Backend::Dx12
+            || std::env::var_os("QDK_GPU_STRIP_DX12").is_some()
+        {
             shader_src = strip_dx12_sections(&shader_src);
+        }
+        if let Some(path) = std::env::var_os("QDK_GPU_DUMP_WGSL") {
+            let _ = std::fs::write(path, &shader_src);
         }
 
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {

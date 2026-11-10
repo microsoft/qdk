@@ -49,6 +49,7 @@ const OUTPUT_RECORD_COUNT: u32 = 0; // REPLACE
 // Because it is a `const`, the compiler folds the branches and eliminates the
 // unused path, so there is no runtime cost to the shared kernels below.
 const IS_ADAPTIVE: bool = false; // REPLACE
+const TRACE_STOP: u32 = 0u; // REPLACE
 
 //#endregion
 
@@ -3459,10 +3460,13 @@ fn prepare_op_adaptive_impl(shot_idx: u32) {
     }
 
     // Update shot state from prior op execution
+    if (TRACE_STOP == 1u) { shot.op_type = OPID_ID; return; }
     if shot.qubits_updated_last_op_mask != 0 {
         update_qubit_state(shot_idx);
     }
+    if (TRACE_STOP == 2u) { shot.op_type = OPID_ID; return; }
     shot_init_per_op(shot_idx);
+    if (TRACE_STOP == 3u) { shot.op_type = OPID_ID; return; }
 
     let op_idx = state.pending_op_idx;
     let op_type = state.pending_op_type;
@@ -3493,8 +3497,10 @@ fn prepare_op_adaptive_impl(shot_idx: u32) {
 
     let q1 = resolve_q1(shot_idx);
     let q2 = resolve_q2(shot_idx);
+    if (TRACE_STOP == 4u) { shot.op_type = OPID_ID; return; }
 
     shot.unitary = op.unitary;
+    if (TRACE_STOP == 5u) { shot.op_type = OPID_ID; return; }
 
     switch op_type {
         case 0u { // Gate
@@ -3567,12 +3573,14 @@ fn prepare_op_adaptive_impl(shot_idx: u32) {
             // If any operand is lost, dispatch the gate's configured loss
             // policy (stamped on op.policy).
             let has_lost_operand = gate_has_lost_operand(shot_idx, op_idx, q1, q2);
+            if (TRACE_STOP == 6u) { shot.op_type = OPID_ID; return; }
             if (has_lost_operand) {
                 handle_lost_operand_policy(shot_idx, op_idx, q1, q2);
             }
 
             // Check for noise ops after this gate in the ops pool
             let pauli_op_idx = get_pauli_noise_idx(op_idx);
+            if (TRACE_STOP == 7u) { shot.op_type = OPID_ID; return; }
 
             // Handle Pauli noise (loss, if sampled, is recorded in pending_loss_mask)
             if pauli_op_idx != 0u {
@@ -3603,7 +3611,9 @@ fn prepare_op_adaptive_impl(shot_idx: u32) {
             }
 
             // No noise — set up the op for execution
+            if (TRACE_STOP == 8u) { shot.op_type = OPID_ID; return; }
             finalize_gate_op(shot_idx, op_idx, q1, q2);
+            if (TRACE_STOP == 9u) { return; }
         }
         case 1u { // Measure
             // Check for noise ops before the measure op
@@ -3648,6 +3658,7 @@ fn prepare_op_adaptive_impl(shot_idx: u32) {
 // implementation is eliminated by the compiler.
 @compute @workgroup_size(1)
 fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
+    if (TRACE_STOP == 10u) { return; }
     if (IS_ADAPTIVE) {
         prepare_op_adaptive_impl(globalId.x);
     } else {

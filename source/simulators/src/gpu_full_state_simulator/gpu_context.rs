@@ -444,6 +444,8 @@ impl GpuContext {
             // The pipeline is marked as dirty if the qubit or result count changed (shot count doesn't impact it)
             self.resources
                 .create_shaders(&self.run_params, self.is_adaptive)?;
+            // SPIKE: the flag was never cleared, so every run recompiled the kernels.
+            self.pipeline_is_dirty = false;
         }
 
         self.resources.ensure_run_buffers(
@@ -478,11 +480,17 @@ impl GpuContext {
         };
 
         // Figure out some limits based on buffer size limits, structure sizes, and number of qubits
+        // SPIKE: GL adapters (QDK_GPU_ALLOW_GL) bind at most 128 MiB.
+        let max_buffer_size = if std::env::var_os("QDK_GPU_ALLOW_GL").is_some() {
+            MAX_BUFFER_SIZE.min(1 << 27)
+        } else {
+            MAX_BUFFER_SIZE
+        };
         let max_shot_state_vectors =
-            usize_to_i32(MAX_BUFFER_SIZE / i32_to_usize(state_vector_size_per_shot));
+            usize_to_i32(max_buffer_size / i32_to_usize(state_vector_size_per_shot));
         // How many shots fit in the shots buffer using the actual per-shot size
         let max_shots_in_buffer = min(
-            usize_to_i32(MAX_BUFFER_SIZE / gpu_shot_size),
+            usize_to_i32(max_buffer_size / gpu_shot_size),
             max_shot_state_vectors,
         );
         // How many would we allow based on the max shots per batch
@@ -721,7 +729,13 @@ impl GpuContext {
         }
 
         if self.pipeline_is_dirty {
+            let started = std::time::Instant::now();
             self.resources.create_shaders(&self.run_params, true)?;
+            // SPIKE: the flag was never cleared, so every run recompiled the kernels.
+            self.pipeline_is_dirty = false;
+            if std::env::var("QDK_GPU_TRACE").is_ok() {
+                eprintln!("[gpu-trace] create_shaders {:?}", started.elapsed());
+            }
         }
 
         if self.program_is_dirty || self.noise_config_is_dirty || self.batch_data_is_dirty {
@@ -882,7 +896,42 @@ impl GpuContext {
             // 3.2 Wait until the batch is finished.
             //     We try to resume the computation `ROUNDS_PER_BATCH` times.
             let kernels = self.resources.get_kernels()?;
-            for _ in 0..MAX_ROUNDS_PER_BATCH {
+            let trace = std::env::var("QDK_GPU_TRACE").is_ok();
+            let batch_started = std::time::Instant::now();
+            for round in 0..MAX_ROUNDS_PER_BATCH {
+                if trace && round < 3 {
+                    for (name, pipeline, count) in [
+                        ("classical", &kernels.interpret_classical, shots_this_batch),
+                        ("prepare", &kernels.prepare_op, shots_this_batch),
+                        ("execute", &kernels.execute_op, execute_workgroup_count),
+                    ] {
+                        let mut encoder = self.resources.get_encoder("Trace Encoder")?;
+                        {
+                            let mut pass =
+                                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                                    label: Some("Trace Pass"),
+                                    timestamp_writes: None,
+                                });
+                            pass.set_bind_group(0, &bind_group, &[]);
+                            pass.set_pipeline(pipeline);
+                            pass.dispatch_workgroups(count, 1, 1);
+                        }
+                        eprintln!("[gpu-trace] round {round} {name} x{count} submitting");
+                        let submit_started = std::time::Instant::now();
+                        self.resources.submit_command_buffer(encoder.finish())?;
+                        eprintln!(
+                            "[gpu-trace] round {round} {name} submit took {:?}",
+                            submit_started.elapsed()
+                        );
+                        let started = std::time::Instant::now();
+                        let terminated = self.resources.download_termination_count().await?;
+                        eprintln!(
+                            "[gpu-trace] round {round} {name} done in {:?}, terminated {terminated}",
+                            started.elapsed()
+                        );
+                    }
+                    continue;
+                }
                 let mut encoder = self.resources.get_encoder("Adaptive Batch Encoder")?;
 
                 // Dispatch a round of computation.
@@ -921,6 +970,12 @@ impl GpuContext {
 
                 // Check for termination.
                 let terminated = self.resources.download_termination_count().await?;
+                if trace && (round < 5 || round % 1000 == 0 || terminated >= shots_this_batch) {
+                    eprintln!(
+                        "[gpu-trace] batch {batch_idx} round {round} terminated {terminated}/{shots_this_batch} at {:?}",
+                        batch_started.elapsed()
+                    );
+                }
                 if terminated >= shots_this_batch {
                     break;
                 }
