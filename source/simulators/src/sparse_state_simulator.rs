@@ -1330,8 +1330,9 @@ impl SparseStateSim {
         Self::check_for_duplicates(targets);
 
         // `f` is a bijection, so distinct basis states map to distinct outputs.
-        // We can remap basis states in place and leave amplitudes untouched.
-        for (basis_idx, _amplitude) in &mut self.state {
+        // Remap a working copy so a failed function or injectivity check preserves the state.
+        let mut state = self.state.clone();
+        for (basis_idx, _amplitude) in &mut state {
             // Read the target qubits as a little-endian integer.
             let mut input_int = BigUint::zero();
             for (i, &target) in targets.iter().enumerate() {
@@ -1350,15 +1351,16 @@ impl SparseStateSim {
 
         // Check that the remapped states are still distinct. If not, `f` was not injective
         // over the populated states, so the operation would not be unitary.
-        if self.state.len() > 1 {
+        if state.len() > 1 {
             let mut seen = FxHashSet::default();
-            for (basis_idx, _) in &self.state {
+            for (basis_idx, _) in &state {
                 if !seen.insert(basis_idx) {
                     return Err("function must be injective".to_string());
                 }
             }
         }
 
+        self.state = state;
         Ok(())
     }
 }

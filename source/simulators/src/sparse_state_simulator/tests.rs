@@ -781,6 +781,36 @@ fn test_apply_arithmetic_gate_increment() {
 }
 
 #[test]
+fn test_apply_arithmetic_gate_failure_preserves_state() {
+    let mut sim = SparseStateSim::default();
+    let q0 = sim.allocate();
+    let q1 = sim.allocate();
+    sim.h(q0);
+    let before = sim.get_state();
+    assert_eq!(
+        sim.apply_arithmetic_gate(|_| Ok(BigUint::zero()), &[q0, q1]),
+        Err("function must be injective".to_string())
+    );
+    assert_eq!(sim.get_state(), before);
+    let mut calls = 0;
+    assert_eq!(
+        sim.apply_arithmetic_gate(
+            |x| {
+                calls += 1;
+                if calls == 1 {
+                    Ok(x ^ BigUint::one())
+                } else {
+                    Err("function failed".to_string())
+                }
+            },
+            &[q0, q1]
+        ),
+        Err("function failed".to_string())
+    );
+    assert_eq!(sim.get_state(), before);
+}
+
+#[test]
 fn test_apply_arithmetic_gate_double() {
     let mut sim = SparseStateSim::default();
     let q0 = sim.allocate();
