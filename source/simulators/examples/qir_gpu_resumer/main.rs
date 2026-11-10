@@ -11,16 +11,19 @@
 //!   simulator resumer's distribution;
 //! - `tests,<programs.json>`: the adaptive GPU tests' programs, against
 //!   what the tests expect and the CPU's distribution;
-//! - `bench,<programs.json>,<qubits>,<shots>[,strategy]`: the bench program,
-//!   a warm-up then the best of 3, with the time's breakdown.
+//! - `bench,<programs.json>,<qubits>:<shots>:<strategy>,...`: the bench
+//!   program, a warm-up then the best of 3, with the time's breakdown;
+//! - `profile,<qubits>:<shots>,...`: the GPU time of each kind of pass;
+//! - `state,<qubits>:<shots>:<gates>,...`: the state after a random batch
+//!   of every gate kind, for each strategy, against an f64 reference.
 //!
-//! GL processes hang at exit here: every mode ends with `process::exit`.
+//! GL processes hang at exit here: every mode ends with libc's `_exit`.
 
+#[path = "../../tests/run_shot_compatibility/bytecode_json.rs"]
+mod bytecode_json;
 mod gpu_resumer;
 #[path = "../qir_resumers/simulator_resumer.rs"]
 mod simulator_resumer;
-#[path = "../../tests/run_shot_compatibility/bytecode_json.rs"]
-mod bytecode_json;
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -29,9 +32,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
+use num_complex::Complex64;
 use qdk_simulators::cpu_full_state_simulator::FullStateSimulator;
 use qdk_simulators::qir::{
-    QirMachine, QirProgram, QirResumer, QirShotId, conformance, expect_ready,
+    OperatorMatrix, QirCall, QirGate, QirMachine, QirProgram, QirResumer, QirShotId, conformance,
+    expect_ready,
 };
 use qdk_simulators::{MeasurementResult, OutputRecord, Simulator};
 use serde::Deserialize;
@@ -54,10 +59,14 @@ fn main() {
     );
     let ok = match words[0] {
         "conformance" => conformance_mode(&gpu),
-        "corpus" => corpus_mode(&gpu, words.get(1).map_or(2000, |w| w.parse().expect("shots"))),
+        "corpus" => corpus_mode(
+            &gpu,
+            words.get(1).map_or(2000, |w| w.parse().expect("shots")),
+        ),
         "tests" => tests_mode(&gpu, words[1]),
         "bench" => bench_mode(&gpu, &words[1..]),
         "profile" => profile_mode(&gpu, &words[1..]),
+        "state" => state_mode(&gpu, &words[1..]),
         other => {
             println!("no mode {other}");
             false
@@ -349,7 +358,10 @@ fn corpus_mode(gpu: &Rc<Gpu>, at_least: u32) -> bool {
         skipped.len(),
         t.elapsed().as_secs_f64()
     );
-    println!("largest tvd {:.4} ({}); largest z {:.2} ({})", tvd_max.0, tvd_max.1, z_max.0, z_max.1);
+    println!(
+        "largest tvd {:.4} ({}); largest z {:.2} ({})",
+        tvd_max.0, tvd_max.1, z_max.0, z_max.1
+    );
     for s in &skipped {
         println!("skipped: {s}");
     }
@@ -439,8 +451,7 @@ fn tests_mode(gpu: &Rc<Gpu>, path: &str) -> bool {
                 let expected = (std::f64::consts::PI / 8.0).sin().powi(2);
                 let shape = all(&|k: &str| {
                     k.len() == 20
-                        && k
-                            .chars()
+                        && k.chars()
                             .enumerate()
                             .all(|(i, b)| b == '0' || target.contains(&i))
                 });
@@ -460,7 +471,9 @@ fn tests_mode(gpu: &Rc<Gpu>, path: &str) -> bool {
                 if shape && probabilities.iter().all(|p| (p - expected).abs() < 0.07) {
                     Ok(())
                 } else {
-                    Err(format!("shape {shape}, P(1) {probabilities:?} vs {expected:.4}"))
+                    Err(format!(
+                        "shape {shape}, P(1) {probabilities:?} vs {expected:.4}"
+                    ))
                 }
             }
             "TeleportedTNoiseReporting" => {
@@ -487,7 +500,9 @@ fn tests_mode(gpu: &Rc<Gpu>, path: &str) -> bool {
                 }
             }
             "LOOP_WITH_PHI_QIR" => {
-                if get("00000") > 4000 && get("11111") > 4000 && get("00000") + get("11111") == 10_000
+                if get("00000") > 4000
+                    && get("11111") > 4000
+                    && get("00000") + get("11111") == 10_000
                 {
                     Ok(())
                 } else {
@@ -556,7 +571,13 @@ fn bench_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
     true
 }
 
-fn bench_one(gpu: &Rc<Gpu>, programs: &[(String, QirProgram)], n: u32, shots: u32, strategy_name: &str) {
+fn bench_one(
+    gpu: &Rc<Gpu>,
+    programs: &[(String, QirProgram)],
+    n: u32,
+    shots: u32,
+    strategy_name: &str,
+) {
     let strategy = Strategy::named(strategy_name).expect("a strategy");
     let name = format!("bench_{n}");
     let (_, program) = programs
@@ -617,4 +638,160 @@ fn profile_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
         }
     }
     true
+}
+
+/// `state,n:slots:gates,...`: the state after a random batch of every gate
+/// kind, on random qubits (low, high, and across), for each strategy, against
+/// an f64 CPU reference; passes when every fidelity is above 1 - 1e-5.
+fn state_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
+    let gates = [
+        QirGate::X,
+        QirGate::Y,
+        QirGate::Z,
+        QirGate::H,
+        QirGate::S,
+        QirGate::SAdj,
+        QirGate::T,
+        QirGate::TAdj,
+        QirGate::Sx,
+        QirGate::SxAdj,
+        QirGate::Rx,
+        QirGate::Ry,
+        QirGate::Rz,
+        QirGate::Cx,
+        QirGate::Cy,
+        QirGate::Cz,
+        QirGate::Rxx,
+        QirGate::Ryy,
+        QirGate::Rzz,
+        QirGate::Swap,
+    ];
+    let mut ok = true;
+    let mut seed = 0x1234_5678_9abc_def0u64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    for word in words {
+        let mut it = word.split(':').map(|w| w.parse::<u32>().expect("number"));
+        let (n, slots, count) = (
+            it.next().expect("n"),
+            it.next().expect("slots"),
+            it.next().expect("gates"),
+        );
+        // H on every qubit first, so that every gate acts on a superposition.
+        let mut batch: Vec<QirCall> = (0..n)
+            .map(|q| QirCall::Gate {
+                gate: QirGate::H,
+                qubits: (q, None),
+                angle: None,
+            })
+            .collect();
+        let qubit = |r: u64| u32::try_from(r % u64::from(n)).expect("small");
+        for _ in 0..count {
+            let gate = gates[usize::try_from(next() % gates.len() as u64).expect("small")];
+            #[allow(clippy::cast_precision_loss)]
+            let angle = matches!(
+                gate,
+                QirGate::Rx
+                    | QirGate::Ry
+                    | QirGate::Rz
+                    | QirGate::Rxx
+                    | QirGate::Ryy
+                    | QirGate::Rzz
+            )
+            .then(|| (next() % 10_000) as f64 / 10_000.0 * 6.0 - 3.0);
+            let a = qubit(next());
+            let two = matches!(gate.matrix_at(angle), OperatorMatrix::Two(_));
+            let second = two.then(|| {
+                let mut b = qubit(next());
+                while b == a {
+                    b = qubit(next());
+                }
+                b
+            });
+            batch.push(QirCall::Gate {
+                gate,
+                qubits: (a, second),
+                angle,
+            });
+        }
+        // The f64 reference; a two-qubit matrix's row is (bit a, bit b).
+        let mut psi = vec![Complex64::new(0.0, 0.0); 1 << n];
+        psi[0] = Complex64::new(1.0, 0.0);
+        for call in &batch {
+            let QirCall::Gate {
+                gate,
+                qubits: (a, b),
+                angle,
+            } = call
+            else {
+                unreachable!()
+            };
+            match (gate.matrix_at(*angle), b) {
+                (OperatorMatrix::One(m), None) => {
+                    let bit = 1usize << a;
+                    for k in 0..psi.len() {
+                        if k & bit == 0 {
+                            let (x, y) = (psi[k], psi[k | bit]);
+                            psi[k] = m[0] * x + m[1] * y;
+                            psi[k | bit] = m[2] * x + m[3] * y;
+                        }
+                    }
+                }
+                (OperatorMatrix::Two(m), Some(b)) => {
+                    let (ba, bb) = (1usize << a, 1usize << b);
+                    for k in 0..psi.len() {
+                        if k & (ba | bb) == 0 {
+                            let idx = [k, k | bb, k | ba, k | ba | bb];
+                            let v = idx.map(|i| psi[i]);
+                            for r in 0..4 {
+                                psi[idx[r]] = (0..4).map(|c| m[4 * r + c] * v[c]).sum();
+                            }
+                        }
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        for name in [
+            "blocked", "nogather", "noshare", "nokron", "fused", "perpass",
+        ] {
+            let mut resumer =
+                QirGpuResumer::new(gpu.clone(), Strategy::named(name).expect("a strategy"));
+            let state = match resumer.state_after(n, slots, &batch) {
+                Ok(state) => state,
+                Err(error) => {
+                    println!("STATE n={n} {name}: FAILED: {error}");
+                    ok = false;
+                    continue;
+                }
+            };
+            let got: Vec<Complex64> = state
+                .iter()
+                .map(|&[re, im]| Complex64::new(f64::from(re), f64::from(im)))
+                .collect();
+            let overlap: Complex64 = psi.iter().zip(&got).map(|(r, g)| r.conj() * g).sum();
+            let norm: f64 = got.iter().map(Complex64::norm_sqr).sum();
+            let fidelity = overlap.norm_sqr() / norm;
+            let phase = overlap / overlap.norm();
+            let max_diff = psi
+                .iter()
+                .zip(&got)
+                .map(|(r, g)| (r * phase - g).norm())
+                .fold(0.0f64, f64::max);
+            let pass = 1.0 - fidelity < 1e-5;
+            ok &= pass;
+            println!(
+                "STATE n={n} slots={slots} gates={} strategy={name}: 1-fidelity {:.2e}, \
+                 norm {norm:.6}, max |diff| {max_diff:.2e}: {}",
+                batch.len(),
+                1.0 - fidelity,
+                if pass { "ok" } else { "FAIL" }
+            );
+        }
+    }
+    ok
 }
