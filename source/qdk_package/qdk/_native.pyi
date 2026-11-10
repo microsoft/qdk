@@ -18,17 +18,6 @@ from typing import (
 )
 
 from .qre import Trace
-from .qre._qre import (
-    DemoModel1 as DemoModel1,
-    Profiler as Profiler,
-    TemporalProfilerConfig as TemporalProfilerConfig,
-    ProfilerResult as ProfilerResult,
-    SequentialCountingProfiler as SequentialCountingProfiler,
-    TemporalProfiler as TemporalProfiler,
-    TemporalProfiles as TemporalProfiles,
-    TimeSeries as TimeSeries,
-    TotalCounts as TotalCounts,
-)
 
 # pylint: disable=unused-argument
 # E302 is fighting with the formatter for number of blank lines
