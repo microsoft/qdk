@@ -3,9 +3,11 @@
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
-from qdk import qsharp
+from qdk import Context, openqasm, qsharp
+from qdk.estimator import LogicalCounts
 from qdk.qre import (
     Profiler,
     ProfilerResult,
@@ -15,7 +17,7 @@ from qdk.qre import (
     TemporalProfiles,
     TotalCounts,
 )
-from qdk.qre.application import QSharpApplication
+from qdk.qre.application import OpenQASMApplication, QSharpApplication
 from qdk.qre.profiler import QREProfiler
 
 
@@ -70,7 +72,8 @@ def test_sequential_counting_profiler(use_qir: bool, tmp_path: Path) -> None:
     )
     profiler.add_adapter("result_adapter")
 
-    result = QREProfiler(profiler).profile(app, use_qir=use_qir)
+    qre_profiler = QREProfiler(profiler)
+    result = qre_profiler.profile(app, use_qir=use_qir)
 
     assert isinstance(profiler, Profiler)
     assert isinstance(result, ProfilerResult)
@@ -186,3 +189,130 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
     assert data["totals"]["logical_compute_qubits"] == 3
     assert data["totals"]["error"] == result.totals.error
     assert 0.0 < result.totals.error < 0.33
+
+
+@pytest.mark.parametrize("use_qir", [False, True])
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+        OPENQASM 2.0;
+        include "qelib1.inc";
+        qreg q[1];
+        creg c[1];
+        x q[0];
+        measure q[0] -> c[0];
+        """,
+        """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        output bit c;
+        x q;
+        c = measure q;
+        """,
+    ],
+    ids=["openqasm2", "openqasm3"],
+)
+def test_openqasm_profiler(source: str, use_qir: bool) -> None:
+    """Profile both OpenQASM versions without changing the application source."""
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    app = OpenQASMApplication(source)
+    backend = SequentialCountingProfiler(10, {"x": 0.25, "mz": 0.5})
+    backend.add_adapter("result_adapter")
+    profiler = QREProfiler(backend)
+
+    with patch.object(
+        profiler, "_profile_qir", wraps=profiler._profile_qir
+    ) as profile_qir:
+        result = profiler.profile(app, use_qir=use_qir)
+
+    assert profile_qir.call_count == int(use_qir)
+    assert app.program == source
+    assert result.totals.logical_compute_qubits == 1
+    assert result.totals.physical_qubits == 10
+    assert result.totals.calls_per_operation == {"x": 1, "mz": 1}
+    assert result.totals.total_operations_count == 2
+    assert result.totals.total_runtime_sec == 0.75
+    assert result.infos == []
+
+
+@pytest.mark.parametrize("use_qir", [False, True])
+@pytest.mark.parametrize("as_callable", [False, True], ids=["source", "callable"])
+def test_openqasm_profiler_arguments(use_qir: bool, as_callable: bool) -> None:
+    """Preserve classical arguments and an imported callable's owning context."""
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    source = """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        input int n;
+        qubit q;
+        output bit c;
+        for int i in [0:n-1] {
+            x q;
+        }
+        c = measure q;
+        """
+    program = source
+    if as_callable:
+        context = Context(target_profile=qsharp.TargetProfile.Base)
+        context.import_openqasm(
+            source, name="ProfileWithInput", program_type=openqasm.ProgramType.File
+        )
+        program = context.code.qasm_import.ProfileWithInput
+    app = OpenQASMApplication(program, args=(3,))
+    backend = SequentialCountingProfiler(10, {"x": 0.25, "mz": 0.5})
+    backend.add_adapter("result_adapter")
+    profiler = QREProfiler(backend)
+
+    result = profiler.profile(app, use_qir=use_qir)
+
+    assert result.totals.calls_per_operation == {"x": 3, "mz": 1}
+    assert result.totals.total_operations_count == 4
+    assert result.totals.total_runtime_sec == 1.25
+    assert result.infos == []
+
+
+@pytest.mark.parametrize("use_qir", [False, True])
+def test_openqasm_profiler_measurement_control_flow(use_qir: bool) -> None:
+    """Execute exactly one measurement-dependent branch rather than counting both."""
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    app = OpenQASMApplication("""
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        output bit first;
+        output bit last;
+        first = measure q;
+        if (first) {
+            x q;
+        } else {
+            z q;
+        }
+        last = measure q;
+        """)
+    profiler = SequentialCountingProfiler(10, {"x": 0.25, "z": 0.25, "mz": 0.5})
+    profiler.add_adapter("result_adapter")
+
+    result = QREProfiler(profiler).profile(app, use_qir=use_qir)
+
+    calls = result.totals.calls_per_operation
+    assert calls["mz"] == 2
+    assert calls.get("x", 0) + calls.get("z", 0) == 1
+    assert result.totals.total_operations_count == 3
+    assert result.totals.total_runtime_sec == 1.25
+    assert result.infos == []
+
+
+@pytest.mark.parametrize("use_qir", [False, True])
+@pytest.mark.parametrize("application_type", [QSharpApplication, OpenQASMApplication])
+def test_profiler_rejects_logical_counts(
+    application_type: type[QSharpApplication] | type[OpenQASMApplication],
+    use_qir: bool,
+) -> None:
+    """Reject aggregate counts because they do not contain executable instructions."""
+    app = application_type(LogicalCounts({"numQubits": 1, "tCount": 1}))
+    profiler = QREProfiler(SequentialCountingProfiler(10, {}))
+
+    with pytest.raises(TypeError, match="LogicalCounts"):
+        profiler.profile(app, use_qir=use_qir)

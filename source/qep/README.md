@@ -420,10 +420,10 @@ are combined in the result.
 ### Resource estimation workflow.
 
 On a high level, resource estimation looks like this:
-* Application is compiled into QIR.
+* A Q# or OpenQASM application is compiled into QIR.
 * We instantiate a profiler for the target quantum computer.
 * In Python, PyQIR parses QIR and lowers it to adaptive bytecode, which runs with the profiler as backend.
-* `QREProfiler.profile_qir(qir_file, profiler)` returns `ProfilerResult` with qubit counts, total runtime, operation counts,
+* `QREProfiler(profiler).profile(application)` returns `ProfilerResult` with qubit counts, total runtime, operation counts,
     and runtime per operation.
 
 Rust profilers can execute Q# directly with `Profiler::profile_qsharp_expr`, given an interpreter
@@ -432,9 +432,10 @@ and an entry expression, or execute lowered bytecode with `Profiler::profile_ada
 ### Python API
 
 For Python users we expose:
-* `QSharpApplication`, which is a wrapper around Q# code.
-  * Its `profile` method compiles Q# to QIR and profiles adaptive bytecode in memory by default.
-* `QREProfiler.profile_qir`, which profiles a QIR file through PyQIR and the bytecode runner.
+* `QSharpApplication` and `OpenQASMApplication`, which wrap source code or imported callables with arguments.
+* `QREProfiler(profiler).profile(application)`, which compiles to QIR and profiles adaptive bytecode in memory by default.
+  Pass `use_qir=False` to profile through the interpreter instead. Aggregate `LogicalCounts` are not executable and cannot be profiled.
+* `QREProfiler(profiler).profile_qir_file(qir_file)`, which profiles a QIR file through PyQIR and the bytecode runner.
   Import `QREProfiler` from `qdk.qre.profiler`; the Python `Profiler` class no longer exposes `profile_qir`.
 * `Profiler`, the base class for profiler implementations.
 * `SequentialCountingProfiler`, one implementation of `Profiler`.
@@ -445,10 +446,11 @@ For example, profiling with `SequentialCountingProfiler` looks like:
 from qdk import qsharp
 from qdk.qre import SequentialCountingProfiler
 from qdk.qre.application import QSharpApplication
+from qdk.qre.profiler import QREProfiler
 
 qsharp.init(target_profile=qsharp.TargetProfile.Base)
 application = QSharpApplication("{ use q = Qubit(); X(q); }")
 profiler = SequentialCountingProfiler(10, {"x": 2.5e-9})
-result = application.profile(profiler)
+result = QREProfiler(profiler).profile(application)
 print(result.totals.total_runtime_sec)
 ```
