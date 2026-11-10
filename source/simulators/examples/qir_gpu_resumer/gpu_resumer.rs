@@ -80,6 +80,11 @@ pub struct Strategy {
     pub kron: bool,
     /// Whether gates on high qubits run in gather blocks (with `block`).
     pub gather: bool,
+    /// Whether a round that writes no results (which the machine yields only
+    /// at a program's return) waits for the next resume before it is
+    /// submitted, so that it is dropped when every shot ends right after it
+    /// (its work is unobservable: a final `ResetAll`).
+    pub skip_tail: bool,
 }
 
 impl Strategy {
@@ -92,6 +97,7 @@ impl Strategy {
         share: true,
         kron: true,
         gather: true,
+        skip_tail: true,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -102,6 +108,7 @@ impl Strategy {
         share: false,
         kron: false,
         gather: false,
+        skip_tail: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -112,6 +119,7 @@ impl Strategy {
         share: true,
         kron: true,
         gather: true,
+        skip_tail: true,
     };
 
     pub fn named(name: &str) -> Option<Self> {
@@ -137,6 +145,10 @@ impl Strategy {
             },
             "nogather" => Self {
                 gather: false,
+                ..Self::ALL
+            },
+            "notail" => Self {
+                skip_tail: false,
                 ..Self::ALL
             },
             _ => return None,
@@ -165,6 +177,8 @@ pub struct Stats {
     pub passes: u64,
     pub readbacks: u64,
     pub chunks: u64,
+    /// Rounds dropped because every shot ended right after them.
+    pub skipped: u64,
 }
 
 impl Stats {
@@ -186,6 +200,7 @@ impl Stats {
             passes: self.passes - earlier.passes,
             readbacks: self.readbacks - earlier.readbacks,
             chunks: self.chunks - earlier.chunks,
+            skipped: self.skipped - earlier.skipped,
         }
     }
 }
@@ -196,7 +211,8 @@ impl fmt::Display for Stats {
         write!(
             f,
             "machine {:.2} ms, translate {:.2} ms, upload {:.2} ms, encode {:.2} ms, wait {:.2} ms, \
-             drain {:.2} ms; {} chunks, {} rounds, {} groups, {} passes, {} readbacks",
+             drain {:.2} ms; {} chunks, {} rounds, {} groups, {} passes, {} readbacks, \
+             {} skipped",
             ms(self.machine),
             ms(self.translate),
             ms(self.upload),
@@ -207,7 +223,8 @@ impl fmt::Display for Stats {
             self.rounds,
             self.groups,
             self.passes,
-            self.readbacks
+            self.readbacks,
+            self.skipped
         )
     }
 }
@@ -1527,6 +1544,79 @@ struct GpuShot {
     group: Option<usize>,
 }
 
+/// Answers each grouped shot's batch: its result-writing calls' outcomes,
+/// read from `values` (measurement-major, `slots` per measurement).
+fn answer(shots: &mut [GpuShot], results: &[Vec<(u32, Option<u32>)>], values: &[u32], slots: u32) {
+    for shot in shots {
+        let Some(group) = shot.group else { continue };
+        shot.outcomes.clear();
+        for &(result, meas) in &results[group] {
+            let value = match meas {
+                None => QirReadout::Zero,
+                Some(meas) => match values[(meas * slots + shot.slot) as usize] {
+                    0 => QirReadout::Zero,
+                    _ => QirReadout::One,
+                },
+            };
+            shot.outcomes.push(QirOutcome { result, value });
+        }
+    }
+}
+
+/// Resumes every running shot (those before the chunk's first failure) to
+/// its next stop, grouping the shots whose batches are equal. Leaves the
+/// round's distinct batches in `batches`, and records a new first failure.
+fn resume_round(
+    machine: &QirMachine<'_>,
+    shots: &mut [GpuShot],
+    failing: &[QirShotId],
+    batches: &mut Vec<Vec<QirCall>>,
+    failure: &mut Option<(usize, QirResumeError<GpuError>)>,
+) {
+    batches.clear();
+    let running = failure.as_ref().map_or(shots.len(), |(place, _)| *place);
+    for (place, shot) in shots[..running].iter_mut().enumerate() {
+        if shot.records.is_some() {
+            continue;
+        }
+        shot.group = None;
+        match machine.resume(&mut shot.context, &shot.outcomes) {
+            Ok(QirStop::Ended(ended)) => shot.records = Some(ended.to_vec()),
+            Ok(QirStop::Batch(batch)) => {
+                if failing.contains(&shot.id) {
+                    let error = GpuError(format!("{} fails on purpose", shot.id));
+                    *failure = Some((
+                        place,
+                        QirResumeError::Resumer {
+                            shot: shot.id,
+                            error,
+                        },
+                    ));
+                    break;
+                }
+                let group = batches
+                    .iter()
+                    .position(|equal| equal[..] == *batch)
+                    .unwrap_or_else(|| {
+                        batches.push(batch.to_vec());
+                        batches.len() - 1
+                    });
+                shot.group = Some(group);
+            }
+            Err(trap) => {
+                *failure = Some((
+                    place,
+                    QirResumeError::Trapped {
+                        shot: shot.id,
+                        trap,
+                    },
+                ));
+                break;
+            }
+        }
+    }
+}
+
 fn splitmix(mut x: u64) -> u64 {
     x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
     x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -1638,52 +1728,23 @@ impl QirGpuResumer {
         let mut params: Vec<u8> = Vec::new();
         let mut ops: Vec<[f32; 4]> = Vec::new();
         let mut shot_list: Vec<u32> = Vec::new();
+        // Whether the shots were resumed at the end of the last round (whose
+        // submission waited to see whether any shot goes on).
+        let mut resumed_ahead = false;
         loop {
             // Resume every running shot to its next stop, grouping them.
-            let t = Instant::now();
-            batches.clear();
-            let running = failure.as_ref().map_or(shots.len(), |(place, _)| *place);
-            for (place, shot) in shots[..running].iter_mut().enumerate() {
-                if shot.records.is_some() {
-                    continue;
-                }
-                shot.group = None;
-                match machine.resume(&mut shot.context, &shot.outcomes) {
-                    Ok(QirStop::Ended(ended)) => shot.records = Some(ended.to_vec()),
-                    Ok(QirStop::Batch(batch)) => {
-                        if self.failing.contains(&shot.id) {
-                            let error = GpuError(format!("{} fails on purpose", shot.id));
-                            failure = Some((
-                                place,
-                                QirResumeError::Resumer {
-                                    shot: shot.id,
-                                    error,
-                                },
-                            ));
-                            break;
-                        }
-                        let group = batches
-                            .iter()
-                            .position(|equal| equal[..] == *batch)
-                            .unwrap_or_else(|| {
-                                batches.push(batch.to_vec());
-                                batches.len() - 1
-                            });
-                        shot.group = Some(group);
-                    }
-                    Err(trap) => {
-                        failure = Some((
-                            place,
-                            QirResumeError::Trapped {
-                                shot: shot.id,
-                                trap,
-                            },
-                        ));
-                        break;
-                    }
-                }
+            if !resumed_ahead {
+                let t = Instant::now();
+                resume_round(
+                    machine,
+                    &mut shots,
+                    &self.failing,
+                    &mut batches,
+                    &mut failure,
+                );
+                self.stats.machine += t.elapsed();
             }
-            self.stats.machine += t.elapsed();
+            resumed_ahead = false;
             let running = failure.as_ref().map_or(shots.len(), |(place, _)| *place);
             if batches.is_empty() {
                 break;
@@ -1804,6 +1865,29 @@ impl QirGpuResumer {
             let most_measurements = total_measurements;
             self.stats.translate += t.elapsed();
 
+            // A round that writes no results: the machine yields such a batch
+            // only at the program's return, so resume its shots now, before
+            // submitting it; when every shot ends, its work is unobservable
+            // and is dropped. (Were a shot to go on, the round is submitted
+            // as usual, and the next round uses the stops reached.)
+            if self.strategy.skip_tail && results.iter().all(Vec::is_empty) {
+                answer(&mut shots[..running], &results, &[], slots);
+                let t = Instant::now();
+                resume_round(
+                    machine,
+                    &mut shots,
+                    &self.failing,
+                    &mut batches,
+                    &mut failure,
+                );
+                self.stats.machine += t.elapsed();
+                if batches.is_empty() {
+                    self.stats.skipped += 1;
+                    break;
+                }
+                resumed_ahead = true;
+            }
+
             // Write the round's buffers, encode its passes and submit.
             let t = Instant::now();
             let buffers = self.buffers.as_mut().expect("made above");
@@ -1873,19 +1957,8 @@ impl QirGpuResumer {
                 Vec::new()
             };
             self.stats.wait += t.elapsed();
-            for shot in &mut shots[..running] {
-                let Some(group) = shot.group else { continue };
-                shot.outcomes.clear();
-                for &(result, meas) in &results[group] {
-                    let value = match meas {
-                        None => QirReadout::Zero,
-                        Some(meas) => match values[(meas * slots + shot.slot) as usize] {
-                            0 => QirReadout::Zero,
-                            _ => QirReadout::One,
-                        },
-                    };
-                    shot.outcomes.push(QirOutcome { result, value });
-                }
+            if !resumed_ahead {
+                answer(&mut shots[..running], &results, &values, slots);
             }
         }
         let t = Instant::now();
