@@ -731,7 +731,6 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_instruction(&mut self, instruction: &semantic::Instruction) -> Vec<ast::Stmt> {
-        use QSharpOp as Op;
         let mut stmts = Vec::new();
         let continues_correlated_error = matches!(
             &instruction.kind,
@@ -814,38 +813,20 @@ impl<'noise> Compiler<'noise> {
             }
             semantic::InstructionKind::Annotation(_) => vec![],
             semantic::InstructionKind::SingleQubitRotation { axis, angle, q } => {
-                let op = match axis {
-                    X => Op::Rx,
-                    Y => Op::Ry,
-                    Z => Op::Rz,
-                };
-                vec![self.rotation_call(op, *angle, &[*q], span)]
+                self.compile_single_qubit_rotation(*axis, *angle, *q, span)
             }
             semantic::InstructionKind::TwoQubitRotation {
                 axis,
                 angle,
                 q0,
                 q1,
-            } => {
-                let op = match axis {
-                    semantic::PauliPair::XX => Op::Rxx,
-                    semantic::PauliPair::YY => Op::Ryy,
-                    semantic::PauliPair::ZZ => Op::Rzz,
-                };
-                vec![self.rotation_call(op, *angle, &[*q0, *q1], span)]
-            }
+            } => self.compile_two_qubit_rotation(*axis, *angle, *q0, *q1, span),
             semantic::InstructionKind::U3 {
                 theta,
                 phi,
                 lambda,
                 q,
-            } => {
-                vec![
-                    self.rotation_call(Op::Rz, *lambda, &[*q], span),
-                    self.rotation_call(Op::Ry, *theta, &[*q], span),
-                    self.rotation_call(Op::Rz, *phi, &[*q], span),
-                ]
-            }
+            } => self.compile_u3(*theta, *phi, *lambda, *q, span),
             semantic::InstructionKind::PauliProductRotation { angle, product } => {
                 self.compile_pauli_product_rotation(*angle, product, span)
             }
@@ -1076,6 +1057,53 @@ impl<'noise> Compiler<'noise> {
 
         let op = if product.negated { op.adjoint() } else { op };
         self.conjugate_gate(product, op, span)
+    }
+
+    fn compile_single_qubit_rotation(
+        &mut self,
+        axis: Pauli,
+        angle: Radians,
+        qubit: StimQubitId,
+        span: Span,
+    ) -> Vec<ast::Stmt> {
+        let op = match axis {
+            X => QSharpOp::Rx,
+            Y => QSharpOp::Ry,
+            Z => QSharpOp::Rz,
+        };
+        vec![self.rotation_call(op, angle, &[qubit], span)]
+    }
+
+    fn compile_two_qubit_rotation(
+        &mut self,
+        axis: semantic::PauliPair,
+        angle: Radians,
+        q0: StimQubitId,
+        q1: StimQubitId,
+        span: Span,
+    ) -> Vec<ast::Stmt> {
+        let op = match axis {
+            semantic::PauliPair::XX => QSharpOp::Rxx,
+            semantic::PauliPair::YY => QSharpOp::Ryy,
+            semantic::PauliPair::ZZ => QSharpOp::Rzz,
+        };
+        vec![self.rotation_call(op, angle, &[q0, q1], span)]
+    }
+
+    /// `U3(θ, φ, λ) = Rz(φ) Ry(θ) Rz(λ)`, up to a global phase.
+    fn compile_u3(
+        &mut self,
+        theta: Radians,
+        phi: Radians,
+        lambda: Radians,
+        qubit: StimQubitId,
+        span: Span,
+    ) -> Vec<ast::Stmt> {
+        vec![
+            self.rotation_call(QSharpOp::Rz, lambda, &[qubit], span),
+            self.rotation_call(QSharpOp::Ry, theta, &[qubit], span),
+            self.rotation_call(QSharpOp::Rz, phi, &[qubit], span),
+        ]
     }
 
     fn compile_pauli_product_rotation(
