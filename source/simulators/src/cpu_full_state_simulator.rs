@@ -483,10 +483,11 @@ impl Simulator for FullStateSimulator {
     type StateDumpData = noisy_simulator::StateVector;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
+        let mut seed_rng = StdRng::seed_from_u64(seed.into());
         Self {
             noise_config,
-            rng: StdRng::seed_from_u64(u64::from(seed)),
-            state: StateVectorSimulator::new_with_seed(num_qubits, seed.into()),
+            rng: StdRng::from_rng(&mut seed_rng),
+            state: StateVectorSimulator::new_with_seed(num_qubits, seed_rng.random()),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
             last_operation_time: vec![0; num_qubits],

@@ -35,3 +35,31 @@ fn forced_loss_resets_only_the_target_and_is_idempotent() {
     check_forced_loss::<StabilizerSimulator>();
     check_forced_loss::<FullStateSimulator>();
 }
+
+#[test]
+fn seeded_cpu_noise_and_measurements_are_independent() {
+    use crate::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli};
+    let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+    config.x = NoiseTable {
+        qubits: 1,
+        pauli_strings: vec![encode_pauli("X")],
+        probabilities: vec![0.5],
+        on_loss: LossPolicy::Skip,
+    };
+    let noise = Arc::new(config.into());
+    let mut counts = [0; 4];
+    for seed in 0..512 {
+        let mut sim = FullStateSimulator::new(2, 2, seed, Arc::clone(&noise));
+        sim.x(0);
+        sim.h(1);
+        sim.mz(1, 0);
+        sim.mz(0, 1);
+        let first = sim.measurements()[0] == MeasurementResult::One;
+        let second = sim.measurements()[1] == MeasurementResult::One;
+        counts[2 * usize::from(first) + usize::from(second)] += 1;
+    }
+    assert!(
+        counts.iter().all(|count| (64..192).contains(count)),
+        "{counts:?}"
+    );
+}
