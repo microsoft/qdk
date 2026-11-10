@@ -10,6 +10,7 @@ license.workspace = true
 
 [dependencies]
 rand = { workspace = true }
+rsgridsynth = "0.2.2"
 rustc-hash = { workspace = true }
 smallvec = { workspace = true, features = ["serde"] }
 serde = { workspace = true }

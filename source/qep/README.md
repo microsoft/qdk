@@ -86,9 +86,18 @@ an array of strings parsed by Rust's `include!` at compile time. Normal builds
 require neither Python nor `pygridsynth`. Run the notebook from within the
 repository using an environment with `mpmath` and `pygridsynth` to regenerate
 the table at synthesis precision `1e-10`.
-Non-finite angles and other rotation types return errors; arbitrary-angle
-synthesis is not yet implemented. Non-rotation instructions and backend results
+Non-finite angles and other rotation types return errors. Non-rotation instructions and backend results
 pass through unchanged.
+
+For arbitrary angles, register `RzTranspiler::new(precision)?` with
+`TranspilingAdapter::new` instead of `RzQftTranspiler`. Its default precision is
+`1e-10`; explicit precision must be finite and in `(0, 1)`. It extracts exact
+Z, S, and T rotations, then uses the Rust `rsgridsynth` library only for residual
+angles in `(0, pi/4)`, passing the requested precision as the operator-norm
+tolerance. Residuals no larger than the precision are omitted. Negative rotations
+use adjoint sequences, and synthesis is up to global phase. Library calls are
+serialized because `rsgridsynth` uses process-global arithmetic precision.
+The default adapter continues to use the QFT table.
 
 `QuantumBackendInstruction` directly stores the instruction name and a unified
 operand list in `classical_parameters`. The bytecode runner emits it directly, and

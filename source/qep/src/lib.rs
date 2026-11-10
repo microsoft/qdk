@@ -45,5 +45,6 @@ pub use runner::{
     run_adaptive_program, run_qsharp_call, run_qsharp_expr,
 };
 pub use transpilers::{
-    CliffordTranspiler, MzResetTranspiler, RzQftTranspiler, SwapTransplier, Transpiler,
+    CliffordTranspiler, MzResetTranspiler, RzQftTranspiler, RzTranspiler, SwapTransplier,
+    Transpiler,
 };
