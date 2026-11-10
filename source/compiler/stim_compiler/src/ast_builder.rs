@@ -148,7 +148,8 @@ pub(crate) fn build_qubit_expr(qubit: QubitId, span: Span) -> ast::Expr {
     )
 }
 
-/// `r_k` #TODO change to r[k] when mutable arrays are supported
+/// `r_k`
+// TODO: change to `r[k]` when mutable arrays are supported.
 fn record_name(result_id: ResultId) -> String {
     format!("r_{result_id}")
 }

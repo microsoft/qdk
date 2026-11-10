@@ -1561,7 +1561,7 @@ impl<'noise> Compiler<'noise> {
     }
 }
 
-pub fn compile_to_qsharp_ast(
+pub fn compile(
     circuit: &semantic::Circuit,
     noise: &mut NoiseConfig<f64, f64>,
 ) -> Result<ast::Package, Vec<Error>> {
