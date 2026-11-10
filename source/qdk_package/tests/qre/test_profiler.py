@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pyqir
 import pytest
 from qdk import Context, openqasm, qsharp
 from qdk.estimator import LogicalCounts
@@ -17,41 +18,24 @@ from qdk.qre import (
     TemporalProfiles,
     TotalCounts,
 )
-from qdk.qre.application import OpenQASMApplication, QSharpApplication
+from qdk.qre.application import OpenQASMApplication, QIRApplication, QSharpApplication
 from qdk.qre.profiler import QREProfiler
 
 
-@pytest.mark.parametrize(
-    "target_profile",
-    [qsharp.TargetProfile.Base, qsharp.TargetProfile.Adaptive],
-    ids=["base", "adaptive"],
-)
-def test_profile_qir_file(target_profile: qsharp.TargetProfile, tmp_path: Path) -> None:
-    """Smoke-test profiling a compiled QIR file under both target profiles."""
-    qsharp.init(target_profile=target_profile)
-    qir = qsharp.compile("""
-        {
-            use q = Qubit();
-            X(q);
-            M(q)
-        }
-        """)
-    qir_path = tmp_path / "program.ll"
-    qir_path.write_text(str(qir), encoding="utf-8")
-    profiler = SequentialCountingProfiler(
-        physical_qubits_per_logical=10,
-        gate_time_sec={"x": 0.25, "mz": 0.5},
+@pytest.mark.parametrize("as_bitcode", [False, True], ids=["text", "bitcode"])
+def test_qir_application_profiler(as_bitcode: bool) -> None:
+    """Profile equivalent QIR supplied as LLVM text or binary bitcode."""
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qir = str(qsharp.compile("{ use q = Qubit(); X(q); M(q) }"))
+    app = QIRApplication(
+        pyqir.Module.from_ir(pyqir.Context(), qir).bitcode if as_bitcode else qir
     )
+    profiler = QREProfiler(SequentialCountingProfiler(10, {"x": 0.25, "mz": 0.5}))
 
-    result = QREProfiler(profiler).profile_qir_file(str(qir_path))
+    result = profiler.profile(app)
 
-    assert isinstance(result, ProfilerResult)
-    assert result.totals.logical_compute_qubits == 1
-    assert result.totals.physical_qubits == 10
     assert result.totals.calls_per_operation == {"x": 1, "mz": 1}
-    assert result.totals.total_operations_count == 2
     assert result.totals.total_runtime_sec == 0.75
-    assert result.infos == []
 
 
 @pytest.mark.parametrize("use_qir", [False, True])

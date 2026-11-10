@@ -433,8 +433,10 @@ and an entry expression, or execute lowered bytecode with `Profiler::profile_ada
 
 For Python users we expose:
 * `QSharpApplication` and `OpenQASMApplication`, which wrap source code or imported callables with arguments.
+* `QIRApplication`, which wraps QIR as LLVM IR text (`str`) or binary bitcode (`bytes`).
 * `QREProfiler(profiler).profile(application)`, which compiles to QIR and profiles adaptive bytecode in memory by default.
-  Pass `use_qir=False` to profile through the interpreter instead. Aggregate `LogicalCounts` are not executable and cannot be profiled.
+  Pass `use_qir=False` to profile Q# or OpenQASM through the interpreter instead; QIR applications always use bytecode.
+  Aggregate `LogicalCounts` are not executable and cannot be profiled.
 * `QREProfiler(profiler).profile_qir_file(qir_file)`, which profiles a QIR file through PyQIR and the bytecode runner.
   Import `QREProfiler` from `qdk.qre.profiler`; the Python `Profiler` class no longer exposes `profile_qir`.
 * `Profiler`, the base class for profiler implementations.

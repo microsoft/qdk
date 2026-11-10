@@ -14,6 +14,7 @@ from qdk.qre.application._openqasm import (
     OpenQASMApplication,
     _find_unique_openqasm_name,
 )
+from qdk.qre.application._qir import QIRApplication
 from qdk.qre.application._qsharp import QSharpApplication
 
 
@@ -24,9 +25,13 @@ class QREProfiler:
         """Wraps a backend profiler."""
         self.profiler = profiler
 
-    def _profile_qir(self, qir: str) -> ProfilerResult:
-        """Profiles QIR from string."""
-        module = pyqir.Module.from_ir(pyqir.Context(), qir)
+    def _profile_qir(self, qir: str | bytes) -> ProfilerResult:
+        """Profiles QIR supplied as LLVM text or binary bitcode."""
+        context = pyqir.Context()
+        if isinstance(qir, str):
+            module = pyqir.Module.from_ir(context, qir)
+        else:
+            module = pyqir.Module.from_bitcode(context, qir)
         program = AdaptiveProfilePass(Bytecode.Bit64).run(module)
         return self.profiler.profile_adaptive_program(program.as_dict())
 
@@ -43,9 +48,7 @@ class QREProfiler:
             return self._profile_qir(str(qsharp.compile(entry_expr, *args)))
         context = _get_context_or_default(entry_expr)
         if isinstance(entry_expr, str):
-            return self.profiler.profile_qsharp_expr(
-                context._interpreter, entry_expr
-            )
+            return self.profiler.profile_qsharp_expr(context._interpreter, entry_expr)
         return self.profiler.profile_qsharp(
             context._interpreter,
             getattr(entry_expr, "__global_callable"),
@@ -68,15 +71,11 @@ class QREProfiler:
         return self._profile_qsharp_entry(program, app.args, use_qir)
 
     def profile(self, app: Application, use_qir: bool = True) -> ProfilerResult:
-        """Profiles Q# or OpenQASM through QIR by default, or the interpreter."""
+        """Profiles Q# or OpenQASM through QIR or the interpreter; QIR uses bytecode."""
         if isinstance(app, QSharpApplication):
             return self._profile_qsharp_entry(app.entry_expr, app.args, use_qir)
         if isinstance(app, OpenQASMApplication):
             return self._profile_openqasm_application(app, use_qir)
+        if isinstance(app, QIRApplication):
+            return self._profile_qir(app.input)
         raise TypeError("Unsupported application.")
-
-    def profile_qir_file(self, qir_file: str) -> ProfilerResult:
-        """Profiles QIR program from given file."""
-        with open(qir_file, "r") as f:
-            qir = f.read()
-        return self._profile_qir(qir)
