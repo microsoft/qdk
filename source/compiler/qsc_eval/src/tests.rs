@@ -1651,25 +1651,15 @@ fn binop_shl_int_truncate() {
 }
 
 #[test]
-fn binop_shl_int_overflow() {
-    check_expr(
-        "",
-        "1 <<< 64",
-        &expect![[r#"
-            IntTooLarge(
-                64,
-                PackageSpan {
-                    package: PackageId(
-                        2,
-                    ),
-                    span: Span {
-                        lo: 6,
-                        hi: 8,
-                    },
-                },
-            )
-        "#]],
-    );
+fn binop_shl_int_oversized() {
+    for amount in [64, 65, 1_i64 << 32, i64::MAX] {
+        check_expr("", &format!("1 <<< {amount}"), &expect!["0"]);
+        check_expr("", &format!("-1 <<< {amount}"), &expect!["0"]);
+        check_expr("", &format!("1 <<< -{amount}"), &expect!["0"]);
+        check_expr("", &format!("-1 <<< -{amount}"), &expect!["-1"]);
+    }
+    check_expr("", "-1 <<< -9223372036854775808", &expect!["-1"]);
+    check_expr("", "1 <<< -9223372036854775808", &expect!["0"]);
 }
 
 #[test]
@@ -1699,25 +1689,15 @@ fn binop_shr_int_truncate() {
 }
 
 #[test]
-fn binop_shr_int_overflow() {
-    check_expr(
-        "",
-        "1 >>> 64",
-        &expect![[r#"
-            IntTooLarge(
-                64,
-                PackageSpan {
-                    package: PackageId(
-                        2,
-                    ),
-                    span: Span {
-                        lo: 6,
-                        hi: 8,
-                    },
-                },
-            )
-        "#]],
-    );
+fn binop_shr_int_oversized() {
+    for amount in [64, 65, 1_i64 << 32, i64::MAX] {
+        check_expr("", &format!("1 >>> {amount}"), &expect!["0"]);
+        check_expr("", &format!("-1 >>> {amount}"), &expect!["-1"]);
+        check_expr("", &format!("1 >>> -{amount}"), &expect!["0"]);
+        check_expr("", &format!("-1 >>> -{amount}"), &expect!["0"]);
+    }
+    check_expr("", "-1 >>> -9223372036854775808", &expect!["0"]);
+    check_expr("", "1 >>> -9223372036854775808", &expect!["0"]);
 }
 
 #[test]

@@ -1317,8 +1317,8 @@ impl State {
             BinOp::Mul => self.eval_binop_simple(eval_binop_mul),
             BinOp::Neq => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_neq)?,
             BinOp::OrB => self.eval_binop_simple(eval_binop_orb),
-            BinOp::Shl => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_shl)?,
-            BinOp::Shr => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_shr)?,
+            BinOp::Shl => self.eval_binop_simple(eval_binop_shl),
+            BinOp::Shr => self.eval_binop_simple(eval_binop_shr),
             BinOp::Sub => self.eval_binop_simple(eval_binop_sub),
             BinOp::XorB => self.eval_binop_simple(eval_binop_xorb),
 
@@ -2743,13 +2743,23 @@ fn eval_binop_orb(lhs_val: Value, rhs_val: Value) -> Value {
     }
 }
 
-fn eval_binop_shl(
-    lhs_val: Value,
-    rhs_val: Value,
-    _: PackageSpan,
-    rhs_span: PackageSpan,
-) -> Result<Value, Error> {
-    Ok(match lhs_val {
+/// Evaluates a Q# Int shift, reversing direction for negative counts and extending
+/// with zeroes or the sign bit when the magnitude exceeds the operand width.
+#[must_use]
+pub fn eval_int_shift(value: i64, amount: i64, is_left: bool) -> i64 {
+    let magnitude = amount.unsigned_abs();
+    if is_left == (amount < 0) {
+        value >> magnitude.min((i64::BITS - 1).into())
+    } else {
+        u32::try_from(magnitude)
+            .ok()
+            .and_then(|amount| value.checked_shl(amount))
+            .unwrap_or(0)
+    }
+}
+
+fn eval_binop_shl(lhs_val: Value, rhs_val: Value) -> Value {
+    match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_int();
             if rhs > 0 {
@@ -2760,31 +2770,14 @@ fn eval_binop_shl(
         }
         Value::Int(val) => {
             let rhs = rhs_val.unwrap_int();
-            Value::Int(if rhs > 0 {
-                let shift: u32 = rhs.try_into().or(Err(Error::IntTooLarge(rhs, rhs_span)))?;
-                val.checked_shl(shift)
-                    .ok_or(Error::IntTooLarge(rhs, rhs_span))?
-            } else {
-                let shift: u32 = rhs
-                    .checked_neg()
-                    .ok_or(Error::IntTooLarge(rhs, rhs_span))?
-                    .try_into()
-                    .or(Err(Error::IntTooLarge(rhs, rhs_span)))?;
-                val.checked_shr(shift)
-                    .ok_or(Error::IntTooLarge(rhs, rhs_span))?
-            })
+            Value::Int(eval_int_shift(val, rhs, true))
         }
         _ => panic!("value should support shl"),
-    })
+    }
 }
 
-fn eval_binop_shr(
-    lhs_val: Value,
-    rhs_val: Value,
-    _: PackageSpan,
-    rhs_span: PackageSpan,
-) -> Result<Value, Error> {
-    Ok(match lhs_val {
+fn eval_binop_shr(lhs_val: Value, rhs_val: Value) -> Value {
+    match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_int();
             if rhs > 0 {
@@ -2795,22 +2788,10 @@ fn eval_binop_shr(
         }
         Value::Int(val) => {
             let rhs = rhs_val.unwrap_int();
-            Value::Int(if rhs > 0 {
-                let shift: u32 = rhs.try_into().or(Err(Error::IntTooLarge(rhs, rhs_span)))?;
-                val.checked_shr(shift)
-                    .ok_or(Error::IntTooLarge(rhs, rhs_span))?
-            } else {
-                let shift: u32 = rhs
-                    .checked_neg()
-                    .ok_or(Error::IntTooLarge(rhs, rhs_span))?
-                    .try_into()
-                    .or(Err(Error::IntTooLarge(rhs, rhs_span)))?;
-                val.checked_shl(shift)
-                    .ok_or(Error::IntTooLarge(rhs, rhs_span))?
-            })
+            Value::Int(eval_int_shift(val, rhs, false))
         }
         _ => panic!("value should support shr"),
-    })
+    }
 }
 
 fn eval_binop_sub(lhs_val: Value, rhs_val: Value) -> Value {

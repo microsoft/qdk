@@ -2619,21 +2619,34 @@ fn integer_assign_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_dynamic_in
                 Variable(8, Integer) = Ashr Variable(7, Integer), Integer(63)
                 Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
                 Variable(10, Integer) = Sub Variable(9, Integer), Variable(8, Integer)
-                Variable(11, Integer) = Shl Variable(4, Integer), Variable(10, Integer)
-                Variable(12, Integer) = Ashr Variable(4, Integer), Variable(10, Integer)
-                Variable(13, Integer) = BitwiseXor Variable(11, Integer), Variable(12, Integer)
-                Variable(14, Integer) = BitwiseAnd Variable(13, Integer), Variable(8, Integer)
-                Variable(15, Integer) = BitwiseXor Variable(11, Integer), Variable(14, Integer)
-                Variable(3, Integer) = Store Variable(15, Integer)
-                Variable(16, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(16, Integer), Tag(0, 3), )
-                Return Integer(0)
+                Variable(17, Integer) = Ashr Variable(10, Integer), Integer(6)
+                Variable(21, Boolean) = Icmp Ne, Variable(17, Integer), Integer(0)
+                Branch Variable(21, Boolean), 8, 7
             Block 5:Block:
                 Variable(7, Integer) = Store Integer(1)
                 Jump(4)
             Block 6:Block:
                 Variable(7, Integer) = Store Integer(0)
-                Jump(4)"#]],
+                Jump(4)
+            Block 7:Block:
+                Variable(11, Integer) = Shl Variable(4, Integer), Variable(10, Integer)
+                Variable(12, Integer) = Ashr Variable(4, Integer), Variable(10, Integer)
+                Variable(13, Integer) = BitwiseXor Variable(11, Integer), Variable(12, Integer)
+                Variable(14, Integer) = BitwiseAnd Variable(13, Integer), Variable(8, Integer)
+                Variable(15, Integer) = BitwiseXor Variable(11, Integer), Variable(14, Integer)
+                Variable(16, Integer) = Store Variable(15, Integer)
+                Jump(9)
+            Block 8:Block:
+                Variable(18, Integer) = Ashr Variable(4, Integer), Integer(63)
+                Variable(19, Integer) = Store Variable(8, Integer)
+                Variable(20, Integer) = BitwiseAnd Variable(18, Integer), Variable(19, Integer)
+                Variable(16, Integer) = Store Variable(20, Integer)
+                Jump(9)
+            Block 9:Block:
+                Variable(3, Integer) = Store Variable(16, Integer)
+                Variable(22, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(22, Integer), Tag(0, 3), )
+                Return Integer(0)"#]],
     );
 }
 
@@ -2707,21 +2720,34 @@ fn integer_assign_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic
                 Variable(4, Integer) = Ashr Variable(3, Integer), Integer(63)
                 Variable(5, Integer) = BitwiseXor Variable(3, Integer), Variable(4, Integer)
                 Variable(6, Integer) = Sub Variable(5, Integer), Variable(4, Integer)
-                Variable(7, Integer) = Ashr Integer(0), Variable(6, Integer)
-                Variable(8, Integer) = Shl Integer(0), Variable(6, Integer)
-                Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
-                Variable(10, Integer) = BitwiseAnd Variable(9, Integer), Variable(4, Integer)
-                Variable(11, Integer) = BitwiseXor Variable(7, Integer), Variable(10, Integer)
-                Variable(0, Integer) = Store Variable(11, Integer)
-                Variable(12, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(12, Integer), Tag(0, 3), )
-                Return Integer(0)
+                Variable(13, Integer) = Ashr Variable(6, Integer), Integer(6)
+                Variable(17, Boolean) = Icmp Ne, Variable(13, Integer), Integer(0)
+                Branch Variable(17, Boolean), 5, 4
             Block 2:Block:
                 Variable(3, Integer) = Store Integer(0)
                 Jump(1)
             Block 3:Block:
                 Variable(3, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Jump(1)
+            Block 4:Block:
+                Variable(7, Integer) = Ashr Integer(0), Variable(6, Integer)
+                Variable(8, Integer) = Shl Integer(0), Variable(6, Integer)
+                Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
+                Variable(10, Integer) = BitwiseAnd Variable(9, Integer), Variable(4, Integer)
+                Variable(11, Integer) = BitwiseXor Variable(7, Integer), Variable(10, Integer)
+                Variable(12, Integer) = Store Variable(11, Integer)
+                Jump(6)
+            Block 5:Block:
+                Variable(14, Integer) = Store Integer(0)
+                Variable(15, Integer) = BitwiseNot Variable(4, Integer)
+                Variable(16, Integer) = BitwiseAnd Variable(14, Integer), Variable(15, Integer)
+                Variable(12, Integer) = Store Variable(16, Integer)
+                Jump(6)
+            Block 6:Block:
+                Variable(0, Integer) = Store Variable(12, Integer)
+                Variable(18, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(18, Integer), Tag(0, 3), )
+                Return Integer(0)"#]],
     );
 }
 

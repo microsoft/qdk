@@ -3482,13 +3482,13 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     /// Emits a shift that, like the evaluator, shifts the opposite way when the amount is negative.
+    #[allow(clippy::too_many_lines)]
     fn generate_instructions_for_integer_shift(
         &mut self,
         is_left: bool,
         lhs_operand: Operand,
         rhs_operand: Operand,
-        bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
-    ) -> Result<rir::Variable, Error> {
+    ) -> rir::Variable {
         let shift = |is_left: bool, amount: Operand, var: rir::Variable| {
             if is_left {
                 Instruction::Shl(lhs_operand, amount, var)
@@ -3498,15 +3498,22 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         if let Operand::Literal(Literal::Integer(amount)) = rhs_operand {
-            let (reverse, magnitude) = shift_amount(amount, bin_op_expr_span)?;
+            let magnitude = amount.unsigned_abs();
+            let is_left = is_left != (amount < 0);
             let result = rir::Variable::new_integer(self.resource_manager.next_var());
-            let ins = shift(
-                is_left != reverse,
-                Operand::Literal(Literal::Integer(magnitude.into())),
-                result,
-            );
+            let ins = if magnitude >= i64::BITS.into() && is_left {
+                Instruction::Store(Operand::Literal(Literal::Integer(0)), result)
+            } else {
+                shift(
+                    is_left,
+                    Operand::Literal(Literal::Integer(
+                        magnitude.min((i64::BITS - 1).into()).cast_signed(),
+                    )),
+                    result,
+                )
+            };
             self.get_current_rir_block_mut().0.push(ins);
-            return Ok(result);
+            return result;
         }
 
         // Clever branchless branching:
@@ -3522,7 +3529,13 @@ impl<'a> PartialEvaluator<'a> {
         let backward = new_var();
         let diff = new_var();
         let masked_diff = new_var();
+        let selected = new_var();
         let result = new_var();
+        let high_bits = new_var();
+        let sign = new_var();
+        let direction = new_var();
+        let extended = new_var();
+        let oversized = rir::Variable::new_boolean(self.resource_manager.next_var());
         let instructions = [
             Instruction::Ashr(
                 rhs_operand,
@@ -3535,6 +3548,40 @@ impl<'a> PartialEvaluator<'a> {
                 Operand::Variable(mask),
                 magnitude,
             ),
+            // Test the high bits rather than signed magnitude >= 64: the absolute
+            // value of Int.MinValue is represented by a negative Int.
+            Instruction::Ashr(
+                Operand::Variable(magnitude),
+                Operand::Literal(Literal::Integer(6)),
+                high_bits,
+            ),
+            Instruction::Icmp(
+                ConditionCode::Ne,
+                Operand::Variable(high_bits),
+                Operand::Literal(Literal::Integer(0)),
+                oversized,
+            ),
+        ];
+        self.get_current_rir_block_mut().0.extend(instructions);
+
+        let current = self.eval_context.pop_block_node();
+        let normal_block = self.create_program_block();
+        let oversized_block = self.create_program_block();
+        let continuation = self.create_program_block();
+        self.get_program_block_mut(current.id)
+            .0
+            .push(Instruction::Branch(
+                oversized,
+                oversized_block,
+                normal_block,
+                None,
+            ));
+        self.eval_context.push_block_node(BlockNode {
+            id: continuation,
+            successor: current.successor,
+        });
+
+        self.get_program_block_mut(normal_block).0.extend([
             shift(is_left, Operand::Variable(magnitude), forward),
             shift(!is_left, Operand::Variable(magnitude), backward),
             Instruction::BitwiseXor(
@@ -3550,11 +3597,40 @@ impl<'a> PartialEvaluator<'a> {
             Instruction::BitwiseXor(
                 Operand::Variable(forward),
                 Operand::Variable(masked_diff),
-                result,
+                selected,
             ),
-        ];
-        self.get_current_rir_block_mut().0.extend(instructions);
-        Ok(result)
+            Instruction::Store(Operand::Variable(selected), result),
+            Instruction::Jump(continuation),
+        ]);
+        let direction_instruction = if is_left {
+            Instruction::Store(Operand::Variable(mask), direction)
+        } else {
+            Instruction::BitwiseNot(Operand::Variable(mask), direction)
+        };
+        let sign_instruction = if let Operand::Literal(Literal::Integer(value)) = lhs_operand {
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(value >> (i64::BITS - 1))),
+                sign,
+            )
+        } else {
+            Instruction::Ashr(
+                lhs_operand,
+                Operand::Literal(Literal::Integer((i64::BITS - 1).into())),
+                sign,
+            )
+        };
+        self.get_program_block_mut(oversized_block).0.extend([
+            sign_instruction,
+            direction_instruction,
+            Instruction::BitwiseAnd(
+                Operand::Variable(sign),
+                Operand::Variable(direction),
+                extended,
+            ),
+            Instruction::Store(Operand::Variable(extended), result),
+            Instruction::Jump(continuation),
+        ]);
+        result
     }
 
     #[allow(clippy::too_many_lines)]
@@ -3672,8 +3748,7 @@ impl<'a> PartialEvaluator<'a> {
                 bin_op == BinOp::Shl,
                 lhs_operand,
                 rhs_operand,
-                bin_op_expr_span,
-            )?,
+            ),
             BinOp::Eq => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_boolean(bin_op_variable_id);
@@ -5533,27 +5608,12 @@ fn eval_bin_op_with_integer_literals(
         BinOp::AndB => Ok(Value::Int(lhs_int & rhs_int)),
         BinOp::OrB => Ok(Value::Int(lhs_int | rhs_int)),
         BinOp::XorB => Ok(Value::Int(lhs_int ^ rhs_int)),
-        BinOp::Shl | BinOp::Shr => {
-            let (reverse, magnitude) = shift_amount(rhs_int, bin_op_expr_span)?;
-            if (bin_op == BinOp::Shl) == reverse {
-                Ok(Value::Int(lhs_int >> magnitude))
-            } else {
-                Ok(Value::Int(lhs_int << magnitude))
-            }
-        }
+        BinOp::Shl | BinOp::Shr => Ok(Value::Int(qsc_eval::eval_int_shift(
+            lhs_int,
+            rhs_int,
+            bin_op == BinOp::Shl,
+        ))),
         _ => panic!("invalid integer operator: {bin_op:?}"),
-    }
-}
-
-/// Splits a shift amount into (reverse direction, magnitude), rejecting magnitudes the evaluator rejects.
-fn shift_amount(amount: i64, span: PackageSpan) -> Result<(bool, u32), Error> {
-    match amount
-        .checked_abs()
-        .and_then(|m| u32::try_from(m).ok())
-        .filter(|m| *m < i64::BITS)
-    {
-        Some(magnitude) => Ok((amount < 0, magnitude)),
-        None => Err(EvalError::IntTooLarge(amount, span).into()),
     }
 }
 
