@@ -7,8 +7,8 @@ any specific real quantum computer.
 ### Gates
 Hardware supports the following operations:
  * Clifford gates (single-qubit and CX/CY/CZ) take the same time (5000ns by default,
-    configurable with `TemporalProfilerConfig.clifford_gate_time_nanos`).
- * Measurement time is configurable with `TemporalProfilerConfig.measurment_time_nanos`,
+    configurable with `DemoModel1.clifford_gate_time_nanos`).
+ * Measurement time is configurable with `DemoModel1.measurment_time_nanos`,
     1000ns by default.
  * T/Tadj gate is implemented by "InjectT"/"InjectTAdj" instruction, both consuming a
    T-State and taking twice the Clifford duration plus the measurement duration
@@ -34,7 +34,7 @@ uses the compute count for qubit lanes and displays factories on separate lanes.
 ### Physical qubits
 
 Each logical qubit is assumed to use a rotated surface code of distance
-`d = TemporalProfilerConfig.ecc_distance` (5 by default). A logical qubit requires
+`d = DemoModel1.ecc_distance` (9 by default). A logical qubit requires
 `d^2` physical data qubits and `d^2 - 1` syndrome-extraction ancillas, giving
 `2*d^2 - 1` physical qubits per logical qubit. This is the same formula used by
 QREv3's [SurfaceCode model](../../../qdk_package/qdk/qre/models/qec/_surface_code.py).

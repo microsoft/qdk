@@ -11,6 +11,7 @@ from .._native import (
     constant_function,
     Constraint,
     ConstraintBound,
+    DemoModel1,
     _estimate_parallel,
     _estimate_with_graph,
     _EstimationCollection,

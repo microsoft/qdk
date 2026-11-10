@@ -19,6 +19,7 @@ from typing import (
 
 from .qre import Trace
 from .qre._qre import (
+    DemoModel1 as DemoModel1,
     Profiler as Profiler,
     TemporalProfilerConfig as TemporalProfilerConfig,
     ProfilerResult as ProfilerResult,

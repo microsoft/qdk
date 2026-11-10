@@ -10,6 +10,7 @@ import pytest
 from qdk import Context, openqasm, qsharp
 from qdk.estimator import LogicalCounts
 from qdk.qre import (
+    DemoModel1,
     Profiler,
     ProfilerResult,
     SequentialCountingProfiler,
@@ -146,16 +147,18 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
             [M(qs[0]), M(qs[1]), M(qs[2])]
         }
         """)
-    config = TemporalProfilerConfig(
+    model = DemoModel1(
         clifford_gate_time_nanos=5000,
         measurment_time_nanos=1000,
-        aggregation_window_nanos=10_000,
         t_factories_count=5,
-        seed=42,
-        record_trace=True,
         ecc_distance=7,
     )
-    profiler = TemporalProfiler(config)
+    config = TemporalProfilerConfig(
+        aggregation_window_nanos=10_000,
+        seed=42,
+        record_trace=True,
+    )
+    profiler = TemporalProfiler(model, config)
     profiler.add_adapter("result_adapter")
     profiler.add_adapter("transpiler")
     profiler = QREProfiler(profiler)
@@ -170,9 +173,42 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
     assert data["totals"]["logical_qubits"] == result.totals.logical_qubits
     assert result.totals.logical_qubits == 28
     assert result.totals.logical_compute_qubits == 3
+    assert result.totals.physical_qubits == 28 * (2 * 7**2 - 1)
     assert data["totals"]["logical_compute_qubits"] == 3
     assert data["totals"]["error"] == result.totals.error
     assert 0.0 < result.totals.error < 0.33
+
+
+def test_temporal_profiler_configuration() -> None:
+    """Keep hardware parameters separate from the three profiler settings."""
+    model = DemoModel1(clifford_gate_time_nanos=5000, measurment_time_nanos=1000)
+    assert model.clifford_gate_time_nanos == 5000
+    assert model.measurment_time_nanos == 1000
+    assert model.t_factories_count == 10
+    assert model.ecc_distance == 9
+
+    config = TemporalProfilerConfig()
+    assert {name for name in dir(config) if not name.startswith("_")} == {
+        "aggregation_window_nanos",
+        "seed",
+        "record_trace",
+    }
+    assert config.aggregation_window_nanos == 1_000_000_000
+    assert config.seed is None
+    assert config.record_trace is False
+    with pytest.raises(ValueError, match="aggregation_window_nanos"):
+        TemporalProfilerConfig(aggregation_window_nanos=0)
+
+
+@pytest.mark.parametrize("field", ["t_factories_count", "ecc_distance"])
+def test_demo_model_invalid_parameters(field: str) -> None:
+    """Preserve positive factory-count and code-distance validation on the model."""
+    with pytest.raises(ValueError, match=field):
+        DemoModel1(
+            clifford_gate_time_nanos=5000,
+            measurment_time_nanos=1000,
+            **{field: 0},
+        )
 
 
 @pytest.mark.parametrize("use_qir", [False, True])

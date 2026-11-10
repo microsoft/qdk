@@ -13,7 +13,6 @@ use pyo3::{
     prelude::*,
     types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple, PyType},
 };
-use qep::DemoModel1;
 use qre::TraceTransform;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -27,6 +26,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ProfilerResult>()?;
     m.add_class::<Profiler>()?;
     m.add_class::<SequentialCountingProfiler>()?;
+    m.add_class::<DemoModel1>()?;
     m.add_class::<TemporalProfilerConfig>()?;
     m.add_class::<TemporalProfiler>()?;
     m.add_class::<ISA>()?;
@@ -357,37 +357,26 @@ impl SequentialCountingProfiler {
     }
 }
 
-/// Immutable configuration for temporal quantum profiling.
+/// Immutable hardware settings for the demo quantum computer model.
 #[pyclass(module = "qdk.qre", frozen, get_all)]
-pub struct TemporalProfilerConfig {
+pub struct DemoModel1 {
     clifford_gate_time_nanos: usize,
     measurment_time_nanos: usize,
-    aggregation_window_nanos: usize,
     t_factories_count: usize,
-    seed: Option<u64>,
-    record_trace: bool,
     ecc_distance: usize,
 }
 
 #[pymethods]
-impl TemporalProfilerConfig {
-    /// Creates a configuration with explicit gate timings and validated window and factory counts.
+impl DemoModel1 {
+    /// Creates demo hardware settings with explicit timings and positive factory count and distance.
     #[new]
-    #[pyo3(signature = (*, clifford_gate_time_nanos, measurment_time_nanos, aggregation_window_nanos=1_000_000_000, t_factories_count=10, seed=None, record_trace=false, ecc_distance=9))]
+    #[pyo3(signature = (*, clifford_gate_time_nanos, measurment_time_nanos, t_factories_count=10, ecc_distance=9))]
     fn new(
         clifford_gate_time_nanos: usize,
         measurment_time_nanos: usize,
-        aggregation_window_nanos: usize,
         t_factories_count: usize,
-        seed: Option<u64>,
-        record_trace: bool,
         ecc_distance: usize,
     ) -> PyResult<Self> {
-        if aggregation_window_nanos == 0 {
-            return Err(PyValueError::new_err(
-                "aggregation_window_nanos must be greater than zero",
-            ));
-        }
         if t_factories_count == 0 {
             return Err(PyValueError::new_err(
                 "t_factories_count must be greater than zero",
@@ -401,11 +390,39 @@ impl TemporalProfilerConfig {
         Ok(Self {
             clifford_gate_time_nanos,
             measurment_time_nanos,
-            aggregation_window_nanos,
             t_factories_count,
+            ecc_distance,
+        })
+    }
+}
+
+/// Immutable scheduling and recording settings for temporal quantum profiling.
+#[pyclass(module = "qdk.qre", frozen, get_all)]
+pub struct TemporalProfilerConfig {
+    aggregation_window_nanos: usize,
+    seed: Option<u64>,
+    record_trace: bool,
+}
+
+#[pymethods]
+impl TemporalProfilerConfig {
+    /// Creates profiler settings with a positive aggregation window.
+    #[new]
+    #[pyo3(signature = (*, aggregation_window_nanos=1_000_000_000, seed=None, record_trace=false))]
+    fn new(
+        aggregation_window_nanos: usize,
+        seed: Option<u64>,
+        record_trace: bool,
+    ) -> PyResult<Self> {
+        if aggregation_window_nanos == 0 {
+            return Err(PyValueError::new_err(
+                "aggregation_window_nanos must be greater than zero",
+            ));
+        }
+        Ok(Self {
+            aggregation_window_nanos,
             seed,
             record_trace,
-            ecc_distance,
         })
     }
 }
@@ -416,14 +433,14 @@ pub struct TemporalProfiler;
 
 #[pymethods]
 impl TemporalProfiler {
-    /// Creates a temporal profiler using the required explicit timing configuration.
+    /// Creates fresh model state from hardware settings and profiler configuration.
     #[new]
-    fn new(config: &TemporalProfilerConfig) -> PyClassInitializer<Self> {
-        let model = DemoModel1::new(
-            config.clifford_gate_time_nanos,
-            config.measurment_time_nanos,
-            config.t_factories_count,
-            config.ecc_distance,
+    fn new(model: &DemoModel1, config: &TemporalProfilerConfig) -> PyClassInitializer<Self> {
+        let model = qep::DemoModel1::new(
+            model.clifford_gate_time_nanos,
+            model.measurment_time_nanos,
+            model.t_factories_count,
+            model.ecc_distance,
         );
         let config = qep::TemporalProfilerConfig {
             aggregation_window_nanos: config.aggregation_window_nanos,

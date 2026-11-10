@@ -76,37 +76,47 @@ class SequentialCountingProfiler(Profiler):
         gate_time_sec: Optional[dict[str, float]] = None,
     ) -> SequentialCountingProfiler: ...
 
-class TemporalProfilerConfig:
-    """Temporal profiling settings with required gate durations in nanoseconds."""
+class DemoModel1:
+    """Demo hardware settings with explicit gate durations in nanoseconds."""
 
     def __new__(
         cls,
         *,
         clifford_gate_time_nanos: int,
         measurment_time_nanos: int,
-        aggregation_window_nanos: int = 1_000_000_000,
         t_factories_count: int = 10,
-        seed: Optional[int] = None,
-        record_trace: bool = False,
         ecc_distance: int = 9,
-    ) -> TemporalProfilerConfig: ...
+    ) -> DemoModel1: ...
     @property
     def clifford_gate_time_nanos(self) -> int: ...
     @property
     def measurment_time_nanos(self) -> int: ...
     @property
-    def aggregation_window_nanos(self) -> int: ...
-    @property
     def t_factories_count(self) -> int: ...
+    @property
+    def ecc_distance(self) -> int: ...
+
+class TemporalProfilerConfig:
+    """Aggregation, randomness, and trace-recording settings."""
+
+    def __new__(
+        cls,
+        *,
+        aggregation_window_nanos: int = 1_000_000_000,
+        seed: Optional[int] = None,
+        record_trace: bool = False,
+    ) -> TemporalProfilerConfig: ...
+    @property
+    def aggregation_window_nanos(self) -> int: ...
     @property
     def seed(self) -> Optional[int]: ...
     @property
     def record_trace(self) -> bool: ...
-    @property
-    def ecc_distance(self) -> int: ...
 
 class TemporalProfiler(Profiler):
-    def __new__(cls, config: TemporalProfilerConfig) -> TemporalProfiler: ...
+    def __new__(
+        cls, model: DemoModel1, config: TemporalProfilerConfig
+    ) -> TemporalProfiler: ...
 
 class ISA:
     def __add__(self, other: ISA) -> ISA:

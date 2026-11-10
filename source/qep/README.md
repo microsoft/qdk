@@ -312,15 +312,15 @@ trace representation.
 
 #### Demo hardware model
 
-`make_profiler_for_demo_model(config)` constructs a `TemporalProfiler<DemoModel1>` using
-`TemporalProfilerConfig`. This model has the following behavior:
+`TemporalProfiler::new(model, config)` constructs a `TemporalProfiler<DemoModel1>` from
+the hardware model and a separate `TemporalProfilerConfig`. This model has the following behavior:
 * Native instructions are `cx`, `h`, `s`, `sadj`, `x`, `y`, `z`, `t`, `tadj`, `mz`, and `reset`.
 * Instructions are ordered by their per-qubit dependencies. Independent
   instructions can run concurrently, including successors unblocked by the same operation.
 * Instruction completion events are ordered by timestamp, with equal-time events processed FIFO.
 * Rust's default model uses distance 9 and a conservative uniform Clifford latency of
   three logical time steps (`3 * ecc_distance * 1,000` ns, or 27,000 ns).
-  Python accepts an explicit `clifford_gate_time_nanos`; the demo uses the same formula.
+  Python's `DemoModel1` accepts an explicit `clifford_gate_time_nanos`; the demo uses 5,000 ns.
   Measurement and reset each use `measurment_time_nanos` (1,000 ns by default).
   Explicit timing overrides are not automatically rescaled when distance changes.
 * Every T factory starts an `11 * ecc_distance * 1,000` ns distillation round at startup. Each attempt succeeds with
@@ -337,8 +337,9 @@ trace representation.
   Ready factories are selected FIFO within each resource type.
 * Instruction references and qubit dependencies persist across QIR batches, including the
   adaptive-profile result barrier. `ResultAdapter` maintains result registers across batches.
-* `TemporalProfilerConfig` configures the aggregation window, factory count, ECC distance, and optional
-  `seed`. Defaults use distance nine, ten factories, and no seed. A fixed seed reproduces both distillation
+* `DemoModel1` configures gate timings, factory count, and ECC distance, defaulting to ten factories and distance nine.
+  `TemporalProfilerConfig` contains only `aggregation_window_nanos`, `seed`, and `record_trace`.
+  Defaults use one-second windows, no seed, and no trace recording. A fixed seed reproduces both distillation
   outcomes and measurement bits. Construction requires positive distance, at least one factory, and a nonzero window.
 
 The demo explicitly assumes a future hardware target with physical Clifford and raw T-state
@@ -375,17 +376,20 @@ SX, SWAP, Toffoli, and supported QFT rotations into native gates. Profiles and t
 decomposed operations, not result-register accesses or the original composite gates.
 
 The C temporal-profiler entry point installs these adapters automatically.
-The Python binding also uses `make_profiler_for_demo_model` with these adapters internally.
-Python requires both timing arguments explicitly; `TemporalProfiler` requires a configuration:
+Python takes the hardware model and profiler configuration separately and installs adapters explicitly.
+`DemoModel1` requires both timing arguments:
 
 ```python
-from qdk.qre import TemporalProfilerConfig, TemporalProfiler
+from qdk.qre import DemoModel1, TemporalProfilerConfig, TemporalProfiler
 
-profiler = TemporalProfiler(TemporalProfilerConfig(
+model = DemoModel1(
     clifford_gate_time_nanos=27_000,
     measurment_time_nanos=1_000,
     ecc_distance=9,
-))
+)
+profiler = TemporalProfiler(model, TemporalProfilerConfig())
+profiler.add_adapter("transpiler")
+profiler.add_adapter("result_adapter")
 ```
 
 Changing instruction timings does not change the separate factory distillation duration.
