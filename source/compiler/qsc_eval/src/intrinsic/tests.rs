@@ -818,6 +818,27 @@ fn truncate() {
 }
 
 #[test]
+fn apply_unitary_nonfinite_entries() {
+    for value in ["0.0 / 0.0", "1.0 / 0.0", "-1.0 / 0.0", "1e308"] {
+        for field in ["Real", "Imag"] {
+            let other = if field == "Real" { "Imag" } else { "Real" };
+            let expr = format!(
+                "{{ use q = Qubit();
+                    let bad = new Std.Math.Complex {{ {field} = {value}, {other} = 0.0 }};
+                    let z = new Std.Math.Complex {{ Real = 0.0, Imag = 0.0 }};
+                    ApplyUnitary([[bad, z], [z, bad]], [q]);
+                }}"
+            );
+            check_intrinsic_result(
+                "",
+                &expr,
+                &expect!["intrinsic callable `Apply` failed: matrix is not unitary"],
+            );
+        }
+    }
+}
+
+#[test]
 fn sqrt() {
     check_intrinsic_value("", "Microsoft.Quantum.Math.Sqrt(0.0)", &Value::Double(0.0));
     check_intrinsic_value("", "Microsoft.Quantum.Math.Sqrt(81.0)", &Value::Double(9.0));
