@@ -14,6 +14,26 @@ use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_p
 use std::fmt::Write;
 
 #[test]
+fn dynamically_configured_noise_uses_run_seed() {
+    for use_loss in [false, true] {
+        let run = || {
+            let mut sim = SparseSim::new();
+            sim.set_seed(Some(42));
+            if use_loss {
+                sim.set_loss(0.5);
+            } else {
+                sim.set_noise(&PauliNoise::from_probabilities(0.5, 0.0, 0.0).expect("valid noise"));
+            }
+            let q = sim.qubit_allocate().expect("allocation succeeds");
+            (0..64)
+                .map(|_| sim.mresetz(q).expect("measurement succeeds"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(), run());
+    }
+}
+
+#[test]
 fn pauli_noise() {
     let noise = PauliNoise::from_probabilities(0.0, 0.0, 0.0);
     assert!(

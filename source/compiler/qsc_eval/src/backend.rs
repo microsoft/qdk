@@ -558,6 +558,7 @@ pub struct SparseSim {
     /// Random number generator to sample any noise.
     /// Noise is not applied when rng is None.
     pub rng: Option<StdRng>,
+    noise_seed: Option<u64>,
 }
 
 impl Default for SparseSim {
@@ -576,6 +577,7 @@ impl SparseSim {
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
             rng: None,
+            noise_seed: None,
         }
     }
 
@@ -595,6 +597,7 @@ impl SparseSim {
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
             rng: Some(StdRng::from_rng(&mut rand::rng())),
+            noise_seed: None,
         }
     }
 
@@ -603,7 +606,10 @@ impl SparseSim {
         if noise.is_noiseless() && self.loss.is_zero() {
             self.rng = None;
         } else {
-            self.rng = Some(StdRng::from_rng(&mut rand::rng()));
+            self.rng.get_or_insert_with(|| {
+                self.noise_seed
+                    .map_or_else(|| StdRng::from_rng(&mut rand::rng()), StdRng::seed_from_u64)
+            });
         }
     }
 
@@ -612,7 +618,10 @@ impl SparseSim {
         if loss.is_zero() && self.noise.is_noiseless() {
             self.rng = None;
         } else {
-            self.rng = Some(StdRng::from_rng(&mut rand::rng()));
+            self.rng.get_or_insert_with(|| {
+                self.noise_seed
+                    .map_or_else(|| StdRng::from_rng(&mut rand::rng()), StdRng::seed_from_u64)
+            });
         }
     }
 
@@ -1177,6 +1186,7 @@ impl Backend for SparseSim {
     }
 
     fn set_seed(&mut self, seed: Option<u64>) {
+        self.noise_seed = seed;
         if let Some(seed) = seed {
             if !self.is_noiseless() {
                 self.rng = Some(StdRng::seed_from_u64(seed));
