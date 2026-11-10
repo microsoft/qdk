@@ -5,6 +5,7 @@
 //!
 //! Values must stay in sync with the Python `_adaptive_opcodes.py` module.
 
+pub(crate) mod encoding;
 pub mod runtime;
 
 use bytemuck::{Pod, Zeroable};
