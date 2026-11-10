@@ -5,6 +5,7 @@ use expect_test::expect;
 use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
 
 use super::compile_source_to_qir;
+use super::compile_source_to_qir_with_diagnostics;
 use super::compile_source_to_qir_with_library;
 use super::compile_source_to_rir;
 
@@ -18,6 +19,248 @@ static CAPABILITIES_DYNAMIC_QUBIT_ALLOC: std::sync::LazyLock<TargetCapabilityFla
         TargetCapabilityFlags::from(Profile::Adaptive)
             | TargetCapabilityFlags::DynamicQubitAllocation
     });
+
+#[test]
+fn classical_sum_preserves_recursive_call_under_adaptive() {
+    let result = compile_source_to_qir_with_diagnostics(
+        r#"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        operation Main() : Int {
+            Sum(3)
+        }
+        "#,
+        *CAPABILITIES,
+    )
+    .expect("QIR should compile");
+
+    assert_eq!(result.capabilities, *CAPABILITIES);
+    assert!(result.warnings.is_empty());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          %var_9 = call i64 @Sum(i64 2)
+          %var_10 = add i64 3, %var_9
+          call void @__quantum__rt__int_record_output(i64 %var_10, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        define internal i64 @Sum(i64 %var_0) {
+        block_1:
+          %var_1 = alloca i64
+          %var_3 = alloca i64
+          %var_4 = alloca i64
+          %var_5 = alloca i64
+          store i64 %var_0, ptr %var_1
+          %var_12 = load i64, ptr %var_1
+          %var_2 = icmp eq i64 %var_12, 0
+          br i1 %var_2, label %block_2, label %block_3
+        block_2:
+          store i64 0, ptr %var_3
+          br label %block_4
+        block_3:
+          store i64 %var_0, ptr %var_4
+          store i64 %var_0, ptr %var_5
+          %var_15 = load i64, ptr %var_5
+          %var_6 = sub i64 %var_15, 1
+          %var_7 = call i64 @Sum(i64 %var_6)
+          %var_16 = load i64, ptr %var_4
+          %var_8 = add i64 %var_16, %var_7
+          store i64 %var_8, ptr %var_3
+          br label %block_4
+        block_4:
+          %var_18 = load i64, ptr %var_3
+          ret i64 %var_18
+        }
+
+        declare void @__quantum__rt__int_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
+    "#]].assert_eq(&result.qir);
+}
+
+#[test]
+fn classical_loop_bound_stays_adaptive() {
+    let result = compile_source_to_qir_with_diagnostics(
+        r#"
+        function Count(xs : Double[]) : Int {
+            mutable t = 0;
+            for i in 0..Length(xs) - 1 {
+                set t += 1;
+            }
+            mutable s = 0;
+            for k in 0..t - 1 {
+                set s += k;
+            }
+            s
+        }
+        function Caller(xs : Double[]) : Int {
+            Count(Std.Arrays.Mapped(x -> x, xs))
+        }
+        operation Main() : Int {
+            Caller([1.0, 2.0, 3.0])
+        }
+        "#,
+        *CAPABILITIES,
+    )
+    .expect("QIR should compile");
+
+    assert_eq!(result.capabilities, *CAPABILITIES);
+    assert!(result.warnings.is_empty());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__rt__int_record_output(i64 3, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @__quantum__rt__int_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
+    "#]].assert_eq(&result.qir);
+}
+
+#[test]
+fn returned_scalar_callable_in_mutable_loop_compiles_to_qir() {
+    let qir = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use r = Qubit();
+            mutable a = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            for _ in 0..0 { a = g(a)(2); }
+            if a == 4 { X(r); }
+            MResetZ(r)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
+
+#[test]
+fn returned_scalar_callable_in_runtime_while_compiles_to_qir() {
+    let qir = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use r = Qubit();
+            let count = if MResetZ(r) == Zero { 3 } else { 0 };
+            mutable a = 0;
+            mutable i = 0;
+            let g = a1 -> (a2 => a1 + 2 * a2);
+            while i < count {
+                a = g(a)(2);
+                i += 1;
+            }
+            if a == 12 { X(r); }
+            MResetZ(r)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
+
+#[test]
+fn conditional_returned_scalar_callable_with_argument_mutation_compiles_to_qir() {
+    let qir = compile_source_to_qir(
+        r#"
+        function Make(x : Int) : Int => Int { y => x + 2 * y }
+        operation Main() : Result {
+            use q = Qubit();
+            use r = Qubit();
+            mutable a = 0;
+            let value = (
+                if MResetZ(q) == Zero { Make(a) }
+                else { Make(a + 1) }
+            )({ a = 9; 2 });
+            if value == 4 { X(r); }
+            MResetZ(r)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
+
+#[test]
+fn array_update_scalar_evaluates_index_then_replacement_then_container() {
+    assert_array_update_operand_order("0", "true");
+}
+
+#[test]
+fn array_update_range_evaluates_index_then_replacement_then_container() {
+    assert_array_update_operand_order("0..0", "[true]");
+}
+
+fn assert_array_update_operand_order(index: &str, replacement: &str) {
+    let expected = compile_source_to_qir(
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            H(q); X(q); Z(q);
+            MResetZ(q)
+        }
+        "#,
+        *CAPABILITIES,
+    );
+    let source = format!(
+        r#"
+        operation Main() : Result {{
+            use q = Qubit();
+            let ignored = {{ Z(q); [false] }}
+                w/ {{ H(q); {index} }} <- {{ X(q); {replacement} }};
+            MResetZ(q)
+        }}
+        "#
+    );
+    assert_eq!(compile_source_to_qir(&source, *CAPABILITIES), expected);
+}
 
 #[test]
 fn nested_for_over_qubit_slice_succeeds() {
@@ -464,7 +707,7 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
                     for q in qs[1...] {
                         CNOT(qs[0], q);
                     }
-                    set done = MResetZ(qs[0]) == One;
+                    done = MResetZ(qs[0]) == One;
                 }
             }
         }";
@@ -566,7 +809,7 @@ fn result_array_dynamic_index_succeeds() {
                 mutable count = 0;
                 for i in 0..3 {
                     if results[i] == One {
-                        set count += 1;
+                        count += 1;
                     }
                 }
                 count
@@ -689,8 +932,8 @@ fn result_array_while_loop_dynamic_index_succeeds() {
                 mutable count = 0;
                 mutable i = 0;
                 while i < 4 {
-                    if results[i] == One { set count += 1; }
-                    set i += 1;
+                    if results[i] == One { count += 1; }
+                    i += 1;
                 }
                 count
             }
@@ -805,7 +1048,7 @@ fn mutable_result_variable_succeeds() {
                 mutable r = M(q);
                 if r == One {
                     X(q);
-                    set r = M(q);
+                    r = M(q);
                 }
                 r
             }
@@ -1189,8 +1432,8 @@ fn static_while_inside_emit_while_succeeds() {
                 while MResetZ(q) == One {
                     mutable idx = 0;
                     while idx < 3 {
-                        set total += 1;
-                        set idx += 1;
+                        total += 1;
+                        idx += 1;
                     }
                 }
                 total
@@ -1289,9 +1532,9 @@ fn nested_emit_while_loops_succeeds() {
                     mutable inner = 0;
                     while inner < 2 {
                         H(qs[1]);
-                        set inner += 1;
+                        inner += 1;
                     }
-                    set outer += 1;
+                    outer += 1;
                 }
                 outer
             }
@@ -2198,6 +2441,103 @@ fn qubit_allocating_callable_inlines_when_dynamic_alloc_disabled() {
     );
 }
 
+#[test]
+fn curried_allocation_preserves_live_caller_qubit() {
+    let source = r#"
+        operation Inc(x : Int) : Int {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        @EntryPoint()
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    assert_curried_allocation_preserves_caller(&compile_source_to_qir(source, *CAPABILITIES));
+}
+
+#[test]
+fn curried_transitive_allocation_preserves_live_caller_qubit() {
+    let source = r#"
+        operation Inner() : Unit {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+        }
+        operation Inc(x : Int) : Int {
+            Inner();
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        @EntryPoint()
+        operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            a = Curried2(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            b = Curried2(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    assert_curried_allocation_preserves_caller(&compile_source_to_qir(source, *CAPABILITIES));
+}
+
+fn assert_curried_allocation_preserves_caller(qir: &str) {
+    assert!(qir.contains("\"required_num_qubits\"=\"2\""), "{qir}");
+    assert_eq!(
+        qir.matches("call void @__quantum__rt__int_record_output(i64 5,")
+            .count(),
+        2,
+        "{qir}"
+    );
+    assert!(!qir.contains("define internal i64"), "{qir}");
+}
+
+#[test]
+fn curried_caller_owned_qubit_remains_an_emitted_call() {
+    let source = r#"
+        operation Inc(q : Qubit, x : Int) : Int {
+            H(q);
+            Reset(q);
+            x + 1
+        }
+        function Curried2(f : (Int => Int)) : (Int -> (Int => Int)) {
+            a1 -> (a2 => f(a1 + 2 * a2))
+        }
+        @EntryPoint()
+        operation Main() : (Int, Int, Result) {
+            use work = Qubit();
+            mutable a = 0;
+            mutable b = 0;
+            a = Curried2(Inc(work, _))(a)(2);
+            use r = Qubit();
+            X(r);
+            b = Curried2(Inc(work, _))(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.lines()
+            .any(|line| line.starts_with("define internal i64") && line.contains("lambda")),
+        "{qir}"
+    );
+}
+
 /// A `Controlled` call inlines: the controlled specialization takes a
 /// synthesized dynamic-length `Qubit[]` control register that has no
 /// base-phase RIR representation, so it is never emitted as an IR function.
@@ -2366,7 +2706,7 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
             operation Foo(q : Qubit) : Int {
                 mutable x = 1;
                 if MResetZ(q) == One {
-                    set x = 2;
+                    x = 2;
                 }
                 x
             }
@@ -2452,9 +2792,9 @@ fn value_returning_ir_function_reloads_after_same_block_store() {
             operation Foo(q : Qubit) : Int {
                 mutable x = 0;
                 if MResetZ(q) == One {
-                    set x = 5;
+                    x = 5;
                 }
-                set x = x + 1;
+                x = x + 1;
                 x
             }
             @EntryPoint()
@@ -2536,9 +2876,9 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
             operation Foo(q : Qubit) : Int {
                 mutable x = 0;
                 if MResetZ(q) == One {
-                    set x = 5;
+                    x = 5;
                 }
-                set x = x + 1;
+                x = x + 1;
                 x
             }
             @EntryPoint()
@@ -2630,11 +2970,11 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
             num_results: 1
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-282)
+                0 = SubProgram name=Main location=(2-274)
                 1 = SubProgram name=Foo location=(2-29)
                 2 = SubProgram name=MResetZ location=(1-182413)
             dbg_locations:
-                [1]: scope=0 location=(2-363)
+                [1]: scope=0 location=(2-355)
                 [2]: scope=1 location=(2-112) inlined_at=1
                 [3]: scope=2 location=(1-182462) inlined_at=2
                 [4]: scope=1 location=(2-109) inlined_at=1
@@ -2969,6 +3309,77 @@ fn point_in_time_copy_of_mutable_variable_copied_across_multiple_dynamic_branch_
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn function_choosing_between_qubits_is_inlined() {
+    let source = "
+        function ChooseQubit(b : Bool, q1 : Qubit, q2 : Qubit) : Qubit {
+            if b { q1 } else { q2 }
+        }
+        operation Main() : Result {
+            use (q1, q2) = (Qubit(), Qubit());
+            let r = MResetZ(q1);
+            let chosen = ChooseQubit(r == Zero, q1, q2);
+            MResetZ(chosen)
+        }
+    ";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          %var_3 = alloca ptr
+          %var_4 = alloca ptr
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_1 = icmp eq i1 %var_0, false
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          store ptr inttoptr (i64 0 to ptr), ptr %var_3
+          br label %block_3
+        block_2:
+          store ptr inttoptr (i64 1 to ptr), ptr %var_3
+          br label %block_3
+        block_3:
+          %var_6 = load ptr, ptr %var_3
+          store ptr %var_6, ptr %var_4
+          %var_8 = load ptr, ptr %var_4
+          call void @__quantum__qis__mresetz__body(ptr %var_8, ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
+
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
         attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 

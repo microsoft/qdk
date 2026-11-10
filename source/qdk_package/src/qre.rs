@@ -17,7 +17,7 @@ use qre::TraceTransform;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
-use crate::interpreter::{Interpreter, args_to_values, extract_callable_value};
+use crate::interpreter::{Interpreter, extract_callable_value, prepare_callable_args};
 
 pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TotalCounts>()?;
@@ -296,12 +296,14 @@ impl Profiler {
     ) -> PyResult<ProfilerResult> {
         use qep::Profiler as _;
 
-        let callable = extract_callable_value(py, &callable)?;
-        let (input_ty, output_ty) = interpreter
-            .interpreter
-            .global_callable_ty(&callable)
-            .ok_or_else(|| PyValueError::new_err("callable not found"))?;
-        let args = args_to_values(&interpreter.interpreter, py, args, &input_ty, &output_ty)?;
+        let callable = extract_callable_value(py, &callable, &interpreter.callable_owner)?;
+        let args = prepare_callable_args(
+            &interpreter.interpreter,
+            py,
+            &callable,
+            args,
+            &interpreter.callable_owner,
+        )?;
         self.backend_mut()
             .profile_qsharp(&mut interpreter.interpreter, callable, args)
             .map(Into::into)

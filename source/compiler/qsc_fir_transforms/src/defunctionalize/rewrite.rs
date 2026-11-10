@@ -386,15 +386,16 @@ pub(super) fn build_specialized_call_args(
             let args = if let ExprKind::Var(Res::Local(local), _) = package.get_expr(args).kind
                 && let CaptureScope::Callable(owner) | CaptureScope::CloneScope(owner) = destination
             {
-                replayable_local_initializer(package, owner, local).unwrap_or(args)
+                projectable_local_initializer(package, owner, local, &package.get_expr(args).ty)
+                    .unwrap_or(args)
             } else {
                 args
             };
             let original = package.get_expr(args).clone();
-            let slots = if uses_tuple_input {
-                tuple_argument_elements(udts, package, &original, assigner)?
+            let (mut prefix, slots) = if uses_tuple_input {
+                materialize_tuple_argument_elements(udts, package, &original, assigner)?
             } else {
-                vec![args]
+                (Vec::new(), vec![args])
             };
             let mut retained = Vec::new();
             for (index, slot) in slots.into_iter().enumerate() {
@@ -425,12 +426,8 @@ pub(super) fn build_specialized_call_args(
             if let Some(value) =
                 pack_declared_input(package, with_empty, input, original.span, assigner)
             {
-                return Some(RewrittenArgs {
-                    value,
-                    prefix: Vec::new(),
-                });
+                return Some(RewrittenArgs { value, prefix });
             }
-            let mut prefix = Vec::new();
             if let Some(last_effect) = retained.iter().rposition(|(value, consumed)| {
                 *consumed && !expr_is_safe_to_discard(package, package.id, *value)
             }) {
@@ -501,8 +498,8 @@ pub(super) fn rewrite(
     declared_inputs: &FxHashMap<StoreItemId, Ty>,
 ) {
     let udts = &analysis.udt_metadata;
-    let capture_dependencies = capture_expression_dependencies(package, package_id, analysis);
-    let capture_expressions: FxHashMap<_, _> = capture_dependencies
+    let call_dependencies = call_expression_dependencies(package, package_id, analysis);
+    let analyzed_expressions: FxHashMap<_, _> = call_dependencies
         .values()
         .flatten()
         .map(|&id| (id, package.get_expr(id).clone()))
@@ -569,11 +566,11 @@ pub(super) fn rewrite(
     // Rewriting an outer call can copy its argument tree. Finish every inner
     // HOF or direct closure invocation before any enclosing call copies it.
     for call_expr_id in expressions_in_postorder(package) {
-        if capture_dependencies
+        if call_dependencies
             .get(&call_expr_id)
             .is_some_and(|dependencies| {
                 dependencies.iter().any(|id| {
-                    let before = &capture_expressions[id];
+                    let before = &analyzed_expressions[id];
                     let after = package.get_expr(*id);
                     before != after
                         && !matches!(
@@ -584,8 +581,8 @@ pub(super) fn rewrite(
                 })
             })
         {
-            // Inner rewrites can change a captured argument's shape or introduce
-            // block-local temporaries. Reanalyze before using stale capture facts.
+            // Inner rewrites can change captures or guards in place and introduce
+            // block-local temporaries. Reanalyze before using those stale facts.
             continue;
         }
         if let Some(group) = grouped.get(&call_expr_id) {
@@ -662,20 +659,26 @@ pub(super) fn rewrite(
         &rewritten_callable_arg_locals,
         &hof_consumed_source_arrays,
         total_foreign,
+        assigner,
     );
 }
 
-/// Records the expression dependencies of analyzed capture operands per call.
+/// Records the expression dependencies of analyzed captures and guards per call.
 /// Rewriting an earlier operand can change these nodes in place, invalidating
-/// capture facts for a later direct or higher-order call. Include nested
+/// facts for a later direct or higher-order call. Include nested
 /// producer-to-caller substitutions, not only the outer capture expression.
-fn capture_expression_dependencies(
+fn call_expression_dependencies(
     package: &Package,
     package_id: PackageId,
     analysis: &AnalysisResult,
 ) -> FxHashMap<ExprId, Vec<ExprId>> {
-    fn add(package: &Package, captures: &[CapturedVar], reads: &mut FxHashSet<ExprId>) {
-        let mut roots = Vec::new();
+    fn add(
+        package: &Package,
+        captures: &[CapturedVar],
+        guards: &[ExprId],
+        reads: &mut FxHashSet<ExprId>,
+    ) {
+        let mut roots = guards.to_vec();
         for capture in captures {
             roots.extend(capture.expr);
             let mut pending: Vec<_> = capture.caller_substitutions.iter().collect();
@@ -693,12 +696,15 @@ fn capture_expression_dependencies(
 
     let mut reads: FxHashMap<ExprId, FxHashSet<ExprId>> = FxHashMap::default();
     for site in &analysis.call_sites {
-        if site.call_pkg_id == package_id
-            && let ConcreteCallable::Closure { captures, .. } = &site.callable_arg
-        {
+        if site.call_pkg_id == package_id {
+            let captures = match &site.callable_arg {
+                ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
+                _ => &[],
+            };
             add(
                 package,
                 captures,
+                &site.condition,
                 reads.entry(site.call_expr_id).or_default(),
             );
         }
@@ -708,9 +714,9 @@ fn capture_expression_dependencies(
             continue;
         }
         let target = reads.entry(site.call_expr_id).or_default();
-        add(package, &site.captures, target);
+        add(package, &site.captures, &site.condition, target);
         if let ConcreteCallable::Closure { captures, .. } = &site.callable {
-            add(package, captures, target);
+            add(package, captures, &[], target);
         }
     }
     reads
@@ -2721,7 +2727,7 @@ impl<'a> Visitor<'a> for LocalInitFinder<'a> {
 
 /// Locates the initializer expression for a given local variable inside a
 /// reachable callable body.
-fn find_local_init_expr_in_callable(
+pub(crate) fn find_local_init_expr_in_callable(
     package: &Package,
     callable_id: LocalItemId,
     local_var: LocalVarId,
@@ -2781,20 +2787,52 @@ fn replayable_local_initializer(
     (!reads_mutable).then_some(init)
 }
 
+/// Requires replay safety, a matching argument type, and a projectable shape.
+/// The type check excludes whole destructuring initializers for a single binding.
+///
+/// Tuple and struct literals expose their children directly. Local reads and
+/// field accesses preserve a stored value that argument reduction can project.
+/// UDT constructor calls are structural wrappers around their argument aggregate,
+/// so reduction can unwrap them. Ordinary factory calls expose no such structure
+/// and stay stored: safe replay alone does not make their result fields available.
+fn projectable_local_initializer(
+    package: &Package,
+    callable_id: LocalItemId,
+    local_var: LocalVarId,
+    argument_ty: &Ty,
+) -> Option<ExprId> {
+    replayable_local_initializer(package, callable_id, local_var).filter(|&initializer| {
+        let expr = package.get_expr(initializer);
+        &expr.ty == argument_ty
+            && (matches!(
+                expr.kind,
+                ExprKind::Tuple(_)
+                    | ExprKind::Struct(..)
+                    | ExprKind::Var(Res::Local(_), _)
+                    | ExprKind::Field(..)
+            ) || type_constructor_args(package, expr).is_some())
+    })
+}
+
 /// Prunes eligible callable-argument locals and closure-bearing source arrays
 /// after their reads have been consumed by call-site rewrites.
 ///
-/// Removes dead immutable bindings and selected write-only bindings and
-/// assignments, then runs general dead-callable-local cleanup. This does not
-/// eliminate every arrow-typed residue.
-fn prune_dead_callable_arg_locals(
+/// Removes dead immutable aliases before selected write-only bindings and
+/// assignments, then runs general dead-callable-local cleanup again. This does
+/// not eliminate every arrow-typed residue.
+pub(crate) fn prune_dead_callable_arg_locals(
     udts: &UdtMetadata,
     package: &mut Package,
     package_id: PackageId,
     rewritten_callable_arg_locals: &FxHashSet<(LocalItemId, LocalVarId)>,
     hof_consumed_source_arrays: &FxHashSet<(LocalItemId, LocalVarId)>,
     total_foreign: &FxHashSet<ItemId>,
+    assigner: &mut Assigner,
 ) {
+    // Consumed closures can leave immutable snapshot aliases that still appear
+    // to read a mutable callable. Remove those aliases before testing stores.
+    prune_dead_top_level_callable_locals(udts, package, package_id);
+
     let mut source_arrays: FxHashSet<(LocalItemId, LocalVarId)> = FxHashSet::default();
 
     // Closure callable-arrays forwarded and fully consumed by a higher-order
@@ -2828,24 +2866,19 @@ fn prune_dead_callable_arg_locals(
             }
             remove_dead_callable_local_from_callable(udts, package, callable_id, local_var);
         } else if !local_var_is_read_in_callable(package, callable_id, local_var)
-            && local_var_has_closure_valued_binding(package, callable_id, local_var)
+            && (local_var_has_closure_valued_binding(package, callable_id, local_var)
+                || find_local_init_expr_in_callable(package, callable_id, local_var)
+                    .is_some_and(|init| is_replayed_callable_selection(package, init)))
         {
-            // The local is still mentioned, but only as an assignment target:
-            // every read was consumed when the call site was rewritten into a
-            // direct dispatch. When such a write-only local is initialized from
-            // a partial application (`mutable op = Rx(0.0, _)`), its binding
-            // holds a closure-tailed block. Left in place, closure cleanup
-            // neutralizes that tail into a reference no one produces a value
-            // for. Removing the dead binding and its assignments avoids that.
-            // Locals bound only to plain callable references
-            // (`op = H`) carry no closure tail, so they are left untouched to
-            // preserve existing dead-code behavior.
+            // All reads became direct dispatch. Remove the write-only storage,
+            // but keep observable RHS evaluation in its original lazy scope.
             remove_write_only_callable_local_from_callable(
                 package,
                 package_id,
                 callable_id,
                 local_var,
                 total_foreign,
+                assigner,
             );
         }
     }
@@ -2864,6 +2897,7 @@ fn prune_dead_callable_arg_locals(
                 callable_id,
                 src_var,
                 total_foreign,
+                assigner,
             );
         }
     }
@@ -3035,8 +3069,8 @@ pub(crate) fn hoist_expr_into_let(
     Some((local_var, var_expr))
 }
 
-/// Reports whether `local_var` is referenced anywhere in the callable's body.
-fn local_var_is_used_in_callable(
+/// Reports whether `local_var` is referenced or captured in the callable's body.
+pub(crate) fn local_var_is_used_in_callable(
     package: &Package,
     callable_id: LocalItemId,
     local_var: LocalVarId,
@@ -3051,7 +3085,9 @@ fn local_var_is_used_in_callable(
         package,
         &decl.implementation,
         &mut |_expr_id, expr| {
-            if matches!(expr.kind, ExprKind::Var(Res::Local(var), _) if var == local_var) {
+            if matches!(expr.kind, ExprKind::Var(Res::Local(var), _) if var == local_var)
+                || matches!(&expr.kind, ExprKind::Closure(captures, _) if captures.contains(&local_var))
+            {
                 used = true;
             }
         },
@@ -3061,11 +3097,11 @@ fn local_var_is_used_in_callable(
 
 /// Returns `true` when `local_var` is read anywhere in the callable body.
 ///
-/// A read is any `Var(Res::Local(local_var))` reference other than the direct
-/// left-hand side of an assignment (`local_var = ...`). This distinguishes a
-/// still-referenced-but-write-only local, whose only remaining mentions are
-/// assignment targets, from one that is genuinely observed.
-fn local_var_is_read_in_callable(
+/// A read is a closure capture or any `Var(Res::Local(local_var))` reference
+/// other than the direct left-hand side of an assignment (`local_var = ...`).
+/// This distinguishes a still-referenced-but-write-only local, whose only
+/// remaining mentions are assignment targets, from one genuinely observed.
+pub(crate) fn local_var_is_read_in_callable(
     package: &Package,
     callable_id: LocalItemId,
     local_var: LocalVarId,
@@ -3095,6 +3131,7 @@ fn local_var_is_read_in_callable(
         &mut |expr_id, expr| {
             if matches!(expr.kind, ExprKind::Var(Res::Local(var), _) if var == local_var)
                 && !assign_lhs.contains(&expr_id)
+                || matches!(&expr.kind, ExprKind::Closure(captures, _) if captures.contains(&local_var))
             {
                 read = true;
             }
@@ -3108,8 +3145,8 @@ fn local_var_is_read_in_callable(
 ///
 /// Partial applications lower to a block whose tail is a `Closure`, so this
 /// distinguishes a callable local initialized from a partial application from
-/// one bound only to plain callable references (`op = H`), which carry no
-/// closure and need no dead-binding removal.
+/// one bound only to plain callable references (`op = H`). Plain reference
+/// selections have a separate eligibility check for dead-store removal.
 fn local_var_has_closure_valued_binding(
     package: &Package,
     callable_id: LocalItemId,
@@ -3182,17 +3219,19 @@ fn local_index_source_array_local(
 /// blocks via [`remove_write_only_callable_local_from_block`].
 ///
 /// Unlike [`remove_dead_callable_local_from_callable`], this handles `mutable`
-/// bindings and assignment statements, which arise when a callable local is
+/// bindings and assignment expressions, which arise when a callable local is
 /// initialized (and possibly reassigned) from partial applications but is only
 /// ever consumed through a call site that direct-dispatch rewriting has already
-/// replaced. Removal requires a discard-safe initializer and only discard-safe
-/// whole-local assignments; partial updates or observable writes remain intact.
-fn remove_write_only_callable_local_from_callable(
+/// replaced. Removal requires a discard-safe initializer and whole-local
+/// assignments. Observable right-hand sides remain at their original evaluation
+/// sites; partial updates and locals with surviving reads are not eligible.
+pub(crate) fn remove_write_only_callable_local_from_callable(
     package: &mut Package,
     package_id: PackageId,
     callable_id: LocalItemId,
     local_var: LocalVarId,
     total_foreign: &FxHashSet<ItemId>,
+    assigner: &mut Assigner,
 ) {
     let Some(ItemKind::Callable(decl)) = package.items.get(callable_id).map(|item| &item.kind)
     else {
@@ -3207,31 +3246,46 @@ fn remove_write_only_callable_local_from_callable(
     {
         return;
     }
-    let mut writes_are_discardable = true;
+    let mut whole_local_writes = true;
+    let mut observable_writes = Vec::new();
     crate::walk_utils::for_each_expr_in_callable_impl(
         package,
         &decl.implementation,
         &mut |id, expr| {
             if super::analysis::assignment_written_locals(package, expr).contains(&local_var) {
-                writes_are_discardable &= match expr.kind {
+                match expr.kind {
                     ExprKind::Assign(_, rhs) if expr_is_assign_to_local(package, id, local_var) => {
-                        expr_is_safe_to_discard_with_total_foreign(
+                        if !expr_is_safe_to_discard_with_total_foreign(
                             package,
                             package_id,
                             rhs,
                             total_foreign,
-                        )
+                        ) {
+                            observable_writes.push((id, rhs));
+                        }
                     }
-                    _ => false,
-                };
+                    _ => whole_local_writes = false,
+                }
             }
         },
     );
-    if !writes_are_discardable {
+    if !whole_local_writes {
         return;
     }
 
     let implementation = decl.implementation.clone();
+    for (assignment, rhs) in observable_writes {
+        // Keep the RHS intact: a returned callable may still contain effects,
+        // failures or capture bindings. Only the now-unobserved store is gone.
+        let span = package.get_expr(assignment).span;
+        let effect = alloc_semi_stmt(package, assigner, rhs, span);
+        let block = alloc_block(package, assigner, vec![effect], Ty::UNIT, span);
+        package
+            .exprs
+            .get_mut(assignment)
+            .expect("assignment should exist")
+            .kind = ExprKind::Block(block);
+    }
     match implementation {
         qsc_fir::fir::CallableImpl::Intrinsic
         | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => {}
@@ -3251,9 +3305,9 @@ fn remove_write_only_callable_local_from_callable(
 /// within a block, recursing into nested blocks.
 ///
 /// Drops `Local` bindings (of any mutability) whose pattern is a simple bind
-/// of `local_var`, and drops `local_var = ...` assignment statements. Other
-/// statements are retained and their nested blocks are walked so assignments in
-/// conditional branches or loop bodies are removed as well.
+/// of `local_var`, and drops remaining discard-safe assignment statements.
+/// Observable assignments have already become RHS-evaluation blocks. Those and
+/// other statements stay in place while nested blocks are walked.
 fn remove_write_only_callable_local_from_block(
     package: &mut Package,
     block_id: qsc_fir::fir::BlockId,
@@ -3294,13 +3348,23 @@ fn remove_write_only_callable_local_from_block(
     }
 }
 
-/// Recurses through an expression subtree removing write-only local assignments
-/// found inside nested `Block` and `While` bodies.
+/// Removes remaining discard-safe stores, preserving their Unit result when
+/// used as expressions, and recurses into nested blocks to remove bindings.
+/// Observable stores have already been replaced with RHS-evaluation blocks.
 fn remove_write_only_callable_local_from_expr(
     package: &mut Package,
     expr_id: ExprId,
     local_var: LocalVarId,
 ) {
+    if expr_is_assign_to_local(package, expr_id, local_var) {
+        package
+            .exprs
+            .get_mut(expr_id)
+            .expect("assignment should exist")
+            .kind = ExprKind::Tuple(Vec::new());
+        return;
+    }
+
     let expr_kind = package.get_expr(expr_id).kind.clone();
     match expr_kind {
         ExprKind::Block(block_id) => {
@@ -3845,7 +3909,7 @@ fn remove_dead_callable_local_from_block(
 ///
 /// Evidence for [`EvaluationDisposition::Replayed`]; see
 /// [`consumed_callable_expr_disposition`].
-fn is_replayed_callable_selection(package: &Package, expr_id: ExprId) -> bool {
+pub(crate) fn is_replayed_callable_selection(package: &Package, expr_id: ExprId) -> bool {
     match package.get_expr(expr_id).kind {
         ExprKind::If(_, then_expr_id, Some(else_expr_id)) => {
             is_replayed_callable_selection(package, then_expr_id)
@@ -4907,7 +4971,8 @@ fn reduce_argument(
     if let Some(inner_args_id) = type_constructor_args(package, &expr) {
         return reduce_argument(udts, package, inner_args_id, removal, assigner);
     }
-    let elements = tuple_argument_elements(udts, package, &expr, assigner)?;
+    let (statements, elements) =
+        materialize_tuple_argument_elements(udts, package, &expr, assigner)?;
     if children.len() != elements.len() {
         return None;
     }
@@ -4921,14 +4986,53 @@ fn reduce_argument(
             remaining.push(alloc_expr(package, assigner, ty, kind, span));
         }
     }
-    if *collapse {
-        return Some(build_expr_data_from_elements(package, remaining));
+    let (kind, ty) = if *collapse {
+        build_expr_data_from_elements(package, remaining)
+    } else {
+        let tys = remaining
+            .iter()
+            .map(|id| package.get_expr(*id).ty.clone())
+            .collect();
+        (ExprKind::Tuple(remaining), Ty::Tuple(tys))
+    };
+    Some(wrap_argument_statements(
+        package, statements, kind, ty, expr.span, assigner,
+    ))
+}
+
+/// Opaque aggregates need one stored result shared by all surviving projections.
+fn materialize_tuple_argument_elements(
+    udts: &UdtMetadata,
+    package: &mut Package,
+    expr: &Expr,
+    assigner: &mut Assigner,
+) -> Option<(Vec<StmtId>, Vec<ExprId>)> {
+    if let Some(elements) = tuple_argument_elements(udts, package, expr, assigner) {
+        return Some((Vec::new(), elements));
     }
-    let tys = remaining
-        .iter()
-        .map(|id| package.get_expr(*id).ty.clone())
-        .collect();
-    Some((ExprKind::Tuple(remaining), Ty::Tuple(tys)))
+    let Ty::Tuple(_) = udts.underlying_ty(&expr.ty) else {
+        return None;
+    };
+    let (local, binding) = crate::fir_builder::alloc_local_var(
+        package,
+        assigner,
+        "_.aggregate_argument",
+        &expr.ty,
+        expr.id,
+        Mutability::Immutable,
+    );
+    let read = crate::fir_builder::alloc_local_var_expr(
+        package,
+        assigner,
+        local,
+        expr.ty.clone(),
+        expr.span,
+    );
+    let stored = package.get_expr(read).clone();
+    Some((
+        vec![binding],
+        tuple_argument_elements(udts, package, &stored, assigner)?,
+    ))
 }
 
 /// Reuses literal aggregate children or projects a stored tuple value. Following
@@ -5855,11 +5959,8 @@ fn copy_branch_argument(
     copies: &mut FxHashMap<ExprId, ExprId>,
     assigner: &mut Assigner,
 ) -> ExprId {
-    let source = package.clone();
-    let mut cloner = crate::cloner::FirCloner::from_assigner_for_expr(std::mem::take(assigner));
-    let copy = cloner.clone_expr(&source, id, package);
-    copies.extend(cloner.expr_map());
-    *assigner = cloner.into_assigner();
+    let (copy, mapping) = crate::cloner::clone_expr_within_package_with_map(package, id, assigner);
+    copies.extend(mapping);
     copy
 }
 

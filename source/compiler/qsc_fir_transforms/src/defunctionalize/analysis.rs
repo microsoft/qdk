@@ -549,6 +549,22 @@ fn expr_is_in_scope(pkg: &Package, expr_id: ExprId, bound: &FxHashSet<LocalVarId
     checker.valid
 }
 
+/// A dispatch guard must remain in scope and safe to evaluate again without
+/// duplicating an effect or failure.
+fn guards_can_be_replayed(
+    pkg: &Package,
+    candidates: &[(ConcreteCallable, Vec<ExprId>)],
+    locals: &LocalState,
+    total_foreign: &FxHashSet<ItemId>,
+) -> bool {
+    candidates.iter().all(|(_, guards)| {
+        guards.iter().all(|&guard| {
+            expr_is_in_scope(pkg, guard, &locals.visible_bindings)
+                && expr_is_safe_to_discard_with_total_foreign(pkg, pkg.id, guard, total_foreign)
+        })
+    })
+}
+
 struct CaptureExprScopeChecker<'a> {
     package: &'a Package,
     bound: FxHashSet<LocalVarId>,
@@ -863,9 +879,10 @@ fn record_hof_call_sites(
                 });
             }
             CalleeLattice::Multi(candidates) => {
-                if candidates
-                    .iter()
-                    .any(|(cc, _)| !closure_captures_can_be_replayed(pkg, cc, locals))
+                if !guards_can_be_replayed(pkg, &candidates, locals, total_foreign)
+                    || candidates
+                        .iter()
+                        .any(|(cc, _)| !closure_captures_can_be_replayed(pkg, cc, locals))
                 {
                     record_dynamic_call_site();
                 } else {
@@ -1058,6 +1075,10 @@ fn inspect_direct_call_expr(
             });
         }
         CalleeLattice::Multi(candidates) => {
+            if !guards_can_be_replayed(pkg, &candidates, locals, total_foreign) {
+                unresolved_direct_call_sites.push((package_id, expr_id).into());
+                return;
+            }
             let mut resolved_candidates = Vec::with_capacity(candidates.len());
             for (callable, condition) in candidates {
                 let Some(captures) = resolve_direct_call_captures(
@@ -1464,11 +1485,12 @@ fn resolve_callee_at_path(
         );
     }
 
-    resolve_callee(
+    resolve_callee_projection(
         pkg,
         store,
         locals,
         args_expr_id,
+        path,
         depth + 1,
         allow_scoped_capture_exprs,
         scoped_capture_vars,

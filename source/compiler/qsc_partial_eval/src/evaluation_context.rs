@@ -81,8 +81,9 @@ impl EvaluationContext {
     }
 
     /// Pushes a new (call) scope.
-    pub fn push_scope(&mut self, s: Scope) {
+    pub fn push_scope(&mut self, s: Scope) -> usize {
         self.scopes.push(s);
+        self.scopes.len()
     }
 
     /// Determines whether we are currently in a dynamic branch context for any scope.
@@ -223,13 +224,19 @@ impl Scope {
         self.static_vars = static_vars;
     }
 
-    /// Keeps only the static literal value mappings that are also present in the provided other mapping.
+    /// Keeps only identical static literal values present in both mappings.
     pub fn keep_matching_static_var_mappings(
         &mut self,
         other_mappings: &FxHashMap<VariableId, Literal>,
     ) {
+        // Literal's approximate Double equality is not safe for constant propagation.
         self.static_vars
-            .retain(|var_id, lit| Some(&*lit) == other_mappings.get(var_id));
+            .retain(|var_id, lit| match (&*lit, other_mappings.get(var_id)) {
+                (Literal::Double(left), Some(Literal::Double(right))) => {
+                    left.to_bits() == right.to_bits()
+                }
+                (left, right) => Some(left) == right,
+            });
     }
 
     /// Gets the value of a hybrid local variable.
@@ -239,6 +246,24 @@ impl Scope {
             .get(local_var_id)
             .expect("local classcial variable value does not exist")
             .value
+    }
+
+    /// Takes an array out of both bindings for mutation; the caller must rebind it before further evaluation.
+    pub fn take_local_array(&mut self, local_var_id: LocalVarId) -> Rc<Vec<Value>> {
+        if self.is_currently_evaluating_branch() {
+            // Classical bindings must retain their pre-branch values.
+            return self
+                .get_classical_local_value(local_var_id)
+                .clone()
+                .unwrap_array();
+        }
+
+        self.update_hybrid_local_value(local_var_id, Value::unit());
+        let variable = self
+            .env
+            .get_mut(local_var_id)
+            .expect("local classical variable value does not exist");
+        std::mem::replace(&mut variable.value, Value::unit()).unwrap_array()
     }
 
     /// Updates the classical local variable values based on the current hybrid local variable values.
@@ -293,6 +318,9 @@ impl Scope {
                     updated_values.push((*local_var_id, classical_value.clone()));
                 }
             } else if let Some(classical_value) = self.env.get(*local_var_id).map(|var| &var.value)
+                // Shared arrays cannot have changed independently under copy-on-write.
+                && !matches!((classical_value, hybrid_value),
+                    (Value::Array(classical), Value::Array(hybrid)) if Rc::ptr_eq(classical, hybrid))
                 && classical_value != hybrid_value
             {
                 updated_values.push((*local_var_id, classical_value.clone()));
@@ -426,12 +454,114 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Bool(_)
         | Value::Closure(_)
         | Value::Double(_)
-        | Value::Global(_, _)
+        | Value::Global(..)
+        | Value::GlobalWithArgs(..)
         | Value::Int(_)
         | Value::Pauli(_)
         | Value::Qubit(_)
         | Value::Range(_)
         | Value::Result(Result::Val(_) | Result::Id(_))
         | Value::String(_) => ValueKind::Constant,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Arg, Scope};
+    use qsc_eval::{Variable, val::Value};
+    use qsc_fir::fir::PackageId;
+    use std::rc::Rc;
+
+    /// Creates the paired classical and hybrid bindings used by partial evaluation.
+    fn scope_with_array() -> Scope {
+        let mut values = Vec::with_capacity(4);
+        values.push(Value::Int(1));
+        Scope::new(
+            PackageId::CORE,
+            None,
+            vec![Arg::Var(
+                0_usize.into(),
+                Variable {
+                    name: "values".into(),
+                    value: Value::Array(Rc::new(values)),
+                    span: Default::default(),
+                },
+            )],
+            None,
+            false,
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    /// Verifies that internal bindings do not force a copy or discard spare vector capacity.
+    fn taking_unaliased_array_reuses_storage() {
+        let mut scope = scope_with_array();
+        let original = scope
+            .get_classical_local_value(0_usize.into())
+            .clone()
+            .unwrap_array()
+            .as_ptr();
+        let mut values = scope.take_local_array(0_usize.into());
+        assert_eq!(Rc::strong_count(&values), 1);
+        Rc::make_mut(&mut values).push(Value::Int(2));
+        assert_eq!(values.as_ptr(), original);
+    }
+
+    #[test]
+    /// Verifies that a real Q# alias still triggers copy-on-write.
+    fn taking_aliased_array_preserves_alias() {
+        let mut scope = scope_with_array();
+        let alias = scope
+            .get_classical_local_value(0_usize.into())
+            .clone()
+            .unwrap_array();
+        let mut values = scope.take_local_array(0_usize.into());
+        Rc::make_mut(&mut values).push(Value::Int(2));
+        assert_eq!(&*alias, &[Value::Int(1)]);
+        assert_eq!(&*values, &[Value::Int(1), Value::Int(2)]);
+    }
+
+    #[test]
+    /// Verifies that branch-local mutation preserves the classical and hybrid snapshots.
+    fn taking_array_in_dynamic_branch_preserves_bindings() {
+        let mut scope = scope_with_array();
+        scope.active_block_count += 1;
+        let mut values = scope.take_local_array(0_usize.into());
+        Rc::make_mut(&mut values).push(Value::Int(2));
+        for binding in [
+            scope.get_classical_local_value(0_usize.into()),
+            scope.get_hybrid_local_value(0_usize.into()),
+        ] {
+            assert_eq!(binding, &Value::Array(vec![Value::Int(1)].into()));
+        }
+    }
+
+    #[test]
+    /// Shared arrays are unchanged even when their elements do not compare equal to themselves.
+    fn collecting_updates_skips_identical_array_storage() {
+        let mut scope = scope_with_array();
+        let value = Value::Array(vec![Value::Double(f64::NAN)].into());
+        scope.update_hybrid_local_value(0_usize.into(), value.clone());
+        scope
+            .env
+            .update_variable_in_top_frame(0_usize.into(), value);
+        scope.insert_mutable_var(0_usize.into());
+        assert!(scope.collect_updated_local_values().is_empty());
+    }
+
+    #[test]
+    /// Arrays updated by the classical evaluator still propagate to the hybrid binding.
+    fn collecting_updates_detects_replaced_array_storage() {
+        let mut scope = scope_with_array();
+        let value = Value::Array(vec![Value::Int(2)].into());
+        scope
+            .env
+            .update_variable_in_top_frame(0_usize.into(), value.clone());
+        scope.insert_mutable_var(0_usize.into());
+        assert_eq!(
+            scope.collect_updated_local_values(),
+            vec![(0_usize.into(), value)]
+        );
     }
 }

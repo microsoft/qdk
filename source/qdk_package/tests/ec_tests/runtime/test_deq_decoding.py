@@ -412,7 +412,7 @@ def test_composition_reuses_primitives_without_patching_or_recompiling(
         return compile_contract(gadget, width, defaults)
 
     def build_primitives(*args, **kwargs):
-        from deq.circuit.model import (
+        from deqagram import (
             CodeDefinition,
             GadgetDefinition,
             OutputPort,
@@ -873,7 +873,7 @@ def test_circuit_deq_preserves_stabilizer_contributions_to_logical_frames(
 def test_circuit_deq_preserves_transport_for_conditional_paulis(
     circuit_decoder, invert
 ):
-    from deq.circuit.model import LogicalPauliTarget, PropagateStatement
+    from deqagram import LogicalPauliTarget, PropagateStatement
     from qodec.instructions import Parameter
     from qdk.simulation._qodec.deq_conversion import _LibraryBuilder
 
@@ -940,7 +940,7 @@ def test_deq_accepts_measurement_conditioned_pauli_actions(simulate, invert):
 
 @pytest.mark.parametrize("operator", ["X_0", "Y_0", "-Z_0"])
 def test_deq_channel_action_binds_pauli_parameters(circuit_decoder, operator):
-    from deq.circuit.model import LogicalPauliTarget, PropagateStatement
+    from deqagram import LogicalPauliTarget, PropagateStatement
     from qodec.instructions import Parameter
     from qdk.simulation._qodec.deq_conversion import _LibraryBuilder
 
@@ -1059,7 +1059,7 @@ def test_gadget_conversion_rejects_unbound_circuit_parameters(circuit_decoder):
 def test_circuit_deq_prepares_propagation_without_deq_inference(
     circuit_decoder, monkeypatch
 ):
-    from deq.circuit.model import PropagateStatement
+    from deqagram import PropagateStatement
     from deq.transpiler import check_plugins, jit_noise_builder
     from qdk.simulation._qodec import deq_conversion
 
@@ -1829,7 +1829,7 @@ def test_circuit_deq_rejects_changed_noise_before_sampling(
     ],
 )
 def test_deq_preserves_constant_detection_constraints(simulate, compilations, check):
-    from deq.circuit.model import CheckStatement, GadgetDefinition, ReadoutStatement
+    from deqagram import CheckStatement, GadgetDefinition, ReadoutStatement
 
     codec = repetition_with_parity_flag()
     codec.layers[0].gadgets["__quantum__qis__m__body"].checks = [check]

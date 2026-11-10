@@ -372,6 +372,33 @@ fn lhs_ty_equals_rhs_ty_assumption_holds() -> miette::Result<(), Vec<Report>> {
 // Shl
 
 #[test]
+fn binary_op_shl_full_width_uint_mask() {
+    check_qasm_to_qsharp(
+        "
+        const uint[64] a = 3;
+        const uint[64] b = a << 1;
+        const uint[63] narrow = 3;
+        const uint[63] c = narrow << 1;
+        const uint[64] d = a << 63;
+        const uint[64] e = a << 64;
+        const uint[8] byte = 255;
+        const uint[8] f = byte << 1;
+        ",
+        &expect![[r#"
+            import Std.OpenQASM.Intrinsic.*;
+            let a = 3;
+            let b = 6;
+            let narrow = 3;
+            let c = 6;
+            let d = -9223372036854775808;
+            let e = 0;
+            let byte = 255;
+            let f = 254;
+        "#]],
+    );
+}
+
+#[test]
 fn binary_op_shl_uint() -> miette::Result<(), Vec<Report>> {
     let source = r#"
         const uint a = 1;

@@ -270,14 +270,14 @@ impl UnaryOpExpr {
             },
             UnaryOp::NotB => match operand_ty {
                 Type::Int(size, _) | Type::UInt(size, _) => rewrap_lit!(lit, Int(val), {
-                    let mask = (1 << (*size)?) - 1;
+                    let mask = 1_i64.checked_shl((*size)?).unwrap_or(0).wrapping_sub(1);
                     Int(!val & mask)
                 }),
                 Type::Angle(..) => rewrap_lit!(lit, Angle(val), Angle(!val)),
                 Type::Bit(..) => rewrap_lit!(lit, Bit(val), Bit(!val)),
                 Type::BitArray(..) => {
                     rewrap_lit!(lit, Bitstring(val, size), {
-                        let mask = BigInt::from((1 << size) - 1);
+                        let mask = (BigInt::from(1) << size) - 1;
                         Bitstring(!val & mask, size)
                     })
                 }
@@ -358,7 +358,7 @@ impl BinaryOpExpr {
 
                 match lhs_ty {
                     Type::UInt(Some(size), _) => rewrap_lit!(lhs, Int(lhs), {
-                        let mask = (1 << size) - 1;
+                        let mask = 1_i64.checked_shl(*size).unwrap_or(0).wrapping_sub(1);
                         Int((overflowing_shl(lhs, rhs)) & mask)
                     }),
                     Type::UInt(..) => {

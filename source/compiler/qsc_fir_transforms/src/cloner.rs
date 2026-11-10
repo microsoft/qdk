@@ -37,6 +37,17 @@ pub(crate) fn clone_expr_within_package(
     expr: ExprId,
     assigner: &mut Assigner,
 ) -> ExprId {
+    clone_expr_within_package_with_map(package, expr, assigner).0
+}
+
+/// Like [`clone_expr_within_package`], also returns the old-to-new mapping for
+/// every copied expression, including the root. Only the expression's structural
+/// subtree is snapshotted; unrelated package nodes are not copied.
+pub(crate) fn clone_expr_within_package_with_map(
+    package: &mut Package,
+    expr: ExprId,
+    assigner: &mut Assigner,
+) -> (ExprId, FxHashMap<ExprId, ExprId>) {
     use crate::walk_utils::{CallableNode, for_each_node_from_expr_root};
     use qsc_fir::fir::PackageLookup;
 
@@ -60,8 +71,9 @@ pub(crate) fn clone_expr_within_package(
     });
     let mut cloner = FirCloner::from_assigner_for_expr(std::mem::take(assigner));
     let result = cloner.clone_expr(&source, expr, package);
+    let copies = std::mem::take(&mut cloner.expr_map);
     *assigner = cloner.into_assigner();
-    result
+    (result, copies)
 }
 
 /// Deep-clones FIR subtrees with full ID remapping.
@@ -788,6 +800,9 @@ impl FirCloner {
                     } => {
                         *expr_id = *self.expr_map.get(expr_id).unwrap_or(expr_id);
                     }
+                    qsc_fir::fir::ExecGraphExpr::Var(res) => {
+                        *res = self.remap_res(res);
+                    }
                     qsc_fir::fir::ExecGraphExpr::Array(_)
                     | qsc_fir::fir::ExecGraphExpr::ArrayRepeat
                     | qsc_fir::fir::ExecGraphExpr::BinOp {
@@ -808,8 +823,7 @@ impl FirCloner {
                     }
                     | qsc_fir::fir::ExecGraphExpr::UpdateIndex { mid_span: _ }
                     | qsc_fir::fir::ExecGraphExpr::Tuple(_)
-                    | qsc_fir::fir::ExecGraphExpr::UnOp(_)
-                    | qsc_fir::fir::ExecGraphExpr::Var(_) => {}
+                    | qsc_fir::fir::ExecGraphExpr::UnOp(_) => {}
                 }
                 ExecGraphNode::Expr(expr, span)
             }

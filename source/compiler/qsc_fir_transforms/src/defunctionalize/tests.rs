@@ -28,6 +28,7 @@ mod cross_package;
 mod fixpoint;
 mod invariants;
 mod prepass;
+mod rewrite;
 mod specialization;
 
 fn adaptive_qirgen_capabilities() -> TargetCapabilityFlags {

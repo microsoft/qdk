@@ -74,6 +74,7 @@ pub(crate) fn generate_qir_from_ast(
         source_map,
         capabilities,
     )
+    .map(|result| result.qir)
 }
 
 fn compile<S: Into<Arc<str>>>(source: S) -> miette::Result<QasmCompileUnit, Vec<Report>> {

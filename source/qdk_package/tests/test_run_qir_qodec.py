@@ -92,7 +92,7 @@ def test_decoder_requires_a_qodec():
         run_qir("", decoder=prepare_decoder)
 
 
-@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
+@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime", "deqagram"])
 @pytest.mark.parametrize("custom_factory", [False, True])
 def test_deq_missing_dependency_has_install_instructions(
     monkeypatch, missing_dependency, custom_factory
@@ -111,7 +111,7 @@ def test_deq_missing_dependency_has_install_instructions(
     def unused_factory(seed):
         pytest.fail("The runtime factory must not run while preparing a layer")
 
-    with pytest.raises(ImportError, match="pip install deq deq-runtime"):
+    with pytest.raises(ImportError, match="pip install deq deqagram deq-runtime"):
         prepare_deq_decoder(
             cast("Layer", object()),
             runtime_factory=unused_factory if custom_factory else None,
@@ -1016,7 +1016,7 @@ def test_physical_execution_does_not_import_ec_dependencies(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
+@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime", "deqagram"])
 def test_deq_dependency_is_only_required_when_selected(missing_dependency, tmp_path):
     import subprocess
     from textwrap import dedent
@@ -1041,7 +1041,7 @@ def test_deq_dependency_is_only_required_when_selected(missing_dependency, tmp_p
         try:
             run_qir(qir, qodec=codec, decoder=prepare_deq_decoder)
         except ImportError as error:
-            assert 'pip install deq deq-runtime' in str(error), str(error)
+            assert 'pip install deq deqagram deq-runtime' in str(error), str(error)
         else:
             raise AssertionError("Missing deq dependency was not reported")
     ''')

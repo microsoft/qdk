@@ -19,6 +19,898 @@ use qsc_fir::{
     ty::{GenericArg, Prim, Ty},
 };
 
+// Keep the specialization bodies without a trailing Unit expression.
+fn check_bare_unit_specialization(call: &str, expected: bool) {
+    let source = format!(
+        r#"
+        operation GuardedX(stop : Bool, target : Qubit) : Unit is Adj + Ctl {{
+            body ... {{
+                if stop {{ return (); }}
+                X(target);
+            }}
+            adjoint ... {{
+                if stop {{ return (); }}
+                X(target);
+            }}
+            controlled (controls, ...) {{
+                if stop {{ return (); }}
+                Controlled X(controls, target);
+            }}
+            controlled adjoint (controls, ...) {{
+                if stop {{ return (); }}
+                Controlled X(controls, target);
+            }}
+        }}
+        @EntryPoint()
+        operation Main() : Result {{
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            {call};
+            Reset(control);
+            MResetZ(target)
+        }}
+        "#
+    );
+    check_value(&source, Value::Result(qsc_eval::val::Result::Val(expected)));
+}
+
+#[test]
+fn bare_unit_body_return_skips_gate() {
+    check_bare_unit_specialization("GuardedX(true, target)", false);
+}
+
+#[test]
+fn bare_unit_body_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization("GuardedX(false, target)", true);
+}
+
+#[test]
+fn bare_unit_adjoint_return_skips_gate() {
+    check_bare_unit_specialization("Adjoint GuardedX(true, target)", false);
+}
+
+#[test]
+fn bare_unit_adjoint_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization("Adjoint GuardedX(false, target)", true);
+}
+
+#[test]
+fn bare_unit_controlled_return_skips_gate() {
+    check_bare_unit_specialization("Controlled GuardedX([control], (true, target))", false);
+}
+
+#[test]
+fn bare_unit_controlled_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization("Controlled GuardedX([control], (false, target))", true);
+}
+
+#[test]
+fn bare_unit_controlled_adjoint_return_skips_gate() {
+    check_bare_unit_specialization(
+        "Controlled Adjoint GuardedX([control], (true, target))",
+        false,
+    );
+}
+
+#[test]
+fn bare_unit_controlled_adjoint_fallthrough_applies_gate_once() {
+    check_bare_unit_specialization(
+        "Controlled Adjoint GuardedX([control], (false, target))",
+        true,
+    );
+}
+
+fn measured_bare_unit_guard_source(prepare_control: &str) -> String {
+    format!(
+        r#"
+        operation GuardedX(stop : Bool, target : Qubit) : Unit {{
+            if stop {{ return (); }}
+            X(target);
+        }}
+        @EntryPoint()
+        operation Main() : Result {{
+            use control = Qubit();
+            use target = Qubit();
+            {prepare_control}
+            let stop = MResetZ(control) == One;
+            GuardedX(stop, target);
+            MResetZ(target)
+        }}
+        "#
+    )
+}
+
+#[test]
+fn measured_bare_unit_guard_return_skips_gate() {
+    check_value(
+        &measured_bare_unit_guard_source("X(control);"),
+        Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn measured_bare_unit_guard_fallthrough_applies_gate_once() {
+    check_value(
+        &measured_bare_unit_guard_source(""),
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn measured_bare_unit_guard_generates_adaptive_qir_with_gate_only_on_fallthrough() {
+    let qir = crate::test_utils::generate_qir(&measured_bare_unit_guard_source(""));
+    expect_test::expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          br i1 %var_0, label %block_1, label %block_2
+        block_1:
+          br label %block_2
+        block_2:
+          %var_6 = phi i1 [false, %block_0], [true, %block_1]
+          %var_5 = xor i1 %var_6, true
+          br i1 %var_5, label %block_3, label %block_4
+        block_3:
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          br label %block_4
+        block_4:
+          br i1 %var_6, label %block_5, label %block_6
+        block_5:
+          br label %block_7
+        block_6:
+          br label %block_7
+        block_7:
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare zeroext i1 @__quantum__rt__read_result(%Result*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn let_before_tail_preserves_the_complete_fallthrough_value() {
+    check_value(
+        r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            let y = 2;
+            y + 100
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false) }
+        "#,
+        Value::Int(102),
+    );
+}
+
+#[test]
+fn taken_guard_before_local_skips_fallthrough_effects() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int { Message("tail"); 2 }
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            let y = Tail();
+            y + 100
+        }
+        @EntryPoint()
+        operation Main() : Int { F(true) }
+        "#,
+        Value::Int(1),
+        "",
+    );
+}
+
+#[test]
+fn untaken_guard_before_local_evaluates_initializer_once_and_preserves_tail_value() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int { Message("tail"); 2 }
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            let y = Tail();
+            y + 100
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false) }
+        "#,
+        Value::Int(102),
+        "tail\n",
+    );
+}
+
+#[test]
+fn earlier_return_survives_a_later_return_and_dead_tail() {
+    check_value(
+        r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            return 2;
+            0
+        }
+        @EntryPoint()
+        operation Main() : Int { F(true) }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn later_return_survives_an_untaken_earlier_guard() {
+    check_value(
+        r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            return 2;
+            0
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false) }
+        "#,
+        Value::Int(2),
+    );
+}
+
+#[test]
+fn nested_tail_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_while_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_return_after_inverted_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true {} else { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn taken_guard_before_nested_tail_returns_one() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn untaken_returns_in_nested_tail_fall_through_to_five() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if false { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(5),
+    );
+}
+
+#[test]
+fn zero_iteration_nested_tail_loop_falls_through_to_five() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { while false { return 9; } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(5),
+    );
+}
+
+#[test]
+fn nested_tail_return_skips_effectful_scalar_tail_without_leaking_zero() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int { Message("tail"); 5 }
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } Tail() } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+        "",
+    );
+}
+
+#[test]
+fn nested_tail_array_return_remains_indexable_when_effectful_tail_is_skipped() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function Tail() : Int[] { Message("tail"); [5] }
+        function F(c : Bool, d : Bool) : Int[] {
+            if c { return [1]; }
+            if true { if d { return [9]; } Tail() } else { [6] }
+        }
+        @EntryPoint()
+        operation Main() : Int { F(false, true)[0] }
+        "#,
+        Value::Int(9),
+        "",
+    );
+}
+
+#[test]
+fn nested_tail_callable_return_remains_invocable_when_effectful_tail_is_skipped() {
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function First() : Int { 1 }
+        function Nested() : Int { 9 }
+        function Fallback() : Int { 5 }
+        function Tail() : (Unit -> Int) { Message("tail"); Fallback }
+        function F(c : Bool, d : Bool) : (Unit -> Int) {
+            if c { return First; }
+            if true { if d { return Nested; } Tail() } else { Fallback }
+        }
+        @EntryPoint()
+        operation Main() : Int { let f = F(false, true); f() }
+        "#,
+        Value::Int(9),
+        "",
+    );
+}
+
+const MEASURED_NESTED_TAIL: &str = r#"
+    operation F(c : Bool, d : Bool, target : Qubit) : Int {
+        if c { return 1; }
+        if true { if d { return 9; } X(target); 5 } else { 6 }
+    }
+"#;
+
+#[test]
+fn measured_nested_tail_return_yields_nine_and_skips_target_gate() {
+    check_value(
+        &format!(
+            r#"{MEASURED_NESTED_TAIL}
+            @EntryPoint()
+            operation Main() : (Int, Result) {{
+                use flags = Qubit[2];
+                use target = Qubit();
+                X(flags[1]);
+                let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        ),
+        Value::Tuple(
+            vec![
+                Value::Int(9),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measurement_dependent_return_in_trailing_if_loop_preserves_return_value_and_skips_fallthrough_gate()
+ {
+    check_value(
+        r#"
+        operation F(c : Bool, d : Bool, target : Qubit) : Int {
+            if c { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if d and i == 1 { return 9; }
+                    set i += 1;
+                }
+                X(target);
+                5
+            } else { 6 }
+        }
+        @EntryPoint()
+        operation Main() : (Int, Result) {
+            use flags = Qubit[2];
+            use target = Qubit();
+            X(flags[1]);
+            let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+            (value, MResetZ(target))
+        }
+        "#,
+        Value::Tuple(
+            vec![
+                Value::Int(9),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measured_nested_tail_fallthrough_yields_five_and_applies_target_gate_once() {
+    check_value(
+        &format!(
+            r#"{MEASURED_NESTED_TAIL}
+            @EntryPoint()
+            operation Main() : (Int, Result) {{
+                use flags = Qubit[2];
+                use target = Qubit();
+                let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        ),
+        Value::Tuple(
+            vec![
+                Value::Int(5),
+                Value::Result(qsc_eval::val::Result::Val(true)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measured_guard_before_nested_tail_yields_one_and_skips_target_gate() {
+    check_value(
+        &format!(
+            r#"{MEASURED_NESTED_TAIL}
+            @EntryPoint()
+            operation Main() : (Int, Result) {{
+                use flags = Qubit[2];
+                use target = Qubit();
+                X(flags[0]);
+                X(flags[1]);
+                let value = F(MResetZ(flags[0]) == One, MResetZ(flags[1]) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        ),
+        Value::Tuple(
+            vec![
+                Value::Int(1),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn unit_nested_tail_return_skips_target_gate() {
+    check_value(
+        r#"
+        operation F(c : Bool, d : Bool, target : Qubit) : Unit {
+            if c { return (); }
+            if true { if d { return (); } X(target); } else {}
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            F(false, true, target);
+            MResetZ(target)
+        }
+        "#,
+        Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn unit_nested_tail_fallthrough_applies_target_gate_once() {
+    check_value(
+        r#"
+        operation F(c : Bool, d : Bool, target : Qubit) : Unit {
+            if c { return (); }
+            if true { if d { return (); } X(target); } else {}
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            F(false, false, target);
+            MResetZ(target)
+        }
+        "#,
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn nested_tail_qubit_return_forwards_the_selected_caller_qubit() {
+    check_value(
+        r#"
+        function F(c : Bool, d : Bool, first : Qubit, nested : Qubit) : Qubit {
+            if c { return first; }
+            if true { if d { return nested; } first } else { first }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use first = Qubit();
+            use nested = Qubit();
+            X(nested);
+            MResetZ(F(false, true, first, nested))
+        }
+        "#,
+        Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn nested_tail_for_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true { for i in 0..2 { if i == 1 { return 9; } } 5 } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_repeat_return_after_guard_returns_nine() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                repeat {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                } until i == 3;
+                5
+            } else { 6 }
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn nested_tail_bool_return_after_guard_returns_true() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Bool {
+            if false { return false; }
+            if true { if true { return true; } false } else { false }
+        }
+        "#,
+        Value::Bool(true),
+    );
+}
+
+#[test]
+fn discarded_if_after_taken_return_skips_its_condition() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true { return 1; }
+            if { fail "condition must not run"; true } {
+                while false { return 9; }
+                5
+            } else { 6 }
+            7
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn discarded_if_after_untaken_return_preserves_fallthrough() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+        "#,
+        Value::Int(7),
+    );
+}
+
+#[test]
+fn return_inside_discarded_if_loop_exits_callable() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+        "#,
+        Value::Int(9),
+    );
+}
+
+#[test]
+fn discarded_if_executes_side_effect_once() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            mutable value = 0;
+            if false { return 1; }
+            if true { set value += 2; 5 } else { 6 }
+            value
+        }
+        "#,
+        Value::Int(2),
+    );
+}
+
+#[test]
+fn semicolon_if_after_untaken_return_preserves_fallthrough() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 };
+            7
+        }
+        "#,
+        Value::Int(7),
+    );
+}
+
+#[test]
+fn first_return_bearing_tail_if_preserves_fallthrough_value() {
+    check_value(
+        r#"
+        @EntryPoint()
+        operation Main() : Int {
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+        "#,
+        Value::Int(5),
+    );
+}
+
+#[test]
+fn measurement_selected_early_return_skips_discarded_if_gate() {
+    check_value(
+        r#"
+        operation F(c : Bool, target : Qubit) : Int {
+            if c { return 1; }
+            if true { X(target); 5 } else { 6 }
+            7
+        }
+        @EntryPoint()
+        operation Main() : (Int, Result) {
+            use flag = Qubit();
+            use target = Qubit();
+            X(flag);
+            let value = F(MResetZ(flag) == One, target);
+            (value, MResetZ(target))
+        }
+        "#,
+        Value::Tuple(
+            vec![
+                Value::Int(1),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measurement_selected_fallthrough_executes_discarded_if_gate_once() {
+    check_value(
+        r#"
+        operation F(c : Bool, target : Qubit) : Int {
+            if c { return 1; }
+            if true { X(target); 5 } else { 6 }
+            7
+        }
+        @EntryPoint()
+        operation Main() : (Int, Result) {
+            use flag = Qubit();
+            use target = Qubit();
+            let value = F(MResetZ(flag) == One, target);
+            (value, MResetZ(target))
+        }
+        "#,
+        Value::Tuple(
+            vec![
+                Value::Int(7),
+                Value::Result(qsc_eval::val::Result::Val(true)),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn early_return_skips_later_loop_conditional() {
+    for (early, branch, expected) in [
+        (true, true, 1),
+        (true, false, 1),
+        (false, true, 2),
+        (false, false, 3),
+    ] {
+        let source = format!(
+            r#"
+            @EntryPoint() operation Main() : Int {{
+                if {early} {{ return 1; }}
+                if {branch} {{ return 2; }} else {{ for i in [0] {{ return 3; }} }}
+                return 4;
+            }}
+            "#
+        );
+        check_value(&source, Value::Int(expected));
+    }
+}
+
+#[test]
+fn early_return_skips_condition_effects_before_returning_loop() {
+    check_value(
+        r#"
+        @EntryPoint() operation Main() : Int {
+            if true { return 1; }
+            if { fail "condition must not run"; true } {
+                return 2;
+            } else {
+                while false { return 3; }
+            }
+            return 4;
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
+fn guarded_callable_defaults_preserve_functor_effects() {
+    for initializer in ["U", "[V, U][1]"] {
+        for (invocation, expected) in [
+            ("f(q)", true),
+            ("Adjoint f(q)", false),
+            ("Adjoint Adjoint f(q)", true),
+            ("Controlled f([c], q)", true),
+            ("Controlled Adjoint f([c], q)", false),
+        ] {
+            for stop in [false, true] {
+                let source = format!(
+                    r#"
+                    operation U(q : Qubit) : Unit is Adj + Ctl {{ S(q); }}
+                    operation V(q : Qubit) : Unit is Adj + Ctl {{ X(q); }}
+                    @EntryPoint()
+                    operation Main() : Result {{
+                        use q = Qubit();
+                        use c = Qubit();
+                        if {stop} {{ return Zero; }}
+                        H(q);
+                        S(q);
+                        X(c);
+                        let f = {initializer};
+                        {invocation};
+                        Reset(c);
+                        H(q);
+                        MResetZ(q)
+                    }}
+                    "#
+                );
+                check_value(
+                    &source,
+                    Value::Result(qsc_eval::val::Result::Val(!stop && expected)),
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn non_defaultable_tails_preserve_returned_payload_and_run_effects_only_on_fallthrough() {
     for stop in [false, true] {

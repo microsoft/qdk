@@ -5,6 +5,7 @@ use indoc::formatdoc;
 use indoc::indoc;
 #[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
+use qsc_data_structures::language_features::LanguageFeatures;
 
 #[test]
 fn callable_capability_weakening_preserves_constructor_shape_and_gate_behavior() {
@@ -189,8 +190,14 @@ fn measurement_dependent_complex_components_generate_scalar_qir() {
                 exec_graph: package.entry_exec_graph.clone(),
                 expr: (package_id, package.entry.expect("entry expression")).into(),
             };
-            let qir = qsc_codegen::qir::fir_to_qir(&store, capabilities, &properties, &entry)
-                .expect("dynamic Complex scalar lowering");
+            let qir = qsc_codegen::qir::fir_to_qir(
+                &store,
+                capabilities,
+                LanguageFeatures::default(),
+                &properties,
+                &entry,
+            )
+            .expect("dynamic Complex scalar lowering");
             assert!(qir.contains("fmul double"), "{qir}");
             assert!(
                 qir.contains("call void @__quantum__rt__double_record_output"),

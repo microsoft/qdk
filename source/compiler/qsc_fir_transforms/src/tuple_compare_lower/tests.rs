@@ -4,6 +4,7 @@
 use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
 use expect_test::{Expect, expect};
 use indoc::indoc;
+use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_fir::fir::{BinOp, CallableImpl, ExprKind, ItemKind, PackageLookup, StmtKind};
 
 /// Runs the pipeline through tuple comparison lowering and extracts a summary
@@ -202,7 +203,14 @@ fn generate_qir(source: &str) -> String {
             .into(),
     };
     let compute_properties = qsc_rca::Analyzer::init(&store, capabilities).analyze_all();
-    fir_to_qir(&store, capabilities, &compute_properties, &entry).expect("QIR generation failed")
+    fir_to_qir(
+        &store,
+        capabilities,
+        LanguageFeatures::default(),
+        &compute_properties,
+        &entry,
+    )
+    .expect("QIR generation failed")
 }
 
 #[test]

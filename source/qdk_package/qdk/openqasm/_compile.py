@@ -5,9 +5,10 @@ from time import monotonic
 from typing import Any, Callable, Dict, Optional, Union
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
+from .._diagnostics import report_qir_warnings
 
 from .._native import (  # type: ignore
-    compile_qasm_program_to_qir,
+    compile_qasm_program_to_qir_with_diagnostics,
     TargetProfile,
 )
 from .._types import QirInputData
@@ -30,6 +31,8 @@ def compile(
 
     The returned :class:`~qdk.qsharp.QirInputData` can be submitted to a target;
     ``str(result)`` returns its QIR text.
+    Nonfatal generation diagnostics are reported as ``UserWarning`` at the
+    caller's location and obey Python warning filters.
 
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
         which must be an already imported global callable.
@@ -78,7 +81,7 @@ def compile(
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)  # type: ignore
-        ll_str = get_interpreter().qir(
+        generated = get_interpreter().qir_with_diagnostics(
             entry_expr=None, callable=getattr(source, "__global_callable"), args=args
         )
     elif isinstance(source, str):
@@ -88,7 +91,7 @@ def compile(
         if "search_path" not in kwargs:
             kwargs["search_path"] = "."
 
-        ll_str = compile_qasm_program_to_qir(
+        generated = compile_qasm_program_to_qir_with_diagnostics(
             source,
             read_file,
             list_directory,
@@ -100,7 +103,7 @@ def compile(
         raise ValueError(
             "source must be a string or a callable with __global_callable attribute"
         )
-    res = QirInputData("main", ll_str)
+    res = QirInputData("main", report_qir_warnings(generated))
 
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_compile_qasm_end(durationMs, target_profile)

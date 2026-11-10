@@ -265,6 +265,13 @@ result = code.GenerateRandomBits(5)  # pass Q# function arguments directly
 
 #### Working with Q# Types in Python
 
+Q# callable arguments must have compatible signatures and belong to the receiving
+context. Concrete generic instances returned by Q# retain their checked type
+arguments; Python values do not instantiate generic declarations. For opaque
+handles from an explicit `qdk.Context`, use its methods. QIR and static
+circuit entry handles must be global callables without applied functors; saved
+closures can instead be arguments to a global wrapper.
+
 | Q# Type  | Python Type                                |
 | -------- | ------------------------------------------ |
 | `Int`    | `int`                                      |
@@ -763,7 +770,7 @@ circuit = qsharp.circuit("MyOp()", generation_method=CircuitGenerationMethod.Sim
 
 # Static: compiles the program via partial evaluation.
 # Shows ALL conditional branches as classically controlled groups.
-# Requires a non-Unrestricted target profile (e.g. Adaptive_RIF).
+# Supports Base, Adaptive_RI, and Adaptive_RIF, not full Adaptive or Unrestricted.
 qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
 circuit = qsharp.circuit("MyOp()", generation_method=CircuitGenerationMethod.Static)
 ```

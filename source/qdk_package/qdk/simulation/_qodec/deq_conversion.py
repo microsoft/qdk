@@ -17,7 +17,7 @@ from typing import cast
 from qodec import Code, Gadget, Layer
 from qodec.gadgets import Encoding
 from qodec.instructions import InstructionCall
-from deq.circuit import model as circuit  # pyright: ignore[reportMissingImports]
+import deqagram as circuit  # pyright: ignore[reportMissingImports]
 from deq.circuit.parser import parse  # pyright: ignore[reportMissingImports]
 from deq.transpiler.jit_library_builder import (  # pyright: ignore[reportMissingImports]
     JitLibraryArtifacts,

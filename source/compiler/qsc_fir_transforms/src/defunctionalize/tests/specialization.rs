@@ -3373,10 +3373,7 @@ fn branch_split_mutable_conditional() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -4841,6 +4838,16 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : (Qubit => Unit is Adj + Ctl), __capture_1 : Int, __capture_2 : Double) : Unit {
                 _lambda_4(__capture_0, __capture_1, __capture_2, q);
             }
+            operation _lambda_4(op : (Qubit => Unit is Adj + Ctl), n : Int, angle : Double, q1 : Qubit) : Unit {
+                {
+                    if n == 0 {
+                        Rx(angle, q1);
+                    }
+
+                    op(q1);
+                }
+
+            }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Int, __capture_1 : Double) : Unit {
                 _lambda_4(__capture_0, __capture_1, q);
             }
@@ -4907,14 +4914,7 @@ fn three_branch_conditional_callable_generates_branch_split() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 2;
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if n == 0 {
-                    op = X;
-                } else if n == 1 {
-                    op = Y;
-                } else {
-                    op = Z;
-                }
+                if n == 0 {} else if n == 1 {} else {}
 
                 if n == 0 {
                     Apply_AdjCtl__X_(q)
