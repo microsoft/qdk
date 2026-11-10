@@ -148,24 +148,31 @@ pub(crate) fn map_variable_use_in_block(
 
     for mut instr in instrs {
         match &mut instr {
-            // Track the new value of the variable and omit the store instruction,
-            // unless the variable or it's mapped source is in the set of stores to
-            // keep in which case any prior mapping should be removed.
             Instruction::Store(operand, var) => {
                 if var_stor_to_keep.contains(&var.variable_id) {
+                    // The variable we are storing into is in the set of stored variables to keep,
+                    // so we must remove any prior mapping that might exist and keep the store.
+                    // We also update the operand being read for the store instruction with its current mapped value.
                     *operand = operand.mapped(var_map);
                     var_map.remove(&var.variable_id);
                 } else if let Operand::Variable(mapped_var) = operand.mapped(var_map)
                     && var_stor_to_keep.contains(&mapped_var.variable_id)
                     && used_vars.is_some_and(|uv| uv.contains(&var.variable_id))
                 {
-                    var_map.remove(&var.variable_id);
-
-                    // Turn this store instruction into a direct load instruction from
-                    // the mapped variable into the target variable.
+                    // The variable we are are reading from maps to a stored variable to keep, meaning it's value may change
+                    // and this store instruction represents a copy of its value at this point in the program. However,
+                    // if we preserve the store instruction then the variable we are storing into needs a backing alloca
+                    // and triggers loads later in the program. Instead, if we know the stored into variable is used,
+                    // we clear the mapping and replace the store with a direct load from the mapped variable.
+                    // This is safe at this point because RIR does not track the difference between a pointer
+                    // and a non-pointer variable, so `Store i64 %v1, i64 %v2` can be safely replaced with
+                    // `%v2 = Load i64 %v1` and further optimized by later passes.
                     block.0.push(Instruction::Load(mapped_var, *var));
+                    var_map.remove(&var.variable_id);
                     continue;
                 } else {
+                    // Otherwise, update the variable mappings and skip this store instruction, propagating the known
+                    // mapped value into the later instructions.
                     update_variable_mapping(var_map, &mut reverse_deep_map, operand, var);
                     continue;
                 }
