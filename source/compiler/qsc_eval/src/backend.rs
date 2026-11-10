@@ -1019,7 +1019,9 @@ impl Backend for SparseSim {
 
     fn qubit_allocate(&mut self) -> Result<usize, String> {
         // Fresh qubit start in ground state even with noise.
-        Ok(self.sim.allocate())
+        let q = self.sim.allocate();
+        self.lost_qubits.set_bit(q as u64, false);
+        Ok(q)
     }
 
     fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
