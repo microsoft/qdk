@@ -159,14 +159,14 @@ pub(crate) fn map_variable_use_in_block(
                     && var_stor_to_keep.contains(&mapped_var.variable_id)
                     && used_vars.is_some_and(|uv| uv.contains(&var.variable_id))
                 {
-                    // The variable we are are reading from maps to a stored variable to keep, meaning it's value may change
-                    // and this store instruction represents a copy of its value at this point in the program. However,
-                    // if we preserve the store instruction then the variable we are storing into needs a backing alloca
-                    // and triggers loads later in the program. Instead, if we know the stored into variable is used,
-                    // we clear the mapping and replace the store with a direct load from the mapped variable.
-                    // This is safe at this point because RIR does not track the difference between a pointer
-                    // and a non-pointer variable, so `Store i64 %v1, i64 %v2` can be safely replaced with
-                    // `%v2 = Load i64 %v1` and further optimized by later passes.
+                    // ...otherwise, if the variable we are are reading from in this store instruction is tracked as a variable whose stores must be kept,
+                    // meaning its value may change over time, and the variable written to by this store instruction is used later in the program,
+                    // then this store instruction represents a copy of the target value at this point in the program.
+                    // However, if we preserve the current store instruction then the variable we are storing into needs a backing allocation that will
+                    // be inserted by later (along with corresponding load instructions) by later passes, causing unnecessary memory operations.
+                    // Instead, we replace the store instruction with a direct load from the mapped variable to create a copy without needing additional
+                    // allocated memory. This is safe at this point in compilation because RIR does not track the difference between a pointer
+                    // and a non-pointer variable, so `Store i64 %v1, i64 %v2` can be safely replaced with `%v2 = Load i64 %v1`, then further optimized by later passes.
                     block.0.push(Instruction::Load(mapped_var, *var));
                     var_map.remove(&var.variable_id);
                     continue;
