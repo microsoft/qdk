@@ -1,0 +1,14 @@
+ARG AGENT_IMAGE=copilot-sandbox-agent:local
+FROM ${AGENT_IMAGE}
+
+USER 0:0
+RUN env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy \
+        -u ALL_PROXY -u all_proxy \
+        tdnf -y install vulkan-loader libglvnd \
+    && tdnf clean all \
+    && /opt/qdk-venv/bin/python -c 'import ctypes; ctypes.CDLL("libvulkan.so.1")'
+COPY --chmod=0444 runtime/nvidia-egl-icd.json /opt/sandbox/runtime/nvidia-egl-icd.json
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility \
+    VK_ICD_FILENAMES=/opt/sandbox/runtime/nvidia-egl-icd.json
+USER 1000:1000

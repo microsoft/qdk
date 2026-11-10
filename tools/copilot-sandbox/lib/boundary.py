@@ -81,6 +81,27 @@ def _require(condition: bool, message: str) -> None:
         raise LauncherError("Sandbox boundary verification failed: " + message)
 
 
+def _verify_device_requests(host: dict, role: str) -> None:
+    requests = host.get("DeviceRequests") or []
+    if role != "agent":
+        _require(not requests, f"{role} requests host devices")
+        return
+    if not requests:
+        return
+    _require(len(requests) == 1, "agent must request exactly one NVIDIA GPU group")
+    request = requests[0]
+    _require(request.get("Driver") == "nvidia", "agent requests a non-NVIDIA driver")
+    _require(
+        request.get("Count") == -1 and not request.get("DeviceIDs"),
+        "agent must request all NVIDIA GPUs",
+    )
+    _require(
+        request.get("Capabilities") == [["gpu"]],
+        "agent requests unexpected device capabilities",
+    )
+    _require(not request.get("Options"), "agent requests device driver options")
+
+
 def verify_container_config(
     container: dict, role: str, project: str, environment: dict[str, str]
 ) -> None:
@@ -123,7 +144,7 @@ def verify_container_config(
         )
         # Confirm no host devices are explicitly exposed and PID/IPC namespaces are private.
         _require(not host.get("Devices"), f"{role} exposes host devices")
-        _require(not host.get("DeviceRequests"), f"{role} requests host devices")
+        _verify_device_requests(host, role)
         _require(not host.get("PidMode"), f"{role} shares a PID namespace")
         _require(host.get("IpcMode") in ("", "private"), f"{role} shares IPC")
         # Confirm no container ports are published on the host.

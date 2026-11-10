@@ -13,6 +13,13 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 4096
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     cpus: ${QDK_SANDBOX_CPUS:-0}
     mem_limit: ${QDK_SANDBOX_MEMORY:-0}
     tmpfs:

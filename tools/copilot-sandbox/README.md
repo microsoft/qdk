@@ -242,6 +242,44 @@ Keep those pairing tags; the two `:local` tags alone are not sufficient.
 Without it, the launcher checks the published ACR images even if local `:local` images exist.
 The launcher uses the selected agent/proxy pair directly and does not build per-instance custom images.
 
+### Machine-Local NVIDIA Layer
+
+This checkout's Compose configuration requests all NVIDIA GPUs for the agent.
+It requires the NVIDIA Container Toolkit configured for Docker and the host's
+matching NVIDIA graphics/Vulkan userspace libraries, not just its compute driver.
+The proxy receives no GPU access. Exposing GPUs expands the sandbox attack surface
+through the host NVIDIA driver; all other boundary checks remain enabled.
+
+Add Vulkan support to an already built agent image without rebuilding the QDK:
+
+```sh
+DOCKER_BUILDKIT=1 docker build --pull=false \
+  --build-arg AGENT_IMAGE=copilot-sandbox-agent:local \
+  -f .ado/images/sandbox-agent/Dockerfile.gpu \
+  -t copilot-sandbox-agent:gpu \
+  .ado/images/sandbox-agent
+```
+
+Change `AGENT_IMAGE` if your existing image has a different name. The thin image
+adds the Vulkan loader, EGL dispatcher, and a headless NVIDIA EGL-backed ICD;
+it installs neither a kernel driver nor a CUDA toolkit. The package-install step
+temporarily clears the inherited sandbox proxy settings and requires internet
+access. It does not rerun the original QDK build or offline build verification.
+Unlike `build_images.py`, this command uses the files in your working tree.
+
+The new image inherits the base image's build ID, so keep its existing matching
+proxy image and build-ID tag. Start a new session with the existing launcher:
+
+```sh
+.venv/bin/python tools/copilot-sandbox/sandbox.py run --local --tag gpu
+```
+
+No new launcher options are needed. Do not use `--reuse` for this first launch,
+since that would select the previously saved image IDs instead of the new layer.
+After startup, open `sandbox.py shell` from another host terminal and run your GPU
+tests from `/work/qdk`. Confirm that they execute rather than skip with
+`No suitable GPU adapter found`.
+
 ### Local (Internal Feeds)
 
 To mimic the pipeline build locally, you need to pass a lot more arguments:
