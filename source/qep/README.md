@@ -326,10 +326,11 @@ trace representation.
 * Every T factory starts an `11 * ecc_distance * 1,000` ns distillation round at startup. Each attempt succeeds with
   probability `1 - 15 * p_T - 356 * epsilon(d)`; failures immediately retry.
   A successful factory holds one T-state and pauses until that state is consumed.
-  The single-round 15-to-1 RM-preparation model uses 31 logical patches, 11 logical steps,
-  and output error `35 * p_T^3 + 7.1 * epsilon(d)`, consistently with
-  [arXiv:2211.07629, Appendix C / Table 6](https://arxiv.org/abs/2211.07629).
-  This is not the smaller five-patch layout from a different distillation implementation.
+  The compact single-round 15-to-1 factory uses five logical patches and 11 logical steps,
+  following [Litinski, arXiv:1808.02892](https://arxiv.org/abs/1808.02892).
+  Output error remains `35 * p_T^3 + 7.1 * epsilon(d)`; its fidelity and acceptance
+  coefficients from [arXiv:2211.07629, Appendix C / Table 6](https://arxiv.org/abs/2211.07629)
+  are retained as demo approximations, not a calibration of the compact layout.
 * `t` and `tadj` reserve a ready factory and execute as `inject_t` and `inject_tadj`, with operands
   `[FactoryId, QubitId]`. Injection takes twice the Clifford duration plus the measurement
   duration (55,000 ns by default). The factory starts its next round only when injection finishes.

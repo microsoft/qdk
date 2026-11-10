@@ -271,7 +271,7 @@ fn profiles_simple_program() -> Result<(), String> {
     let result = profiler.profile_qsharp_expr(&mut interpreter, "Test.Main()")?;
     let profile_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tmp/small_profile.json");
     assert_eq!(result.totals.logical_compute_qubits, 2);
-    assert_eq!(result.totals.logical_qubits, 157);
+    assert_eq!(result.totals.logical_qubits, 27);
     result.to_json(&profile_path)?;
     expect![[r#"
         0-55000: round 0

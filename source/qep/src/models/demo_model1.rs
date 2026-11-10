@@ -99,7 +99,7 @@ pub enum DemoModel1_Resource {
 ///  * Functional units:
 ///    * Logical Compute Qubits, number is not fixed in advance.
 ///    * T-factroies, number fixed in advance.
-///      * Each T-factory uses 31 logical patches.
+///      * Each T-factory uses five logical patches.
 ///      * T-factory produces TStates.
 ///    * Both standalone LCQs and LCQs inside factories use Surface code with distance ecc_distance.
 ///  * Resources:

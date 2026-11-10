@@ -450,7 +450,7 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
     result.to_json(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["totals"]["logical_qubits"] == result.totals.logical_qubits
-    assert result.totals.logical_qubits == 158
+    assert result.totals.logical_qubits == 28
     assert result.totals.logical_compute_qubits == 3
     assert data["totals"]["logical_compute_qubits"] == 3
     assert data["totals"]["error"] == result.totals.error

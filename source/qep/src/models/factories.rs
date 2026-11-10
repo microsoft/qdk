@@ -5,7 +5,7 @@ use super::surface_code::{
     PHYSICAL_ERROR_RATE, logical_error_per_nanosecond, logical_error_per_step, logical_step_nanos,
 };
 
-/// Single-round 15-to-1 RM-preparation factory using 31 logical patches.
+/// Single-round 15-to-1 factory using five logical patches.
 /// At periodical intervals it produces a T state in last qubits. That T state can be then moved to
 /// a memory buffer or be consumed by Inject-T (or Inject-T†) gate.
 /// TODO: use `resource_estimator::system::TFactory` instead.
@@ -21,7 +21,9 @@ use super::surface_code::{
 ///   - Or it gets moved into memory buffer (this is not implemented for now).
 /// * After T state is used, distillation can start again.
 ///
-/// Layout, duration, and fidelity follow arXiv:2211.07629, Appendix C / Table 6.
+/// Compact layout and duration follow <https://arxiv.org/abs/1808.02892>.
+/// Fidelity coefficients from <https://arxiv.org/abs/2211.07629>, Appendix C / Table 6,
+/// are retained as a demo approximation.
 #[derive(Clone)]
 pub(crate) struct TFactory {
     pub(super) logical_qubits: usize,
@@ -52,7 +54,7 @@ impl TFactory {
         let discard_probability = 15.0 * input_state_error + 356.0 * epsilon;
 
         Self {
-            logical_qubits: 31,
+            logical_qubits: 5,
             ecc_distance,
             probability_success: 1.0 - discard_probability,
             distillation_round_duration_nanos: 11 * logical_step_nanos(ecc_distance),
@@ -99,7 +101,7 @@ mod tests {
         assert_eq!(TFactory::new(5).distillation_round_duration_nanos(), 55_000);
     }
 
-    /// Checks that fidelity, acceptance, and footprint use the same published factory model.
+    /// Checks distance-dependent fidelity, acceptance, and the five-patch footprint.
     #[test]
     fn fidelity_and_space_depend_on_distance() {
         for (distance, expected_logical_error) in [(5, 3e-8), (9, 3e-12)] {
@@ -108,10 +110,7 @@ mod tests {
             assert!((factory.output_state_error - expected_error).abs() < expected_error * 1e-12);
             let expected_success = 1.0 - 15.0 * 1e-4 - 356.0 * expected_logical_error;
             assert!((factory.probability_success - expected_success).abs() < 1e-15);
-            assert_eq!(
-                factory.physical_qubits(),
-                31 * (2 * distance * distance - 1)
-            );
+            assert_eq!(factory.physical_qubits(), 5 * (2 * distance * distance - 1));
         }
     }
 
