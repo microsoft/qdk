@@ -566,6 +566,31 @@ fn bench_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
         let n: u32 = parts[0].parse().expect("qubits");
         let shots: u32 = parts[1].parse().expect("shots");
         let strategy_name = parts.get(2).copied().unwrap_or("blocked");
+        if strategy_name == "cpu" {
+            // The CPU simulator resumer (f64, one thread) on the same
+            // machine: one warm-up, then the best of 3.
+            let program = &programs
+                .iter()
+                .find(|(p, _)| *p == format!("bench_{n}"))
+                .expect("the bench program")
+                .1;
+            let machine = QirMachine::new(program);
+            let times: Vec<f64> = (0..4)
+                .map(|_| {
+                    let t = Instant::now();
+                    let records = cpu_shots(&machine, shots);
+                    assert_eq!(records.len(), shots as usize);
+                    t.elapsed().as_secs_f64()
+                })
+                .collect();
+            let best = times[1..].iter().copied().fold(f64::INFINITY, f64::min);
+            println!(
+                "BENCH n={n} shots={shots} strategy=cpu: first {:.4} s, best {best:.4} s, \
+                 times {times:.4?}",
+                times[0]
+            );
+            continue;
+        }
         bench_one(gpu, &programs, n, shots, strategy_name);
     }
     true
