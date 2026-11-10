@@ -119,22 +119,20 @@ fn gate2(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) 
   s[i3] = row4(p.op_off, 3u, v0, v1, v2, v3);
 }
 
-// The phase of diagonal term at ops[off] (3 vec4: header (kind, qa, qb),
-// d0 d1, d2 d3) on basis state `k`: kind 1 on one qubit, else on two.
-fn diag_phase(off: u32, k: u32) -> vec2<f32> {
-  let h = ops[off];
-  let qa = ival(h.y);
-  let qb = ival(h.z);
-  let d01 = ops[off + 1u];
-  let d23 = ops[off + 2u];
-  let one_qubit = ival(h.x) == 1u;
-  let a = ((k >> qa) & 1u) == 1u;
-  let b = ((k >> qb) & 1u) == 1u;
-  let first = select(select(d01.xy, d01.zw, b), select(d23.xy, d23.zw, b), a);
-  return select(first, select(d01.xy, d01.zw, a), one_qubit);
+// A product of diagonal gates as a phase, in turns: the sum over terms
+// (d, m, c) of c * popcount(k & (k >> d) & m). A term with d = 0 is a phase
+// on each qubit of m; with d > 0, on each pair (q, q + d), q in m, both one.
+// (The product's global phase is dropped.)
+fn term_turns(t: vec4<f32>, k: u32) -> f32 {
+  return t.z * f32(countOneBits(k & (k >> ival(t.x)) & ival(t.y)));
 }
 
-// The product of op_len diagonal terms on every amplitude.
+fn phase(turns: f32) -> vec2<f32> {
+  let a = 6.2831853 * fract(turns);
+  return vec2(cos(a), sin(a));
+}
+
+// op_len phase terms (ops[op_off..]) on every amplitude.
 @compute @workgroup_size(256)
 fn diag(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
   let t = flat(id, nw);
@@ -142,19 +140,40 @@ fn diag(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) n
   if (j >= p.shot_len) { return; }
   let k = t & ((1u << p.n) - 1u);
   let i = (shots[p.shot_off + j] << p.n) | k;
-  var ph = vec2(1.0, 0.0);
+  var turns = 0.0;
   for (var term = 0u; term < p.op_len; term++) {
-    ph = cmul(ph, diag_phase(p.op_off + term * 3u, k));
+    turns += term_turns(ops[p.op_off + term], k);
   }
-  s[i] = cmul(ph, s[i]);
+  s[i] = cmul(phase(turns), s[i]);
 }
 
 var<workgroup> tile: array<vec2<f32>, 1024>;
+var<workgroup> code: array<vec4<f32>, 128>;
 
-// op_len ops on the low `block` qubits, 2^block amplitudes in workgroup
-// memory. Each op: 9 vec4 at ops[op_off + 9 * o]: header (kind, qa, qb), then
-// kind 11: 2x2 rows (2 vec4); kind 12: 4x4 (8 vec4); else a diagonal term
-// (the header and 2 vec4, as diag_phase reads it).
+// Row r of the 4x4 matrix at code[off] (row-major, 2 entries per vec4).
+fn row4w(off: u32, r: u32, v0: vec2<f32>, v1: vec2<f32>, v2: vec2<f32>, v3: vec2<f32>) -> vec2<f32> {
+  let a = code[off + r * 2u];
+  let b = code[off + r * 2u + 1u];
+  return cmul(a.xy, v0) + cmul(a.zw, v1) + cmul(b.xy, v2) + cmul(b.zw, v3);
+}
+
+// The position of the block's i-th qubit (ascending; 5 bits each in q0, q1).
+fn tile_pos(i: u32) -> u32 {
+  return select((p.q1 >> (5u * (i - 6u))) & 31u, (p.q0 >> (5u * i)) & 31u, i < 6u);
+}
+
+// The in-shot offset of tile entry e: its bits at the block's positions.
+fn tile_offset(e: u32) -> u32 {
+  var k = 0u;
+  for (var i = 0u; i < p.block; i++) { k |= ((e >> i) & 1u) << tile_pos(i); }
+  return k;
+}
+
+// op_len ops on the `block` qubits at tile_pos(0..block) (at most 10; the
+// low qubits, or a gather block), 2^block amplitudes in workgroup memory;
+// ops name the qubits by their index in the block. The ops are `kind` vec4 at ops[op_off..] (at most 128),
+// copied to workgroup memory; each a header (kind, qa, qb, len), then kind
+// 11: 2x2 rows (2 vec4); kind 12: 4x4 (8 vec4); kind 13: len phase terms.
 @compute @workgroup_size(256)
 fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
   let w = flat_group(wid, nw);
@@ -163,18 +182,32 @@ fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
   let j = w >> high;
   if (j >= p.shot_len) { return; }
   let size = 1u << b;
-  let base = (shots[p.shot_off + j] << p.n) | ((w & ((1u << high) - 1u)) << b);
-  for (var e = lid.x; e < size; e += WG) { tile[e] = s[base + e]; }
+  // The workgroup's other qubits: its index with zeros at the block's.
+  let contiguous = tile_pos(b - 1u) == b - 1u;
+  var rest = w & ((1u << high) - 1u);
+  if (contiguous) {
+    rest = rest << b;
+  } else {
+    for (var i = 0u; i < b; i++) { rest = insert0(rest, tile_pos(i)); }
+  }
+  let base = (shots[p.shot_off + j] << p.n) | rest;
+  if (lid.x < p.kind) { code[lid.x] = ops[p.op_off + lid.x]; }
+  if (contiguous) {
+    for (var e = lid.x; e < size; e += WG) { tile[e] = s[base + e]; }
+  } else {
+    for (var e = lid.x; e < size; e += WG) { tile[e] = s[base + tile_offset(e)]; }
+  }
   workgroupBarrier();
+  var off = 0u;
   for (var o = 0u; o < p.op_len; o++) {
-    let off = p.op_off + o * 9u;
-    let h = ops[off];
+    let h = code[off];
     let kind = ival(h.x);
     let qa = ival(h.y);
     let qb = ival(h.z);
+    let len = ival(h.w);
     if (kind == 11u) {
-      let r0 = ops[off + 1u];
-      let r1 = ops[off + 2u];
+      let r0 = code[off + 1u];
+      let r1 = code[off + 2u];
       for (var e = lid.x; e < size / 2u; e += WG) {
         let i0 = insert0(e, qa);
         let i1 = i0 | (1u << qa);
@@ -183,10 +216,12 @@ fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
         tile[i0] = cmul(r0.xy, a) + cmul(r0.zw, c);
         tile[i1] = cmul(r1.xy, a) + cmul(r1.zw, c);
       }
+      off += 3u;
     } else if (kind == 12u) {
-      let lo = min(qa, qb);
-      let hi = max(qa, qb);
-      for (var e = lid.x; e < size / 4u; e += WG) {
+      let e = lid.x;
+      if (e < size / 4u) {
+        let lo = min(qa, qb);
+        let hi = max(qa, qb);
         let i0 = insert0(insert0(e, lo), hi);
         let i1 = i0 | (1u << qb);
         let i2 = i0 | (1u << qa);
@@ -195,19 +230,29 @@ fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
         let v1 = tile[i1];
         let v2 = tile[i2];
         let v3 = tile[i3];
-        tile[i0] = row4(off + 1u, 0u, v0, v1, v2, v3);
-        tile[i1] = row4(off + 1u, 1u, v0, v1, v2, v3);
-        tile[i2] = row4(off + 1u, 2u, v0, v1, v2, v3);
-        tile[i3] = row4(off + 1u, 3u, v0, v1, v2, v3);
+        tile[i0] = row4w(off + 1u, 0u, v0, v1, v2, v3);
+        tile[i1] = row4w(off + 1u, 1u, v0, v1, v2, v3);
+        tile[i2] = row4w(off + 1u, 2u, v0, v1, v2, v3);
+        tile[i3] = row4w(off + 1u, 3u, v0, v1, v2, v3);
       }
+      off += 9u;
     } else {
       for (var e = lid.x; e < size; e += WG) {
-        tile[e] = cmul(diag_phase(off, e), tile[e]);
+        var turns = 0.0;
+        for (var term = 0u; term < len; term++) {
+          turns += term_turns(code[off + 1u + term], e);
+        }
+        tile[e] = cmul(phase(turns), tile[e]);
       }
+      off += 1u + len;
     }
     workgroupBarrier();
   }
-  for (var e = lid.x; e < size; e += WG) { s[base + e] = tile[e]; }
+  if (contiguous) {
+    for (var e = lid.x; e < size; e += WG) { s[base + e] = tile[e]; }
+  } else {
+    for (var e = lid.x; e < size; e += WG) { s[base + tile_offset(e)] = tile[e]; }
+  }
 }
 
 var<workgroup> acc2: array<vec2<f32>, 256>;

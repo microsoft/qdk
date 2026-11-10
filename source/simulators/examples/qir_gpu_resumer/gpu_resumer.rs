@@ -16,13 +16,16 @@
 //!
 //! The translation of a batch fuses (each a [`Strategy`] switch, so that its
 //! effect can be measured): diagonal gates into one pass (`fuse_diag`); gates
-//! on the low qubits into one pass through workgroup memory (`block`); and
-//! one-qubit gates on one qubit into one matrix (`merge_1q`). A gate moves
-//! past the earlier gates it commutes with (disjoint qubits, or both
-//! diagonal) to join a pass.
+//! on the low qubits into one pass through workgroup memory (`block`); gates
+//! on high qubits, three or more, into a gather block, a workgroup-memory
+//! pass on those qubits and the lowest three (`gather`); one-qubit gates on
+//! one qubit into one matrix (`merge_1q`), and on two qubits into one 4x4
+//! (`kron`). Groups' common batch prefixes and suffixes run once on their
+//! shots together (`share`). A gate moves past the earlier gates it
+//! commutes with (disjoint qubits, or both diagonal) to join a pass.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -43,6 +46,11 @@ const WG: u64 = 256;
 const SLOT: u64 = 256;
 const PARAMS_BYTES: u64 = 80;
 const NO_RESULT: u32 = u32::MAX;
+/// The qubits every gather block holds, so that its loads and stores are
+/// runs of 8 consecutive amplitudes.
+const CARRIERS: u64 = 0b111;
+/// The vec4 of block code the `block` kernel holds in workgroup memory.
+const BLOCK_CODE: usize = 128;
 
 /// What fails in the resumer's own work: a call it does not support.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,6 +78,8 @@ pub struct Strategy {
     pub share: bool,
     /// Whether one-qubit gates on two qubits merge into one two-qubit pass.
     pub kron: bool,
+    /// Whether gates on high qubits run in gather blocks (with `block`).
+    pub gather: bool,
 }
 
 impl Strategy {
@@ -81,6 +91,7 @@ impl Strategy {
         cache: true,
         share: true,
         kron: true,
+        gather: true,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -90,6 +101,7 @@ impl Strategy {
         cache: true,
         share: false,
         kron: false,
+        gather: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -99,6 +111,7 @@ impl Strategy {
         cache: true,
         share: true,
         kron: true,
+        gather: true,
     };
 
     pub fn named(name: &str) -> Option<Self> {
@@ -120,6 +133,10 @@ impl Strategy {
             },
             "nokron" => Self {
                 kron: false,
+                ..Self::ALL
+            },
+            "nogather" => Self {
+                gather: false,
                 ..Self::ALL
             },
             _ => return None,
@@ -289,7 +306,13 @@ impl Gpu {
                 layout: Some(&pipeline_layout),
                 module: &module,
                 entry_point: Some(entry),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                // Every kernel writes the workgroup memory it reads; the
+                // zeroing code naga adds otherwise costs the driver seconds
+                // of compile time.
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    zero_initialize_workgroup_memory: false,
+                    ..Default::default()
+                },
                 cache: None,
             })
         };
@@ -436,8 +459,7 @@ fn buffer(device: &wgpu::Device, size: u64, usage: wgpu::BufferUsages) -> wgpu::
 const STORAGE: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE
     .union(wgpu::BufferUsages::COPY_DST)
     .union(wgpu::BufferUsages::COPY_SRC);
-const UNIFORM: wgpu::BufferUsages =
-    wgpu::BufferUsages::UNIFORM.union(wgpu::BufferUsages::COPY_DST);
+const UNIFORM: wgpu::BufferUsages = wgpu::BufferUsages::UNIFORM.union(wgpu::BufferUsages::COPY_DST);
 const READBACK: wgpu::BufferUsages =
     wgpu::BufferUsages::MAP_READ.union(wgpu::BufferUsages::COPY_DST);
 
@@ -555,11 +577,22 @@ fn c32(c: Complex64) -> C32 {
 
 #[derive(Clone, Debug)]
 enum Op {
-    G1 { q: u32, m: [Complex64; 4] },
-    G2 { a: u32, b: u32, m: [Complex64; 16] },
+    G1 {
+        q: u32,
+        m: [Complex64; 4],
+    },
+    G2 {
+        a: u32,
+        b: u32,
+        m: [Complex64; 16],
+    },
     /// kind 0: mz; kind 1: to |0> after (mresetz, reset). `meas`: the
     /// outcome's index in the batch, or `NO_RESULT` (reset).
-    Meas { q: u32, kind: u32, meas: u32 },
+    Meas {
+        q: u32,
+        kind: u32,
+        meas: u32,
+    },
 }
 
 fn is_diag(op: &Op) -> bool {
@@ -613,11 +646,28 @@ fn mul4(a: &[Complex64; 16], b: &[Complex64; 16]) -> [Complex64; 16] {
 
 #[derive(Clone, Debug)]
 enum SegKind {
-    Block(Vec<Op>),
+    /// Gates on the qubits of `set` (at most `BLOCK_QUBITS`), in workgroup
+    /// memory: the low qubits, or a gather block (the lowest `CARRIERS`
+    /// qubits, for coalesced access, and the gates' qubits).
+    Block {
+        set: u64,
+        ops: Vec<Op>,
+    },
     Diag(Vec<Op>),
-    Gate1 { q: u32, m: [Complex64; 4] },
-    Gate2 { a: u32, b: u32, m: [Complex64; 16] },
-    Meas { q: u32, kind: u32, meas: u32 },
+    Gate1 {
+        q: u32,
+        m: [Complex64; 4],
+    },
+    Gate2 {
+        a: u32,
+        b: u32,
+        m: [Complex64; 16],
+    },
+    Meas {
+        q: u32,
+        kind: u32,
+        meas: u32,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -685,11 +735,45 @@ fn translate(batch: &[QirCall], n: u32, strategy: Strategy) -> Result<Plan, GpuE
         };
         place(&mut segments, op, low, strategy);
     }
+    if strategy.gather {
+        segments = drop_small_gathers(segments, low, strategy);
+    }
     Ok(Plan {
         segments,
         results,
         measurements,
     })
+}
+
+/// Replaces each gather block of fewer than `MIN_GATHER` non-diagonal gates by plain
+/// passes: a gather pass costs about two plain ones (it reads scattered runs).
+fn drop_small_gathers(segments: Vec<Segment>, low: u64, strategy: Strategy) -> Vec<Segment> {
+    const MIN_GATHER: usize = 3;
+    let small = |s: &Segment| {
+        matches!(&s.kind, SegKind::Block { set, ops }
+            if *set != low && ops.iter().filter(|op| !is_diag(op)).count() < MIN_GATHER)
+    };
+    if !segments.iter().any(small) {
+        return segments;
+    }
+    let plain = Strategy {
+        gather: false,
+        ..strategy
+    };
+    let mut out: Vec<Segment> = Vec::with_capacity(segments.len());
+    for segment in segments {
+        if small(&segment) {
+            let SegKind::Block { ops, .. } = segment.kind else {
+                unreachable!("checked")
+            };
+            for op in ops {
+                place(&mut out, op, low, plain);
+            }
+        } else {
+            out.push(segment);
+        }
+    }
+    out
 }
 
 /// Puts `op` in the earliest segment it may join, after the last segment
@@ -708,7 +792,16 @@ fn place(segments: &mut Vec<Segment>, op: Op, low: u64, strategy: Strategy) {
     let is_gate = !matches!(op, Op::Meas { .. });
     for segment in &mut segments[start..] {
         let joined = match (&mut segment.kind, &op) {
-            (SegKind::Block(ops), _) if strategy.block && is_gate && mask & !low == 0 => {
+            (SegKind::Block { set, ops }, _)
+                if strategy.block
+                    && is_gate
+                    && (*set | mask).count_ones() <= low.count_ones()
+                    && (*set == low || strategy.gather)
+                    // A diagonal gate grows no gather block: a diag pass
+                    // takes it, with the rest of a CZ chain.
+                    && (*set == low || !diag || mask & !*set == 0) =>
+            {
+                *set |= mask;
                 ops.push(op.clone());
                 true
             }
@@ -758,7 +851,21 @@ fn place(segments: &mut Vec<Segment>, op: Op, low: u64, strategy: Strategy) {
         }
     }
     let kind = match op {
-        _ if strategy.block && is_gate && mask & !low == 0 => SegKind::Block(vec![op]),
+        _ if strategy.block && is_gate && mask & !low == 0 => SegKind::Block {
+            set: low,
+            ops: vec![op],
+        },
+        _ if strategy.block
+            && strategy.gather
+            && is_gate
+            && !diag
+            && (mask | CARRIERS).count_ones() <= low.count_ones() =>
+        {
+            SegKind::Block {
+                set: mask | CARRIERS,
+                ops: vec![op],
+            }
+        }
         _ if strategy.fuse_diag && diag => SegKind::Diag(vec![op]),
         Op::G1 { q, m } => SegKind::Gate1 { q, m },
         Op::G2 { a, b, m } => SegKind::Gate2 { a, b, m },
@@ -771,25 +878,47 @@ fn place(segments: &mut Vec<Segment>, op: Op, low: u64, strategy: Strategy) {
     });
 }
 
-/// Appends the diagonal term of `op` (3 vec4) to `ops`.
-fn push_diag_term(ops: &mut Vec<[f32; 4]>, op: &Op) {
-    match op {
-        Op::G1 { q, m } => {
-            #[allow(clippy::cast_precision_loss)]
-            ops.push([1.0, *q as f32, 0.0, 0.0]);
-            let (d0, d1) = (c32(m[0]), c32(m[3]));
-            ops.push([d0[0], d0[1], d1[0], d1[1]]);
-            ops.push([0.0; 4]);
+/// The phase of a product of diagonal ops, as the terms `(d, m, c)` the
+/// kernels sum, `c * popcount(k & (k >> d) & m)` turns on basis state `k`:
+/// one term per distance `d` between paired qubits (0 for single qubits)
+/// and coefficient, dropping the product's global phase.
+fn phase_terms<'o>(diag_ops: impl IntoIterator<Item = &'o Op>) -> Vec<[f32; 4]> {
+    let turns = |c: Complex64| c.arg() / std::f64::consts::TAU;
+    let mut single = [0.0f64; 32];
+    let mut pairs: BTreeMap<(u32, u32), f64> = BTreeMap::new();
+    for op in diag_ops {
+        match op {
+            Op::G1 { q, m } => single[*q as usize] += turns(m[3]) - turns(m[0]),
+            Op::G2 { a, b, m } => {
+                let (p00, p01, p10, p11) = (turns(m[0]), turns(m[5]), turns(m[10]), turns(m[15]));
+                single[*a as usize] += p10 - p00;
+                single[*b as usize] += p01 - p00;
+                *pairs.entry(((*a).min(*b), (*a).max(*b))).or_default() += p11 - p10 - p01 + p00;
+            }
+            Op::Meas { .. } => unreachable!("a measurement is not diagonal"),
         }
-        Op::G2 { a, b, m } => {
-            #[allow(clippy::cast_precision_loss)]
-            ops.push([2.0, *a as f32, *b as f32, 0.0]);
-            let d: Vec<C32> = [0, 5, 10, 15].iter().map(|&i| c32(m[i])).collect();
-            ops.push([d[0][0], d[0][1], d[1][0], d[1][1]]);
-            ops.push([d[2][0], d[2][1], d[3][0], d[3][1]]);
-        }
-        Op::Meas { .. } => unreachable!("a measurement is no diagonal term"),
     }
+    #[allow(clippy::cast_possible_truncation)]
+    let reduced = |c: f64| {
+        let c = c.rem_euclid(1.0);
+        (c > 1e-12 && c < 1.0 - 1e-12).then_some(c as f32)
+    };
+    let mut terms: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+    for (q, &c) in single.iter().enumerate() {
+        if let Some(c) = reduced(c) {
+            *terms.entry((0, c.to_bits())).or_default() |= 1 << q;
+        }
+    }
+    for (&(lo, hi), &c) in &pairs {
+        if let Some(c) = reduced(c) {
+            *terms.entry((hi - lo, c.to_bits())).or_default() |= 1 << lo;
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    terms
+        .into_iter()
+        .map(|((d, c), mask)| [d as f32, mask as f32, f32::from_bits(c), 0.0])
+        .collect()
 }
 
 fn push_matrix4(ops: &mut Vec<[f32; 4]>, m: &[Complex64; 16]) {
@@ -799,29 +928,83 @@ fn push_matrix4(ops: &mut Vec<[f32; 4]>, m: &[Complex64; 16]) {
     }
 }
 
-/// Appends a block op (9 vec4) to `ops`.
-fn push_block_op(ops: &mut Vec<[f32; 4]>, op: &Op) {
-    let start = ops.len();
-    if is_diag(op) {
-        push_diag_term(ops, op);
-    } else {
-        match op {
-            Op::G1 { q, m } => {
+/// The block ops' code (as the `block` kernel reads it), in pieces of at
+/// most `BLOCK_CODE` vec4: each piece's ops and code. Consecutive diagonal
+/// ops become one op of phase terms.
+fn block_code(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>)> {
+    let mut encoded: Vec<Vec<[f32; 4]>> = Vec::new();
+    let mut at = 0;
+    while at < block_ops.len() {
+        let op = &block_ops[at];
+        if is_diag(op) {
+            let run = block_ops[at..].iter().take_while(|op| is_diag(op)).count();
+            let terms = phase_terms(&block_ops[at..at + run]);
+            at += run;
+            if terms.is_empty() {
+                continue;
+            }
+            for terms in terms.chunks(BLOCK_CODE - 1) {
                 #[allow(clippy::cast_precision_loss)]
-                ops.push([11.0, *q as f32, 0.0, 0.0]);
+                let mut code = vec![[13.0, 0.0, 0.0, terms.len() as f32]];
+                code.extend(terms);
+                encoded.push(code);
+            }
+            continue;
+        }
+        at += 1;
+        // Two one-qubit gates on two qubits: one 4x4 sweep, not two.
+        let pair = match (op, block_ops.get(at)) {
+            (Op::G1 { q, m }, Some(next @ Op::G1 { q: nq, m: nm }))
+                if kron_in_block && q != nq && !is_diag(next) =>
+            {
+                Some(Op::G2 {
+                    a: *q,
+                    b: *nq,
+                    m: kron(m, nm),
+                })
+            }
+            _ => None,
+        };
+        let op = match &pair {
+            Some(pair) => {
+                at += 1;
+                pair
+            }
+            None => op,
+        };
+        #[allow(clippy::cast_precision_loss)]
+        encoded.push(match op {
+            Op::G1 { q, m } => {
                 let r: Vec<C32> = m.iter().map(|&c| c32(c)).collect();
-                ops.push([r[0][0], r[0][1], r[1][0], r[1][1]]);
-                ops.push([r[2][0], r[2][1], r[3][0], r[3][1]]);
+                vec![
+                    [11.0, *q as f32, 0.0, 0.0],
+                    [r[0][0], r[0][1], r[1][0], r[1][1]],
+                    [r[2][0], r[2][1], r[3][0], r[3][1]],
+                ]
             }
             Op::G2 { a, b, m } => {
-                #[allow(clippy::cast_precision_loss)]
-                ops.push([12.0, *a as f32, *b as f32, 0.0]);
-                push_matrix4(ops, m);
+                let mut code = vec![[12.0, *a as f32, *b as f32, 0.0]];
+                push_matrix4(&mut code, m);
+                code
             }
             Op::Meas { .. } => unreachable!("a measurement is in no block"),
+        });
+    }
+    let mut pieces: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
+    for code in encoded {
+        assert!(
+            code.len() <= BLOCK_CODE,
+            "a block op fits the kernel's code"
+        );
+        match pieces.last_mut() {
+            Some((ops, piece)) if piece.len() + code.len() <= BLOCK_CODE => {
+                *ops += 1;
+                piece.extend(code);
+            }
+            _ => pieces.push((1, code)),
         }
     }
-    ops.resize(start + 9, [0.0; 4]);
+    pieces
 }
 
 /// The lengths of the prefix and of the suffix that all `batches` share,
@@ -851,6 +1034,8 @@ struct Layout<'a, 'g> {
     params: &'a mut Vec<u8>,
     ops: &'a mut Vec<[f32; 4]>,
     passes: &'a mut Vec<(&'g wgpu::ComputePipeline, u32, u64)>,
+    /// Whether pairs of one-qubit gates in a block run as one 4x4 sweep.
+    kron: bool,
 }
 
 impl Layout<'_, '_> {
@@ -891,23 +1076,87 @@ impl Layout<'_, '_> {
                     self.passes
                         .push((&gpu.gate2, slot, (len << (n - 2)).div_ceil(WG)));
                 }
-                SegKind::Diag(terms) => {
-                    for term in terms {
-                        push_diag_term(self.ops, term);
+                SegKind::Diag(diag_ops) => {
+                    let terms = phase_terms(diag_ops);
+                    if terms.is_empty() {
+                        // A global phase: nothing to do.
+                        self.params.truncate(at);
+                        continue;
                     }
                     p.op_off = op_off;
                     p.op_len = u32::try_from(terms.len()).expect("fits");
+                    self.ops.extend(terms);
                     self.passes.push((&gpu.diag, slot, (len << n).div_ceil(WG)));
                 }
-                SegKind::Block(block_ops) => {
-                    for op in block_ops {
-                        push_block_op(self.ops, op);
+                SegKind::Block {
+                    set,
+                    ops: block_ops,
+                } => {
+                    // Fill the set up with the lowest qubits: longer runs of
+                    // consecutive amplitudes and full workgroups.
+                    let mut set = *set;
+                    for q in 0..n {
+                        if set.count_ones() >= BLOCK_QUBITS.min(n) {
+                            break;
+                        }
+                        set |= 1 << q;
                     }
-                    let b = BLOCK_QUBITS.min(n);
-                    p.op_off = op_off;
-                    p.op_len = u32::try_from(block_ops.len()).expect("fits");
-                    p.block = b;
-                    self.passes.push((&gpu.block, slot, len << (n - b)));
+                    let b = set.count_ones();
+                    // The set's qubits in ascending order, 5 bits each.
+                    let (mut q0, mut q1) = (0u32, 0u32);
+                    let mut local = [0u32; 64];
+                    for (i, q) in (0..64u32).filter(|q| set >> q & 1 == 1).enumerate() {
+                        let i = u32::try_from(i).expect("small");
+                        local[q as usize] = i;
+                        if i < 6 {
+                            q0 |= q << (5 * i);
+                        } else {
+                            q1 |= q << (5 * (i - 6));
+                        }
+                    }
+                    p.q0 = q0;
+                    p.q1 = q1;
+                    let at_local = |q: &u32| local[*q as usize];
+                    let local_ops: Vec<Op> = block_ops
+                        .iter()
+                        .map(|op| match op {
+                            Op::G1 { q, m } => Op::G1 {
+                                q: at_local(q),
+                                m: *m,
+                            },
+                            Op::G2 { a, b, m } => Op::G2 {
+                                a: at_local(a),
+                                b: at_local(b),
+                                m: *m,
+                            },
+                            Op::Meas { .. } => unreachable!("a measurement is in no block"),
+                        })
+                        .collect();
+                    let pieces = block_code(&local_ops, self.kron);
+                    if pieces.is_empty() {
+                        // Only a global phase: nothing to do.
+                        self.params.truncate(at);
+                        continue;
+                    }
+                    for (i, (count, code)) in pieces.into_iter().enumerate() {
+                        let mut p = p;
+                        let (at, slot) = if i == 0 {
+                            (at, slot)
+                        } else {
+                            let at = self.params.len();
+                            self.params
+                                .resize(at + usize::try_from(SLOT).expect("small"), 0);
+                            (at, u32::try_from(at as u64 / SLOT).expect("fits"))
+                        };
+                        p.op_off = u32::try_from(self.ops.len()).expect("fits");
+                        p.op_len = count;
+                        p.kind = u32::try_from(code.len()).expect("fits");
+                        p.block = b;
+                        self.ops.extend(code);
+                        p.write(self.params, at);
+                        self.passes.push((&gpu.block, slot, len << (n - b)));
+                    }
+                    continue;
                 }
                 SegKind::Meas { q, kind, meas } => {
                     p.q0 = *q;
@@ -1043,8 +1292,20 @@ impl QirGpuResumer {
             _ => unreachable!(),
         };
         let kinds: Vec<(&str, SegKind)> = vec![
-            ("gate1 (high qubit)", SegKind::Gate1 { q: high, m: rx_m(high, 0.3) }),
-            ("gate1 (qubit 0)", SegKind::Gate1 { q: 0, m: rx_m(0, 0.3) }),
+            (
+                "gate1 (high qubit)",
+                SegKind::Gate1 {
+                    q: high,
+                    m: rx_m(high, 0.3),
+                },
+            ),
+            (
+                "gate1 (qubit 0)",
+                SegKind::Gate1 {
+                    q: 0,
+                    m: rx_m(0, 0.3),
+                },
+            ),
             (
                 "gate2 (two high qubits)",
                 SegKind::Gate2 {
@@ -1059,12 +1320,41 @@ impl QirGpuResumer {
             ),
             (
                 "block (Rx and CZ on the low qubits)",
-                SegKind::Block(
-                    (0..block_qubits)
+                SegKind::Block {
+                    set: (1 << block_qubits) - 1,
+                    ops: (0..block_qubits)
                         .map(|q| rx(q, 0.3))
                         .chain((0..block_qubits - 1).map(|q| cz(q, q + 1)))
                         .collect(),
-                ),
+                },
+            ),
+            (
+                "block (only Rx on the low qubits)",
+                SegKind::Block {
+                    set: (1 << block_qubits) - 1,
+                    ops: (0..block_qubits).map(|q| rx(q, 0.3)).collect(),
+                },
+            ),
+            (
+                "block (only CZ on the low qubits)",
+                SegKind::Block {
+                    set: (1 << block_qubits) - 1,
+                    ops: (0..block_qubits - 1).map(|q| cz(q, q + 1)).collect(),
+                },
+            ),
+            (
+                "block (one Rx)",
+                SegKind::Block {
+                    set: (1 << block_qubits) - 1,
+                    ops: vec![rx(3, 0.3)],
+                },
+            ),
+            (
+                "gather block (Rx on 7 high qubits)",
+                SegKind::Block {
+                    set: CARRIERS | (0x7f << (n - 7)),
+                    ops: (n - 7..n).map(|q| rx(q, 0.3)).collect(),
+                },
             ),
             (
                 "mresetz (prob, sample, collapse)",
@@ -1097,6 +1387,7 @@ impl QirGpuResumer {
                 params: &mut params,
                 ops: &mut ops,
                 passes: &mut passes,
+                kron: self.strategy.kron,
             }
             .emit(&plan, 0, slots, 0);
             queue.write_buffer(&buffers.uniforms, 0, &params);
@@ -1128,6 +1419,101 @@ impl QirGpuResumer {
             times.push((name.to_string(), best));
         }
         times
+    }
+}
+
+impl QirGpuResumer {
+    /// The state of the last of `slots` shots of `n` qubits after `batch`
+    /// (gates only) from |0...0>, up to a global phase: a check that each
+    /// strategy's passes compute the same state.
+    pub fn state_after(
+        &mut self,
+        n: u32,
+        slots: u32,
+        batch: &[QirCall],
+    ) -> Result<Vec<[f32; 2]>, GpuError> {
+        let gpu = self.gpu.clone();
+        let (device, queue) = (&gpu.device, &gpu.queue);
+        let per_shot = ((1u32 << (n - 1)) / 4096).max(1);
+        let plan = translate(batch, n, self.strategy)?;
+        if plan.measurements > 0 {
+            return Err(GpuError("state_after takes gates only".into()));
+        }
+        let mut params = vec![0u8; usize::try_from(SLOT).expect("small")];
+        Params {
+            n,
+            slots,
+            ..Params::default()
+        }
+        .write(&mut params, 0);
+        let mut ops = Vec::new();
+        let mut passes = Vec::new();
+        Layout {
+            gpu: &gpu,
+            n,
+            slots,
+            per_shot,
+            params: &mut params,
+            ops: &mut ops,
+            passes: &mut passes,
+            kron: self.strategy.kron,
+        }
+        .emit(&plan, 0, slots, 0);
+        let buffers = self
+            .buffers
+            .get_or_insert_with(|| Buffers::new(device, &gpu.layout));
+        buffers.ensure(
+            device,
+            &gpu.layout,
+            (u64::from(slots) << n) * 8,
+            params.len() as u64,
+            (ops.len() as u64 * 16).max(16),
+            u64::from(slots) * 4,
+            u64::from(slots),
+            u64::from(slots) * u64::from(per_shot) * 8,
+        );
+        buffers.ensure_outcomes(device, &gpu.layout, u64::from(slots) * 4);
+        let shot_list: Vec<u32> = (0..slots).collect();
+        queue.write_buffer(&buffers.shots, 0, bytemuck::cast_slice(&shot_list));
+        queue.write_buffer(&buffers.uniforms, 0, &params);
+        if !ops.is_empty() {
+            queue.write_buffer(&buffers.ops, 0, bytemuck::cast_slice(&ops));
+        }
+        let bytes = 8u64 << n;
+        let readback = buffer(device, bytes, READBACK);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&gpu.init);
+            pass.set_bind_group(0, buffers.bind_group.as_ref(), &[0]);
+            let (x, y) = gpu.shape((u64::from(slots) << n).div_ceil(WG));
+            pass.dispatch_workgroups(x, y, 1);
+            for (pipeline, slot, groups) in &passes {
+                pass.set_pipeline(pipeline);
+                #[allow(clippy::cast_possible_truncation)]
+                pass.set_bind_group(
+                    0,
+                    buffers.bind_group.as_ref(),
+                    &[(u64::from(*slot) * SLOT) as u32],
+                );
+                let (x, y) = gpu.shape(*groups);
+                pass.dispatch_workgroups(x, y, 1);
+            }
+        }
+        encoder.copy_buffer_to_buffer(
+            &buffers.state,
+            u64::from(slots - 1) * bytes,
+            &readback,
+            0,
+            bytes,
+        );
+        queue.submit([encoder.finish()]);
+        let slice = readback.slice(..bytes);
+        slice.map_async(wgpu::MapMode::Read, |r| r.expect("the readback maps"));
+        wait(device);
+        let state = bytemuck::cast_slice::<u8, [f32; 2]>(&slice.get_mapped_range()).to_vec();
+        readback.unmap();
+        Ok(state)
     }
 }
 
@@ -1360,15 +1746,14 @@ impl QirGpuResumer {
                     params: &mut params,
                     ops: &mut ops,
                     passes: &mut passes,
+                    kron: self.strategy.kron,
                 };
                 // The union of the groups' shots, for the shared pieces.
                 let union_off = u32::try_from(shot_list.len()).expect("fits");
                 shot_list.extend(
                     shots[..running]
                         .iter()
-                        .filter(|shot| {
-                            shot.group.is_some_and(|group| middles[group].is_ok())
-                        })
+                        .filter(|shot| shot.group.is_some_and(|group| middles[group].is_ok()))
                         .map(|shot| shot.slot),
                 );
                 let union_len = u32::try_from(shot_list.len()).expect("fits") - union_off;
@@ -1494,12 +1879,10 @@ impl QirGpuResumer {
                 for &(result, meas) in &results[group] {
                     let value = match meas {
                         None => QirReadout::Zero,
-                        Some(meas) => {
-                            match values[(meas * slots + shot.slot) as usize] {
-                                0 => QirReadout::Zero,
-                                _ => QirReadout::One,
-                            }
-                        }
+                        Some(meas) => match values[(meas * slots + shot.slot) as usize] {
+                            0 => QirReadout::Zero,
+                            _ => QirReadout::One,
+                        },
                     };
                     shot.outcomes.push(QirOutcome { result, value });
                 }
