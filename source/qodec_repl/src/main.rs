@@ -4,7 +4,7 @@
 //! This is throw-away code! It's only purpose is to serve as an interactive
 //! tool to aid development and reviews.
 
-//! `qodec-lowerer [--color=<when>] <qodec-filepath>`: a REPL that lowers
+//! `qodec-repl [--color=<when>] <qodec-filepath>`: a REPL that lowers
 //! instructions of a qodec's top ISA to its bottom ISA, through every layer of
 //! the qodec runtime, and prints the bottom instructions. Type `:help` in the
 //! REPL for its syntax.
@@ -42,7 +42,7 @@ use std::{
     sync::Arc,
 };
 
-const USAGE: &str = "usage: qodec-lowerer [--color=auto|always|never] <qodec-filepath>";
+const USAGE: &str = "usage: qodec-repl [--color=auto|always|never] <qodec-filepath>";
 
 const HELP: &str = "Lowers top-ISA instructions of a qodec to its bottom ISA.
 

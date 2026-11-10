@@ -1,13 +1,13 @@
 # qodec examples
 
-Copies of the examples from the qodec repository's `examples/` directory, adapted to load in `qodec-lowerer`. Each gadget circuit uses qodec's native inline YAML call list instead of Stim, because the published `qodec` crate has no Stim parser.
+Copies of the examples from the qodec repository's `examples/` directory, adapted to load in `qodec-repl`. Each gadget circuit uses qodec's native inline YAML call list instead of Stim, because the published `qodec` crate has no Stim parser.
 
 ## Running an example
 
 Pass a manifest or bundle to the REPL from the repository root:
 
 ```bash
-cargo run -p qodec_lowerer -- source/qodec_lowerer/examples/steane/steane.qodec.yaml
+cargo run -p qodec_repl -- source/qodec_repl/examples/steane/steane.qodec.yaml
 ```
 
 Then lower a program, for example `prepare_z 0; idle 0; measure_z 0`. Use `:isa` to list the top instructions.
@@ -41,7 +41,7 @@ Under qodec's Stim parser, each converted gadget produces exactly the same calls
 `benches/bottom_throughput.rs` measures, for every example, the time the lowering stack spends per bottom-ISA instruction it emits, while lowering whole shots into a bottom backend that does no work:
 
 ```bash
-cargo bench -p qodec_lowerer
+cargo bench -p qodec_repl
 ```
 
-Append a name to run one example, for example `cargo bench -p qodec_lowerer -- steane`.
+Append a name to run one example, for example `cargo bench -p qodec_repl -- steane`.

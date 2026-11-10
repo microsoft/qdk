@@ -27,7 +27,7 @@ members = [
     "source/fuzz",
     "source/index_map",
     "source/language_service",
-    "source/qodec_lowerer",
+    "source/qodec_repl",
     "source/qodec_runtime_impl",
     "source/qodec_runtime_interface",
     "source/simulators",
@@ -90,7 +90,7 @@ indenter = "0.3"
 regex-lite = "0.1"
 rustc-hash = "1"
 
-# TODO: remove this before merging, this is only needed by qodec_lowerer, which is a
+# TODO: remove this before merging, this is only needed by qodec_repl, which is a
 # throwaway crate.
 rustyline = { version = "19.0", default-features = false }
 

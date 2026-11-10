@@ -20,10 +20,10 @@
 //! timed.
 //!
 //! To run the entire bench:
-//! `cargo bench -p qodec_lowerer --bench bottom_throughput`
+//! `cargo bench -p qodec_repl --bench bottom_throughput`
 //!
 //! To run one group:
-//! `cargo bench -p qodec_lowerer --bench bottom_throughput -- compile_throughput`
+//! `cargo bench -p qodec_repl --bench bottom_throughput -- compile_throughput`
 //!
 
 #[allow(dead_code)]

@@ -1,5 +1,5 @@
 [package]
-name = "qodec_lowerer"
+name = "qodec_repl"
 description = "A REPL that lowers top-ISA instructions of a qodec to its bottom ISA."
 
 version.workspace = true
@@ -25,7 +25,7 @@ expect-test = { workspace = true }
 workspace = true
 
 [[bin]]
-name = "qodec-lowerer"
+name = "qodec-repl"
 path = "src/main.rs"
 bench = false
 
