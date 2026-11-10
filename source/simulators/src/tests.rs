@@ -38,27 +38,16 @@ fn forced_loss_resets_only_the_target_and_is_idempotent() {
 
 #[test]
 fn seeded_cpu_noise_and_measurements_are_independent() {
-    use crate::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli};
-    let mut config = NoiseConfig::<f64, f64>::NOISELESS;
-    config.h = NoiseTable {
-        qubits: 1,
-        pauli_strings: vec![encode_pauli("I")],
-        probabilities: vec![1.0],
-        on_loss: LossPolicy::Skip,
-    };
-    config.mz = NoiseTable {
-        qubits: 1,
-        pauli_strings: vec![encode_pauli("X")],
-        probabilities: vec![0.5],
-        on_loss: LossPolicy::Skip,
-    };
-    let noise = Arc::new(config.into());
+    let noise = Arc::new(CumulativeNoiseConfig::default());
     let mut counts = [0; 4];
     for seed in 0..512 {
         let mut sim = FullStateSimulator::new(1, 2, seed, Arc::clone(&noise));
         sim.h(0);
         sim.mz(0, 0);
         sim.mz(0, 1);
+        // Readout faults consume noise draws without advancing the state RNG.
+        sim.apply_readout_noise(0.5, 0.5, 0);
+        sim.apply_readout_noise(0.5, 0.5, 1);
         let first = sim.measurements()[0] == MeasurementResult::One;
         let second = sim.measurements()[1] == MeasurementResult::One;
         counts[2 * usize::from(first) + usize::from(second)] += 1;
