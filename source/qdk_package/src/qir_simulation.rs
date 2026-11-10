@@ -797,7 +797,10 @@ or one argument of type 'list[tuple[str, float]]', but found {py_args:?}"
     }
 
     pub fn is_noiseless(&self) -> PyResult<bool> {
-        Ok(self.pauli_noise.is_empty())
+        Ok(self
+            .pauli_noise
+            .values()
+            .all(|probability| *probability == 0.0))
     }
 }
 
