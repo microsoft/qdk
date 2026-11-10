@@ -14,6 +14,49 @@ use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_p
 use std::fmt::Write;
 
 #[test]
+fn seeded_sparse_noise_and_measurements_are_independent() {
+    let mut counts = [0; 4];
+    for seed in 0..512 {
+        let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+        config.x = NoiseTable {
+            qubits: 1,
+            pauli_strings: vec![encode_pauli("X")],
+            probabilities: vec![0.5],
+            on_loss: LossPolicy::Skip,
+        };
+        let mut sim = SparseSim::new_with_noise_config(config.into());
+        sim.set_seed(Some(seed));
+        let q0 = sim.qubit_allocate().expect("allocation succeeds");
+        let q1 = sim.qubit_allocate().expect("allocation succeeds");
+        sim.x(q0).expect("X succeeds");
+        sim.h(q1).expect("H succeeds");
+        let first = sim.mresetz(q1).expect("measurement succeeds").unwrap_bool();
+        let second = sim.mresetz(q0).expect("measurement succeeds").unwrap_bool();
+        counts[2 * usize::from(first) + usize::from(second)] += 1;
+    }
+    assert!(
+        counts.iter().all(|count| (64..192).contains(count)),
+        "{counts:?}"
+    );
+}
+
+#[test]
+fn seeded_sparse_measurement_is_independent_of_classical_randomness() {
+    use rand::{RngExt, SeedableRng};
+    let mut ones = 0;
+    for seed in 0..512 {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let theta = rng.random::<f64>() * std::f64::consts::FRAC_PI_2;
+        let mut sim = SparseSim::new();
+        sim.set_seed(Some(seed));
+        let q = sim.qubit_allocate().expect("allocation succeeds");
+        sim.ry(theta, q).expect("Ry succeeds");
+        ones += usize::from(sim.mresetz(q).expect("measurement succeeds").unwrap_bool());
+    }
+    assert!((30..160).contains(&ones), "{ones}");
+}
+
+#[test]
 fn pauli_noise() {
     let noise = PauliNoise::from_probabilities(0.0, 0.0, 0.0);
     assert!(

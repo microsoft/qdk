@@ -1178,10 +1178,11 @@ impl Backend for SparseSim {
 
     fn set_seed(&mut self, seed: Option<u64>) {
         if let Some(seed) = seed {
+            let mut seed_rng = StdRng::seed_from_u64(seed);
             if !self.is_noiseless() {
-                self.rng = Some(StdRng::seed_from_u64(seed));
+                self.rng = Some(StdRng::from_rng(&mut seed_rng));
             }
-            self.sim.set_rng_seed(seed);
+            self.sim.set_rng_seed(seed_rng.next_u64());
         } else {
             if !self.is_noiseless() {
                 self.rng = Some(StdRng::from_rng(&mut rand::rng()));
