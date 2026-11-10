@@ -65,11 +65,11 @@ fn pending_instruction_count(profiler: &TemporalProfiler<DemoModel1>) -> usize {
 #[test]
 fn computes_demo_model_error() -> Result<(), String> {
     for (names, expected_time, expected_error) in [
-        (&["h", "mz"][..], 6_000, 6_000.0 * 6e-9),
+        (&["h", "mz"][..], 6_000, 6_000.0 * 6e-12),
         (
             &["h", "t", "mz"][..],
             67_000,
-            67_000.0 * 6e-9 + 35.0 * 1e-9 + 7.1 * 1e-5,
+            (67_000.0 + 11_000.0) * 6e-12 + 35.0 * 1e-12 + 7.1 * 3e-8,
         ),
     ] {
         let mut profiler = seeded_profiler();
@@ -92,6 +92,60 @@ fn computes_demo_model_error() -> Result<(), String> {
             "expected error {expected_error}, got {actual_error} for {names:?}"
         );
     }
+    Ok(())
+}
+
+/// Repeated measurements charge new exposure only, and reset discards the old state.
+#[test]
+fn does_not_charge_measured_error_twice() -> Result<(), String> {
+    let mut profiler = seeded_profiler();
+    for factory in &mut profiler.model.t_factories {
+        factory.probability_success = 1.0;
+    }
+    let instructions: Vec<_> = ["h", "t", "mz", "mz"]
+        .into_iter()
+        .map(|instruction_name| QuantumBackendInstruction {
+            instruction_name,
+            parameters: smallvec::smallvec![QubitId(0)],
+        })
+        .collect();
+    assert_eq!(profiler.execute_batch(&instructions)?.results.len(), 2);
+    let expected_error = (68_000.0 + 11_000.0) * 6e-12 + 35.0 * 1e-12 + 7.1 * 3e-8;
+    assert!((profiler.get_result().totals.error - expected_error).abs() < 1e-18);
+
+    let instructions: Vec<_> = ["reset", "h", "mz"]
+        .into_iter()
+        .map(|instruction_name| QuantumBackendInstruction {
+            instruction_name,
+            parameters: smallvec::smallvec![QubitId(0)],
+        })
+        .collect();
+    assert_eq!(profiler.execute_batch(&instructions)?.results.len(), 1);
+    assert_eq!(profiler.state.current_time_nanos, 75_000);
+    assert!((profiler.get_result().totals.error - expected_error - 6_000.0 * 6e-12).abs() < 1e-18);
+    Ok(())
+}
+
+/// A qubit first seen in a later batch does not accrue error before it exists.
+#[test]
+fn starts_qubit_error_at_first_use() -> Result<(), String> {
+    let mut profiler = seeded_profiler();
+    profiler.execute_batch(&[
+        QuantumBackendInstruction {
+            instruction_name: "h",
+            parameters: smallvec::smallvec![QubitId(0)],
+        },
+        QuantumBackendInstruction {
+            instruction_name: "mz",
+            parameters: smallvec::smallvec![QubitId(0)],
+        },
+    ])?;
+    profiler.execute_batch(&[QuantumBackendInstruction {
+        instruction_name: "mz",
+        parameters: smallvec::smallvec![QubitId(1)],
+    }])?;
+    assert_eq!(profiler.state.current_time_nanos, 7_000);
+    assert!((profiler.get_result().totals.error - 7_000.0 * 6e-12).abs() < 1e-18);
     Ok(())
 }
 
@@ -217,7 +271,7 @@ fn profiles_simple_program() -> Result<(), String> {
     let result = profiler.profile_qsharp_expr(&mut interpreter, "Test.Main()")?;
     let profile_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tmp/small_profile.json");
     assert_eq!(result.totals.logical_compute_qubits, 2);
-    assert_eq!(result.totals.logical_qubits, 27);
+    assert_eq!(result.totals.logical_qubits, 157);
     result.to_json(&profile_path)?;
     expect![[r#"
         0-55000: round 0

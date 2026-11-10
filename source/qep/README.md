@@ -318,21 +318,46 @@ trace representation.
 * Instructions are ordered by their per-qubit dependencies. Independent
   instructions can run concurrently, including successors unblocked by the same operation.
 * Instruction completion events are ordered by timestamp, with equal-time events processed FIFO.
-* Clifford instructions use `TemporalProfilerConfig.clifford_gate_time_nanos` (5,000 ns by default).
+* Rust's default model uses distance 9 and a conservative uniform Clifford latency of
+  three logical time steps (`3 * ecc_distance * 1,000` ns, or 27,000 ns).
+  Python accepts an explicit `clifford_gate_time_nanos`; the demo uses the same formula.
   Measurement and reset each use `measurment_time_nanos` (1,000 ns by default).
-  These timings do not scale with ECC distance.
+  Explicit timing overrides are not automatically rescaled when distance changes.
 * Every T factory starts an `11 * ecc_distance * 1,000` ns distillation round at startup. Each attempt succeeds with
-  probability 0.5; failures immediately retry. A successful factory holds one T-state and pauses
-  until that state is consumed.
+  probability `1 - 15 * p_T - 356 * epsilon(d)`; failures immediately retry.
+  A successful factory holds one T-state and pauses until that state is consumed.
+  The single-round 15-to-1 RM-preparation model uses 31 logical patches, 11 logical steps,
+  and output error `35 * p_T^3 + 7.1 * epsilon(d)`, consistently with
+  [arXiv:2211.07629, Appendix C / Table 6](https://arxiv.org/abs/2211.07629).
+  This is not the smaller five-patch layout from a different distillation implementation.
 * `t` and `tadj` reserve a ready factory and execute as `inject_t` and `inject_tadj`, with operands
   `[FactoryId, QubitId]`. Injection takes twice the Clifford duration plus the measurement
-  duration (11,000 ns by default). The factory starts its next round only when injection finishes.
+  duration (55,000 ns by default). The factory starts its next round only when injection finishes.
   Ready factories are selected FIFO within each resource type.
 * Instruction references and qubit dependencies persist across QIR batches, including the
   adaptive-profile result barrier. `ResultAdapter` maintains result registers across batches.
 * `TemporalProfilerConfig` configures the aggregation window, factory count, ECC distance, and optional
-  `seed`. Defaults use ten factories and no seed. A fixed seed reproduces both distillation
-  outcomes and measurement bits. Construction requires at least one factory and a nonzero window.
+  `seed`. Defaults use distance nine, ten factories, and no seed. A fixed seed reproduces both distillation
+  outcomes and measurement bits. Construction requires positive distance, at least one factory, and a nonzero window.
+
+The demo explicitly assumes a future hardware target with physical Clifford and raw T-state
+errors of `1e-4`, a threshold of `0.01`, and a 1,000 ns physical syndrome cycle.
+[Litinski, arXiv:1808.02892](https://arxiv.org/abs/1808.02892) explores both `1e-3` and
+`1e-4` physical errors with 1 microsecond cycles. These are forecasting assumptions, not a
+calibration of current hardware. Compute memory and factories share
+`epsilon(d) = 0.03 * (1e-4 / 0.01)^((d + 1) / 2)` per logical time step, following the
+convention of [arXiv:2211.07629, Appendix B / Table 5](https://arxiv.org/abs/2211.07629).
+The memory budget per nanosecond is `epsilon(d) / (d * 1,000)`; do not mix this convention
+with fits quoted per physical syndrome cycle.
+
+`TotalCounts.error` is a first-order additive fault budget, not an exact probability:
+it can exceed one. Measurement charges only previously unreported memory and injected-state
+contributions; it does not physically correct a noisy state. Reset starts a fresh interval,
+and qubits are not charged for time before their first submission. Produced T states accrue
+memory error while waiting and during injection. Resets are assumed perfect, and the model
+does not simulate error propagation, routing, decoder delays, synthesis error, or intrinsic
+algorithm success. The Shor demo asserts a modeled budget below 0.33 for its 16- and 50-bit
+single-shot workloads, not for RSA-2048.
 
 #### Construction and adapters
 
@@ -356,8 +381,9 @@ Python requires both timing arguments explicitly; `TemporalProfiler` requires a 
 from qdk.qre import TemporalProfilerConfig, TemporalProfiler
 
 profiler = TemporalProfiler(TemporalProfilerConfig(
-    clifford_gate_time_nanos=5_000,
+    clifford_gate_time_nanos=27_000,
     measurment_time_nanos=1_000,
+    ecc_distance=9,
 ))
 ```
 

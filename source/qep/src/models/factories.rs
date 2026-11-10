@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-/// T factory consists of 5 logical qubits.
+use super::surface_code::{
+    PHYSICAL_ERROR_RATE, logical_error_per_nanosecond, logical_error_per_step, logical_step_nanos,
+};
+
+/// Single-round 15-to-1 RM-preparation factory using 31 logical patches.
 /// At periodical intervals it produces a T state in last qubits. That T state can be then moved to
 /// a memory buffer or be consumed by Inject-T (or Inject-T†) gate.
 /// TODO: use `resource_estimator::system::TFactory` instead.
@@ -17,7 +21,7 @@
 ///   - Or it gets moved into memory buffer (this is not implemented for now).
 /// * After T state is used, distillation can start again.
 ///
-/// For the demo, I am using 15-1 factory from fig.15 in <https://arxiv.org/pdf/1808.02892>
+/// Layout, duration, and fidelity follow arXiv:2211.07629, Appendix C / Table 6.
 #[derive(Clone)]
 pub(crate) struct TFactory {
     pub(super) logical_qubits: usize,
@@ -30,19 +34,17 @@ pub(crate) struct TFactory {
     )]
     input_state_error: f64,
     pub(super) output_state_error: f64,
+    pub(super) output_ready_nanos: Option<usize>,
 }
 
 impl TFactory {
-    /// Creates a demo factory at the given code distance with fixed error probabilities.
+    /// Creates a single-round factory using the shared physical and logical error model.
     pub fn new(ecc_distance: usize) -> Self {
         // Formulas from https://arxiv.org/abs/2211.07629
 
-        // Input T-state error rate (TODO: take as input parameter).
-        let input_state_error: f64 = 1e-3;
+        let input_state_error = PHYSICAL_ERROR_RATE;
 
-        // Average error rate for clifford operations.
-        // TODO: use formula epsilon ≈ 0.03 * (p_phys / 0.01)^((d + 1) / 2)
-        let epsilon = 1e-5;
+        let epsilon = logical_error_per_step(ecc_distance);
 
         // Error of resulting T state.
         let output_state_error = 35.0 * input_state_error.powf(3.0) + 7.1 * epsilon;
@@ -50,20 +52,26 @@ impl TFactory {
         let discard_probability = 15.0 * input_state_error + 356.0 * epsilon;
 
         Self {
-            logical_qubits: 5,
+            logical_qubits: 31,
             ecc_distance,
             probability_success: 1.0 - discard_probability,
-            // Litinski, arXiv:1808.02892, Section 3.3 / Fig. 17c: the 15-to-1
-            // protocol takes 11 logical steps. Section 1 identifies each step
-            // with roughly d physical code cycles; Section 4 assumes 1 us per
-            // code cycle. Each attempt therefore takes 11 * ecc_distance * 1_000 ns
-            // (55_000 ns at the default distance 5).
-            // This leading-order estimate assumes state preparation and
-            // classical processing do not add latency (Section 3.3's caveat).
-            distillation_round_duration_nanos: 11 * ecc_distance * 1_000,
+            distillation_round_duration_nanos: 11 * logical_step_nanos(ecc_distance),
             input_state_error,
             output_state_error,
+            output_ready_nanos: None,
         }
+    }
+
+    /// Consumes the output, including memory error while waiting and during injection.
+    pub fn take_output_error(&mut self, now_nanos: usize) -> f64 {
+        let ready_nanos = self
+            .output_ready_nanos
+            .take()
+            .expect("consumed factory output must have been produced");
+        assert!(now_nanos >= ready_nanos);
+        #[allow(clippy::cast_precision_loss)]
+        let storage_nanos = (now_nanos - ready_nanos) as f64;
+        self.output_state_error + storage_nanos * logical_error_per_nanosecond(self.ecc_distance)
     }
 
     /// Counts data and syndrome qubits for the factory's rotated surface-code patches.
@@ -89,5 +97,31 @@ mod tests {
     #[test]
     fn distillation_duration_uses_logical_steps() {
         assert_eq!(TFactory::new(5).distillation_round_duration_nanos(), 55_000);
+    }
+
+    /// Checks that fidelity, acceptance, and footprint use the same published factory model.
+    #[test]
+    fn fidelity_and_space_depend_on_distance() {
+        for (distance, expected_logical_error) in [(5, 3e-8), (9, 3e-12)] {
+            let factory = TFactory::new(distance);
+            let expected_error = 35.0 * 1e-12 + 7.1 * expected_logical_error;
+            assert!((factory.output_state_error - expected_error).abs() < expected_error * 1e-12);
+            let expected_success = 1.0 - 15.0 * 1e-4 - 356.0 * expected_logical_error;
+            assert!((factory.probability_success - expected_success).abs() < 1e-15);
+            assert_eq!(
+                factory.physical_qubits(),
+                31 * (2 * distance * distance - 1)
+            );
+        }
+    }
+
+    /// Charges memory error after production rather than assuming cached T states stay perfect.
+    #[test]
+    fn output_storage_accrues_error() {
+        let mut factory = TFactory::new(5);
+        factory.output_ready_nanos = Some(55_000);
+        let expected_error = 35.0 * 1e-12 + 7.1 * 3e-8 + 20_000.0 * 6e-12;
+        assert!((factory.take_output_error(75_000) - expected_error).abs() < 1e-18);
+        assert_eq!(factory.output_ready_nanos, None);
     }
 }

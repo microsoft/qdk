@@ -132,7 +132,7 @@ impl TotalCounts {
         self.0.runtime_sec_per_operation.clone()
     }
 
-    /// Returns estimated error.
+    /// Returns estimated failure probability.
     #[getter]
     fn error(&self) -> f64 {
         self.0.error
@@ -373,7 +373,7 @@ pub struct TemporalProfilerConfig {
 impl TemporalProfilerConfig {
     /// Creates a configuration with explicit gate timings and validated window and factory counts.
     #[new]
-    #[pyo3(signature = (*, clifford_gate_time_nanos, measurment_time_nanos, aggregation_window_nanos=1_000_000_000, t_factories_count=10, seed=None, record_trace=false, ecc_distance=5))]
+    #[pyo3(signature = (*, clifford_gate_time_nanos, measurment_time_nanos, aggregation_window_nanos=1_000_000_000, t_factories_count=10, seed=None, record_trace=false, ecc_distance=9))]
     fn new(
         clifford_gate_time_nanos: usize,
         measurment_time_nanos: usize,
@@ -391,6 +391,11 @@ impl TemporalProfilerConfig {
         if t_factories_count == 0 {
             return Err(PyValueError::new_err(
                 "t_factories_count must be greater than zero",
+            ));
+        }
+        if ecc_distance == 0 {
+            return Err(PyValueError::new_err(
+                "ecc_distance must be greater than zero",
             ));
         }
         Ok(Self {

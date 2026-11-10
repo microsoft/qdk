@@ -1,4 +1,9 @@
-use super::{QpuModel, factories::TFactory, qubits::LogicalQubit};
+use super::{
+    QpuModel,
+    factories::TFactory,
+    qubits::LogicalQubit,
+    surface_code::{CODE_CYCLE_NANOS, logical_step_nanos},
+};
 use crate::{
     Parameter, QuantumBackendResult, TotalCounts,
     interface::QuantumBackendInstruction,
@@ -94,7 +99,7 @@ pub enum DemoModel1_Resource {
 ///  * Functional units:
 ///    * Logical Compute Qubits, number is not fixed in advance.
 ///    * T-factroies, number fixed in advance.
-///      * Each T-factory consists of 5 logical qubits.
+///      * Each T-factory uses 31 logical patches.
 ///      * T-factory produces TStates.
 ///    * Both standalone LCQs and LCQs inside factories use Surface code with distance ecc_distance.
 ///  * Resources:
@@ -109,7 +114,8 @@ pub enum DemoModel1_Resource {
 ///    * Each qubit has error 0 at start and after reset.
 ///    * Qubit accrues proportional to time.
 ///    * When TState is injected, add output T state error to qubit error.
-///    * On every measurement, we add qubit error to the resulting program error.
+///    * On measurement, previously unreported qubit error is added to the program budget.
+///    * This is a linear fault budget, not an exact probability or a noisy simulation.
 pub struct DemoModel1 {
     /// Duration of a Clifford instruction in nanoseconds.
     pub clifford_gate_time_nanos: usize,
@@ -126,9 +132,15 @@ pub struct DemoModel1 {
 }
 
 impl Default for DemoModel1 {
-    /// Uses ten distance-five factories, 5,000 ns Cliffords, and 1,000 ns measurements.
+    /// Uses distance nine, ten factories, and a conservative three-step Clifford latency.
     fn default() -> Self {
-        Self::new(5_000, 1_000, 10, 5)
+        let distance = 9;
+        Self::new(
+            3 * logical_step_nanos(distance),
+            CODE_CYCLE_NANOS,
+            10,
+            distance,
+        )
     }
 }
 
@@ -173,6 +185,7 @@ impl DemoModel1 {
         state: &mut TemporalProfilerState<Self>,
     ) {
         if state.rng.random::<f64>() < self.t_factories[factory_id].probability_success {
+            self.t_factories[factory_id].output_ready_nanos = Some(state.current_time_nanos);
             // State generated successfully, can use it.
             state.event_recorder.event_aggregator.record_event(
                 state.current_time_nanos,
@@ -238,7 +251,10 @@ impl QpuModel for DemoModel1 {
         // Grow `qubits` as needed.
         let max_qubit_id: usize = *targets.iter().max().unwrap_or(&0);
         while self.qubits.len() <= max_qubit_id {
-            self.qubits.push(LogicalQubit::new(self.ecc_distance));
+            self.qubits.push(LogicalQubit::new(
+                self.ecc_distance,
+                state.current_time_nanos,
+            ));
         }
 
         state.schedule_operation(
@@ -286,7 +302,7 @@ impl QpuModel for DemoModel1 {
     ) -> Option<QuantumBackendResult> {
         match op {
             DemoModel1_NativeOperation::Measurement(qubit_id) => {
-                state.error += self.qubits[*qubit_id].current_error(state.current_time_nanos);
+                state.error += self.qubits[*qubit_id].take_error(state.current_time_nanos);
                 Some(QuantumBackendResult::from(state.rng.random::<bool>()))
             }
             DemoModel1_NativeOperation::Reset(qubit_id) => {
@@ -303,7 +319,7 @@ impl QpuModel for DemoModel1 {
 
                 // Add produced T-state error to qubit error.
                 self.qubits[*qubit_id].accumulated_error +=
-                    self.t_factories[factory_id].output_state_error;
+                    self.t_factories[factory_id].take_output_error(state.current_time_nanos);
 
                 state.event_recorder.event_aggregator.record_event(
                     state.current_time_nanos,

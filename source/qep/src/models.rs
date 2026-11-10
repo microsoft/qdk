@@ -4,6 +4,7 @@
 pub(crate) mod demo_model1;
 mod factories;
 mod qubits;
+mod surface_code;
 
 use crate::{
     QuantumBackendInstruction, QuantumBackendResult, TotalCounts,

@@ -375,6 +375,7 @@ def test_qsharp_application_profile(use_qir: bool, tmp_path: Path):
                 "total_operations_count": 4,
                 "calls_per_operation": result.totals.calls_per_operation,
                 "runtime_sec_per_operation": result.totals.runtime_sec_per_operation,
+                "error": 0.0,
             },
             "profiles": {"profiles": [], "aggregation_window_sec": None},
             "trace": None,
@@ -449,6 +450,8 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
     result.to_json(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["totals"]["logical_qubits"] == result.totals.logical_qubits
-    assert result.totals.logical_qubits == 28
+    assert result.totals.logical_qubits == 158
     assert result.totals.logical_compute_qubits == 3
     assert data["totals"]["logical_compute_qubits"] == 3
+    assert data["totals"]["error"] == result.totals.error
+    assert 0.0 < result.totals.error < 0.33

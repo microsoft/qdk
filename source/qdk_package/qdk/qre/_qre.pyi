@@ -27,6 +27,8 @@ class TotalCounts:
     def calls_per_operation(self) -> dict[str, int]: ...
     @property
     def runtime_sec_per_operation(self) -> dict[str, float]: ...
+    @property
+    def error(self) -> float: ...
 
 class TimeSeries:
     @property
@@ -86,7 +88,7 @@ class TemporalProfilerConfig:
         t_factories_count: int = 10,
         seed: Optional[int] = None,
         record_trace: bool = False,
-        ecc_distance: int = 5,
+        ecc_distance: int = 9,
     ) -> TemporalProfilerConfig: ...
     @property
     def clifford_gate_time_nanos(self) -> int: ...
