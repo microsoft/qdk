@@ -4,10 +4,10 @@
 #[cfg(test)]
 mod tests;
 
+use miette::Diagnostic;
 use qdk_simulators::noise_config::{
     LossPolicy, NoiseConfig, NoiseTable, PauliAndLossString, encode_pauli,
 };
-
 use qsc_ast::ast;
 use qsc_ast::builder::{
     build_arg_pat, build_assignment_statement, build_attr, build_binary_expr, build_block,
@@ -18,14 +18,12 @@ use qsc_ast::builder::{
     build_stmt_semi_from_expr, build_top_level_ns_with_items, build_unary_op_expr,
     build_while_stmt, managed_qubit_alloc_array,
 };
-
-use crate::parser::Pauli;
-use crate::semantic;
-use Pauli::{X, Y, Z};
-use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
 use thiserror::Error;
+
+use crate::parser::Pauli::{self, X, Y, Z};
+use crate::semantic;
 
 type StimQubitId = u32;
 type QubitId = u32;
