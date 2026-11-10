@@ -6,13 +6,15 @@
 
 //! `qodec-repl [--color=<when>] <qodec-filepath>`: a REPL that lowers
 //! instructions of a qodec's top ISA to its bottom ISA, through every layer of
-//! the qodec runtime, and prints the bottom instructions. Type `:help` in the
-//! REPL for its syntax.
+//! the qodec runtime, and prints the bottom instructions. Its commands also
+//! inspect and change the qodec. Type `:help` in the REPL for its syntax.
 //!
 //! Colors are only shown on a color terminal, unless `--color=always`. Output
 //! carries the same information without them.
 
+mod bundle;
 mod highlight;
+mod inspect;
 mod recorder;
 mod session;
 mod style;
@@ -34,11 +36,13 @@ use rustyline::{
     history::DefaultHistory,
     validate::Validator,
 };
-use session::{COMMANDS, Reply, Session};
+use session::{COMMANDS, ITEM_COMMANDS, Reply, Session};
 use std::{
     borrow::Cow,
+    fs,
     io::{self, BufRead, Write},
-    process::ExitCode,
+    path::Path,
+    process::{Command, ExitCode},
     sync::Arc,
 };
 
@@ -110,7 +114,7 @@ fn main() -> ExitCode {
         }
     };
     let mut session = match Session::new(&qodec, Box::new(ask)) {
-        Ok(session) => session,
+        Ok(session) => session.with_source(&path).with_editor(Box::new(edit)),
         Err(e) => {
             eprintln!("{} cannot plan `{path}`: {e}", style::error_prefix());
             return ExitCode::FAILURE;
@@ -134,7 +138,7 @@ fn repl(session: &mut Session) -> Result<(), ReadlineError> {
     };
     let config = Config::builder().color_mode(color_mode).build();
     let mut editor: Editor<Completions, DefaultHistory> = Editor::with_config(config)?;
-    editor.set_helper(Some(Completions(Arc::clone(session.top()))));
+    editor.set_helper(Some(Completions::new(session)));
     // A blank line after every output separates one exchange from the next.
     println!("{}\n", session.banner());
     loop {
@@ -148,7 +152,10 @@ fn repl(session: &mut Session) -> Result<(), ReadlineError> {
         if !line.trim().is_empty() {
             editor.add_history_entry(line.as_str())?;
         }
-        match session.eval(&line) {
+        let reply = session.eval(&line);
+        // The line may have changed the qodec.
+        editor.set_helper(Some(Completions::new(session)));
+        match reply {
             Reply::Print(text) if text.is_empty() => {}
             Reply::Print(text) => println!("{}\n", text.trim_end()),
             Reply::Quit => return Ok(()),
@@ -175,9 +182,79 @@ fn ask(what: &str) -> Result<Bit, String> {
     }
 }
 
-/// Tab-completes and highlights commands, top-ISA mnemonics, and their
-/// parameter names.
-struct Completions(Arc<InstructionSet>);
+/// Edits `text`, the YAML of document `name`, in `$VISUAL` or `$EDITOR`, or
+/// else in Notepad on Windows and vi elsewhere.
+fn edit(name: &str, text: &str) -> Result<String, String> {
+    let editor = ["VISUAL", "EDITOR"]
+        .into_iter()
+        .find_map(|var| std::env::var(var).ok().filter(|e| !e.trim().is_empty()))
+        .unwrap_or_else(|| if cfg!(windows) { "notepad" } else { "vi" }.to_string());
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || ".-_".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let file = std::env::temp_dir().join(format!("qodec-repl-{}-{safe}", std::process::id()));
+    fs::write(&file, text).map_err(|e| format!("cannot write `{}`: {e}", file.display()))?;
+    let edited = match editor_command(&editor, &file).status() {
+        Ok(status) if status.success() => {
+            fs::read_to_string(&file).map_err(|e| format!("cannot read `{}`: {e}", file.display()))
+        }
+        Ok(status) => Err(format!(
+            "`{editor}` failed ({status}); the qodec is as it was"
+        )),
+        Err(e) => Err(format!("cannot run `{editor}`: {e}")),
+    };
+    // Best effort: a leftover file in the temporary directory is harmless.
+    let _ = fs::remove_file(&file);
+    edited
+}
+
+/// Runs `editor`, which may have arguments, on `file` through the shell, as
+/// Git does.
+#[cfg(windows)]
+fn editor_command(editor: &str, file: &Path) -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = Command::new("cmd");
+    // `/S` makes cmd strip exactly the outer quotes, keeping the editor's own.
+    command.raw_arg(format!("/S /C \"{editor} \"{}\"\"", file.display()));
+    command
+}
+
+/// Runs `editor`, which may have arguments, on `file` through the shell, as
+/// Git does.
+#[cfg(not(windows))]
+fn editor_command(editor: &str, file: &Path) -> Command {
+    let mut command = Command::new("sh");
+    command
+        .arg("-c")
+        .arg(format!("{editor} \"$1\""))
+        .arg(editor)
+        .arg(file);
+    command
+}
+
+/// Tab-completes and highlights commands, their items, top-ISA mnemonics, and
+/// their parameter names.
+struct Completions {
+    top: Arc<InstructionSet>,
+    /// What the commands in [`ITEM_COMMANDS`] take.
+    items: Vec<String>,
+}
+
+impl Completions {
+    fn new(session: &Session) -> Self {
+        Self {
+            top: Arc::clone(session.top()),
+            items: session.items(),
+        }
+    }
+}
 
 impl Completer for Completions {
     type Candidate = String;
@@ -204,15 +281,27 @@ impl Completer for Completions {
                 .map(|c| format!(":{c}"))
                 .filter(|c| c.starts_with(word))
                 .collect(),
+            Some(command)
+                if statement.len() == 1
+                    && command
+                        .strip_prefix(':')
+                        .is_some_and(|c| ITEM_COMMANDS.contains(&c)) =>
+            {
+                self.items
+                    .iter()
+                    .filter(|i| i.starts_with(word))
+                    .cloned()
+                    .collect()
+            }
             None => self
-                .0
+                .top
                 .instructions
                 .iter()
                 .map(|i| i.mnemonic.clone())
                 .filter(|m| m.starts_with(word))
                 .collect(),
             Some(mnemonic) => self
-                .0
+                .top
                 .instructions
                 .iter()
                 .find(|i| i.mnemonic == *mnemonic)
@@ -235,7 +324,7 @@ impl Hinter for Completions {
 
 impl Highlighter for Completions {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
-        Cow::Owned(highlight::line(&self.0, line))
+        Cow::Owned(highlight::line(&self.top, line))
     }
 
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(

@@ -10,7 +10,7 @@ Pass a manifest or bundle to the REPL from the repository root:
 cargo run -p qodec_repl -- source/qodec_repl/examples/steane/steane.qodec.yaml
 ```
 
-Then lower a program, for example `prepare_z 0; idle 0; measure_z 0`. Use `:isa` to list the top instructions.
+Then lower a program, for example `prepare_z 0; idle 0; measure_z 0`. Use `:isa` to list the top instructions. Commands also inspect the qodec, such as `:gadgets`, `:codes` and `:yaml`, and change it, such as `:edit`, `:set`, `:slice` and `:stack`. `:help` lists them all.
 
 | Example           | Manifest                                     |
 | ----------------- | -------------------------------------------- |

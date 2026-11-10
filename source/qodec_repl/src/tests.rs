@@ -10,7 +10,7 @@ use expect_test::{Expect, expect};
 use qodec::Qodec;
 use qodec_runtime_impl::Bit;
 use rustyline::{Context, completion::Completer, history::DefaultHistory};
-use std::{cell::RefCell, collections::VecDeque, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::VecDeque, fmt::Write, rc::Rc, sync::Arc};
 
 /// A repetition-3 layer over a physical layer, with a logical layer on top
 /// when `logical` is set.
@@ -60,12 +60,18 @@ fn transcript_asking(qodec: &Qodec, lines: &[&str], answers: &[Bit]) -> String {
         })
     };
     let mut session = Session::new(qodec, ask).expect("qodec should plan");
+    play(&mut session, lines, &asked)
+}
+
+/// Evaluates `lines` in `session`, and returns the transcript, with what
+/// `side` gathers during each line after the line.
+fn play(session: &mut Session, lines: &[&str], side: &Rc<RefCell<String>>) -> String {
     let mut text = String::new();
     for line in lines {
         text.push_str(format!("qodec> {line}").trim_end());
         text.push('\n');
         let reply = session.eval(line);
-        text.push_str(&asked.borrow_mut().split_off(0));
+        text.push_str(&side.borrow_mut().split_off(0));
         match reply {
             Reply::Print(output) if output.is_empty() => {}
             Reply::Print(output) => {
@@ -646,7 +652,8 @@ fn examples_lower_their_programs() {
 
 #[test]
 fn completions_cover_commands_mnemonics_and_parameters() {
-    let completions = crate::Completions(Arc::clone(&physical().layers()[0].instruction_set));
+    let session = Session::new(&physical(), Box::new(|_: &str| Ok(None))).expect("plans");
+    let completions = crate::Completions::new(&session);
     let history = DefaultHistory::new();
     let complete = |line: &str| {
         let (start, candidates) = completions
@@ -660,12 +667,466 @@ fn completions_cover_commands_mnemonics_and_parameters() {
         5 ["XIF"]
         6 ["c="]
         6 []
-        0 []"#]]
+        0 []
+        6 ["qodec", "qodec.yaml"]
+        6 ["physical.isa.yaml"]
+        5 []"#]]
     .assert_eq(
-        &[":o", "X", "R 0; XI", "XIF 0 ", "XIF 0 d", "Y"]
-            .map(complete)
-            .join("\n"),
+        &[
+            ":o", "X", "R 0; XI", "XIF 0 ", "XIF 0 d", "Y", ":yaml q", ":edit ph", ":isa ph",
+        ]
+        .map(complete)
+        .join("\n"),
     );
+}
+
+/// A session of `qodec`, whose bottom backend returns zeros.
+fn session(qodec: &Qodec) -> Session {
+    Session::new(qodec, Box::new(|_: &str| Ok(None))).expect("qodec should plan")
+}
+
+/// An empty scratch directory for `test`, and how transcripts show it.
+fn scratch(test: &str) -> (std::path::PathBuf, String) {
+    let dir = std::env::temp_dir().join(format!("qodec-repl-{}-{test}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("creates the scratch directory");
+    let shown = dir.display().to_string();
+    (dir, shown)
+}
+
+#[test]
+fn inspection_commands_describe_gadgets_and_codes() {
+    check(
+        &qodec(true),
+        &[
+            ":gadgets",
+            ":gadgets bottom",
+            ":gadget prepare_z",
+            ":codes",
+            ":code repetition3 1",
+            ":yaml measure",
+            ":gadget nope",
+            ":code nope",
+            ":yaml nope",
+            ":gadget",
+        ],
+        &expect![[r#"
+            qodec> :gadgets
+            layer 0: logical -> repetition3
+              measure  (trivial) -> ()  1 call, 0 checks
+              prepare  () -> (trivial)  1 call, 0 checks
+            layer 1: repetition3 -> physical
+              __quantum__qis__m__body  (repetition3) -> ()  3 calls, 2 checks
+              idle                     (repetition3) -> (repetition3)  8 calls, 4 checks
+              measure_reset            (repetition3) -> (repetition3)  6 calls, 2 checks
+              prepare_z                () -> (repetition3)  3 calls, 0 checks
+            qodec> :gadgets bottom
+            layer 2: physical
+              (no gadgets: nothing lies below)
+            qodec> :gadget prepare_z
+            layer 1: repetition3 -> physical: gadget prepare_z (0 checks)
+              circuit:
+                source: |
+                  - R:
+                    - 0
+                  - R:
+                    - 1
+                  - R:
+                    - 2
+                format: yaml
+                out:
+                  '0': qubit
+                  '1': qubit
+                  '2': qubit
+              out:
+              - repetition3: [0, 1, 2]
+            qodec> :codes
+            layer 0: logical -> repetition3
+              lq  trivial [[1,1]], 0 stabilizers
+            layer 1: repetition3 -> physical
+              repetition3  repetition3 [[3,1]], 2 stabilizers
+            qodec> :code repetition3 1
+            layer 1: repetition3 -> physical: code repetition3 for repetition3 [[3,1]], 2 stabilizers
+              name: repetition3
+              stabilizers: [Z_0 Z_1, Z_1 Z_2]
+              x: [X_0 X_1 X_2]
+              z: [Z_0]
+            qodec> :yaml measure
+            ---
+            measure.gadget.yaml:
+              circuit:
+              - __quantum__qis__m__body: [0]
+              readouts:
+              - ['circuit.readouts[0]', 'in[0].z[0]']
+            qodec> :gadget nope
+            error: no gadget `nope`; `:gadgets` lists them
+            qodec> :code nope
+            error: no code `nope`; `:codes` lists them
+            qodec> :yaml nope
+            error: no item `nope`; `:yaml` lists the qodec's documents
+            qodec> :gadget
+            error: usage: :gadget <mnemonic> [<layer>]
+        "#]],
+    );
+}
+
+#[test]
+fn the_whole_qodec_prints_as_a_bundle_that_loads() {
+    let mut session = session(&qodec(false));
+    let Reply::Print(bundle) = session.eval(":yaml") else {
+        panic!("prints")
+    };
+    let reloaded = Qodec::from_bundle_str(&bundle).expect("the bundle loads");
+    assert_eq!(reloaded, qodec(false));
+}
+
+#[test]
+fn set_and_unset_change_an_item_and_undo_reverts_them() {
+    check(
+        &qodec(false),
+        &[
+            "prepare_z 0",
+            ":set prepare_z circuit[3] {X: [0]}",
+            "prepare_z 0",
+            ":set prepare_z circuit[0] {NOPE: [0]}",
+            ":unset prepare_z circuit[0]",
+            "prepare_z 0",
+            ":undo",
+            "prepare_z 0",
+            ":undo",
+            ":undo",
+            ":set prepare_z circuit[9] x",
+            ":set prepare_z circuit..source x",
+            ":set prepare_z",
+        ],
+        &expect![[r#"
+            qodec> prepare_z 0
+              R 0
+              R 1
+              R 2
+            qodec> :set prepare_z circuit[3] {X: [0]}
+            Set `circuit[3]` in `prepare_z.gadget.yaml`. The qodec is `repetition3`: repetition3 -> physical.
+            Started a new shot.
+            qodec> prepare_z 0
+              R 0
+              R 1
+              R 2
+              X 0
+            qodec> :set prepare_z circuit[0] {NOPE: [0]}
+            error: the qodec does not plan: layer 0: gadget `prepare_z`: call to unknown instruction "NOPE" in instruction set "physical"; it is as it was
+            qodec> :unset prepare_z circuit[0]
+            Removed `circuit[0]` in `prepare_z.gadget.yaml`. The qodec is `repetition3`: repetition3 -> physical.
+            Started a new shot.
+            qodec> prepare_z 0
+              R 0
+              R 1
+              X 2
+            qodec> :undo
+            Undid the last change. The qodec is `repetition3`: repetition3 -> physical.
+            Started a new shot.
+            qodec> prepare_z 0
+              R 0
+              R 1
+              R 2
+              X 0
+            qodec> :undo
+            Undid the last change. The qodec is `repetition3`: repetition3 -> physical.
+            Started a new shot.
+            qodec> :undo
+            error: there is no change to undo
+            qodec> :set prepare_z circuit[9] x
+            error: index 9 is past the end of a list of 3
+            qodec> :set prepare_z circuit..source x
+            error: bad path `circuit..source`: empty key
+            qodec> :set prepare_z
+            error: usage: :set <item> <path> <yaml>
+        "#]],
+    );
+}
+
+#[test]
+fn replay_replays_the_shot_on_the_changed_qodec() {
+    check(
+        &qodec(false),
+        &[
+            ":replay",
+            ":replay on",
+            "prepare_z 0",
+            "measure_reset 0",
+            ":set prepare_z circuit[3] {X: [0]}",
+            ":drop top",
+            ":replay maybe",
+        ],
+        &expect![[r#"
+            qodec> :replay
+            replay: off; a change starts a new shot
+            qodec> :replay on
+            replay: on; a change replays this shot's lines
+            qodec> prepare_z 0
+              R 0
+              R 1
+              R 2
+            qodec> measure_reset 0
+              -- lower batch 1 of 2 --
+              MZ 0  -> [0]
+              MZ 1  -> [0]
+              MZ 2  -> [0]
+              -- lower batch 2 of 2 --
+              XIF 0 c=0
+              XIF 1 c=0
+              XIF 2 c=0
+            measure_reset 0 => [0]
+            qodec> :set prepare_z circuit[3] {X: [0]}
+            Set `circuit[3]` in `prepare_z.gadget.yaml`. The qodec is `repetition3`: repetition3 -> physical.
+            Replaying the shot's 2 lines on a new shot:
+            qodec> prepare_z 0
+              R 0
+              R 1
+              R 2
+              X 0
+            qodec> measure_reset 0
+              -- lower batch 1 of 2 --
+              MZ 0  -> [0]
+              MZ 1  -> [0]
+              MZ 2  -> [0]
+              -- lower batch 2 of 2 --
+              XIF 0 c=0
+              XIF 1 c=0
+              XIF 2 c=0
+            measure_reset 0 => [0]
+            qodec> :drop top
+            Dropped the top layer. The qodec is `repetition3`: physical.
+            Replaying the shot's 2 lines on a new shot:
+            qodec> prepare_z 0
+            error: `prepare_z` is not an instruction of `physical`; see `:isa`
+            Stopped replaying at line 1; the new shot has the lines before it.
+            qodec> :replay maybe
+            error: usage: :replay [on|off]
+        "#]],
+    );
+}
+
+#[test]
+fn structure_commands_change_the_layers() {
+    check(
+        &qodec(true),
+        &[
+            ":reload",
+            ":drop top",
+            ":undo",
+            ":drop bottom",
+            ":isa bottom",
+            ":slice 1 1",
+            ":drop top",
+            ":undo",
+            ":undo",
+            ":undo",
+            ":slice 1 0",
+            ":slice 0",
+        ],
+        &expect![[r#"
+            qodec> :reload
+            error: the qodec was not loaded from a file; see `:load`
+            qodec> :drop top
+            Dropped the top layer. The qodec is `logical`: repetition3 -> physical.
+            qodec> :undo
+            Undid the last change. The qodec is `logical`: logical -> repetition3 -> physical.
+            qodec> :drop bottom
+            Dropped the bottom layer. The qodec is `logical`: logical -> repetition3.
+            qodec> :isa bottom
+            layer 1: repetition3
+              prepare_z <out:repetition3>
+              idle <repetition3>
+              __quantum__qis__m__body <in:repetition3>  => 1 outcome
+              measure_reset <repetition3>  => 1 outcome
+              logical_x <repetition3>
+              discard <in:repetition3>
+            qodec> :slice 1 1
+            Kept layer 1. The qodec is `logical`: repetition3.
+            qodec> :drop top
+            error: the qodec has one layer; dropping it leaves nothing
+            qodec> :undo
+            Undid the last change. The qodec is `logical`: logical -> repetition3.
+            qodec> :undo
+            Undid the last change. The qodec is `logical`: logical -> repetition3 -> physical.
+            qodec> :undo
+            error: there is no change to undo
+            qodec> :slice 1 0
+            error: layer 1 is below layer 0; name the top one first
+            qodec> :slice 0
+            error: usage: :slice <first> <last>
+        "#]],
+    );
+}
+
+#[test]
+fn qodecs_stack_at_the_instruction_set_they_share() {
+    let (dir, shown) = scratch("stack");
+    let logical = qodec(true).slice(0, 2).expect("slices");
+    // Windows takes `/` too, so transcripts read the same on every platform.
+    let file = format!("{shown}/logical.yaml");
+    std::fs::write(&file, logical.to_bundle_string().expect("bundles")).expect("writes");
+    let text = transcript(
+        &qodec(false),
+        &[
+            &format!(":stack below {file}"),
+            &format!(":stack above {file}"),
+            "prepare 0; measure 0",
+        ],
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    expect![[r#"
+        qodec> :stack below <dir>/logical.yaml
+        error: the upper qodec's bottom instruction set `physical` is not the lower one's top instruction set `logical`
+        qodec> :stack above <dir>/logical.yaml
+        Stacked `<dir>/logical.yaml` above. The qodec is `repetition3`: logical -> repetition3 -> physical.
+        qodec> prepare 0; measure 0
+          R 0
+          R 1
+          R 2
+          M 0  -> [0]
+          M 1  -> [0]
+          M 2  -> [0]
+        measure 0 => [0]
+    "#]].assert_eq(&text.replace(&shown, "<dir>"));
+}
+
+#[test]
+fn qodecs_save_load_and_reload() {
+    let (dir, shown) = scratch("files");
+    let file = format!("{shown}/q.yaml");
+    let mut session = session(&qodec(false)).with_source(&file);
+    let lines = [
+        &format!(":save {file}"),
+        ":set prepare_z circuit[3] {X: [0]}",
+        ":reload",
+        ":gadget prepare_z",
+        &format!(":save {shown}/files/"),
+        &format!(":load {shown}/files/qodec.yaml"),
+        ":layers",
+    ];
+    let text = play(&mut session, &lines, &Rc::default());
+    // The rest of the error is the platform's.
+    let missing = session.eval(&format!(":load {shown}/missing.yaml"));
+    let _ = std::fs::remove_dir_all(&dir);
+    let Reply::Print(missing) = missing else {
+        panic!("prints")
+    };
+    assert!(
+        style::plain(&missing).starts_with(&format!("error: cannot load `{shown}/missing.yaml`: ")),
+        "{missing}"
+    );
+    expect![[r#"
+        qodec> :save <dir>/q.yaml
+        Saved the qodec to `<dir>/q.yaml`.
+        qodec> :set prepare_z circuit[3] {X: [0]}
+        Set `circuit[3]` in `prepare_z.gadget.yaml`. The qodec is `repetition3`: repetition3 -> physical.
+        qodec> :reload
+        Reloaded `<dir>/q.yaml`. The qodec is `repetition3`: repetition3 -> physical.
+        qodec> :gadget prepare_z
+        layer 0: repetition3 -> physical: gadget prepare_z (0 checks)
+          circuit:
+            source: |
+              - R:
+                - 0
+              - R:
+                - 1
+              - R:
+                - 2
+            format: yaml
+            out:
+              '0': qubit
+              '1': qubit
+              '2': qubit
+          out:
+          - repetition3: [0, 1, 2]
+        qodec> :save <dir>/files/
+        Saved the qodec in `<dir>/files/`; its manifest is `<dir>/files/qodec.yaml`.
+        qodec> :load <dir>/files/qodec.yaml
+        Loaded `<dir>/files/qodec.yaml`. The qodec is `repetition3`: repetition3 -> physical.
+        qodec> :layers
+        layer 0: repetition3 [blocks: repetition3]  (top)
+        layer 1: physical [blocks: qubit]  (bottom)
+    "#]].assert_eq(&style::plain(&text).replace(&shown, "<dir>"));
+}
+
+#[test]
+fn edits_reopen_until_the_document_plans() {
+    type Edit = fn(&str) -> String;
+    let shown = Rc::new(RefCell::new(String::new()));
+    let edits: Rc<RefCell<VecDeque<Edit>>> = Rc::new(RefCell::new(
+        [
+            // Unchanged.
+            (|text: &str| text.to_string()) as Edit,
+            // Broken, then fixed.
+            |text| text.replace("R: [2]", "NOPE: [2]"),
+            |text| text.replace("NOPE: [2]", "X: [2]"),
+            // Broken, then given up.
+            |text| text.replace("X: [2]", "NOPE: [2]"),
+            |text| text.to_string(),
+        ]
+        .into(),
+    ));
+    let editor = {
+        let shown = Rc::clone(&shown);
+        Box::new(move |name: &str, text: &str| {
+            let mut shown = shown.borrow_mut();
+            writeln!(shown, "  [editing {name}]").expect("writes");
+            for comment in text.lines().filter(|l| l.starts_with('#')) {
+                writeln!(shown, "  {comment}").expect("writes");
+            }
+            let edit = edits.borrow_mut().pop_front().expect("an edit is left");
+            Ok(edit(text))
+        })
+    };
+    let mut session = session(&qodec(false)).with_editor(editor);
+    let text = play(
+        &mut session,
+        &[
+            ":edit prepare_z",
+            ":edit prepare_z.gadget.yaml",
+            ":gadget prepare_z",
+            ":edit prepare_z",
+            ":edit nope",
+        ],
+        &shown,
+    );
+    expect![[r#"
+        qodec> :edit prepare_z
+          [editing prepare_z.gadget.yaml]
+        No changes.
+        qodec> :edit prepare_z.gadget.yaml
+          [editing prepare_z.gadget.yaml]
+          [editing prepare_z.gadget.yaml]
+          # qodec-repl: the qodec does not plan: layer 0: gadget `prepare_z`: call to unknown instruction "NOPE" in instruction set "physical"; it is as it was
+          # qodec-repl: Fix the document and save it, or save it unchanged to give up.
+        Edited `prepare_z.gadget.yaml`. The qodec is `repetition3`: repetition3 -> physical.
+        qodec> :gadget prepare_z
+        layer 0: repetition3 -> physical: gadget prepare_z (0 checks)
+          circuit:
+            source: |
+              - R:
+                - 0
+              - R:
+                - 1
+              - X:
+                - 2
+            format: yaml
+            out:
+              '0': qubit
+              '1': qubit
+              '2': qubit
+          out:
+          - repetition3: [0, 1, 2]
+        qodec> :edit prepare_z
+          [editing prepare_z.gadget.yaml]
+          [editing prepare_z.gadget.yaml]
+          # qodec-repl: the qodec does not plan: layer 0: gadget `prepare_z`: call to unknown instruction "NOPE" in instruction set "physical"; it is as it was
+          # qodec-repl: Fix the document and save it, or save it unchanged to give up.
+        Gave up the edit; the qodec is as it was.
+        qodec> :edit nope
+        error: no item `nope`; `:yaml` lists the qodec's documents
+    "#]].assert_eq(&style::plain(&text));
 }
 
 const LOGICAL_LAYER: &str = r"    - instruction_set: logical.isa.yaml

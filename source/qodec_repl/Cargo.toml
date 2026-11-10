@@ -15,6 +15,7 @@ anstyle = { workspace = true }
 qodec = { workspace = true }
 qodec_runtime_impl = { path = "../qodec_runtime_impl" }
 rustyline = { workspace = true }
+serde_yaml = { workspace = true }
 smallvec = { workspace = true }
 
 [dev-dependencies]

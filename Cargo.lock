@@ -2759,6 +2759,7 @@ dependencies = [
  "qodec",
  "qodec_runtime_impl",
  "rustyline",
+ "serde_yaml",
  "smallvec",
 ]
 
