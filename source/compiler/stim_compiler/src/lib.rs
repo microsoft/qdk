@@ -13,6 +13,7 @@ use qsc::hir::PackageId;
 use qsc::target::Profile;
 use qsc::{SourceMap, TargetCapabilityFlags};
 
+mod ast_builder;
 pub mod compiler;
 mod error;
 pub mod lex;
