@@ -4,18 +4,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Callable
 
-import pyqir
-
-from ... import qsharp, telemetry_events
-from ..._adaptive_pass import AdaptiveProfilePass, Bytecode
-from ..._interpreter import _get_context_or_default
 from ...estimator import LogicalCounts
+from ... import telemetry_events
+from .._qre import Trace
 from .._application import Application
-from .._qre import Profiler, ProfilerResult, Trace
 from ..interop import trace_from_entry_expr_cached
 
 
@@ -70,35 +66,3 @@ class QSharpApplication(Application[None]):
             use_trace_backend=self.use_trace_backend,
             args=self.args,
         )
-
-    def to_qir(self, file_path: str) -> None:
-        """Compile the application to a QIR file."""
-        assert not isinstance(self.entry_expr, LogicalCounts)
-        qir = qsharp.compile(self.entry_expr, *self.args)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(str(qir))
-
-    def profile(self, profiler: Profiler, use_qir: bool = True) -> ProfilerResult:
-        """Profile through QIR-derived adaptive bytecode, or the Q# interpreter.
-
-        Raises:
-            ValueError: If ``use_qir=False`` and the entry expression is not
-                a string or Q# callable.
-        """
-        context = _get_context_or_default(self.entry_expr)
-
-        if use_qir:
-            assert not isinstance(self.entry_expr, LogicalCounts)
-            qir = qsharp.compile(self.entry_expr, *self.args)
-            module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
-            program = AdaptiveProfilePass(Bytecode.Bit64).run(module)
-            return profiler.profile_adaptive_program(program.as_dict())
-
-        if isinstance(self.entry_expr, str):
-            return profiler.profile_qsharp_expr(context._interpreter, self.entry_expr)
-        else:
-            return profiler.profile_qsharp(
-                context._interpreter,
-                getattr(self.entry_expr, "__global_callable"),
-                context._python_args_to_interpreter_args(self.args),
-            )
