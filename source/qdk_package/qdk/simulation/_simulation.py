@@ -571,6 +571,11 @@ def preprocess_simulation_input(
     else:
         mod = Module.from_bitcode(context, input)
 
+    if noise is not None:
+        for function in mod.functions:
+            if function.name in noise.intrinsics and "qdk_noise" not in function.attributes.func:
+                raise ValueError(f"Noise table '{function.name}' does not name a noise intrinsic.")
+
     return (mod, shots, noise, seed)
 
 

@@ -32,6 +32,17 @@ def gpu_param():
 SIM_TYPES = ["cpu", "stabilizer", gpu_param()]
 
 
+@pytest.mark.parametrize("profile", [qdk.TargetProfile.Base, qdk.TargetProfile.Adaptive_RI])
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer"])
+def test_noise_table_cannot_replace_gate(profile, sim_type):
+    ctx = qdk.Context(target_profile=profile)
+    ctx.eval("operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }")
+    noise = NoiseConfig()
+    noise.intrinsic("__quantum__qis__x__body", 1).z = 1.0
+    with pytest.raises(ValueError, match="does not name a noise intrinsic"):
+        run_qir(ctx.compile("Main()"), shots=1, noise=noise, type=sim_type)
+
+
 QASM_WITH_CORRELATED_NOISE = """
 OPENQASM 3.0;
 include "stdgates.inc";
