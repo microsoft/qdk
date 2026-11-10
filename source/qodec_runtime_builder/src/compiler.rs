@@ -6,7 +6,6 @@
 
 use super::{
     backend::from_fn,
-    encoder::SpecEncoderPlan,
     layer::{Blueprint, Layer},
     plan::{PlanError, QodecPlan},
     protocol::{Call, Encoder, Fault, Lower, Never, Reply},
@@ -51,9 +50,7 @@ impl Compiler {
             .layer_plans()
             .iter()
             .map(|layer| -> Result<Box<dyn Encoder<Never>>, PlanError> {
-                Ok(Box::new(
-                    SpecEncoderPlan::<Never>::new(layer)?.instantiate(),
-                ))
+                Ok(Box::new(layer.spec_encoder::<Never>()?.instantiate()))
             })
             .collect::<Result<_, _>>()?;
         Ok(Self::new(encoders))

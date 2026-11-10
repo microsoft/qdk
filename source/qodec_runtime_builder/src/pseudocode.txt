@@ -6,7 +6,8 @@ NOTE: This pseudocode describes the first draft of the runtime, in which one
 LayerRuntime per layer both lowered instructions and decoded results.  The
 crate has since been redesigned around stackable Backends and Layers and
 mix-and-match Encoder, Decoder and Controller pieces; see the crate docs of
-qodec_runtime_interface (the interfaces) and qodec_runtime_impl (the pieces).
+qodec_runtime_interface (the interfaces), qodec_runtime_pieces (the pieces)
+and qodec_runtime_builder (which plans a qodec and assembles the pieces).
 §0 (the batch Backend interface, now a generic Backend<I, O>), §8 (LAYER
 RUNTIME) and the runtime parts of §10 no longer describe the code.  The spec
 helpers (§4), the layer plan (§5), the resolver (§6), the body semantics (§7)

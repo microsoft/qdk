@@ -25,7 +25,7 @@ mod tests;
 
 use anstream::{AutoStream, ColorChoice, eprintln, print, println};
 use qodec::{InstructionSet, Qodec};
-use qodec_runtime_impl::Bit;
+use qodec_runtime_builder::Bit;
 use rustyline::{
     Config, Context, Editor, Helper,
     completion::Completer,

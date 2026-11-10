@@ -13,16 +13,26 @@
 //! that pre-processing in a [`QodecPlan`].
 
 use super::{
+    actions::pauli_steps,
+    controller::UntilReadyPlan,
+    decoder::{BodySelect, RecordLayout},
     design::{Design, LayerBlueprint},
+    encoder::{
+        CompiledArg, EncoderProgram, GadgetCall, GadgetProgram, LogicalOps, Lowering,
+        OutputEncoding, SpecEncoderPlan,
+    },
+    frame::frame_gadget,
+    frame_decoder::{FrameDecoderPlan, FrameKey},
+    isa::{CompiledSelect, Isa, TypeTable, bind_operands},
     layer::{Chain, Link},
     parity::Parity,
     pauli::PauliOp,
-    protocol::{Call, Fault, GadgetId, OwnedParam, Reply},
-    resolver::Resolver,
+    protocol::{Call, Correction, Fault, Fix, GadgetId, Never, Reply},
+    resolver::{Resolver, ResolverFixes},
     runtime::{AtLayer, BatchBackend, QodecRuntime, Runtime},
     spec::{
-        CodePlan, CompiledSelect, EncodingPlan, FrameKey, RefScope, TypeTable, bind_operands,
-        compile_select, encode_arg, layout_boundary, matches, prepare_frames,
+        self, CodePlan, EncodingPlan, RefScope, code_qubits, compile_select, encode_arg,
+        layout_boundary, matches, param_kind, prepare_frames, signature, type_table,
     },
 };
 use qodec::{Argument, Circuit, Gadget, Instruction, InstructionSet, Layer, ParameterKind, Qodec};
@@ -34,8 +44,8 @@ use std::{collections::BTreeMap, fmt, rc::Rc, sync::Arc};
 pub struct QodecPlan {
     layer_plans: Vec<Rc<LayerPlan>>,
     layers: Vec<Box<dyn LayerBlueprint>>,
-    top: Arc<InstructionSet>,
-    bottom: Arc<InstructionSet>,
+    top: Rc<Isa>,
+    bottom: Rc<Isa>,
 }
 
 impl QodecPlan {
@@ -53,7 +63,7 @@ impl QodecPlan {
                     .map_err(|e| PlanError(format!("layer {k}: {e}")))
             })
             .collect::<Result<_, _>>()?;
-        let isa = |layer: &Layer| Arc::clone(&layer.instruction_set);
+        let isa = |layer: &Layer| Rc::new(spec::isa(&layer.instruction_set));
         Ok(Self {
             layer_plans,
             layers,
@@ -70,13 +80,13 @@ impl QodecPlan {
 
     /// The top ISA, which the runtime accepts.
     #[must_use]
-    pub fn top(&self) -> &Arc<InstructionSet> {
+    pub fn top(&self) -> &Rc<Isa> {
         &self.top
     }
 
     /// The bottom ISA, which the bottom backend runs.
     #[must_use]
-    pub fn bottom(&self) -> &Arc<InstructionSet> {
+    pub fn bottom(&self) -> &Rc<Isa> {
         &self.bottom
     }
 
@@ -156,6 +166,28 @@ impl From<&str> for PlanError {
     }
 }
 
+/// A [`Fix`] that [`LayerPlan::spec_encoder`] checks at plan time: the lower
+/// ISA must be able to apply this kind of correction.
+pub trait PlannedFix: Fix {
+    /// Checks that `layer` can apply this kind of correction.
+    fn check(layer: &LayerPlan) -> Result<(), PlanError>;
+}
+
+impl PlannedFix for Never {
+    fn check(_layer: &LayerPlan) -> Result<(), PlanError> {
+        Ok(())
+    }
+}
+
+/// Decoders usually correct with Paulis, so the lower ISA must have `X` and
+/// `Z` (see [`LayerPlan::check_pauli_corrections`]). Other steps are checked
+/// when they are applied.
+impl PlannedFix for Correction {
+    fn check(layer: &LayerPlan) -> Result<(), PlanError> {
+        layer.check_pauli_corrections()
+    }
+}
+
 fn build_layer_plans(layers: &[Layer]) -> Result<Vec<Rc<LayerPlan>>, PlanError> {
     if layers.is_empty() {
         return Err(PlanError("a qodec needs at least one layer".into()));
@@ -223,7 +255,7 @@ pub struct LayerPlan {
     /// The layer's gadgets, indexed by [`GadgetId`].
     pub gadgets: Vec<Rc<GadgetPlan>>,
     /// Matches the layer's own generic operations against the lower ISA.
-    pub resolver: Resolver,
+    pub resolver: Rc<Resolver>,
     /// Per lower type `t`: the index of the first lower instruction with
     /// `in = [t]` (not variadic), `out = []`, no observe outcomes and no flags.
     /// If a type has none, releasing a block of that type emits nothing: the
@@ -234,8 +266,14 @@ pub struct LayerPlan {
     /// Per upper instruction: whether it returns a result, which it does iff it
     /// has observe outcomes or flags.
     pub upper_needs_result: Vec<bool>,
-    /// Per lower instruction: (observe count, flag count) of its result.
-    pub lower_shapes: Vec<(usize, usize)>,
+    /// The upper ISA, as the pieces see it.
+    pub signatures: Rc<Isa>,
+    /// The lower ISA, as the pieces see it.
+    pub lower_signatures: Rc<Isa>,
+    /// What the layer's encoders run.
+    pub encoder: Rc<EncoderProgram>,
+    /// What the layer's decoders know of its records.
+    pub records: Rc<RecordLayout>,
 }
 
 impl LayerPlan {
@@ -245,11 +283,11 @@ impl LayerPlan {
     /// [`InstructionPlan::LogicalPauli`], the encoder applies it as Pauli
     /// corrections, so this also runs [`Self::check_pauli_corrections`]. An
     /// encoder that accepts corrections from its decoder runs the check when it
-    /// is planned (see [`PlannedFix::check`](crate::encoder::PlannedFix::check)).
+    /// is planned (see [`PlannedFix::check`]).
     pub fn new(layer: &Layer, lower_isa: &Arc<InstructionSet>) -> Result<Self, PlanError> {
         let isa = Arc::clone(&layer.instruction_set);
-        let upper = TypeTable::new(&isa);
-        let lower = TypeTable::new(lower_isa);
+        let upper = type_table(&isa);
+        let lower = type_table(lower_isa);
         let codes = plan_codes(layer)?;
         let mut requirements: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         let mut scratch = vec![0; lower.len()];
@@ -291,30 +329,32 @@ impl LayerPlan {
             }
         }
 
-        let resolver = Resolver::new(lower_isa, &lower);
-        let lower_release = lower
-            .names
-            .iter()
-            .map(|t| {
-                lower_isa.instructions.iter().position(|i| {
-                    matches!(i.inputs.as_slice(), [op] if &op.block == t && !op.is_variadic)
-                        && i.outputs.is_empty()
-                        && i.observe_count() == 0
-                        && i.flags.is_empty()
-                })
-            })
-            .collect();
+        let resolver = Rc::new(Resolver::new(lower_isa, &lower));
+        let lower_release = release_instructions(lower_isa, &lower);
 
         let upper_needs_result = isa
             .instructions
             .iter()
             .map(|i| i.observe_count() + i.flags.len() > 0)
             .collect();
-        let lower_shapes = lower_isa
-            .instructions
-            .iter()
-            .map(|i| (i.observe_count(), i.flags.len()))
-            .collect();
+        let signatures = Rc::new(spec::isa(&isa));
+        let lower_signatures = Rc::new(spec::isa(lower_isa));
+        let encoder = Rc::new(EncoderProgram {
+            upper: Rc::clone(&signatures),
+            lower: Rc::clone(&lower_signatures),
+            instructions: lowerings(&instructions, &isa, &lower),
+            codes: logical_ops(&codes),
+            lower_release: lower_release.clone(),
+            fixes: Rc::new(ResolverFixes::new(
+                Rc::clone(&resolver),
+                Arc::clone(lower_isa),
+                lower.clone(),
+            )),
+        });
+        let records = Rc::new(RecordLayout {
+            upper: Rc::clone(&signatures),
+            gadgets: gadgets.iter().map(|gp| gp.body.selects()).collect(),
+        });
         let plan = Self {
             isa,
             lower_isa: Arc::clone(lower_isa),
@@ -328,7 +368,10 @@ impl LayerPlan {
             resolver,
             lower_release,
             upper_needs_result,
-            lower_shapes,
+            signatures,
+            lower_signatures,
+            encoder,
+            records,
         };
         if plan
             .instructions
@@ -347,7 +390,7 @@ impl LayerPlan {
     ///
     /// Run it only for a layer that issues Pauli corrections: one with a
     /// [`InstructionPlan::LogicalPauli`] instruction, or whose encoder accepts
-    /// [`Correction`](crate::protocol::Correction)s. Other layers need no Pauli
+    /// [`Correction`]s. Other layers need no Pauli
     /// instructions below them. The check catches a lower ISA without Pauli
     /// instructions at plan time. It doesn't cover the other logical indices
     /// of a multi-qubit lower type; a correction the resolver can't bind there
@@ -363,6 +406,57 @@ impl LayerPlan {
             }
         }
         Ok(())
+    }
+
+    /// The blueprint of [`SpecEncoder`](crate::SpecEncoder)s for this layer,
+    /// which accept corrections of type `C`, if the lower ISA can apply them.
+    pub fn spec_encoder<C: PlannedFix>(&self) -> Result<SpecEncoderPlan<C>, PlanError> {
+        C::check(self)?;
+        Ok(SpecEncoderPlan::new(Rc::clone(&self.encoder)))
+    }
+
+    /// The blueprint of [`FrameDecoder`](crate::FrameDecoder)s for this
+    /// layer: the checks, readouts and transports of every gadget.
+    pub fn frame_decoder(&self) -> Result<FrameDecoderPlan, PlanError> {
+        let gadgets = self
+            .gadgets
+            .iter()
+            .map(|gp| {
+                frame_gadget(gp, self).map_err(|e| PlanError(format!("gadget `{}`: {e}", gp.name)))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(FrameDecoderPlan::new(Rc::clone(&self.records), gadgets))
+    }
+
+    /// The blueprint of [`UntilReady`](crate::UntilReady) controllers for this
+    /// layer, which add at most `max_rounds` rounds in a row. Each block
+    /// type's QEC round is found by its action, which the spec makes
+    /// authoritative: an instruction with a gadget that takes one block of the
+    /// type and gives it back, with an empty action (the identity), no
+    /// parameters and no flags. The first such instruction wins. Fails if a
+    /// block type of the layer has none.
+    pub fn until_ready(&self, max_rounds: usize) -> Result<UntilReadyPlan, PlanError> {
+        let mut rounds = Vec::new();
+        for name in &self.upper.names {
+            let index = self
+                .isa
+                .instructions
+                .iter()
+                .enumerate()
+                .position(|(i, instruction)| {
+                    matches!(instruction.inputs.as_slice(), [op] if &op.block == name && !op.is_variadic)
+                        && instruction.outputs == instruction.inputs
+                        && instruction.action.is_empty()
+                        && instruction.parameters.is_empty()
+                        && instruction.flags.is_empty()
+                        && matches!(self.instructions[i], InstructionPlan::Gadget(_))
+                })
+                .ok_or_else(|| {
+                    PlanError(format!("no instruction runs a QEC round on `{name}`"))
+                })?;
+            rounds.push((name.clone(), index));
+        }
+        Ok(UntilReadyPlan::new(rounds, max_rounds))
     }
 
     /// The lower resources needed to run a program that needs `upper` resources
@@ -404,6 +498,57 @@ impl LayerPlan {
             self.lower.names.iter().cloned().zip(lower),
         ))
     }
+}
+
+/// How an encoder lowers each upper instruction, from how the layer handles
+/// it.
+fn lowerings(
+    instructions: &[InstructionPlan],
+    isa: &InstructionSet,
+    lower: &TypeTable,
+) -> Vec<Lowering> {
+    instructions
+        .iter()
+        .zip(&isa.instructions)
+        .map(|(plan, instruction)| match plan {
+            InstructionPlan::Gadget(gp) => Lowering::Gadget(Rc::new(gp.program(lower))),
+            InstructionPlan::LogicalPauli => Lowering::LogicalPauli(pauli_steps(instruction)),
+            InstructionPlan::Release => Lowering::Release,
+            InstructionPlan::Unsupported => Lowering::Unsupported,
+        })
+        .collect()
+}
+
+/// The logical operators of each upper block type's code.
+fn logical_ops(codes: &BTreeMap<String, Rc<CodePlan>>) -> FxHashMap<String, LogicalOps> {
+    codes
+        .iter()
+        .map(|(block, code)| {
+            let ops = LogicalOps {
+                x: code.x.clone(),
+                z: code.z.clone(),
+            };
+            (block.clone(), ops)
+        })
+        .collect()
+}
+
+/// Per lower type `t`: the index of the first lower instruction with
+/// `in = [t]` (not variadic), `out = []`, no observe outcomes and no flags
+/// (see [`LayerPlan::lower_release`]).
+fn release_instructions(lower_isa: &InstructionSet, lower: &TypeTable) -> Vec<Option<usize>> {
+    lower
+        .names
+        .iter()
+        .map(|t| {
+            lower_isa.instructions.iter().position(|i| {
+                matches!(i.inputs.as_slice(), [op] if &op.block == t && !op.is_variadic)
+                    && i.outputs.is_empty()
+                    && i.observe_count() == 0
+                    && i.flags.is_empty()
+            })
+        })
+        .collect()
 }
 
 /// Plans the layer's code bindings: the layer's `codes` for block types its
@@ -678,10 +823,10 @@ pub struct GadgetPlan {
     pub frames: FxHashMap<FrameKey, Parity>,
     /// The same gadget as `labels`, `inputs`, `outputs`, and `body`, with every
     /// label replaced by its slot (see [`SlotPlan`]), derived from them at plan
-    /// time. The encoder uses slots wherever the body or an encoding names
-    /// a block, and never looks a label up. The label-based fields remain for
-    /// decoders (`frame_decoder.rs` reads them at plan time and through
-    /// `Invocation::gadget`) and for sizing resources.
+    /// time. The encoder's [`GadgetProgram`] uses slots wherever the body or an
+    /// encoding names a block, so it never looks a label up. The label-based
+    /// fields remain for planning decoders (see `frame.rs`) and for sizing
+    /// resources.
     pub slots: SlotPlan,
 }
 
@@ -708,9 +853,8 @@ pub struct SlotPlan {
     pub retained: Vec<bool>,
     /// Per slot: whether the body itself consumes it.
     pub consumed: Vec<bool>,
-    /// One per call of [`CircuitPlan::calls`], in the same order, so the layer
-    /// runtime zips the two.
-    pub calls: Vec<CompiledCall>,
+    /// One per call of [`CircuitPlan::calls`], in the same order.
+    pub calls: Vec<GadgetCall>,
 }
 
 impl SlotPlan {
@@ -763,7 +907,7 @@ fn compile_call(
     cp: &CallPlan,
     instruction: &Instruction,
     index: &FxHashMap<&str, usize>,
-) -> CompiledCall {
+) -> GadgetCall {
     let operands = cp.operands.iter().map(|o| index[o.as_str()]).collect();
     let args = (cp.args.len() == instruction.parameters.len())
         .then(|| {
@@ -781,7 +925,7 @@ fn compile_call(
                         }
                         ArgumentPlan::Forwarded(name) => CompiledArg::Forwarded {
                             name: name.clone(),
-                            kind: parameter.kind,
+                            kind: param_kind(parameter.kind),
                         },
                         ArgumentPlan::Readout(j) => {
                             if !matches(parameter.kind, &Argument::Boolean(false)) {
@@ -794,36 +938,15 @@ fn compile_call(
                 .collect::<Option<Vec<_>>>()
         })
         .flatten();
-    CompiledCall { operands, args }
-}
-
-/// A gadget-body call, ready to emit.
-#[derive(Clone, Debug)]
-pub struct CompiledCall {
-    /// The operands, as slots.
-    pub operands: Vec<usize>,
-    /// The arguments, in the lower instruction's parameter order. `None` if
-    /// they can never be valid, so running the call fails with
-    /// `InvalidInstruction`. This is not a plan error, so that a qodec whose
-    /// broken gadget a program never invokes still plans and runs.
-    pub args: Option<Vec<CompiledArg>>,
-}
-
-/// One argument of a [`CompiledCall`].
-#[derive(Clone, Debug, PartialEq)]
-pub enum CompiledArg {
-    /// A literal value, already validated and encoded.
-    Value(OwnedParam),
-    /// Forwarded from this parameter of the implemented instruction. Its value
-    /// is only known per invocation, so it is validated against `kind` then.
-    Forwarded {
-        /// The parameter of the implemented instruction.
-        name: String,
-        /// The kind of the lower parameter it is passed to.
-        kind: ParameterKind,
-    },
-    /// `circuit.readouts[j]`, an earlier record bit.
-    Readout(usize),
+    // Invalid arguments are not a plan error, so that a qodec whose broken
+    // gadget a program never invokes still plans and runs.
+    GadgetCall {
+        instruction: cp.instruction,
+        operands,
+        args,
+        outcomes: cp.observe_count,
+        flags: cp.flag_count,
+    }
 }
 
 impl GadgetPlan {
@@ -831,6 +954,31 @@ impl GadgetPlan {
     #[must_use]
     pub fn instruction(&self) -> &Instruction {
         &self.gadget.implements
+    }
+
+    /// What an encoder runs for this gadget, whose lower block types are
+    /// `lower`.
+    #[must_use]
+    pub fn program(&self, lower: &TypeTable) -> GadgetProgram {
+        GadgetProgram {
+            id: self.id,
+            name: self.name.clone(),
+            record_len: self.body.record_len,
+            slot_types: self.slots.types.clone(),
+            inputs: self.slots.inputs.clone(),
+            outputs: self
+                .outputs
+                .iter()
+                .zip(&self.slots.outputs)
+                .map(|(layout, slots)| OutputEncoding {
+                    slots: slots.clone(),
+                    qubits: code_qubits(layout, slots, lower),
+                })
+                .collect(),
+            retained: self.slots.retained.clone(),
+            consumed: self.slots.consumed.clone(),
+            calls: self.slots.calls.clone(),
+        }
     }
 }
 
@@ -885,8 +1033,13 @@ impl CircuitPlan {
                 .ok_or_else(|| format!("unknown instruction `{}`", call.mnemonic))?;
             let instruction = &isa.instructions[index];
             let operands: Vec<String> = call.operands.iter().map(qodec::Operand::label).collect();
-            let (ins, outs) = bind_operands(lower, instruction, &operands, &FxHashMap::default())
-                .map_err(|e| format!("call `{}`: {e}", call.mnemonic))?;
+            let (ins, outs) = bind_operands(
+                lower,
+                &signature(instruction),
+                &operands,
+                &FxHashMap::default(),
+            )
+            .map_err(|e| format!("call `{}`: {e}", call.mnemonic))?;
 
             let mut args = Vec::with_capacity(call.arguments.len());
             for (name, value) in &call.arguments {
@@ -956,6 +1109,27 @@ impl CircuitPlan {
             consumed,
             record_len: offset,
         })
+    }
+}
+
+impl CircuitPlan {
+    /// The body calls that have a `select` hint, with where their flags are in
+    /// the record.
+    #[must_use]
+    pub fn selects(&self) -> Vec<BodySelect> {
+        let mut selects = Vec::new();
+        let mut offset = 0;
+        for call in &self.calls {
+            let flags = offset + call.observe_count..offset + call.observe_count + call.flag_count;
+            if !call.select.is_empty() {
+                selects.push(BodySelect {
+                    flags,
+                    select: call.select.clone(),
+                });
+            }
+            offset += call.observe_count + call.flag_count;
+        }
+        selects
     }
 }
 

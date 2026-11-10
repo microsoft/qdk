@@ -1,205 +1,88 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Helpers that implement qodec spec rules: operand binding, arguments,
-//! selection, frame deltas, parity references, encoding layouts, and block
-//! type tables.
+//! Helpers that implement qodec spec rules on the `qodec` model: converting
+//! instruction sets and arguments for the pieces, selection patterns, frame
+//! deltas, parity references, encoding layouts, and codes. The rules that need
+//! no `qodec` model, such as binding operands, are in
+//! [`qodec_runtime_pieces::isa`].
 
 use super::{
+    FrameKey,
+    isa::{self, CompiledSelect, Isa, Operand, ParamKind, Parameter, Signature, TypeTable},
     parity::{Basis, Parity, Side, Var},
     pauli::Pauli,
-    protocol::{Bit, OwnedParam, Status},
+    protocol::OwnedParam,
 };
 use qodec::{
     Argument, BlockOperand, Code, Encoding, Gadget, Instruction, InstructionSet, ParameterKind,
     ParityEquation, ParityTerm, Reference, ReferenceSegment, SelectPattern,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::{collections::BTreeMap, hash::Hash, rc::Rc, sync::Arc};
+use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 
-// ── Operand binding ─────────────────────────────────────────────────────────
+// ── Instruction sets ────────────────────────────────────────────────────────
 
-/// The bound inputs and outputs of one instruction.
-pub type BoundOperands<T> = (Vec<BoundOperand<T>>, Vec<BoundOperand<T>>);
-
-/// Binds `targets` against `instruction.inputs` and `instruction.outputs`.
-///
-/// Both sides are bound against the same operand list: operand `j` is `in[j]`
-/// and/or `out[j]`, so targets past the bound inputs are output-only operands.
-/// Each side numbers its qubits from 0, giving the spec's [flat index
-/// space](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#instruction-structure).
-/// For example, if block type `pair` encodes 2 qubits, an instruction with
-/// `in: [pair, pair]` and `out: [pair, pair, pair]` called on targets
-/// `[7, 8, 9]` binds inputs `7` and `8` at offsets 0 and 2, and outputs `7`,
-/// `8` and `9` at offsets 0, 2 and 4. Target `9` is output-only.
-///
-/// `input_types` (the targets' known block types) constrains only the input
-/// side, so type-changing instructions bind.
-#[allow(clippy::implicit_hasher)]
-pub fn bind_operands<T: Eq + Hash + Clone>(
-    types: &TypeTable,
-    instruction: &Instruction,
-    targets: &[T],
-    input_types: &FxHashMap<T, &str>,
-) -> Result<BoundOperands<T>, String> {
-    let mut seen = FxHashSet::default();
-    if !targets.iter().all(|t| seen.insert(t)) {
-        return Err("operands must be distinct".to_string());
+/// `isa` as the pieces see it: its block types and its instructions'
+/// signatures.
+#[must_use]
+pub fn isa(isa: &InstructionSet) -> Isa {
+    Isa {
+        name: isa.name.clone(),
+        types: type_table(isa),
+        instructions: isa.instructions.iter().map(signature).collect(),
     }
-    let inputs = bind_side(&instruction.inputs, targets, types, input_types)?;
-    let outputs = bind_side(&instruction.outputs, targets, types, &FxHashMap::default())?;
-    if targets.len() != inputs.len().max(outputs.len()) {
-        return Err(format!(
-            "`{}` expects {} operands, got {}",
-            instruction.mnemonic,
-            inputs.len().max(outputs.len()),
-            targets.len()
-        ));
-    }
-    Ok((inputs, outputs))
 }
 
-fn bind_side<T: Eq + Hash + Clone>(
-    operands: &[BlockOperand],
-    targets: &[T],
-    types: &TypeTable,
-    known: &FxHashMap<T, &str>,
-) -> Result<Vec<BoundOperand<T>>, String> {
-    let side_types: Vec<&str> = if operands.iter().any(|o| o.is_variadic) {
-        unique_type_assignment(operands, targets, known)?
-    } else {
-        if operands.len() > targets.len() {
-            return Err(format!(
-                "expected at least {} operands, got {}",
-                operands.len(),
-                targets.len()
-            ));
-        }
-        operands.iter().map(|o| o.block.as_str()).collect()
+/// The block types of `isa`.
+#[must_use]
+pub fn type_table(isa: &InstructionSet) -> TypeTable {
+    TypeTable::new(isa.blocks.iter().map(|b| (b.name.clone(), b.encodes)))
+}
+
+/// What a call of `instruction` takes and returns.
+#[must_use]
+pub fn signature(instruction: &Instruction) -> Signature {
+    let operands = |operands: &[BlockOperand]| {
+        operands
+            .iter()
+            .map(|o| Operand {
+                block: o.block.clone(),
+                variadic: o.is_variadic,
+            })
+            .collect()
     };
-    let mut offset = 0;
-    let mut bound = Vec::with_capacity(side_types.len());
-    for (t, ty) in targets.iter().zip(side_types) {
-        let width = types
-            .cap(ty)
-            .ok_or_else(|| format!("unknown block type `{ty}`"))?;
-        if known.get(t).is_some_and(|k| *k != ty) {
-            return Err(format!("operand has type `{}`, expected `{ty}`", known[t]));
-        }
-        bound.push(BoundOperand {
-            label: t.clone(),
-            block_type: ty.to_string(),
-            offset,
-            width,
-        });
-        offset += width;
-    }
-    Ok(bound)
-}
-
-/// The one type list that binds a [variadic](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#variadic-blocks)
-/// side to ALL of `targets`.
-///
-/// Each variadic operand takes any number of consecutive targets, including
-/// none, and each fixed operand exactly one. Of the splittings that use all
-/// targets and agree with `known`, exactly one type list must result; more is
-/// ambiguous.
-///
-/// `states[j]` holds the type lists of the prefixes that use the first `j`
-/// targets, and keeps at most two. That is enough: how a prefix can be
-/// completed depends only on `j`, so two distinct lists in one state either
-/// both complete, which is ambiguous, or neither does.
-fn unique_type_assignment<'a, T: Eq + Hash>(
-    operands: &'a [BlockOperand],
-    targets: &[T],
-    known: &FxHashMap<T, &str>,
-) -> Result<Vec<&'a str>, String> {
-    fn push<'a>(states: &mut Vec<Vec<&'a str>>, candidate: Vec<&'a str>) {
-        if states.len() < 2 && !states.contains(&candidate) {
-            states.push(candidate);
-        }
-    }
-    let n = targets.len();
-    let compatible = |j: usize, ty: &str| known.get(&targets[j]).is_none_or(|k| *k == ty);
-    let mut states: Vec<Vec<Vec<&str>>> = vec![Vec::new(); n + 1];
-    states[0].push(Vec::new());
-    for op in operands {
-        let ty = op.block.as_str();
-        let mut next: Vec<Vec<Vec<&str>>> = vec![Vec::new(); n + 1];
-        for (j, prefixes) in states.iter().enumerate() {
-            for prefix in prefixes {
-                if op.is_variadic {
-                    let mut current = prefix.clone();
-                    push(&mut next[j], current.clone());
-                    for m in j..n {
-                        if !compatible(m, ty) {
-                            break;
-                        }
-                        current.push(ty);
-                        push(&mut next[m + 1], current.clone());
-                    }
-                } else if j < n && compatible(j, ty) {
-                    let mut current = prefix.clone();
-                    current.push(ty);
-                    push(&mut next[j + 1], current);
-                }
-            }
-        }
-        states = next;
-    }
-    let mut finals = std::mem::take(&mut states[n]);
-    match finals.len() {
-        0 => Err("operands do not match the variadic signature".to_string()),
-        1 => Ok(finals.pop().unwrap_or_default()),
-        _ => Err("ambiguous variadic types".to_string()),
+    Signature {
+        mnemonic: instruction.mnemonic.clone(),
+        inputs: operands(&instruction.inputs),
+        outputs: operands(&instruction.outputs),
+        parameters: instruction
+            .parameters
+            .iter()
+            .map(|p| Parameter {
+                name: p.name.clone(),
+                kind: param_kind(p.kind),
+            })
+            .collect(),
+        outcomes: instruction.observe_count(),
+        flags: instruction.flags.len(),
     }
 }
 
-/// One operand bound into the flat index space.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BoundOperand<T> {
-    /// The target bound to the operand.
-    pub label: T,
-    /// The operand's block type.
-    pub block_type: String,
-    /// The first flat index of the operand.
-    pub offset: usize,
-    /// The operand's logical qubit count.
-    pub width: usize,
+/// The pieces' name for `kind`.
+#[must_use]
+pub fn param_kind(kind: ParameterKind) -> ParamKind {
+    match kind {
+        ParameterKind::Bit => ParamKind::Bit,
+        ParameterKind::Number => ParamKind::Number,
+        ParameterKind::Integer => ParamKind::Integer,
+        ParameterKind::Boolean => ParamKind::Boolean,
+        ParameterKind::String => ParamKind::String,
+        ParameterKind::Pauli => ParamKind::Pauli,
+    }
 }
 
 // ── Arguments ───────────────────────────────────────────────────────────────
-
-/// Requires `args` to supply every parameter of `instruction`, and nothing else,
-/// with values that match the parameter kinds.
-pub fn validate_arguments(
-    instruction: &Instruction,
-    args: &BTreeMap<String, Argument>,
-) -> Result<(), String> {
-    if args.len() != instruction.parameters.len() {
-        return Err(format!(
-            "`{}` expects {} arguments, got {}",
-            instruction.mnemonic,
-            instruction.parameters.len(),
-            args.len()
-        ));
-    }
-    for parameter in &instruction.parameters {
-        let value = args.get(&parameter.name).ok_or_else(|| {
-            format!(
-                "`{}` is missing argument `{}`",
-                instruction.mnemonic, parameter.name
-            )
-        })?;
-        if !matches(parameter.kind, value) {
-            return Err(format!(
-                "argument `{}` of `{}` does not match its kind {:?}",
-                parameter.name, instruction.mnemonic, parameter.kind
-            ));
-        }
-    }
-    Ok(())
-}
 
 /// Whether `value` is a valid argument for a parameter of `kind`.
 ///
@@ -222,50 +105,7 @@ pub fn validate_arguments(
 /// with bits before this check (`ArgumentPlan::Readout` in `plan.rs`).
 #[must_use]
 pub fn matches(kind: ParameterKind, value: &Argument) -> bool {
-    match value {
-        Argument::Integer(i) => matches_int(kind, i128::from(*i)),
-        Argument::Number(f) => kind == ParameterKind::Number && f.is_finite(),
-        Argument::Boolean(_) => matches!(kind, ParameterKind::Bit | ParameterKind::Boolean),
-        Argument::Text(s) => matches_text(kind, s),
-        Argument::QubitList(_)
-        | Argument::StringList(_)
-        | Argument::Qubit(_)
-        | Argument::Readout(_) => false,
-    }
-}
-
-/// The spec lets [integers supply `number` parameters](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/validation.md#circuit-sources)
-/// as well as `integer` ones.
-fn matches_int(kind: ParameterKind, value: i128) -> bool {
-    match kind {
-        ParameterKind::Number | ParameterKind::Integer => true,
-        ParameterKind::Bit => value == 0 || value == 1,
-        _ => false,
-    }
-}
-
-/// Whether `value` is a valid text argument for a parameter of `kind`. A
-/// `circuit.readouts[...]` reference is not text: the spec lets only `bit`
-/// parameters take [readout references](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#threading-readouts-into-bit-parameters),
-/// and supplying one to another parameter is an error. The qodec parser turns
-/// a single text argument of this form into `Argument::Readout` or rejects it,
-/// but text from an upper backend (see [`value_of`]) is not parsed at all.
-fn matches_text(kind: ParameterKind, value: &str) -> bool {
-    matches!(kind, ParameterKind::String | ParameterKind::Pauli)
-        && !value.starts_with("circuit.readouts[")
-}
-
-/// Converts a parameter to a spec argument value. Returns `None` for a
-/// `Block` entry, which is an operand, not an argument.
-#[must_use]
-pub fn value_of(param: &OwnedParam) -> Option<Argument> {
-    Some(match param {
-        OwnedParam::Block(_) => return None,
-        OwnedParam::Bool(b) => Argument::Boolean(*b),
-        OwnedParam::Int(i) => Argument::Integer(*i),
-        OwnedParam::Float(f) => Argument::Number(*f),
-        OwnedParam::Text(s) => Argument::Text(s.clone()),
-    })
+    encode_arg(value).is_some_and(|v| isa::matches(param_kind(kind), &v))
 }
 
 /// Converts a spec argument value to a parameter. Returns `None` for the
@@ -285,62 +125,7 @@ pub fn encode_arg(value: &Argument) -> Option<OwnedParam> {
     })
 }
 
-/// A call split into its block operands and its arguments by parameter name.
-pub struct ParsedCall {
-    /// The index of the call's instruction.
-    pub index: usize,
-    /// The leading `Block` parameters.
-    pub operands: Vec<u64>,
-    /// The other parameters, by parameter name.
-    pub args: BTreeMap<String, Argument>,
-}
-
-/// Parses `call` against `isa`: its instruction must exist, and its arguments
-/// must supply every parameter with a value of the right kind. Its operands are
-/// not checked here; binding them needs the blocks' types.
-pub fn parse_call(
-    isa: &InstructionSet,
-    instruction_id: usize,
-    parameters: &[OwnedParam],
-) -> Result<ParsedCall, String> {
-    let instruction = isa
-        .instructions
-        .get(instruction_id)
-        .ok_or_else(|| format!("unknown instruction id {instruction_id}"))?;
-    let operands: Vec<u64> = parameters
-        .iter()
-        .map_while(|p| match p {
-            OwnedParam::Block(b) => Some(*b),
-            _ => None,
-        })
-        .collect();
-    let rest = &parameters[operands.len()..];
-    if rest.len() != instruction.parameters.len() {
-        return Err(format!(
-            "`{}` expects {} arguments, got {}",
-            instruction.mnemonic,
-            instruction.parameters.len(),
-            rest.len()
-        ));
-    }
-    let mut args = BTreeMap::new();
-    for (parameter, p) in instruction.parameters.iter().zip(rest) {
-        let value =
-            value_of(p).ok_or_else(|| format!("argument `{}` is not a value", parameter.name))?;
-        args.insert(parameter.name.clone(), value);
-    }
-    validate_arguments(instruction, &args)?;
-    Ok(ParsedCall {
-        index: instruction_id,
-        operands,
-        args,
-    })
-}
-
 // ── Selection ───────────────────────────────────────────────────────────────
-
-/// Patterns of `(flag index, expected value)`. AND inside a pattern, OR across.
-pub type CompiledSelect = Vec<Vec<(usize, bool)>>;
 
 /// Compiles [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
 /// patterns against an instruction's flag names.
@@ -384,88 +169,7 @@ pub fn compile_select(
     Ok(compiled)
 }
 
-/// The status of a call's flags under its compiled `select`: `REJECTED` if
-/// [`accepts`] returns `Some(false)`, `UNRESOLVED` if it returns `None`, and
-/// no status otherwise. The spec makes [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
-/// a hint for downstream tools, so this runtime reports a mismatch as a
-/// recoverable status, never an error.
-#[must_use]
-pub fn select_status(compiled: &CompiledSelect, flags: &[Bit]) -> Status {
-    match accepts(compiled, flags) {
-        Some(true) => Status::default(),
-        Some(false) => Status::REJECTED,
-        None => Status::UNRESOLVED,
-    }
-}
-
-/// The largest number of unknown flags [`accepts`] enumerates. Past it,
-/// `accepts` answers `None` instead of enumerating. Picked arbitrarily, not
-/// measured: it bounds the worst case at 2^24 (about 16.8 million)
-/// assignments.
-const MAX_ENUMERATED_FLAGS: usize = 24;
-// `accepts` enumerates assignments as the bits of a `u32`.
-const _: () = assert!(MAX_ENUMERATED_FLAGS < u32::BITS as usize);
-
-/// Whether `flags` satisfy `compiled`, where `None` flags are unknown.
-/// `Some(true)` iff EVERY completion of the unknown flags matches some
-/// pattern, `Some(false)` iff NO completion does, `None` otherwise. (A
-/// per-pattern scan is not enough: `[{f0:0},{f0:1}]` with `f0` unknown is
-/// accepted by every completion.)
-///
-/// The answer is exact except in one case: when deciding it would require
-/// enumerating more than `MAX_ENUMERATED_FLAGS` unknown flags, it is `None`
-/// even if every completion matches.
-///
-/// An empty `compiled` returns `Some(true)`: the spec defines an omitted or
-/// empty [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
-/// as no constraint, not as a list that nothing matches.
-#[must_use]
-pub fn accepts(compiled: &CompiledSelect, flags: &[Bit]) -> Option<bool> {
-    if compiled.is_empty() {
-        return Some(true);
-    }
-    // Keep patterns consistent with the known flags, restricted to unknown ones.
-    let live: Vec<Vec<(usize, bool)>> = compiled
-        .iter()
-        .filter(|p| p.iter().all(|&(i, v)| flags[i].is_none_or(|f| f == v)))
-        .map(|p| {
-            p.iter()
-                .copied()
-                .filter(|&(i, _)| flags[i].is_none())
-                .collect()
-        })
-        .collect();
-    if live.is_empty() {
-        return Some(false);
-    }
-    if live.iter().any(Vec::is_empty) {
-        return Some(true);
-    }
-    // Some completion matches. Do all? Enumerate the unknown flags that the live
-    // patterns mention; others cannot affect the result. The cost is
-    // exponential in their number, hence the cap.
-    let mut unknown: Vec<usize> = live.iter().flatten().map(|&(i, _)| i).collect();
-    unknown.sort_unstable();
-    unknown.dedup();
-    if unknown.len() > MAX_ENUMERATED_FLAGS {
-        return None;
-    }
-    for assignment in 0u32..(1 << unknown.len()) {
-        let value = |flag: usize| {
-            let position = unknown.binary_search(&flag).unwrap_or_default();
-            assignment & (1 << position) != 0
-        };
-        if !live.iter().any(|p| p.iter().all(|&(i, v)| value(i) == v)) {
-            return None;
-        }
-    }
-    Some(true)
-}
-
 // ── Frame deltas ────────────────────────────────────────────────────────────
-
-/// `(output entry, basis, logical index)` of one output logical sign.
-pub type FrameKey = (usize, Basis, usize);
 
 /// Parses a gadget's [`frames`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#frames)
 /// into parities of circuit readouts, keyed by the output logical sign each
@@ -714,27 +418,22 @@ pub fn layout_boundary(
     Ok(layouts)
 }
 
-/// The lower address of each code qubit of `layout`, in code-qubit order:
-/// `(lower block id, logical index inside that block)`.
+/// The address of each code qubit of `layout`, in code-qubit order:
+/// `(slot, logical index inside that slot's lower block)`.
 ///
-/// `slots[i]` is the slot of `layout.labels[i]`, and `placement[slot]` is the
-/// lower block placed there. For example, with two labels of a lower type that
-/// encodes 2 qubits, placed on lower blocks 5 and 9, code qubits 0 to 3 are
-/// `(5, 0), (5, 1), (9, 0), (9, 1)`.
+/// `slots[i]` is the slot of `layout.labels[i]`. For example, with two labels
+/// of a lower type that encodes 2 qubits, in slots 3 and 4, code qubits 0 to 3
+/// are `(3, 0), (3, 1), (4, 0), (4, 1)`.
 #[must_use]
 pub fn code_qubits(
     layout: &EncodingPlan,
     slots: &[usize],
-    placement: &[u64],
     lower: &TypeTable,
-) -> Vec<(u64, usize)> {
+) -> Vec<(usize, usize)> {
     slots
         .iter()
         .zip(&layout.lower_types)
-        .flat_map(|(&slot, &t)| {
-            let block = placement[slot];
-            (0..lower.caps[t]).map(move |i| (block, i))
-        })
+        .flat_map(|(&slot, &t)| (0..lower.caps[t]).map(move |i| (slot, i)))
         .collect()
 }
 
@@ -786,7 +485,7 @@ impl CodePlan {
         let parse = |paulis: &[qodec::PauliString]| {
             paulis
                 .iter()
-                .map(Pauli::from_text)
+                .map(|p| Pauli::parse(&p.0))
                 .collect::<Result<Vec<_>, _>>()
         };
         Ok(Self {
@@ -812,61 +511,5 @@ impl CodePlan {
             Basis::X => &self.x,
             Basis::Z => &self.z,
         }
-    }
-}
-
-// ── Block type tables ───────────────────────────────────────────────────────
-
-/// The block types of one ISA, interned as indices.
-#[derive(Clone, Debug, Default)]
-pub struct TypeTable {
-    /// Type names, in declaration order.
-    pub names: Vec<String>,
-    /// Logical qubits per block of each type.
-    pub caps: Vec<usize>,
-    index: FxHashMap<String, usize>,
-}
-
-impl TypeTable {
-    /// Interns the block types of `isa`.
-    #[must_use]
-    pub fn new(isa: &InstructionSet) -> Self {
-        let mut table = Self::default();
-        for block in &isa.blocks {
-            table.index.insert(block.name.clone(), table.names.len());
-            table.names.push(block.name.clone());
-            table.caps.push(block.encodes);
-        }
-        table
-    }
-
-    /// Logical qubits per block of the type named `name`.
-    #[must_use]
-    pub fn cap(&self, name: &str) -> Option<usize> {
-        self.get(name).map(|t| self.caps[t])
-    }
-
-    /// The index of the type named `name`.
-    #[must_use]
-    pub fn get(&self, name: &str) -> Option<usize> {
-        self.index.get(name).copied()
-    }
-
-    /// The number of types.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.names.len()
-    }
-
-    /// Whether the ISA declares no types.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.names.is_empty()
-    }
-
-    /// The only type, if there is exactly one.
-    #[must_use]
-    pub fn only(&self) -> Option<usize> {
-        (self.names.len() == 1).then_some(0)
     }
 }

@@ -15,13 +15,16 @@
 
 use super::{
     actions::action_clifford,
+    encoder::Fixes,
+    isa::{CompiledSelect, TypeTable},
     pauli::{Clifford, Pauli, PauliOp},
-    protocol::Step,
-    spec::{CompiledSelect, TypeTable},
+    protocol::{Call, Fault, OwnedParam, Step},
+    spec::encode_arg,
 };
 use qodec::{Action, Argument, InstructionSet, ParameterKind, Scalar};
 use rustc_hash::FxHashMap;
-use std::{collections::BTreeMap, rc::Rc};
+use smallvec::SmallVec;
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc, sync::Arc};
 
 /// Matches steps against the static semantics of a lower ISA.
 #[derive(Debug)]
@@ -258,7 +261,7 @@ fn semantics(
     };
     let rotation = match instruction.action.as_slice() {
         [step] => match &step.action {
-            Action::Rotate { pauli, angle } => Pauli::from_text(pauli)
+            Action::Rotate { pauli, angle } => Pauli::parse(&pauli.0)
                 .ok()
                 .filter(|p| p.max_qubit().is_some_and(|q| q < width))
                 .map(|p| (p, angle.clone())),
@@ -352,4 +355,78 @@ pub struct Resolved {
 /// between a requested angle and a literal angle in a lower action.
 fn is_close(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-9 * a.abs().max(b.abs())
+}
+
+/// The [`Fixes`] of a layer's encoders: a [`Resolver`] for the lower ISA,
+/// whose results become lower calls with their arguments in parameter order.
+/// Results are cached for the life of the plan: they depend only on the step
+/// and the lower types, never on the shot.
+#[derive(Debug)]
+pub struct ResolverFixes {
+    resolver: Rc<Resolver>,
+    lower_isa: Arc<InstructionSet>,
+    lower: TypeTable,
+    cache: RefCell<ResolveCache>,
+}
+
+impl ResolverFixes {
+    /// Applies corrections with `resolver`, which indexes `lower_isa`, whose
+    /// block types are `lower`.
+    #[must_use]
+    pub fn new(resolver: Rc<Resolver>, lower_isa: Arc<InstructionSet>, lower: TypeTable) -> Self {
+        Self {
+            resolver,
+            lower_isa,
+            lower,
+            cache: RefCell::default(),
+        }
+    }
+}
+
+impl Fixes for ResolverFixes {
+    fn resolve(
+        &self,
+        step: &Step,
+        qubits: &[(u64, usize)],
+        lower_type: &dyn Fn(u64) -> usize,
+    ) -> Result<Vec<(Call, CompiledSelect)>, Fault> {
+        let parts = self
+            .resolver
+            .resolve(
+                step,
+                qubits,
+                lower_type,
+                &self.lower,
+                &mut self.cache.borrow_mut(),
+            )
+            .ok_or_else(|| {
+                Fault::no_implementation(format!("the lower ISA cannot apply {step} there"))
+            })?;
+        parts
+            .into_iter()
+            .map(|part| {
+                let instruction = &self.lower_isa.instructions[part.resolved.index];
+                let mut parameters: SmallVec<[OwnedParam; 2]> = part
+                    .operands
+                    .iter()
+                    .map(|&o| OwnedParam::Block(o))
+                    .collect();
+                for parameter in &instruction.parameters {
+                    let missing =
+                        || Fault::invalid(format!("no argument for `{}`", parameter.name));
+                    let arg = part
+                        .resolved
+                        .args
+                        .get(&parameter.name)
+                        .ok_or_else(missing)?;
+                    parameters.push(encode_arg(arg).ok_or_else(missing)?);
+                }
+                let call = Call {
+                    instruction_id: part.resolved.index,
+                    parameters,
+                };
+                Ok((call, part.resolved.select))
+            })
+            .collect()
+    }
 }

@@ -12,7 +12,7 @@ use crate::{
     syntax::{self, Ins},
 };
 use qodec::{InstructionSet, Qodec};
-use qodec_runtime_impl::{
+use qodec_runtime_builder::{
     Backend, BasicReadout, Bit, FaultKind, FrameDecoding, PlanError, QodecPlan, QodecRuntime,
     QodecRuntimeError, Stack, TypeChecker,
 };

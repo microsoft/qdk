@@ -6,12 +6,11 @@
 
 use super::{
     backend::Backend,
+    isa::{Isa, parse_call},
     layer::{Chain, Layer},
     protocol::{BasicReadout, Call, Fault, FaultKind, Reply},
-    spec::parse_call,
 };
-use qodec::InstructionSet;
-use std::{fmt, sync::Arc};
+use std::{fmt, rc::Rc};
 
 /// What a [`Runtime`] asks of the backend at the bottom: it answers a batch of
 /// bottom-ISA calls with one result per call that has observe outcomes or
@@ -46,8 +45,7 @@ impl<L> QodecLayer for L where
 pub type QodecLayers = Chain<Vec<Call>, Result<Vec<Reply>, Fault>>;
 
 /// The runtime of one shot of a qodec: every layer chained over a bottom
-/// backend that fails with `E`. See
-/// [`QodecPlan::instantiate`](crate::QodecPlan::instantiate).
+/// backend that fails with `E`.
 pub type QodecRuntime<'a, E> = Runtime<QodecLayers, Box<dyn BatchBackend<E> + 'a>, E>;
 
 /// A qodec layer `L` over a bottom backend `B` that fails with `E`.
@@ -73,14 +71,14 @@ pub type QodecRuntime<'a, E> = Runtime<QodecLayers, Box<dyn BatchBackend<E> + 'a
 pub struct Runtime<L, B, E> {
     layer: L,
     bottom: Bottom<B, E>,
-    top: Arc<InstructionSet>,
+    top: Rc<Isa>,
     poisoned: bool,
 }
 
 /// The bottom backend, seen by the layers.
 struct Bottom<B, E> {
     backend: B,
-    isa: Arc<InstructionSet>,
+    isa: Rc<Isa>,
     /// The backend's error, while a [`FaultKind::Bottom`] fault carries the
     /// news up the layers.
     error: Option<E>,
@@ -90,7 +88,7 @@ impl<B: BatchBackend<E>, E> Backend<Vec<Call>, Result<Vec<Reply>, Fault>> for Bo
     fn execute(&mut self, calls: Vec<Call>) -> Result<Vec<Reply>, Fault> {
         let shapes: Vec<(usize, usize)> = calls
             .iter()
-            .filter_map(|c| shape(&self.isa, c.instruction_id))
+            .filter_map(|c| self.isa.shape(c.instruction_id))
             .collect();
         let results = match self.backend.execute(calls) {
             Ok(results) => results,
@@ -122,20 +120,15 @@ impl<B: BatchBackend<E>, E> Backend<Vec<Call>, Result<Vec<Reply>, Fault>> for Bo
 impl<L, B, E> Runtime<L, B, E> {
     /// Runs `layer` from the `top` ISA down to `backend`, which runs the
     /// `bottom` ISA.
-    pub fn new(
-        layer: L,
-        backend: B,
-        top: &Arc<InstructionSet>,
-        bottom: &Arc<InstructionSet>,
-    ) -> Self {
+    pub fn new(layer: L, backend: B, top: &Rc<Isa>, bottom: &Rc<Isa>) -> Self {
         Self {
             layer,
             bottom: Bottom {
                 backend,
-                isa: Arc::clone(bottom),
+                isa: Rc::clone(bottom),
                 error: None,
             },
-            top: Arc::clone(top),
+            top: Rc::clone(top),
             poisoned: false,
         }
     }
@@ -188,7 +181,7 @@ impl<L: QodecLayer, B: BatchBackend<E>, E> Runtime<L, B, E> {
     fn run(&mut self, calls: Vec<Call>) -> Result<Vec<BasicReadout>, QodecRuntimeError<E>> {
         let expected = calls
             .iter()
-            .filter(|c| shape(&self.top, c.instruction_id).is_some())
+            .filter(|c| self.top.shape(c.instruction_id).is_some())
             .count();
         let result = self.layer.execute(calls, &mut self.bottom);
         let replies = result.map_err(|fault| {
@@ -228,9 +221,11 @@ impl<'c, L: QodecLayer, B: BatchBackend<E>, E>
 }
 
 /// A qodec layer that tags its faults with its index in the qodec.
-pub(crate) struct AtLayer<L> {
-    pub(crate) index: usize,
-    pub(crate) layer: L,
+pub struct AtLayer<L> {
+    /// The layer's index in the qodec, top first.
+    pub index: usize,
+    /// The layer.
+    pub layer: L,
 }
 
 impl<L: QodecLayer> Layer for AtLayer<L> {
@@ -248,14 +243,6 @@ impl<L: QodecLayer> Layer for AtLayer<L> {
             .execute(calls, below)
             .map_err(|fault| fault.at_layer(self.index))
     }
-}
-
-/// The (observe count, flag count) of instruction `index` of `isa`, if it
-/// returns a result.
-fn shape(isa: &InstructionSet, index: usize) -> Option<(usize, usize)> {
-    let instruction = isa.instructions.get(index)?;
-    let shape = (instruction.observe_count(), instruction.flags.len());
-    (shape.0 + shape.1 > 0).then_some(shape)
 }
 
 /// An error of a [`Runtime`].

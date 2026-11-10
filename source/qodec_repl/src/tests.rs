@@ -8,7 +8,7 @@ use crate::{
 };
 use expect_test::{Expect, expect};
 use qodec::Qodec;
-use qodec_runtime_impl::Bit;
+use qodec_runtime_builder::Bit;
 use rustyline::{Context, completion::Completer, history::DefaultHistory};
 use std::{cell::RefCell, collections::VecDeque, fmt::Write, rc::Rc, sync::Arc};
 

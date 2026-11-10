@@ -5,16 +5,14 @@ use super::{
     Backend, BasicReadout, BlockRef, Blueprint, Call, Compiler, Correction, Decode, Design,
     Encoder, Fault, FaultKind, FrameDecoder, FrameDecoderPlan, FrameDecoding, Layer,
     LayerBlueprint, LayerPlan, Lower, Never, OwnedParam, Passive, PlanError, QodecLayer, QodecPlan,
-    QodecRuntimeError, Record, Reply, Resources, Rounds, Runtime, SpecEncoder, SpecEncoderPlan,
-    Stack, Status, Step, TypeChecker, UntilReadyPlan, from_fn,
+    QodecRuntimeError, Record, Reply, Resources, Rounds, Runtime, SpecEncoder, Stack, Status, Step,
+    TypeChecker, from_fn,
+    isa::{CompiledSelect, TypeTable, accepts, bind_operands},
     parity::{Basis, BinarySystem, Inconsistent, Parity, Side, Var},
     pauli::{Clifford, DensePauli, Pauli, PauliOp},
     plan::GadgetPlan,
     resolver::{ResolveCache, Resolver},
-    spec::{
-        CompiledSelect, RefScope, TypeTable, accepts, bind_operands, compile_select, encode_arg,
-        expr, matches,
-    },
+    spec::{self, RefScope, compile_select, encode_arg, expr, matches, signature, type_table},
 };
 use deq_runtime::{
     decoder::{
@@ -113,7 +111,7 @@ fn instruction(inputs: &[(&str, bool)], outputs: &[(&str, bool)]) -> Instruction
 }
 
 fn types(blocks: &[(&str, usize)]) -> TypeTable {
-    TypeTable::new(&InstructionSet {
+    type_table(&InstructionSet {
         name: "test".to_string(),
         description: String::new(),
         blocks: blocks
@@ -132,7 +130,8 @@ fn types(blocks: &[(&str, usize)]) -> TypeTable {
 fn bind_operands_assigns_flat_offsets() {
     let types = types(&[("a", 2), ("b", 1)]);
     let i = instruction(&[("a", false), ("b", false)], &[("a", false)]);
-    let (ins, outs) = bind_operands(&types, &i, &[7u64, 8], &FxHashMap::default()).expect("binds");
+    let (ins, outs) =
+        bind_operands(&types, &signature(&i), &[7u64, 8], &FxHashMap::default()).expect("binds");
     assert_eq!(
         ins.iter()
             .map(|b| (b.label, b.offset, b.width))
@@ -148,9 +147,9 @@ fn bind_operands_resolves_variadics_with_known_types() {
     let i = instruction(&[("a", true), ("b", true)], &[]);
     let targets = [1u64, 2, 3];
     // Without types, the split between the two variadics is ambiguous.
-    assert!(bind_operands(&types, &i, &targets, &FxHashMap::default()).is_err());
+    assert!(bind_operands(&types, &signature(&i), &targets, &FxHashMap::default()).is_err());
     let known: FxHashMap<u64, &str> = [(1, "a"), (2, "a"), (3, "b")].into_iter().collect();
-    let (ins, _) = bind_operands(&types, &i, &targets, &known).expect("unique split");
+    let (ins, _) = bind_operands(&types, &signature(&i), &targets, &known).expect("unique split");
     assert_eq!(
         ins.iter()
             .map(|b| b.block_type.as_str())
@@ -163,7 +162,7 @@ fn bind_operands_resolves_variadics_with_known_types() {
 fn bind_operands_requires_distinct_targets() {
     let types = types(&[("a", 1)]);
     let i = instruction(&[("a", false), ("a", false)], &[]);
-    assert!(bind_operands(&types, &i, &[1u64, 1], &FxHashMap::default()).is_err());
+    assert!(bind_operands(&types, &signature(&i), &[1u64, 1], &FxHashMap::default()).is_err());
 }
 
 #[test]
@@ -504,7 +503,8 @@ fn top_layer_plan(qodec: &Qodec) -> Rc<LayerPlan> {
 fn on_sim<L>(qodec: &Qodec, layer: L) -> Runtime<L, BitSim, String> {
     let layers = qodec.layers();
     let (top, lower) = (&layers[0].instruction_set, &layers[1].instruction_set);
-    Runtime::new(layer, BitSim::new(lower), top, lower)
+    let isa = |isa| Rc::new(spec::isa(isa));
+    Runtime::new(layer, BitSim::new(lower), &isa(top), &isa(lower))
 }
 
 /// The reference layer, assembled by hand from its pieces.
@@ -514,8 +514,8 @@ type FrameLayer = Stack<Passive<FrameDecoder>, SpecEncoder>;
 fn single_layer(qodec: &Qodec) -> Runtime<FrameLayer, BitSim, String> {
     let plan = top_layer_plan(qodec);
     let blueprint = Stack::new(
-        FrameDecoderPlan::new(&plan).expect("decoder plans"),
-        SpecEncoderPlan::<Never>::new(&plan).expect("encoder plans"),
+        plan.frame_decoder().expect("decoder plans"),
+        plan.spec_encoder::<Never>().expect("encoder plans"),
     );
     on_sim(qodec, blueprint.instantiate())
 }
@@ -752,7 +752,10 @@ fn faults_lose_the_shot() {
 fn type_checkers_reject_ill_typed_batches_whole_without_losing_the_shot() {
     let qodec = repetition3();
     let isa = Arc::clone(&qodec.layers()[0].instruction_set);
-    let mut checked = Stack::new(TypeChecker::new(&isa), single_layer(&qodec));
+    let mut checked = Stack::new(
+        TypeChecker::new(&Rc::new(spec::isa(&isa))),
+        single_layer(&qodec),
+    );
     // `prepare_z 0` is fine, but block 1 is not live, so nothing runs.
     let err = checked
         .execute(vec![op(&isa, "prepare_z", &[0]), op(&isa, "idle", &[1])])
@@ -801,7 +804,7 @@ fn type_checkers_track_live_blocks_and_undo_rejected_batches() {
         instruction_id: id,
         parameters: [OwnedParam::Block(block)].into_iter().collect(),
     };
-    let mut checker = TypeChecker::<String>::new(&isa);
+    let mut checker = TypeChecker::<String>::new(&Rc::new(spec::isa(&isa)));
     checker.check(&[call(0, 7)]).expect("prepares an `a`");
     assert_eq!(checker.live_type(7), Some("a"));
 
@@ -1073,13 +1076,12 @@ fn decoders_correct_live_blocks_through_their_encoder() {
     let isa = Arc::clone(&qodec.layers()[0].instruction_set);
     let plan = top_layer_plan(&qodec);
     let decoder = FlipPrepared {
-        inner: FrameDecoderPlan::new(&plan)
-            .expect("decoder plans")
-            .instantiate(),
+        inner: plan.frame_decoder().expect("decoder plans").instantiate(),
         layer: Rc::clone(&plan),
         prepare: index_of(&isa, "prepare_z"),
     };
-    let encoder = SpecEncoderPlan::<Correction>::new(&plan)
+    let encoder = plan
+        .spec_encoder::<Correction>()
         .expect("the lower ISA has `x` and `z`")
         .instantiate();
     let mut layer = on_sim(&qodec, Stack::new(decoder, encoder));
@@ -1095,9 +1097,9 @@ fn only_encoders_that_take_corrections_need_lower_paulis() {
     let qodec = logical_over_pauli_free_isa(false);
     assert!(QodecPlan::new(&qodec, &FrameDecoding).is_ok());
     let plan = top_layer_plan(&qodec);
-    assert!(SpecEncoderPlan::<Never>::new(&plan).is_ok());
+    assert!(plan.spec_encoder::<Never>().is_ok());
     assert_eq!(
-        SpecEncoderPlan::<Correction>::new(&plan).err(),
+        plan.spec_encoder::<Correction>().err(),
         Some(PlanError(
             "the lower ISA has no `X` Pauli for block type `qubit`".to_string()
         ))
@@ -1241,14 +1243,14 @@ fn delayed_layer(
 ) -> impl Blueprint<Instance: QodecLayer> {
     let plan = top_layer_plan(qodec);
     Stack::new(
-        UntilReadyPlan::by_action(&plan, max_rounds).expect("`idle` is a QEC round"),
+        plan.until_ready(max_rounds).expect("`idle` is a QEC round"),
         Stack::new(
             DelayedPlan {
                 layer: Rc::clone(&plan),
-                frame: FrameDecoderPlan::new(&plan).expect("decoder plans"),
+                frame: plan.frame_decoder().expect("decoder plans"),
                 rounds,
             },
-            SpecEncoderPlan::<Never>::new(&plan).expect("encoder plans"),
+            plan.spec_encoder::<Never>().expect("encoder plans"),
         ),
     )
 }
@@ -1299,7 +1301,7 @@ fn controllers_give_up_on_decoders_that_never_get_ready() {
 fn rounds_are_found_by_their_action() {
     // The logical layer has no identity instruction on `lq`.
     let qodec = logical_over_repetition3();
-    let err = UntilReadyPlan::by_action(&top_layer_plan(&qodec), 1).expect_err("no round");
+    let err = top_layer_plan(&qodec).until_ready(1).expect_err("no round");
     assert_eq!(
         err,
         PlanError("no instruction runs a QEC round on `lq`".to_string())
@@ -1334,7 +1336,7 @@ impl Design for DeqAtBottom {
         if deq {
             Ok(Box::new(Stack::new(
                 DeqPlan::new(layer)?,
-                SpecEncoderPlan::<Never>::new(layer)?,
+                layer.spec_encoder::<Never>()?,
             )))
         } else {
             FrameDecoding.layer(layer)
@@ -1392,7 +1394,7 @@ impl DeqPlan {
             .collect::<Result<_, _>>()?;
         Ok(Self {
             layer: Rc::clone(layer),
-            frame: FrameDecoderPlan::new(layer)?,
+            frame: layer.frame_decoder()?,
             gadgets: Rc::new(gadgets),
         })
     }
@@ -1467,7 +1469,7 @@ impl Blueprint for DeqPlan {
 
     fn instantiate(&self) -> Self::Instance {
         Passive::new(
-            Rc::clone(&self.layer),
+            Rc::clone(&self.layer.records),
             DeqDecoder {
                 gadgets: Rc::clone(&self.gadgets),
                 solvers: self.gadgets.iter().map(|_| None).collect(),
@@ -1769,7 +1771,7 @@ type Applied = Vec<(String, Vec<u64>, Vec<String>)>;
 
 /// The lower instructions that apply `step` on `slots`.
 fn resolved(isa: &InstructionSet, step: &Step, slots: &[(u64, usize)]) -> Option<Applied> {
-    let types = TypeTable::new(isa);
+    let types = type_table(isa);
     let resolver = Resolver::new(isa, &types);
     let ops = resolver.resolve(step, slots, |_| 0, &types, &mut ResolveCache::default())?;
     Some(
@@ -1864,7 +1866,8 @@ fn compilers_lower_like_runtimes_without_decoders() {
 fn encoders_expecting_no_results_keep_nothing_for_them() {
     let qodec = repetition3();
     let isa = Arc::clone(&qodec.layers()[0].instruction_set);
-    let mut encoder = SpecEncoderPlan::<Never>::new(&top_layer_plan(&qodec))
+    let mut encoder = top_layer_plan(&qodec)
+        .spec_encoder::<Never>()
         .expect("encoder plans")
         .instantiate();
     encoder.expect_no_results();

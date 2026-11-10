@@ -8,12 +8,31 @@
 
 use super::{
     backend::Backend,
+    isa::{CompiledSelect, Isa, select_status},
     layer::Layer,
-    plan::{GadgetPlan, LayerPlan},
     protocol::{BasicReadout, Call, Fault, Lower, Record, Reply, Status},
-    spec::select_status,
 };
-use std::rc::Rc;
+use std::{ops::Range, rc::Rc};
+
+/// What a decoder needs to know about the records of a layer: the upper
+/// ISA, and the `select` hints of each gadget's body.
+#[derive(Clone, Debug, Default)]
+pub struct RecordLayout {
+    /// The upper ISA.
+    pub upper: Rc<Isa>,
+    /// Per gadget, indexed by [`GadgetId`](crate::GadgetId): the body calls
+    /// that have a `select` hint.
+    pub gadgets: Vec<Vec<BodySelect>>,
+}
+
+/// The `select` hint of one call of a gadget body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BodySelect {
+    /// Where the call's flags are in the gadget's record.
+    pub flags: Range<usize>,
+    /// The hint, over the call's flags.
+    pub select: CompiledSelect,
+}
 
 /// The inference of a passive decoder: turns one call's readout record into
 /// the call's result.
@@ -42,16 +61,16 @@ pub trait Decode {
 /// recorded flags, for every decoder: a mismatch is the recoverable status
 /// `rejected`.
 pub struct Passive<D> {
-    layer: Rc<LayerPlan>,
+    layout: Rc<RecordLayout>,
     inner: D,
     status: Status,
 }
 
 impl<D> Passive<D> {
-    /// Wraps `inner`, which decodes records of `layer`.
-    pub fn new(layer: Rc<LayerPlan>, inner: D) -> Self {
+    /// Wraps `inner`, which decodes records laid out as `layout` says.
+    pub fn new(layout: Rc<RecordLayout>, inner: D) -> Self {
         Self {
-            layer,
+            layout,
             inner,
             status: Status::default(),
         }
@@ -95,28 +114,27 @@ impl<D: Decode> Layer for Passive<D> {
 impl<D: Decode> Passive<D> {
     /// Decodes one record, and returns its call's result if the call has one.
     fn decode(&mut self, record: &Record) -> Result<Option<Reply>, Fault> {
-        let instruction = self
-            .layer
-            .isa
+        let layout = Rc::clone(&self.layout);
+        let instruction = layout
+            .upper
             .instructions
             .get(record.instruction)
             .ok_or_else(|| Fault::protocol("a record of an unknown instruction"))?;
         let mut status = record.status;
         if let Some(inv) = &record.invocation {
-            let gadget = self
-                .layer
+            let selects = layout
                 .gadgets
                 .get(inv.gadget.0)
                 .ok_or_else(|| Fault::protocol("a record of an unknown gadget"))?;
-            status |= body_select_status(gadget, record);
+            status |= body_select_status(selects, record);
         }
         let decoded = self.inner.decode(record);
         self.status |= status | decoded.status;
-        if !self.layer.upper_needs_result[record.instruction] {
+        if !instruction.has_result() {
             return Ok(None);
         }
-        if decoded.outcomes.len() != instruction.observe_count()
-            || decoded.flags.len() != instruction.flags.len()
+        if decoded.outcomes.len() != instruction.outcomes
+            || decoded.flags.len() != instruction.flags
         {
             return Err(Fault::protocol(format!(
                 "the decoder gave `{}` {} outcomes and {} flags",
@@ -136,17 +154,12 @@ impl<D: Decode> Passive<D> {
 /// The status of a gadget body's per-call `select` hints under the recorded
 /// flags. The spec makes [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
 /// a hint, so a mismatch is recoverable.
-fn body_select_status(gadget: &GadgetPlan, record: &Record) -> Status {
+fn body_select_status(selects: &[BodySelect], record: &Record) -> Status {
     let mut status = Status::default();
-    let mut offset = 0;
-    for call in &gadget.body.calls {
-        if !call.select.is_empty() {
-            let flags = offset + call.observe_count..offset + call.observe_count + call.flag_count;
-            if let Some(flags) = record.bits.get(flags) {
-                status |= select_status(&call.select, flags);
-            }
+    for call in selects {
+        if let Some(flags) = record.bits.get(call.flags.clone()) {
+            status |= select_status(&call.select, flags);
         }
-        offset += call.observe_count + call.flag_count;
     }
     status
 }

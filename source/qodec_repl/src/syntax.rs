@@ -13,7 +13,7 @@
 
 use crate::style::{BLOCK, DIM, INVALID, MNEMONIC, PARAM, VALUE, paint};
 use qodec::{Instruction, InstructionSet, ParameterKind};
-use qodec_runtime_impl::{Call, OwnedParam};
+use qodec_runtime_builder::{Call, OwnedParam};
 use smallvec::SmallVec;
 use std::fmt::Write;
 

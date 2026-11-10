@@ -37,7 +37,6 @@ use super::{
     layer::Layer,
     pauli::{Clifford, Pauli},
 };
-use qodec::Argument;
 use smallvec::SmallVec;
 use std::{
     collections::BTreeMap,
@@ -328,8 +327,9 @@ pub struct Invocation {
     pub gadget: GadgetId,
     /// The upper block operands, in order.
     pub operands: Vec<u64>,
-    /// The call's arguments, by parameter name.
-    pub args: BTreeMap<String, Argument>,
+    /// The call's arguments, by parameter name. None is a
+    /// [`OwnedParam::Block`]: blocks are the operands.
+    pub args: BTreeMap<String, OwnedParam>,
     /// The input blocks, one per `in` operand.
     pub input_refs: Vec<BlockRef>,
     /// The output blocks, one per `out` operand, each with a new generation.

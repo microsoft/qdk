@@ -6,14 +6,13 @@
 
 use super::{
     backend::Backend,
+    isa::{Isa, bind_operands, parse_call},
     layer::Layer,
     protocol::{BasicReadout, Call, Fault},
     runtime::QodecRuntimeError,
-    spec::{TypeTable, bind_operands, parse_call},
 };
-use qodec::InstructionSet;
 use rustc_hash::FxHashMap;
-use std::{marker::PhantomData, sync::Arc};
+use std::{marker::PhantomData, rc::Rc};
 
 /// Rejects a batch of top-ISA calls, with nothing run, if one of its calls is
 /// ill-typed: an input operand that is not a live block of the type its
@@ -34,8 +33,7 @@ use std::{marker::PhantomData, sync::Arc};
 /// knows nothing of gadgets: a call it accepts may still fail below, for
 /// example when no gadget implements its instruction.
 pub struct TypeChecker<E> {
-    isa: Arc<InstructionSet>,
-    types: TypeTable,
+    isa: Rc<Isa>,
     /// Live blocks: label → block type.
     live: FxHashMap<u64, String>,
     error: PhantomData<fn() -> E>,
@@ -47,10 +45,9 @@ type Undo = Vec<(u64, Option<String>)>;
 impl<E> TypeChecker<E> {
     /// A checker for `isa`, with no live block.
     #[must_use]
-    pub fn new(isa: &Arc<InstructionSet>) -> Self {
+    pub fn new(isa: &Rc<Isa>) -> Self {
         Self {
-            isa: Arc::clone(isa),
-            types: TypeTable::new(isa),
+            isa: Rc::clone(isa),
             live: FxHashMap::default(),
             error: PhantomData,
         }
@@ -91,7 +88,7 @@ impl<E> TypeChecker<E> {
             .iter()
             .filter_map(|l| self.live.get(l).map(|t| (*l, t.as_str())))
             .collect();
-        let (ins, outs) = bind_operands(&self.types, instruction, &parsed.operands, &known)?;
+        let (ins, outs) = bind_operands(&self.isa.types, instruction, &parsed.operands, &known)?;
         if let Some(input) = ins.iter().find(|b| !self.live.contains_key(&b.label)) {
             return Err(format!("block {} is not live", input.label));
         }

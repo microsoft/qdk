@@ -4,8 +4,6 @@
 //! Designs: how each layer of a qodec is assembled from mix-and-match pieces.
 
 use super::{
-    encoder::SpecEncoderPlan,
-    frame_decoder::FrameDecoderPlan,
     layer::{Blueprint, Stack},
     plan::{LayerPlan, PlanError},
     protocol::{BoxedLayer, Never},
@@ -69,8 +67,8 @@ pub struct FrameDecoding;
 impl Design for FrameDecoding {
     fn layer(&self, layer: &Rc<LayerPlan>) -> Result<Box<dyn LayerBlueprint>, PlanError> {
         Ok(Box::new(Stack::new(
-            FrameDecoderPlan::new(layer)?,
-            SpecEncoderPlan::<Never>::new(layer)?,
+            layer.frame_decoder()?,
+            layer.spec_encoder::<Never>()?,
         )))
     }
 }

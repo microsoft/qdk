@@ -1,5 +1,5 @@
 [package]
-name = "qodec_runtime_impl"
+name = "qodec_runtime_builder"
 
 version.workspace = true
 authors.workspace = true
@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 qodec = { workspace = true }
-qodec_runtime_interface = { path = "../qodec_runtime_interface" }
+qodec_runtime_pieces = { path = "../qodec_runtime_pieces" }
 rustc-hash = { workspace = true }
 smallvec = { workspace = true }
 

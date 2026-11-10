@@ -6,7 +6,6 @@
 use super::{
     backend::Backend,
     layer::{Blueprint, Layer},
-    plan::{InstructionPlan, LayerPlan, PlanError},
     protocol::{BlockRef, Call, Fault, OwnedParam, Reply},
 };
 use rustc_hash::FxHashMap;
@@ -38,38 +37,6 @@ impl UntilReadyPlan {
             rounds: Rc::new(rounds.into_iter().collect()),
             max_rounds,
         }
-    }
-
-    /// Finds each block type's QEC round by its action, which the spec makes
-    /// authoritative: an instruction with a gadget that takes one block of the
-    /// type and gives it back, with an empty action (the identity), no
-    /// parameters and no flags. The first such instruction wins. Fails if a
-    /// block type of the layer has none.
-    pub fn by_action(layer: &LayerPlan, max_rounds: usize) -> Result<Self, PlanError> {
-        let mut rounds = FxHashMap::default();
-        for name in &layer.upper.names {
-            let index = layer
-                .isa
-                .instructions
-                .iter()
-                .enumerate()
-                .position(|(i, instruction)| {
-                    matches!(instruction.inputs.as_slice(), [op] if &op.block == name && !op.is_variadic)
-                        && instruction.outputs == instruction.inputs
-                        && instruction.action.is_empty()
-                        && instruction.parameters.is_empty()
-                        && instruction.flags.is_empty()
-                        && matches!(layer.instructions[i], InstructionPlan::Gadget(_))
-                })
-                .ok_or_else(|| {
-                    PlanError(format!("no instruction runs a QEC round on `{name}`"))
-                })?;
-            rounds.insert(name.clone(), index);
-        }
-        Ok(Self {
-            rounds: Rc::new(rounds),
-            max_rounds,
-        })
     }
 }
 

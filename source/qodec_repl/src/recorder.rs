@@ -6,7 +6,7 @@
 
 use crate::syntax::{Ins, render_instruction};
 use qodec::InstructionSet;
-use qodec_runtime_impl::{Backend, BasicReadout, Bit, Call, Status};
+use qodec_runtime_builder::{Backend, BasicReadout, Bit, Call, Status};
 use std::{cell::RefCell, fmt, rc::Rc, sync::Arc};
 
 /// Where the bottom backend's outcome and flag bits come from.

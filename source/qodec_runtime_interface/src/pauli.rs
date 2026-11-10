@@ -1,11 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Pauli and Clifford algebra used by the runtime. `qodec` stores Paulis as
-//! text ([`qodec::PauliString`]); this module gives them algebraic meaning.
+//! Pauli and Clifford algebra used by the runtime. A qodec writes Paulis as
+//! text; this module gives them algebraic meaning.
 
-use qodec::PauliString;
-use std::{collections::BTreeMap, fmt};
+use std::fmt;
 
 /// A Clifford tableau: the images of every `X_q` and `Z_q`, with signs.
 /// Equality is equality up to a global phase.
@@ -45,27 +44,24 @@ impl Clifford {
             ],
             _ => return None,
         };
-        let images = images
-            .iter()
-            .map(|(g, i)| (PauliString::from(*g), PauliString::from(*i)))
-            .collect();
-        Clifford::from_images(&images, arity).ok()
+        Clifford::from_images(images.iter().copied(), arity).ok()
     }
 
-    /// The Clifford of a `clifford` action step (`{generator: image}`).
-    /// Generators that are not listed map to themselves. The images are not
-    /// checked to preserve commutation relations.
-    pub fn from_images(
-        images: &BTreeMap<PauliString, PauliString>,
+    /// The Clifford of a `clifford` action step (`{generator: image}`), with
+    /// each Pauli as text (see [`Pauli::parse`]). Generators that are not
+    /// listed map to themselves. The images are not checked to preserve
+    /// commutation relations.
+    pub fn from_images<'t>(
+        images: impl IntoIterator<Item = (&'t str, &'t str)>,
         width: usize,
     ) -> Result<Self, String> {
         let mut c = Self::identity(width);
         for (generator, image) in images {
-            let (q, is_x) = clifford_generator(&Pauli::from_text(generator)?)?;
+            let (q, is_x) = clifford_generator(&Pauli::parse(generator)?)?;
             if q >= width {
                 return Err(format!("Clifford generator outside {width} qubits"));
             }
-            let image = DensePauli::from_pauli(&Pauli::from_text(image)?, width)?;
+            let image = DensePauli::from_pauli(&Pauli::parse(image)?, width)?;
             if is_x {
                 c.x_images[q] = image;
             } else {
@@ -278,11 +274,6 @@ pub struct Pauli {
 }
 
 impl Pauli {
-    /// Parses a [`qodec::PauliString`].
-    pub fn from_text(text: &PauliString) -> Result<Self, String> {
-        Self::parse(&text.0)
-    }
-
     /// Parses a Pauli in the spec's [sparse format](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#pauli-operator-sparse-format):
     /// whitespace-separated `B_index` terms with `B ∈ {X, Y, Z}`, optionally
     /// preceded by `+` or `-`.

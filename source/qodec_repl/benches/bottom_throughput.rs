@@ -35,7 +35,9 @@ mod syntax;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use qodec::Qodec;
-use qodec_runtime_impl::{Backend, BasicReadout, Call, Compiler, FrameDecoding, QodecPlan, Status};
+use qodec_runtime_builder::{
+    Backend, BasicReadout, Call, Compiler, FrameDecoding, QodecPlan, Status,
+};
 use std::{
     cell::Cell,
     convert::Infallible,
