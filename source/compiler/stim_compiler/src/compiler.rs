@@ -117,6 +117,15 @@ fn build_intrinsic_decl(
     }
 }
 
+/// `@EntryPoint() operation Main() : Result[] { stmts }`
+fn build_main(stmts: Vec<ast::Stmt>, span: Span) -> ast::Item {
+    let result_array_ty = ast::Ty {
+        kind: Box::new(ast::TyKind::Array(Box::new(build_path_ident_ty("Result")))),
+        ..Default::default()
+    };
+    build_operation_with_stmts("Main", vec![], result_array_ty, stmts, span, true)
+}
+
 /// The Q# standard library operations emitted by the compiler.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -460,27 +469,39 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn into_package(mut self, circuit: &semantic::Circuit) -> Result<ast::Package, Vec<Error>> {
-        let pkg = self.compile_circuit(circuit);
+        let package = self.compile_circuit(circuit);
         if self.errors.is_empty() {
-            Ok(pkg)
+            Ok(package)
         } else {
             Err(self.errors)
         }
     }
 
     fn compile_circuit(&mut self, circuit: &semantic::Circuit) -> ast::Package {
-        let mut body = Vec::new();
-        for item in &circuit.items {
-            body.extend(self.compile_item(item));
-        }
-        body.extend(self.finish_correlated_noise());
+        // Compiled first, because it determines how many qubits and records to declare.
+        let body = self.compile_block_body(&circuit.items);
 
         let span = circuit.span;
-        let record_ids = 0..self.id_map.record_count;
-
-        // use qs = Qubit[N];, omitted when the circuit uses no qubits.
-        let num_qubits = self.id_map.num_qubits();
         let mut stmts = Vec::new();
+        stmts.extend(self.variable_declarations(span));
+        stmts.extend(body);
+        stmts.push(self.records_return_stmt(span));
+
+        let mut items = vec![build_main(stmts, circuit.span)];
+        items.extend(self.sorted_intrinsic_declarations());
+
+        ast::Package {
+            nodes: Box::new([build_top_level_ns_with_items(circuit.span, "Stim", items)]),
+            ..Default::default()
+        }
+    }
+
+    /// `use qs = Qubit[N];`, omitted when the circuit uses no qubits, followed by
+    /// `mutable r_k = Zero;` for each record. Must run after the body is compiled, since the
+    /// body determines how many qubits and records there are.
+    fn variable_declarations(&self, span: Span) -> Vec<ast::Stmt> {
+        let mut stmts = Vec::new();
+        let num_qubits = self.id_map.num_qubits();
         if num_qubits > 0 {
             stmts.push(managed_qubit_alloc_array(
                 QUBIT_REGISTER,
@@ -491,35 +512,38 @@ impl<'noise> Compiler<'noise> {
                 ast::QubitSource::Fresh,
             ));
         }
+        for result_id in 0..self.id_map.record_count {
+            stmts.push(Self::declare_record(result_id, span));
+        }
+        stmts
+    }
 
-        // mutable r_k = Zero;
-        stmts.extend(record_ids.clone().map(|r| Self::declare_record(r, span)));
+    /// `[r_0, …, r_{n-1}]` as the implicit return value of `Main`.
+    fn records_return_stmt(&self, span: Span) -> ast::Stmt {
+        let records = (0..self.id_map.record_count)
+            .map(|result_id| Self::record_expr(result_id, span))
+            .collect();
+        build_implicit_return_stmt(build_expr_array_expr(records, span))
+    }
 
-        stmts.extend(body);
-
-        // [r_0, …, r_{n-1}]
-        let records = record_ids.map(|r| Self::record_expr(r, span)).collect();
-        stmts.push(build_implicit_return_stmt(build_expr_array_expr(
-            records, span,
-        )));
-
-        let result_array_ty = ast::Ty {
-            kind: Box::new(ast::TyKind::Array(Box::new(build_path_ident_ty("Result")))),
-            ..Default::default()
-        };
-        let main =
-            build_operation_with_stmts("Main", vec![], result_array_ty, stmts, circuit.span, true);
-
-        // The intrinsics are declared after `Main`, sorted so the output is deterministic.
+    fn sorted_intrinsic_declarations(&mut self) -> Vec<ast::Item> {
         let mut declarations: Vec<_> = self.used_intrinsics.drain().collect();
         declarations.sort_by(|(a, _), (b, _)| a.cmp(b));
-        let mut items = vec![main];
-        items.extend(declarations.into_iter().map(|(_, declaration)| declaration));
+        declarations
+            .into_iter()
+            .map(|(_, declaration)| declaration)
+            .collect()
+    }
 
-        ast::Package {
-            nodes: Box::new([build_top_level_ns_with_items(circuit.span, "Stim", items)]),
-            ..Default::default()
+    /// Compiles the items of a block body, or the circuit's top-level items, then flushes any
+    /// pending E/ELSE_CORRELATED_ERROR chain, since the end of a body interrupts those chains.
+    fn compile_block_body(&mut self, items: &[semantic::Item]) -> Vec<ast::Stmt> {
+        let mut stmts = Vec::new();
+        for item in items {
+            stmts.extend(self.compile_item(item));
         }
+        stmts.extend(self.finish_correlated_noise());
+        stmts
     }
 
     fn compile_item(&mut self, item: &semantic::Item) -> Vec<ast::Stmt> {
@@ -552,13 +576,7 @@ impl<'noise> Compiler<'noise> {
         let error_count_before_repeat = self.errors.len();
         let mut stmts = Vec::new();
         for _ in 0..count {
-            for item in body {
-                stmts.extend(self.compile_item(item));
-            }
-            // Block boundaries interrupt E/ELSE_CORRELATED_ERROR chains.
-            if let Some(stmt) = self.finish_correlated_noise() {
-                stmts.push(stmt);
-            }
+            stmts.extend(self.compile_block_body(body));
             // Avoid repeating error reporting
             if self.errors.len() > error_count_before_repeat {
                 break;
@@ -569,13 +587,7 @@ impl<'noise> Compiler<'noise> {
 
     /// Compile a select block into a while true loop with a break at the end
     fn compile_select_block(&mut self, body: &[semantic::Item], span: Span) -> Vec<ast::Stmt> {
-        let mut body_stmts = Vec::new();
-        for item in body {
-            body_stmts.extend(self.compile_item(item));
-        }
-
-        // Block boundaries interrupt E/ELSE_CORRELATED_ERROR chains.
-        body_stmts.extend(self.finish_correlated_noise());
+        let mut body_stmts = self.compile_block_body(body);
 
         // Without a REQUIRE or NOTLEAKED the block never restarts, so it needs no loop.
         if !Self::select_block_can_restart(body) {
