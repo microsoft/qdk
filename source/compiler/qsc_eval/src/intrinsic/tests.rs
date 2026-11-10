@@ -810,6 +810,28 @@ fn draw_random_bool() {
 }
 
 #[test]
+fn draw_random_invalid_arguments() {
+    for expr in [
+        "Std.Random.DrawRandomBool(1.5)",
+        "Std.Random.DrawRandomBool(-0.1)",
+        "Std.Random.DrawRandomBool(0.0 / 0.0)",
+        "Std.Random.DrawRandomDouble(0.0, 1.0 / 0.0)",
+        "Std.Random.DrawRandomDouble(0.0 / 0.0, 1.0)",
+        "Std.Random.DrawRandomDouble(-1.7976931348623157e308, 1.7976931348623157e308)",
+    ] {
+        let mut stdout = vec![];
+        let mut out = GenericReceiver::new(&mut stdout);
+        assert!(
+            matches!(
+                check_intrinsic("", expr, &mut out),
+                Err(Error::IntrinsicFail(..))
+            ),
+            "{expr} should report an invalid distribution"
+        );
+    }
+}
+
+#[test]
 fn truncate() {
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(3.1)", &Value::Int(3));
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(3.9)", &Value::Int(3));
