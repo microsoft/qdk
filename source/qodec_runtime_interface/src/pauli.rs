@@ -18,8 +18,8 @@ pub struct Clifford {
 }
 
 impl Clifford {
-    /// The Clifford of the generic operation `name` (see [`crate::resolver`])
-    /// on `arity` qubits, or `None` if `name` is not a known Clifford of that
+    /// The Clifford usually called `name`, such as `h`, `cx` or `swap`, on
+    /// `arity` qubits, or `None` if `name` is not a known Clifford of that
     /// arity.
     #[must_use]
     pub fn named(name: &str, arity: usize) -> Option<Clifford> {

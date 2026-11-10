@@ -13,12 +13,12 @@
 
 use crate::style::{BLOCK, DIM, INVALID, MNEMONIC, PARAM, VALUE, paint};
 use qodec::{Instruction, InstructionSet, ParameterKind};
-use qodec_runtime::{BackendInstruction, OwnedParam};
+use qodec_runtime_impl::{Call, OwnedParam};
 use smallvec::SmallVec;
 use std::fmt::Write;
 
 /// An instruction at some boundary of the qodec.
-pub type Ins = BackendInstruction<usize, OwnedParam>;
+pub type Ins = Call;
 
 /// Splits `line` into `;`-separated statements.
 pub fn statements(line: &str) -> Result<Vec<&str>, String> {
@@ -119,14 +119,8 @@ pub fn parse_instruction(isa: &InstructionSet, statement: &str) -> Result<Ins, S
 }
 
 fn parse_value(kind: ParameterKind, text: &str) -> Result<OwnedParam, String> {
-    if let Some(inner) = text.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
-        let items = scan(inner, |c| c == ',')?;
-        return Ok(
-            match items.iter().map(|i| i.parse()).collect::<Result<_, _>>() {
-                Ok(ints) => OwnedParam::IntList(ints),
-                Err(_) => OwnedParam::TextList(items.iter().map(|i| unquote(i).into()).collect()),
-            },
-        );
+    if text.starts_with('[') {
+        return Err("parameters take a single value, not a list".to_string());
     }
     match kind {
         ParameterKind::Bit | ParameterKind::Boolean => match text {
@@ -190,8 +184,6 @@ fn render_value(value: &OwnedParam, kind: Option<ParameterKind>) -> String {
         OwnedParam::Int(i) => i.to_string(),
         OwnedParam::Float(f) => format!("{f:?}"),
         OwnedParam::Text(s) => quote(s),
-        OwnedParam::IntList(items) => list(items.iter().map(ToString::to_string)),
-        OwnedParam::TextList(items) => list(items.iter().map(|s| quote(s))),
     }
 }
 
@@ -201,10 +193,6 @@ fn quote(text: &str) -> String {
     } else {
         text.to_string()
     }
-}
-
-fn list(items: impl Iterator<Item = String>) -> String {
-    format!("[{}]", items.collect::<Vec<_>>().join(", "))
 }
 
 /// The instruction's usage, e.g. `XIF <qubit> c=<bit>`, then what it reports.

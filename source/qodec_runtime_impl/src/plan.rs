@@ -13,11 +13,13 @@
 //! that pre-processing in a [`QodecPlan`].
 
 use super::{
-    backend::{Backend, InstructionId, OwnedParam, Param, PlanError, Readout},
-    decoder::{DecoderPicker, DecoderPlan},
+    design::{Design, LayerBlueprint},
+    layer::{Chain, Link},
     parity::Parity,
+    pauli::PauliOp,
+    protocol::{Call, Fault, GadgetId, OwnedParam, Reply},
     resolver::Resolver,
-    runtime::QodecRuntime,
+    runtime::{AtLayer, BatchBackend, QodecRuntime, Runtime},
     spec::{
         CodePlan, CompiledSelect, EncodingPlan, FrameKey, RefScope, TypeTable, bind_operands,
         compile_select, encode_arg, layout_boundary, matches, prepare_frames,
@@ -25,25 +27,38 @@ use super::{
 };
 use qodec::{Argument, Circuit, Gadget, Instruction, InstructionSet, Layer, ParameterKind, Qodec};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::{collections::BTreeMap, rc::Rc, sync::Arc};
+use std::{collections::BTreeMap, fmt, rc::Rc, sync::Arc};
 
 /// The plan of a whole qodec, from which [`Self::instantiate`] builds a fresh
-/// runtime.
-pub struct QodecPlan<R> {
+/// runtime per shot.
+pub struct QodecPlan {
     layer_plans: Vec<Rc<LayerPlan>>,
-    decoder_plans: Vec<Box<dyn DecoderPlan<R>>>,
+    layers: Vec<Box<dyn LayerBlueprint>>,
+    top: Arc<InstructionSet>,
+    bottom: Arc<InstructionSet>,
 }
 
-impl<R: Readout + 'static> QodecPlan<R> {
-    /// Plans every layer of `qodec` except the bottom one, and has `decoders`
-    /// plan a decoder for each of them.
-    pub fn new(qodec: &Qodec, decoders: &dyn DecoderPicker<R>) -> Result<Self, PlanError> {
-        let layer_plans = build_layer_plans(qodec.layers())?;
-        let decoder_plans = build_decoder_plans(&layer_plans, decoders)?;
-
+impl QodecPlan {
+    /// Plans every layer of `qodec` except the bottom one, and has `design`
+    /// assemble each of them.
+    pub fn new(qodec: &Qodec, design: &dyn Design) -> Result<Self, PlanError> {
+        let layers_data = qodec.layers();
+        let layer_plans = build_layer_plans(layers_data)?;
+        let layers = layer_plans
+            .iter()
+            .enumerate()
+            .map(|(k, layer)| {
+                design
+                    .layer(layer)
+                    .map_err(|e| PlanError(format!("layer {k}: {e}")))
+            })
+            .collect::<Result<_, _>>()?;
+        let isa = |layer: &Layer| Arc::clone(&layer.instruction_set);
         Ok(Self {
             layer_plans,
-            decoder_plans,
+            layers,
+            top: isa(&layers_data[0]),
+            bottom: isa(&layers_data[layers_data.len() - 1]),
         })
     }
 
@@ -53,10 +68,22 @@ impl<R: Readout + 'static> QodecPlan<R> {
         &self.layer_plans
     }
 
+    /// The top ISA, which the runtime accepts.
+    #[must_use]
+    pub fn top(&self) -> &Arc<InstructionSet> {
+        &self.top
+    }
+
+    /// The bottom ISA, which the bottom backend runs.
+    #[must_use]
+    pub fn bottom(&self) -> &Arc<InstructionSet> {
+        &self.bottom
+    }
+
     /// The resources needed at every layer boundary to run a program that needs
     /// `top_resources`: `[top_resources, below layer 0, ..., below the last
     /// layer]`. The last entry sizes the bottom backend. Calling this is
-    /// optional, because layer runtimes allocate lower blocks on demand (see
+    /// optional, because encoders allocate lower blocks on demand (see
     /// [`Self::instantiate`]).
     pub fn required_resources(
         &self,
@@ -72,20 +99,60 @@ impl<R: Readout + 'static> QodecPlan<R> {
         Ok(resources)
     }
 
-    /// Instantiates a qodec runtime: fresh layer and decoder runtimes
-    /// over `backend`, which is any [`Backend`] for the bottom ISA (a simulator,
-    /// a profiler, ...). Layer runtimes allocate lower block ids on demand,
-    /// densely from 0, so `backend` must either hold enough blocks upfront (see
-    /// [`Self::required_resources`]) or grow on demand. Pass `&mut backend` to
-    /// reuse one backend across shots.
-    pub fn instantiate<'a, Id, P, B>(&self, backend: B) -> QodecRuntime<'a, Id, P, R, B::Error>
+    /// Instantiates a qodec runtime: fresh layers, chained over `backend`,
+    /// which runs batches of bottom-ISA calls (a simulator, a profiler, ...;
+    /// see [`BatchBackend`]). Encoders allocate lower block ids
+    /// on demand, densely from 0, so `backend` must either hold enough blocks
+    /// upfront (see [`Self::required_resources`]) or grow on demand. Pass
+    /// `&mut backend` to reuse one backend across shots.
+    pub fn instantiate<'a, B, E>(&self, backend: B) -> QodecRuntime<'a, E>
     where
-        Id: InstructionId + 'a,
-        P: Param + 'a,
-        B: Backend<Id, P, R> + 'a,
-        B::Error: 'a,
+        B: BatchBackend<E> + 'a,
     {
-        QodecRuntime::new(&self.layer_plans, &self.decoder_plans, backend)
+        let links = self
+            .layers
+            .iter()
+            .enumerate()
+            .map(
+                |(index, blueprint)| -> Link<Vec<Call>, Result<Vec<Reply>, Fault>> {
+                    Box::new(AtLayer {
+                        index,
+                        layer: blueprint.instantiate_layer(),
+                    })
+                },
+            )
+            .collect();
+        Runtime::new(
+            Chain::new(links),
+            Box::new(backend),
+            &self.top,
+            &self.bottom,
+        )
+    }
+}
+
+/// A configuration error: a qodec, a plan, a decoder or a resource requirement
+/// is not supported or not well formed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanError(pub String);
+
+impl fmt::Display for PlanError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for PlanError {}
+
+impl From<String> for PlanError {
+    fn from(message: String) -> Self {
+        PlanError(message)
+    }
+}
+
+impl From<&str> for PlanError {
+    fn from(message: &str) -> Self {
+        PlanError(message.to_string())
     }
 }
 
@@ -109,36 +176,14 @@ fn build_layer_plans(layers: &[Layer]) -> Result<Vec<Rc<LayerPlan>>, PlanError> 
     Ok(layer_plans)
 }
 
-/// Plans each layer's decoder. A decoder that isn't deferrable may issue Pauli
-/// corrections, so its layer's lower ISA is checked for them here, as soon as
-/// that is known.
-fn build_decoder_plans<R: Readout + 'static>(
-    layer_plans: &[Rc<LayerPlan>],
-    decoders: &dyn DecoderPicker<R>,
-) -> Result<Vec<Box<dyn DecoderPlan<R>>>, PlanError> {
-    layer_plans
-        .iter()
-        .enumerate()
-        .map(|(k, layer)| {
-            let decoder_plan = decoders.plan(layer)?;
-            if !decoder_plan.deferrable() {
-                layer
-                    .check_pauli_corrections()
-                    .map_err(|e| PlanError(format!("layer {k}: {e}")))?;
-            }
-            Ok(decoder_plan)
-        })
-        .collect()
-}
-
-/// The plan of one qodec layer: everything needed to instantiate its runtime.
+/// The plan of one qodec layer: its ISAs, codes and gadgets, checked and
+/// indexed once. Encoders, decoders and controllers plan from it.
 ///
-/// "Upper" refers to this layer's ISA, whose instructions the layer runtime
-/// accepts, and "lower" to the next layer's ISA, whose instructions it emits.
+/// "Upper" refers to this layer's ISA, whose instructions the layer accepts,
+/// and "lower" to the next layer's ISA, whose instructions it emits.
 #[derive(Debug)]
 pub struct LayerPlan {
-    /// The upper ISA. The layer runtime parses each incoming instruction
-    /// against it.
+    /// The upper ISA.
     pub isa: Arc<InstructionSet>,
     /// The next layer's ISA.
     pub lower_isa: Arc<InstructionSet>,
@@ -175,6 +220,8 @@ pub struct LayerPlan {
     pub scratch: Vec<usize>,
     /// Per upper instruction: how the layer handles it.
     pub instructions: Vec<InstructionPlan>,
+    /// The layer's gadgets, indexed by [`GadgetId`].
+    pub gadgets: Vec<Rc<GadgetPlan>>,
     /// Matches the layer's own generic operations against the lower ISA.
     pub resolver: Resolver,
     /// Per lower type `t`: the index of the first lower instruction with
@@ -195,10 +242,10 @@ impl LayerPlan {
     /// Plans `layer`, whose gadgets lower it to `lower_isa`.
     ///
     /// If an upper instruction is planned as
-    /// [`InstructionPlan::LogicalPauli`], the layer issues Pauli corrections
-    /// itself, so this also runs [`Self::check_pauli_corrections`]. Whether the
-    /// layer's decoder issues corrections is only known once its
-    /// [`DecoderPlan`] exists; [`QodecPlan::new`] runs the check for it then.
+    /// [`InstructionPlan::LogicalPauli`], the encoder applies it as Pauli
+    /// corrections, so this also runs [`Self::check_pauli_corrections`]. An
+    /// encoder that accepts corrections from its decoder runs the check when it
+    /// is planned (see [`PlannedFix::check`](crate::encoder::PlannedFix::check)).
     pub fn new(layer: &Layer, lower_isa: &Arc<InstructionSet>) -> Result<Self, PlanError> {
         let isa = Arc::clone(&layer.instruction_set);
         let upper = TypeTable::new(&isa);
@@ -207,6 +254,7 @@ impl LayerPlan {
         let mut requirements: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         let mut scratch = vec![0; lower.len()];
         let mut instructions = vec![InstructionPlan::Unsupported; isa.instructions.len()];
+        let mut gadgets = Vec::with_capacity(layer.gadgets.len());
 
         let context = GadgetContext {
             isa: &isa,
@@ -215,9 +263,9 @@ impl LayerPlan {
             upper: &upper,
             lower: &lower,
         };
-        for (name, g) in &layer.gadgets {
+        for (id, (name, g)) in layer.gadgets.iter().enumerate() {
             let gp = context
-                .plan_gadget(name, g)
+                .plan_gadget(GadgetId(id), name, g)
                 .map_err(|e| PlanError(format!("gadget `{name}`: {e}")))?;
             for layout in gp.inputs.iter().chain(&gp.outputs) {
                 let entry = requirements
@@ -227,7 +275,9 @@ impl LayerPlan {
             }
             max_merge(&mut scratch, &gadget_scratch(&gp, &lower));
             let index = gp.index;
-            instructions[index] = InstructionPlan::Gadget(Rc::new(gp));
+            let gp = Rc::new(gp);
+            gadgets.push(Rc::clone(&gp));
+            instructions[index] = InstructionPlan::Gadget(gp);
         }
 
         // Upper instructions without a gadget.
@@ -274,6 +324,7 @@ impl LayerPlan {
             requirements,
             scratch,
             instructions,
+            gadgets,
             resolver,
             lower_release,
             upper_needs_result,
@@ -289,24 +340,24 @@ impl LayerPlan {
         Ok(plan)
     }
 
-    /// Checks that the lower ISA can carry this layer's Pauli corrections: it
-    /// must bind `x` and `z` directly on logical index 0 of every lower type.
-    /// Only `x` and `z` are required, because a `y` correction falls back to
-    /// them (see `decompose` in resolver.rs).
+    /// Checks that the lower ISA can carry this layer's Pauli corrections: one
+    /// instruction must apply `X`, and one `Z`, on logical index 0 of every
+    /// lower type. A `Y` falls back to them (see
+    /// [`Resolver::resolve`](crate::resolver::Resolver::resolve)).
     ///
     /// Run it only for a layer that issues Pauli corrections: one with a
-    /// [`InstructionPlan::LogicalPauli`] instruction, or whose decoder is not
-    /// [deferrable](DecoderPlan::deferrable). Other layers need no Pauli
+    /// [`InstructionPlan::LogicalPauli`] instruction, or whose encoder accepts
+    /// [`Correction`](crate::protocol::Correction)s. Other layers need no Pauli
     /// instructions below them. The check catches a lower ISA without Pauli
     /// instructions at plan time. It doesn't cover the other logical indices
     /// of a multi-qubit lower type; a correction the resolver can't bind there
     /// fails when it is issued, with `NoImplementation`.
     pub fn check_pauli_corrections(&self) -> Result<(), PlanError> {
         for (t, name) in self.lower.names.iter().enumerate() {
-            for op in ["x", "z"] {
+            for op in [PauliOp::X, PauliOp::Z] {
                 if !self.resolver.binds_directly(op, t, &self.lower) {
                     return Err(PlanError(format!(
-                        "the lower ISA has no `{op}` Pauli for block type `{name}`"
+                        "the lower ISA has no `{op:?}` Pauli for block type `{name}`"
                     )));
                 }
             }
@@ -398,7 +449,7 @@ struct GadgetContext<'a> {
 }
 
 impl GadgetContext<'_> {
-    fn plan_gadget(&self, name: &str, g: &Gadget) -> Result<GadgetPlan, String> {
+    fn plan_gadget(&self, id: GadgetId, name: &str, g: &Gadget) -> Result<GadgetPlan, String> {
         let lower = self.lower;
         let index = self
             .isa
@@ -475,6 +526,7 @@ impl GadgetContext<'_> {
         );
 
         Ok(GadgetPlan {
+            id,
             name: name.to_string(),
             index,
             gadget: g.clone(),
@@ -491,7 +543,7 @@ impl GadgetContext<'_> {
 
 /// Lower blocks per lower type that a gadget uses beyond its boundary: per
 /// type, its labels minus the larger of its input and output encodings, or 0
-/// (pseudocode §5).
+/// (see `LayerPlan::scratch`).
 ///
 /// The boundary is already counted per upper block: the caller's resources
 /// count each upper block once, and [`LayerPlan::requirements`] gives it, per
@@ -600,6 +652,8 @@ pub enum InstructionPlan {
 /// How a layer runs one gadget.
 #[derive(Debug)]
 pub struct GadgetPlan {
+    /// The gadget's id in its layer.
+    pub id: GadgetId,
     /// The gadget's name: the mnemonic it implements.
     pub name: String,
     /// Index of the implemented instruction in the upper ISA.
@@ -624,7 +678,7 @@ pub struct GadgetPlan {
     pub frames: FxHashMap<FrameKey, Parity>,
     /// The same gadget as `labels`, `inputs`, `outputs`, and `body`, with every
     /// label replaced by its slot (see [`SlotPlan`]), derived from them at plan
-    /// time. The layer runtime uses slots wherever the body or an encoding names
+    /// time. The encoder uses slots wherever the body or an encoding names
     /// a block, and never looks a label up. The label-based fields remain for
     /// decoders (`frame_decoder.rs` reads them at plan time and through
     /// `Invocation::gadget`) and for sizing resources.
@@ -633,7 +687,7 @@ pub struct GadgetPlan {
 
 /// The gadget with every label replaced by its slot: the label's position in
 /// [`GadgetPlan::labels`]. Labels are resolved to slots once, when the plan is
-/// built, so the layer runtime never looks up a label by name while running an
+/// built, so the encoder never looks up a label by name while running an
 /// invocation. Instead, it places each invocation as a `Vec<u64>` indexed by
 /// slot, holding the lower block id of each label (`PreparedInvocation::placement`).
 ///
@@ -702,7 +756,7 @@ impl SlotPlan {
     }
 }
 
-/// Compiles a call for the layer runtime: its operands become slots, and
+/// Compiles a call for the encoder: its operands become slots, and
 /// its arguments are put in the lower instruction's parameter order, with
 /// literal values validated and encoded once.
 fn compile_call(
@@ -750,9 +804,8 @@ pub struct CompiledCall {
     pub operands: Vec<usize>,
     /// The arguments, in the lower instruction's parameter order. `None` if
     /// they can never be valid, so running the call fails with
-    /// `InvalidInstruction`. This is not a plan error because the pseudocode
-    /// validates a body's arguments when it runs (`runBody`, §7), so a qodec
-    /// whose broken gadget a program never invokes still plans and runs.
+    /// `InvalidInstruction`. This is not a plan error, so that a qodec whose
+    /// broken gadget a program never invokes still plans and runs.
     pub args: Option<Vec<CompiledArg>>,
 }
 

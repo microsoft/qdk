@@ -6,10 +6,7 @@
 
 use crate::syntax::{Ins, render_instruction};
 use qodec::InstructionSet;
-use qodec_runtime::{
-    Backend, BackendInstruction, BasicReadout, BatchResult, Bit, OwnedParam, Readout, Status,
-};
-use smallvec::SmallVec;
+use qodec_runtime_impl::{Backend, BasicReadout, Bit, Call, Status};
 use std::{cell::RefCell, fmt, rc::Rc, sync::Arc};
 
 /// Where the bottom backend's outcome and flag bits come from.
@@ -88,15 +85,10 @@ pub struct Recorder {
     pub oracle: Rc<RefCell<Oracle>>,
 }
 
-impl Backend<usize, OwnedParam, BasicReadout> for Recorder {
-    type Error = String;
-
-    fn execute_batch(
-        &mut self,
-        instructions: &[BackendInstruction<usize, OwnedParam>],
-    ) -> Result<BatchResult<BasicReadout>, String> {
+impl Backend<Vec<Call>, Result<Vec<BasicReadout>, String>> for Recorder {
+    fn execute(&mut self, instructions: Vec<Call>) -> Result<Vec<BasicReadout>, String> {
         let mut batch = Vec::with_capacity(instructions.len());
-        let mut results = SmallVec::new();
+        let mut results = Vec::new();
         let mut oracle = self.oracle.borrow_mut();
         // Recorded even when it fails half way, to show what was lowered.
         let outcome = (|| -> Result<(), String> {
@@ -108,7 +100,7 @@ impl Backend<usize, OwnedParam, BasicReadout> for Recorder {
                     .ok_or_else(|| format!("unknown instruction id {}", ins.instruction_id))?;
                 let (observes, flags) = (decl.observe_count(), decl.flags.len());
                 let readout = if observes + flags > 0 {
-                    let text = render_instruction(&self.isa, ins);
+                    let text = render_instruction(&self.isa, &ins);
                     let outcomes = (0..observes)
                         .map(|i| oracle.next(|| format!("{text}: outcome {i}")))
                         .collect::<Result<Vec<_>, _>>()?;
@@ -124,13 +116,13 @@ impl Backend<usize, OwnedParam, BasicReadout> for Recorder {
                     None
                 };
                 batch.push(Executed {
-                    instruction: ins.clone(),
+                    instruction: ins,
                     readout,
                 });
             }
             Ok(())
         })();
         self.log.borrow_mut().push(batch);
-        outcome.map(|()| BatchResult { results })
+        outcome.map(|()| results)
     }
 }

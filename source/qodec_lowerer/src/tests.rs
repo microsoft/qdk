@@ -8,7 +8,7 @@ use crate::{
 };
 use expect_test::{Expect, expect};
 use qodec::Qodec;
-use qodec_runtime::Bit;
+use qodec_runtime_impl::Bit;
 use rustyline::{Context, completion::Completer, history::DefaultHistory};
 use std::{cell::RefCell, collections::VecDeque, rc::Rc, sync::Arc};
 
@@ -280,7 +280,7 @@ fn reset_starts_a_new_shot() {
             Started a new shot.
             qodec> __quantum__qis__m__body 0
               (no bottom instructions)
-            error: layer 0: invalid instruction
+            error: layer 0: invalid instruction: block 0 is not live
               input operands must be live blocks of the declared type; usage:
                 __quantum__qis__m__body <in:repetition3>  => 1 outcome
         "#]],
@@ -295,6 +295,7 @@ fn malformed_lines_are_reported() {
             "Y 0",
             "XIF 0",
             "XIF 0 c=2",
+            "XIF 0 c=[1, 0]",
             "XIF c=1 0",
             "XIF 0 d=1",
             "XIF zero c=1",
@@ -310,6 +311,8 @@ fn malformed_lines_are_reported() {
             error: missing argument `c`; usage: XIF <qubit> c=<bit>
             qodec> XIF 0 c=2
             error: argument `c`: expected 0, 1, false or true, got `2`
+            qodec> XIF 0 c=[1, 0]
+            error: argument `c`: parameters take a single value, not a list
             qodec> XIF c=1 0
             error: block `0` must come before the arguments; usage: XIF <qubit> c=<bit>
             qodec> XIF 0 d=1
@@ -385,7 +388,7 @@ fn output_is_styled_and_aligned_by_visible_width() {
     };
     expect![[r#"
           <dim>(no bottom instructions)</>
-        <error>error:</> layer 0: invalid instruction
+        <error>error:</> layer 0: invalid instruction: block 7 is not live
           input operands must be live blocks of the declared type; usage:
             <mnemonic|command>measure_reset</> <block|value><repetition3></>  <dim>=></> 1 outcome"#]]
     .assert_eq(&tagged(&text));
@@ -527,6 +530,25 @@ fn arguments_select_colors_and_the_qodec_file() {
 }
 
 #[test]
+fn ill_typed_instructions_leave_the_shot_intact() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let qodec = Qodec::load(dir.join("c422-c832-arch/qodec.yaml")).expect("example should load");
+    let text = transcript(
+        &qodec,
+        &["prepare_z_all_c422 0", "ccz_c832 0", "h_all_c422 0"],
+    );
+    let lines: Vec<&str> = text.lines().filter(|l| !l.starts_with("  ")).collect();
+    expect![[r#"
+        qodec> prepare_z_all_c422 0
+        prepare_z_all_c422 0 => [] flags [reject=0]
+        qodec> ccz_c832 0
+        error: layer 0: invalid instruction: operand has type `c422`, expected `c832`
+        qodec> h_all_c422 0"#]]
+    .assert_eq(&lines.join("\n"));
+    assert!(text.ends_with("H 3\n"), "`h_all_c422 0` lowers:\n{text}");
+}
+
+#[test]
 fn examples_lower_their_programs() {
     let examples = [
         (
@@ -596,7 +618,7 @@ fn examples_lower_their_programs() {
         teleport_c832_to_c422 0 1 => [0, 0]
         measure_z_all_c422 1 => [0, 0]
         qodec> prepare_x_all 0; hadamard_all 0; mul_u 0; measure_z_all 0
-        prepare_x_all 0 => [] flags [reject=0] (unresolved)
+        prepare_x_all 0 => [] flags [reject=0]
         measure_z_all 0 => [0, 0] (unresolved)
         qodec> distill_t 0
         distill_t 0 => [] flags [reject_1=0, reject_2=0, reject_3=0, reject_4=0]

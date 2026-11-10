@@ -6,9 +6,9 @@
 //! type tables.
 
 use super::{
-    backend::{Bit, Param, ParamView, Status},
     parity::{Basis, Parity, Side, Var},
     pauli::Pauli,
+    protocol::{Bit, OwnedParam, Status},
 };
 use qodec::{
     Argument, BlockOperand, Code, Encoding, Gadget, Instruction, InstructionSet, ParameterKind,
@@ -203,29 +203,34 @@ pub fn validate_arguments(
 
 /// Whether `value` is a valid argument for a parameter of `kind`.
 ///
-/// The spec allows lists of non-negative integers and lists of strings as
-/// [argument values](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#inline-yaml-calls),
-/// and [checks them "by element type"](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/validation.md#circuit-sources):
-/// a list matches `kind` if every item does. An empty list has no items, so it
-/// matches every kind. `ParameterKind` has no list kind, so a parameter can't
-/// require or forbid a list: every kind accepts both a single value and a list.
+/// A list never matches: it is a type error. This deliberately deviates from
+/// the spec, which is inconsistent here.
+/// - The spec declares no list [parameter kind](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#instruction-structure),
+///   and the `qodec` crate documents its list of integers
+///   (`Argument::QubitList`) as appearing only in the operand role.
+/// - Yet the YAML representation accepts lists of non-negative integers and
+///   lists of strings as [argument values](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#inline-yaml-calls),
+///   and validation [checks them "by element type"](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/validation.md#circuit-sources),
+///   so `[1, 2]` would supply an `integer` parameter.
 ///
-/// Despite its name and its upstream doc, `Argument::QubitList` is the spec's
-/// list of non-negative integers: the qodec parser produces it for any list of
-/// unsigned integers, including `[]`. The parser never produces
-/// `Argument::Qubit`, so it never matches. Neither does `Argument::Readout`:
-/// the plan replaces readout arguments with bits before this check
-/// (`ArgumentPlan::Readout` in `plan.rs`).
+/// A parameter's declared kind is its contract, and no action step can use a
+/// list, so a gadget that passes one fails with `InvalidInstruction` when it
+/// runs.
+///
+/// `Argument::Qubit` never matches either; the qodec parser never produces
+/// it. Neither does `Argument::Readout`: the plan replaces readout arguments
+/// with bits before this check (`ArgumentPlan::Readout` in `plan.rs`).
 #[must_use]
 pub fn matches(kind: ParameterKind, value: &Argument) -> bool {
     match value {
-        Argument::QubitList(items) => items.iter().all(|&i| matches_int(kind, i as i128)),
-        Argument::StringList(items) => items.iter().all(|s| matches_text(kind, s)),
         Argument::Integer(i) => matches_int(kind, i128::from(*i)),
         Argument::Number(f) => kind == ParameterKind::Number && f.is_finite(),
         Argument::Boolean(_) => matches!(kind, ParameterKind::Bit | ParameterKind::Boolean),
         Argument::Text(s) => matches_text(kind, s),
-        Argument::Qubit(_) | Argument::Readout(_) => false,
+        Argument::QubitList(_)
+        | Argument::StringList(_)
+        | Argument::Qubit(_)
+        | Argument::Readout(_) => false,
     }
 }
 
@@ -244,53 +249,91 @@ fn matches_int(kind: ParameterKind, value: i128) -> bool {
 /// parameters take [readout references](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#threading-readouts-into-bit-parameters),
 /// and supplying one to another parameter is an error. The qodec parser turns
 /// a single text argument of this form into `Argument::Readout` or rejects it,
-/// but leaves string-list items as they are, and text from an upper backend
-/// (see [`value_of`]) is not parsed at all.
+/// but text from an upper backend (see [`value_of`]) is not parsed at all.
 fn matches_text(kind: ParameterKind, value: &str) -> bool {
     matches!(kind, ParameterKind::String | ParameterKind::Pauli)
         && !value.starts_with("circuit.readouts[")
 }
 
-/// Converts a parameter view to a spec argument value. Returns `None` for a
-/// `Block` entry, which is an operand, not an argument, and for a list item
-/// that does not fit `usize`. See [`matches`](fn@matches) on `Argument::QubitList`.
+/// Converts a parameter to a spec argument value. Returns `None` for a
+/// `Block` entry, which is an operand, not an argument.
 #[must_use]
-pub fn value_of(view: ParamView<'_>) -> Option<Argument> {
-    Some(match view {
-        ParamView::Block(_) => return None,
-        ParamView::Bool(b) => Argument::Boolean(b),
-        ParamView::Int(i) => Argument::Integer(i),
-        ParamView::Float(f) => Argument::Number(f),
-        ParamView::Text(s) => Argument::Text(s.to_string()),
-        ParamView::IntList(items) => Argument::QubitList(
-            items
-                .iter()
-                .map(|&i| usize::try_from(i).ok())
-                .collect::<Option<_>>()?,
-        ),
-        ParamView::TextList(items) => Argument::StringList(items.to_vec()),
+pub fn value_of(param: &OwnedParam) -> Option<Argument> {
+    Some(match param {
+        OwnedParam::Block(_) => return None,
+        OwnedParam::Bool(b) => Argument::Boolean(*b),
+        OwnedParam::Int(i) => Argument::Integer(*i),
+        OwnedParam::Float(f) => Argument::Number(*f),
+        OwnedParam::Text(s) => Argument::Text(s.clone()),
     })
 }
 
-/// Converts a spec argument value to a parameter. Returns `None` for
-/// `Argument::Qubit` and `Argument::Readout` (see [`matches`](fn@matches)), and for a list
-/// item that does not fit `u64` instead of wrapping it.
+/// Converts a spec argument value to a parameter. Returns `None` for the
+/// values no parameter accepts (see [`matches`](fn@matches)): lists,
+/// `Argument::Qubit` and `Argument::Readout`.
 #[must_use]
-pub fn encode_arg<P: Param>(value: &Argument) -> Option<P> {
+pub fn encode_arg(value: &Argument) -> Option<OwnedParam> {
     Some(match value {
-        Argument::Boolean(b) => P::from_view(ParamView::Bool(*b)),
-        Argument::Integer(i) => P::from_view(ParamView::Int(*i)),
-        Argument::Number(f) => P::from_view(ParamView::Float(*f)),
-        Argument::Text(s) => P::from_view(ParamView::Text(s)),
-        Argument::QubitList(items) => {
-            let items = items
-                .iter()
-                .map(|&i| u64::try_from(i).ok())
-                .collect::<Option<Vec<_>>>()?;
-            P::from_view(ParamView::IntList(&items))
-        }
-        Argument::StringList(items) => P::from_view(ParamView::TextList(items)),
-        Argument::Qubit(_) | Argument::Readout(_) => return None,
+        Argument::Boolean(b) => OwnedParam::Bool(*b),
+        Argument::Integer(i) => OwnedParam::Int(*i),
+        Argument::Number(f) => OwnedParam::Float(*f),
+        Argument::Text(s) => OwnedParam::Text(s.clone()),
+        Argument::QubitList(_)
+        | Argument::StringList(_)
+        | Argument::Qubit(_)
+        | Argument::Readout(_) => return None,
+    })
+}
+
+/// A call split into its block operands and its arguments by parameter name.
+pub struct ParsedCall {
+    /// The index of the call's instruction.
+    pub index: usize,
+    /// The leading `Block` parameters.
+    pub operands: Vec<u64>,
+    /// The other parameters, by parameter name.
+    pub args: BTreeMap<String, Argument>,
+}
+
+/// Parses `call` against `isa`: its instruction must exist, and its arguments
+/// must supply every parameter with a value of the right kind. Its operands are
+/// not checked here; binding them needs the blocks' types.
+pub fn parse_call(
+    isa: &InstructionSet,
+    instruction_id: usize,
+    parameters: &[OwnedParam],
+) -> Result<ParsedCall, String> {
+    let instruction = isa
+        .instructions
+        .get(instruction_id)
+        .ok_or_else(|| format!("unknown instruction id {instruction_id}"))?;
+    let operands: Vec<u64> = parameters
+        .iter()
+        .map_while(|p| match p {
+            OwnedParam::Block(b) => Some(*b),
+            _ => None,
+        })
+        .collect();
+    let rest = &parameters[operands.len()..];
+    if rest.len() != instruction.parameters.len() {
+        return Err(format!(
+            "`{}` expects {} arguments, got {}",
+            instruction.mnemonic,
+            instruction.parameters.len(),
+            rest.len()
+        ));
+    }
+    let mut args = BTreeMap::new();
+    for (parameter, p) in instruction.parameters.iter().zip(rest) {
+        let value =
+            value_of(p).ok_or_else(|| format!("argument `{}` is not a value", parameter.name))?;
+        args.insert(parameter.name.clone(), value);
+    }
+    validate_arguments(instruction, &args)?;
+    Ok(ParsedCall {
+        index: instruction_id,
+        operands,
+        args,
     })
 }
 

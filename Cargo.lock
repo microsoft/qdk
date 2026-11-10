@@ -2757,19 +2757,28 @@ dependencies = [
  "criterion",
  "expect-test",
  "qodec",
- "qodec_runtime",
+ "qodec_runtime_impl",
  "rustyline",
  "smallvec",
 ]
 
 [[package]]
-name = "qodec_runtime"
+name = "qodec_runtime_impl"
 version = "0.0.0"
 dependencies = [
  "deq-runtime",
  "qodec",
+ "qodec_runtime_interface",
  "rustc-hash",
  "serde_json",
+ "smallvec",
+]
+
+[[package]]
+name = "qodec_runtime_interface"
+version = "0.0.0"
+dependencies = [
+ "qodec",
  "smallvec",
 ]
 

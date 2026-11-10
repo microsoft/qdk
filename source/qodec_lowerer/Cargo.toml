@@ -13,7 +13,7 @@ repository.workspace = true
 anstream = { workspace = true }
 anstyle = { workspace = true }
 qodec = { workspace = true }
-qodec_runtime = { path = "../qodec_runtime" }
+qodec_runtime_impl = { path = "../qodec_runtime_impl" }
 rustyline = { workspace = true }
 smallvec = { workspace = true }
 

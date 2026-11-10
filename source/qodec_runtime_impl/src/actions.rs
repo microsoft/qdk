@@ -110,12 +110,4 @@ impl PauliExpr {
             },
         }
     }
-
-    #[must_use]
-    pub fn literal(&self) -> Option<&Pauli> {
-        match self {
-            PauliExpr::Literal(p) => Some(p),
-            PauliExpr::Param(_) => None,
-        }
-    }
 }

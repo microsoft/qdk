@@ -1,14 +1,30 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Time per bottom-ISA instruction emitted by the lowering stack, for every
-//! example qodec in `examples/`.
+//! Time per bottom-ISA instruction, for every example qodec in `examples/`,
+//! in two groups that lower the same programs:
 //!
-//! Each benchmark lowers whole shots, a program written in the REPL's syntax,
-//! into a bottom backend that does no work, so the time is spent in the layer
-//! and decoder runtimes. One criterion iteration is one bottom instruction: a
-//! shot's time is spread evenly over the bottom instructions it emits. Building
-//! and dropping a shot's runtime is not timed.
+//! - `compile_throughput`: a [`Compiler`], the encoders of every layer without
+//!   decoders, lowers the program ahead of time. Examples whose gadgets feed a
+//!   readout into a later call are adaptive, so they can't be compiled and are
+//!   skipped.
+//! - `runtime_throughput`: a runtime built with [`FrameDecoding`], a frame
+//!   decoder on top of the encoder in every layer, runs the program over a
+//!   bottom backend that does no work but answer 0 for every bit. The time
+//!   includes decoding and the results' way back up.
+//!
+//! Each benchmark lowers whole shots, a program written in the REPL's syntax.
+//! One criterion iteration is one bottom instruction: a shot's time is spread
+//! evenly over the bottom instructions it produces. Building a shot's compiler
+//! or runtime, copying its program, and dropping what it produced are not
+//! timed.
+//!
+//! To run the entire bench:
+//! `cargo bench -p qodec_lowerer --bench bottom_throughput`
+//!
+//! To run one group:
+//! `cargo bench -p qodec_lowerer --bench bottom_throughput -- compile_throughput`
+//!
 
 #[allow(dead_code)]
 #[path = "../src/style.rs"]
@@ -19,10 +35,7 @@ mod syntax;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use qodec::Qodec;
-use qodec_runtime::{
-    Backend, BackendInstruction, BasicReadout, BatchResult, FrameDecoder, OwnedParam, QodecPlan,
-    Readout, Status,
-};
+use qodec_runtime_impl::{Backend, BasicReadout, Call, Compiler, FrameDecoding, QodecPlan, Status};
 use std::{
     cell::Cell,
     convert::Infallible,
@@ -44,19 +57,14 @@ struct Sink {
     count: Rc<Cell<u64>>,
 }
 
-impl Backend<usize, OwnedParam, BasicReadout> for Sink {
-    type Error = Infallible;
-
-    fn execute_batch(
-        &mut self,
-        instructions: &[BackendInstruction<usize, OwnedParam>],
-    ) -> Result<BatchResult<BasicReadout>, Infallible> {
+impl Backend<Vec<Call>, Result<Vec<BasicReadout>, Infallible>> for Sink {
+    fn execute(&mut self, instructions: Vec<Call>) -> Result<Vec<BasicReadout>, Infallible> {
         self.count.set(self.count.get() + instructions.len() as u64);
         let results = instructions
             .iter()
             .filter_map(|ins| self.readouts[ins.instruction_id].clone())
             .collect();
-        Ok(BatchResult { results })
+        Ok(results)
     }
 }
 
@@ -162,62 +170,133 @@ fn zero_readouts(qodec: &Qodec) -> Rc<[Option<BasicReadout>]> {
         .collect()
 }
 
-fn bottom_throughput(c: &mut Criterion) {
+/// One example, loaded and planned.
+struct Example {
+    name: &'static str,
+    plan: QodecPlan,
+    program: Vec<Ins>,
+    readouts: Rc<[Option<BasicReadout>]>,
+}
+
+fn load_examples() -> Vec<Example> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
-    let mut group = c.benchmark_group("bottom_throughput");
+    examples()
+        .into_iter()
+        .map(|(path, program)| {
+            let qodec = Qodec::load(dir.join(path)).expect("example should load");
+            let plan = QodecPlan::new(&qodec, &FrameDecoding).expect("example should plan");
+            let top = &qodec.layers()[0].instruction_set;
+            let program = syntax::statements(&program)
+                .and_then(|statements| {
+                    statements
+                        .into_iter()
+                        .map(|s| syntax::parse_instruction(top, s))
+                        .collect::<Result<Vec<Ins>, _>>()
+                })
+                .unwrap_or_else(|e| panic!("{path}: {e}"));
+            Example {
+                name: path
+                    .split('/')
+                    .next()
+                    .expect("a path has a first component"),
+                plan,
+                program,
+                readouts: zero_readouts(&qodec),
+            }
+        })
+        .collect()
+}
+
+/// Runs whole shots until `iters` bottom instructions are covered, and scales
+/// their time to exactly `iters` instructions. Only `run` is timed: `setup`
+/// prepares a shot, and what `run` returns is dropped after the clock stops.
+fn time_shots<S, R>(
+    iters: u64,
+    per_shot: u64,
+    mut setup: impl FnMut() -> S,
+    mut run: impl FnMut(&mut S) -> R,
+) -> Duration {
+    let shots = iters.div_ceil(per_shot);
+    let mut elapsed = Duration::ZERO;
+    for _ in 0..shots {
+        let mut shot = setup();
+        let start = Instant::now();
+        let out = black_box(run(&mut shot));
+        elapsed += start.elapsed();
+        drop(out);
+        drop(shot);
+    }
+    #[allow(clippy::cast_precision_loss)]
+    elapsed.mul_f64(iters as f64 / (shots * per_shot) as f64)
+}
+
+fn compile_throughput(c: &mut Criterion, examples: &[Example]) {
+    let mut group = c.benchmark_group("compile_throughput");
     // One iteration is one bottom instruction.
     group.throughput(Throughput::Elements(1));
-    for (path, program) in examples() {
-        let qodec = Qodec::load(dir.join(path)).expect("example should load");
-        let plan = QodecPlan::new(&qodec, &FrameDecoder).expect("example should plan");
-        let top = &qodec.layers()[0].instruction_set;
-        let instructions = syntax::statements(&program)
-            .and_then(|statements| {
-                statements
-                    .into_iter()
-                    .map(|s| syntax::parse_instruction(top, s))
-                    .collect::<Result<Vec<Ins>, _>>()
-            })
-            .unwrap_or_else(|e| panic!("{path}: {e}"));
-        let readouts = zero_readouts(&qodec);
-        let count = Rc::new(Cell::new(0));
-        let shot = || {
-            plan.instantiate(Sink {
-                readouts: Rc::clone(&readouts),
-                count: Rc::clone(&count),
-            })
+    for example in examples {
+        let compiler = || Compiler::for_plan(&example.plan).expect("encoders plan");
+        // An untimed shot counts the bottom instructions, and checks that the
+        // program compiles.
+        let per_shot = match compiler().lower(example.program.clone()) {
+            Ok(calls) => calls.len() as u64,
+            Err(e) => {
+                eprintln!("compile_throughput/{}: skipped: {e}", example.name);
+                continue;
+            }
         };
-
-        // An untimed shot counts the bottom instructions, and checks the
-        // program lowers.
-        shot()
-            .execute_batch(&instructions)
-            .unwrap_or_else(|e| panic!("{path}: {e}"));
-        let per_shot = count.get();
-
-        let name = path
-            .split('/')
-            .next()
-            .expect("a path has a first component");
-        group.bench_function(name, |b| {
-            // Runs whole shots until `iters` bottom instructions are covered,
-            // and scales their time to exactly `iters` instructions.
+        group.bench_function(example.name, |b| {
             b.iter_custom(|iters| {
-                let shots = iters.div_ceil(per_shot);
-                let mut elapsed = Duration::ZERO;
-                for _ in 0..shots {
-                    let mut runtime = shot();
-                    let start = Instant::now();
-                    black_box(runtime.execute_batch(black_box(&instructions))).ok();
-                    elapsed += start.elapsed();
-                }
-                #[allow(clippy::cast_precision_loss)]
-                elapsed.mul_f64(iters as f64 / (shots * per_shot) as f64)
+                time_shots(
+                    iters,
+                    per_shot,
+                    || (compiler(), example.program.clone()),
+                    |(compiler, program)| {
+                        compiler
+                            .lower(black_box(std::mem::take(program)))
+                            .expect("compiles")
+                    },
+                )
             });
         });
     }
     group.finish();
 }
 
-criterion_group!(benches, bottom_throughput);
+fn runtime_throughput(c: &mut Criterion, examples: &[Example]) {
+    let mut group = c.benchmark_group("runtime_throughput");
+    // One iteration is one bottom instruction.
+    group.throughput(Throughput::Elements(1));
+    for example in examples {
+        let count = Rc::new(Cell::new(0));
+        let runtime = || {
+            example.plan.instantiate(Sink {
+                readouts: Rc::clone(&example.readouts),
+                count: Rc::clone(&count),
+            })
+        };
+        // An untimed shot counts the bottom instructions, and checks that the
+        // program runs.
+        runtime()
+            .execute(example.program.as_slice())
+            .unwrap_or_else(|e| panic!("{}: {e}", example.name));
+        let per_shot = count.get();
+        group.bench_function(example.name, |b| {
+            b.iter_custom(|iters| {
+                time_shots(iters, per_shot, runtime, |runtime| {
+                    runtime.execute(black_box(example.program.as_slice())).ok()
+                })
+            });
+        });
+    }
+    group.finish();
+}
+
+fn throughput(c: &mut Criterion) {
+    let examples = load_examples();
+    compile_throughput(c, &examples);
+    runtime_throughput(c, &examples);
+}
+
+criterion_group!(benches, throughput);
 criterion_main!(benches);

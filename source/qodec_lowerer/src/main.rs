@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+//! This is throw-away code! It's only purpose is to serve as an interactive
+//! tool to aid development and reviews.
+
 //! `qodec-lowerer [--color=<when>] <qodec-filepath>`: a REPL that lowers
 //! instructions of a qodec's top ISA to its bottom ISA, through every layer of
 //! the qodec runtime, and prints the bottom instructions. Type `:help` in the
@@ -20,7 +23,7 @@ mod tests;
 
 use anstream::{AutoStream, ColorChoice, eprintln, print, println};
 use qodec::{InstructionSet, Qodec};
-use qodec_runtime::Bit;
+use qodec_runtime_impl::Bit;
 use rustyline::{
     Config, Context, Editor, Helper,
     completion::Completer,

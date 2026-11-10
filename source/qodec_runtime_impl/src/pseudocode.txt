@@ -2,6 +2,17 @@
  QODEC RUNTIME — PSEUDOCODE
 ══════════════════════════════════════════════════════════════════════
 
+NOTE: This pseudocode describes the first draft of the runtime, in which one
+LayerRuntime per layer both lowered instructions and decoded results.  The
+crate has since been redesigned around stackable Backends and Layers and
+mix-and-match Encoder, Decoder and Controller pieces; see the crate docs of
+qodec_runtime_interface (the interfaces) and qodec_runtime_impl (the pieces).
+§0 (the batch Backend interface, now a generic Backend<I, O>), §8 (LAYER
+RUNTIME) and the runtime parts of §10 no longer describe the code.  The spec
+helpers (§4), the layer plan (§5), the resolver (§6), the body semantics (§7)
+and the frame decoder (§9) still match it in substance.  The qodec
+specification is the source of truth; this file is not.
+
 The qodec runtime (QodecRuntime) is the stack of all layer runtimes plugged
 together.  It executes instructions of a qodec's top ISA by lowering them one
 layer at a time (https://github.com/microsoft/qdk-ec/tree/main/qodec) and
@@ -416,15 +427,13 @@ function bindSide(operands, targets, caps, knownTypes):
 function validateArguments(I, args):
     require keys(args) == keys(I.parameters)           // no unknown, none missing
     for (name, v) in args:
-        items = (v is List ? v : [v])
-        // [SPEC] A list argument is all non-negative Ints or all Strings
-        // (possibly empty).  No Bool, Float or mixed lists.
-        if v is List: require (all items are Int ≥ 0 and not Bool) or (all items are String)
-        for item in items:
-            require matches(I.parameters[name], item)
-    // Every Int crosses the Backend boundary as i64 (list Ints as u64).  Values
-    // outside those ranges are valid spec values but cannot be encoded:
-    // InvalidInstruction, never overflow (§0.3).
+        // [RUNTIME] A list argument is a type error, a deliberate deviation:
+        // the spec's YAML accepts lists checked element by element, but no
+        // parameter kind is a list (see `matches` in spec.rs).
+        require v is not List and matches(I.parameters[name], v)
+    // Every Int crosses the Backend boundary as i64.  Values outside that range
+    // are valid spec values but cannot be encoded: InvalidInstruction, never
+    // overflow (§0.3).
 
 function matches(kind, v):
     number  : v is Int or a finite Float, and not Bool

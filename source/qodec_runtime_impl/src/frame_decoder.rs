@@ -6,104 +6,118 @@
 //! It evaluates a gadget's checks, readouts and frames as one system of parity
 //! equations over GF(2), and carries every block's stabilizer and logical
 //! signs from one gadget's `out` to the next gadget's `in`, as the spec's
-//! [frames] section describes. It never yields corrections, so it is
-//! deferrable. A contradiction is reported as the recoverable status
-//! `inconsistent`.
+//! [frames] section describes. It never pends and never corrects, so it is a
+//! [`Decode`] that [`Passive`] turns into a decoder. A contradiction is
+//! reported as the recoverable status `inconsistent`.
 //!
 //! [frames]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#frames
 
 use super::{
     actions::{CliffordMap, PauliExpr, action_clifford, action_extent, clifford_map},
-    backend::{Bit, PlanError, Status},
-    decoder::{BlockRef, Decoded, DecoderPicker, DecoderPlan, DecoderRuntime, Invocation, Step},
+    decoder::{Decode, Passive},
+    layer::Blueprint,
     parity::{Basis, BinarySystem, Inconsistent, Parity, Side, Var},
     pauli::{Clifford, DensePauli, Pauli, PauliOp},
-    plan::{GadgetPlan, InstructionPlan, LayerPlan},
+    plan::PlanError,
+    plan::{GadgetPlan, LayerPlan},
+    protocol::{BasicReadout, Bit, Status},
+    protocol::{BlockRef, Invocation, Record},
     spec::{EncodingPlan, FrameKey, RefScope, bind_operands, expr},
 };
 use qodec::Action;
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
-/// Picks the Pauli-frame decoder for every layer.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct FrameDecoder;
-
-impl<R: 'static> DecoderPicker<R> for FrameDecoder {
-    fn plan(&self, layer: &Rc<LayerPlan>) -> Result<Box<dyn DecoderPlan<R>>, PlanError> {
-        Ok(Box::new(FrameDecoderPlan::new(layer)?))
-    }
-}
-
-/// The frame decoder planned for one layer. It instantiates a
-/// [`FrameDecoderRuntime`] per shot.
+/// The frame decoder planned for one layer. It instantiates a fresh
+/// [`FrameDecoder`] per shot, wrapped in [`Passive`].
 pub struct FrameDecoderPlan {
-    /// Per upper instruction index; `None` for instructions without a gadget.
-    gadgets: Rc<Vec<Option<FrameGadgetPlan>>>,
+    layer: Rc<LayerPlan>,
+    /// Per gadget, indexed by [`GadgetId`](crate::GadgetId).
+    gadgets: Rc<Vec<FrameGadgetPlan>>,
 }
 
 impl FrameDecoderPlan {
     /// Plans the checks, readouts and transports of every gadget of `layer`.
-    pub fn new(layer: &LayerPlan) -> Result<Self, PlanError> {
-        let mut gadgets = Vec::with_capacity(layer.instructions.len());
-        for instruction_plan in &layer.instructions {
-            gadgets.push(match instruction_plan {
-                InstructionPlan::Gadget(gp) => Some(
-                    FrameGadgetPlan::new(gp, layer)
-                        .map_err(|e| PlanError(format!("gadget `{}`: {e}", gp.name)))?,
-                ),
-                _ => None,
-            });
-        }
+    pub fn new(layer: &Rc<LayerPlan>) -> Result<Self, PlanError> {
+        let gadgets = layer
+            .gadgets
+            .iter()
+            .map(|gp| {
+                FrameGadgetPlan::new(gp, layer)
+                    .map_err(|e| PlanError(format!("gadget `{}`: {e}", gp.name)))
+            })
+            .collect::<Result<_, _>>()?;
         Ok(Self {
+            layer: Rc::clone(layer),
             gadgets: Rc::new(gadgets),
         })
     }
-}
 
-impl<R: 'static> DecoderPlan<R> for FrameDecoderPlan {
-    fn deferrable(&self) -> bool {
-        true
-    }
-
-    fn instantiate(&self) -> Box<dyn DecoderRuntime<R>> {
-        Box::new(FrameDecoderRuntime {
+    /// A fresh frame decoder for one shot, without the [`Passive`] wrapper,
+    /// for decoders that build on it.
+    #[must_use]
+    pub fn decoder(&self) -> FrameDecoder {
+        FrameDecoder {
             gadgets: Rc::clone(&self.gadgets),
             signs: FxHashMap::default(),
-        })
+        }
+    }
+}
+
+impl Blueprint for FrameDecoderPlan {
+    type Instance = Passive<FrameDecoder>;
+
+    fn instantiate(&self) -> Passive<FrameDecoder> {
+        Passive::new(Rc::clone(&self.layer), self.decoder())
     }
 }
 
 /// The per-shot state of the frame decoder.
-pub struct FrameDecoderRuntime {
-    gadgets: Rc<Vec<Option<FrameGadgetPlan>>>,
-    /// Per output block not yet discarded: the signs its decode determined,
+pub struct FrameDecoder {
+    gadgets: Rc<Vec<FrameGadgetPlan>>,
+    /// Per output block not yet released: the signs its decode determined,
     /// keyed by (basis, index in that basis).
     signs: FxHashMap<BlockRef, FxHashMap<(Basis, usize), bool>>,
 }
 
-impl<R> DecoderRuntime<R> for FrameDecoderRuntime {
-    fn decode(&mut self, inv: &Invocation, raw: &[Bit]) -> Step<Decoded> {
-        let instruction = inv.gadget.instruction();
+impl Decode for FrameDecoder {
+    fn decode(&mut self, record: &Record) -> BasicReadout {
+        let decoded = match &record.invocation {
+            Some(inv) => self.decode_invocation(inv, &record.bits),
+            None => BasicReadout::default(),
+        };
+        for r in record.ended() {
+            self.signs.remove(r);
+        }
+        decoded
+    }
+}
+
+impl FrameDecoder {
+    fn decode_invocation(&mut self, inv: &Invocation, raw: &[Bit]) -> BasicReadout {
+        let gadgets = Rc::clone(&self.gadgets);
+        let Some(p) = gadgets.get(inv.gadget.0) else {
+            return BasicReadout {
+                status: Status::UNRESOLVED,
+                ..BasicReadout::default()
+            };
+        };
+        let instruction = p.gadget.instruction();
         let n = instruction.observe_count();
-        let unknown = |status| Decoded {
+        let unknown = |status| BasicReadout {
             outcomes: vec![None; n],
             flags: vec![None; instruction.flags.len()],
             status,
-        };
-        let gadgets = Rc::clone(&self.gadgets);
-        let Some(Some(p)) = gadgets.get(inv.gadget.index) else {
-            return Step::Done(unknown(Status::UNRESOLVED));
         };
         let mut sys = BinarySystem::new();
         let mut st = Status::default();
         if self.build_system(p, inv, raw, &mut sys, &mut st).is_err() {
             // Recoverable: every bit and every output sign becomes unknown.
-            return Step::Done(unknown(st | Status::INCONSISTENT));
+            return unknown(st | Status::INCONSISTENT);
         }
 
         for (e, block_ref) in inv.output_refs.iter().enumerate() {
-            let code = &inv.gadget.outputs[e].code;
+            let code = &p.gadget.outputs[e].code;
             let mut signs = FxHashMap::default();
             for basis in [Basis::Stabilizers, Basis::X, Basis::Z] {
                 for k in 0..code.len(basis) {
@@ -125,26 +139,13 @@ impl<R> DecoderRuntime<R> for FrameDecoderRuntime {
             .map(|i| sys.value(Parity::var(Var::Ro(i))))
             .collect();
         let flags = values.split_off(n);
-        Step::Done(Decoded {
+        BasicReadout {
             outcomes: values,
             flags,
             status: st,
-        })
-    }
-
-    /// Never called: this decoder never yields corrections.
-    fn resume_decode(&mut self, _last: Option<&R>) -> Step<Decoded> {
-        Step::Done(Decoded::default())
-    }
-
-    fn discarded(&mut self, refs: &[BlockRef]) {
-        for r in refs {
-            self.signs.remove(r);
         }
     }
-}
 
-impl FrameDecoderRuntime {
     fn build_system(
         &self,
         p: &FrameGadgetPlan,
@@ -188,7 +189,7 @@ impl FrameDecoderRuntime {
         let transport = if let Some(t) = &p.transport {
             t
         } else {
-            computed = if let Ok(t) = action_transport(inv, sys) {
+            computed = if let Ok(t) = action_transport(&p.gadget, inv, sys) {
                 t
             } else {
                 // Recoverable: output logical signs stay unknown.
@@ -207,7 +208,7 @@ impl FrameDecoderRuntime {
                 basis: *basis,
                 k: *k,
             }) ^ t;
-            if let Some(frame) = inv.gadget.frames.get(key) {
+            if let Some(frame) = p.gadget.frames.get(key) {
                 row ^= frame;
             }
             sys.add(row)?;
@@ -222,6 +223,7 @@ type Transport = Vec<(FrameKey, Parity)>;
 /// What the frame decoder needs for one gadget, fixed once per layer.
 #[derive(Debug)]
 struct FrameGadgetPlan {
+    gadget: Rc<GadgetPlan>,
     checks: Vec<Parity>,
     readouts: Vec<Parity>,
     /// Fixed per gadget when `circuit_transport` can derive it from the body;
@@ -231,7 +233,7 @@ struct FrameGadgetPlan {
 }
 
 impl FrameGadgetPlan {
-    fn new(gp: &GadgetPlan, layer: &LayerPlan) -> Result<Self, String> {
+    fn new(gp: &Rc<GadgetPlan>, layer: &LayerPlan) -> Result<Self, String> {
         let instruction = gp.instruction();
         if gp.gadget.readouts.len() != instruction.observe_count() + instruction.flags.len() {
             return Err("needs one readout per observe outcome and flag".to_string());
@@ -243,6 +245,7 @@ impl FrameGadgetPlan {
             outputs: &gp.outputs,
         };
         Ok(Self {
+            gadget: Rc::clone(gp),
             checks: gp
                 .gadget
                 .checks
@@ -414,16 +417,20 @@ fn xor_into(a: &mut Vec<bool>, b: &[bool]) {
 /// Each logical qubit q carries a pair `(z_sign, x_sign)` of parities over the
 /// input sign variables. `z_sign` is flipped by an X-type frame on q; `x_sign`
 /// by a Z-type frame.
-fn action_transport(inv: &Invocation, sys: &BinarySystem) -> Result<Transport, Unresolved> {
-    let instruction = inv.gadget.instruction();
+fn action_transport(
+    gadget: &GadgetPlan,
+    inv: &Invocation,
+    sys: &BinarySystem,
+) -> Result<Transport, Unresolved> {
+    let instruction = gadget.instruction();
     let logical = |layouts: &[EncodingPlan]| layouts.iter().map(|l| l.code.x.len()).sum::<usize>();
-    let width = logical(&inv.gadget.inputs)
-        .max(logical(&inv.gadget.outputs))
+    let width = logical(&gadget.inputs)
+        .max(logical(&gadget.outputs))
         .max(action_extent(instruction));
     // Fresh and temporary qubits start at (0, 0).
     let mut s: Vec<(Parity, Parity)> = vec![Default::default(); width];
     let mut q = 0;
-    for (e, layout) in inv.gadget.inputs.iter().enumerate() {
+    for (e, layout) in gadget.inputs.iter().enumerate() {
         for k in 0..layout.code.x.len() {
             let var = |basis| {
                 Parity::var(Var::Enc {
@@ -495,7 +502,7 @@ fn action_transport(inv: &Invocation, sys: &BinarySystem) -> Result<Transport, U
 
     let mut transport = Vec::new();
     let mut offset = 0;
-    for (e, layout) in inv.gadget.outputs.iter().enumerate() {
+    for (e, layout) in gadget.outputs.iter().enumerate() {
         for k in 0..layout.code.x.len() {
             let (z_sign, x_sign) = &s[offset + k];
             transport.push(((e, Basis::Z, k), z_sign.clone()));

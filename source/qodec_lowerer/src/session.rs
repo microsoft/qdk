@@ -10,9 +10,9 @@ use crate::{
     syntax::{self, Ins},
 };
 use qodec::{InstructionSet, Qodec};
-use qodec_runtime::{
-    Backend, BasicReadout, Bit, FrameDecoder, OwnedParam, PlanError, QodecError, QodecPlan,
-    QodecRuntime, QodecRuntimeError,
+use qodec_runtime_impl::{
+    Backend, BasicReadout, Bit, FaultKind, FrameDecoding, PlanError, QodecPlan, QodecRuntime,
+    QodecRuntimeError, Stack, TypeChecker,
 };
 use std::{
     cell::RefCell,
@@ -59,13 +59,14 @@ pub enum Reply {
     Quit,
 }
 
-type Runtime = QodecRuntime<'static, usize, OwnedParam, BasicReadout, String>;
+/// One shot: batches of top-ISA calls in, their results out.
+type Runtime = Box<dyn Backend<Vec<Ins>, Result<Vec<BasicReadout>, QodecRuntimeError<String>>>>;
 
 pub struct Session {
     name: String,
     /// Every layer's ISA, top first.
     layers: Vec<Arc<InstructionSet>>,
-    plan: QodecPlan<BasicReadout>,
+    plan: QodecPlan,
     log: Rc<RefCell<Log>>,
     oracle: Rc<RefCell<Oracle>>,
     runtime: Runtime,
@@ -75,7 +76,7 @@ impl Session {
     /// Plans `qodec` and starts its first shot. `ask` supplies bits in
     /// `:outcomes ask` mode.
     pub fn new(qodec: &Qodec, ask: AskFn) -> Result<Self, PlanError> {
-        let plan = QodecPlan::new(qodec, &FrameDecoder)?;
+        let plan = QodecPlan::new(qodec, &FrameDecoding)?;
         let layers: Vec<_> = qodec
             .layers()
             .iter()
@@ -138,24 +139,30 @@ impl Session {
             .map(|s| syntax::parse_instruction(top, s))
             .collect::<Result<Vec<_>, _>>()?;
         self.log.borrow_mut().clear();
-        let result = self.runtime.execute_batch(&instructions);
+        let result = self.runtime.execute(instructions.clone());
         let mut text = self.render_log();
         match result {
             Ok(batch) => {
-                text += &self.render_results(&instructions, &batch.results);
+                text += &self.render_results(&instructions, &batch);
                 Ok(text)
             }
             Err(e) => {
-                let hint = match e {
-                    QodecRuntimeError::Layer {
-                        error: QodecError::Poisoned,
-                        ..
-                    } => "; use `:reset` to start a new shot".to_string(),
-                    QodecRuntimeError::Layer {
-                        layer: 0,
-                        error: QodecError::InvalidInstruction,
-                    } => self.usage_hint(&instructions),
-                    _ => String::new(),
+                let hint = match &e {
+                    QodecRuntimeError::Rejected(_) => self.usage_hint(&instructions),
+                    QodecRuntimeError::Fault(fault)
+                        if fault.layer.is_none_or(|l| l == 0)
+                            && fault.kind == FaultKind::InvalidInstruction =>
+                    {
+                        format!(
+                            "; use `:reset` to start a new shot{}",
+                            self.usage_hint(&instructions)
+                        )
+                    }
+                    QodecRuntimeError::Fault(_)
+                    | QodecRuntimeError::Bottom(_)
+                    | QodecRuntimeError::Poisoned => {
+                        "; use `:reset` to start a new shot".to_string()
+                    }
                 };
                 Ok(format!("{text}{} {e}{hint}", style::error_prefix()))
             }
@@ -323,16 +330,24 @@ impl Session {
 }
 
 fn instantiate(
-    plan: &QodecPlan<BasicReadout>,
+    plan: &QodecPlan,
     layers: &[Arc<InstructionSet>],
     log: &Rc<RefCell<Log>>,
     oracle: &Rc<RefCell<Oracle>>,
 ) -> Runtime {
-    plan.instantiate(Recorder {
+    let runtime: QodecRuntime<'static, String> = plan.instantiate(Recorder {
         isa: Arc::clone(layers.last().expect("a planned qodec has a layer")),
         log: Rc::clone(log),
         oracle: Rc::clone(oracle),
-    })
+    });
+    if plan.layer_plans().is_empty() {
+        // Calls go straight to the bottom backend, which decides what a block
+        // is.
+        Box::new(runtime)
+    } else {
+        // An ill-typed line is rejected, instead of losing the shot.
+        Box::new(Stack::new(TypeChecker::new(plan.top()), runtime))
+    }
 }
 
 /// Renders `readout`, the result of `ins`, an instruction of `isa`.
