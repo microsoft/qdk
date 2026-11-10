@@ -3,8 +3,8 @@
 
 //! Helpers for building the Q# AST of a compiled Stim circuit.
 
-use qsc_ast::ast;
-use qsc_ast::builder::{
+use qsc::ast;
+use qsc::ast::builder::{
     build_arg_pat, build_attr, build_binary_expr, build_block, build_call_args_expr,
     build_call_expr, build_conjugate_expr, build_continue_stmt, build_if_expr_then_block,
     build_index_expr, build_lit_bool_expr, build_lit_int_expr, build_lit_result_expr,

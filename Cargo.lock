@@ -2793,7 +2793,6 @@ dependencies = [
  "miette",
  "qdk_simulators",
  "qsc",
- "qsc_ast",
  "qsc_data_structures",
  "rustc-hash",
  "thiserror",

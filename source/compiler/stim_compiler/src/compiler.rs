@@ -8,8 +8,8 @@ use miette::Diagnostic;
 use qdk_simulators::noise_config::{
     LossPolicy, NoiseConfig, NoiseTable, PauliAndLossString, encode_pauli,
 };
-use qsc_ast::ast;
-use qsc_ast::builder::{
+use qsc::ast;
+use qsc::ast::builder::{
     build_assignment_statement, build_binary_expr, build_block, build_break_stmt,
     build_expr_array_expr, build_if_expr_then_block, build_implicit_return_stmt,
     build_lit_bool_expr, build_lit_double_expr, build_lit_result_expr, build_local_decl,
