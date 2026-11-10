@@ -4,10 +4,11 @@
 //! Circuits whose outcome is known exactly at any width, past the reach of
 //! a state vector: Clifford circuits, checked shot by shot against the
 //! QDK's stabilizer simulator, and mirror circuits, which return every
-//! qubit to zero. Both route gates on distant sites through the chain.
+//! qubit to zero. Both route gates on distant sites through the chain, under
+//! either routing.
 
 use num_complex::Complex64;
-use qdk_cpu_mps::{CanonicalMps, CpuMpsEngine};
+use qdk_cpu_mps::{CanonicalMps, CpuMpsEngine, Routing};
 use qdk_simulators::{Simulator, stabilizer_simulator::StabilizerSimulator};
 use std::f64::consts::FRAC_1_SQRT_2;
 use tensornet::{MpsEngine, MpsShape};
@@ -145,49 +146,57 @@ fn exact_chain(engine: &CpuMpsEngine, width: usize, max_bond_dimension: usize) -
     engine.prepare(&capacity).expect("prepare")
 }
 
+/// The engine under either routing: both keep the caller's cuts within the
+/// capacity, which these circuits never fill.
+fn engines() -> [(CpuMpsEngine, Routing); 2] {
+    [Routing::SwapBack, Routing::MeetHalfway]
+        .map(|routing| (CpuMpsEngine::default().with_routing(routing), routing))
+}
+
 /// Each shot of a random Clifford circuit reads every site in turn, as a
 /// shot of a method would: the engine's probability of one, given the
 /// values drawn so far, is the stabilizer simulator's, exactly 0, ½ or 1.
 #[test]
 fn clifford_shots_read_exact_probabilities() {
-    let engine = CpuMpsEngine::default();
-    for width in WIDTHS {
-        for shot in 0..3 {
-            let mut stream = Stream(u64::try_from(1000 * width + shot).expect("small"));
-            let mut state = exact_chain(&engine, width, 256);
-            let mut sim = StabilizerSimulator::new(width, 0, 1, std::sync::Arc::default());
-            for _ in 0..3 * width {
-                let gate = Clifford::random(&mut stream, width);
-                let (sites, matrix) = gate.on_engine();
-                engine
-                    .apply(&mut state, &sites, &matrix)
-                    .expect("a Clifford gate");
-                gate.on_stabilizer(&mut sim);
-            }
-            let weight = engine.retained_weight(&state).expect("the weight");
-            assert!(
-                (weight - 1.0).abs() < 1e-12,
-                "width {width}, shot {shot}: the circuit was truncated, {weight}"
-            );
-            for site in 0..width {
-                let p = engine.probability_of_one(&state, site).expect("P(One)");
-                let observable = [paulimer::core::z(site)].into();
-                let expected = sim.state_dump().outcome_probability(&observable, true);
+    for (engine, routing) in engines() {
+        for width in WIDTHS {
+            for shot in 0..3 {
+                let mut stream = Stream(u64::try_from(1000 * width + shot).expect("small"));
+                let mut state = exact_chain(&engine, width, 256);
+                let mut sim = StabilizerSimulator::new(width, 0, 1, std::sync::Arc::default());
+                for _ in 0..3 * width {
+                    let gate = Clifford::random(&mut stream, width);
+                    let (sites, matrix) = gate.on_engine();
+                    engine
+                        .apply(&mut state, &sites, &matrix)
+                        .expect("a Clifford gate");
+                    gate.on_stabilizer(&mut sim);
+                }
+                let weight = engine.retained_weight(&state).expect("the weight");
                 assert!(
-                    (p - expected).abs() < 1e-10,
-                    "width {width}, shot {shot}, site {site}: {p} vs {expected}"
+                    (weight - 1.0).abs() < 1e-12,
+                    "{routing:?}, width {width}, shot {shot}: the circuit was truncated, {weight}"
                 );
-                let one = if expected < 0.25 {
-                    false
-                } else if expected > 0.75 {
-                    true
-                } else {
-                    stream.coin()
-                };
-                engine
-                    .project(&mut state, site, one)
-                    .expect("a possible value");
-                sim.post_select_z(one, site).expect("a possible value");
+                for site in 0..width {
+                    let p = engine.probability_of_one(&state, site).expect("P(One)");
+                    let observable = [paulimer::core::z(site)].into();
+                    let expected = sim.state_dump().outcome_probability(&observable, true);
+                    assert!(
+                        (p - expected).abs() < 1e-10,
+                        "{routing:?}, width {width}, shot {shot}, site {site}: {p} vs {expected}"
+                    );
+                    let one = if expected < 0.25 {
+                        false
+                    } else if expected > 0.75 {
+                        true
+                    } else {
+                        stream.coin()
+                    };
+                    engine
+                        .project(&mut state, site, one)
+                        .expect("a possible value");
+                    sim.post_select_z(one, site).expect("a possible value");
+                }
             }
         }
     }
@@ -197,31 +206,32 @@ fn clifford_shots_read_exact_probabilities() {
 /// leaves every qubit at zero: no probability of one, and only zeros drawn.
 #[test]
 fn a_mirror_circuit_returns_every_qubit_to_zero() {
-    let engine = CpuMpsEngine::default();
-    for width in WIDTHS {
-        let mut stream = Stream(u64::try_from(width).expect("small"));
-        let mut state = exact_chain(&engine, width, 256);
-        let circuit: Vec<(Vec<usize>, Vec<Complex64>)> = (0..3 * width)
-            .map(|_| random_gate(&mut stream, width))
-            .collect();
-        for (sites, matrix) in &circuit {
-            engine.apply(&mut state, sites, matrix).expect("a gate");
+    for (engine, routing) in engines() {
+        for width in WIDTHS {
+            let mut stream = Stream(u64::try_from(width).expect("small"));
+            let mut state = exact_chain(&engine, width, 256);
+            let circuit: Vec<(Vec<usize>, Vec<Complex64>)> = (0..3 * width)
+                .map(|_| random_gate(&mut stream, width))
+                .collect();
+            for (sites, matrix) in &circuit {
+                engine.apply(&mut state, sites, matrix).expect("a gate");
+            }
+            for (sites, matrix) in circuit.iter().rev() {
+                engine
+                    .apply(&mut state, sites, &adjoint(matrix))
+                    .expect("an inverse gate");
+            }
+            for site in 0..width {
+                let p = engine.probability_of_one(&state, site).expect("P(One)");
+                assert!(p < 1e-9, "{routing:?}, width {width}, site {site}: {p}");
+            }
+            let sites: Vec<usize> = (0..width).collect();
+            let values = engine.sample(&state, &sites, 20, 3).expect("a sample");
+            assert!(
+                values.iter().all(|&one| !one),
+                "{routing:?}, width {width}: a one was drawn"
+            );
         }
-        for (sites, matrix) in circuit.iter().rev() {
-            engine
-                .apply(&mut state, sites, &adjoint(matrix))
-                .expect("an inverse gate");
-        }
-        for site in 0..width {
-            let p = engine.probability_of_one(&state, site).expect("P(One)");
-            assert!(p < 1e-9, "width {width}, site {site}: {p}");
-        }
-        let sites: Vec<usize> = (0..width).collect();
-        let values = engine.sample(&state, &sites, 20, 3).expect("a sample");
-        assert!(
-            values.iter().all(|&one| !one),
-            "width {width}: a one was drawn"
-        );
     }
 }
 

@@ -30,7 +30,10 @@
 //!   most the cutoff's share of all their squares, never the largest value,
 //!   then keeps at most the capacity's bond at its cut. The split after a SWAP
 //!   that moves a site toward a gate's other site (a route's outbound SWAP,
-//!   [`gates`](super::gates)) applies the cutoff alone.
+//!   [`gates`](super::gates)) applies the cutoff alone. Under `MeetHalfway`,
+//!   a split while the chain is out of the caller's order keeps at most twice
+//!   the capacity's largest bond, and records its cut when it keeps more than
+//!   the capacity's bond there ([`routing`](super::routing)).
 //! - **The weight.** It scales the kept values so that they hold the block's
 //!   squared norm, and multiplies the state's retained weight by the fraction
 //!   they held, both computed on the values divided by the largest, so that no
@@ -42,8 +45,8 @@
 //!   caller asks for, which becomes the centre; the other side keeps
 //!   orthonormal singular vectors, so the form holds.
 //! - **What it reports.** It counts the split and records its bond as the
-//!   largest at rest or, for an outbound SWAP, the largest transient one
-//!   ([`CanonicalMps::split_statistics`]).
+//!   largest at rest or, for an outbound SWAP or a split out of the caller's
+//!   order, the largest transient one ([`CanonicalMps::split_statistics`]).
 //!
 //! [`Engine::split_pair`] takes the SVD, chooses the bond by [`Engine::kept`],
 //! rescales by [`Engine::kept_rescale`] and writes the two sites;
@@ -124,18 +127,31 @@ impl<A: LinearAlgebra> Engine<A> {
             // cut `cut − 1`, which no split of the route has set yet (they
             // run from the top cut down), so it is a bond the chain holds
             // at rest, at most `capacity_bonds[cut − 1]`. Truncating to
-            // twice that would never bind. (A site moving up, not built,
-            // would have right of the cut the caller's sites right of cut
-            // `cut + 1` and the moved site, a bond of at most twice
-            // `capacity_bonds[cut + 1]`.)
+            // twice that would never bind. (`MeetHalfway`'s routes, which
+            // move a site up too, split at `CutoffAndTwiceCapacity`.)
             Truncation::CutoffOnly => svd.singular_values.len(),
+            // `MeetHalfway`'s deferred cut: out of the caller's order, a
+            // split keeps up to twice the capacity's largest bond, and the
+            // cuts where it kept more than the capacity's bond are recorded,
+            // to be compressed to it in the caller's order (`routing`).
+            Truncation::CutoffAndTwiceCapacity => {
+                2 * chain.capacity_bonds.iter().copied().max().unwrap_or(1)
+            }
         };
         let bond = self.kept(&svd.singular_values, max_bond);
+        if truncation == Truncation::CutoffAndTwiceCapacity && bond > chain.capacity_bonds[cut] {
+            chain.over_capacity_cuts = Some(match chain.over_capacity_cuts {
+                Some((low, high)) => (low.min(cut), high.max(cut)),
+                None => (cut, cut),
+            });
+        }
         let rescale = Self::kept_rescale(chain, &svd.singular_values, bond)?;
         chain.statistics.splits += 1;
         let largest = match truncation {
             Truncation::CutoffAndCapacity => &mut chain.statistics.largest_bond_at_rest,
-            Truncation::CutoffOnly => &mut chain.statistics.largest_transient_bond,
+            Truncation::CutoffOnly | Truncation::CutoffAndTwiceCapacity => {
+                &mut chain.statistics.largest_transient_bond
+            }
         };
         *largest = (*largest).max(bond);
         let values = &svd.singular_values[..bond];

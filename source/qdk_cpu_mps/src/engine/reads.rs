@@ -49,14 +49,16 @@ use crate::{
     linear_algebra::{LinearAlgebra, Matrix, MatrixRef, adjoint},
 };
 use num_complex::Complex64;
+use std::borrow::Cow;
 use tensornet::{MpsEngine, PauliSum, Refusal};
 
 impl<A: LinearAlgebra> Engine<A> {
-    /// P(Zero) and P(One) of `site`, with the centre moved there: each
-    /// value's weight over the sum of the two, so that when one value's
-    /// weight is exactly zero, the other's probability is exactly one and a
-    /// sample never draws the impossible value. Over the site's whole weight,
-    /// summed in another order, it could read `1 − 2⁻⁵³`.
+    /// P(Zero) and P(One) of the site at chain position `site`, with the
+    /// centre moved there: each value's weight over the sum of the two, so
+    /// that when one value's weight is exactly zero, the other's probability
+    /// is exactly one and a sample never draws the impossible value. Over
+    /// the site's whole weight, summed in another order, it could read
+    /// `1 − 2⁻⁵³`.
     pub(super) fn probabilities(
         &self,
         chain: &mut Chain,
@@ -69,11 +71,11 @@ impl<A: LinearAlgebra> Engine<A> {
         Ok([zero / total, one / total])
     }
 
-    /// P(Zero) and P(One) of `site` given `given`, whose sites are distinct
-    /// and in range: on a fork when `given` is not empty, each condition
-    /// projected in order, each value's probability read from its own
-    /// weight, not as one minus the other's, so an impossible value reads
-    /// its rounding, not a difference.
+    /// P(Zero) and P(One) of the caller's `site` given `given`, whose
+    /// caller's sites are distinct and in range: on a fork when `given` is
+    /// not empty, each condition projected in order, each value's
+    /// probability read from its own weight, not as one minus the other's,
+    /// so an impossible value reads its rounding, not a difference.
     pub(super) fn conditional_probabilities(
         &self,
         state: &CanonicalMps,
@@ -89,18 +91,20 @@ impl<A: LinearAlgebra> Engine<A> {
             fork = self.fork(state)?;
             fork.chain.get_mut()
         };
-        for &(at, one) in given {
+        for &(given_site, one) in given {
+            let at = chain.layout.position(given_site);
             self.project_on(chain, at, one)?;
         }
-        self.probabilities(chain, site)
+        let at = chain.layout.position(site);
+        self.probabilities(chain, at)
     }
 
-    /// Projects `site` (in range) on `one` and returns the value's
-    /// probability `p`, read from its own weight at the centre, having
-    /// divided the site by the norm of what the projection kept (computed
-    /// scaled, not as `√p`, so that the state's norm is 1 however few
-    /// digits `p` holds); refuses a value of probability exactly zero or
-    /// NaN, before it projects.
+    /// Projects the site at chain position `site` on `one` and returns the
+    /// value's probability `p`, read from its own weight at the centre,
+    /// having divided the site by the norm of what the projection kept
+    /// (computed scaled, not as `√p`, so that the state's norm is 1 however
+    /// few digits `p` holds); refuses a value of probability exactly zero
+    /// or NaN, before it projects.
     pub(super) fn project_on(
         &self,
         chain: &mut Chain,
@@ -116,7 +120,8 @@ impl<A: LinearAlgebra> Engine<A> {
         Ok(p)
     }
 
-    /// `⟨ψ|P|ψ⟩` of the unnormalized state for the Pauli string `factors`.
+    /// `⟨ψ|P|ψ⟩` of the unnormalized state for the Pauli string `factors`,
+    /// whose sites are chain positions.
     pub(super) fn unnormalized_expectation(
         &self,
         chain: &Chain,
@@ -155,7 +160,8 @@ impl<A: LinearAlgebra> Engine<A> {
         (0..n).map(|i| elements[i + n * i]).sum()
     }
 
-    /// `observable`'s expectation (checked) on the normalized state.
+    /// `observable`'s expectation (checked, on the caller's sites) on the
+    /// normalized state.
     pub(super) fn expectation_of(
         &self,
         chain: &mut Chain,
@@ -166,8 +172,17 @@ impl<A: LinearAlgebra> Engine<A> {
         let norm = chain.sites[chain.centre].weight();
         let mut value = observable.identity_coefficient();
         for term in observable.terms() {
-            value +=
-                term.coefficient() * self.unnormalized_expectation(chain, term.factors()) / norm;
+            let factors = if chain.layout.is_in_order() {
+                Cow::Borrowed(term.factors())
+            } else {
+                Cow::Owned(
+                    term.factors()
+                        .iter()
+                        .map(|&(site, pauli)| (chain.layout.position(site), pauli))
+                        .collect(),
+                )
+            };
+            value += term.coefficient() * self.unnormalized_expectation(chain, &factors) / norm;
         }
         Ok(value)
     }

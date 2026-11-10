@@ -4,14 +4,15 @@
 //! The engine's routing on circuits whose gates act on distant sites: the
 //! time, the weight the truncations kept, the largest bonds at rest and
 //! during routes, and, for up to 22 qubits, how far the result is from the
-//! exact state.
+//! exact state. Run it with each `--routing` to compare `SwapBack`, the
+//! default, with `MeetHalfway`.
 //!
 //! ```text
 //! cargo run --release -p qdk_cpu_mps --example routing -- \
 //!     --family qft|random|mirror|qpe|u3cx|ising --n 20 [--depth 2] \
-//!     [--seed 1] --chi 128 [--reference]
+//!     [--seed 1] --chi 128 [--routing swap-back|meet-halfway] [--reference]
 //! cargo run --release -p qdk_cpu_mps --example routing -- \
-//!     --gates FILE --chi 64 [--order …] [--reference]
+//!     --gates FILE --chi 64 [--order …] [--routing …] [--reference]
 //! ```
 //!
 //! - `random`: `--depth` layers of a random unitary on every qubit, then
@@ -31,7 +32,7 @@
 #[path = "support/circuits.rs"]
 mod support;
 
-use qdk_cpu_mps::{CanonicalMps, CpuMpsEngine};
+use qdk_cpu_mps::{CanonicalMps, CpuMpsEngine, Routing};
 use support::{
     Circuit, Dense, Res, agreement, brickwork, flag, gate_list, ising, mirror, order, qft, qpe,
     random, run_engine,
@@ -86,16 +87,21 @@ fn main() -> Res<()> {
     let n = circuit.qubits;
     let chi = number("--chi", 64)?;
     let order = order(&args, n)?;
-    let engine = CpuMpsEngine::default();
+    let routing = match flag(&args, "--routing").as_deref() {
+        None | Some("swap-back") => Routing::SwapBack,
+        Some("meet-halfway") => Routing::MeetHalfway,
+        Some(other) => return Err(format!("unknown routing {other}").into()),
+    };
+    let engine = CpuMpsEngine::default().with_routing(routing);
     let run = run_engine(&engine, &circuit, &order, chi)?;
     let statistics = run.state.split_statistics();
     println!(
-        "| case | χ | gates | two-site | seconds | 1 − W | largest bond at rest | \
+        "| case | routing | χ | gates | two-site | seconds | 1 − W | largest bond at rest | \
          largest transient bond | splits | swaps |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|");
     println!(
-        "| {label} | {chi} | {} | {} | {:.3} | {:.2e} | {} | {} | {} | {} |",
+        "| {label} | {routing:?} | {chi} | {} | {} | {:.3} | {:.2e} | {} | {} | {} | {} |",
         circuit.ops.len(),
         circuit.two_qubit_gates(),
         run.seconds,

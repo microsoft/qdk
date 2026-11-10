@@ -10,6 +10,7 @@
 mod conformance;
 mod failures;
 mod fusion;
+mod meet_halfway;
 mod reads;
 mod refusals;
 mod retained_weight;
@@ -20,7 +21,7 @@ mod truncation;
 
 use super::{c, chain, cnot, cz, entangler, exact, mixed_string, phase, ry, swap, z_string};
 use crate::{
-    CanonicalMps, CpuMpsEngine, CpuMpsError, DEFAULT_CUTOFF, SplitStatistics,
+    CanonicalMps, CpuMpsEngine, CpuMpsError, DEFAULT_CUTOFF, Routing, SplitStatistics,
     engine::Engine,
     linear_algebra::{
         CpuLinearAlgebra, FactorizationError, LinearAlgebra, Matrix, MatrixRef, Qr, Svd,

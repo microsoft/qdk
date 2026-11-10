@@ -49,24 +49,41 @@
 //!
 //! [`Chain`] holds the sites, the centre's position, the capacity's bond at
 //! each cut, the retained weight (the share of the state's weight the
-//! truncations kept) and, while it is not split again, the pair of sites a
-//! gate contracted into one block ([`ContractedPair`]); [`CanonicalMps`]
-//! wraps it for the caller.
-//! The module also holds the kernels that need no factorization: applying a
-//! gate's matrix to a site or a pair, projecting a site, and weighing a
-//! site's values; the engine composes them with the products, QR and SVD
+//! truncations kept), where each of the caller's sites sits in the chain
+//! ([`Layout`]) and, while it is not split again, the pair of sites a gate
+//! contracted into one block ([`ContractedPair`]); [`CanonicalMps`] wraps it
+//! for the caller. Each part is in its own file:
+//!
+//! - [`site`]: a site tensor ([`Site`]) and its kernels, which need no
+//!   factorization: applying a one-site gate, projecting the site, and
+//!   weighing its values;
+//! - [`contracted_pair`]: the block of two contracted sites
+//!   ([`ContractedPair`]), applying a gate to it, and what its split
+//!   discards ([`Truncation`]);
+//! - [`layout`]: the map between the caller's sites and the chain's
+//!   positions ([`Layout`]), the caller's order unless the routing
+//!   `MeetHalfway` moved them;
+//! - [`statistics`]: what the splits cost ([`SplitStatistics`]).
+//!
+//! The engine composes the kernels with the products, QR and SVD
 //! ([`LinearAlgebra`](crate::linear_algebra::LinearAlgebra)).
 
-use crate::linear_algebra::MatrixRef;
+mod contracted_pair;
+mod layout;
+mod site;
+mod statistics;
+
+pub(crate) use contracted_pair::{ContractedPair, Truncation};
+pub(crate) use layout::Layout;
+pub(crate) use site::Site;
+pub use statistics::SplitStatistics;
+
 use num_complex::Complex64;
 use std::cell::RefCell;
 
 pub(crate) const fn c(re: f64) -> Complex64 {
     Complex64::new(re, 0.0)
 }
-
-/// The one-site identity, row-major.
-const IDENTITY: [Complex64; 4] = [c(1.0), c(0.0), c(0.0), c(1.0)];
 
 /// A state of a [`CpuMpsEngine`](crate::CpuMpsEngine): a chain of site
 /// tensors in mixed canonical form, with the bond each cut may grow to.
@@ -122,64 +139,6 @@ impl CanonicalMps {
     }
 }
 
-/// What the splits of a state's history cost: how many SVD splits it took,
-/// how many SWAPs only routed a site, and the largest bonds the splits kept,
-/// at rest and during routes.
-///
-/// A split at rest (a gate's, or a route's return SWAP's) keeps at most the
-/// capacity's bond at its cut: with one χ at every cut, a largest bond at
-/// rest below χ says the capacity cut nothing, and one at χ that it may
-/// have, so a smaller χ would cut more. A route's outbound SWAPs keep
-/// transient bonds of up to twice the capacity's largest bond (see
-/// [`CpuMpsEngine`](crate::CpuMpsEngine)), which
-/// [`MpsEngine::shape`](tensornet::MpsEngine::shape) no longer shows once
-/// the route is undone: the larger of the two figures is the largest bond
-/// the state held. The split counts are what the engine's time scales with:
-/// a split's SVD is most of a gate's cost.
-///
-/// With fusion, a pair left unsplit counts when it is split, under its last
-/// two-site operation: as transient if that was an outbound SWAP, at rest
-/// otherwise.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SplitStatistics {
-    pub(crate) splits: u64,
-    pub(crate) swaps: u64,
-    pub(crate) largest_bond_at_rest: usize,
-    pub(crate) largest_transient_bond: usize,
-}
-
-impl SplitStatistics {
-    /// The SVD splits of two adjacent sites, SWAPs included.
-    #[must_use]
-    pub fn splits(&self) -> u64 {
-        self.splits
-    }
-
-    /// The SWAPs that brought two sites of a gate together or moved them
-    /// back. Each takes a split of its own, except, with fusion, a route's
-    /// first and last: the first shares the split of the pair it lands on
-    /// when the operation before it left that pair unsplit, and the last
-    /// shares its split with the operations that follow on its pair.
-    #[must_use]
-    pub fn swaps(&self) -> u64 {
-        self.swaps
-    }
-
-    /// The largest bond a split at rest kept, at most the capacity's largest
-    /// bond; 1 for a state without such splits.
-    #[must_use]
-    pub fn largest_bond_at_rest(&self) -> usize {
-        self.largest_bond_at_rest.max(1)
-    }
-
-    /// The largest bond the split of a route's outbound SWAP kept, at most
-    /// twice the capacity's largest bond; 1 for a state without routes.
-    #[must_use]
-    pub fn largest_transient_bond(&self) -> usize {
-        self.largest_transient_bond.max(1)
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct Chain {
     pub(crate) sites: Vec<Site>,
@@ -197,173 +156,45 @@ pub(crate) struct Chain {
     /// squared norm that the truncating splits kept. The chain itself is
     /// renormalized at each of them, so its squared norm stays about 1.
     pub(crate) retained_weight: f64,
+    /// Where each of the caller's sites sits in the chain: the caller's
+    /// order, unless `MeetHalfway` left sites where its routes moved them.
+    /// `sites`, `centre`, `capacity_bonds` and `pair` are indexed by chain
+    /// position; the caller's site `s` is at `layout.position(s)`.
+    pub(crate) layout: Layout,
+    /// The lowest and the highest cut whose split, while the chain was out
+    /// of the caller's order, kept more than the capacity's bond there,
+    /// since the order was last restored (`MeetHalfway`'s deferred cut).
+    pub(crate) over_capacity_cuts: Option<(usize, usize)>,
+    /// Whether `MeetHalfway` fell back to `swap-back-2x` for the rest of the
+    /// state's life: a bond exceeded the capacity, or the layout drifted too
+    /// far. The chain is then in the caller's order.
+    pub(crate) fell_back: bool,
 }
 
 impl Chain {
     /// The state |0…0⟩ on as many sites as `capacity_bonds` has cuts plus
     /// one.
     pub(crate) fn zero(capacity_bonds: Vec<usize>) -> Self {
+        let sites = capacity_bonds.len() + 1;
         Self {
-            sites: vec![Site::zero(); capacity_bonds.len() + 1],
+            sites: vec![Site::zero(); sites],
             centre: 0,
             capacity_bonds,
             pair: None,
             statistics: SplitStatistics::default(),
             retained_weight: 1.0,
+            layout: Layout::in_order(sites),
+            over_capacity_cuts: None,
+            fell_back: false,
         }
     }
 
-    /// Applies the one-site gate `m` (row-major) to `site`, in the
-    /// contracted pair if `site` is one of its sites.
-    pub(crate) fn apply_one(&mut self, site: usize, m: &[Complex64]) {
+    /// Applies the one-site gate `m` (row-major) to the site at chain
+    /// position `at`, in the contracted pair if it is one of its sites.
+    pub(crate) fn apply_one(&mut self, at: usize, m: &[Complex64]) {
         match self.pair.as_mut() {
-            Some(pair) if pair.cut == site || pair.cut + 1 == site => {
-                let gate = if pair.cut == site {
-                    kron(m, &IDENTITY)
-                } else {
-                    kron(&IDENTITY, m)
-                };
-                pair.apply(&gate);
-            }
-            _ => self.sites[site].apply(m),
+            Some(pair) if pair.cut == at || pair.cut + 1 == at => pair.apply_one(at, m),
+            _ => self.sites[at].apply(m),
         }
     }
-}
-
-/// What the split of a [`ContractedPair`] discards: the tail below the
-/// cutoff, then what exceeds the capacity's bond at its cut; or, for a pair
-/// whose last operation was an outbound SWAP of a route, the tail below the
-/// cutoff alone (see [`CpuMpsEngine`](crate::CpuMpsEngine)).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Truncation {
-    /// A split at rest, after a gate or a return SWAP.
-    CutoffAndCapacity,
-    /// A split after an outbound SWAP, whose bond is at most twice the
-    /// capacity's bond at the cut below.
-    CutoffOnly,
-}
-
-/// The contracted block of the sites `cut` and `cut + 1`, with the gates
-/// applied to it since it was contracted: `θ[a, s, t, b]` of extents
-/// `[left, 2, 2, right]`, laid out at `a + left·(s + 2·(t + 2·b))`. It holds
-/// the state's norm, as the centre does.
-#[derive(Clone, Debug)]
-pub(crate) struct ContractedPair {
-    pub(crate) cut: usize,
-    pub(crate) left: usize,
-    pub(crate) right: usize,
-    pub(crate) block: Vec<Complex64>,
-    /// What its split discards, set by the last two-site operation applied.
-    pub(crate) truncation: Truncation,
-}
-
-impl ContractedPair {
-    /// Applies the two-site gate `m` (row-major, site `cut` the most
-    /// significant bit).
-    pub(crate) fn apply(&mut self, m: &[Complex64]) {
-        let (l, theta) = (self.left, &mut self.block);
-        for b in 0..self.right {
-            for a in 0..l {
-                let at = |s: usize, t: usize| a + l * (s + 2 * (t + 2 * b));
-                let index = [at(0, 0), at(0, 1), at(1, 0), at(1, 1)];
-                let v = index.map(|i| theta[i]);
-                for (row, &i) in index.iter().enumerate() {
-                    let m = &m[4 * row..4 * row + 4];
-                    theta[i] = m[0] * v[0] + m[1] * v[1] + m[2] * v[2] + m[3] * v[3];
-                }
-            }
-        }
-    }
-}
-
-/// One site tensor `T[a, s, b]` of extents `[left, 2, right]`, column-major:
-/// element `a + left·(s + 2·b)`. Read as a `2·left × right` matrix its row
-/// is `(a, s)`, and as a `left × 2·right` matrix its column is `(s, b)`, both
-/// without a copy.
-#[derive(Clone, Debug)]
-pub(crate) struct Site {
-    pub(crate) left: usize,
-    pub(crate) right: usize,
-    pub(crate) elements: Vec<Complex64>,
-}
-
-impl Site {
-    fn zero() -> Self {
-        Self {
-            left: 1,
-            right: 1,
-            elements: vec![c(1.0), c(0.0)],
-        }
-    }
-
-    /// The tensor as a `2·left × right` matrix.
-    pub(crate) fn rows_left(&self) -> MatrixRef<'_> {
-        MatrixRef::new(2 * self.left, self.right, &self.elements)
-    }
-
-    /// The tensor as a `left × 2·right` matrix.
-    pub(crate) fn cols_right(&self) -> MatrixRef<'_> {
-        MatrixRef::new(self.left, 2 * self.right, &self.elements)
-    }
-
-    /// The squared norm of the elements whose physical index is `level`.
-    pub(crate) fn weight_of(&self, level: usize) -> f64 {
-        let l = self.left;
-        (0..self.right)
-            .map(|b| {
-                let start = l * (level + 2 * b);
-                self.elements[start..start + l]
-                    .iter()
-                    .map(Complex64::norm_sqr)
-                    .sum::<f64>()
-            })
-            .sum()
-    }
-
-    pub(crate) fn weight(&self) -> f64 {
-        self.elements.iter().map(Complex64::norm_sqr).sum()
-    }
-
-    /// Applies the one-site gate `m` (row-major) to the physical index.
-    pub(crate) fn apply(&mut self, m: &[Complex64]) {
-        let l = self.left;
-        for b in 0..self.right {
-            for a in 0..l {
-                let (i0, i1) = (a + 2 * l * b, a + l + 2 * l * b);
-                let (v0, v1) = (self.elements[i0], self.elements[i1]);
-                self.elements[i0] = m[0] * v0 + m[1] * v1;
-                self.elements[i1] = m[2] * v0 + m[3] * v1;
-            }
-        }
-    }
-
-    /// Keeps the elements whose physical index is `level`, zeroes the
-    /// others, and divides the site by the kept elements' norm, so that the
-    /// site, as the centre, holds a state of norm 1. The norm is computed on
-    /// the elements divided by the largest of their moduli, so that the sum
-    /// of squares, at least 1, does not underflow however small the kept
-    /// weight; the kept elements are not all zero.
-    pub(crate) fn project(&mut self, level: usize) {
-        let l = self.left;
-        for (at, x) in self.elements.iter_mut().enumerate() {
-            if (at / l) % 2 != level {
-                *x = c(0.0);
-            }
-        }
-        let largest = self.elements.iter().map(|x| x.norm()).fold(0.0, f64::max);
-        let scaled: f64 = self.elements.iter().map(|x| (x / largest).norm_sqr()).sum();
-        let norm = scaled.sqrt();
-        for x in &mut self.elements {
-            *x = *x / largest / norm;
-        }
-    }
-}
-
-/// `a ⊗ b` of two one-site gates (row-major), with `a` on the most
-/// significant bit.
-fn kron(a: &[Complex64], b: &[Complex64]) -> [Complex64; 16] {
-    std::array::from_fn(|at| {
-        let (row, col) = (at / 4, at % 4);
-        a[2 * (row >> 1) + (col >> 1)] * b[2 * (row & 1) + (col & 1)]
-    })
 }

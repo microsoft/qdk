@@ -12,15 +12,19 @@
 //! to it; the block is split again by one SVD, which truncates
 //! ([`split`](super::split)).
 //!
-//! A gate on two sites `low < high` that are not neighbours is routed
-//! (`swap-back-2x`): the engine moves the site at `high` down next to `low` by
-//! SWAP gates on neighbours (the outbound SWAPs), applies the gate, and moves
-//! the site back up (the return SWAPs). With fusion, a gate on two neighbours
-//! leaves their block unsplit, and the gates that follow on the same pair,
-//! routing SWAPs and one-site gates on either site included, apply to it; the
-//! first other operation (a two-site gate on another pair, a read, a fork)
-//! splits it, by one SVD for all of them. The rules, stated for callers on
-//! [`CpuMpsEngine`] (Routing, Fusion):
+//! A gate on two sites `low < high` that are not neighbours is routed. By
+//! default (`swap-back-2x`) the engine moves the site at `high` down next to
+//! `low` by SWAP gates on neighbours (the outbound SWAPs), applies the gate,
+//! and moves the site back up (the return SWAPs). Under
+//! [`Routing::MeetHalfway`] the two sites meet halfway and stay there
+//! ([`routing`](super::routing)); the caller's sites are then translated to
+//! chain positions by the chain's layout, and the rules below hold for
+//! `swap-back-2x`, which such a state also uses once it falls back. With
+//! fusion, a gate on two neighbours leaves their block unsplit, and the gates
+//! that follow on the same pair, routing SWAPs and one-site gates on either
+//! site included, apply to it; the first other operation (a two-site gate on
+//! another pair, a read, a fork) splits it, by one SVD for all of them. The
+//! rules, stated for callers on [`CpuMpsEngine`] (Routing, Fusion):
 //!
 //! - **The caller's order.** When the call returns, every site is back where
 //!   the caller put it, so no read and no shape shows the route.
@@ -44,7 +48,7 @@
 //!
 //! [`CpuMpsEngine`]: crate::CpuMpsEngine
 
-use super::{Engine, split::CentreSide};
+use super::{Engine, Routing, split::CentreSide};
 use crate::{
     CpuMpsError,
     chain::{Chain, ContractedPair, Truncation, c},
@@ -82,8 +86,10 @@ fn swap_operands(m: &[Complex64]) -> [Complex64; 16] {
 
 impl<A: LinearAlgebra> Engine<A> {
     /// Applies `gate` (row-major, site `first` the most significant bit) to
-    /// the sites `first` and `second`; when they are not neighbours, by
-    /// `swap-back-2x` (see [`CpuMpsEngine`]).
+    /// the caller's sites `first` and `second`; when their positions are not
+    /// neighbours, by the engine's routing (see Routing on
+    /// [`CpuMpsEngine`]). Under `MeetHalfway`, it first restores the
+    /// caller's order if a deferred cut is due ([`routing`](super::routing)).
     ///
     /// [`CpuMpsEngine`]: crate::CpuMpsEngine
     pub(super) fn apply_pair(
@@ -93,6 +99,8 @@ impl<A: LinearAlgebra> Engine<A> {
         second: usize,
         gate: &[Complex64],
     ) -> Result<(), CpuMpsError> {
+        self.restore_if_over_capacity(chain)?;
+        let (first, second) = (chain.layout.position(first), chain.layout.position(second));
         let (low, high) = (first.min(second), first.max(second));
         let swapped;
         let gate = if first < second {
@@ -103,8 +111,16 @@ impl<A: LinearAlgebra> Engine<A> {
         };
         if high == low + 1 {
             let side = Self::side_nearer_centre(chain, low);
-            return self.apply_adjacent(chain, low, gate, side, Truncation::CutoffAndCapacity);
+            let truncation = Self::truncation_at_rest(chain);
+            return self.apply_adjacent(chain, low, gate, side, truncation);
         }
+        if self.routing == Routing::MeetHalfway && !chain.fell_back {
+            return self.meet_halfway(chain, low, high, gate);
+        }
+        debug_assert!(
+            chain.layout.is_in_order(),
+            "swap-back-2x routes in the caller's order"
+        );
         for cut in (low + 1..high).rev() {
             self.swap(chain, cut, CentreSide::Left, Truncation::CutoffOnly)?;
         }
@@ -173,8 +189,21 @@ impl<A: LinearAlgebra> Engine<A> {
         truncation: Truncation,
     ) -> Result<(), CpuMpsError> {
         self.apply_adjacent(chain, cut, &SWAP, side, truncation)?;
+        chain.layout.swap(cut);
         chain.statistics.swaps += 1;
         Ok(())
+    }
+
+    /// What the split of a gate on neighbours discards: the cutoff and the
+    /// capacity in the caller's order; out of it (under `MeetHalfway`), the
+    /// cutoff and twice the capacity's largest bond, the capacity's cut
+    /// being deferred until the order is restored.
+    pub(super) fn truncation_at_rest(chain: &Chain) -> Truncation {
+        if chain.layout.is_in_order() {
+            Truncation::CutoffAndCapacity
+        } else {
+            Truncation::CutoffAndTwiceCapacity
+        }
     }
 
     /// The side of the pair at `cut` nearer the centre, where a split leaves

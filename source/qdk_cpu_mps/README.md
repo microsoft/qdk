@@ -35,12 +35,16 @@ reference, once with fusion and once without. A gate on sites far apart is
 routed by SWAPs there and back, whose outbound splits apply the cutoff
 alone, so a route discards, beyond the cutoff's share at each split, only
 what the capacity cuts at the caller's cuts (see
-[Routing](#routing-swap-back-2x)). The SVD is the crate's own, a one-sided
-Jacobi after a pivoted QR that trims the rank, because faer's SVDs fail on
-the rank-deficient, degenerate matrices that splits meet; and a split takes
-an SVD only when its factors give back the matrix and its singular vectors
-are orthonormal, so a bad factorization fails the call instead of spoiling
-the state.
+[Routing](#routing-swap-back-2x)). An option, `MeetHalfway`, leaves the two
+sites where they met and keeps a map from the caller's sites to the chain,
+with a guard that still cuts to the capacity only at the caller's cuts; it
+took a fifth of the default's time on a recorded H₂ shot (see
+[the option](#routing-option-meethalfway)). The SVD is the crate's own, a
+one-sided Jacobi after a pivoted QR that trims the rank, because faer's
+SVDs fail on the rank-deficient, degenerate matrices that splits meet; and
+a split takes an SVD only when its factors give back the matrix and its
+singular vectors are orthonormal, so a bad factorization fails the call
+instead of spoiling the state.
 
 The engine agrees with the QDK's sparse state simulator and, on Clifford
 circuits, its stabilizer simulator, and passes the contract's kit with and
@@ -67,7 +71,9 @@ copy, not a contraction):
 - **A gate on two neighbouring sites** moves the centre into the pair (one QR
   per site crossed), contracts the pair, applies the gate, and splits it
   again by one SVD, truncated; the centre ends on one of the two sites.
-- **A gate on two sites further apart** is routed (see below).
+- **A gate on two sites further apart** is routed (see below); under the
+  `MeetHalfway` option, the engine first maps the caller's sites to where
+  they sit in the chain, as it does for every site a call names.
 - **P(One) and a projection** read the site alone, after moving the centre
   there; **the retained weight** reads the weight the state tracks, after
   splitting a pending pair, without moving the centre. The
@@ -176,11 +182,57 @@ largest transient bond, that of an outbound split (with fusion, a pair
 left unsplit counts under its last two-site operation, so a pending pair
 an outbound SWAP lands on counts as transient).
 
-`swap-back-2x` is the only routing built.
-[`docs/routing.md`](docs/routing.md) gives the proof of the bound, what was
-tried before it and dropped (truncating the outbound splits to χ lost weight
-to the temporary order), and the routings that could be explored later,
-with what is known of each.
+`swap-back-2x` is the default. [`docs/routing.md`](docs/routing.md) gives
+the proof of the bound, what was tried before it and dropped (truncating
+the outbound splits to χ lost weight to the temporary order), and the
+routings studied beside it, with their measurements.
+
+### Routing option: `MeetHalfway`
+
+`CpuMpsEngine::default().with_routing(Routing::MeetHalfway)` routes a gate
+on sites `d` apart by moving both sites halfway toward each other, `d − 1`
+SWAPs in all, and leaves them where they met: a gate that follows on the
+same two qubits takes none. It exists for programs whose gates between
+distant qubits dominate the time, such as the recorded H₂ shot below.
+
+The chain's order then drifts from the caller's. The engine keeps where
+each of the caller's sites sits, so every gate and read names the
+caller's sites as before, and `shape` restores the caller's order first:
+no answer shows the drift. A guard keeps it truncating where
+`swap-back-2x` does, because truncating a drifted order can lose far more
+than the caller's order does: on a recorded polyene shot at χ 32, the same
+route without the guard lost 94% of the weight, where `swap-back-2x` lost
+4.6% (see [`docs/routing.md`](docs/routing.md)):
+
+- **The deferred cut.** While the order is not the caller's, a split keeps
+  up to twice the capacity's largest bond. The first two-qubit gate or
+  read after a split that kept more than the capacity's bond at its cut
+  restores the caller's order, by SWAPs, and cuts the bonds over the
+  capacity to it there (with fusion, a gate that splits the pair a route
+  left may come first: the restore then waits for the operation after
+  it). So the capacity cuts the state only at the caller's cuts.
+- **The fallback.** Once a bond has exceeded the capacity, or once a gate
+  leaves the order's drift above one half (the pairs of qubits the chain
+  holds in the other order than the caller's, over all pairs), the state
+  restores the caller's order and routes by `swap-back-2x` for the rest of
+  its life; its forks inherit it. Where the capacity binds, each route
+  would pay a restore, and past one half the order is nearer reversed than
+  the caller's, where routes grow long.
+
+It answers as `swap-back-2x` does, to the cutoff's truncations (to
+rounding at a cutoff of zero) where the capacity never binds (the crate's
+tests run the contract's conformance kit and the exact families on both).
+It took 0.20× `swap-back-2x`'s time on a recorded H₂
+shot at χ 128 and 0.10× on a random circuit, and 0.89× to 1.27× on the
+other circuits measured, at the same accuracy (see
+[the routing table](#routing)). It is an option, not the default, while
+it is evaluated on more programs: the threshold of one half and the route
+were chosen on six cases and checked on four more. Its price: between
+restores, a bond may hold up to 2χ, as during a `swap-back-2x` route but
+for longer, and `split_statistics` counts those splits as transient; a
+split in a drifted order that needs more than 2χ truncates at a cut that
+is not the caller's, which the capacity fallback makes rare (how rare was
+not measured).
 
 ### Fusion
 
@@ -389,7 +441,10 @@ The QDK's sparse state simulator takes 117 s on the same shot
 ([`examples/sparse_comparison.rs`](examples/sparse_comparison.rs)
 `--replay`), against 77 s for the engine in that run: 1.5× faster. Most
 of the engine's time goes to routes: a gate on sites `d` apart takes
-2(d − 1) SWAPs; see [`docs/routing.md`](docs/routing.md).
+2(d − 1) SWAPs; see [`docs/routing.md`](docs/routing.md). The
+[`MeetHalfway` option](#routing-option-meethalfway) took 0.20× that
+routing's time, at the same readout distribution, on a replay of a
+recorded shot at χ 128.
 
 The first shot at other values of χ:
 
@@ -512,6 +567,30 @@ weight by rounding: 1.1e-12 against 2.4e-12 on the QFT), and the
 polyene's splits before the examples read once before stopping their
 clock, which can add the final split.
 
+`--routing meet-halfway` runs the same circuits with the
+[`MeetHalfway` option](#routing-option-meethalfway). Against the default,
+one run per cell, four at once on distinct cores (the QFT's times are the
+median of five), so the absolute times differ from the table above:
+
+| Circuit                       | Qubits | χ   | Seconds, `swap-back-2x` / `MeetHalfway` | Ratio | Largest ΔP(One), or 1 − P(0…0) | SWAPs       |
+| ----------------------------- | ------ | --- | --------------------------------------- | ----- | ------------------------------ | ----------- |
+| random pairs, depth 2, seed 1 | 20     | 128 | 0.355 / 0.037                           | 0.10× | 1.7e-14 / 1.6e-14              | 224 / 124   |
+| QFT                           | 20     | 128 | 0.065 / 0.058                           | 0.89× | 1.9e-10 / 1.2e-10              | 2280 / 1710 |
+| QPE, 14 qubits, depth 6       | 14     | 128 | 10.7 / 10.6                             | 1.00× | 5.4e-9 / 5.5e-9                | 8806 / 8330 |
+| QPE, 16 qubits, depth 5       | 16     | 128 | 69.2 / 67.9                             | 0.98× | 4.4e-5 / 4.4e-5                | 7932 / 7184 |
+| mirror circuit, depth 2       | 32     | 64  | 8.9 / 11.3                              | 1.27× | 0.29 / 0.29                    | 1224 / 1216 |
+
+The QFT's and both QPEs' orders drift toward the reverse and fall back at
+one half early (the QFT after 164 SWAPs, the QPEs of 14 and 16 qubits
+after 224 and 341); the mirror
+circuit fills the capacity and falls back at its first bond over it; the
+random circuit never falls back. The H₂ shot at χ 128, replayed with its
+recorded outcomes, took 17.8 s against 88 s for `swap-back-2x`, with the
+readout's TVD at 1.0e-10 against 5.3e-10: the drift stays at most 0.13,
+and the capacity never binds. [`docs/routing.md`](docs/routing.md) gives
+these and the polyene's figures, measured before the option was built
+in its final form.
+
 ## Removing the crate
 
 The crate is one directory, `source/qdk_cpu_mps`, and one line of the
@@ -523,14 +602,19 @@ Cargo feature, removed with it (planned: no method runs it yet).
 
 ## Files
 
-| File                                                                   | Defines                                                                                           |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| [`src/engine.rs`](src/engine.rs)                                       | `CpuMpsEngine`, `DEFAULT_CUTOFF`; the crate-private `Engine`: the operations, truncation, routing |
-| [`src/chain.rs`](src/chain.rs)                                         | `CanonicalMps`, `SplitStatistics`: the chain and its tensor kernels                               |
-| [`src/linear_algebra.rs`](src/linear_algebra.rs)                       | `FactorizationError`; the crate-private `LinearAlgebra`, `Matrix`, `MatrixRef`, `Qr`, `Svd`       |
-| [`src/linear_algebra/cpu.rs`](src/linear_algebra/cpu.rs)               | the crate-private `CpuLinearAlgebra`                                                              |
-| [`src/linear_algebra/cpu/jacobi.rs`](src/linear_algebra/cpu/jacobi.rs) | the SVD of `CpuLinearAlgebra`: one-sided Jacobi after a pivoted-QR trim                           |
-| [`src/error.rs`](src/error.rs)                                         | `CpuMpsError`                                                                                     |
+| File                                                                   | Defines                                                                                                               |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| [`src/engine.rs`](src/engine.rs)                                       | `CpuMpsEngine`, `DEFAULT_CUTOFF`; the crate-private `Engine`: the operations, truncation, routing                     |
+| [`src/engine/routing.rs`](src/engine/routing.rs)                       | `Routing`; the `MeetHalfway` route, its deferred cut and its fallback                                                 |
+| [`src/chain.rs`](src/chain.rs)                                         | `CanonicalMps`: the chain                                                                                             |
+| [`src/chain/site.rs`](src/chain/site.rs)                               | the crate-private `Site`: a site tensor and its kernels                                                               |
+| [`src/chain/contracted_pair.rs`](src/chain/contracted_pair.rs)         | the crate-private `ContractedPair`, `Truncation`: two neighbours contracted for a gate, and how their split truncates |
+| [`src/chain/statistics.rs`](src/chain/statistics.rs)                   | `SplitStatistics`                                                                                                     |
+| [`src/chain/layout.rs`](src/chain/layout.rs)                           | the crate-private `Layout`: where each of the caller's sites sits in the chain                                        |
+| [`src/linear_algebra.rs`](src/linear_algebra.rs)                       | `FactorizationError`; the crate-private `LinearAlgebra`, `Matrix`, `MatrixRef`, `Qr`, `Svd`                           |
+| [`src/linear_algebra/cpu.rs`](src/linear_algebra/cpu.rs)               | the crate-private `CpuLinearAlgebra`                                                                                  |
+| [`src/linear_algebra/cpu/jacobi.rs`](src/linear_algebra/cpu/jacobi.rs) | the SVD of `CpuLinearAlgebra`: one-sided Jacobi after a pivoted-QR trim                                               |
+| [`src/error.rs`](src/error.rs)                                         | `CpuMpsError`                                                                                                         |
 
 The behaviours above are pinned by the tests in [`src/tests/`](src/tests/)
 (the engine, the chain and the linear algebra, and the conformance kit once

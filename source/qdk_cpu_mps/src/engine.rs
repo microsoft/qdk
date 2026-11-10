@@ -37,6 +37,9 @@
 //!   applies to it, and a gate on sites further apart first brings them
 //!   together by SWAPs, then moves them back (routing); with fusion, the gates
 //!   that follow on one pair apply to its block before it is split;
+//! - [`routing`]: the [`Routing`] a caller chooses, and the opt-in
+//!   `MeetHalfway`, which leaves the sites where they met and restores the
+//!   caller's order when its guard says so;
 //! - [`split`]: splitting a block back into two sites by one SVD, the one place
 //!   where the engine truncates;
 //! - [`reads`]: probabilities, projections and expectations;
@@ -44,11 +47,21 @@
 //!   conditional probabilities of [`reads`], and `fork`, `shape` and
 //!   `retained_weight`, which split a pending block, then copy or read the
 //!   chain.
+//!
+//! Every entry point names the caller's sites, and maps each to its position
+//! in the chain ([`Layout`](crate::chain::Layout)): the same under
+//! `swap-back-2x`, moved under `MeetHalfway`. A gate on two sites, every
+//! read, `fork` and `retained_weight` first run `MeetHalfway`'s check for a
+//! deferred cut; `shape` restores the caller's order, whose cuts its bonds
+//! describe, and so makes the check too.
 
 mod canonical_form;
 mod gates;
 mod reads;
+mod routing;
 mod split;
+
+pub use routing::Routing;
 
 use crate::{
     CpuMpsError,
@@ -77,7 +90,9 @@ pub const DEFAULT_CUTOFF: f64 = 1e-14;
 /// tail of singular values below its cutoff at every split, and
 /// truncates each split at rest to the capacity's bond at that cut (the `χ`
 /// of the chain a caller asks for in [`MpsEngine::prepare`]); a route's
-/// outbound SWAPs apply the cutoff alone (see Routing below). It
+/// outbound SWAPs apply the cutoff alone, and under
+/// [`Routing::MeetHalfway`] a split out of the caller's order keeps up to
+/// twice the capacity's largest bond (see Routing below). It
 /// renormalizes at each split that discards a value, and tracks the
 /// retained weight apart: the split scales the values it keeps so that they
 /// hold the squared norm of the whole block, and multiplies the state's
@@ -113,8 +128,11 @@ pub const DEFAULT_CUTOFF: f64 = 1e-14;
 /// reaches up to twice the capacity's largest bond `χ`, so a site tensor up
 /// to 4× the memory of one at `χ`, and
 /// [`CanonicalMps::split_statistics`] reports it apart from the bonds at
-/// rest. Other routings are not built; the crate's `docs/routing.md` lists
-/// those that could be explored, with what is known of each.
+/// rest. This is [`Routing::SwapBack`], the default; a caller may choose
+/// [`Routing::MeetHalfway`] instead ([`CpuMpsEngine::with_routing`]), which
+/// takes about half the SWAPs and truncates at the same cuts, guarded as its
+/// documentation says. The crate's `docs/routing.md` gives the evidence for
+/// both, and the routings studied and not built.
 ///
 /// **Fusion.** The engine fuses gates into a two-site block before its
 /// split: a gate on two neighbours leaves their contracted pair unsplit, and
@@ -137,7 +155,8 @@ pub const DEFAULT_CUTOFF: f64 = 1e-14;
 #[derive(Clone, Debug)]
 pub struct CpuMpsEngine(Engine<CpuLinearAlgebra>);
 
-/// The engine with the cutoff [`DEFAULT_CUTOFF`], fusing.
+/// The engine with the cutoff [`DEFAULT_CUTOFF`] and the routing
+/// [`Routing::SwapBack`], fusing.
 impl Default for CpuMpsEngine {
     fn default() -> Self {
         Self(Engine::new(CpuLinearAlgebra))
@@ -149,9 +168,9 @@ impl CpuMpsEngine {
     /// squares sum to at most `cutoff` times the sum of all their squares
     /// (quimb's `cutoff_mode="rsum2"`), then, at rest, keep at most the
     /// capacity's bond (a route's outbound SWAPs apply the cutoff alone; see
-    /// Routing on [`CpuMpsEngine`]); fusing. A cutoff of zero discards only
-    /// zeros. A split always keeps its largest value, however close to 1 the
-    /// cutoff.
+    /// Routing on [`CpuMpsEngine`]); routing by [`Routing::SwapBack`];
+    /// fusing. A cutoff of zero discards only zeros. A split always keeps
+    /// its largest value, however close to 1 the cutoff.
     ///
     /// The cutoff and the capacity's bond `χ` are the two settings of the
     /// method that trade time for accuracy: a rough estimate is fast, and a
@@ -180,6 +199,21 @@ impl CpuMpsEngine {
     #[must_use]
     pub fn with_cutoff(cutoff: f64) -> Self {
         Self(Engine::with_cutoff(CpuLinearAlgebra, cutoff))
+    }
+
+    /// The same engine, routing a gate on qubits whose sites are not
+    /// neighbours by `routing` (see [`Routing`]): `SwapBack` by default,
+    /// or the opt-in `MeetHalfway`.
+    ///
+    /// ```
+    /// use qdk_cpu_mps::{CpuMpsEngine, Routing};
+    ///
+    /// let engine = CpuMpsEngine::default().with_routing(Routing::MeetHalfway);
+    /// # let _ = engine;
+    /// ```
+    #[must_use]
+    pub fn with_routing(self, routing: Routing) -> Self {
+        Self(self.0.with_routing(routing))
     }
 
     /// The same engine, fusing when `fuses`, as Fusion on [`CpuMpsEngine`]
@@ -304,10 +338,12 @@ pub(crate) struct Engine<A> {
     algebra: A,
     cutoff: f64,
     fuses: bool,
+    routing: Routing,
 }
 
 impl<A: LinearAlgebra> Engine<A> {
-    /// An engine on `algebra` with the cutoff [`DEFAULT_CUTOFF`], fusing.
+    /// An engine on `algebra` with the cutoff [`DEFAULT_CUTOFF`], routing by
+    /// [`Routing::SwapBack`], fusing.
     pub(crate) fn new(algebra: A) -> Self {
         Self::with_cutoff(algebra, DEFAULT_CUTOFF)
     }
@@ -327,7 +363,14 @@ impl<A: LinearAlgebra> Engine<A> {
             algebra,
             cutoff,
             fuses: true,
+            routing: Routing::default(),
         }
+    }
+
+    /// The same engine, routing by `routing` (see
+    /// [`CpuMpsEngine::with_routing`]).
+    pub(crate) fn with_routing(self, routing: Routing) -> Self {
+        Self { routing, ..self }
     }
 
     /// The same engine, fusing when `fuses` (see
@@ -364,7 +407,7 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
         checks::apply(chain.sites.len(), sites, matrix)?;
         match *sites {
             [site] => {
-                chain.apply_one(site, matrix);
+                chain.apply_one(chain.layout.position(site), matrix);
                 Ok(())
             }
             [first, second] => self.apply_pair(chain, first, second, matrix),
@@ -375,7 +418,9 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
     fn probability_of_one(&self, state: &CanonicalMps, site: usize) -> Result<f64, CpuMpsError> {
         let mut chain = state.chain.borrow_mut();
         checks::probability_of_one(chain.sites.len(), site)?;
-        Ok(self.probabilities(&mut chain, site)?[1])
+        self.restore_if_over_capacity_for_read(&mut chain)?;
+        let at = chain.layout.position(site);
+        Ok(self.probabilities(&mut chain, at)?[1])
     }
 
     fn conditional_probability_of_one(
@@ -386,6 +431,7 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
     ) -> Result<f64, CpuMpsError> {
         let site_count = state.chain.borrow().sites.len();
         checks::conditional_probability_of_one(site_count, site, given)?;
+        self.restore_if_over_capacity_for_read(&mut state.chain.borrow_mut())?;
         Ok(self.conditional_probabilities(state, site, given)?[1])
     }
 
@@ -397,12 +443,16 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
     ) -> Result<f64, CpuMpsError> {
         let chain = state.chain.get_mut();
         checks::project(chain.sites.len(), site)?;
-        self.project_on(chain, site, one)
+        self.restore_if_over_capacity_for_read(chain)?;
+        let at = chain.layout.position(site);
+        self.project_on(chain, at, one)
     }
 
     fn fork(&self, state: &CanonicalMps) -> Result<CanonicalMps, CpuMpsError> {
         {
             let mut chain = state.chain.borrow_mut();
+            // Restored once here, not once in each fork of the state.
+            self.restore_if_over_capacity_for_read(&mut chain)?;
             let centre = chain.centre;
             self.split_pair_toward(&mut chain, centre)?;
         }
@@ -417,6 +467,7 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
         seed: u64,
     ) -> Result<Vec<bool>, CpuMpsError> {
         checks::sample(state.chain.borrow().sites.len(), sites)?;
+        self.restore_if_over_capacity_for_read(&mut state.chain.borrow_mut())?;
         sampling::sample_by_conditionals(sites, shots, seed, |site, given| {
             Ok(self.conditional_probabilities(state, site, given)?[1])
         })
@@ -429,11 +480,13 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
     ) -> Result<Complex64, CpuMpsError> {
         let mut chain = state.chain.borrow_mut();
         checks::expectation(chain.sites.len(), observable)?;
+        self.restore_if_over_capacity_for_read(&mut chain)?;
         self.expectation_of(&mut chain, observable)
     }
 
     fn shape(&self, state: &CanonicalMps) -> Result<MpsShape, CpuMpsError> {
         let mut chain = state.chain.borrow_mut();
+        self.restore_order(&mut chain)?;
         let centre = chain.centre;
         self.split_pair_toward(&mut chain, centre)?;
         let n = chain.sites.len();
@@ -452,6 +505,7 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
 
     fn retained_weight(&self, state: &CanonicalMps) -> Result<f64, CpuMpsError> {
         let mut chain = state.chain.borrow_mut();
+        self.restore_if_over_capacity_for_read(&mut chain)?;
         let centre = chain.centre;
         self.split_pair_toward(&mut chain, centre)?;
         Ok(chain.retained_weight)

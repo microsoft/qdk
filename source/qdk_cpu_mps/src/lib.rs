@@ -23,6 +23,9 @@
 //!   a cutoff, [`DEFAULT_CUTOFF`] unless the caller sets another), the weight
 //!   truncation discards, and how it applies a gate to two qubits that are not
 //!   neighbours in the chain.
+//! - [`Routing`]: how the engine brings such qubits together, `SwapBack` by
+//!   default, or the opt-in `MeetHalfway`, faster on programs with many gates
+//!   between distant qubits.
 //! - [`CanonicalMps`]: a state, one per shot, and [`SplitStatistics`], what
 //!   keeping it small cost.
 //! - [`CpuMpsError`]: a call the contract refuses, or one the engine failed;
@@ -77,7 +80,7 @@ mod error;
 mod linear_algebra;
 
 pub use chain::{CanonicalMps, SplitStatistics};
-pub use engine::{CpuMpsEngine, DEFAULT_CUTOFF};
+pub use engine::{CpuMpsEngine, DEFAULT_CUTOFF, Routing};
 pub use error::CpuMpsError;
 pub use linear_algebra::FactorizationError;
 

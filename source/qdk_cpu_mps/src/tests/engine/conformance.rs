@@ -1,37 +1,53 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The engine passes the contract's conformance kit, with and without
-//! fusion, and agrees with the exact reference on a long circuit when
-//! nothing is truncated.
+//! The engine passes the contract's conformance kit, under either routing,
+//! with and without fusion, and agrees with the exact reference on a long
+//! circuit when nothing is truncated.
 
 use super::*;
 
 /// The engine as `default()` makes it, fusing the gates on a pair, passes
-/// every case of the contract's conformance kit; a failure names its case.
+/// every case of the contract's conformance kit under either routing; a
+/// failure names its routing and case.
 #[test]
 fn conforms_with_fusion() {
-    let failures = tensornet::conformance::check(&CpuMpsEngine::default());
-    assert!(failures.is_empty(), "{failures:#?}");
+    for routing in [Routing::SwapBack, Routing::MeetHalfway] {
+        let engine = CpuMpsEngine::default().with_routing(routing);
+        let failures = tensornet::conformance::check(&engine);
+        assert!(failures.is_empty(), "{routing:?}: {failures:#?}");
+    }
 }
 
 /// The engine without fusion, splitting after each gate, passes every case
-/// of the contract's conformance kit; a failure names its case.
+/// of the contract's conformance kit under either routing; a failure names
+/// its routing and case.
 #[test]
 fn conforms_without_fusion() {
-    let failures = tensornet::conformance::check(&CpuMpsEngine::default().with_fusion(false));
-    assert!(failures.is_empty(), "{failures:#?}");
+    for routing in [Routing::SwapBack, Routing::MeetHalfway] {
+        let engine = CpuMpsEngine::default()
+            .with_routing(routing)
+            .with_fusion(false);
+        let failures = tensornet::conformance::check(&engine);
+        assert!(failures.is_empty(), "{routing:?}: {failures:#?}");
+    }
 }
 
 /// A pseudo-random circuit on 8 sites, mostly on sites far apart, with
-/// projections on the way: every read agrees with the reference. The engine
-/// must not truncate: a cutoff of `1e-14` over its hundreds of splits moves
-/// a probability by about `1e-9`.
+/// projections on the way: under either routing, every read agrees with the
+/// reference. The engine must not truncate: a cutoff of `1e-14` over its
+/// hundreds of splits moves a probability by about `1e-9`.
 #[test]
 fn a_long_circuit_agrees_with_the_reference_without_truncation() {
     let sites = 8;
     let reference = ExactReference::new();
-    for (engine, name) in both_fusions(0.0) {
+    let engines = [Routing::SwapBack, Routing::MeetHalfway]
+        .into_iter()
+        .flat_map(|routing| {
+            both_fusions(0.0)
+                .map(|(engine, name)| (engine.with_routing(routing), format!("{routing:?} {name}")))
+        });
+    for (engine, name) in engines {
         let mut state = engine.prepare(&chain(sites, 64)).expect("prepare");
         let mut exact_state = reference.prepare(&exact(sites)).expect("prepare");
         let mut seed = 0x2545_F491_4F6C_DD1D_u64;
