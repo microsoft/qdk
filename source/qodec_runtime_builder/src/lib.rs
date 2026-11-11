@@ -3,53 +3,29 @@
 
 #![deny(missing_docs)]
 
-//! Builds qodec runtimes: plans a [`Qodec`](qodec::Qodec) once, then
-//! assembles a runtime per shot from the mix-and-match pieces of
-//! [`qodec_runtime_pieces`].
+//! Assembles qodec runtimes from mix-and-match pieces: a [`Design`] chooses
+//! the pieces of each layer of a [`QodecModel`], and a [`QodecPlan`] holds
+//! their blueprints and builds fresh layers per shot.
 //!
-//! The pieces run on plain data and know nothing of the `qodec` model. This
-//! crate is where the model is read: it checks and indexes each layer once
-//! into a [`LayerPlan`], and compiles from it what each piece runs on, such as
-//! a [`SpecEncoder`]'s [`EncoderProgram`] or a [`FrameDecoder`]'s
-//! [`FrameGadget`]s. It re-exports the pieces crate, and through it the
-//! interface crate, so one dependency is enough to build a runtime.
-//!
-//! | Item | What it does |
-//! |---|---|
-//! | [`QodecPlan`] | Plans a whole qodec, and instantiates a [`QodecRuntime`] per shot |
-//! | [`LayerPlan`] | Plans one layer, and gives the blueprints of its pieces: [`LayerPlan::spec_encoder`], [`LayerPlan::frame_decoder`], [`LayerPlan::until_ready`] |
-//! | [`Design`] | Chooses how to assemble each layer; [`FrameDecoding`] is the reference one |
-//! | [`Compiler`] | Chains encoders without decoders, ahead of time |
+//! It knows no particular piece: ready-made designs, such as the reference
+//! one, are recipes, which live elsewhere (`qodec_runtime_recipes`). It
+//! re-exports the pieces crate, and through it the model and interface
+//! crates.
 //!
 //! # Usage
 //!
-//! 1. Build a [`QodecPlan`] once per qodec with [`QodecPlan::new`], choosing a
-//!    [`Design`] such as [`FrameDecoding`], which assembles each layer.
-//! 2. For every shot, call [`QodecPlan::instantiate`] with a bottom backend.
-//!    Encoders allocate lower block ids on demand, so a program need not know
-//!    its size; [`QodecPlan::required_resources`] sizes the bottom backend for
-//!    one that does.
-//! 3. Send batches of top-ISA calls to the [`QodecRuntime`] with
+//! 1. Read a qodec into a [`QodecModel`] (`qodec_runtime_reader::read`).
+//! 2. Build a [`QodecPlan`] once with [`QodecPlan::new`] and a [`Design`].
+//! 3. For every shot, stack [`QodecPlan::instantiate`] on a [`Runtime`] over
+//!    a bottom backend, and send it batches of top-ISA calls with
 //!    [`Backend::execute`]. Recoverable conditions come back in each result's
 //!    [`Status`], unrecoverable errors as a [`QodecRuntimeError`].
-//! 4. Drop the [`QodecRuntime`] to end the shot.
-// Links to the qodec spec are pinned to the commit that `qodec` 0.2.1 was
-// published from (recorded in the crate's `.cargo_vcs_info.json`). Update them
-// together with the `qodec` dependency.
+//! 4. Drop the runtime to end the shot.
 
-mod actions;
-pub mod compiler;
 pub mod design;
-mod frame;
 pub mod plan;
-pub mod resolver;
-pub mod spec;
-
-#[cfg(test)]
-mod tests;
 
 pub use qodec_runtime_pieces::*;
 
-pub use compiler::Compiler;
-pub use design::{Design, FrameDecoding, LayerBlueprint};
-pub use plan::{LayerPlan, PlanError, PlannedFix, QodecPlan, Resources};
+pub use design::{Design, LayerBlueprint};
+pub use plan::{AtLayer, QodecPlan};

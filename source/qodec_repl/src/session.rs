@@ -12,7 +12,7 @@ use crate::{
     syntax::{self, Ins},
 };
 use qodec::{InstructionSet, Qodec};
-use qodec_runtime_builder::{
+use qodec_runtime_recipes::{
     Backend, BasicReadout, Bit, FaultKind, FrameDecoding, PlanError, QodecPlan, QodecRuntime,
     QodecRuntimeError, Stack, TypeChecker,
 };
@@ -145,7 +145,7 @@ impl Session {
     /// Plans `qodec` and starts its first shot. `ask` supplies bits in
     /// `:outcomes ask` mode.
     pub fn new(qodec: &Qodec, ask: AskFn) -> Result<Self, PlanError> {
-        let plan = QodecPlan::new(qodec, &FrameDecoding)?;
+        let plan = QodecPlan::new(&qodec_runtime_reader::read(qodec)?, &FrameDecoding)?;
         let layers = isas(qodec);
         let log = Rc::default();
         let oracle = Rc::new(RefCell::new(Oracle {
@@ -616,7 +616,8 @@ impl Session {
     fn undo(&mut self) -> Result<String, String> {
         let before = self.undo.pop().ok_or("there is no change to undo")?;
         // It planned before, so it plans again; it may predate validation.
-        let plan = QodecPlan::new(&before.qodec, &FrameDecoding)
+        let model = qodec_runtime_reader::read(&before.qodec).expect("a qodec read before");
+        let plan = QodecPlan::new(&model, &FrameDecoding)
             .expect("a qodec that planned before plans again");
         self.qodec = before.qodec;
         self.docs = before.docs;
@@ -791,7 +792,8 @@ fn plan(qodec: &Qodec) -> Result<QodecPlan, String> {
     qodec
         .validate()
         .map_err(|e| format!("the qodec is invalid: {e}; it is as it was"))?;
-    QodecPlan::new(qodec, &FrameDecoding)
+    qodec_runtime_reader::read(qodec)
+        .and_then(|model| QodecPlan::new(&model, &FrameDecoding))
         .map_err(|e| format!("the qodec does not plan: {e}; it is as it was"))
 }
 
@@ -844,12 +846,15 @@ fn instantiate(
     log: &Rc<RefCell<Log>>,
     oracle: &Rc<RefCell<Oracle>>,
 ) -> Runtime {
-    let runtime: QodecRuntime<'static, String> = plan.instantiate(Recorder {
-        isa: Arc::clone(layers.last().expect("a planned qodec has a layer")),
-        log: Rc::clone(log),
-        oracle: Rc::clone(oracle),
-    });
-    if plan.layer_plans().is_empty() {
+    let runtime: QodecRuntime<'static, String> = qodec_runtime_recipes::runtime(
+        plan,
+        Recorder {
+            isa: Arc::clone(layers.last().expect("a planned qodec has a layer")),
+            log: Rc::clone(log),
+            oracle: Rc::clone(oracle),
+        },
+    );
+    if layers.len() == 1 {
         // Calls go straight to the bottom backend, which decides what a block
         // is.
         Box::new(runtime)

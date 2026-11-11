@@ -9,7 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-qodec_runtime_interface = { path = "../qodec_runtime_interface" }
+qodec_runtime_model = { path = "../qodec_runtime_model" }
 rustc-hash = { workspace = true }
 smallvec = { workspace = true }
 

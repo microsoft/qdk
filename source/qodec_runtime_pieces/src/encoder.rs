@@ -2,22 +2,24 @@
 // Licensed under the MIT License.
 
 //! [`SpecEncoder`]: the [`Encoder`] that lowers each upper call with the gadget
-//! the layer declares for it, as the qodec spec describes, and the
-//! [`EncoderProgram`] it runs on.
+//! the layer declares for it, as the qodec spec describes; the
+//! [`EncoderProgram`] it runs; and how that program is planned from a
+//! [`LayerModel`].
 
 use super::{
-    action::ParsedPauli,
+    action::{ParsedPauli, StepAction},
     backend::Backend,
-    isa::{
-        BoundOperand, CompiledSelect, Isa, ParamKind, ParsedCall, bind_operands, matches,
-        parse_call, select_status,
-    },
+    error::PlanError,
+    isa::{BoundOperand, Isa, Operand, ParsedCall, Signature},
     layer::{Blueprint, Layer},
-    pauli::Pauli,
+    layer_model::{Arg, GadgetModel, LayerModel},
+    pauli::{Pauli, PauliOp},
     protocol::{
         BlockRef, Call, Correction, Encoder, Fault, Fix, GadgetId, Invocation, Lower, Never,
         OwnedParam, Record, Reply, Status, Step,
     },
+    resolver::{Resolver, ResolverFixes},
+    select::{self, CompiledSelect, SelectPolicy, accepts},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
@@ -25,6 +27,7 @@ use std::{cmp::Reverse, collections::BinaryHeap, marker::PhantomData, rc::Rc};
 
 /// What a [`SpecEncoder`] runs on: how to lower each call of one layer's
 /// upper ISA to calls of its lower ISA.
+#[derive(Clone)]
 pub struct EncoderProgram {
     /// The upper ISA, whose calls the encoder takes.
     pub upper: Rc<Isa>,
@@ -33,8 +36,8 @@ pub struct EncoderProgram {
     /// Per upper instruction: how the encoder lowers it.
     pub instructions: Vec<Lowering>,
     /// Per upper block type: the logical operators of its code, which
-    /// [`Lowering::LogicalPauli`] applies.
-    pub codes: FxHashMap<String, LogicalOps>,
+    /// [`Lowering::LogicalPauli`] applies, if the layer binds a code to it.
+    pub codes: Vec<Option<LogicalOps>>,
     /// Per lower type `t`: the lower instruction that releases a block of type
     /// `t`. It has no result. If a type has none, releasing a block of that
     /// type emits nothing: the block stays live below until the encoder reuses
@@ -42,6 +45,8 @@ pub struct EncoderProgram {
     pub lower_release: Vec<Option<usize>>,
     /// How to apply a correction with lower calls.
     pub fixes: Rc<dyn Fixes>,
+    /// What a correction's flags, under its `select` hint, add to the batch.
+    pub select_policy: SelectPolicy,
 }
 
 impl std::fmt::Debug for EncoderProgram {
@@ -54,6 +59,127 @@ impl std::fmt::Debug for EncoderProgram {
             .field("lower_release", &self.lower_release)
             .finish_non_exhaustive()
     }
+}
+
+impl EncoderProgram {
+    /// The program of `layer`'s encoders, which apply corrections with
+    /// `resolver`, a resolver of the lower ISA. Upper Pauli-only instructions
+    /// without a gadget are applied as corrections, so a layer with one needs
+    /// lower Paulis (see [`check_pauli_corrections`]).
+    pub fn plan(layer: &LayerModel, resolver: &Rc<Resolver>) -> Result<Self, PlanError> {
+        let instructions: Vec<Lowering> = layer
+            .upper
+            .instructions
+            .iter()
+            .zip(&layer.gadget_of)
+            .map(|(instruction, gadget)| -> Result<Lowering, PlanError> {
+                Ok(if let Some(id) = gadget {
+                    let gadget = &layer.gadgets[id.0];
+                    let program = GadgetProgram::plan(gadget, layer)
+                        .map_err(|e| PlanError(format!("gadget `{}`: {e}", gadget.name)))?;
+                    Lowering::Gadget(Rc::new(program))
+                } else if is_pauli_only(instruction) {
+                    Lowering::LogicalPauli(
+                        instruction
+                            .action
+                            .iter()
+                            .filter_map(|step| match &step.action {
+                                StepAction::Pauli(p) => Some(p.clone()),
+                                _ => None,
+                            })
+                            .collect(),
+                    )
+                } else if is_release(instruction) {
+                    Lowering::Release
+                } else {
+                    Lowering::Unsupported
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        if instructions
+            .iter()
+            .any(|l| matches!(l, Lowering::LogicalPauli(_)))
+        {
+            check_pauli_corrections(resolver, &layer.lower)?;
+        }
+        let lower = &layer.lower;
+        let lower_release = (0..lower.types.len())
+            .map(|t| {
+                lower.instructions.iter().position(|i| {
+                    matches!(i.inputs.as_slice(), [Operand { block, variadic: false }] if *block == t)
+                        && i.outputs.is_empty()
+                        && i.outcomes == 0
+                        && i.flags == 0
+                })
+            })
+            .collect();
+        Ok(Self {
+            upper: Rc::clone(&layer.upper),
+            lower: Rc::clone(lower),
+            instructions,
+            codes: layer
+                .codes
+                .iter()
+                .map(|code| {
+                    code.as_ref().map(|code| LogicalOps {
+                        x: code.x.clone(),
+                        z: code.z.clone(),
+                    })
+                })
+                .collect(),
+            lower_release,
+            fixes: Rc::new(ResolverFixes::new(Rc::clone(resolver), Rc::clone(lower))),
+            select_policy: select::recoverable,
+        })
+    }
+}
+
+/// Whether `instruction` is lowered as [`Lowering::LogicalPauli`] when no
+/// gadget implements it: its action is non-empty and has only unguarded `pauli`
+/// steps, it has no flags, and its boundary is in place: at least one input,
+/// and outputs identical to the inputs.
+fn is_pauli_only(instruction: &Signature) -> bool {
+    !instruction.action.is_empty()
+        && instruction
+            .action
+            .iter()
+            .all(|s| !s.guarded && matches!(s.action, StepAction::Pauli(_)))
+        && instruction.flags == 0
+        && !instruction.inputs.is_empty()
+        && instruction.inputs == instruction.outputs
+}
+
+/// Whether `instruction` is lowered as [`Lowering::Release`] when no gadget
+/// implements it: `in = [t]` with `t` not variadic, `out = []`, empty action,
+/// no flags.
+fn is_release(instruction: &Signature) -> bool {
+    matches!(instruction.inputs.as_slice(), [op] if !op.variadic)
+        && instruction.outputs.is_empty()
+        && instruction.action.is_empty()
+        && instruction.flags == 0
+}
+
+/// Checks that `lower` can carry Pauli corrections: one instruction must
+/// apply `X`, and one `Z`, on logical index 0 of every lower type. A `Y` falls
+/// back to them (see [`Resolver::resolve`]).
+///
+/// Only an encoder that issues Pauli corrections needs this: one with a
+/// [`Lowering::LogicalPauli`] instruction, or that accepts [`Correction`]s. The
+/// check catches a lower ISA without Pauli instructions at plan time. It
+/// doesn't cover the other logical indices of a multi-qubit lower type; a
+/// correction the resolver can't bind there fails when it is issued, with
+/// `NoImplementation`.
+pub fn check_pauli_corrections(resolver: &Resolver, lower: &Isa) -> Result<(), PlanError> {
+    for (t, name) in lower.types.names.iter().enumerate() {
+        for op in [PauliOp::X, PauliOp::Z] {
+            if !resolver.binds_directly(op, t, &lower.types) {
+                return Err(PlanError(format!(
+                    "the lower ISA has no `{op:?}` Pauli for block type `{name}`"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// How a [`SpecEncoder`] lowers one upper instruction.
@@ -83,9 +209,8 @@ pub struct LogicalOps {
 
 /// How a [`SpecEncoder`] runs one gadget.
 ///
-/// Every block of the gadget's circuit is a slot, numbered from 0. An
-/// invocation places each slot on a lower block id, so the encoder never
-/// looks a circuit label up. For example, with slots for labels `0`, `1` and
+/// Every label of the gadget's circuit is a slot. An invocation places each
+/// slot on a lower block id. For example, with slots for labels `0`, `1` and
 /// `anc`, the body call `CX: [0, anc]` has slot operands `[0, 2]`. If an
 /// invocation places the slots on lower blocks `[5, 6, 2]`, it emits `CX` on
 /// lower blocks 5 and 2.
@@ -105,15 +230,82 @@ pub struct GadgetProgram {
     pub outputs: Vec<OutputEncoding>,
     /// Per slot: whether an output encoding holds it.
     pub retained: Vec<bool>,
-    /// Per slot: whether the body itself consumes it.
+    /// Per slot: whether the body itself consumes it: its last call takes it as
+    /// an input but does not output it, as a destructive measurement does. It
+    /// is then already gone below, so the encoder must not release it again.
     pub consumed: Vec<bool>,
     /// The body's calls, in order.
     pub calls: Vec<GadgetCall>,
 }
 
+impl GadgetProgram {
+    /// The program of `gadget`, of `layer`. Its slots are the gadget's label
+    /// ids.
+    pub fn plan(gadget: &GadgetModel, layer: &LayerModel) -> Result<Self, String> {
+        let lower = &layer.lower;
+        let n = gadget.labels.len();
+        let mut retained = vec![false; n];
+        for &label in gadget.outputs.iter().flat_map(|e| &e.labels) {
+            retained[label] = true;
+        }
+        // Label -> (an input of its last call, an output of its last call).
+        let mut last_use = vec![None; n];
+        let mut calls = Vec::with_capacity(gadget.body.len());
+        for call in &gadget.body {
+            let instruction = &lower.instructions[call.instruction];
+            let (ins, outs) =
+                instruction.bind(&lower.types, &call.operands, &FxHashMap::default())?;
+            for &label in &call.operands {
+                last_use[label] = Some((
+                    ins.iter().any(|b| b.label == label),
+                    outs.iter().any(|b| b.label == label),
+                ));
+            }
+            calls.push(GadgetCall {
+                instruction: call.instruction,
+                operands: call.operands.clone(),
+                args: call.args.clone(),
+                outcomes: instruction.outcomes,
+                flags: instruction.flags,
+            });
+        }
+        Ok(Self {
+            id: gadget.id,
+            name: gadget.name.clone(),
+            record_len: gadget.record_len,
+            slot_types: gadget.label_types.clone(),
+            inputs: gadget.inputs.iter().map(|e| e.labels.clone()).collect(),
+            outputs: gadget
+                .outputs
+                .iter()
+                .map(|e| OutputEncoding {
+                    block_type: e.block_type,
+                    slots: e.labels.clone(),
+                    qubits: e
+                        .labels
+                        .iter()
+                        .flat_map(|&label| {
+                            let cap = lower.types.caps[gadget.label_types[label]];
+                            (0..cap).map(move |i| (label, i))
+                        })
+                        .collect(),
+                })
+                .collect(),
+            retained,
+            consumed: last_use
+                .iter()
+                .map(|u| matches!(u, Some((true, false))))
+                .collect(),
+            calls,
+        })
+    }
+}
+
 /// Where an output block of a gadget lives.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputEncoding {
+    /// The upper block type of the output.
+    pub block_type: usize,
     /// The slots of its encoding, in code-qubit order.
     pub slots: Vec<usize>,
     /// Its code qubits, in code order: (slot, logical index in that slot's
@@ -132,28 +324,11 @@ pub struct GadgetCall {
     /// The arguments, in the lower instruction's parameter order. `None` if
     /// they can never be valid, so running the call fails with
     /// `InvalidInstruction`.
-    pub args: Option<Vec<CompiledArg>>,
+    pub args: Option<Vec<Arg>>,
     /// The call's observe outcomes.
     pub outcomes: usize,
     /// The call's flags.
     pub flags: usize,
-}
-
-/// One argument of a [`GadgetCall`].
-#[derive(Clone, Debug, PartialEq)]
-pub enum CompiledArg {
-    /// A literal value, already validated.
-    Value(OwnedParam),
-    /// Forwarded from this parameter of the implemented instruction. Its value
-    /// is only known per invocation, so it is validated against `kind` then.
-    Forwarded {
-        /// The parameter of the implemented instruction.
-        name: String,
-        /// The kind of the lower parameter it is passed to.
-        kind: ParamKind,
-    },
-    /// `circuit.readouts[j]`, an earlier record bit.
-    Readout(usize),
 }
 
 /// How an encoder applies a correction with calls of its lower ISA.
@@ -170,9 +345,31 @@ pub trait Fixes {
     ) -> Result<Vec<(Call, CompiledSelect)>, Fault>;
 }
 
+/// A [`Fix`] an encoder can be planned for: the lower ISA must be able to
+/// apply this kind of correction.
+pub trait PlannedFix: Fix {
+    /// Checks that `lower`, with `resolver`, can apply this kind of
+    /// correction.
+    fn check(resolver: &Resolver, lower: &Isa) -> Result<(), PlanError>;
+}
+
+impl PlannedFix for Never {
+    fn check(_resolver: &Resolver, _lower: &Isa) -> Result<(), PlanError> {
+        Ok(())
+    }
+}
+
+/// Decoders usually correct with Paulis, so the lower ISA must have `X` and
+/// `Z` (see [`check_pauli_corrections`]). Other steps are checked when they are
+/// applied.
+impl PlannedFix for Correction {
+    fn check(resolver: &Resolver, lower: &Isa) -> Result<(), PlanError> {
+        check_pauli_corrections(resolver, lower)
+    }
+}
+
 /// The blueprint of a [`SpecEncoder`] for one layer, which accepts
-/// corrections of type `C`. Whoever builds it checks that the lower ISA can
-/// apply them.
+/// corrections of type `C`.
 pub struct SpecEncoderPlan<C = Never> {
     program: Rc<EncoderProgram>,
     fix: PhantomData<fn(C)>,
@@ -192,6 +389,31 @@ impl<C> SpecEncoderPlan<C> {
     #[must_use]
     pub fn program(&self) -> &Rc<EncoderProgram> {
         &self.program
+    }
+
+    /// Applies corrections with `fixes` instead of the lower ISA's resolver.
+    #[must_use]
+    pub fn with_fixes(mut self, fixes: Rc<dyn Fixes>) -> Self {
+        Rc::make_mut(&mut self.program).fixes = fixes;
+        self
+    }
+
+    /// Reads corrections' `select` hints with `policy` instead.
+    #[must_use]
+    pub fn with_select_policy(mut self, policy: SelectPolicy) -> Self {
+        Rc::make_mut(&mut self.program).select_policy = policy;
+        self
+    }
+}
+
+impl<C: PlannedFix> SpecEncoderPlan<C> {
+    /// Plans the encoders of `layer`. Fails if the lower ISA cannot apply the
+    /// corrections they take.
+    pub fn plan(layer: &LayerModel) -> Result<Self, PlanError> {
+        let resolver = Rc::new(Resolver::new(&layer.lower));
+        let program = EncoderProgram::plan(layer, &resolver)?;
+        C::check(&resolver, &layer.lower)?;
+        Ok(Self::new(Rc::new(program)))
     }
 }
 
@@ -251,6 +473,8 @@ pub struct SpecEncoder<C = Never> {
 pub struct LiveBlock {
     /// The block's current reference.
     pub block_ref: BlockRef,
+    /// Its upper block type.
+    pub block_type: usize,
     /// The lower block ids holding it, in the order of its output encoding's
     /// labels.
     pub support: Vec<u64>,
@@ -423,7 +647,8 @@ impl<C: Fix> SpecEncoder<C> {
                     b.records[record].status |= readout.status;
                 }
                 Expected::Absorb { select, .. } => {
-                    self.absorbed |= readout.status | select_status(&select, &readout.flags);
+                    let selection = accepts(&select, &readout.flags);
+                    self.absorbed |= readout.status | (self.program.select_policy)(selection);
                 }
             }
         }
@@ -433,18 +658,16 @@ impl<C: Fix> SpecEncoder<C> {
     // ── Parsing an upper call (read-only) ───────────────────────────────────
 
     fn parse(&self, call: &Call) -> Result<ParsedCall, Fault> {
-        parse_call(&self.program.upper, call.instruction_id, &call.parameters)
+        self.program
+            .upper
+            .parse_call(call.instruction_id, &call.parameters)
             .map_err(Fault::invalid)
     }
 
-    fn input_types(&self, operands: &[u64]) -> FxHashMap<u64, &str> {
+    fn input_types(&self, operands: &[u64]) -> FxHashMap<u64, usize> {
         operands
             .iter()
-            .filter_map(|l| {
-                self.blocks
-                    .get(l)
-                    .map(|b| (*l, b.block_ref.block_type.as_str()))
-            })
+            .filter_map(|l| self.blocks.get(l).map(|b| (*l, b.block_type)))
             .collect()
     }
 
@@ -484,17 +707,13 @@ impl<C: Fix> SpecEncoder<C> {
         parsed: ParsedCall,
         b: &mut Batch<'_, '_>,
     ) -> Result<(), Fault> {
-        // Live types constrain only the inputs (see `bind_operands`), so an
+        // Live types constrain only the inputs (see `Signature::bind`), so an
         // instruction may change a block's type.
         let input_types = self.input_types(&parsed.operands);
         let upper = &self.program.upper;
-        let (in_ops, out_ops) = bind_operands(
-            &upper.types,
-            &upper.instructions[parsed.index],
-            &parsed.operands,
-            &input_types,
-        )
-        .map_err(Fault::invalid)?;
+        let (in_ops, out_ops) = upper.instructions[parsed.index]
+            .bind(&upper.types, &parsed.operands, &input_types)
+            .map_err(Fault::invalid)?;
         if in_ops.len() != gp.inputs.len() || out_ops.len() != gp.outputs.len() {
             return Err(Fault::invalid(
                 "operands do not match the gadget's encodings",
@@ -549,9 +768,10 @@ impl<C: Fix> SpecEncoder<C> {
             .iter()
             .map(|l| self.blocks[l].block_ref.clone())
             .collect();
+        let program = Rc::clone(&self.program);
         let output_refs: Vec<BlockRef> = out_ops
             .iter()
-            .map(|o| self.fresh_ref(o.label, &o.block_type))
+            .map(|o| self.fresh_ref(o.label, &program.upper.types.names[o.block_type]))
             .collect();
 
         for (slot, lb) in placement.iter_mut().enumerate() {
@@ -603,21 +823,21 @@ impl<C: Fix> SpecEncoder<C> {
             );
             for arg in args {
                 params.push(match arg {
-                    CompiledArg::Value(value) => value.clone(),
-                    CompiledArg::Forwarded { name, kind } => {
+                    Arg::Value(value) => value.clone(),
+                    Arg::Forwarded { name, kind } => {
                         let inv = b.records[record]
                             .invocation
                             .as_ref()
                             .expect("a gadget record has an invocation");
                         inv.args
                             .get(name)
-                            .filter(|v| matches(*kind, v))
+                            .filter(|v| kind.matches(v))
                             .ok_or_else(|| {
                                 Fault::invalid(format!("argument `{name}` does not fit its use"))
                             })?
                             .clone()
                     }
-                    CompiledArg::Readout(j) => {
+                    Arg::Readout(j) => {
                         if *j >= b.filled[record] {
                             if self.no_results {
                                 return Err(Fault::no_implementation(format!(
@@ -684,6 +904,7 @@ impl<C: Fix> SpecEncoder<C> {
                 block_ref.label,
                 LiveBlock {
                     block_ref: block_ref.clone(),
+                    block_type: output.block_type,
                     support,
                     qubits,
                 },
@@ -745,13 +966,9 @@ impl<C: Fix> SpecEncoder<C> {
             product = product.mul_unsigned(&p);
         }
         let input_types = self.input_types(&call.operands);
-        let (ins, _) = bind_operands(
-            &program.upper.types,
-            instruction,
-            &call.operands,
-            &input_types,
-        )
-        .map_err(Fault::invalid)?;
+        let (ins, _) = instruction
+            .bind(&program.upper.types, &call.operands, &input_types)
+            .map_err(Fault::invalid)?;
         for bound in ins {
             let block_ref = self
                 .blocks
@@ -759,8 +976,11 @@ impl<C: Fix> SpecEncoder<C> {
                 .ok_or_else(|| Fault::invalid(format!("block {} is not live", bound.label)))?
                 .block_ref
                 .clone();
-            let code = program.codes.get(&bound.block_type).ok_or_else(|| {
-                Fault::no_implementation(format!("no code for `{}`", bound.block_type))
+            let code = program.codes[bound.block_type].as_ref().ok_or_else(|| {
+                Fault::no_implementation(format!(
+                    "no code for `{}`",
+                    program.upper.types.names[bound.block_type]
+                ))
             })?;
             let mut logical = Pauli::default();
             for i in 0..bound.width {

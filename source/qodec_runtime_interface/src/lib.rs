@@ -5,9 +5,11 @@
 
 //! The interfaces of the qodec runtime: what a component is, how components
 //! compose, what flows between them, and the roles they play. Implementations
-//! live elsewhere (the `qodec_runtime_pieces` crate has a library of them, and
-//! `qodec_runtime_builder` assembles them from a qodec); this crate only
-//! shapes the system.
+//! live elsewhere: `qodec_runtime_model` is the model of a qodec that pieces
+//! plan from, `qodec_runtime_reader` reads a qodec into it,
+//! `qodec_runtime_pieces` is a library of pieces, `qodec_runtime_builder`
+//! assembles them, and `qodec_runtime_recipes` has ready-made designs. This
+//! crate only shapes the system.
 //!
 //! A qodec is a stack of instruction sets (ISAs): each layer's gadgets
 //! implement the layer's instructions as circuits of the ISA below (see the

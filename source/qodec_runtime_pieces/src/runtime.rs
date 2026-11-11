@@ -6,7 +6,7 @@
 
 use super::{
     backend::Backend,
-    isa::{Isa, parse_call},
+    isa::Isa,
     layer::{Chain, Layer},
     protocol::{BasicReadout, Call, Fault, FaultKind, Reply},
 };
@@ -169,7 +169,8 @@ impl<L, B, E> Runtime<L, B, E> {
             return Err(QodecRuntimeError::Poisoned);
         }
         for call in calls {
-            parse_call(&self.top, call.instruction_id, &call.parameters)
+            self.top
+                .parse_call(call.instruction_id, &call.parameters)
                 .map_err(|e| QodecRuntimeError::Rejected(Fault::invalid(e).at_layer(0)))?;
         }
         Ok(())
@@ -217,31 +218,6 @@ impl<'c, L: QodecLayer, B: BatchBackend<E>, E>
     fn execute(&mut self, calls: &'c [Call]) -> Result<Vec<BasicReadout>, QodecRuntimeError<E>> {
         self.check(calls)?;
         self.run(calls.to_vec())
-    }
-}
-
-/// A qodec layer that tags its faults with its index in the qodec.
-pub struct AtLayer<L> {
-    /// The layer's index in the qodec, top first.
-    pub index: usize,
-    /// The layer.
-    pub layer: L,
-}
-
-impl<L: QodecLayer> Layer for AtLayer<L> {
-    type Input = Vec<Call>;
-    type Output = Result<Vec<Reply>, Fault>;
-    type LowerInput = Vec<Call>;
-    type LowerOutput = Result<Vec<Reply>, Fault>;
-
-    fn execute(
-        &mut self,
-        calls: Vec<Call>,
-        below: &mut dyn Backend<Vec<Call>, Result<Vec<Reply>, Fault>>,
-    ) -> Result<Vec<Reply>, Fault> {
-        self.layer
-            .execute(calls, below)
-            .map_err(|fault| fault.at_layer(self.index))
     }
 }
 

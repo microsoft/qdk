@@ -8,9 +8,11 @@
 
 use super::{
     backend::Backend,
-    isa::{CompiledSelect, Isa, select_status},
+    isa::Isa,
     layer::Layer,
+    layer_model::LayerModel,
     protocol::{BasicReadout, Call, Fault, Lower, Record, Reply, Status},
+    select::{self, CompiledSelect, SelectPolicy, accepts},
 };
 use std::{ops::Range, rc::Rc};
 
@@ -23,6 +25,37 @@ pub struct RecordLayout {
     /// Per gadget, indexed by [`GadgetId`](crate::GadgetId): the body calls
     /// that have a `select` hint.
     pub gadgets: Vec<Vec<BodySelect>>,
+}
+
+impl RecordLayout {
+    /// The record layout of `layer`.
+    #[must_use]
+    pub fn plan(layer: &LayerModel) -> Self {
+        let gadgets = layer
+            .gadgets
+            .iter()
+            .map(|gadget| {
+                let mut selects = Vec::new();
+                let mut offset = 0;
+                for call in &gadget.body {
+                    let lower = &layer.lower.instructions[call.instruction];
+                    let flags = offset + lower.outcomes..offset + lower.outcomes + lower.flags;
+                    if !call.select.is_empty() {
+                        selects.push(BodySelect {
+                            flags,
+                            select: call.select.clone(),
+                        });
+                    }
+                    offset += lower.outcomes + lower.flags;
+                }
+                selects
+            })
+            .collect();
+        Self {
+            upper: Rc::clone(&layer.upper),
+            gadgets,
+        }
+    }
 }
 
 /// The `select` hint of one call of a gadget body.
@@ -58,11 +91,13 @@ pub trait Decode {
 /// ```
 ///
 /// It also checks the per-call `select` hints of each gadget body against the
-/// recorded flags, for every decoder: a mismatch is the recoverable status
-/// `rejected`.
+/// recorded flags, for every decoder, and adds the status its
+/// [`SelectPolicy`] gives (by default [`select::recoverable`]: a mismatch is
+/// the recoverable status `rejected`).
 pub struct Passive<D> {
     layout: Rc<RecordLayout>,
     inner: D,
+    policy: SelectPolicy,
     status: Status,
 }
 
@@ -72,8 +107,16 @@ impl<D> Passive<D> {
         Self {
             layout,
             inner,
+            policy: select::recoverable,
             status: Status::default(),
         }
+    }
+
+    /// Reads `select` hints with `policy` instead.
+    #[must_use]
+    pub fn with_select_policy(mut self, policy: SelectPolicy) -> Self {
+        self.policy = policy;
+        self
     }
 
     /// The wrapped decoder.
@@ -126,7 +169,7 @@ impl<D: Decode> Passive<D> {
                 .gadgets
                 .get(inv.gadget.0)
                 .ok_or_else(|| Fault::protocol("a record of an unknown gadget"))?;
-            status |= body_select_status(selects, record);
+            status |= body_select_status(selects, record, self.policy);
         }
         let decoded = self.inner.decode(record);
         self.status |= status | decoded.status;
@@ -151,14 +194,13 @@ impl<D: Decode> Passive<D> {
     }
 }
 
-/// The status of a gadget body's per-call `select` hints under the recorded
-/// flags. The spec makes [`select`](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/representations/yaml.md#per-call-select)
-/// a hint, so a mismatch is recoverable.
-fn body_select_status(selects: &[BodySelect], record: &Record) -> Status {
+/// The status `policy` gives a gadget body's per-call `select` hints under
+/// the recorded flags.
+fn body_select_status(selects: &[BodySelect], record: &Record, policy: SelectPolicy) -> Status {
     let mut status = Status::default();
     for call in selects {
         if let Some(flags) = record.bits.get(call.flags.clone()) {
-            status |= select_status(&call.select, flags);
+            status |= policy(accepts(&call.select, flags));
         }
     }
     status

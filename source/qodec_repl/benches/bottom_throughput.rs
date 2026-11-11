@@ -35,8 +35,8 @@ mod syntax;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use qodec::Qodec;
-use qodec_runtime_builder::{
-    Backend, BasicReadout, Call, Compiler, FrameDecoding, QodecPlan, Status,
+use qodec_runtime_recipes::{
+    Backend, BasicReadout, Blueprint, Call, CompilerPlan, FrameDecoding, QodecPlan, Status,
 };
 use std::{
     cell::Cell,
@@ -176,6 +176,7 @@ fn zero_readouts(qodec: &Qodec) -> Rc<[Option<BasicReadout>]> {
 struct Example {
     name: &'static str,
     plan: QodecPlan,
+    compiler: Result<CompilerPlan, String>,
     program: Vec<Ins>,
     readouts: Rc<[Option<BasicReadout>]>,
 }
@@ -186,7 +187,9 @@ fn load_examples() -> Vec<Example> {
         .into_iter()
         .map(|(path, program)| {
             let qodec = Qodec::load(dir.join(path)).expect("example should load");
-            let plan = QodecPlan::new(&qodec, &FrameDecoding).expect("example should plan");
+            let model = qodec_runtime_reader::read(&qodec).expect("example should read");
+            let plan = QodecPlan::new(&model, &FrameDecoding).expect("example should plan");
+            let compiler = CompilerPlan::new(&model).map_err(|e| e.to_string());
             let top = &qodec.layers()[0].instruction_set;
             let program = syntax::statements(&program)
                 .and_then(|statements| {
@@ -202,6 +205,7 @@ fn load_examples() -> Vec<Example> {
                     .next()
                     .expect("a path has a first component"),
                 plan,
+                compiler,
                 program,
                 readouts: zero_readouts(&qodec),
             }
@@ -237,7 +241,13 @@ fn compile_throughput(c: &mut Criterion, examples: &[Example]) {
     // One iteration is one bottom instruction.
     group.throughput(Throughput::Elements(1));
     for example in examples {
-        let compiler = || Compiler::for_plan(&example.plan).expect("encoders plan");
+        let compiler = match &example.compiler {
+            Ok(plan) => || plan.instantiate(),
+            Err(e) => {
+                eprintln!("compile_throughput/{}: skipped: {e}", example.name);
+                continue;
+            }
+        };
         // An untimed shot counts the bottom instructions, and checks that the
         // program compiles.
         let per_shot = match compiler().lower(example.program.clone()) {
@@ -272,10 +282,13 @@ fn runtime_throughput(c: &mut Criterion, examples: &[Example]) {
     for example in examples {
         let count = Rc::new(Cell::new(0));
         let runtime = || {
-            example.plan.instantiate(Sink {
-                readouts: Rc::clone(&example.readouts),
-                count: Rc::clone(&count),
-            })
+            qodec_runtime_recipes::runtime(
+                &example.plan,
+                Sink {
+                    readouts: Rc::clone(&example.readouts),
+                    count: Rc::clone(&count),
+                },
+            )
         };
         // An untimed shot counts the bottom instructions, and checks that the
         // program runs.

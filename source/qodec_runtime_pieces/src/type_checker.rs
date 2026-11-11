@@ -6,7 +6,7 @@
 
 use super::{
     backend::Backend,
-    isa::{Isa, bind_operands, parse_call},
+    isa::Isa,
     layer::Layer,
     protocol::{BasicReadout, Call, Fault},
     runtime::QodecRuntimeError,
@@ -35,12 +35,12 @@ use std::{marker::PhantomData, rc::Rc};
 pub struct TypeChecker<E> {
     isa: Rc<Isa>,
     /// Live blocks: label → block type.
-    live: FxHashMap<u64, String>,
+    live: FxHashMap<u64, usize>,
     error: PhantomData<fn() -> E>,
 }
 
 /// What each change to the live blocks replaced, to undo a batch.
-type Undo = Vec<(u64, Option<String>)>;
+type Undo = Vec<(u64, Option<usize>)>;
 
 impl<E> TypeChecker<E> {
     /// A checker for `isa`, with no live block.
@@ -56,7 +56,9 @@ impl<E> TypeChecker<E> {
     /// The type of the live block `label`, if any.
     #[must_use]
     pub fn live_type(&self, label: u64) -> Option<&str> {
-        self.live.get(&label).map(String::as_str)
+        self.live
+            .get(&label)
+            .map(|&t| self.isa.types.names[t].as_str())
     }
 
     /// Checks `calls` in order, each against the blocks the earlier ones left
@@ -81,14 +83,15 @@ impl<E> TypeChecker<E> {
     /// Checks one call, and applies its effect: its inputs end, and its
     /// outputs become live with their declared types.
     fn apply(&mut self, call: &Call, undo: &mut Undo) -> Result<(), String> {
-        let parsed = parse_call(&self.isa, call.instruction_id, &call.parameters)?;
-        let instruction = &self.isa.instructions[parsed.index];
-        let known: FxHashMap<u64, &str> = parsed
+        let isa = Rc::clone(&self.isa);
+        let parsed = isa.parse_call(call.instruction_id, &call.parameters)?;
+        let instruction = &isa.instructions[parsed.index];
+        let known: FxHashMap<u64, usize> = parsed
             .operands
             .iter()
-            .filter_map(|l| self.live.get(l).map(|t| (*l, t.as_str())))
+            .filter_map(|l| self.live.get(l).map(|&t| (*l, t)))
             .collect();
-        let (ins, outs) = bind_operands(&self.isa.types, instruction, &parsed.operands, &known)?;
+        let (ins, outs) = instruction.bind(&isa.types, &parsed.operands, &known)?;
         if let Some(input) = ins.iter().find(|b| !self.live.contains_key(&b.label)) {
             return Err(format!("block {} is not live", input.label));
         }

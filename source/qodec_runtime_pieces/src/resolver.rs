@@ -14,17 +14,16 @@
 //! [design-principles]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#design-principles
 
 use super::{
-    actions::action_clifford,
+    action::{Angle, PauliExpr, StepAction, action_clifford},
     encoder::Fixes,
-    isa::{CompiledSelect, TypeTable},
+    isa::{Isa, ParamKind, Signature, TypeTable},
     pauli::{Clifford, Pauli, PauliOp},
     protocol::{Call, Fault, OwnedParam, Step},
-    spec::encode_arg,
+    select::CompiledSelect,
 };
-use qodec::{Action, Argument, InstructionSet, ParameterKind, Scalar};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc};
 
 /// Matches steps against the static semantics of a lower ISA.
 #[derive(Debug)]
@@ -35,15 +34,15 @@ pub struct Resolver {
 impl Resolver {
     /// Indexes the instructions of `isa` whose actions have static semantics,
     /// i.e. do not depend on a call's arguments or outcomes: no variadic
-    /// operands, no `pauli` parameters, no guarded steps, and operand types
-    /// known to `types`. Other instructions never match.
+    /// operands, no `pauli` parameters and no guarded steps. Other instructions
+    /// never match.
     #[must_use]
-    pub fn new(isa: &InstructionSet, types: &TypeTable) -> Self {
+    pub fn new(isa: &Isa) -> Self {
         let semantics = isa
             .instructions
             .iter()
             .enumerate()
-            .filter_map(|(index, instruction)| semantics(index, instruction, types))
+            .filter_map(|(index, instruction)| semantics(index, instruction, &isa.types))
             .collect();
         Self { semantics }
     }
@@ -143,7 +142,8 @@ impl Resolver {
 
     /// Whether a single lower instruction applies `op` on logical index 0 of a
     /// block of type `block_type`.
-    pub(crate) fn binds_directly(&self, op: PauliOp, block_type: usize, lower: &TypeTable) -> bool {
+    #[must_use]
+    pub fn binds_directly(&self, op: PauliOp, block_type: usize, lower: &TypeTable) -> bool {
         let step = Step::Pauli(Pauli::single(0, op));
         self.bind(&step, &[block_type], &[0], lower.caps[block_type])
             .is_some()
@@ -174,8 +174,8 @@ impl Resolver {
         let clifford = |gate: Clifford| {
             in_place
                 .clone()
-                .filter(|s| s.clifford.as_ref() == Some(&gate) && s.parameters.is_empty())
-                .map(|s| ((s.flagged, false), s, BTreeMap::new()))
+                .filter(|s| s.clifford.as_ref() == Some(&gate) && s.parameters == 0)
+                .map(|s| ((s.flagged, false), s, Vec::new()))
                 .min_by_key(|(rank, s, _)| (*rank, s.index))
         };
         let best = match step {
@@ -193,17 +193,11 @@ impl Resolver {
                             return None;
                         }
                         match a {
-                            Scalar::Parameter(param)
-                                if s.parameters.len() == 1 && &s.parameters[0] == param =>
-                            {
-                                let args =
-                                    BTreeMap::from([(param.clone(), Argument::Number(*angle))]);
-                                Some(((s.flagged, true), s, args))
+                            Angle::Param(0) if s.parameters == 1 => {
+                                Some(((s.flagged, true), s, vec![OwnedParam::Float(*angle)]))
                             }
-                            Scalar::Literal(a)
-                                if s.parameters.is_empty() && is_close(*a, *angle) =>
-                            {
-                                Some(((s.flagged, false), s, BTreeMap::new()))
+                            Angle::Literal(a) if s.parameters == 0 && is_close(*a, *angle) => {
+                                Some(((s.flagged, false), s, Vec::new()))
                             }
                             _ => None,
                         }
@@ -225,60 +219,46 @@ impl Resolver {
     }
 }
 
-fn semantics(
-    index: usize,
-    instruction: &qodec::Instruction,
-    types: &TypeTable,
-) -> Option<Semantics> {
+fn semantics(index: usize, instruction: &Signature, types: &TypeTable) -> Option<Semantics> {
     if instruction
         .inputs
         .iter()
         .chain(&instruction.outputs)
-        .any(|o| o.is_variadic)
+        .any(|o| o.variadic)
         || instruction
             .parameters
             .iter()
-            .any(|p| p.kind == ParameterKind::Pauli)
-        || instruction.action.iter().any(|s| s.condition.is_some())
+            .any(|p| p.kind == ParamKind::Pauli)
+        || instruction.action.iter().any(|s| s.guarded)
     {
         return None;
     }
-    let side_types = |operands: &[qodec::BlockOperand]| {
-        operands
-            .iter()
-            .map(|o| types.get(&o.block))
-            .collect::<Option<Vec<_>>>()
-    };
-    let in_types = side_types(&instruction.inputs)?;
-    let out_types = side_types(&instruction.outputs)?;
+    let in_types: Vec<usize> = instruction.inputs.iter().map(|o| o.block).collect();
+    let out_types: Vec<usize> = instruction.outputs.iter().map(|o| o.block).collect();
     let width_of = |ts: &[usize]| ts.iter().map(|&t| types.caps[t]).sum::<usize>();
     let width = width_of(&in_types).max(width_of(&out_types));
 
     let clifford = if instruction.action.is_empty() {
         None
     } else {
-        action_clifford(instruction, width)
+        action_clifford(&instruction.action, width)
     };
     let rotation = match instruction.action.as_slice() {
         [step] => match &step.action {
-            Action::Rotate { pauli, angle } => Pauli::parse(&pauli.0)
-                .ok()
-                .filter(|p| p.max_qubit().is_some_and(|q| q < width))
-                .map(|p| (p, angle.clone())),
+            StepAction::Rotate {
+                pauli: Ok(PauliExpr::Literal(p)),
+                angle: Ok(angle),
+            } if p.max_qubit().is_some_and(|q| q < width) => Some((p.clone(), angle.clone())),
             _ => None,
         },
         _ => None,
     };
     Some(Semantics {
         index,
-        flagged: !instruction.flags.is_empty(),
-        flag_count: instruction.flags.len(),
+        flagged: instruction.flags > 0,
+        flag_count: instruction.flags,
         in_place_types: (in_types == out_types).then_some(in_types),
-        parameters: instruction
-            .parameters
-            .iter()
-            .map(|p| p.name.clone())
-            .collect(),
+        parameters: instruction.parameters.len(),
         clifford,
         rotation,
     })
@@ -291,13 +271,14 @@ struct Semantics {
     flag_count: usize,
     /// Operand types, when the instruction is in place (in types == out types).
     in_place_types: Option<Vec<usize>>,
-    parameters: Vec<String>,
+    /// How many parameters it has.
+    parameters: usize,
     /// The Clifford its action composes to, if the action is not empty and
     /// has only unguarded `clifford` and literal `pauli` steps inside its
     /// width.
     clifford: Option<Clifford>,
     /// The Pauli and angle of its action, if the action is one `rotate` step.
-    rotation: Option<(Pauli, Scalar)>,
+    rotation: Option<(Pauli, Angle)>,
 }
 
 /// A step, hashable: a rotation angle is keyed by its bits.
@@ -340,8 +321,9 @@ pub struct LowerOp {
 pub struct Resolved {
     /// Index into the lower ISA.
     pub index: usize,
-    /// Arguments, by parameter name (the angle of a parameterized rotation).
-    pub args: BTreeMap<String, Argument>,
+    /// Its arguments, in parameter order (the angle of a parameterized
+    /// rotation).
+    pub args: Vec<OwnedParam>,
     /// The layer cannot act on a raised flag for steps it applies itself, so
     /// it requires all flags to be zero. A raised flag sets the recoverable
     /// `rejected` status instead of failing.
@@ -358,25 +340,21 @@ fn is_close(a: f64, b: f64) -> bool {
 }
 
 /// The [`Fixes`] of a layer's encoders: a [`Resolver`] for the lower ISA,
-/// whose results become lower calls with their arguments in parameter order.
-/// Results are cached for the life of the plan: they depend only on the step
-/// and the lower types, never on the shot.
+/// whose results become lower calls. Results are cached for the life of the
+/// plan: they depend only on the step and the lower types, never on the shot.
 #[derive(Debug)]
 pub struct ResolverFixes {
     resolver: Rc<Resolver>,
-    lower_isa: Arc<InstructionSet>,
-    lower: TypeTable,
+    lower: Rc<Isa>,
     cache: RefCell<ResolveCache>,
 }
 
 impl ResolverFixes {
-    /// Applies corrections with `resolver`, which indexes `lower_isa`, whose
-    /// block types are `lower`.
+    /// Applies corrections with `resolver`, which indexes `lower`.
     #[must_use]
-    pub fn new(resolver: Rc<Resolver>, lower_isa: Arc<InstructionSet>, lower: TypeTable) -> Self {
+    pub fn new(resolver: Rc<Resolver>, lower: Rc<Isa>) -> Self {
         Self {
             resolver,
-            lower_isa,
             lower,
             cache: RefCell::default(),
         }
@@ -396,37 +374,27 @@ impl Fixes for ResolverFixes {
                 step,
                 qubits,
                 lower_type,
-                &self.lower,
+                &self.lower.types,
                 &mut self.cache.borrow_mut(),
             )
             .ok_or_else(|| {
                 Fault::no_implementation(format!("the lower ISA cannot apply {step} there"))
             })?;
-        parts
+        Ok(parts
             .into_iter()
             .map(|part| {
-                let instruction = &self.lower_isa.instructions[part.resolved.index];
                 let mut parameters: SmallVec<[OwnedParam; 2]> = part
                     .operands
                     .iter()
                     .map(|&o| OwnedParam::Block(o))
                     .collect();
-                for parameter in &instruction.parameters {
-                    let missing =
-                        || Fault::invalid(format!("no argument for `{}`", parameter.name));
-                    let arg = part
-                        .resolved
-                        .args
-                        .get(&parameter.name)
-                        .ok_or_else(missing)?;
-                    parameters.push(encode_arg(arg).ok_or_else(missing)?);
-                }
+                parameters.extend(part.resolved.args);
                 let call = Call {
                     instruction_id: part.resolved.index,
                     parameters,
                 };
-                Ok((call, part.resolved.select))
+                (call, part.resolved.select)
             })
-            .collect()
+            .collect())
     }
 }

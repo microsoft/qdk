@@ -3,54 +3,44 @@
 
 #![deny(missing_docs)]
 
-//! A library of mix-and-match pieces that implement the interfaces of
-//! [`qodec_runtime_interface`]. Each piece is a [`Layer`] (or a [`Backend`])
-//! that runs on its own plain data: no qodec model, no parsing of a qodec.
-//! Building that data from a qodec layer is the job of another crate
-//! (`qodec_runtime_builder`), so a piece can be reused, tested or replaced
-//! without it.
+//! A library of mix-and-match pieces for the qodec runtime. Each module is
+//! one piece: a [`Layer`] (or a [`Backend`]), what it runs on, and how it
+//! plans that from a [`LayerModel`]. Adding a piece is adding a module; no
+//! other code needs to know about it.
 //!
-//! This crate re-exports the interface crate, so one dependency is enough to
-//! build a runtime from pieces.
-//!
-//! # The library
-//!
-//! | Piece | Role | Runs on |
+//! | Piece | Role | Plans from a layer |
 //! |---|---|---|
-//! | [`SpecEncoder<C>`] | `Encoder<C>` | [`EncoderProgram`]: each upper instruction's gadget, as slots and call templates |
-//! | [`Passive<D>`] | `Decoder<Never, Never>` | [`RecordLayout`]: the upper ISA, and each gadget's `select` hints; turns any [`Decode`] into a decoder |
-//! | [`FrameDecoder`] | [`Decode`] | [`FrameGadget`]s: each gadget's checks, readouts, frames and sign transport |
-//! | [`UntilReady`] | `Controller<Rounds>` | [`UntilReadyPlan`]: each block type's QEC round |
-//! | [`TypeChecker<E>`] | [`Layer`] | [`Isa`]: the top ISA's signatures |
-//! | [`Runtime`] | [`Backend`] | [`Isa`]s of the top and bottom; any qodec layer over a [`BatchBackend`] |
+//! | [`SpecEncoder<C>`] | `Encoder<C>` | [`SpecEncoderPlan::plan`]: each upper instruction's gadget, as slots and call templates |
+//! | [`Passive<D>`] | `Decoder<Never, Never>` | [`RecordLayout::plan`]; turns any [`Decode`] into a decoder |
+//! | [`FrameDecoder`] | [`Decode`] | [`FrameDecoderPlan::plan`]: each gadget's checks, readouts, frames and sign transport |
+//! | [`UntilReady`] | `Controller<Rounds>` | [`UntilReadyPlan::plan`]: each block type's QEC round |
+//! | [`TypeChecker<E>`] | [`Layer`] | an [`Isa`]: the top ISA's signatures |
+//! | [`Resolver`] | [`Fixes`] | an [`Isa`]: applies corrections with the lower ISA's instructions |
+//! | [`Runtime`] | [`Backend`] | any qodec layer over a [`BatchBackend`], checked against the top ISA |
 //!
 //! A piece's `…Plan` is its [`Blueprint`]: shot-independent data from which a
-//! fresh piece is built per shot.
+//! fresh piece is built per shot. This crate re-exports the model crate, and
+//! through it the interface crate.
 
-pub mod action;
-pub mod checker;
-pub mod controller;
-pub mod decoder;
 pub mod encoder;
 pub mod frame_decoder;
-pub mod isa;
-pub mod parity;
+pub mod passive;
+pub mod resolver;
 pub mod runtime;
+pub mod type_checker;
+pub mod until_ready;
 
-pub use qodec_runtime_interface::*;
+pub use qodec_runtime_model::*;
 
-pub use action::{ActionStep, CliffordMap, ParsedPauli, PauliExpr, StepAction};
-pub use checker::TypeChecker;
-pub use controller::{Rounds, UntilReady, UntilReadyPlan};
-pub use decoder::{BodySelect, Decode, Passive, RecordLayout};
 pub use encoder::{
-    CompiledArg, EncoderProgram, Fixes, GadgetCall, GadgetProgram, LiveBlock, LogicalOps, Lowering,
-    OutputEncoding, SpecEncoder, SpecEncoderPlan,
+    EncoderProgram, Fixes, GadgetCall, GadgetProgram, LiveBlock, LogicalOps, Lowering,
+    OutputEncoding, PlannedFix, SpecEncoder, SpecEncoderPlan, check_pauli_corrections,
 };
-pub use frame_decoder::{
-    CodeShape, FrameDecoder, FrameDecoderPlan, FrameGadget, FrameKey, Transport,
-};
-pub use isa::{Isa, Operand, ParamKind, Parameter, Signature, TypeTable};
+pub use frame_decoder::{CodeShape, FrameDecoder, FrameDecoderPlan, FrameGadget, Transport};
+pub use passive::{BodySelect, Decode, Passive, RecordLayout};
+pub use resolver::{Resolver, ResolverFixes};
 pub use runtime::{
-    AtLayer, BatchBackend, QodecLayer, QodecLayers, QodecRuntime, QodecRuntimeError, Runtime,
+    BatchBackend, QodecLayer, QodecLayers, QodecRuntime, QodecRuntimeError, Runtime,
 };
+pub use type_checker::TypeChecker;
+pub use until_ready::{Rounds, UntilReady, UntilReadyPlan};

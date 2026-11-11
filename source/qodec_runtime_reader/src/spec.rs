@@ -1,37 +1,40 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Helpers that implement qodec spec rules on the `qodec` model: converting
-//! instruction sets and arguments for the pieces, selection patterns, frame
-//! deltas, parity references, encoding layouts, and codes. The rules that need
-//! no `qodec` model, such as binding operands, are in
-//! [`qodec_runtime_pieces::isa`].
+//! Helpers that implement qodec spec rules on the `qodec` crate's types:
+//! reading instruction sets, arguments and selection patterns into the model,
+//! frame deltas, parity references, encoding layouts, and codes.
 
-use super::{
-    FrameKey,
-    isa::{self, CompiledSelect, Isa, Operand, ParamKind, Parameter, Signature, TypeTable},
-    parity::{Basis, Parity, Side, Var},
-    pauli::Pauli,
-    protocol::OwnedParam,
-};
+use super::actions::compile_action;
 use qodec::{
     Argument, BlockOperand, Code, Encoding, Gadget, Instruction, InstructionSet, ParameterKind,
     ParityEquation, ParityTerm, Reference, ReferenceSegment, SelectPattern,
+};
+use qodec_runtime_model::{
+    CodeModel, CompiledSelect, FrameKey, Isa, Operand, OwnedParam, ParamKind, Parameter, Signature,
+    TypeTable,
+    parity::{Basis, Parity, Side, Var},
+    pauli::Pauli,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 
 // ── Instruction sets ────────────────────────────────────────────────────────
 
-/// `isa` as the pieces see it: its block types and its instructions'
-/// signatures.
-#[must_use]
-pub fn isa(isa: &InstructionSet) -> Isa {
-    Isa {
+/// `isa` in the model: its block types, interned, and its instructions with
+/// their actions.
+pub fn isa(isa: &InstructionSet) -> Result<Isa, String> {
+    let types = type_table(isa);
+    let instructions = isa
+        .instructions
+        .iter()
+        .map(|instruction| signature(instruction, &types))
+        .collect::<Result<_, _>>()?;
+    Ok(Isa {
         name: isa.name.clone(),
-        types: type_table(isa),
-        instructions: isa.instructions.iter().map(signature).collect(),
-    }
+        types,
+        instructions,
+    })
 }
 
 /// The block types of `isa`.
@@ -40,22 +43,29 @@ pub fn type_table(isa: &InstructionSet) -> TypeTable {
     TypeTable::new(isa.blocks.iter().map(|b| (b.name.clone(), b.encodes)))
 }
 
-/// What a call of `instruction` takes and returns.
-#[must_use]
-pub fn signature(instruction: &Instruction) -> Signature {
+/// `instruction` in the model, with its block types interned in `types`.
+pub fn signature(instruction: &Instruction, types: &TypeTable) -> Result<Signature, String> {
     let operands = |operands: &[BlockOperand]| {
         operands
             .iter()
-            .map(|o| Operand {
-                block: o.block.clone(),
-                variadic: o.is_variadic,
+            .map(|o| {
+                let block = types.get(&o.block).ok_or_else(|| {
+                    format!(
+                        "`{}` uses unknown block type `{}`",
+                        instruction.mnemonic, o.block
+                    )
+                })?;
+                Ok(Operand {
+                    block,
+                    variadic: o.is_variadic,
+                })
             })
-            .collect()
+            .collect::<Result<Vec<_>, String>>()
     };
-    Signature {
+    Ok(Signature {
         mnemonic: instruction.mnemonic.clone(),
-        inputs: operands(&instruction.inputs),
-        outputs: operands(&instruction.outputs),
+        inputs: operands(&instruction.inputs)?,
+        outputs: operands(&instruction.outputs)?,
         parameters: instruction
             .parameters
             .iter()
@@ -66,10 +76,11 @@ pub fn signature(instruction: &Instruction) -> Signature {
             .collect(),
         outcomes: instruction.observe_count(),
         flags: instruction.flags.len(),
-    }
+        action: compile_action(instruction),
+    })
 }
 
-/// The pieces' name for `kind`.
+/// The model's name for `kind`.
 #[must_use]
 pub fn param_kind(kind: ParameterKind) -> ParamKind {
     match kind {
@@ -101,11 +112,12 @@ pub fn param_kind(kind: ParameterKind) -> ParamKind {
 /// runs.
 ///
 /// `Argument::Qubit` never matches either; the qodec parser never produces
-/// it. Neither does `Argument::Readout`: the plan replaces readout arguments
-/// with bits before this check (`ArgumentPlan::Readout` in `plan.rs`).
+/// it. Neither does `Argument::Readout`: reading a circuit replaces readout
+/// arguments with record bits before this check (`ArgumentPlan::Readout` in
+/// `read.rs`).
 #[must_use]
 pub fn matches(kind: ParameterKind, value: &Argument) -> bool {
-    encode_arg(value).is_some_and(|v| isa::matches(param_kind(kind), &v))
+    encode_arg(value).is_some_and(|v| param_kind(kind).matches(&v))
 }
 
 /// Converts a spec argument value to a parameter. Returns `None` for the
@@ -418,25 +430,6 @@ pub fn layout_boundary(
     Ok(layouts)
 }
 
-/// The address of each code qubit of `layout`, in code-qubit order:
-/// `(slot, logical index inside that slot's lower block)`.
-///
-/// `slots[i]` is the slot of `layout.labels[i]`. For example, with two labels
-/// of a lower type that encodes 2 qubits, in slots 3 and 4, code qubits 0 to 3
-/// are `(3, 0), (3, 1), (4, 0), (4, 1)`.
-#[must_use]
-pub fn code_qubits(
-    layout: &EncodingPlan,
-    slots: &[usize],
-    lower: &TypeTable,
-) -> Vec<(usize, usize)> {
-    slots
-        .iter()
-        .zip(&layout.lower_types)
-        .flat_map(|(&slot, &t)| (0..lower.caps[t]).map(move |i| (slot, i)))
-        .collect()
-}
-
 /// The plan of one gadget-boundary [encoding](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#the-in--out-boundary-encodings):
 /// where the block lives in the gadget's circuit.
 #[derive(Clone, Debug)]
@@ -450,18 +443,6 @@ pub struct EncodingPlan {
     /// The lower block type of each label, as an index into the lower
     /// [`TypeTable`].
     pub lower_types: Vec<usize>,
-}
-
-impl EncodingPlan {
-    /// The number of lower blocks of each lower type, indexed like `lower`.
-    #[must_use]
-    pub fn resources(&self, lower: &TypeTable) -> Vec<usize> {
-        let mut counts = vec![0; lower.len()];
-        for &t in &self.lower_types {
-            counts[t] += 1;
-        }
-        counts
-    }
 }
 
 /// The plan of a code: a [`Code`] with its Pauli text parsed.
@@ -495,6 +476,18 @@ impl CodePlan {
             z: parse(&code.z)?,
             n: code.physical_qubit_count(),
         })
+    }
+
+    /// The code in the model.
+    #[must_use]
+    pub fn model(&self) -> CodeModel {
+        CodeModel {
+            name: self.code.name.clone(),
+            stabilizers: self.stabilizers.clone(),
+            x: self.x.clone(),
+            z: self.z.clone(),
+            n: self.n,
+        }
     }
 
     /// The number of operators of a kind.

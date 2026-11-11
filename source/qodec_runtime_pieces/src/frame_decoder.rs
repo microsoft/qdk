@@ -13,19 +13,19 @@
 //! [frames]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#frames
 
 use super::{
-    action::{ActionStep, CliffordMap, ParsedPauli, StepAction},
-    decoder::{Decode, Passive, RecordLayout},
+    action::{ActionStep, CliffordMap, ParsedPauli, StepAction, action_clifford, action_extent},
+    error::PlanError,
     layer::Blueprint,
+    layer_model::{EncodingModel, FrameKey, GadgetModel, LayerModel},
     parity::{Basis, BinarySystem, Inconsistent, Parity, Side, Var},
-    pauli::{Pauli, PauliOp},
+    passive::{Decode, Passive, RecordLayout},
+    pauli::{Clifford, DensePauli, Pauli, PauliOp},
     protocol::{BasicReadout, Bit, Status},
     protocol::{BlockRef, Invocation, Record},
+    select::{self, SelectPolicy},
 };
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
-
-/// `(output entry, basis, logical index)` of one output logical sign.
-pub type FrameKey = (usize, Basis, usize);
 
 /// Output logical sign -> parity of input signs it carries.
 pub type Transport = Vec<(FrameKey, Parity)>;
@@ -60,6 +60,181 @@ pub struct FrameGadget {
     pub action_extent: usize,
 }
 
+impl FrameGadget {
+    /// What the frame decoder needs for `gadget`, of `layer`.
+    pub fn plan(gadget: &GadgetModel, layer: &LayerModel) -> Result<Self, String> {
+        let instruction = &layer.upper.instructions[gadget.instruction];
+        if gadget.readouts.len() != instruction.outcomes + instruction.flags {
+            return Err("needs one readout per observe outcome and flag".to_string());
+        }
+        let shape = |e: &EncodingModel| CodeShape {
+            stabilizers: e.code.stabilizers.len(),
+            logicals: e.code.x.len(),
+        };
+        Ok(Self {
+            outcomes: instruction.outcomes,
+            flags: instruction.flags,
+            checks: gadget.checks.clone(),
+            readouts: gadget.readouts.clone(),
+            frames: gadget.frames.clone(),
+            inputs: gadget.inputs.iter().map(shape).collect(),
+            outputs: gadget.outputs.iter().map(shape).collect(),
+            transport: circuit_transport(gadget, layer)?,
+            action: instruction.action.clone(),
+            action_extent: action_extent(&instruction.action),
+        })
+    }
+}
+
+// ── Logical-sign transport from a Clifford-only body ────────────────────────
+
+/// The logical-sign transport of a gadget with a Clifford-only body: for every
+/// output logical X and Z sign, the parity of input signs it carries.
+///
+/// Returns `None` unless the gadget has inputs and outputs and no instruction
+/// parameters, and every circuit call is an in-place (in == out) instruction
+/// whose action has only unguarded `clifford` and literal `pauli` steps.
+/// Fails if some output logical operator is not, up to sign, a product of the
+/// circuit's images of the input stabilizers and logical operators.
+fn circuit_transport(
+    gadget: &GadgetModel,
+    layer: &LayerModel,
+) -> Result<Option<Transport>, String> {
+    let implemented = &layer.upper.instructions[gadget.instruction];
+    if gadget.inputs.is_empty() || gadget.outputs.is_empty() || !implemented.parameters.is_empty() {
+        return Ok(None);
+    }
+    let lower = &layer.lower;
+    // Give each label a range of qubit positions, one per qubit of its lower
+    // block.
+    let mut start = Vec::with_capacity(gadget.labels.len());
+    let mut width = 0;
+    for &t in &gadget.label_types {
+        start.push(width);
+        width += lower.types.caps[t];
+    }
+    let mut u = Clifford::identity(width);
+    for call in &gadget.body {
+        let instruction = &lower.instructions[call.instruction];
+        if instruction.inputs != instruction.outputs {
+            return Ok(None);
+        }
+        let (ins, _) = instruction.bind(&lower.types, &call.operands, &FxHashMap::default())?;
+        let positions: Vec<usize> = ins
+            .iter()
+            .flat_map(|b| (0..b.width).map(|i| start[b.label] + i))
+            .collect();
+        let Some(c) = action_clifford(&instruction.action, positions.len()) else {
+            return Ok(None);
+        };
+        u = u.then(&c.embed(&positions, width));
+    }
+
+    let place = |p: &Pauli, encoding: &EncodingModel| -> Result<DensePauli, String> {
+        let positions: Vec<usize> = encoding
+            .labels
+            .iter()
+            .flat_map(|&label| {
+                let (from, cap) = (start[label], lower.types.caps[gadget.label_types[label]]);
+                (0..cap).map(move |i| from + i)
+            })
+            .collect();
+        let mut d = DensePauli::identity(width);
+        for &(q, op) in p.terms() {
+            let pos = *positions.get(q).ok_or("code Pauli outside its encoding")?;
+            d.x[pos] = op.has_x();
+            d.z[pos] = op.has_z();
+        }
+        Ok(d)
+    };
+
+    // The images under `u` of every input stabilizer and logical operator,
+    // each tagged with its input sign variable in `vars`.
+    let mut gens = Gf2Basis::default();
+    let mut vars = Vec::new();
+    for (e, encoding) in gadget.inputs.iter().enumerate() {
+        for basis in [Basis::Stabilizers, Basis::X, Basis::Z] {
+            for (k, p) in encoding.code.paulis(basis).iter().enumerate() {
+                let image = u.conjugate(&place(p, encoding)?);
+                let mut combo = vec![false; vars.len() + 1];
+                combo[vars.len()] = true;
+                vars.push(Var::Enc {
+                    side: Side::In,
+                    e,
+                    basis,
+                    k,
+                });
+                gens.add(image.bits(), combo);
+            }
+        }
+    }
+    let mut transport = Vec::new();
+    for (e, encoding) in gadget.outputs.iter().enumerate() {
+        for basis in [Basis::X, Basis::Z] {
+            for (k, p) in encoding.code.paulis(basis).iter().enumerate() {
+                // Find the input generators whose product is this output
+                // logical operator `p`, up to sign.
+                let combo = gens
+                    .solve(place(p, encoding)?.bits())
+                    .ok_or("circuit does not preserve the code boundary")?;
+                let mut t = Parity::default();
+                for (i, &used) in combo.iter().enumerate() {
+                    if used {
+                        t ^= Parity::var(vars[i]);
+                    }
+                }
+                transport.push(((e, basis, k), t));
+            }
+        }
+    }
+    Ok(Some(transport))
+}
+
+/// Incremental GF(2) row basis that tracks which inputs make up each row.
+///
+/// `add` reduces every new row by all earlier rows, so no row has a bit set at
+/// an earlier row's pivot, and one pass over `rows` in insertion order fully
+/// reduces a vector. `BinarySystem` relies on the same invariant.
+#[derive(Default)]
+struct Gf2Basis {
+    /// (pivot, row, which inputs XOR to the row).
+    rows: Vec<(usize, Vec<bool>, Vec<bool>)>,
+}
+
+impl Gf2Basis {
+    fn add(&mut self, mut v: Vec<bool>, mut combo: Vec<bool>) {
+        for (pivot, row, row_combo) in &self.rows {
+            if v[*pivot] {
+                xor_into(&mut v, row);
+                xor_into(&mut combo, row_combo);
+            }
+        }
+        if let Some(pivot) = v.iter().position(|&b| b) {
+            self.rows.push((pivot, v, combo));
+        }
+    }
+
+    fn solve(&self, mut target: Vec<bool>) -> Option<Vec<bool>> {
+        let mut combo = Vec::new();
+        for (pivot, row, row_combo) in &self.rows {
+            if target[*pivot] {
+                xor_into(&mut target, row);
+                xor_into(&mut combo, row_combo);
+            }
+        }
+        target.iter().all(|b| !b).then_some(combo)
+    }
+}
+
+fn xor_into(a: &mut Vec<bool>, b: &[bool]) {
+    if a.len() < b.len() {
+        a.resize(b.len(), false);
+    }
+    for (x, y) in a.iter_mut().zip(b) {
+        *x ^= *y;
+    }
+}
+
 /// How many operators of each kind a code has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CodeShape {
@@ -86,6 +261,7 @@ pub struct FrameDecoderPlan {
     layout: Rc<RecordLayout>,
     /// Per gadget, indexed by [`GadgetId`](crate::GadgetId).
     gadgets: Rc<Vec<FrameGadget>>,
+    policy: SelectPolicy,
 }
 
 impl FrameDecoderPlan {
@@ -96,7 +272,29 @@ impl FrameDecoderPlan {
         Self {
             layout,
             gadgets: Rc::new(gadgets),
+            policy: select::recoverable,
         }
+    }
+
+    /// Plans the checks, readouts and sign transports of every gadget of
+    /// `layer`.
+    pub fn plan(layer: &LayerModel) -> Result<Self, PlanError> {
+        let gadgets = layer
+            .gadgets
+            .iter()
+            .map(|gadget| {
+                FrameGadget::plan(gadget, layer)
+                    .map_err(|e| PlanError(format!("gadget `{}`: {e}", gadget.name)))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self::new(Rc::new(RecordLayout::plan(layer)), gadgets))
+    }
+
+    /// Reads `select` hints with `policy` instead (see [`Passive`]).
+    #[must_use]
+    pub fn with_select_policy(mut self, policy: SelectPolicy) -> Self {
+        self.policy = policy;
+        self
     }
 
     /// A fresh frame decoder for one shot, without the [`Passive`] wrapper,
@@ -114,7 +312,7 @@ impl Blueprint for FrameDecoderPlan {
     type Instance = Passive<FrameDecoder>;
 
     fn instantiate(&self) -> Passive<FrameDecoder> {
-        Passive::new(Rc::clone(&self.layout), self.decoder())
+        Passive::new(Rc::clone(&self.layout), self.decoder()).with_select_policy(self.policy)
     }
 }
 
@@ -336,7 +534,7 @@ fn action_transport(
                     }
                 }
             }
-            StepAction::Rotate(pauli) => {
+            StepAction::Rotate { pauli, .. } => {
                 // A frame that anticommutes with the rotation's Pauli would
                 // flip the sign of its angle. `acc` is that anticommutation.
                 let mut acc = Parity::default();
@@ -411,7 +609,9 @@ fn step_support(
                 support.extend(resolve(image)?.support());
             }
         }
-        StepAction::Pauli(p) | StepAction::Rotate(p) => support.extend(resolve(p)?.support()),
+        StepAction::Pauli(p) | StepAction::Rotate { pauli: p, .. } => {
+            support.extend(resolve(p)?.support());
+        }
         StepAction::Observe(paulis) | StepAction::Stabilize(paulis) => {
             for p in paulis {
                 support.extend(resolve(p)?.support());

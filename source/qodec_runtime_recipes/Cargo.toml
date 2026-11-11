@@ -1,0 +1,18 @@
+[package]
+name = "qodec_runtime_recipes"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+qodec_runtime_builder = { path = "../qodec_runtime_builder" }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false

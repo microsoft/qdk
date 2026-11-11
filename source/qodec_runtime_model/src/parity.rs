@@ -24,6 +24,7 @@ pub struct BinarySystem {
 
 impl BinarySystem {
     /// An empty system.
+    #[inline]
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -31,6 +32,7 @@ impl BinarySystem {
 
     /// Adds the equation `p == 0`. If it contradicts the earlier equations, it
     /// fails and leaves the system unchanged.
+    #[inline]
     pub fn add(&mut self, p: Parity) -> Result<(), Inconsistent> {
         let q = self.reduce(p);
         if let Some(&pivot) = q.vars.first() {
@@ -44,6 +46,7 @@ impl BinarySystem {
     }
 
     /// The value of `p`, if the system determines it.
+    #[inline]
     #[must_use]
     pub fn value(&self, p: Parity) -> Option<bool> {
         let q = self.reduce(p);
@@ -51,6 +54,7 @@ impl BinarySystem {
     }
 
     /// Eliminates every pivot from `p`.
+    #[inline]
     #[must_use]
     pub fn reduce(&self, mut p: Parity) -> Parity {
         for (pivot, row) in &self.rows {
@@ -73,6 +77,7 @@ pub struct Parity {
 
 impl Parity {
     /// A constant parity.
+    #[inline]
     #[must_use]
     pub fn constant(value: bool) -> Self {
         Self {
@@ -82,6 +87,7 @@ impl Parity {
     }
 
     /// A single variable.
+    #[inline]
     #[must_use]
     pub fn var(var: Var) -> Self {
         Self {
@@ -91,18 +97,21 @@ impl Parity {
     }
 
     /// The variables, sorted and without duplicates.
+    #[inline]
     #[must_use]
     pub fn vars(&self) -> &[Var] {
         &self.vars
     }
 
     /// Whether `var` is a term of this parity.
+    #[inline]
     #[must_use]
     pub fn contains(&self, var: Var) -> bool {
         self.vars.binary_search(&var).is_ok()
     }
 
     /// Whether this parity has no variables.
+    #[inline]
     #[must_use]
     pub fn is_constant(&self) -> bool {
         self.vars.is_empty()
@@ -110,6 +119,7 @@ impl Parity {
 }
 
 impl BitXorAssign for Parity {
+    #[inline]
     fn bitxor_assign(&mut self, rhs: Parity) {
         *self ^= &rhs;
     }
@@ -117,6 +127,7 @@ impl BitXorAssign for Parity {
 
 impl BitXor for Parity {
     type Output = Parity;
+    #[inline]
     fn bitxor(mut self, rhs: Parity) -> Parity {
         self ^= &rhs;
         self
@@ -125,6 +136,7 @@ impl BitXor for Parity {
 
 impl BitXor<&Parity> for Parity {
     type Output = Parity;
+    #[inline]
     fn bitxor(mut self, rhs: &Parity) -> Parity {
         self ^= rhs;
         self
@@ -132,6 +144,7 @@ impl BitXor<&Parity> for Parity {
 }
 
 impl BitXorAssign<&Parity> for Parity {
+    #[inline]
     fn bitxor_assign(&mut self, rhs: &Parity) {
         if rhs.vars.is_empty() {
             self.constant ^= rhs.constant;

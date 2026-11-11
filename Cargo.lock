@@ -2757,7 +2757,8 @@ dependencies = [
  "criterion",
  "expect-test",
  "qodec",
- "qodec_runtime_builder",
+ "qodec_runtime_reader",
+ "qodec_runtime_recipes",
  "rustyline",
  "serde_yaml",
  "smallvec",
@@ -2767,12 +2768,7 @@ dependencies = [
 name = "qodec_runtime_builder"
 version = "0.0.0"
 dependencies = [
- "deq-runtime",
- "qodec",
  "qodec_runtime_pieces",
- "rustc-hash",
- "serde_json",
- "smallvec",
 ]
 
 [[package]]
@@ -2783,12 +2779,40 @@ dependencies = [
 ]
 
 [[package]]
-name = "qodec_runtime_pieces"
+name = "qodec_runtime_model"
 version = "0.0.0"
 dependencies = [
  "qodec_runtime_interface",
  "rustc-hash",
+]
+
+[[package]]
+name = "qodec_runtime_pieces"
+version = "0.0.0"
+dependencies = [
+ "qodec_runtime_model",
+ "rustc-hash",
  "smallvec",
+]
+
+[[package]]
+name = "qodec_runtime_reader"
+version = "0.0.0"
+dependencies = [
+ "deq-runtime",
+ "qodec",
+ "qodec_runtime_model",
+ "qodec_runtime_recipes",
+ "rustc-hash",
+ "serde_json",
+ "smallvec",
+]
+
+[[package]]
+name = "qodec_runtime_recipes"
+version = "0.0.0"
+dependencies = [
+ "qodec_runtime_builder",
 ]
 
 [[package]]

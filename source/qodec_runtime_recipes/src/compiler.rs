@@ -4,11 +4,9 @@
 //! [`Compiler`]: encoders without decoders, lowering a whole program ahead of
 //! time.
 
-use super::{
-    backend::from_fn,
-    layer::{Blueprint, Layer},
-    plan::{PlanError, QodecPlan},
-    protocol::{Call, Encoder, Fault, Lower, Never, Reply},
+use qodec_runtime_builder::{
+    Blueprint, Call, Encoder, Fault, Layer, Lower, Never, PlanError, QodecModel, Reply,
+    SpecEncoderPlan, from_fn,
 };
 
 /// Encoders that lower one after the other, from a qodec's top ISA to its
@@ -28,7 +26,7 @@ use super::{
 ///
 /// Results never come back, so it lowers any program whose gadgets don't feed
 /// a readout into a later `bit` argument. Such a program is adaptive: it needs
-/// a decoder at run time (see [`QodecPlan::instantiate`]).
+/// a decoder at run time.
 pub struct Compiler {
     encoders: Vec<Box<dyn Encoder<Never>>>,
 }
@@ -44,16 +42,10 @@ impl Compiler {
         Self { encoders }
     }
 
-    /// A [`SpecEncoder`](crate::SpecEncoder) for every layer of `plan`.
-    pub fn for_plan(plan: &QodecPlan) -> Result<Self, PlanError> {
-        let encoders = plan
-            .layer_plans()
-            .iter()
-            .map(|layer| -> Result<Box<dyn Encoder<Never>>, PlanError> {
-                Ok(Box::new(layer.spec_encoder::<Never>()?.instantiate()))
-            })
-            .collect::<Result<_, _>>()?;
-        Ok(Self::new(encoders))
+    /// A [`SpecEncoder`](qodec_runtime_builder::SpecEncoder) for every layer
+    /// of `model`. To lower many programs, plan once with [`CompilerPlan`].
+    pub fn for_model(model: &QodecModel) -> Result<Self, PlanError> {
+        CompilerPlan::new(model).map(|plan| plan.instantiate())
     }
 
     /// Lowers `calls` of the top ISA to calls of the bottom ISA. Blocks stay
@@ -72,5 +64,41 @@ impl Compiler {
             calls = lowered;
         }
         Ok(calls)
+    }
+}
+
+/// The blueprint of a [`Compiler`]: the encoders of every layer of a qodec,
+/// planned once.
+pub struct CompilerPlan {
+    encoders: Vec<SpecEncoderPlan<Never>>,
+}
+
+impl CompilerPlan {
+    /// Plans a [`SpecEncoder`](qodec_runtime_builder::SpecEncoder) for every
+    /// layer of `model`.
+    pub fn new(model: &QodecModel) -> Result<Self, PlanError> {
+        let encoders = model
+            .layers
+            .iter()
+            .enumerate()
+            .map(|(k, layer)| {
+                SpecEncoderPlan::<Never>::plan(layer)
+                    .map_err(|e| PlanError(format!("layer {k}: {e}")))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self { encoders })
+    }
+}
+
+impl Blueprint for CompilerPlan {
+    type Instance = Compiler;
+
+    fn instantiate(&self) -> Compiler {
+        Compiler::new(
+            self.encoders
+                .iter()
+                .map(|plan| -> Box<dyn Encoder<Never>> { Box::new(plan.instantiate()) })
+                .collect(),
+        )
     }
 }
