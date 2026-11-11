@@ -7,8 +7,9 @@
 //!
 //! A run that fails names the failing shot
 //! ([`QirResumeError::Resumer`](crate::qir::QirResumeError::Resumer));
-//! this says what about the shot failed: a call the method does not run, a
-//! call it cannot run, a capacity that is no chain, or the engine.
+//! this says what about the shot failed: a call the MPS simulation method
+//! does not run, a call it cannot run, a capacity that is no chain, or the
+//! engine.
 
 use std::fmt;
 
@@ -17,15 +18,16 @@ use super::MpsResumer;
 use crate::qir::QirInstruction;
 use tensornet::MpsShapeError;
 
-/// Why an [`MpsResumer`] failed a shot. Variants are added as the method
-/// needs them, hence `#[non_exhaustive]`.
+/// Why an [`MpsResumer`] failed a shot. Variants are added as the MPS
+/// simulation method needs them, hence `#[non_exhaustive]`.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum MpsResumerError<E> {
-    /// A call of an instruction the method does not run yet: correlated
-    /// noise, readout noise and loss checks, which noise and loss on
-    /// matrix product states (planned) will run. Failed when a shot reaches
-    /// the call, so a program whose noise is on a path no shot takes runs.
+    /// A call of an instruction the MPS simulation method does not run yet:
+    /// correlated noise, readout noise and loss checks, which noise and
+    /// loss on matrix product states (planned) will run. Failed when a shot
+    /// reaches the call, so a program whose noise is on a path no shot
+    /// takes runs.
     Unsupported {
         /// The instruction called.
         instruction: QirInstruction,

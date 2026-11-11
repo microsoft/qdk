@@ -8,6 +8,12 @@ estimation (29 qubits) do. It runs on any engine of the
 [`tensornet`](../../../tensornet/README.md) contract, for instance
 `tensornet`'s exact reference, or cuTensorNet's on a GPU.
 
+Two kinds of method meet here. An _MPS simulation method_ is the algorithm
+that runs a program's gates, measurements and shots on an MPS; this module
+is one, the MPS simulation method of `qdk_simulators`. It calls the
+_`MpsEngine` methods_ (`apply`, `project`, `probability_of_one`, …), the
+operations the trait declares and engines implement.
+
 **The problem.** Running a QIR program on an MPS needs two things that do
 not know each other: the program's classical part (branches on
 mid-circuit measurements, loops, records), which the
@@ -51,8 +57,8 @@ Everything that knows qubits is in this module:
   it, as the `QirResumer` contract requires, since each shot draws from
   its own stream. That stream is the one the executor protocol (planned)
   will seed for the only participant of a chain that draws, so a chain of
-  a driver and this method, its executor drawing as this method does,
-  will reproduce the records.
+  a driver and this MPS simulation method, its executor drawing as the
+  MPS simulation method does, will reproduce the records.
 
 **Evidence.** What checks each claim, and where it was verified:
 
@@ -77,8 +83,9 @@ Everything that knows qubits is in this module:
   distribution within $10^{-9}$ of the exact one in total variation
   distance.
 - **Expected, not yet verified with this resumer:** the cuTensorNet engine
-  on a GPU. An earlier version of this method ran H₂ on an NVIDIA A100
-  through cuTensorNet; [`fusion.rs`](fusion.rs) cites its timings.
+  on a GPU. An earlier version of this MPS simulation method ran H₂ on an
+  NVIDIA A100 through cuTensorNet; [`fusion.rs`](fusion.rs) cites its
+  timings.
 
 ## The model
 

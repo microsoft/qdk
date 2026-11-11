@@ -82,7 +82,8 @@ fn copies() -> QirProgram {
 }
 
 /// A program of no randomness records its basis state, whichever sites
-/// the method places its qubits on: here the order moves them.
+/// the MPS simulation method places its qubits on: here the order moves
+/// them.
 #[test]
 fn a_deterministic_program_records_its_basis_state() {
     let program = copies();
@@ -313,10 +314,11 @@ fn another_seed_gives_other_records() {
 
 /// A shot draws from the stream the executor protocol (planned) will seed
 /// for that shot of a chain's only participant that draws, at place 0, as
-/// this method is in a chain of a driver and itself: so such a chain, its
-/// executor drawing as this method does, will reproduce the records a
-/// resumer gives. Sixteen coins, read in order, are the first sixteen
-/// uniforms of that stream, each against ½, for several seeds and shots.
+/// this MPS simulation method is in a chain of a driver and itself: so
+/// such a chain, its executor drawing as this MPS simulation method does,
+/// will reproduce the records a resumer gives. Sixteen coins, read in
+/// order, are the first sixteen uniforms of that stream, each against ½,
+/// for several seeds and shots.
 #[test]
 fn a_shot_draws_from_the_executor_protocols_stream_of_the_only_drawing_participant() {
     let program = coins(16);

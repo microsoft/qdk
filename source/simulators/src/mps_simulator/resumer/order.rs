@@ -11,9 +11,9 @@
 //! Every order holds the same state, so a shot's draws and records do not
 //! depend on it (to rounding, and within the truncation error of an engine
 //! that truncates); the bonds, the time and the weight a max bond dimension
-//! discards do. So the order is the method's own: chosen inside the
-//! resumer and applied to every call it hands the engine, it never reaches
-//! the caller.
+//! discards do. So the order is the MPS simulation method's own: chosen
+//! inside the resumer and applied to every call it hands the engine, it
+//! never reaches the caller.
 //!
 //! The choice is a local search for the minimum linear arrangement of the
 //! program's interaction graph. On H₂'s phase estimation it lowered the

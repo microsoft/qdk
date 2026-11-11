@@ -260,13 +260,13 @@ impl<E: MpsEngine> MpsResumer<E> {
 
 /// The stream shot `shot` draws from under the run seed `seed`: the one the
 /// executor protocol (planned) will seed for that shot of the participant
-/// at place 0, which this method holds in a chain of a driver and itself,
-/// the chain's only participant that draws. So such a chain, its executor
-/// drawing from that stream as this method does, will reproduce the
-/// records a resumer gives. The protocol's seed is a hash of the run's
-/// seed, the place and the shot, so shots with close ids, or close seeds,
-/// draw unrelated values: with `mix(x)` the first value of
-/// `SplitMix64::new(x)`, the participant's seed is
+/// at place 0, which this MPS simulation method holds in a chain of a
+/// driver and itself, the chain's only participant that draws. So such a
+/// chain, its executor drawing from that stream as this MPS simulation
+/// method does, will reproduce the records a resumer gives. The protocol's
+/// seed is a hash of the run's seed, the place and the shot, so shots with
+/// close ids, or close seeds, draw unrelated values: with `mix(x)` the
+/// first value of `SplitMix64::new(x)`, the participant's seed is
 /// `mix(seed ^ mix(place + 1))`, and the shot's `mix(participant ^ shot)`.
 fn shot_stream(seed: u64, shot: QirShotId) -> SplitMix64 {
     fn mix(x: u64) -> u64 {
@@ -276,10 +276,11 @@ fn shot_stream(seed: u64, shot: QirShotId) -> SplitMix64 {
     SplitMix64::new(mix(participant ^ u64::from(shot.0)))
 }
 
-/// The place of this method among the participants that draw in a chain
-/// of the executor protocol (planned) with a driver that does not draw:
-/// the first, 0. The protocol counts places over the participants that
-/// draw only, so that inserting an observer (a debugger) moves no draw.
+/// The place of this MPS simulation method among the participants that
+/// draw in a chain of the executor protocol (planned) with a driver that
+/// does not draw: the first, 0. The protocol counts places over the
+/// participants that draw only, so that inserting an observer (a debugger)
+/// moves no draw.
 const DRAWING_PLACE: u64 = 0;
 
 /// A shot of a group: its place among the run's shots and its stream.

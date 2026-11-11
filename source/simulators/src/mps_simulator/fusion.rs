@@ -1,15 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`GateFusion`]: how the method groups a batch's gates into the operators
-//! the engine applies.
+//! [`GateFusion`]: how the MPS simulation method groups a batch's gates
+//! into the operators the engine applies.
 //!
 //! An engine's time goes to its operators (one per
 //! [`MpsEngine::apply`](tensornet::MpsEngine::apply)), so fewer, larger
-//! operators may cost less: an earlier version of this method, on an
-//! NVIDIA A100 through cuTensorNet, ran H₂'s first 100 measurements in
-//! 131 s with gates fused in pairs and in 176 s unfused, with 4.5× fewer
-//! operators (measured during development; no test times fusion). Fusion
+//! operators may cost less: an earlier version of this MPS simulation
+//! method, on an NVIDIA A100 through cuTensorNet, ran H₂'s first 100
+//! measurements in 131 s with gates fused in pairs and in 176 s unfused,
+//! with 4.5× fewer operators (measured during development; no test times
+//! fusion). Fusion
 //! is exact: the product of a run's operators, in order, is the product of
 //! its gates, to rounding. Under truncation an engine truncates after each
 //! operator, so fused and unfused runs may differ within the truncation
@@ -25,8 +26,8 @@ use num_complex::Complex64;
 
 use crate::mps_simulator::resumer::lowering::{Operator, Step};
 
-/// How the method groups the gates of each run between measurements and
-/// resets into the engine's operators.
+/// How the MPS simulation method groups the gates of each run between
+/// measurements and resets into the engine's operators.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum GateFusion {

@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A batch's quantum calls ([`QirCall`]) as the steps the method runs on
-//! an engine ([`Step`]), on sites: so that the engine knows no gate names
-//! and no qubits, only matrices and sites.
+//! A batch's quantum calls ([`QirCall`]) as the steps the MPS simulation
+//! method runs on an engine ([`Step`]), on sites: so that the engine knows
+//! no gate names and no qubits, only matrices and sites.
 //!
 //! A gate is its matrix at its angle
 //! ([`QirGate::matrix_at`](crate::qir::QirGate::matrix_at)), in the layout
@@ -19,7 +19,7 @@ use crate::qir::{OperatorMatrix, QirCall};
 use super::order::QubitOrder;
 use crate::mps_simulator::MpsResumerError;
 
-/// What the method does with a call, on sites.
+/// What the MPS simulation method does with a call, on sites.
 // A gate's matrix is held in place, unboxed: a batch's steps live in one
 // slice, and a box would allocate once per gate.
 #[allow(clippy::large_enum_variant)]
@@ -58,8 +58,8 @@ impl Operator {
 ///
 /// # Errors
 ///
-/// The first call that the method does not run (noise, loss) or cannot run
-/// (a gate on one qubit twice).
+/// The first call that the MPS simulation method does not run (noise,
+/// loss) or cannot run (a gate on one qubit twice).
 pub(crate) fn lower<E>(
     calls: &[QirCall],
     order: &QubitOrder,
