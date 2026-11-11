@@ -45,29 +45,7 @@ The two traits speak different terms, `qir`'s of qubits, calls and shots,
 - **group**: the shots of a run that drew the same values so far, which
   share one context and one state.
 
-## What this simulator bridges
-
-The machine hands over each shot's quantum calls in the program's terms,
-and wants each measurement's value back; the engine is called through
-`MpsEngine` methods on sites, and answers with probabilities:
-
-```mermaid
-flowchart LR
-  M["QirMachine<br/>(the program's classical part)"] -->|"a batch of calls on qubits"| R["MpsResumer"]
-  R -->|"outcomes: the values drawn"| M
-  R -->|"MpsEngine methods on sites"| E["an MpsEngine"]
-```
-
-| The machine gives (`qir`)               | The engine takes (`tensornet`)                | [Phases](#phases)  |
-| --------------------------------------- | --------------------------------------------- | ------------------ |
-| a program of n qubits                   | a capacity                                    | start; prepare     |
-| a gate by its name and angle, on qubits | an operator on sites                          | lower; fuse; apply |
-| a measurement or a reset, on a qubit    | P(One) of a site, and a projection on a value | draw; settle       |
-| shots, each with a state of its own     | states, and forks of a state                  | split              |
-
-## How it runs a program
-
-### Phases
+## Phases
 
 A run starts with one group of every shot; each group runs through these
 phases, and a split adds a group that waits its turn:
@@ -93,6 +71,28 @@ phases, and a split adds a group that waits its turn:
   that drew One flips the site back to |0⟩.
 - **end**: the context ended: the state's retained weight is read, and
   the group's records are each of its shots'.
+
+## What this simulator bridges
+
+The machine hands over each shot's quantum calls in the program's terms,
+and wants each measurement's value back; the engine is called through
+`MpsEngine` methods on sites, and answers with probabilities:
+
+```mermaid
+flowchart LR
+  M["QirMachine<br/>(the program's classical part)"] -->|"a batch of calls on qubits"| R["MpsResumer"]
+  R -->|"outcomes: the values drawn"| M
+  R -->|"MpsEngine methods on sites"| E["an MpsEngine"]
+```
+
+| The machine gives (`qir`)               | The engine takes (`tensornet`)                | [Phases](#phases)  |
+| --------------------------------------- | --------------------------------------------- | ------------------ |
+| a program of n qubits                   | a capacity                                    | start; prepare     |
+| a gate by its name and angle, on qubits | an operator on sites                          | lower; fuse; apply |
+| a measurement or a reset, on a qubit    | P(One) of a site, and a projection on a value | draw; settle       |
+| shots, each with a state of its own     | states, and forks of a state                  | split              |
+
+## How it runs a program
 
 ### How each concern of `QirResumer::run` is met
 
