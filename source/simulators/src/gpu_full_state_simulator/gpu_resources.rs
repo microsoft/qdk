@@ -16,6 +16,11 @@ use crate::{
     },
 };
 
+// Checks if the given adapter is unsupported due to known issues with DX12 on Adreno X1.
+fn is_unsupported_adapter(info: &wgpu::AdapterInfo) -> bool {
+    info.backend == wgpu::Backend::Dx12 && info.name.to_lowercase().contains("adreno(tm) x1")
+}
+
 #[derive(Debug, Default)]
 pub struct GpuResources {
     adapter: Option<Adapter>,
@@ -227,15 +232,21 @@ impl GpuResources {
 
         let score_adapter = |adapter: &Adapter| -> (u32, u32, u32, u64) {
             let info = adapter.get_info();
-            let device_score = match info.device_type {
-                wgpu::DeviceType::DiscreteGpu => 8,
-                wgpu::DeviceType::IntegratedGpu => 4,
-                _ => 0,
-            };
-            let backend_score = match info.backend {
-                wgpu::Backend::Vulkan | wgpu::Backend::Metal => 2,
-                wgpu::Backend::Dx12 => 1,
-                _ => 0,
+            let (device_score, backend_score) = if is_unsupported_adapter(&info) {
+                (0, 0)
+            } else {
+                (
+                    match info.device_type {
+                        wgpu::DeviceType::DiscreteGpu => 8,
+                        wgpu::DeviceType::IntegratedGpu => 4,
+                        _ => 0,
+                    },
+                    match info.backend {
+                        wgpu::Backend::Vulkan | wgpu::Backend::Metal => 2,
+                        wgpu::Backend::Dx12 => 1,
+                        _ => 0,
+                    },
+                )
             };
             let limits = adapter.limits();
             (
@@ -246,12 +257,13 @@ impl GpuResources {
             )
         };
 
-        // Filter to discrete or integrated GPUs that support Vulkan, Metal, or DX12
+        // Filter to discrete or integrated GPUs that support Vulkan, Metal, or DX12, excluding
+        // adapters with known driver bugs (scored (0, 0) above).
         // Then sort prefering discrete over integrated, Vulkan/Metal over DX12, and most workgroup memory
         // On Windows we want to prefer Vulkan if possible. It seems to have less issues than DX12.
         // Note that requesting a high-performance adapter via the wgpu API just prefers discrete GPUs also.
         let adapter = adapters
-            .into_iter()
+            .iter()
             .filter(|a| {
                 let score = score_adapter(a);
                 // Require a storage buffer of at least 1GB to ensure we can hold large state vectors of up to 27 qubits
@@ -261,8 +273,16 @@ impl GpuResources {
                 score.2 >= (1u32 << 14) /* at least 16KB compute workgroup storage (which implies compute capabilities also) */ &&
                 score.3 >= (1u64 << 30) /* at least 1GB storage buffers */
             })
-            .max_by_key(score_adapter)
-            .ok_or_else(|| "No suitable GPU adapter found".to_string())?;
+            .max_by_key(|a| score_adapter(a))
+            .cloned()
+            .ok_or_else(|| {
+                if adapters.iter().any(|a| is_unsupported_adapter(&a.get_info())) {
+                    "Unsupported GPU adapter found. Qualcomm Adreno X1 GPUs are not supported with \
+                    DirectX 12 due to a driver bug that silently corrupts data past 256 MB.".to_string()
+                } else {
+                    "No suitable GPU adapter found.".to_string()
+                }
+            })?;
 
         Ok(adapter)
     }
