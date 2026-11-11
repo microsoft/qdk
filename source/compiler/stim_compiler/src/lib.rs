@@ -20,10 +20,8 @@ pub mod lex;
 pub mod parser;
 pub mod semantic;
 
-/// Compiles a Stim circuit to a Q# AST, whose entry point `Main` returns the measurement records.
-///
-/// The noise channels used by the circuit are added to `noise` as noise intrinsics, which the
-/// generated Q# calls as `noise_intrinsic_{id}`. Errors are reported with the source attached.
+/// Compiles a Stim circuit to a Q# AST whose `Main` returns the measurement records. The noise
+/// channels it uses are added to `noise` as intrinsics.
 pub fn compile_to_qsharp_ast(
     src: &str,
     noise: &mut NoiseConfig<f64, f64>,
@@ -65,8 +63,7 @@ pub fn compile_to_qsharp(
     Ok(qsc::codegen::qsharp::write_package_string(&package))
 }
 
-/// Compiles a Stim circuit to QIR for the Adaptive profile, by compiling the Q# AST from
-/// [`compile_to_qsharp_ast`] against the standard library.
+/// Compiles a Stim circuit to QIR for the Adaptive profile. See [`compile_to_qsharp_ast`].
 pub fn compile_to_qir(src: &str, noise: &mut NoiseConfig<f64, f64>) -> Result<String, Vec<Report>> {
     let package = compile_to_qsharp_ast(src, noise)?;
     let capabilities = TargetCapabilityFlags::from(Profile::Adaptive);

@@ -21,11 +21,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use thiserror::Error;
 
 use crate::ast_builder::{
-    build_continue_if_stmt, build_controlled_qsharp_op_call_stmt, build_expr_conjugated_by,
-    build_intrinsic_call_expr, build_intrinsic_call_stmt, build_intrinsic_decl, build_is_loss_expr,
-    build_main, build_qsharp_op_call_expr, build_qubit_expr, build_record_bit_expr,
-    build_record_decl_stmt, build_record_expr, build_record_let_stmt, build_stmts_conjugated_by,
-    fold_exprs_with_op,
+    build_any_loss_expr, build_continue_if_stmt, build_controlled_qsharp_op_call_stmt,
+    build_expr_conjugated_by, build_intrinsic_call_expr, build_intrinsic_call_stmt,
+    build_intrinsic_decl, build_main, build_qsharp_op_call_expr, build_qubit_expr,
+    build_record_bit_expr, build_record_decl_stmt, build_record_expr, build_record_let_stmt,
+    build_stmts_conjugated_by, fold_exprs_with_op,
 };
 use crate::parser::Pauli::{self, X, Y, Z};
 use crate::semantic;
@@ -34,14 +34,13 @@ type StimQubitId = u32;
 pub(crate) type QubitId = u32;
 pub(crate) type ResultId = u32;
 
-/// The name of the qubit register allocated by the entry point: `use qs = Qubit[N];`.
 pub(crate) const QUBIT_REGISTER: &str = "qs";
 
 const READOUT_NOISE_INTRINSIC: &str = "__quantum__rt__readout_noise";
 const PEEK_LOSS_INTRINSIC: &str = "__quantum__qis__peek_loss__body";
 
-/// Whether a SELECT block's body can restart it: it contains a REQUIRE or NOTLEAKED, directly or
-/// inside a REPEAT that runs at least once. Nested SELECT blocks restart only themselves.
+/// Whether the body has a REQUIRE or NOTLEAKED, directly or in a REPEAT that runs at least once.
+/// Nested SELECT blocks only restart themselves.
 fn select_block_can_restart(body: &[semantic::Item]) -> bool {
     body.iter().any(|item| match item {
         semantic::Item::Instruction(instruction) => matches!(
@@ -55,7 +54,6 @@ fn select_block_can_restart(body: &[semantic::Item]) -> bool {
     })
 }
 
-/// The Q# standard library operations emitted by the compiler.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum QSharpOp {
@@ -131,10 +129,10 @@ impl QSharpOp {
 /// Each qubit takes 3 bits in a [`PauliAndLossString`].
 const MAX_CORRELATED_ERROR_QUBITS: usize = PauliAndLossString::BITS as usize / 3;
 
-/// The non-identity single-qubit Paulis, in the argument order of Stim's `PAULI_CHANNEL_1`.
+/// In the argument order of Stim's `PAULI_CHANNEL_1`.
 const SINGLE_QUBIT_PAULIS: [&str; 3] = ["X", "Y", "Z"];
 
-/// The non-identity two-qubit Paulis, in the argument order of Stim's `PAULI_CHANNEL_2`.
+/// In the argument order of Stim's `PAULI_CHANNEL_2`.
 const TWO_QUBIT_PAULIS: [&str; 15] = [
     "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI", "ZX", "ZY", "ZZ",
 ];
@@ -176,7 +174,7 @@ pub enum Error {
 }
 
 struct SymbolTable {
-    /// Maps each Stim qubit to its index in the `qs` register, in order of first use.
+    /// Stim qubit to `qs` index, assigned in order of first use.
     qubit_map: FxHashMap<StimQubitId, QubitId>,
     name_counters: FxHashMap<&'static str, u32>,
     record_count: u32,
@@ -441,10 +439,8 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    /// `use qs = Qubit[N];`, omitted when the circuit uses no qubits, followed by
-    /// `mutable r_k = Zero;` for each record assigned inside a SELECT loop that can restart. Other
-    /// records are bound with `let` where they are measured. Must run after the body is compiled,
-    /// since the body determines how many qubits there are and which records are in loops.
+    /// `use qs = Qubit[N];` (if any qubits are used), then `mutable r_k = Zero;` for each hoisted
+    /// record.
     fn variable_declarations(&self, span: Span) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
         let num_qubits = self.symbols.num_qubits();
@@ -464,7 +460,7 @@ impl<'noise> Compiler<'noise> {
         stmts
     }
 
-    /// `[r_0, …, r_{n-1}]` as the implicit return value of `Main`.
+    /// `[r_0, …, r_{n-1}]`
     fn records_return_stmt(&self, span: Span) -> ast::Stmt {
         let records = (0..self.symbols.record_count)
             .map(|result_id| build_record_expr(result_id, span))
@@ -481,8 +477,8 @@ impl<'noise> Compiler<'noise> {
             .collect()
     }
 
-    /// Compiles the items of a block body, or the circuit's top-level items, then flushes any
-    /// pending E/ELSE_CORRELATED_ERROR chain, since the end of a body interrupts those chains.
+    /// Compiles the items, then ends any pending correlated error chain, since chains can't leave
+    /// a block.
     fn compile_block_body(&mut self, items: &[semantic::Item]) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
         for item in items {
@@ -502,7 +498,7 @@ impl<'noise> Compiler<'noise> {
     fn compile_block(&mut self, block: &semantic::Block) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
 
-        // Block boundaries interrupt E/ELSE_CORRELATED_ERROR chains.
+        // Chains can't enter a block either.
         stmts.extend(self.finish_correlated_noise());
         stmts.extend(match block {
             semantic::Block::RepeatBlock { count, body } => self.compile_repeat_block(*count, body),
@@ -513,13 +509,13 @@ impl<'noise> Compiler<'noise> {
         stmts
     }
 
-    /// Unroll a repeat block into repeated statements
+    /// Unrolls the block `count` times.
     fn compile_repeat_block(&mut self, count: u32, body: &[semantic::Item]) -> Vec<ast::Stmt> {
         let error_count_before_repeat = self.errors.len();
         let mut stmts = Vec::new();
         for _ in 0..count {
             stmts.extend(self.compile_block_body(body));
-            // Avoid repeating error reporting
+            // Report each error once, not once per iteration.
             if self.errors.len() > error_count_before_repeat {
                 break;
             }
@@ -527,14 +523,14 @@ impl<'noise> Compiler<'noise> {
         stmts
     }
 
-    /// Compile a select block into a while true loop with a break at the end
+    /// `while true { …; break; }` if the block can restart, where REQUIRE and NOTLEAKED restart it
+    /// with `continue`. Otherwise, just the body.
     fn compile_select_block(&mut self, body: &[semantic::Item], span: Span) -> Vec<ast::Stmt> {
-        // Without a REQUIRE or NOTLEAKED the block never restarts, so it needs no loop.
         if !select_block_can_restart(body) {
             return self.compile_block_body(body);
         }
 
-        // Restored afterwards, so that a nested loop leaves the outer loop's records hoisted.
+        // Restored, so that records after a nested loop are still hoisted.
         let hoist_outer_records = self.symbols.hoist_records;
         self.symbols.hoist_records = true;
         let mut body_stmts = self.compile_block_body(body);
@@ -1147,14 +1143,9 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         };
 
-        // loss = IsLossResult(r_a) or IsLossResult(r_b) or …
-        let losses: Vec<ast::Expr> = result_ids
-            .iter()
-            .map(|&r| build_is_loss_expr(r, span))
-            .collect();
-        let loss_expr = fold_exprs_with_op(ast::BinOp::OrL, losses, span);
+        let loss_expr = build_any_loss_expr(&result_ids, span);
 
-        // parity = (r_a == One) != (r_b == One) != …, where `!rec[..]` compares with `Zero`
+        // parity = (r_a == One) != (r_b == One) != …, with `Zero` for `!rec[..]`
         let record_bits: Vec<ast::Expr> = result_ids
             .iter()
             .zip(records)
@@ -1205,12 +1196,7 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         }
 
-        // loss = IsLossResult(r_a) or IsLossResult(r_b) or …
-        let losses: Vec<ast::Expr> = result_ids
-            .iter()
-            .map(|&r| build_is_loss_expr(r, span))
-            .collect();
-        let loss_expr = fold_exprs_with_op(ast::BinOp::OrL, losses, span);
+        let loss_expr = build_any_loss_expr(&result_ids, span);
 
         let (loss, loss_stmt) = self.bind_local("loss", loss_expr, span);
         vec![loss_stmt, build_continue_if_stmt(&loss, span)]
@@ -1510,8 +1496,7 @@ impl<'noise> Compiler<'noise> {
         build_stmt_semi_from_expr(self.rotation_expr(op, angle, qubits, span))
     }
 
-    /// `let {prefix}_n = value;` with a fresh name. Returns the name, to refer to the binding
-    /// later, and the statement.
+    /// `let {prefix}_n = value;` with a fresh name `{prefix}_n`.
     fn bind_local(
         &mut self,
         prefix: &'static str,
@@ -1523,8 +1508,7 @@ impl<'noise> Compiler<'noise> {
         (name, stmt)
     }
 
-    /// `let r_k = value;` for a newly allocated record `r_k`, or an assignment `r_k = value;` when
-    /// records are hoisted (see [`SymbolTable::hoist_records`]).
+    /// `let r_k = value;` for a new record `r_k`, or `r_k = value;` when records are hoisted.
     fn record_result(&mut self, value: ast::Expr, span: Span) -> (ResultId, ast::Stmt) {
         let result_id = self.symbols.allocate_record();
         let stmt = if self.symbols.hoist_records {
@@ -1536,7 +1520,7 @@ impl<'noise> Compiler<'noise> {
         (result_id, stmt)
     }
 
-    /// Records the declaration of the intrinsic `name`, unless one is already recorded.
+    /// Declares the intrinsic `name`, once.
     fn declare_intrinsic(&mut self, name: &str, declaration: ast::Item) {
         self.symbols
             .used_intrinsics
@@ -1574,7 +1558,7 @@ impl<'noise> Compiler<'noise> {
         ))
     }
 
-    /// Allocates each Stim qubit and returns `qs[k]` for it.
+    /// `qs[k]` for each Stim qubit, allocating it on first use.
     fn qubit_args(&mut self, qubits: &[StimQubitId], span: Span) -> Vec<ast::Expr> {
         qubits
             .iter()
