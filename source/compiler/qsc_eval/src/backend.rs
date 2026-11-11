@@ -121,12 +121,6 @@ pub trait Backend {
     fn qubit_is_zero(&mut self, _q: usize) -> Result<bool, String> {
         Err("qubit_is_zero operation not implemented".to_string())
     }
-    fn qubit_is_plus(&mut self, _q: usize) -> Result<bool, String> {
-        Err("qubit_is_plus operation not implemented".to_string())
-    }
-    fn qubit_is_plus_i(&mut self, _q: usize) -> Result<bool, String> {
-        Err("qubit_is_plus_i operation not implemented".to_string())
-    }
     /// Executes custom intrinsic specified by `_name`.
     /// Returns None if this intrinsic is unknown.
     /// Otherwise returns Some(Result), with the Result from intrinsic.
@@ -506,20 +500,6 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
     pub fn qubit_is_zero(&mut self, q: usize) -> Result<bool, String> {
         match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_is_zero(q),
-            OptionalBackend::None(_) => Ok(true),
-        }
-    }
-
-    pub fn qubit_is_plus(&mut self, q: usize) -> Result<bool, String> {
-        match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.qubit_is_plus(q),
-            OptionalBackend::None(_) => Ok(true),
-        }
-    }
-
-    pub fn qubit_is_plus_i(&mut self, q: usize) -> Result<bool, String> {
-        match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.qubit_is_plus_i(q),
             OptionalBackend::None(_) => Ok(true),
         }
     }
@@ -1143,16 +1123,6 @@ impl Backend for SparseSim {
     fn qubit_is_zero(&mut self, q: usize) -> Result<bool, String> {
         // This is a service function rather than a measurement so it doesn't incur noise.
         Ok(self.sim.qubit_is_zero(q))
-    }
-
-    fn qubit_is_plus(&mut self, q: usize) -> Result<bool, String> {
-        // This is a service function rather than a measurement so it doesn't incur noise.
-        Ok(self.sim.qubit_is_plus(q))
-    }
-
-    fn qubit_is_plus_i(&mut self, q: usize) -> Result<bool, String> {
-        // This is a service function rather than a measurement so it doesn't incur noise.
-        Ok(self.sim.qubit_is_plus_i(q))
     }
 
     fn custom_intrinsic(

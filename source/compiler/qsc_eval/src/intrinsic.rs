@@ -136,24 +136,6 @@ pub(crate) fn call<B: Backend>(
             )
             .map_err(|e| Error::SimulationError(e, name_span))?,
         )),
-        "CheckPlus" => Ok(Value::Bool(
-            sim.qubit_is_plus(
-                arg.unwrap_qubit()
-                    .try_deref()
-                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                    .0,
-            )
-            .map_err(|e| Error::SimulationError(e, name_span))?,
-        )),
-        "CheckPlusI" => Ok(Value::Bool(
-            sim.qubit_is_plus_i(
-                arg.unwrap_qubit()
-                    .try_deref()
-                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                    .0,
-            )
-            .map_err(|e| Error::SimulationError(e, name_span))?,
-        )),
         "ArcCos" => Ok(Value::Double(arg.unwrap_double().acos())),
         "ArcSin" => Ok(Value::Double(arg.unwrap_double().asin())),
         "ArcTan" => Ok(Value::Double(arg.unwrap_double().atan())),
