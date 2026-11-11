@@ -8,7 +8,8 @@
 //! Runtime's own calls (`libraries::cuda_runtime`), which the MPS engine
 //! makes too; the compute capability, which only the setup check reads, is
 //! read here. It compiles only on Linux x86-64, and no host test reaches
-//! it: the rules run on a stand-in host (`tests/devices.rs`).
+//! it: the rules run on a stub of these calls (`StubLibraries`, in
+//! `tests/devices.rs`).
 
 use super::DeviceCalls;
 use crate::EngineError;

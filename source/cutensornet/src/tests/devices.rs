@@ -10,9 +10,10 @@ use std::cell::Cell;
 use crate::devices::{DeviceCalls, device_reports};
 use crate::{DeviceReport, EngineError};
 
-/// Devices of a host, as the CUDA Runtime would report them: the memory
-/// read is the current device's.
-struct Host {
+/// A stub of `LoadedLibraries`' device calls: canned devices, as the CUDA
+/// Runtime would report them, and a failure of each call on request. The
+/// memory read is the current device's.
+struct StubLibraries {
     /// Each device's compute capability, free and total bytes.
     devices: Vec<((i32, i32), usize, usize)>,
     current: Cell<Option<i32>>,
@@ -23,7 +24,7 @@ struct Host {
     fail_memory: bool,
 }
 
-impl Host {
+impl StubLibraries {
     fn new(devices: Vec<((i32, i32), usize, usize)>) -> Self {
         Self {
             devices,
@@ -40,7 +41,7 @@ impl Host {
     }
 }
 
-impl DeviceCalls for Host {
+impl DeviceCalls for StubLibraries {
     fn device_count(&self) -> Result<i32, EngineError> {
         if self.fail_count {
             return Err(EngineError::NoDevice);
@@ -77,9 +78,9 @@ impl DeviceCalls for Host {
 /// ordinal order, each with its own memory.
 #[test]
 fn each_device_is_reported_in_order_with_its_own_memory() {
-    let host = Host::new(vec![((8, 0), 79, 80), ((7, 0), 15, 16)]);
+    let libraries = StubLibraries::new(vec![((8, 0), 79, 80), ((7, 0), 15, 16)]);
     assert_eq!(
-        device_reports(&host).expect("the devices are read"),
+        device_reports(&libraries).expect("the devices are read"),
         vec![
             DeviceReport {
                 ordinal: 0,
@@ -102,7 +103,7 @@ fn each_device_is_reported_in_order_with_its_own_memory() {
 #[test]
 fn a_host_with_no_device_reports_none() {
     assert!(
-        device_reports(&Host::new(Vec::new()))
+        device_reports(&StubLibraries::new(Vec::new()))
             .expect("no device is no failure")
             .is_empty()
     );
@@ -112,9 +113,9 @@ fn a_host_with_no_device_reports_none() {
 /// reporting none.
 #[test]
 fn a_failed_device_count_fails_the_report() {
-    let failing = Host {
+    let failing = StubLibraries {
         fail_count: true,
-        ..Host::new(vec![((8, 0), 79, 80)])
+        ..StubLibraries::new(vec![((8, 0), 79, 80)])
     };
     assert!(device_reports(&failing).is_err());
 }
@@ -123,9 +124,9 @@ fn a_failed_device_count_fails_the_report() {
 /// being reported with no memory.
 #[test]
 fn a_device_that_cannot_be_read_fails_the_report() {
-    let failing = Host {
+    let failing = StubLibraries {
         fail_memory: true,
-        ..Host::new(vec![((8, 0), 79, 80)])
+        ..StubLibraries::new(vec![((8, 0), 79, 80)])
     };
     assert!(device_reports(&failing).is_err());
 }
@@ -135,9 +136,9 @@ fn a_device_that_cannot_be_read_fails_the_report() {
 /// old, hiding the fault.
 #[test]
 fn a_device_whose_compute_capability_cannot_be_read_fails_the_report() {
-    let failing = Host {
+    let failing = StubLibraries {
         fail_compute_capability: true,
-        ..Host::new(vec![((8, 0), 79, 80)])
+        ..StubLibraries::new(vec![((8, 0), 79, 80)])
     };
     assert!(device_reports(&failing).is_err());
 }
@@ -147,9 +148,9 @@ fn a_device_whose_compute_capability_cannot_be_read_fails_the_report() {
 /// device 1 of two.
 #[test]
 fn a_device_that_cannot_be_selected_fails_the_report() {
-    let failing = Host {
+    let failing = StubLibraries {
         fail_select: Some(1),
-        ..Host::new(vec![((8, 0), 79, 80), ((7, 0), 15, 16)])
+        ..StubLibraries::new(vec![((8, 0), 79, 80), ((7, 0), 15, 16)])
     };
     assert!(device_reports(&failing).is_err());
 }
