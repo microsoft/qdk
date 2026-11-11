@@ -12,8 +12,10 @@ and a new engine needs no change here. What the two traits require is in
 [`qir`'s README](../qir/README.md),
 [`tensornet`'s README](../../../tensornet/README.md#the-contract) and their
 rustdoc; this page says how this simulator implements `QirResumer` over
-`MpsEngine`, and why. The details are in the code, each file's header
-first.
+`MpsEngine`, and why. It defines its terms and phases first, then shows
+what the simulator bridges, how it runs a program (a table of concerns,
+and the calls of each phase), its public types with an example, and what
+is planned. The details are in the code, each file's header first.
 
 The module's tests, in
 [`src/tests/mps_simulator/`](../tests/mps_simulator/), check each row of
