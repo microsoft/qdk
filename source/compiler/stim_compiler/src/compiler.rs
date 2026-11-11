@@ -21,10 +21,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use thiserror::Error;
 
 use crate::ast_builder::{
-    build_conjugate_stmts, build_continue_if_stmt, build_controlled_qsharp_op_call_stmt,
+    build_continue_if_stmt, build_controlled_qsharp_op_call_stmt, build_expr_conjugated_by,
     build_intrinsic_call_expr, build_intrinsic_call_stmt, build_intrinsic_decl, build_is_loss_expr,
-    build_main, build_qsharp_op_call_expr, build_qsharp_op_call_stmt, build_qubit_expr,
-    build_record_bit_expr, build_record_decl_stmt, build_record_expr, fold_exprs_with_op,
+    build_main, build_qsharp_op_call_expr, build_qubit_expr, build_record_bit_expr,
+    build_record_decl_stmt, build_record_expr, build_record_let_stmt, build_stmts_conjugated_by,
+    fold_exprs_with_op,
 };
 use crate::parser::Pauli::{self, X, Y, Z};
 use crate::semantic;
@@ -181,6 +182,11 @@ struct IdMap {
     record_count: u32,
     /// The records produced by PEEK_LOSS, which NOTLEAKED may not reference.
     peek_loss_record_ids: FxHashSet<ResultId>,
+    record_ids_to_hoist: Vec<ResultId>,
+    /// Whether we are inside a SELECT loop that can restart. Records measured there are declared
+    /// `mutable` at the top of `Main`, since the loop may reassign them.
+    hoist_records: bool,
+    used_intrinsics: FxHashMap<String, ast::Item>,
 }
 
 impl IdMap {
@@ -190,6 +196,9 @@ impl IdMap {
             name_counters: FxHashMap::default(),
             record_count: 0,
             peek_loss_record_ids: FxHashSet::default(),
+            record_ids_to_hoist: Vec::new(),
+            hoist_records: false,
+            used_intrinsics: FxHashMap::default(),
         }
     }
 
@@ -393,7 +402,6 @@ struct Compiler<'noise> {
     errors: Vec<Error>,
     id_map: IdMap,
     noise_accumulator: NoiseAccumulator<'noise>,
-    used_intrinsics: FxHashMap<String, ast::Item>,
 }
 
 impl<'noise> Compiler<'noise> {
@@ -402,7 +410,6 @@ impl<'noise> Compiler<'noise> {
             errors: Vec::new(),
             id_map: IdMap::new(),
             noise_accumulator: NoiseAccumulator::new(noise),
-            used_intrinsics: FxHashMap::default(),
         }
     }
 
@@ -416,7 +423,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_circuit(&mut self, circuit: &semantic::Circuit) -> ast::Package {
-        // Compiled first, because it determines how many qubits and records to declare.
+        // Compiled first, because it determines the qubits and records to declare.
         let body = self.compile_block_body(&circuit.items);
 
         let span = circuit.span;
@@ -435,8 +442,9 @@ impl<'noise> Compiler<'noise> {
     }
 
     /// `use qs = Qubit[N];`, omitted when the circuit uses no qubits, followed by
-    /// `mutable r_k = Zero;` for each record. Must run after the body is compiled, since the
-    /// body determines how many qubits and records there are.
+    /// `mutable r_k = Zero;` for each record assigned inside a SELECT loop that can restart. Other
+    /// records are bound with `let` where they are measured. Must run after the body is compiled,
+    /// since the body determines how many qubits there are and which records are in loops.
     fn variable_declarations(&self, span: Span) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
         let num_qubits = self.id_map.num_qubits();
@@ -450,7 +458,7 @@ impl<'noise> Compiler<'noise> {
                 ast::QubitSource::Fresh,
             ));
         }
-        for result_id in 0..self.id_map.record_count {
+        for &result_id in &self.id_map.record_ids_to_hoist {
             stmts.push(build_record_decl_stmt(result_id, span));
         }
         stmts
@@ -465,7 +473,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn sorted_intrinsic_declarations(&mut self) -> Vec<ast::Item> {
-        let mut declarations: Vec<_> = self.used_intrinsics.drain().collect();
+        let mut declarations: Vec<_> = self.id_map.used_intrinsics.drain().collect();
         declarations.sort_by(|(a, _), (b, _)| a.cmp(b));
         declarations
             .into_iter()
@@ -521,12 +529,16 @@ impl<'noise> Compiler<'noise> {
 
     /// Compile a select block into a while true loop with a break at the end
     fn compile_select_block(&mut self, body: &[semantic::Item], span: Span) -> Vec<ast::Stmt> {
-        let mut body_stmts = self.compile_block_body(body);
-
         // Without a REQUIRE or NOTLEAKED the block never restarts, so it needs no loop.
         if !select_block_can_restart(body) {
-            return body_stmts;
+            return self.compile_block_body(body);
         }
+
+        // Restored afterwards, so that a nested loop leaves the outer loop's records hoisted.
+        let hoist_outer_records = self.id_map.hoist_records;
+        self.id_map.hoist_records = true;
+        let mut body_stmts = self.compile_block_body(body);
+        self.id_map.hoist_records = hoist_outer_records;
 
         body_stmts.push(build_break_stmt(span));
         vec![build_while_stmt(
@@ -818,7 +830,7 @@ impl<'noise> Compiler<'noise> {
                 (Op::S, &[q1]),
             ],
             G::YCZ => &[(Op::SAdj, &[q0]), (Op::CNOT, &[q1, q0]), (Op::S, &[q0])],
-            G::CH => return vec![self.controlled_gate_stmt(Op::H, &[q0], q1, span)],
+            G::CH => return vec![self.controlled_op_call_stmt(Op::H, &[q0], q1, span)],
         };
         self.gate_sequence(steps, span)
     }
@@ -1090,7 +1102,7 @@ impl<'noise> Compiler<'noise> {
                 stmts.extend(measurement);
                 stmts.extend(self.readout_noise_stmt(readout_noise, result_id, span));
             } else {
-                stmts.push(self.gate_stmt(op, qubits, span));
+                stmts.push(self.op_call_stmt(op, qubits, span));
             }
         }
         stmts
@@ -1271,8 +1283,8 @@ impl<'noise> Compiler<'noise> {
         });
     }
 
-    /// `set r_k = op(q);` for `M` or `MResetZ`. A negated measurement flips the qubit with `X`
-    /// before measuring, and flips it back afterwards unless the measurement reset it.
+    /// `r_k = op(q);` for `M` or `MResetZ`. A negated measurement flips the qubit with `X` before
+    /// measuring, and flips it back afterwards unless the measurement reset it.
     fn measure(
         &mut self,
         op: QSharpOp,
@@ -1282,14 +1294,13 @@ impl<'noise> Compiler<'noise> {
     ) -> (ResultId, Vec<ast::Stmt>) {
         let mut stmts = Vec::new();
         if negated {
-            stmts.push(self.gate_stmt(QSharpOp::X, &[qubit], span));
+            stmts.push(self.op_call_stmt(QSharpOp::X, &[qubit], span));
         }
-        let args = self.qubit_args(&[qubit], span);
-        let measure_call = build_qsharp_op_call_expr(op, args, span);
+        let measure_call = self.op_call_expr(op, &[qubit], span);
         let (result_id, record_assignment) = self.record_result(measure_call, span);
         stmts.push(record_assignment);
         if negated && op != QSharpOp::MResetZ {
-            stmts.push(self.gate_stmt(QSharpOp::X, &[qubit], span));
+            stmts.push(self.op_call_stmt(QSharpOp::X, &[qubit], span));
         }
         (result_id, stmts)
     }
@@ -1318,8 +1329,8 @@ impl<'noise> Compiler<'noise> {
         span: Span,
     ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
-        let apply = vec![self.gate_stmt(op, &[product.factors[0].q], span)];
-        build_conjugate_stmts(within, apply, span)
+        let apply = vec![self.op_call_stmt(op, &[product.factors[0].q], span)];
+        build_stmts_conjugated_by(within, apply, span)
     }
 
     /// `within { <product to Z on its first qubit> } apply { Rz(angle, q_0); }`
@@ -1331,22 +1342,28 @@ impl<'noise> Compiler<'noise> {
     ) -> Vec<ast::Stmt> {
         let within = self.map_pauli_product_to_z(&product.factors, span);
         let apply = vec![self.rotation_stmt(QSharpOp::Rz, angle, &[product.factors[0].q], span)];
-        build_conjugate_stmts(within, apply, span)
+        build_stmts_conjugated_by(within, apply, span)
     }
 
-    /// `within` { <product to Z on its first qubit> } apply { r_k = M(q_0); }
-    /// optionally adds readout noise to the measurement result
+    /// `let r_k = within { <product to Z on its first qubit> } apply { M(q_0) };`, followed by
+    /// optional readout noise. A negated product also flips `q_0` within the conjugation.
     fn conjugate_measure(
         &mut self,
         product: &semantic::PauliProduct,
         readout_noise: f64,
         span: Span,
     ) -> Vec<ast::Stmt> {
-        let within = self.map_pauli_product_to_z(&product.factors, span);
-        let (result_id, mut measure_stmts) =
-            self.measure(QSharpOp::M, product.factors[0].q, product.negated, span);
-        measure_stmts.extend(self.readout_noise_stmt(readout_noise, result_id, span));
-        build_conjugate_stmts(within, measure_stmts, span)
+        let qubit = product.factors[0].q;
+        let mut within = self.map_pauli_product_to_z(&product.factors, span);
+        if product.negated {
+            within.push(self.op_call_stmt(QSharpOp::X, &[qubit], span));
+        }
+        let measure_call = self.op_call_expr(QSharpOp::M, &[qubit], span);
+        let measurement = build_expr_conjugated_by(within, measure_call, span);
+        let (result_id, record_stmt) = self.record_result(measurement, span);
+        let mut stmts = vec![record_stmt];
+        stmts.extend(self.readout_noise_stmt(readout_noise, result_id, span));
+        stmts
     }
 
     /// Rotates each factor to the Z basis, then folds their parity onto the first qubit with
@@ -1364,7 +1381,7 @@ impl<'noise> Compiler<'noise> {
         stmts.extend(
             factors[1..]
                 .iter()
-                .map(|factor| self.gate_stmt(QSharpOp::CNOT, &[factor.q, focus], span)),
+                .map(|factor| self.op_call_stmt(QSharpOp::CNOT, &[factor.q, focus], span)),
         );
         stmts
     }
@@ -1399,17 +1416,22 @@ impl<'noise> Compiler<'noise> {
         self.gate_calls(ops, qubit, span)
     }
 
-    /// `{op}(qs[a], qs[b], …);`
-    fn gate_stmt(&mut self, op: QSharpOp, qubits: &[StimQubitId], span: Span) -> ast::Stmt {
+    /// `{op}(qs[a], qs[b], …)`
+    fn op_call_expr(&mut self, op: QSharpOp, qubits: &[StimQubitId], span: Span) -> ast::Expr {
         let args = self.qubit_args(qubits, span);
-        build_qsharp_op_call_stmt(op, args, span)
+        build_qsharp_op_call_expr(op, args, span)
+    }
+
+    /// `{op}(qs[a], qs[b], …);`
+    fn op_call_stmt(&mut self, op: QSharpOp, qubits: &[StimQubitId], span: Span) -> ast::Stmt {
+        build_stmt_semi_from_expr(self.op_call_expr(op, qubits, span))
     }
 
     /// `{op}(qs[a]);` for each `op` in `ops`, all applied to the same qubit.
     fn gate_calls(&mut self, ops: &[QSharpOp], qubit: StimQubitId, span: Span) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
         for &op in ops {
-            stmts.push(self.gate_stmt(op, &[qubit], span));
+            stmts.push(self.op_call_stmt(op, &[qubit], span));
         }
         stmts
     }
@@ -1422,13 +1444,13 @@ impl<'noise> Compiler<'noise> {
     ) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
         for &(op, qubits) in steps {
-            stmts.push(self.gate_stmt(op, qubits, span));
+            stmts.push(self.op_call_stmt(op, qubits, span));
         }
         stmts
     }
 
     /// `Controlled {op}([controls…], target);`
-    fn controlled_gate_stmt(
+    fn controlled_op_call_stmt(
         &mut self,
         op: QSharpOp,
         controls: &[StimQubitId],
@@ -1460,8 +1482,21 @@ impl<'noise> Compiler<'noise> {
             build_lit_result_expr(ast::Result::One, span),
             span,
         );
-        let then_block = build_block(vec![self.gate_stmt(op, &[target], span)], span);
+        let then_block = build_block(vec![self.op_call_stmt(op, &[target], span)], span);
         build_stmt_semi_from_expr(build_if_expr_then_block(condition, then_block, span))
+    }
+
+    /// `{op}(angle, qs[a], …)`
+    fn rotation_expr(
+        &mut self,
+        op: QSharpOp,
+        angle: Radians,
+        qubits: &[StimQubitId],
+        span: Span,
+    ) -> ast::Expr {
+        let mut args = vec![build_lit_double_expr(angle, span)];
+        args.extend(self.qubit_args(qubits, span));
+        build_qsharp_op_call_expr(op, args, span)
     }
 
     /// `{op}(angle, qs[a], …);`
@@ -1472,9 +1507,7 @@ impl<'noise> Compiler<'noise> {
         qubits: &[StimQubitId],
         span: Span,
     ) -> ast::Stmt {
-        let mut args = vec![build_lit_double_expr(angle, span)];
-        args.extend(self.qubit_args(qubits, span));
-        build_qsharp_op_call_stmt(op, args, span)
+        build_stmt_semi_from_expr(self.rotation_expr(op, angle, qubits, span))
     }
 
     /// `let {prefix}_n = value;` with a fresh name. Returns the name, to refer to the binding
@@ -1490,16 +1523,23 @@ impl<'noise> Compiler<'noise> {
         (name, stmt)
     }
 
-    /// `r_k = value;` for a newly allocated record `r_k`.
+    /// `let r_k = value;` for a newly allocated record `r_k`, or an assignment `r_k = value;` when
+    /// records are hoisted (see [`IdMap::hoist_records`]).
     fn record_result(&mut self, value: ast::Expr, span: Span) -> (ResultId, ast::Stmt) {
         let result_id = self.id_map.allocate_record();
-        let stmt = build_assignment_statement(build_record_expr(result_id, span), value, span);
+        let stmt = if self.id_map.hoist_records {
+            self.id_map.record_ids_to_hoist.push(result_id);
+            build_assignment_statement(build_record_expr(result_id, span), value, span)
+        } else {
+            build_record_let_stmt(result_id, value, span)
+        };
         (result_id, stmt)
     }
 
     /// Records the declaration of the intrinsic `name`, unless one is already recorded.
     fn declare_intrinsic(&mut self, name: &str, declaration: ast::Item) {
-        self.used_intrinsics
+        self.id_map
+            .used_intrinsics
             .entry(name.to_string())
             .or_insert(declaration);
     }

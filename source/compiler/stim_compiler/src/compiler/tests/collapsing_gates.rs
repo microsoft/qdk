@@ -14,8 +14,7 @@ fn m_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     [r_0]
                 }
             }"#]],
@@ -31,9 +30,8 @@ fn m_gate_with_negated_target_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
                     X(qs[0]);
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     X(qs[0]);
                     [r_0]
                 }
@@ -50,8 +48,7 @@ fn m_gate_with_readout_noise_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     __quantum__rt__readout_noise(0.1, 0.1, r_0);
                     [r_0]
                 }
@@ -73,8 +70,7 @@ fn mr_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    set r_0 = MResetZ(qs[0]);
+                    let r_0 = MResetZ(qs[0]);
                     [r_0]
                 }
             }"#]],
@@ -90,9 +86,8 @@ fn mr_gate_with_negated_target_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
                     X(qs[0]);
-                    set r_0 = MResetZ(qs[0]);
+                    let r_0 = MResetZ(qs[0]);
                     [r_0]
                 }
             }"#]],
@@ -109,9 +104,8 @@ fn mrx_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
                     H(qs[0]);
-                    set r_0 = MResetZ(qs[0]);
+                    let r_0 = MResetZ(qs[0]);
                     H(qs[0]);
                     [r_0]
                 }
@@ -129,10 +123,9 @@ fn mry_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
                     Adjoint S(qs[0]);
                     H(qs[0]);
-                    set r_0 = MResetZ(qs[0]);
+                    let r_0 = MResetZ(qs[0]);
                     H(qs[0]);
                     S(qs[0]);
                     [r_0]
@@ -151,9 +144,8 @@ fn mx_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
                     H(qs[0]);
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     H(qs[0]);
                     [r_0]
                 }
@@ -171,10 +163,9 @@ fn my_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
                     Adjoint S(qs[0]);
                     H(qs[0]);
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     H(qs[0]);
                     S(qs[0]);
                     [r_0]

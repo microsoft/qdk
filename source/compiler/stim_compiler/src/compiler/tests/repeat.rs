@@ -109,12 +109,9 @@ fn repeat_with_measurement() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    mutable r_1 = Zero;
-                    mutable r_2 = Zero;
-                    set r_0 = M(qs[0]);
-                    set r_1 = M(qs[0]);
-                    set r_2 = M(qs[0]);
+                    let r_0 = M(qs[0]);
+                    let r_1 = M(qs[0]);
+                    let r_2 = M(qs[0]);
                     [r_0, r_1, r_2]
                 }
             }"#]],
@@ -136,18 +133,15 @@ fn repeat_with_classically_controlled_gate() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    mutable r_1 = Zero;
-                    mutable r_2 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     if r_0 == One {
                         X(qs[1]);
                     };
-                    set r_1 = M(qs[0]);
+                    let r_1 = M(qs[0]);
                     if r_1 == One {
                         X(qs[1]);
                     };
-                    set r_2 = M(qs[0]);
+                    let r_2 = M(qs[0]);
                     if r_2 == One {
                         X(qs[1]);
                     };
@@ -175,12 +169,10 @@ fn repeat_with_classically_controlled_gate_after_loop() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    mutable r_1 = Zero;
                     H(qs[0]);
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     H(qs[0]);
-                    set r_1 = M(qs[0]);
+                    let r_1 = M(qs[0]);
                     if r_0 == One {
                         X(qs[0]);
                     };
@@ -234,14 +226,10 @@ fn nested_repeat_with_measurement() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    mutable r_1 = Zero;
-                    mutable r_2 = Zero;
-                    mutable r_3 = Zero;
-                    set r_0 = M(qs[0]);
-                    set r_1 = M(qs[0]);
-                    set r_2 = M(qs[0]);
-                    set r_3 = M(qs[0]);
+                    let r_0 = M(qs[0]);
+                    let r_1 = M(qs[0]);
+                    let r_2 = M(qs[0]);
+                    let r_3 = M(qs[0]);
                     [r_0, r_1, r_2, r_3]
                 }
             }"#]],

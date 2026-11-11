@@ -216,12 +216,9 @@ fn select_block_no_require() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[3];
-                    mutable r_0 = Zero;
-                    mutable r_1 = Zero;
-                    mutable r_2 = Zero;
-                    set r_0 = M(qs[0]);
-                    set r_1 = M(qs[1]);
-                    set r_2 = M(qs[2]);
+                    let r_0 = M(qs[0]);
+                    let r_1 = M(qs[1]);
+                    let r_2 = M(qs[2]);
                     [r_0, r_1, r_2]
                 }
             }"#]],

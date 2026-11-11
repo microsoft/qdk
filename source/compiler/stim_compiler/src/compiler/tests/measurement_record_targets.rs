@@ -18,8 +18,7 @@ fn cx_with_rec_control_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     if r_0 == One {
                         X(qs[1]);
                     };
@@ -43,10 +42,8 @@ fn cx_with_older_rec_control_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[3];
-                    mutable r_0 = Zero;
-                    mutable r_1 = Zero;
-                    set r_0 = M(qs[0]);
-                    set r_1 = M(qs[1]);
+                    let r_0 = M(qs[0]);
+                    let r_1 = M(qs[1]);
                     if r_0 == One {
                         X(qs[2]);
                     };
@@ -69,8 +66,7 @@ fn cy_with_rec_control_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     if r_0 == One {
                         Y(qs[1]);
                     };
@@ -93,8 +89,7 @@ fn cz_with_rec_on_first_target_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     if r_0 == One {
                         Z(qs[1]);
                     };
@@ -117,8 +112,7 @@ fn cz_with_rec_on_second_target_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     if r_0 == One {
                         Z(qs[1]);
                     };
@@ -141,8 +135,7 @@ fn xcz_with_rec_on_second_target_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     if r_0 == One {
                         X(qs[1]);
                     };
@@ -165,8 +158,7 @@ fn ycz_with_rec_on_second_target_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     if r_0 == One {
                         Y(qs[1]);
                     };
@@ -191,8 +183,7 @@ fn cx_with_rec_control_crossing_select_boundary() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     if r_0 == One {
                         X(qs[1]);
                     };
@@ -217,8 +208,7 @@ fn top_level_classical_control_reaches_into_select() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     if r_0 == One {
                         X(qs[1]);
                     };

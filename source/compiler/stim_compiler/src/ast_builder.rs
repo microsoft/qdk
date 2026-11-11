@@ -6,10 +6,10 @@
 use qsc::ast;
 use qsc::ast::builder::{
     build_arg_pat, build_attr, build_binary_expr, build_block, build_call_args_expr,
-    build_call_expr, build_conjugate_expr, build_continue_stmt, build_if_expr_then_block,
-    build_index_expr, build_lit_bool_expr, build_lit_int_expr, build_lit_result_expr,
-    build_local_decl, build_operation_with_stmts, build_path_ident_expr, build_path_ident_ty,
-    build_stmt_semi_from_expr, build_unary_op_expr,
+    build_call_expr, build_conjugate_expr, build_continue_stmt, build_expr_wrapped_block_expr,
+    build_if_expr_then_block, build_index_expr, build_lit_bool_expr, build_lit_int_expr,
+    build_lit_result_expr, build_local_decl, build_operation_with_stmts, build_path_ident_expr,
+    build_path_ident_ty, build_stmt_semi_from_expr, build_unary_op_expr,
 };
 use qsc_data_structures::span::Span;
 
@@ -102,15 +102,6 @@ pub(crate) fn build_qsharp_op_call_expr(
     build_call_expr(callee, build_call_args_expr(args), span)
 }
 
-/// `[Adjoint] {op}(args…);`
-pub(crate) fn build_qsharp_op_call_stmt(
-    op: QSharpOp,
-    args: Vec<ast::Expr>,
-    span: Span,
-) -> ast::Stmt {
-    build_stmt_semi_from_expr(build_qsharp_op_call_expr(op, args, span))
-}
-
 /// `Controlled [Adjoint] {op}(controls, target);`, where `controls` is an array of qubits.
 pub(crate) fn build_controlled_qsharp_op_call_stmt(
     op: QSharpOp,
@@ -171,6 +162,21 @@ pub(crate) fn build_record_decl_stmt(result_id: ResultId, span: Span) -> ast::St
     )
 }
 
+/// `let r_k = value;`
+pub(crate) fn build_record_let_stmt(
+    result_id: ResultId,
+    value: ast::Expr,
+    span: Span,
+) -> ast::Stmt {
+    build_local_decl(
+        record_name(result_id),
+        ast::Mutability::Immutable,
+        value,
+        span,
+        span,
+    )
+}
+
 /// `r_k == One`, or `r_k == Zero` for a negated record.
 pub(crate) fn build_record_bit_expr(result_id: ResultId, negated: bool, span: Span) -> ast::Expr {
     let expected = if negated {
@@ -197,7 +203,7 @@ pub(crate) fn build_is_loss_expr(result_id: ResultId, span: Span) -> ast::Expr {
 }
 
 /// `within { within } apply { apply };`, or just the `apply` statements if `within` is empty.
-pub(crate) fn build_conjugate_stmts(
+pub(crate) fn build_stmts_conjugated_by(
     within: Vec<ast::Stmt>,
     apply: Vec<ast::Stmt>,
     span: Span,
@@ -207,6 +213,23 @@ pub(crate) fn build_conjugate_stmts(
     }
     let expr = build_conjugate_expr(build_block(within, span), build_block(apply, span), span);
     vec![build_stmt_semi_from_expr(expr)]
+}
+
+/// `within { within } apply { apply }`, whose value is `apply`'s, or just `apply` if `within` is
+/// empty.
+pub(crate) fn build_expr_conjugated_by(
+    within: Vec<ast::Stmt>,
+    apply: ast::Expr,
+    span: Span,
+) -> ast::Expr {
+    if within.is_empty() {
+        return apply;
+    }
+    build_conjugate_expr(
+        build_block(within, span),
+        build_expr_wrapped_block_expr(apply),
+        span,
+    )
 }
 
 /// `if {name} { continue; }`

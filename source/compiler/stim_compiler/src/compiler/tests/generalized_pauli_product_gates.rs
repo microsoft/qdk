@@ -15,11 +15,10 @@ fn mpp_single_x_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    within {
+                    let r_0 = within {
                         H(qs[0]);
                     } apply {
-                        set r_0 = M(qs[0]);
+                        M(qs[0])
                     };
                     [r_0]
                 }
@@ -37,12 +36,11 @@ fn mpp_single_y_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    within {
+                    let r_0 = within {
                         Adjoint S(qs[0]);
                         H(qs[0]);
                     } apply {
-                        set r_0 = M(qs[0]);
+                        M(qs[0])
                     };
                     [r_0]
                 }
@@ -60,8 +58,7 @@ fn mpp_single_z_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    set r_0 = M(qs[0]);
+                    let r_0 = M(qs[0]);
                     [r_0]
                 }
             }"#]],
@@ -78,10 +75,11 @@ fn mpp_negated_single_pauli_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    X(qs[0]);
-                    set r_0 = M(qs[0]);
-                    X(qs[0]);
+                    let r_0 = within {
+                        X(qs[0]);
+                    } apply {
+                        M(qs[0])
+                    };
                     [r_0]
                 }
             }"#]],
@@ -97,14 +95,13 @@ fn mpp_two_factor_product_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    within {
+                    let r_0 = within {
                         H(qs[0]);
                         Adjoint S(qs[1]);
                         H(qs[1]);
                         CNOT(qs[1], qs[0]);
                     } apply {
-                        set r_0 = M(qs[0]);
+                        M(qs[0])
                     };
                     [r_0]
                 }
@@ -122,12 +119,11 @@ fn mpp_three_factor_product_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[3];
-                    mutable r_0 = Zero;
-                    within {
+                    let r_0 = within {
                         CNOT(qs[0], qs[1]);
                         CNOT(qs[2], qs[1]);
                     } apply {
-                        set r_0 = M(qs[1]);
+                        M(qs[1])
                     };
                     [r_0]
                 }
@@ -144,15 +140,14 @@ fn mpp_product_of_all_three_bases_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[3];
-                    mutable r_0 = Zero;
-                    within {
+                    let r_0 = within {
                         H(qs[0]);
                         Adjoint S(qs[1]);
                         H(qs[1]);
                         CNOT(qs[1], qs[0]);
                         CNOT(qs[2], qs[0]);
                     } apply {
-                        set r_0 = M(qs[0]);
+                        M(qs[0])
                     };
                     [r_0]
                 }
@@ -170,14 +165,12 @@ fn mpp_negated_product_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[3];
-                    mutable r_0 = Zero;
-                    within {
+                    let r_0 = within {
                         CNOT(qs[0], qs[1]);
                         CNOT(qs[2], qs[1]);
+                        X(qs[1]);
                     } apply {
-                        X(qs[1]);
-                        set r_0 = M(qs[1]);
-                        X(qs[1]);
+                        M(qs[1])
                     };
                     [r_0]
                 }
@@ -194,13 +187,12 @@ fn mpp_with_readout_noise_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    within {
+                    let r_0 = within {
                         CNOT(qs[0], qs[1]);
                     } apply {
-                        set r_0 = M(qs[1]);
-                        __quantum__rt__readout_noise(0.01, 0.01, r_0);
+                        M(qs[1])
                     };
+                    __quantum__rt__readout_noise(0.01, 0.01, r_0);
                     [r_0]
                 }
                 @NoiseIntrinsic()

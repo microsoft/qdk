@@ -14,8 +14,7 @@ fn peek_loss_single_qubit() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    set r_0 = __quantum__qis__peek_loss__body(qs[0]);
+                    let r_0 = __quantum__qis__peek_loss__body(qs[0]);
                     [r_0]
                 }
                 @Measurement()
@@ -35,8 +34,7 @@ fn peek_loss_with_readout_noise_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    mutable r_0 = Zero;
-                    set r_0 = __quantum__qis__peek_loss__body(qs[0]);
+                    let r_0 = __quantum__qis__peek_loss__body(qs[0]);
                     __quantum__rt__readout_noise(0.5, 0.5, r_0);
                     [r_0]
                 }
@@ -65,8 +63,7 @@ fn peek_loss_referenced_by_classical_control() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    mutable r_0 = Zero;
-                    set r_0 = __quantum__qis__peek_loss__body(qs[0]);
+                    let r_0 = __quantum__qis__peek_loss__body(qs[0]);
                     if r_0 == One {
                         X(qs[1]);
                     };
@@ -154,12 +151,9 @@ fn peek_loss_interleaved_with_measurements() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[3];
-                    mutable r_0 = Zero;
-                    mutable r_1 = Zero;
-                    mutable r_2 = Zero;
-                    set r_0 = M(qs[0]);
-                    set r_1 = __quantum__qis__peek_loss__body(qs[1]);
-                    set r_2 = M(qs[2]);
+                    let r_0 = M(qs[0]);
+                    let r_1 = __quantum__qis__peek_loss__body(qs[1]);
+                    let r_2 = M(qs[2]);
                     [r_0, r_1, r_2]
                 }
                 @Measurement()
