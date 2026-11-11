@@ -24,7 +24,7 @@ impl Transpiler for CliffordTranspiler {
 
     /// Appends an exact three-gate decomposition after validating the operands.
     fn transpile(
-        &self,
+        &mut self,
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String> {

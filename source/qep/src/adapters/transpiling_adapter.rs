@@ -76,7 +76,7 @@ impl<B: QuantumBackend> QuantumBackend for TranspilingAdapter<B> {
     ) -> Result<BatchResult, String> {
         let mut transformed = Vec::with_capacity(instructions.len());
         for instruction in instructions {
-            if let Some(transpiler) = self.transpilers.get(instruction.instruction_name) {
+            if let Some(transpiler) = self.transpilers.get_mut(instruction.instruction_name) {
                 transpiler.transpile(instruction, &mut transformed)?;
             } else {
                 transformed.push(instruction.clone());

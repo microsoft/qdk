@@ -17,7 +17,7 @@ impl Transpiler for MzResetTranspiler {
 
     /// Appends one measurement result and a reset on the same qubit.
     fn transpile(
-        &self,
+        &mut self,
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String> {

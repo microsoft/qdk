@@ -20,7 +20,7 @@ impl Transpiler for DecomposeToffoliTranspiler {
 
     /// Appends the Clifford+T decomposition of a Toffoli instruction.
     fn transpile(
-        &self,
+        &mut self,
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String> {

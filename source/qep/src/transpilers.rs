@@ -22,9 +22,9 @@ pub trait Transpiler: Send + Sync {
     /// Returns the instruction name accepted by this transpiler.
     fn source_instruction_name(&self) -> &'static str;
 
-    /// Appends replacement instructions, returning an error for invalid input.
+    /// Appends replacement instructions, updating transpiler state and rejecting invalid input.
     fn transpile(
-        &self,
+        &mut self,
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String>;

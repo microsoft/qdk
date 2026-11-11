@@ -79,7 +79,7 @@ impl Transpiler for RzQftTranspiler {
 
     /// Appends the synthesized rotation sequence, up to global phase.
     fn transpile(
-        &self,
+        &mut self,
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String> {

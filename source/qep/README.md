@@ -105,8 +105,8 @@ a new sequence is synthesized and stored. Exact phase gates and adjoints are
 applied outside the cache, allowing reuse across equivalent rotations.
 Cache reuse adds at most half the angle difference to the library's
 operator-norm synthesis error, so the combined bound is less than
-`1.5 * precision`, up to floating-point rounding. Cache access and insertion
-are synchronized across threads. With `use_cache = false`, cache lookup and
+`1.5 * precision`, up to floating-point rounding. `Transpiler::transpile` takes
+`&mut self`, so the per-instance cache needs no mutex. With `use_cache = false`, cache lookup and
 insertion are bypassed. `Default` leaves caching disabled.
 The default adapter continues to use the QFT table.
 

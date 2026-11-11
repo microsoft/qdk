@@ -17,7 +17,7 @@ impl Transpiler for SwapTransplier {
 
     /// Appends three controlled-X gates that exchange the source qubits.
     fn transpile(
-        &self,
+        &mut self,
         source: &QuantumBackendInstruction,
         output: &mut Vec<QuantumBackendInstruction>,
     ) -> Result<(), String> {
