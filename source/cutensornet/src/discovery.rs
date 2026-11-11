@@ -112,7 +112,7 @@ pub struct PackagedLibraries {
 /// CUDA Runtime and cuTensorNet, as [`discover_with`] does with no packaged
 /// libraries.
 ///
-/// It selects no device, allocates nothing and runs no GPU work. Each
+/// Discovery selects no device, allocates nothing and runs no GPU work. Each
 /// library has an override variable, today `QDK_CUDART_LIBRARY` and
 /// `QDK_CUTENSORNET_LIBRARY`, which, when set, names the one absolute path
 /// to load; otherwise the library's default paths are tried in order
