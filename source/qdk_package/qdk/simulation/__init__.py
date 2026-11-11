@@ -23,8 +23,8 @@ This module exposes the core building blocks for noise-aware quantum simulation:
   three backend simulators: clifford, gpu or cpu.
 
 - :func:`~qdk.simulation.tensornetwork_qir` — simulates QIR with a
-  tensor-network method: shots on a matrix product state on an NVIDIA GPU
-  (``pip install "qdk[tensornetwork]"``), with the run's report;
+  tensor-network simulation method: shots on a matrix product state on an NVIDIA
+  GPU (``pip install "qdk[tensornetwork]"``), with the run's report;
   :func:`~qdk.simulation.check_tensornetwork_setup` checks the GPU setup.
 
 - :class:`~qdk.simulation.DensityMatrixSimulator` — an experimental simulator that uses

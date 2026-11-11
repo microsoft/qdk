@@ -1,22 +1,22 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Diagnosis`]: for a user setting up the GPU for the MPS method, what was
-//! found and, when something is missing, what to fix.
+//! [`Diagnosis`]: for a user setting up the GPU for the MPS simulation method,
+//! what was found and, when something is missing, what to fix.
 //!
-//! The MPS method runs on the GPU only when several things outside the QDK are
-//! in place: Linux x86-64, an NVIDIA driver for CUDA 12, a device of compute
-//! capability [`MINIMUM_COMPUTE_CAPABILITY`] or later, and NVIDIA's libraries,
-//! today cuTensorNet and the CUDA Runtime, at the audited versions (the crate's
-//! README says where each was verified). Each can be missing or wrong, and the
-//! user who meets the failure is often not the one who knows CUDA. So
-//! [`diagnose`] checks each and answers in one report, and never fails: the
-//! libraries found and their versions, other copies of them that could be
-//! loaded instead (a warning), the driver's CUDA version, each device's compute
-//! capability and memory, whether an MPS engine could run a gate on device 0,
-//! and for the first problem met, what to do ([`Diagnosis::advice`]). A caller
-//! shows it to the user on request (the setup check), and its text with the
-//! error of a GPU run that cannot start.
+//! The MPS simulation method runs on the GPU only when several things outside
+//! the QDK are in place: Linux x86-64, an NVIDIA driver for CUDA 12, a device
+//! of compute capability [`MINIMUM_COMPUTE_CAPABILITY`] or later, and NVIDIA's
+//! libraries, today cuTensorNet and the CUDA Runtime, at the audited versions
+//! (the crate's README says where each was verified). Each can be missing or
+//! wrong, and the user who meets the failure is often not the one who knows
+//! CUDA. So [`diagnose`] checks each and answers in one report, and never
+//! fails: the libraries found and their versions, other copies of them that
+//! could be loaded instead (a warning), the driver's CUDA version, each
+//! device's compute capability and memory, whether an MPS engine could run a
+//! gate on device 0, and for the first problem met, what to do
+//! ([`Diagnosis::advice`]). A caller shows it to the user on request (the setup
+//! check), and its text with the error of a GPU run that cannot start.
 //!
 //! How: [`discover_with`](crate::discover_with) (no GPU work), then, when it
 //! succeeds, the devices ([`DeviceReport`]), and an engine on device 0 with
@@ -69,21 +69,21 @@ pub struct Diagnosis {
 }
 
 impl Diagnosis {
-    /// Whether the MPS method can run on the GPU: no problem was met.
+    /// Whether the MPS simulation method can run on the GPU: no problem was
+    /// met.
     #[must_use]
     pub fn is_ready(&self) -> bool {
         self.advice().is_none()
     }
 
-    /// What to do about the first problem met, in words for the user;
-    /// `None` when the method is ready. The problems, in the order they
-    /// are looked for: discovery failed (an invalid override first, or else
-    /// the first fault of the first library at fault, in the order they are
-    /// opened); a library reveals a problem of the host (today, a driver
-    /// that supports no CUDA 12); the devices could not be read, or there
-    /// are none; device 0, where the engine runs, has a compute capability
-    /// below [`MINIMUM_COMPUTE_CAPABILITY`]; the engine did not run its
-    /// gate.
+    /// What to do about the first problem met, in words for the user; `None`
+    /// when the MPS simulation method is ready. The problems, in the order they
+    /// are looked for: discovery failed (an invalid override first, or else the
+    /// first fault of the first library at fault, in the order they are
+    /// opened); a library reveals a problem of the host (today, a driver that
+    /// supports no CUDA 12); the devices could not be read, or there are none;
+    /// device 0, where the engine runs, has a compute capability below
+    /// [`MINIMUM_COMPUTE_CAPABILITY`]; the engine did not run its gate.
     #[must_use]
     pub fn advice(&self) -> Option<String> {
         const DRIVER: &str = concat!(
@@ -128,10 +128,10 @@ impl Diagnosis {
         }
     }
 
-    /// Warnings that leave the method ready: each other copy of a library
-    /// the setup makes visible beside the one loaded, with how to keep only
-    /// one: when the loaded copy is the override's, remove the other or
-    /// unset the variable; else remove one or set the variable.
+    /// Warnings that leave the MPS simulation method ready: each other copy of
+    /// a library the setup makes visible beside the one loaded, with how to
+    /// keep only one: when the loaded copy is the override's, remove the other
+    /// or unset the variable; else remove one or set the variable.
     #[must_use]
     pub fn warnings(&self) -> Vec<String> {
         let Ok(report) = &self.availability else {

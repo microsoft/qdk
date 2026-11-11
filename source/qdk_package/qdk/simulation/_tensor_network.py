@@ -2,15 +2,15 @@
 # Licensed under the MIT License.
 
 """``tensornetwork_qir``: the shots of a QIR program simulated with a
-tensor-network method, returned with the run's report; and
+tensor-network simulation method, returned with the run's report; and
 ``check_tensornetwork_setup``, which says whether the GPU is set up for it.
 
 A chemistry user runs programs too entangled for a sparse simulator and too
 large for a state vector, such as H₂'s phase estimation (29 qubits, Adaptive
-profile), on a matrix product state (MPS) on an NVIDIA GPU. The method's
-cost and accuracy depend on the max bond dimension χ, so every call returns, beside
-its results, the run's report: the largest bond reached and the weight
-truncation discarded; a run that lost more than 10⁻³ also raises a
+profile), on a matrix product state (MPS) on an NVIDIA GPU. The MPS simulation
+method's cost and accuracy depend on the max bond dimension χ, so every call
+returns, beside its results, the run's report: the largest bond reached and the
+weight truncation discarded; a run that lost more than 10⁻³ also raises a
 ``RuntimeWarning`` saying to raise χ.
 
 How: the program is lowered as the other QIR simulators lower it
@@ -23,7 +23,7 @@ profile, runs all its gates before Ctrl-C takes effect); each shot's
 records are formatted as ``run_qir`` formats them. The same core will serve
 ``run_qir(type="mps")``.
 
-The method runs on the GPU only: install it with
+The MPS simulation method runs on the GPU only: install it with
 ``pip install "qdk[tensornetwork]"`` (Linux x86-64, an NVIDIA GPU of compute
 capability 7.5 or later, a driver for CUDA 12; ``check_tensornetwork_setup()``
 checks each). A setup problem raises ``OSError`` with the text
@@ -57,7 +57,7 @@ _PACKAGED_LIBRARIES = (
 
 @dataclass(frozen=True)
 class MpsOptions:
-    """Options of the MPS method (``method="mps"``).
+    """Options of the MPS simulation method (``method="mps"``).
 
     :param max_bond_dimension: The max bond dimension χ: every bond of the
         matrix product state is at most χ. Larger is more accurate and costs
@@ -168,7 +168,7 @@ def tensornetwork_qir(
     seed: Optional[int] = None,
 ) -> TensorNetworkResults:
     """Answer ``queries`` on a QIR program simulated with a tensor-network
-    method, and report what the run cost.
+    simulation method, and report what the run cost.
 
     Preview: this API may change.
 
@@ -182,8 +182,9 @@ def tensornetwork_qir(
     :param input: The QIR program, Base or Adaptive profile, as text or
         bitcode.
     :param queries: One :class:`Sample`.
-    :param method: ``"mps"``: a matrix product state on an NVIDIA GPU
-        (cuTensorNet), each bond at most ``options.max_bond_dimension``.
+    :param method: ``"mps"``, the MPS simulation method: a matrix product
+        state on an NVIDIA GPU (cuTensorNet), each bond at most
+        ``options.max_bond_dimension``.
     :param options: :class:`MpsOptions`; ``None`` takes the defaults.
     :param seed: Reproduces the shots: the same seed gives each shot the same
         records, whichever number of shots runs. In [0, 2**32); ``None``
@@ -191,10 +192,10 @@ def tensornetwork_qir(
     :return: One result per query, in order, with the run's report as
         ``.report``. A run whose truncation lost more than 10⁻³ of a shot's
         weight also warns (``RuntimeWarning``).
-    :raises ValueError: For invalid arguments, a program the method does not
-        run (a noise call, a gate on one qubit twice), a max bond dimension
-        too large for the program's qubits, or a call the engine refuses
-        (an operator on no site, say).
+    :raises ValueError: For invalid arguments, a program the MPS simulation
+        method does not run (a noise call, a gate on one qubit twice), a max
+        bond dimension too large for the program's qubits, or a call the engine
+        refuses (an operator on no site, say).
     :raises TypeError: For an argument of the wrong type.
     :raises OSError: When the GPU engine is not set up (no library, a version
         not supported, no device), with the :func:`check_tensornetwork_setup`

@@ -5,6 +5,13 @@
 //! `check_tensornetwork_setup`: a QIR program's shots on matrix product
 //! states, with the run's report, and the setup check of the GPU.
 //!
+//! Two kinds of method meet here. An _MPS simulation method_ is the algorithm
+//! that runs a program's gates, measurements and shots on an MPS; this module
+//! runs `qdk_simulators`' (`MpsResumer`). It calls the _`MpsEngine` methods_
+//! (`apply`, `project`, `probability_of_one`, …), the operations the trait
+//! declares and engines implement, here cuTensorNet's engine or the exact
+//! reference.
+//!
 //! A chemistry user runs an Adaptive QIR program (H₂'s phase estimation)
 //! on cuTensorNet from Python; this module joins the pieces that do it, so
 //! that no Python code knows engines or resumers: the program, decoded from
@@ -18,14 +25,14 @@
 //! all its gates before the flag is read. `run_qir(type="mps")` (planned)
 //! will call the same function.
 //!
-//! Errors keep the split users' handlers rely on: the setup (libraries that
-//! are not usable, or no engine made on device 0) is `OSError`, its message
-//! the report `check_tensornetwork_setup` shows, after the engine's error
-//! when no engine was made; the engine failing during the run (a failure,
-//! not a refusal) is `OSError` too, its message the failure's; the program
-//! (faults, a call the method does not run, a max bond dimension that makes
-//! no chain, an engine's refusal) is `ValueError`; a trap is `RuntimeError`
-//! naming the shot; an interrupt is `KeyboardInterrupt`.
+//! Errors keep the split users' handlers rely on: the setup (libraries that are
+//! not usable, or no engine made on device 0) is `OSError`, its message the
+//! report `check_tensornetwork_setup` shows, after the engine's error when no
+//! engine was made; the engine failing during the run (a failure, not a
+//! refusal) is `OSError` too, its message the failure's; the program (faults, a
+//! call the MPS simulation method does not run, a max bond dimension that makes
+//! no chain, an `MpsEngine` method the engine refuses) is `ValueError`; a trap
+//! is `RuntimeError` naming the shot; an interrupt is `KeyboardInterrupt`.
 //!
 //! The engine is chosen by name: `"cutensornet"`, the only one the public
 //! API passes, or `"reference"`, the exact reference, for the package's
@@ -63,10 +70,10 @@ use super::{adaptive_program_from_pydict, cpu_simulators::output_records_to_pyli
 const SIGNAL_CHECK: Duration = Duration::from_millis(100);
 
 /// Runs `shots` shots (ids `0..shots`) of `program`, a dict as
-/// `AdaptiveProfilePass(Bytecode.Bit64).as_dict()` gives it, on the MPS
-/// method with bonds of at most `max_bond_dimension`, drawing from `seed`,
-/// on the engine named `engine`. Gives each shot's output records and the
-/// run's report: a dict of `largest_bond`, `discarded_weight`,
+/// `AdaptiveProfilePass(Bytecode.Bit64).as_dict()` gives it, by the MPS
+/// simulation method, with bonds of at most `max_bond_dimension`, drawing from
+/// `seed`, on the engine named `engine`. Gives each shot's output records and
+/// the run's report: a dict of `largest_bond`, `discarded_weight`,
 /// `max_bond_dimension` and `truncation_warning` (the warning's text, or
 /// `None`).
 ///
@@ -125,10 +132,10 @@ pub(crate) fn _tensor_network_sample<'py>(
     ))
 }
 
-/// The setup check: the diagnosis of the GPU setup, as `diagnose` gives it
-/// with the libraries `packaged` names: whether the method is ready, the
-/// report a user reads, the fix for the first problem, if any, and the
-/// warnings (other copies of a library). Never fails.
+/// The setup check: the diagnosis of the GPU setup, as `diagnose` gives it with
+/// the libraries `packaged` names: whether the MPS simulation method is ready
+/// on the GPU, the report a user reads, the fix for the first problem, if any,
+/// and the warnings (other copies of a library). Never fails.
 #[pyfunction]
 #[allow(
     clippy::needless_pass_by_value,

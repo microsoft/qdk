@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Diagnosis`]: that a user reads what was found, whether the method is
-//! ready, and for each kind of problem, the fix that applies to it.
+//! [`Diagnosis`]: that a user reads what was found, whether the MPS simulation
+//! method is ready, and for each kind of problem, the fix that applies to it.
 
 #[cfg(unix)]
 use std::path::PathBuf;
@@ -109,8 +109,9 @@ fn failed(error: AvailabilityError) -> Diagnosis {
 }
 
 /// The advice of `diagnosis`, which has a problem. The asserts are
-/// preconditions every advice test shares, not the rule a test checks:
-/// a problem leaves the method unready, and the report ends with its fix.
+/// preconditions every advice test shares, not the rule a test checks: a
+/// problem leaves the MPS simulation method unready, and the report ends with
+/// its fix.
 fn advice(diagnosis: &Diagnosis) -> String {
     assert!(!diagnosis.is_ready(), "a problem leaves the method unready");
     let advice = diagnosis.advice().expect("a problem has advice");
@@ -121,9 +122,9 @@ fn advice(diagnosis: &Diagnosis) -> String {
     advice
 }
 
-/// A user whose libraries were found and whose device ran the engine reads
-/// each library's path and version, the driver's CUDA, each device's
-/// compute capability and memory, and that the method is ready, with
+/// A user whose libraries were found and whose device ran the engine reads each
+/// library's path and version, the driver's CUDA, each device's compute
+/// capability and memory, and that the MPS simulation method is ready, with
 /// nothing to fix.
 #[cfg(unix)]
 #[test]
@@ -541,8 +542,8 @@ fn an_engine_that_cannot_run_is_shown_with_its_error() {
     );
 }
 
-/// Another copy of a library beside the one loaded is a warning naming
-/// both and the variable that chooses, and leaves the method ready.
+/// Another copy of a library beside the one loaded is a warning naming both and
+/// the variable that chooses, and leaves the MPS simulation method ready.
 #[cfg(unix)]
 #[test]
 fn another_copy_of_a_library_is_a_warning_that_leaves_the_method_ready() {
