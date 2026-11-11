@@ -17,12 +17,12 @@
 /source/language_service @billti @idavis @amcasey
 /source/simulators @billti @idavis @orpuente-MS
 /source/noisy_simulator @swernli @orpuente-MS
-/source/qodec_runtime_builder @orpuente-MS @swernli @joao-boechat
-/source/qodec_runtime_interface @orpuente-MS @swernli @joao-boechat
-/source/qodec_runtime_model @orpuente-MS @swernli @joao-boechat
-/source/qodec_runtime_pieces @orpuente-MS @swernli @joao-boechat
-/source/qodec_runtime_reader @orpuente-MS @swernli @joao-boechat
-/source/qodec_runtime_recipes @orpuente-MS @swernli @joao-boechat
+/source/qodec/qodec_runtime_builder @orpuente-MS @swernli @joao-boechat
+/source/qodec/qodec_runtime_interface @orpuente-MS @swernli @joao-boechat
+/source/qodec/qodec_runtime_model @orpuente-MS @swernli @joao-boechat
+/source/qodec/qodec_runtime_pieces @orpuente-MS @swernli @joao-boechat
+/source/qodec/qodec_runtime_reader @orpuente-MS @swernli @joao-boechat
+/source/qodec/qodec_runtime_recipes @orpuente-MS @swernli @joao-boechat
 /library @swernli @orpuente-MS
 /source/npm @billti @amcasey
 /source/qdk_package @billti @idavis
