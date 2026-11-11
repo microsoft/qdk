@@ -11,9 +11,12 @@ written by ``rst_to_notebook.py`` render each ``quiz-question`` admonition as a
 those blocks are replaced with ``quiz()`` calls. Afterwards there is nothing
 left to convert and every run is only a rebake.
 
-The choices are written by hand in ``_unit.py``: deciding which wrong answers
-are worth offering is the author's judgement, not something to generate. This
-never writes ``_unit.py``.
+ID-only cells use the choices written by hand in ``_unit.py``. A dedicated
+code cell tagged ``quiz`` can instead own one full literal definition; baking
+reads its data without executing the call or looking up its registration.
+Unit 06's ``iqpe-energy-comparison`` is the first such baking-only proof:
+runtime execution and workbook materialization do not yet support this form.
+This never writes ``_unit.py``.
 
 Both steps are idempotent. The one-time conversion:
 
@@ -38,6 +41,7 @@ just the unit, and ``--check`` reports drift without writing::
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import importlib.util
 import json
@@ -147,15 +151,74 @@ def _group_adjacent_quizzes(
     return grouped
 
 
-def _baked_outputs(emitter: Any, ids: list[str]) -> list[dict[str, Any]]:
+def _authored_quiz(cell: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """Read a tagged literal definition, leaving ID-only calls on their old path."""
+    if cell.get("cell_type") != "code" or "quiz" not in _cell_tags(cell):
+        return None
+    label = f"cell {cell.get('id', '?')}"
+    try:
+        tree = ast.parse("".join(cell["source"]))
+    except SyntaxError as error:
+        raise SystemExit(f"{label}: invalid quiz syntax: {error.msg}") from error
+
+    if not any(isinstance(node, ast.keyword) for node in ast.walk(tree)):
+        return None
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Expr):
+        raise SystemExit(f"{label}: an authored quiz needs one standalone quiz() call")
+    call = tree.body[0].value
+    if (
+        not isinstance(call, ast.Call)
+        or not isinstance(call.func, ast.Name)
+        or call.func.id != "quiz"
+        or len(call.args) != 1
+    ):
+        raise SystemExit(f"{label}: expected quiz(id, prompt=..., options=...)")
+
+    fields: dict[str, Any] = {}
+    try:
+        quiz_id = ast.literal_eval(call.args[0])
+        for keyword in call.keywords:
+            if (
+                keyword.arg is None
+                or keyword.arg not in {"prompt", "options", "multi_select", "shuffle"}
+                or keyword.arg in fields
+            ):
+                raise SystemExit(f"{label}: unsupported or duplicate quiz field")
+            fields[keyword.arg] = ast.literal_eval(keyword.value)
+    except (ValueError, TypeError) as error:
+        raise SystemExit(f"{label}: authored quiz arguments must be literal data") from error
+    if not isinstance(quiz_id, str) or not {"prompt", "options"} <= fields.keys():
+        raise SystemExit(f"{label}: quiz needs a string id, prompt and options")
+    if any(not isinstance(fields.get(name, False), bool) for name in ("multi_select", "shuffle")):
+        raise SystemExit(f"{label}: multi_select and shuffle must be booleans")
+    return quiz_id, fields
+
+
+def _baked_outputs(
+    emitter: Any, ids: list[str], cell: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Render the display bundles the cell would produce when run.
 
     ``quiz()`` displays rather than returns, so running it yields one
     ``display_data`` output per question.
     """
+    authored = _authored_quiz(cell) if cell is not None else None
     outputs = []
     for quiz_id in ids:
-        bundle = emitter._lookup_quiz(quiz_id)._repr_mimebundle_()
+        if authored is None:
+            output = emitter._lookup_quiz(quiz_id)
+        else:
+            _, fields = authored
+            options = fields["options"]
+            if fields.get("shuffle", True):
+                options = emitter._shuffled(quiz_id, options)
+            output = emitter.multiple_choice(
+                fields["prompt"],
+                options,
+                multi_select=fields.get("multi_select", False),
+                payload_id=quiz_id,
+            )
+        bundle = output._repr_mimebundle_()
         outputs.append(
             {
                 "output_type": "display_data",
@@ -200,6 +263,9 @@ def _cell_quiz_ids(cell: dict[str, Any]) -> list[str]:
     """
     if cell.get("cell_type") != "code":
         return []
+    authored = _authored_quiz(cell)
+    if authored is not None:
+        return [authored[0]]
     source = "".join(cell["source"])
     return [
         quiz_id
@@ -332,7 +398,7 @@ def _rebake(notebook: dict[str, Any], emitter: Any, stale: dict[int, list[str]])
         cell = notebook["cells"][index]
         ids = _cell_quiz_ids(cell)
         if ids:
-            cell["outputs"] = _baked_outputs(emitter, ids)
+            cell["outputs"] = _baked_outputs(emitter, ids, cell)
             continue
         # The cell no longer calls quiz(), so there is nothing to re-render:
         # drop the orphaned questions and leave whatever else the cell
@@ -372,7 +438,7 @@ def _is_learning_output(output: dict[str, Any], mime_type: str) -> bool:
 def _stale_baked_outputs(
     notebook: dict[str, Any], emitter: Any
 ) -> dict[int, list[str]]:
-    """Report the cells whose baked output no longer matches ``_unit.py``.
+    """Report outputs that no longer match their authored or registered quiz.
 
     This is the drift that matters once a notebook is converted: the questions
     a learner sees are the outputs stored in the file, so editing a quiz's
@@ -409,9 +475,10 @@ def _stale_baked_outputs(
                 stale[index] = []
             continue
 
+        expected_outputs = _baked_outputs(emitter, ids, cell)
         for position, quiz_id in enumerate(ids):
             expected = _normalize_bundle(
-                emitter._lookup_quiz(quiz_id)._repr_mimebundle_()
+                expected_outputs[position]["data"]
             )
             actual = (
                 _normalize_bundle(outputs[position].get("data"))
@@ -503,8 +570,7 @@ def main() -> int:
             print(f"{notebook_path.name}: baked output is stale for {listed}")
             return 1
 
-        # Rebake in place rather than refusing: the questions live in
-        # _unit.py, and the notebook is only a rendering of them.
+        # Rebake from the cell's authored definition or its unit registration.
         _rebake(notebook, emitter, stale)
         notebook_path.write_text(
             json.dumps(notebook, indent=1, ensure_ascii=False) + "\n",

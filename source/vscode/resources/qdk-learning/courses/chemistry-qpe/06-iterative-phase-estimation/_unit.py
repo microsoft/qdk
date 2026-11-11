@@ -14,6 +14,7 @@ from _course_lib import (  # noqa: E402, F401
     register_value_exercise,
 )
 from _learning_output import quiz, register_quiz  # noqa: E402, F401
+from _learning_output import register_quiz_notebook  # noqa: E402
 
 # The selected grid point 010000 is k=16 on the 64-point six-bit grid.
 MEASURED_PHASE = register_value_exercise("measured_phase", expected=0.25)
@@ -322,43 +323,9 @@ register_quiz(
     ],
 )
 
-register_quiz(
+register_quiz_notebook(
     "iqpe-energy-comparison",
-    "Which energy comparison determines whether the IQPE workflow meets the "
-    "teaching target?",
-    [
-        (
-            "casci-same-space",
-            "The reconstructed IQPE total energy against the CASCI energy of the "
-            "same selected active-space Hamiltonian.",
-            True,
-            "The same Hamiltonian sits on both sides, so the difference isolates "
-            "algorithmic error.",
-        ),
-        (
-            "experiment",
-            "The reconstructed IQPE total energy against an experimental "
-            "measurement for the molecule.",
-            False,
-            "That would mix algorithmic error with molecular-model error and "
-            "could not tell you which one you were looking at.",
-        ),
-        (
-            "larger-space",
-            "The reconstructed IQPE total energy against a CASCI energy computed "
-            "in a larger active space.",
-            False,
-            "Changing the space changes the Hamiltonian, so the comparison would "
-            "no longer isolate the algorithm.",
-        ),
-        (
-            "hartree-fock",
-            "The active-space energy against the Hartree-Fock energy.",
-            False,
-            "That measures how much correlation energy was recovered, not "
-            "whether phase estimation reached its target.",
-        ),
-    ],
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
 )
 
 register_quiz(

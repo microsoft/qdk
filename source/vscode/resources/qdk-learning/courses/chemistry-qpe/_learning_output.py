@@ -19,10 +19,12 @@ producing an empty cell in front of a learner.
 
 from __future__ import annotations
 
+import json
 import random
 import re
 from dataclasses import dataclass
 from html import escape
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 MIME_TYPE = "application/vnd.qdk.learning+json"
@@ -163,9 +165,23 @@ def multiple_choice(
 # Registered quizzes
 # ---------------------------------------------------------------------------
 
-# Quiz definitions live here, keyed by id, and units register into it from
-# `_unit.py`. The notebook cell only names the quiz.
-_quizzes: dict[str, LearningOutput] = {}
+# ID-only calls resolve either a legacy output or an authored notebook path.
+# Authored calls construct their output directly without changing this registry.
+_quizzes: dict[str, LearningOutput | Path] = {}
+
+
+def register_quiz_notebook(quiz_id: str, notebook: Path) -> None:
+    """Bind an ID to a notebook beside the importing unit's helper.
+
+    Only the location is registered; each lookup reads the saved bundle again.
+    """
+    if quiz_id in _quizzes:
+        raise ValueError(f"a quiz is already registered as {quiz_id!r}")
+    if not _ID_RE.match(quiz_id):
+        raise ValueError(f"invalid quiz id: {quiz_id!r}")
+    if not notebook.is_absolute():
+        raise ValueError("quiz notebook path must be absolute")
+    _quizzes[quiz_id] = notebook
 
 
 def register_quiz(
@@ -178,11 +194,9 @@ def register_quiz(
 ) -> str:
     """Register a quiz under ``quiz_id`` so a notebook can show it by name.
 
-    Answers are kept out of the *cell source*. A quiz written inline would put
-    the ``correct`` flags and the per-option explanations right there in the
-    code the learner reads, where reading them is easier than answering. So
-    quizzes are declared in the unit's ``_unit.py`` — the same place exercise
-    checkers already live — and the notebook cell just says ``quiz("...")``.
+    This supports existing ID-only runtime calls. New quiz content belongs in
+    the authored notebook; do not maintain a second registration of its
+    question, answers, or configuration.
 
     The answers do still reach the browser, in the baked cell output, because
     the renderer grades without a kernel. This raises the effort of cheating; it
@@ -226,8 +240,19 @@ def _shuffled(seed: str, options: Sequence[Sequence[Any]]) -> list[Sequence[Any]
     return shuffled
 
 
-def quiz(*quiz_ids: str) -> None:
-    """Show the quizzes registered under ``quiz_ids``.
+def quiz(
+    *quiz_ids: str,
+    prompt: str | None = None,
+    options: Sequence[Sequence[Any]] | None = None,
+    multi_select: bool = False,
+    shuffle: bool = True,
+) -> None:
+    """Display an authored quiz or the quizzes registered under ``quiz_ids``.
+
+    Supply one id, ``prompt`` and ``options`` to construct an authored quiz
+    directly. Its configuration applies to this display only; the registry is
+    neither read nor changed. With IDs only, display the registered outputs
+    or load their bound authored notebooks.
 
     Accepts more than one id because the progress tree names a code cell after
     the heading above it, so two adjacent quiz cells in one section would
@@ -248,19 +273,119 @@ def quiz(*quiz_ids: str) -> None:
             "use multiple_choice() directly outside a notebook."
         ) from exc
 
+    if prompt is not None or options is not None or multi_select or not shuffle:
+        if len(quiz_ids) != 1 or prompt is None or options is None:
+            raise ValueError("an authored quiz needs one quiz id, prompt and options")
+        quiz_id = quiz_ids[0]
+        ordered = _shuffled(quiz_id, options) if shuffle else options
+        display(
+            multiple_choice(
+                prompt, ordered, multi_select=multi_select, payload_id=quiz_id
+            )
+        )
+        return
+
     for quiz_id in quiz_ids:
         display(_lookup_quiz(quiz_id))
 
 
 def _lookup_quiz(quiz_id: str) -> LearningOutput:
     try:
-        return _quizzes[quiz_id]
+        registered = _quizzes[quiz_id]
     except KeyError:
         known = ", ".join(sorted(_quizzes)) or "none"
         raise ValueError(
             f"no quiz is registered as {quiz_id!r}; registered quizzes: {known}. "
             "Quizzes are registered in the unit's _unit.py."
         ) from None
+    if isinstance(registered, Path):
+        return _notebook_quiz(registered, quiz_id)
+    return registered
+
+
+def _notebook_quiz(notebook: Path, quiz_id: str) -> LearningOutput:
+    label = f"quiz {quiz_id!r} in {notebook}"
+    try:
+        document = json.loads(notebook.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read {label}: {error}") from error
+    if not isinstance(document, dict) or not isinstance(document.get("cells"), list):
+        raise ValueError(f"malformed notebook for {label}: expected cells")
+
+    matches = []
+    for cell in document["cells"]:
+        if not isinstance(cell, dict):
+            raise ValueError(f"malformed cell in {label}")
+        if cell.get("cell_type") != "code":
+            continue
+        if not isinstance(cell.get("outputs"), list):
+            raise ValueError(f"malformed outputs in {label}")
+        for output in cell["outputs"]:
+            if not isinstance(output, dict):
+                raise ValueError(f"malformed output in {label}")
+            data = output.get("data", {})
+            if not isinstance(data, dict):
+                raise ValueError(f"malformed output data in {label}")
+            if MIME_TYPE not in data:
+                continue
+            payload = data[MIME_TYPE]
+            if not isinstance(payload, dict):
+                raise ValueError(f"malformed MCQ payload in {label}")
+            if payload.get("payloadId") == quiz_id:
+                matches.append(output)
+
+    if len(matches) != 1:
+        raise ValueError(
+            f"expected exactly one saved MCQ output for {label}; found {len(matches)}"
+        )
+    output = matches[0]
+    data = output["data"]
+    payload = data[MIME_TYPE]
+    if (
+        output.get("output_type") != "display_data"
+        or type(payload.get("schemaVersion")) is not int
+        or payload["schemaVersion"] != 1
+        or payload.get("kind") != "multiple-choice"
+        or not isinstance(payload.get("prompt"), str)
+        or not payload["prompt"].strip()
+        or not isinstance(payload.get("options"), list)
+        or not isinstance(payload.get("multiSelect", False), bool)
+    ):
+        raise ValueError(f"malformed saved MCQ output for {label}")
+    options = []
+    for option in payload["options"]:
+        if (
+            not isinstance(option, dict)
+            or not isinstance(option.get("id"), str)
+            or not isinstance(option.get("text"), str)
+            or (
+                "explanation" in option
+                and not isinstance(option["explanation"], str)
+            )
+        ):
+            raise ValueError(f"malformed saved MCQ option for {label}")
+        options.append(
+            (
+                option["id"],
+                option["text"],
+                option.get("correct"),
+                option.get("explanation"),
+            )
+        )
+    try:
+        _normalize_options(options, multi_select=payload.get("multiSelect", False))
+    except ValueError as error:
+        raise ValueError(f"malformed saved MCQ output for {label}: {error}") from error
+
+    fallbacks = []
+    for mime in ("text/html", "text/plain"):
+        value = data.get(mime)
+        if isinstance(value, list) and all(isinstance(line, str) for line in value):
+            value = "".join(value)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"missing or malformed {mime} output for {label}")
+        fallbacks.append(value)
+    return LearningOutput(payload, fallbacks[0], fallbacks[1])
 
 
 # ---------------------------------------------------------------------------
