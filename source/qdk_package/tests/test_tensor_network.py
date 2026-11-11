@@ -291,12 +291,12 @@ ON_LINUX_X86_64 = platform.system() == "Linux" and platform.machine() == "x86_64
 
 
 @pytest.fixture
-def no_library(monkeypatch):
+def unusable_setup(monkeypatch):
     """A setup that cannot work: an override that is not an absolute path."""
     monkeypatch.setenv("QDK_CUTENSORNET_LIBRARY", "libcutensornet.so.2")
 
 
-def test_a_setup_problem_raises_os_error_with_the_setup_checks_report(no_library):
+def test_a_setup_problem_raises_os_error_with_the_setup_checks_report(unusable_setup):
     """A user whose setup cannot work (here, an override that is not an
     absolute path) gets an `OSError` whose message is the report
     `check_tensornetwork_setup` gives, with the fix."""
@@ -307,7 +307,7 @@ def test_a_setup_problem_raises_os_error_with_the_setup_checks_report(no_library
     assert "to fix:" in str(raised.value)
 
 
-def test_the_setup_check_reports_a_problem_without_raising(no_library):
+def test_the_setup_check_reports_a_problem_without_raising(unusable_setup):
     """A setup that cannot work is reported as not ready; the check raises
     nothing."""
     setup = check_tensornetwork_setup()
@@ -315,7 +315,7 @@ def test_the_setup_check_reports_a_problem_without_raising(no_library):
     assert not setup.ready
 
 
-def test_the_setup_checks_advice_names_the_fix(no_library):
+def test_the_setup_checks_advice_names_the_fix(unusable_setup):
     """The advice names what to fix: the override, on Linux x86-64; the
     platform, elsewhere."""
     advice = check_tensornetwork_setup().advice
@@ -326,7 +326,7 @@ def test_the_setup_checks_advice_names_the_fix(no_library):
         assert "Linux x86-64" in advice
 
 
-def test_the_setup_check_prints_as_its_report(no_library):
+def test_the_setup_check_prints_as_its_report(unusable_setup):
     """`print(check_tensornetwork_setup())` shows the report."""
     setup = check_tensornetwork_setup()
     assert str(setup) == setup.report
