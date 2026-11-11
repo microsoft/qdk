@@ -175,7 +175,7 @@ pub enum Error {
     },
 }
 
-struct IdMap {
+struct SymbolTable {
     /// Maps each Stim qubit to its index in the `qs` register, in order of first use.
     qubit_map: FxHashMap<StimQubitId, QubitId>,
     name_counters: FxHashMap<&'static str, u32>,
@@ -189,7 +189,7 @@ struct IdMap {
     used_intrinsics: FxHashMap<String, ast::Item>,
 }
 
-impl IdMap {
+impl SymbolTable {
     fn new() -> Self {
         Self {
             qubit_map: FxHashMap::default(),
@@ -400,7 +400,7 @@ impl<'noise> NoiseAccumulator<'noise> {
 
 struct Compiler<'noise> {
     errors: Vec<Error>,
-    id_map: IdMap,
+    symbols: SymbolTable,
     noise_accumulator: NoiseAccumulator<'noise>,
 }
 
@@ -408,7 +408,7 @@ impl<'noise> Compiler<'noise> {
     fn new(noise: &'noise mut NoiseConfig<f64, f64>) -> Self {
         Self {
             errors: Vec::new(),
-            id_map: IdMap::new(),
+            symbols: SymbolTable::new(),
             noise_accumulator: NoiseAccumulator::new(noise),
         }
     }
@@ -447,7 +447,7 @@ impl<'noise> Compiler<'noise> {
     /// since the body determines how many qubits there are and which records are in loops.
     fn variable_declarations(&self, span: Span) -> Vec<ast::Stmt> {
         let mut stmts = Vec::new();
-        let num_qubits = self.id_map.num_qubits();
+        let num_qubits = self.symbols.num_qubits();
         if num_qubits > 0 {
             stmts.push(managed_qubit_alloc_array(
                 QUBIT_REGISTER,
@@ -458,7 +458,7 @@ impl<'noise> Compiler<'noise> {
                 ast::QubitSource::Fresh,
             ));
         }
-        for &result_id in &self.id_map.record_ids_to_hoist {
+        for &result_id in &self.symbols.record_ids_to_hoist {
             stmts.push(build_record_decl_stmt(result_id, span));
         }
         stmts
@@ -466,14 +466,14 @@ impl<'noise> Compiler<'noise> {
 
     /// `[r_0, …, r_{n-1}]` as the implicit return value of `Main`.
     fn records_return_stmt(&self, span: Span) -> ast::Stmt {
-        let records = (0..self.id_map.record_count)
+        let records = (0..self.symbols.record_count)
             .map(|result_id| build_record_expr(result_id, span))
             .collect();
         build_implicit_return_stmt(build_expr_array_expr(records, span))
     }
 
     fn sorted_intrinsic_declarations(&mut self) -> Vec<ast::Item> {
-        let mut declarations: Vec<_> = self.id_map.used_intrinsics.drain().collect();
+        let mut declarations: Vec<_> = self.symbols.used_intrinsics.drain().collect();
         declarations.sort_by(|(a, _), (b, _)| a.cmp(b));
         declarations
             .into_iter()
@@ -535,10 +535,10 @@ impl<'noise> Compiler<'noise> {
         }
 
         // Restored afterwards, so that a nested loop leaves the outer loop's records hoisted.
-        let hoist_outer_records = self.id_map.hoist_records;
-        self.id_map.hoist_records = true;
+        let hoist_outer_records = self.symbols.hoist_records;
+        self.symbols.hoist_records = true;
         let mut body_stmts = self.compile_block_body(body);
-        self.id_map.hoist_records = hoist_outer_records;
+        self.symbols.hoist_records = hoist_outer_records;
 
         body_stmts.push(build_break_stmt(span));
         vec![build_while_stmt(
@@ -1196,7 +1196,7 @@ impl<'noise> Compiler<'noise> {
 
         let mut has_error = false;
         for (&result_id, record) in result_ids.iter().zip(records) {
-            if self.id_map.peek_loss_record_ids.contains(&result_id) {
+            if self.symbols.peek_loss_record_ids.contains(&result_id) {
                 self.push_error(Error::NotLeakedOnPeekLoss { span: record.span });
                 has_error = true;
             }
@@ -1261,7 +1261,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn resolve_record(&self, record: semantic::MeasurementRecord) -> Option<ResultId> {
-        self.id_map.record_count.checked_sub(record.offset)
+        self.symbols.record_count.checked_sub(record.offset)
     }
 
     fn unsupported(&mut self, instruction_name: &str, instruction_span: Span) {
@@ -1317,7 +1317,7 @@ impl<'noise> Compiler<'noise> {
         self.declare_intrinsic(PEEK_LOSS_INTRINSIC, declaration);
         let peek_loss_call = build_intrinsic_call_expr(PEEK_LOSS_INTRINSIC, args, span);
         let (result_id, assignment) = self.record_result(peek_loss_call, span);
-        self.id_map.peek_loss_record_ids.insert(result_id);
+        self.symbols.peek_loss_record_ids.insert(result_id);
         (result_id, assignment)
     }
 
@@ -1458,7 +1458,7 @@ impl<'noise> Compiler<'noise> {
         span: Span,
     ) -> ast::Stmt {
         let controls = build_expr_array_expr(self.qubit_args(controls, span), span);
-        let target = build_qubit_expr(self.id_map.allocate_qubit(target), span);
+        let target = build_qubit_expr(self.symbols.allocate_qubit(target), span);
         build_controlled_qsharp_op_call_stmt(op, controls, target, span)
     }
 
@@ -1518,17 +1518,17 @@ impl<'noise> Compiler<'noise> {
         value: ast::Expr,
         span: Span,
     ) -> (String, ast::Stmt) {
-        let name = self.id_map.fresh_name(prefix);
+        let name = self.symbols.fresh_name(prefix);
         let stmt = build_local_decl(&name, ast::Mutability::Immutable, value, span, span);
         (name, stmt)
     }
 
     /// `let r_k = value;` for a newly allocated record `r_k`, or an assignment `r_k = value;` when
-    /// records are hoisted (see [`IdMap::hoist_records`]).
+    /// records are hoisted (see [`SymbolTable::hoist_records`]).
     fn record_result(&mut self, value: ast::Expr, span: Span) -> (ResultId, ast::Stmt) {
-        let result_id = self.id_map.allocate_record();
-        let stmt = if self.id_map.hoist_records {
-            self.id_map.record_ids_to_hoist.push(result_id);
+        let result_id = self.symbols.allocate_record();
+        let stmt = if self.symbols.hoist_records {
+            self.symbols.record_ids_to_hoist.push(result_id);
             build_assignment_statement(build_record_expr(result_id, span), value, span)
         } else {
             build_record_let_stmt(result_id, value, span)
@@ -1538,7 +1538,7 @@ impl<'noise> Compiler<'noise> {
 
     /// Records the declaration of the intrinsic `name`, unless one is already recorded.
     fn declare_intrinsic(&mut self, name: &str, declaration: ast::Item) {
-        self.id_map
+        self.symbols
             .used_intrinsics
             .entry(name.to_string())
             .or_insert(declaration);
@@ -1578,7 +1578,7 @@ impl<'noise> Compiler<'noise> {
     fn qubit_args(&mut self, qubits: &[StimQubitId], span: Span) -> Vec<ast::Expr> {
         qubits
             .iter()
-            .map(|&q| build_qubit_expr(self.id_map.allocate_qubit(q), span))
+            .map(|&q| build_qubit_expr(self.symbols.allocate_qubit(q), span))
             .collect()
     }
 
