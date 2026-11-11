@@ -172,7 +172,7 @@ impl Backend for QsBackendReverseShim<'_> {
         Err("QuantumBackend does not support non-destructive zero checks".into())
     }
 
-    /// Omits global phase, selects full arithmetic execution, and rejects other intrinsics.
+    /// Executes cacheable blocks normally, omits global phase, and rejects unsupported intrinsics.
     fn custom_intrinsic(
         &mut self,
         name: &str,
@@ -180,7 +180,8 @@ impl Backend for QsBackendReverseShim<'_> {
         _globals: &impl qsc::fir::PackageStoreLookup,
     ) -> Option<Result<Value, String>> {
         match name {
-            "GlobalPhase" => Some(Ok(Value::unit())),
+            "GlobalPhase" | "EndEstimateCaching" => Some(Ok(Value::unit())),
+            "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
             "IsResourceEstimating" => Some(Ok(Value::Bool(false))),
             _ => Some(Err(format!("Custom intrinsic `{name}` is not supported"))),
         }

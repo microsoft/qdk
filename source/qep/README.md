@@ -185,6 +185,10 @@ changes are not rolled back.
 quantum instructions to a backend. `run_qsharp_call` invokes an already-resolved callable.
 Both discard classical output and return values, and flush buffered gates on success.
 
+Resource-estimation caching annotations do not cache execution: `BeginEstimateCaching`
+always returns `true`, and `EndEstimateCaching` is a no-op, so every annotated block
+executes normally.
+
 Each measurement emits `mz_store` or `mz_store_reset`, followed immediately by
 `read_result`, so the interpreter receives a concrete result before continuing.
 `ResultAdapter` can translate these result-register operations for backends that
