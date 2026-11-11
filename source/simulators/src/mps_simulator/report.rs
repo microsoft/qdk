@@ -17,10 +17,12 @@
 //!
 //! The max bond dimension is the engine's to keep: an engine that does not
 //! truncate (the exact reference) may hold bonds above it, which
-//! [`MpsRunReport::largest_bond`] then shows; the resumer does not check
-//! it, as the engine contract ([`MpsEngine`](tensornet::MpsEngine))
-//! leaves that check to its caller and no use of the MPS simulation method
-//! needs it.
+//! [`MpsRunReport::largest_bond`] then shows. The resumer does not refuse
+//! such a run, though the engine contract
+//! ([`MpsEngine`](tensornet::MpsEngine)) leaves that check to its caller:
+//! bonds above χ hold the state exactly, so a refusal would discard a
+//! result more accurate than the one asked for, and the report shows them
+//! instead.
 
 use std::fmt;
 
