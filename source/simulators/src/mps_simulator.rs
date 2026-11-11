@@ -16,27 +16,24 @@
 //! ([`MpsEngine`](tensornet::MpsEngine)) holds states and knows only sites
 //! and matrices. This module joins them: [`MpsResumer`] runs the calls of
 //! each shot on an MPS that an engine holds. Everything that knows qubits
-//! is here: which site holds each qubit (an order chosen from the
-//! program's two-qubit gates), the gates as matrices, gates multiplied into
-//! fewer operators ([`GateFusion`]), the max bond dimension χ, each shot's
-//! random draws, and the warning when truncation lost weight
-//! ([`MpsRunReport`]).
+//! is here, in `mps_simulator/`:
+//!
+//! - `resumer.rs`: [`MpsResumer`], its settings (the max bond dimension χ
+//!   among them) and the grouped run, with `resumer/order.rs` (which site
+//!   holds each qubit, an order chosen from the program's two-qubit
+//!   gates), `resumer/lowering.rs` (a batch's calls as the engine's steps
+//!   on sites, the gates as matrices) and `resumer/splitmix64.rs` (the
+//!   generator each shot's random draws come from);
+//! - `fusion.rs`: [`GateFusion`], gates multiplied into fewer one- and
+//!   two-site operators;
+//! - `report.rs`: [`MpsRunReport`] and [`TruncationWarning`], what a run
+//!   cost and the warning when truncation lost weight;
+//! - `error.rs`: [`MpsResumerError`].
 //!
 //! Shots that drew the same values share one state, forked where their
 //! draws differ, so a run costs what its distinct histories cost; each shot
 //! draws from its own stream, so its records do not depend on the shots
 //! beside it.
-//!
-//! Its files, in `mps_simulator/`:
-//!
-//! - `resumer.rs`: [`MpsResumer`], its settings and the grouped run, with
-//!   `resumer/lowering.rs` (a batch's calls as the engine's steps, on
-//!   sites), `resumer/order.rs` (the site of each qubit) and
-//!   `resumer/splitmix64.rs` (the generator the shots draw from);
-//! - `fusion.rs`: [`GateFusion`], runs of gates as one- and two-site
-//!   operators;
-//! - `report.rs`: [`MpsRunReport`] and [`TruncationWarning`];
-//! - `error.rs`: [`MpsResumerError`].
 //!
 //! An overview, with an example, is in `src/mps_simulator/README.md`.
 //!
