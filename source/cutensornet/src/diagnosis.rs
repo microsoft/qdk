@@ -4,20 +4,19 @@
 //! [`Diagnosis`]: for a user setting up the GPU for the MPS method, what was
 //! found and, when something is missing, what to fix.
 //!
-//! The MPS method runs on the GPU only when several things outside the QDK
-//! are in place: Linux x86-64, an NVIDIA driver for CUDA 12, a device of
-//! compute capability 7.5 or later, and NVIDIA's libraries, today
-//! cuTensorNet and the CUDA Runtime, at the audited versions (the crate's
-//! README says where each was verified). Each can be missing or wrong, and
-//! the user who meets the failure is often not the one who knows CUDA. So
+//! The MPS method runs on the GPU only when several things outside the QDK are
+//! in place: Linux x86-64, an NVIDIA driver for CUDA 12, a device of compute
+//! capability [`MINIMUM_COMPUTE_CAPABILITY`] or later, and NVIDIA's libraries,
+//! today cuTensorNet and the CUDA Runtime, at the audited versions (the crate's
+//! README says where each was verified). Each can be missing or wrong, and the
+//! user who meets the failure is often not the one who knows CUDA. So
 //! [`diagnose`] checks each and answers in one report, and never fails: the
 //! libraries found and their versions, other copies of them that could be
-//! loaded instead (a warning), the driver's CUDA version, each device's
-//! compute capability and memory, whether an MPS engine could run a gate
-//! on device 0, and for the first problem met, what to do
-//! ([`Diagnosis::advice`]). A caller shows it to the user on request (the
-//! setup check), and its text with the error of a GPU run that cannot
-//! start.
+//! loaded instead (a warning), the driver's CUDA version, each device's compute
+//! capability and memory, whether an MPS engine could run a gate on device 0,
+//! and for the first problem met, what to do ([`Diagnosis::advice`]). A caller
+//! shows it to the user on request (the setup check), and its text with the
+//! error of a GPU run that cannot start.
 //!
 //! How: [`discover_with`](crate::discover_with) (no GPU work), then, when it
 //! succeeds, the devices ([`DeviceReport`]), and an engine on device 0 with

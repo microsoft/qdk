@@ -4,14 +4,14 @@
 //! [`DeviceReport`]: each CUDA device's compute capability and memory, as a
 //! user setting the GPU up needs to see them.
 //!
-//! NVIDIA supports cuTensorNet on devices of compute capability 7.5 or
-//! later (the crate's README says where it was verified), and a run's max
-//! bond dimension is bounded by the device's free memory, so the setup
-//! check ([`diagnose`](crate::diagnose)) lists every device with both, and
-//! names a device the engine cannot use. Read through the loaded
-//! CUDA Runtime (`cudaGetDeviceCount`, then per device `cudaSetDevice`,
-//! `cudaDeviceGetAttribute` and `cudaMemGetInfo`), behind [`DeviceCalls`]
-//! so that the rules run on a host with no GPU.
+//! NVIDIA supports cuTensorNet on devices of compute capability
+//! [`MINIMUM_COMPUTE_CAPABILITY`] or later (the crate's README says where it
+//! was verified), and a run's max bond dimension is bounded by the device's
+//! free memory, so the setup check ([`diagnose`](crate::diagnose)) lists every
+//! device with both, and names a device the engine cannot use. Read through the
+//! loaded CUDA Runtime (`cudaGetDeviceCount`, then per device `cudaSetDevice`,
+//! `cudaDeviceGetAttribute` and `cudaMemGetInfo`), behind [`DeviceCalls`] so
+//! that the rules run on a host with no GPU.
 
 use crate::EngineError;
 
