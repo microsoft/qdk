@@ -34,12 +34,26 @@ The two traits speak different terms, `qir`'s of qubits, calls and shots,
 - **machine**, **context** and **batch** (`qir`'s): the machine runs a
   program's classical part, one context per shot, and stops a context at
   each batch of its quantum calls, and at its end with the shot's records.
-- **site**: a place on the engine's chain. The **qubit order** says which
-  site holds each of the program's qubits.
+- **site**: a place on the engine's chain: an MPS is a chain of tensors,
+  one per site. The **qubit order** says which site holds each of the
+  program's qubits.
+- **bond**: the link between two neighbouring sites. Its dimension is the
+  number of terms the state keeps across it; it grows with the
+  entanglement between the qubits on its two sides, and the memory and
+  time of a run grow with it. The **max bond dimension χ** caps it: a user
+  raises χ for a more accurate run, or lowers it for a faster one.
+- **truncation**: what an engine that truncates does after a gate: across
+  each bond it keeps at most the χ largest Schmidt values (its singular
+  values, the weights of its terms), and may drop small ones below a
+  cutoff of its own. A shot's **retained weight** is the share of its
+  state's squared norm that the truncations kept, 1 when they dropped
+  nothing; the report warns when it falls low, and the user then raises χ.
 - **capacity**: the chain a state is prepared within, one site per qubit
-  and bonds of at most the max bond dimension χ.
+  and bonds of at most χ.
 - **operator**: a unitary matrix on one or two sites, which the engine
   applies.
+- **stream**: a shot's own sequence of random numbers, each a
+  **uniform**: a number spread evenly over [0, 1).
 - **draw**: a shot's value at a measurement or reset, One when a uniform
   from the shot's own stream is below the state's P(One).
 - **group**: the shots of a run that drew the same values so far, which
