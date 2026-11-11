@@ -10,11 +10,10 @@
 //! method, on an NVIDIA A100 through cuTensorNet, ran H₂'s first 100
 //! measurements in 131 s with gates fused in pairs and in 176 s unfused,
 //! with 4.5× fewer operators (measured during development; no test times
-//! fusion). Fusion
-//! is exact: the product of a run's operators, in order, is the product of
-//! its gates, to rounding. Under truncation an engine truncates after each
-//! operator, so fused and unfused runs may differ within the truncation
-//! error.
+//! fusion). Fusion is exact: the product of a run's operators, in order,
+//! is the product of its gates, to rounding. Under truncation an engine
+//! truncates after each operator, so fused and unfused runs may differ
+//! within the truncation error.
 //!
 //! A run of gates ends at each measurement and reset, so no operator spans
 //! one; each run is fused on its own.
