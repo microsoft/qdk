@@ -34,15 +34,21 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
 
     let mut vars_to_alloca = IndexMap::default();
     let mut visited_blocks = FxHashSet::default();
+    let mut loaded_var_ids = FxHashSet::default();
     let mut blocks_to_visit = vec![entry_block_id];
     while let Some(block_id) = blocks_to_visit.pop() {
-        if visited_blocks.contains(&block_id) {
+        if !visited_blocks.insert(block_id) {
             continue;
         }
-        visited_blocks.insert(block_id);
-        add_alloca_load_to_block(program, block_id, &mut vars_to_alloca, next_var_id);
+        add_alloca_load_to_block(
+            program,
+            block_id,
+            &mut vars_to_alloca,
+            next_var_id,
+            &mut loaded_var_ids,
+        );
         for successor_id in get_block_successors(program.get_block(block_id)) {
-            if !visited_blocks.contains(&successor_id) {
+            if !visited_blocks.contains(&successor_id) && !blocks_to_visit.contains(&successor_id) {
                 blocks_to_visit.push(successor_id);
             }
         }
@@ -66,6 +72,7 @@ fn add_alloca_load_to_block(
     block_id: BlockId,
     vars_to_alloca: &mut IndexMap<VariableId, Variable>,
     next_var_id: &mut VariableId,
+    loaded_var_ids: &mut FxHashSet<VariableId>,
 ) {
     let block = program.get_block_mut(block_id);
     let instrs = block.0.drain(..).collect::<Vec<_>>();
@@ -213,8 +220,7 @@ fn add_alloca_load_to_block(
             // A previously inserted load instruction may already exist for this variable, so we check the map to avoid conflicts
             // or duplicate loads into the same variable.
             Instruction::Load(_, to_var) => {
-                let has_loaded_before = var_map.remove(&to_var.variable_id).is_some();
-                if has_loaded_before {
+                if !loaded_var_ids.insert(to_var.variable_id) {
                     // If the variable has been loaded before, we need a new id here for subsequent loads to avoid conflicts.
                     let new_var = Variable {
                         variable_id: *next_var_id,
@@ -223,9 +229,6 @@ fn add_alloca_load_to_block(
                     *next_var_id = next_var_id.successor();
                     var_map.insert(to_var.variable_id, Operand::Variable(new_var));
                     *to_var = new_var;
-                } else {
-                    // The variable has not been loaded into before, so map it to itself as a way to track that it has been loaded.
-                    var_map.insert(to_var.variable_id, Operand::Variable(*to_var));
                 }
             }
 
