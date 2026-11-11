@@ -26,7 +26,7 @@
 
 use std::fmt;
 
-/// The weight a shot may lose to truncation before a run warns: 1e-3.
+/// The weight a shot may lose to truncation before a run warns.
 pub const TRUNCATION_TOLERANCE: f64 = 1e-3;
 
 /// What a run cost, over its shots.
