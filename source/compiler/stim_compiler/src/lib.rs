@@ -71,6 +71,7 @@ pub fn compile_to_qir(src: &str, noise: &mut NoiseConfig<f64, f64>) -> Result<St
     let dependencies = [(PackageId::CORE, None), (std_id, None)];
     let sources = SourceMap::new([("".into(), src.into())], None);
     qsc::codegen::qir::get_qir_from_ast(&mut store, &dependencies, package, sources, capabilities)
+        .map(|generated| generated.qir)
         .map_err(|errors| errors.into_iter().map(Report::new).collect())
 }
 
