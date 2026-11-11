@@ -10,8 +10,8 @@ use crate::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use tensornet::MpsShape;
 use tensornet::reference::ExactReference;
 
-use super::engines::{Observed, Weight};
 use super::programs::{OPID_CX, OPID_H, coins, gate1, gate2, mz, program, ret};
+use super::reference_spy::{ReferenceSpy, Weight};
 use crate::mps_simulator::{
     DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsRunReport, TRUNCATION_TOLERANCE,
 };
@@ -46,7 +46,7 @@ fn the_report_gives_the_largest_bond_before_the_readout() {
 /// read before the readout, as a run that ends would.
 #[test]
 fn a_failed_run_reports_what_it_read_before_it_failed() {
-    let mut resumer = MpsResumer::new(Observed::failing_projections_on_one(), 7);
+    let mut resumer = MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 7);
     expect_ready(resumer.run(&QirMachine::new(&ghz(4)), &QirShotId::first(16)))
         .expect_err("some of 16 shots read One, whose projection fails");
     assert_eq!(resumer.last_run().largest_bond, 2);
@@ -67,7 +67,7 @@ fn each_run_reports_its_own_cost() {
 /// after a truncated run reads no stale warning.
 #[test]
 fn a_run_of_no_shots_reports_that_no_state_was_prepared() {
-    let mut resumer = MpsResumer::new(Observed::retaining(Weight::Fixed(0.99)), 7);
+    let mut resumer = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7);
     run_once(&mut resumer, &ghz(4));
     assert!(
         resumer.last_run().truncation_warning().is_some(),
@@ -99,7 +99,7 @@ fn a_run_of_no_gate_reports_a_largest_bond_of_one() {
 #[test]
 fn the_report_keeps_the_least_weight_among_the_shots() {
     for seed in 1..=4 {
-        let mut resumer = MpsResumer::new(Observed::retaining(Weight::ByBasisState), seed);
+        let mut resumer = MpsResumer::new(ReferenceSpy::retaining(Weight::ByBasisState), seed);
         let records = expect_ready(resumer.run(&QirMachine::new(&coins(2)), &QirShotId::first(16)))
             .expect("the program runs");
         let both_one = vec![crate::OutputRecord::Result(crate::MeasurementResult::One); 2];
@@ -114,7 +114,7 @@ fn the_report_keeps_the_least_weight_among_the_shots() {
 #[test]
 fn each_state_is_prepared_within_a_qubit_chain_of_the_max_bond_dimension() {
     for (max_bond_dimension, expected) in [(None, DEFAULT_MAX_BOND_DIMENSION.get()), (Some(1), 1)] {
-        let mut resumer = MpsResumer::new(Observed::new(), 7);
+        let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
         if let Some(max_bond_dimension) = max_bond_dimension {
             resumer = resumer
                 .with_max_bond_dimension(NonZeroUsize::new(max_bond_dimension).expect("not zero"));
@@ -139,7 +139,7 @@ fn an_exact_run_warns_of_nothing() {
 /// warns, giving the weight lost and the max bond dimension.
 #[test]
 fn a_run_that_lost_more_than_the_tolerance_warns() {
-    let mut resumer = MpsResumer::new(Observed::retaining(Weight::Fixed(0.99)), 7);
+    let mut resumer = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7);
     run_once(&mut resumer, &ghz(3));
     let warning = resumer
         .last_run()

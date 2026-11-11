@@ -1,11 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Observed`]: the exact reference, observed: it counts the gates it
-//! applies, the states it prepares and forks, and the states alive at once;
-//! keeps the capacities it is given; and, as a test sets it, reports a
-//! retained weight below one, as an engine that truncates would, or fails
-//! where a device would.
+//! [`ReferenceSpy`]: a test spy over the exact reference, which runs every
+//! call on [`ExactReference`] and records what the resumer asked of it: it
+//! counts the operators it applies, the states it prepares and forks, and
+//! the states alive at once; keeps the capacities it is given; and, as a
+//! test sets it, reports a retained weight below one, as an engine that
+//! truncates would, or fails where a device would.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -14,7 +15,7 @@ use num_complex::Complex64;
 use tensornet::reference::{ExactReference, ReferenceError, ReferenceState};
 use tensornet::{MpsEngine, MpsEngineError, MpsShape, PauliSum, Refusal};
 
-/// What weight [`Observed`] reports for a state.
+/// What weight [`ReferenceSpy`] reports for a state.
 #[derive(Clone, Copy)]
 pub(super) enum Weight {
     /// The reference's own.
@@ -26,7 +27,7 @@ pub(super) enum Weight {
     ByBasisState,
 }
 
-/// Which calls [`Observed`] fails, as a device's error would.
+/// Which calls [`ReferenceSpy`] fails, as a device's error would.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Failing {
     Nothing,
@@ -34,8 +35,8 @@ enum Failing {
     Forks,
 }
 
-/// The exact reference, observed (see the module documentation).
-pub(super) struct Observed {
+/// A test spy over the exact reference (see the module documentation).
+pub(super) struct ReferenceSpy {
     reference: ExactReference,
     weight: Weight,
     failing: Failing,
@@ -46,19 +47,19 @@ pub(super) struct Observed {
     most_live: Cell<usize>,
 }
 
-/// A state of [`Observed`]: the reference's, counted while it lives.
-pub(super) struct Tracked {
+/// A state of [`ReferenceSpy`]: the reference's, counted while it lives.
+pub(super) struct ReferenceSpyState {
     state: ReferenceState,
     live: Rc<Cell<usize>>,
 }
 
-impl Drop for Tracked {
+impl Drop for ReferenceSpyState {
     fn drop(&mut self) {
         self.live.set(self.live.get() - 1);
     }
 }
 
-impl Observed {
+impl ReferenceSpy {
     /// The reference, reporting its own retained weight.
     pub(super) fn new() -> Self {
         Self::with(Weight::Exact, Failing::Nothing)
@@ -97,7 +98,7 @@ impl Observed {
         self.prepared.borrow().clone()
     }
 
-    /// The gates it applied.
+    /// The operators it applied, one per `apply` call.
     pub(super) fn applies(&self) -> usize {
         self.applies.get()
     }
@@ -112,26 +113,26 @@ impl Observed {
         self.most_live.get()
     }
 
-    fn track(&self, state: ReferenceState) -> Tracked {
+    fn track(&self, state: ReferenceState) -> ReferenceSpyState {
         self.live.set(self.live.get() + 1);
         self.most_live
             .set(self.most_live.get().max(self.live.get()));
-        Tracked {
+        ReferenceSpyState {
             state,
             live: Rc::clone(&self.live),
         }
     }
 }
 
-/// Why [`Observed`] failed: a refusal or failure of the reference, or the
+/// Why [`ReferenceSpy`] failed: a refusal or failure of the reference, or the
 /// failure a test set.
 #[derive(Debug)]
-pub(super) enum ObservedError {
+pub(super) enum ReferenceSpyError {
     Reference(ReferenceError),
     Device,
 }
 
-impl std::fmt::Display for ObservedError {
+impl std::fmt::Display for ReferenceSpyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Reference(error) => error.fmt(f),
@@ -140,21 +141,21 @@ impl std::fmt::Display for ObservedError {
     }
 }
 
-impl std::error::Error for ObservedError {}
+impl std::error::Error for ReferenceSpyError {}
 
-impl From<ReferenceError> for ObservedError {
+impl From<ReferenceError> for ReferenceSpyError {
     fn from(error: ReferenceError) -> Self {
         Self::Reference(error)
     }
 }
 
-impl From<Refusal> for ObservedError {
+impl From<Refusal> for ReferenceSpyError {
     fn from(refusal: Refusal) -> Self {
         Self::Reference(refusal.into())
     }
 }
 
-impl MpsEngineError for ObservedError {
+impl MpsEngineError for ReferenceSpyError {
     fn refusal(&self) -> Option<&Refusal> {
         match self {
             Self::Reference(error) => error.refusal(),
@@ -163,39 +164,48 @@ impl MpsEngineError for ObservedError {
     }
 }
 
-impl MpsEngine for Observed {
-    type State = Tracked;
-    type Error = ObservedError;
+impl MpsEngine for ReferenceSpy {
+    type State = ReferenceSpyState;
+    type Error = ReferenceSpyError;
 
-    fn prepare(&self, capacity: &MpsShape) -> Result<Tracked, ObservedError> {
+    fn prepare(&self, capacity: &MpsShape) -> Result<ReferenceSpyState, ReferenceSpyError> {
         self.prepared.borrow_mut().push(capacity.clone());
         Ok(self.track(self.reference.prepare(capacity)?))
     }
 
     fn apply(
         &self,
-        state: &mut Tracked,
+        state: &mut ReferenceSpyState,
         sites: &[usize],
         matrix: &[Complex64],
-    ) -> Result<(), ObservedError> {
+    ) -> Result<(), ReferenceSpyError> {
         self.applies.set(self.applies.get() + 1);
         Ok(self.reference.apply(&mut state.state, sites, matrix)?)
     }
 
-    fn probability_of_one(&self, state: &Tracked, site: usize) -> Result<f64, ObservedError> {
+    fn probability_of_one(
+        &self,
+        state: &ReferenceSpyState,
+        site: usize,
+    ) -> Result<f64, ReferenceSpyError> {
         Ok(self.reference.probability_of_one(&state.state, site)?)
     }
 
-    fn project(&self, state: &mut Tracked, site: usize, one: bool) -> Result<f64, ObservedError> {
+    fn project(
+        &self,
+        state: &mut ReferenceSpyState,
+        site: usize,
+        one: bool,
+    ) -> Result<f64, ReferenceSpyError> {
         if one && self.failing == Failing::ProjectionsOnOne {
-            return Err(ObservedError::Device);
+            return Err(ReferenceSpyError::Device);
         }
         Ok(self.reference.project(&mut state.state, site, one)?)
     }
 
-    fn fork(&self, state: &Tracked) -> Result<Tracked, ObservedError> {
+    fn fork(&self, state: &ReferenceSpyState) -> Result<ReferenceSpyState, ReferenceSpyError> {
         if self.failing == Failing::Forks {
-            return Err(ObservedError::Device);
+            return Err(ReferenceSpyError::Device);
         }
         self.forks.set(self.forks.get() + 1);
         Ok(self.track(self.reference.fork(&state.state)?))
@@ -203,27 +213,27 @@ impl MpsEngine for Observed {
 
     fn sample(
         &self,
-        state: &Tracked,
+        state: &ReferenceSpyState,
         sites: &[usize],
         shots: usize,
         seed: u64,
-    ) -> Result<Vec<bool>, ObservedError> {
+    ) -> Result<Vec<bool>, ReferenceSpyError> {
         Ok(self.reference.sample(&state.state, sites, shots, seed)?)
     }
 
     fn expectation(
         &self,
-        state: &Tracked,
+        state: &ReferenceSpyState,
         observable: &PauliSum,
-    ) -> Result<Complex64, ObservedError> {
+    ) -> Result<Complex64, ReferenceSpyError> {
         Ok(self.reference.expectation(&state.state, observable)?)
     }
 
-    fn shape(&self, state: &Tracked) -> Result<MpsShape, ObservedError> {
+    fn shape(&self, state: &ReferenceSpyState) -> Result<MpsShape, ReferenceSpyError> {
         Ok(self.reference.shape(&state.state)?)
     }
 
-    fn retained_weight(&self, state: &Tracked) -> Result<f64, ObservedError> {
+    fn retained_weight(&self, state: &ReferenceSpyState) -> Result<f64, ReferenceSpyError> {
         Ok(match self.weight {
             Weight::Exact => self.reference.retained_weight(&state.state)?,
             Weight::Fixed(weight) => weight,

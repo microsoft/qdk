@@ -19,12 +19,12 @@ use crate::{MeasurementResult, OutputRecord};
 use tensornet::MpsEngine;
 use tensornet::reference::ExactReference;
 
-use super::engines::{Observed, ObservedError};
 use super::programs::{
     OPID_CX, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_SWAP, OPID_X, branch,
     coin_copied_by_a_branch, coins, correlated_noise, gate, gate1, gate2, jump, measure, mz,
     peek_loss, program, program_with, read_result, readout_noise, reset, ret, set,
 };
+use super::reference_spy::{ReferenceSpy, ReferenceSpyError};
 use crate::mps_simulator::resumer::order::QubitOrder;
 use crate::mps_simulator::resumer::splitmix64::SplitMix64;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
@@ -375,7 +375,7 @@ fn a_qubit_at_zero_reads_zero_even_on_a_uniform_of_zero() {
 /// randomness prepares one state for all its shots and forks none.
 #[test]
 fn shots_with_the_same_draws_share_one_state() {
-    let mut resumer = MpsResumer::new(Observed::new(), 7);
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
     run(&mut resumer, &copies(), &QirShotId::first(10)).expect("the program runs");
     assert_eq!(
         (resumer.engine().prepared().len(), resumer.engine().forks()),
@@ -387,7 +387,7 @@ fn shots_with_the_same_draws_share_one_state() {
 /// splits the shots once, and the copy's branch runs on the fork.
 #[test]
 fn shots_whose_draws_differ_fork_the_state_once_where_they_differ() {
-    let mut resumer = MpsResumer::new(Observed::new(), 7);
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
     let records = run(
         &mut resumer,
         &coin_copied_by_a_branch(),
@@ -416,7 +416,7 @@ fn a_run_holds_at_most_log2_of_its_shots_plus_one_states() {
         .collect();
     block.push(ret());
     let program = program(12, &[&block]);
-    let mut resumer = MpsResumer::new(Observed::new(), 7);
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
     run(&mut resumer, &program, &QirShotId::first(16)).expect("the program runs");
     assert!(
         resumer.engine().forks() > 5,
@@ -548,7 +548,7 @@ fn groups_after_the_first_failing_shot_are_dropped_unrun() {
             &[gate1(OPID_X, 1), gate1(OPID_X, 1), gate1(OPID_X, 1), ret()],
         ],
     );
-    let make = || MpsResumer::new(Observed::new(), 7);
+    let make = || MpsResumer::new(ReferenceSpy::new(), 7);
     let all = QirShotId::first(16);
     let failing = failing_alone(make, &program, &all);
     let passing: Vec<_> = all.iter().filter(|shot| !failing.contains(shot)).collect();
@@ -578,7 +578,7 @@ fn an_engine_failure_names_the_first_shot_whose_group_met_it() {
     let program = coins(1);
     let shots = QirShotId::first(16);
     let reversed: Vec<_> = shots.iter().rev().copied().collect();
-    let make = || MpsResumer::new(Observed::failing_projections_on_one(), 5);
+    let make = || MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 5);
     for order in [&shots, &reversed] {
         let failing = failing_alone(make, &program, order);
         // Fewer shots read 1 than 0, so the shots that read 1 go on apart
@@ -593,7 +593,7 @@ fn an_engine_failure_names_the_first_shot_whose_group_met_it() {
                 error,
                 QirResumeError::Resumer {
                     shot,
-                    error: MpsResumerError::Engine(ObservedError::Device),
+                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
                 } if shot == failing[0]
             ),
             "{error:?}"
@@ -609,7 +609,7 @@ fn a_zero_then_two_ones() -> [QirShotId; 3] {
     let reading = |value: u8| {
         let coin = &coin;
         QirShotId::first(16).into_iter().filter(move |&shot| {
-            run(&mut MpsResumer::new(Observed::new(), 5), coin, &[shot]).expect("a coin runs")
+            run(&mut MpsResumer::new(ReferenceSpy::new(), 5), coin, &[shot]).expect("a coin runs")
                 == [results(&[value])]
         })
     };
@@ -623,9 +623,9 @@ fn a_zero_then_two_ones() -> [QirShotId; 3] {
 /// The engines whose failure meets only the waiting part of a split: one
 /// fails the fork, the other the fork's projection on One, the waiting
 /// part's value here.
-const FAILING_SPLITS: [fn() -> Observed; 2] = [
-    Observed::failing_forks,
-    Observed::failing_projections_on_one,
+const FAILING_SPLITS: [fn() -> ReferenceSpy; 2] = [
+    ReferenceSpy::failing_forks,
+    ReferenceSpy::failing_projections_on_one,
 ];
 
 /// When the copy for the part of a split that waits fails, forked or
@@ -645,7 +645,7 @@ fn a_failed_split_fails_only_the_shots_that_wait() {
                 error,
                 QirResumeError::Resumer {
                     shot,
-                    error: MpsResumerError::Engine(ObservedError::Device),
+                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
                 } if shot == shots[1]
             ),
             "{error:?}"
@@ -679,7 +679,7 @@ fn a_failed_split_and_a_later_failure_name_the_first_shot_in_order() {
                 zero_last,
                 QirResumeError::Resumer {
                     shot,
-                    error: MpsResumerError::Engine(ObservedError::Device),
+                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
                 } if shot == one
             ),
             "{zero_last:?}"
@@ -695,7 +695,7 @@ fn on_a_tie_the_shots_that_read_zero_go_on() {
     let [zero, one, _] = a_zero_then_two_ones();
     for shots in [[one, zero], [zero, one]] {
         let error = run(
-            &mut MpsResumer::new(Observed::failing_forks(), 5),
+            &mut MpsResumer::new(ReferenceSpy::failing_forks(), 5),
             &coins(1),
             &shots,
         )
@@ -705,7 +705,7 @@ fn on_a_tie_the_shots_that_read_zero_go_on() {
                 error,
                 QirResumeError::Resumer {
                     shot,
-                    error: MpsResumerError::Engine(ObservedError::Device),
+                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
                 } if shot == one
             ),
             "{error:?}"
@@ -720,7 +720,7 @@ fn on_a_tie_the_shots_that_read_zero_go_on() {
 fn a_max_bond_dimension_that_makes_no_chain_fails_naming_the_first_shot() {
     let program = program(64, &[&[gate1(OPID_H, 0), ret()]]);
     let mut resumer =
-        MpsResumer::new(Observed::new(), 7).with_max_bond_dimension(NonZeroUsize::MAX);
+        MpsResumer::new(ReferenceSpy::new(), 7).with_max_bond_dimension(NonZeroUsize::MAX);
     let error = run(&mut resumer, &program, &ids(&[5, 2])).expect_err("no chain");
     assert!(
         matches!(
@@ -834,7 +834,7 @@ fn no_shots_give_no_records() {
 #[test]
 fn a_program_of_no_qubits_records_without_a_state() {
     let program = program(0, &[&[ret()]]);
-    let mut resumer = MpsResumer::new(Observed::new(), 7);
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
     let records = run(&mut resumer, &program, &ids(&[0, 1])).expect("the program runs");
     assert_eq!(records, vec![results(&[0]); 2]);
     assert!(resumer.engine().prepared().is_empty());

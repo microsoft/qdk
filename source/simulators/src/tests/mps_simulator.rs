@@ -3,11 +3,12 @@
 
 //! The tests of [`crate::mps_simulator`], one file per file with behaviour,
 //! all on `tensornet`'s exact reference engine; `programs.rs` writes the QIR
-//! programs they run, and `engines.rs` the test double over the reference.
+//! programs they run, and `reference_spy.rs` the test spy over the
+//! reference.
 
-mod engines;
 mod fusion;
 mod programs;
+mod reference_spy;
 mod report;
 mod resumer;
 
