@@ -556,7 +556,7 @@ pub struct SparseSim {
     /// A bit vector that tracks which qubits were lost.
     pub lost_qubits: BigUint,
     /// Random number generator to sample any noise.
-    /// Noise is not applied when rng is None.
+    /// Initialized lazily and preserved while noise is disabled.
     pub rng: Option<StdRng>,
     noise_seed: Option<u64>,
 }
@@ -603,9 +603,7 @@ impl SparseSim {
 
     fn set_noise(&mut self, noise: &PauliNoise) {
         self.noise = *noise;
-        if noise.is_noiseless() && self.loss.is_zero() {
-            self.rng = None;
-        } else {
+        if !noise.is_noiseless() || !self.loss.is_zero() {
             self.rng.get_or_insert_with(|| {
                 self.noise_seed
                     .map_or_else(|| StdRng::from_rng(&mut rand::rng()), StdRng::seed_from_u64)
@@ -615,9 +613,7 @@ impl SparseSim {
 
     pub fn set_loss(&mut self, loss: f64) {
         self.loss = loss;
-        if loss.is_zero() && self.noise.is_noiseless() {
-            self.rng = None;
-        } else {
+        if !loss.is_zero() || !self.noise.is_noiseless() {
             self.rng.get_or_insert_with(|| {
                 self.noise_seed
                     .map_or_else(|| StdRng::from_rng(&mut rand::rng()), StdRng::seed_from_u64)
@@ -627,7 +623,7 @@ impl SparseSim {
 
     #[must_use]
     fn is_noiseless(&self) -> bool {
-        self.rng.is_none()
+        self.noise_config.is_none() && self.noise.is_noiseless() && self.loss.is_zero()
     }
 
     fn apply_faults(
@@ -635,7 +631,7 @@ impl SparseSim {
         get_table: impl Fn(&CumulativeNoiseConfig) -> &CumulativeNoiseTable,
         qs: &[usize],
     ) {
-        if self.rng.is_none() {
+        if self.is_noiseless() {
             return;
         }
         if !self.noise.is_noiseless() || !self.loss.is_zero() {
@@ -687,6 +683,9 @@ impl SparseSim {
     }
 
     fn apply_noise(&mut self, q: usize) {
+        if self.noise.is_noiseless() && self.loss.is_zero() {
+            return;
+        }
         if self.is_qubit_lost(q) {
             // If the qubit is already lost, we don't apply noise.
             return;
@@ -1188,12 +1187,12 @@ impl Backend for SparseSim {
     fn set_seed(&mut self, seed: Option<u64>) {
         self.noise_seed = seed;
         if let Some(seed) = seed {
-            if !self.is_noiseless() {
+            if self.rng.is_some() {
                 self.rng = Some(StdRng::seed_from_u64(seed));
             }
             self.sim.set_rng_seed(seed);
         } else {
-            if !self.is_noiseless() {
+            if self.rng.is_some() {
                 self.rng = Some(StdRng::from_rng(&mut rand::rng()));
             }
             self.sim.set_rng_seed(rand::rng().next_u64());

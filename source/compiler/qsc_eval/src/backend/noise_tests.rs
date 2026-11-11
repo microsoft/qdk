@@ -34,6 +34,86 @@ fn dynamically_configured_noise_uses_run_seed() {
 }
 
 #[test]
+fn pauli_noise_rng_continues_after_reenable() {
+    check_noise_rng_continues_after_reenable(false);
+}
+
+#[test]
+fn qubit_loss_rng_continues_after_reenable() {
+    check_noise_rng_continues_after_reenable(true);
+}
+
+fn check_noise_rng_continues_after_reenable(use_loss: bool) {
+    let configure = |sim: &mut SparseSim, enabled: bool| {
+        let probability = if enabled { 0.5 } else { 0.0 };
+        if use_loss {
+            sim.set_loss(probability);
+        } else {
+            sim.set_noise(
+                &PauliNoise::from_probabilities(probability, 0.0, 0.0).expect("valid noise"),
+            );
+        }
+    };
+    let run = |disable_noise| {
+        let mut sim = SparseSim::new();
+        sim.set_seed(Some(42));
+        configure(&mut sim, true);
+        let qubit = sim.qubit_allocate().expect("allocation succeeds");
+        let mut results = (0..64)
+            .map(|_| sim.mresetz(qubit).expect("measurement succeeds"))
+            .collect::<Vec<_>>();
+        if disable_noise {
+            configure(&mut sim, false);
+            assert!(sim.is_noiseless());
+            for _ in 0..16 {
+                sim.apply_noise(qubit);
+                assert_eq!(
+                    sim.mresetz(qubit).expect("measurement succeeds"),
+                    val::Result::Val(false)
+                );
+            }
+            configure(&mut sim, true);
+            assert!(!sim.is_noiseless());
+        }
+        results.extend((0..64).map(|_| sim.mresetz(qubit).expect("measurement succeeds")));
+        results
+    };
+    assert_eq!(run(false), run(true));
+}
+
+#[test]
+fn dynamically_configured_noise_can_be_reseeded_while_disabled() {
+    for use_loss in [false, true] {
+        let run = |initial_seed| {
+            let mut sim = SparseSim::new();
+            sim.set_seed(Some(initial_seed));
+            let configure = |sim: &mut SparseSim, probability| {
+                if use_loss {
+                    sim.set_loss(probability);
+                } else {
+                    sim.set_noise(
+                        &PauliNoise::from_probabilities(probability, 0.0, 0.0)
+                            .expect("valid noise"),
+                    );
+                }
+            };
+            configure(&mut sim, 0.5);
+            let qubit = sim.qubit_allocate().expect("allocation succeeds");
+            for _ in 0..64 {
+                sim.mresetz(qubit).expect("measurement succeeds");
+            }
+            configure(&mut sim, 0.0);
+            sim.set_seed(Some(42));
+            configure(&mut sim, 0.5);
+            (0..64)
+                .map(|_| sim.mresetz(qubit).expect("measurement succeeds"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(13), run(17));
+    }
+}
+
+#[test]
 fn pauli_noise() {
     let noise = PauliNoise::from_probabilities(0.0, 0.0, 0.0);
     assert!(
