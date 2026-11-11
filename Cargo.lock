@@ -2768,7 +2768,7 @@ dependencies = [
 name = "qodec_runtime_builder"
 version = "0.0.0"
 dependencies = [
- "qodec_runtime_pieces",
+ "qodec_runtime_model",
 ]
 
 [[package]]
@@ -2813,6 +2813,7 @@ name = "qodec_runtime_recipes"
 version = "0.0.0"
 dependencies = [
  "qodec_runtime_builder",
+ "qodec_runtime_pieces",
 ]
 
 [[package]]

@@ -9,7 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-qodec_runtime_pieces = { path = "../qodec_runtime_pieces" }
+qodec_runtime_model = { path = "../qodec_runtime_model" }
 
 [lints]
 workspace = true

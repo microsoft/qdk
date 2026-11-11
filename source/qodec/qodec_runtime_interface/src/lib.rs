@@ -67,6 +67,10 @@
 //!   information (`Reply::Pending(N)`) or correct live blocks (`Lower::Fix(C)`).
 //! - A [`Controller`] answers `Pending(N)`, for example by adding QEC rounds.
 //!
+//! Stacked, they make a [`QodecLayer`]: calls and results of the upper ISA
+//! above, and of the lower ISA below. A runtime chains one per layer of the
+//! qodec ([`QodecLayers`]).
+//!
 //! `N` and `C` are agreed by the neighbors that exchange them. [`Never`] for
 //! either means the message is never sent, and the type checker proves it: a
 //! decoder that never pends needs no controller, because its `Reply<Never>`
@@ -86,5 +90,6 @@ pub use backend::{Backend, FromFn, from_fn};
 pub use layer::{Blueprint, Chain, Layer, Link, Stack};
 pub use protocol::{
     BasicReadout, Bit, BlockRef, BoxedLayer, Call, Controller, Correction, Decoder, Encoder, Fault,
-    FaultKind, Fix, GadgetId, Invocation, Lower, Never, OwnedParam, Record, Reply, Status, Step,
+    FaultKind, Fix, GadgetId, Invocation, Lower, Never, OwnedParam, QodecLayer, QodecLayers,
+    Record, Reply, Status, Step,
 };

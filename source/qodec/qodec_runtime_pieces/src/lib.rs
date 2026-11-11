@@ -39,9 +39,7 @@ pub use encoder::{
 pub use frame_decoder::{CodeShape, FrameDecoder, FrameDecoderPlan, FrameGadget, Transport};
 pub use passive::{BodySelect, Decode, Passive, RecordLayout};
 pub use resolver::{Resolver, ResolverFixes};
-pub use runtime::{
-    BatchBackend, QodecLayer, QodecLayers, QodecRuntime, QodecRuntimeError, Runtime,
-};
+pub use runtime::{BatchBackend, QodecRuntime, QodecRuntimeError, Runtime};
 pub use type_checker::TypeChecker;
 pub use until_ready::{Rounds, UntilReady, UntilReadyPlan};
 

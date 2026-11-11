@@ -34,7 +34,7 @@
 //! ```
 
 use super::{
-    layer::Layer,
+    layer::{Chain, Layer},
     pauli::{Clifford, Pauli},
 };
 use smallvec::SmallVec;
@@ -559,7 +559,28 @@ impl<N, L> Controller<N> for L where
 }
 
 /// A whole qodec layer: batches of ISA calls and their results on both sides.
-/// A qodec runtime chains one per layer.
+/// A qodec runtime chains one per layer ([`QodecLayers`]).
+pub trait QodecLayer:
+    Layer<
+        Input = Vec<Call>,
+        Output = Result<Vec<Reply>, Fault>,
+        LowerInput = Vec<Call>,
+        LowerOutput = Result<Vec<Reply>, Fault>,
+    >
+{
+}
+
+impl<L> QodecLayer for L where
+    L: Layer<
+            Input = Vec<Call>,
+            Output = Result<Vec<Reply>, Fault>,
+            LowerInput = Vec<Call>,
+            LowerOutput = Result<Vec<Reply>, Fault>,
+        > + ?Sized
+{
+}
+
+/// A boxed [`QodecLayer`].
 pub type BoxedLayer = Box<
     dyn Layer<
             Input = Vec<Call>,
@@ -568,3 +589,6 @@ pub type BoxedLayer = Box<
             LowerOutput = Result<Vec<Reply>, Fault>,
         >,
 >;
+
+/// The layers of a qodec, top first.
+pub type QodecLayers = Chain<Vec<Call>, Result<Vec<Reply>, Fault>>;

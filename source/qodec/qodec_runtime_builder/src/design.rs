@@ -3,7 +3,7 @@
 
 //! Designs: how each layer of a qodec is assembled from mix-and-match pieces.
 
-use qodec_runtime_pieces::{Blueprint, BoxedLayer, LayerModel, PlanError, QodecLayer};
+use qodec_runtime_model::{Blueprint, BoxedLayer, LayerModel, PlanError, QodecLayer};
 use std::sync::Arc;
 
 /// The blueprint of a whole qodec layer, with its instance boxed. Every

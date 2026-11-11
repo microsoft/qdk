@@ -7,8 +7,7 @@
 use super::{
     backend::Backend,
     isa::Isa,
-    layer::{Chain, Layer},
-    protocol::{BasicReadout, Call, Fault, FaultKind, Reply},
+    protocol::{BasicReadout, Call, Fault, FaultKind, QodecLayer, QodecLayers, Reply},
 };
 use std::{fmt, sync::Arc};
 
@@ -19,30 +18,6 @@ use std::{fmt, sync::Arc};
 pub trait BatchBackend<E>: Backend<Vec<Call>, Result<Vec<BasicReadout>, E>> {}
 
 impl<E, B: Backend<Vec<Call>, Result<Vec<BasicReadout>, E>> + ?Sized> BatchBackend<E> for B {}
-
-/// A whole qodec layer: batches of ISA calls and their results on both sides.
-pub trait QodecLayer:
-    Layer<
-        Input = Vec<Call>,
-        Output = Result<Vec<Reply>, Fault>,
-        LowerInput = Vec<Call>,
-        LowerOutput = Result<Vec<Reply>, Fault>,
-    >
-{
-}
-
-impl<L> QodecLayer for L where
-    L: Layer<
-            Input = Vec<Call>,
-            Output = Result<Vec<Reply>, Fault>,
-            LowerInput = Vec<Call>,
-            LowerOutput = Result<Vec<Reply>, Fault>,
-        > + ?Sized
-{
-}
-
-/// The layers of a qodec, top first.
-pub type QodecLayers = Chain<Vec<Call>, Result<Vec<Reply>, Fault>>;
 
 /// The runtime of one shot of a qodec: every layer chained over a bottom
 /// backend that fails with `E`.

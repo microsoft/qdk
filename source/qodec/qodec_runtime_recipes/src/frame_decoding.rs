@@ -3,7 +3,7 @@
 
 //! [`FrameDecoding`]: the reference design.
 
-use qodec_runtime_builder::{
+use crate::{
     Design, FrameDecoderPlan, GadgetEncoderPlan, LayerBlueprint, LayerModel, Never, PlanError,
     Stack,
 };

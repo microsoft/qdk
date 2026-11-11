@@ -4,7 +4,7 @@
 //! [`Compiler`]: encoders without decoders, lowering a whole program ahead of
 //! time.
 
-use qodec_runtime_builder::{
+use crate::{
     Blueprint, Call, Encoder, Fault, GadgetEncoderPlan, Layer, Lower, Never, PlanError, QodecModel,
     Reply, from_fn,
 };
@@ -42,7 +42,7 @@ impl Compiler {
         Self { encoders }
     }
 
-    /// A [`GadgetEncoder`](qodec_runtime_builder::GadgetEncoder) for every layer
+    /// A [`GadgetEncoder`](crate::GadgetEncoder) for every layer
     /// of `model`. To lower many programs, plan once with [`CompilerPlan`].
     pub fn for_model(model: &QodecModel) -> Result<Self, PlanError> {
         CompilerPlan::new(model).map(|plan| plan.instantiate())
@@ -74,7 +74,7 @@ pub struct CompilerPlan {
 }
 
 impl CompilerPlan {
-    /// Plans a [`GadgetEncoder`](qodec_runtime_builder::GadgetEncoder) for every
+    /// Plans a [`GadgetEncoder`](crate::GadgetEncoder) for every
     /// layer of `model`.
     pub fn new(model: &QodecModel) -> Result<Self, PlanError> {
         let encoders = model

@@ -10,6 +10,7 @@ repository.workspace = true
 
 [dependencies]
 qodec_runtime_builder = { path = "../qodec_runtime_builder" }
+qodec_runtime_pieces = { path = "../qodec_runtime_pieces" }
 
 [lints]
 workspace = true

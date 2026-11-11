@@ -11,13 +11,14 @@
 //! | [`Compiler`] | Encoders without decoders, lowering a whole program ahead of time |
 //! | [`runtime()`] | The usual [`Runtime`] over a plan's layers |
 //!
-//! It re-exports the builder crate, and through it the pieces, model and
+//! It re-exports the builder and pieces crates, and through them the model and
 //! interface crates.
 
 pub mod compiler;
 pub mod frame_decoding;
 
 pub use qodec_runtime_builder::*;
+pub use qodec_runtime_pieces::*;
 
 pub use compiler::{Compiler, CompilerPlan};
 pub use frame_decoding::FrameDecoding;

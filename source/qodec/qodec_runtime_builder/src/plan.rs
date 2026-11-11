@@ -5,7 +5,7 @@
 //! fresh layers are built per shot.
 
 use super::design::{Design, LayerBlueprint};
-use qodec_runtime_pieces::{
+use qodec_runtime_model::{
     Backend, Call, Fault, Isa, Layer, Link, PlanError, QodecLayer, QodecLayers, QodecModel, Reply,
 };
 use std::sync::Arc;
@@ -13,8 +13,8 @@ use std::sync::Arc;
 /// The plan of a whole qodec: a blueprint per layer, from which
 /// [`Self::instantiate`] builds fresh layers per shot.
 ///
-/// It only assembles layers. To run a shot, stack them on a
-/// [`Runtime`](qodec_runtime_pieces::Runtime) over a bottom backend:
+/// It only assembles layers. To run a shot, stack them on a runtime, such as
+/// `qodec_runtime_pieces::Runtime`, over a bottom backend:
 ///
 /// ```text
 /// let model = qodec_runtime_reader::read(&qodec)?;
