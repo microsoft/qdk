@@ -15,11 +15,6 @@
 
 use crate::EngineError;
 
-/// The oldest compute capability NVIDIA supports cuTensorNet on: 7.5. The
-/// engine does not check it; the setup check applies it to device 0, where
-/// the engine runs.
-pub const MINIMUM_COMPUTE_CAPABILITY: (i32, i32) = (7, 5);
-
 /// One CUDA device, as the setup check reports it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DeviceReport {
@@ -41,6 +36,11 @@ impl DeviceReport {
         self.compute_capability >= MINIMUM_COMPUTE_CAPABILITY
     }
 }
+
+/// The oldest compute capability NVIDIA supports cuTensorNet on: 7.5. The
+/// engine does not check it; the setup check applies it to device 0, where
+/// the engine runs.
+pub const MINIMUM_COMPUTE_CAPABILITY: (i32, i32) = (7, 5);
 
 /// Every device `calls` sees, in ordinal order, each read with its own
 /// device current.
