@@ -1,11 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Discovery on a host with the audited libraries installed.
+//! Discovery and the setup check on a host with the audited libraries
+//! installed.
 //!
-//! It needs the CUDA Runtime 12.9 and cuTensorNet 2.13, so it is ignored in
-//! CI; run it with `--ignored` on such a host. Discovery runs no GPU work;
-//! the diagnosis runs one gate on device 0.
+//! They need the CUDA Runtime 12.9 and cuTensorNet 2.13, and the setup
+//! check a CUDA device too, so they are ignored in CI; run them with
+//! `--ignored` on such a host. Discovery runs no GPU work; the setup check
+//! runs one gate on device 0.
 
 use qdk_cutensornet::{PackagedLibraries, diagnose, discover};
 

@@ -32,8 +32,8 @@
 //! [`discover_with`] ([`PackagedLibraries`]).
 //!
 //! The crate's `docs/loading.md` shows the steps of discovery and the faults
-//! each one can find, and its `docs/engine.md` how the engine calls
-//! cuTensorNet.
+//! each one can find, its `docs/engine.md` how the engine calls cuTensorNet,
+//! and its `README.md` the setup check's steps.
 
 #[cfg_attr(
     not(all(target_os = "linux", target_arch = "x86_64")),

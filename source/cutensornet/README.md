@@ -191,7 +191,9 @@ flowchart TD
 - Its [`AvailabilityReport`](src/discovery/report.rs) has a
   [`LibraryReport`](src/libraries/report.rs) per library, in the order they
   are opened: its name, the path it was opened from, the
-  [`Version`](src/libraries/report.rs)s it reports, and its faults.
+  [`Version`](src/libraries/report.rs)s it reports, its faults, the other
+  copies of it visible beside the one loaded, and whether its override was
+  loaded.
 - [`AvailabilityError`](src/discovery/error.rs) is `UnsupportedPlatform` off
   Linux x86-64, or else `Unusable` with the report, whose
   [`LibraryFault`](src/libraries/report.rs)s name the variable, path,
