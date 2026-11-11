@@ -109,31 +109,26 @@ fn helper_local_qubit_array_loop_emits_initialized_index_to_gate_qir() {
         block_1:
           %var_1 = alloca ptr
           %var_2 = alloca i64
-          %var_3 = alloca i64
           %var_5 = alloca [1 x ptr]
-          %var_9 = alloca i64
           store ptr %var_0, ptr %var_1
           store i64 0, ptr %var_2
           br label %block_2
         block_2:
-          %var_13 = load i64, ptr %var_2
-          store i64 %var_13, ptr %var_3
-          %var_15 = load i64, ptr %var_3
-          %var_4 = icmp slt i64 %var_15, 1
+          %var_3 = load i64, ptr %var_2
+          %var_4 = icmp slt i64 %var_3, 1
           br i1 %var_4, label %block_3, label %block_4
         block_3:
-          %var_16 = load ptr, ptr %var_1
+          %var_13 = load ptr, ptr %var_1
           %var_5_0 = getelementptr [1 x ptr], ptr %var_5, i64 0, i64 0
-          store ptr %var_16, ptr %var_5_0
-          %var_18 = load i64, ptr %var_2
-          %var_19_offset_chk = icmp slt i64 %var_18, 0
-          %var_19_offset = select i1 %var_19_offset_chk, i64 1, i64 0
-          %var_19 = getelementptr [1 x ptr], ptr %var_5, i64 %var_19_offset, i64 %var_18
-          %var_6 = load ptr, ptr %var_19
+          store ptr %var_13, ptr %var_5_0
+          %var_15 = load i64, ptr %var_2
+          %var_16_offset_chk = icmp slt i64 %var_15, 0
+          %var_16_offset = select i1 %var_16_offset_chk, i64 1, i64 0
+          %var_16 = getelementptr [1 x ptr], ptr %var_5, i64 %var_16_offset, i64 %var_15
+          %var_6 = load ptr, ptr %var_16
           call void @X(ptr %var_6)
-          store i64 %var_18, ptr %var_9
-          %var_21 = load i64, ptr %var_9
-          %var_10 = add i64 %var_21, 1
+          %var_9 = load i64, ptr %var_2
+          %var_10 = add i64 %var_9, 1
           store i64 %var_10, ptr %var_2
           br label %block_2
         block_4:
@@ -747,27 +742,23 @@ fn measured_short_circuit_callable_reassignment_compiles_on_restricted_profiles(
             expect![[r#"
                 block_0:
                   %var_0 = alloca i1
-                  %var_4 = alloca i1
                   %var_5 = alloca i1
                   %var_7 = alloca i64
-                  %var_8 = alloca i64
                   call void @__quantum__rt__initialize(ptr null)
                   store i1 false, ptr %var_0
                   call void @X(ptr inttoptr (i64 0 to ptr))
                   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                   %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
                   store i1 %var_2, ptr %var_0
-                  %var_11 = load i1, ptr %var_0
-                  store i1 %var_11, ptr %var_4
+                  %var_4 = load i1, ptr %var_0
                   store i1 false, ptr %var_5
-                  %var_14 = load i1, ptr %var_4
-                  br i1 %var_14, label %block_1, label %block_2
+                  br i1 %var_4, label %block_1, label %block_2
                 block_1:
                   store i1 true, ptr %var_5
                   br label %block_2
                 block_2:
-                  %var_15 = load i1, ptr %var_0
-                  br i1 %var_15, label %block_3, label %block_4
+                  %var_12 = load i1, ptr %var_0
+                  br i1 %var_12, label %block_3, label %block_4
                 block_3:
                   store i64 6, ptr %var_7
                   br label %block_5
@@ -775,10 +766,8 @@ fn measured_short_circuit_callable_reassignment_compiles_on_restricted_profiles(
                   store i64 4, ptr %var_7
                   br label %block_5
                 block_5:
-                  %var_17 = load i64, ptr %var_7
-                  store i64 %var_17, ptr %var_8
-                  %var_19 = load i64, ptr %var_8
-                  call void @__quantum__rt__int_record_output(i64 %var_19, ptr @0)
+                  %var_8 = load i64, ptr %var_7
+                  call void @__quantum__rt__int_record_output(i64 %var_8, ptr @0)
                   ret i64 0"#]]
         } else {
             expect![[r#"

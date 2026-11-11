@@ -114,6 +114,24 @@ fn dynamically_configured_noise_can_be_reseeded_while_disabled() {
 }
 
 #[test]
+fn fresh_qubit_does_not_inherit_loss() {
+    let mut sim = SparseSim::new();
+    sim.set_loss(1.0);
+    let old = sim.qubit_allocate().expect("allocation succeeds");
+    sim.x(old).expect("X succeeds");
+    assert!(sim.is_qubit_lost(old));
+    sim.qubit_release(old).expect("release succeeds");
+    sim.set_loss(0.0);
+    let fresh = sim.qubit_allocate().expect("allocation succeeds");
+    assert_eq!(fresh, old);
+    sim.y(fresh).expect("Y succeeds");
+    assert_eq!(
+        sim.mresetz(fresh).expect("measurement succeeds"),
+        val::Result::Val(true)
+    );
+}
+
+#[test]
 fn pauli_noise() {
     let noise = PauliNoise::from_probabilities(0.0, 0.0, 0.0);
     assert!(

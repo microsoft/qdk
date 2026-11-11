@@ -810,11 +810,54 @@ fn draw_random_bool() {
 }
 
 #[test]
+fn draw_random_invalid_arguments() {
+    for expr in [
+        "Std.Random.DrawRandomBool(1.5)",
+        "Std.Random.DrawRandomBool(-0.1)",
+        "Std.Random.DrawRandomBool(0.0 / 0.0)",
+        "Std.Random.DrawRandomDouble(0.0, 1.0 / 0.0)",
+        "Std.Random.DrawRandomDouble(0.0 / 0.0, 1.0)",
+        "Std.Random.DrawRandomDouble(-1.7976931348623157e308, 1.7976931348623157e308)",
+    ] {
+        let mut stdout = vec![];
+        let mut out = GenericReceiver::new(&mut stdout);
+        assert!(
+            matches!(
+                check_intrinsic("", expr, &mut out),
+                Err(Error::IntrinsicFail(..))
+            ),
+            "{expr} should report an invalid distribution"
+        );
+    }
+}
+
+#[test]
 fn truncate() {
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(3.1)", &Value::Int(3));
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(3.9)", &Value::Int(3));
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(-3.1)", &Value::Int(-3));
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(-3.9)", &Value::Int(-3));
+}
+
+#[test]
+fn apply_unitary_nonfinite_entries() {
+    for value in ["0.0 / 0.0", "1.0 / 0.0", "-1.0 / 0.0", "1e308"] {
+        for field in ["Real", "Imag"] {
+            let other = if field == "Real" { "Imag" } else { "Real" };
+            let expr = format!(
+                "{{ use q = Qubit();
+                    let bad = new Std.Math.Complex {{ {field} = {value}, {other} = 0.0 }};
+                    let z = new Std.Math.Complex {{ Real = 0.0, Imag = 0.0 }};
+                    ApplyUnitary([[bad, z], [z, bad]], [q]);
+                }}"
+            );
+            check_intrinsic_result(
+                "",
+                &expr,
+                &expect!["intrinsic callable `Apply` failed: matrix is not unitary"],
+            );
+        }
+    }
 }
 
 #[test]
