@@ -17,7 +17,7 @@ use qodec_runtime_model::{
     pauli::Pauli,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::{collections::BTreeMap, rc::Rc, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 // ── Instruction sets ────────────────────────────────────────────────────────
 
@@ -362,7 +362,7 @@ pub struct RefScope<'a> {
 pub fn layout_boundary(
     operands: &[BlockOperand],
     encodings: &[Encoding],
-    codes: &BTreeMap<String, Rc<CodePlan>>,
+    codes: &BTreeMap<String, Arc<CodePlan>>,
     upper: &TypeTable,
     lower: &TypeTable,
 ) -> Result<Vec<EncodingPlan>, String> {
@@ -422,7 +422,7 @@ pub fn layout_boundary(
         }
         layouts.push(EncodingPlan {
             block_type: op.block.clone(),
-            code: Rc::clone(code),
+            code: Arc::clone(code),
             labels: enc.support.clone(),
             lower_types,
         });
@@ -437,7 +437,7 @@ pub struct EncodingPlan {
     /// The upper block type.
     pub block_type: String,
     /// The code the layer binds to the block type.
-    pub code: Rc<CodePlan>,
+    pub code: Arc<CodePlan>,
     /// Circuit labels, in code-qubit order.
     pub labels: Vec<String>,
     /// The lower block type of each label, as an index into the lower

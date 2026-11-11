@@ -10,7 +10,7 @@ use super::{
     layer::{Chain, Layer},
     protocol::{BasicReadout, Call, Fault, FaultKind, Reply},
 };
-use std::{fmt, rc::Rc};
+use std::{fmt, sync::Arc};
 
 /// What a [`Runtime`] asks of the backend at the bottom: it answers a batch of
 /// bottom-ISA calls with one result per call that has observe outcomes or
@@ -71,14 +71,14 @@ pub type QodecRuntime<'a, E> = Runtime<QodecLayers, Box<dyn BatchBackend<E> + 'a
 pub struct Runtime<L, B, E> {
     layer: L,
     bottom: Bottom<B, E>,
-    top: Rc<Isa>,
+    top: Arc<Isa>,
     poisoned: bool,
 }
 
 /// The bottom backend, seen by the layers.
 struct Bottom<B, E> {
     backend: B,
-    isa: Rc<Isa>,
+    isa: Arc<Isa>,
     /// The backend's error, while a [`FaultKind::Bottom`] fault carries the
     /// news up the layers.
     error: Option<E>,
@@ -120,15 +120,15 @@ impl<B: BatchBackend<E>, E> Backend<Vec<Call>, Result<Vec<Reply>, Fault>> for Bo
 impl<L, B, E> Runtime<L, B, E> {
     /// Runs `layer` from the `top` ISA down to `backend`, which runs the
     /// `bottom` ISA.
-    pub fn new(layer: L, backend: B, top: &Rc<Isa>, bottom: &Rc<Isa>) -> Self {
+    pub fn new(layer: L, backend: B, top: &Arc<Isa>, bottom: &Arc<Isa>) -> Self {
         Self {
             layer,
             bottom: Bottom {
                 backend,
-                isa: Rc::clone(bottom),
+                isa: Arc::clone(bottom),
                 error: None,
             },
-            top: Rc::clone(top),
+            top: Arc::clone(top),
             poisoned: false,
         }
     }

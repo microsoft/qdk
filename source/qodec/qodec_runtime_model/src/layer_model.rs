@@ -16,18 +16,18 @@ use super::{
     select::CompiledSelect,
 };
 use rustc_hash::FxHashMap;
-use std::{collections::BTreeMap, rc::Rc};
+use std::{collections::BTreeMap, sync::Arc};
 
 /// A whole qodec: its layers, top first, and the ISAs at its ends.
 #[derive(Clone, Debug)]
 pub struct QodecModel {
     /// Every layer but the bottom one, top first: each lowers its ISA to the
     /// next one's. A qodec with one layer has none.
-    pub layers: Vec<Rc<LayerModel>>,
+    pub layers: Vec<Arc<LayerModel>>,
     /// The top ISA, which runtimes accept.
-    pub top: Rc<Isa>,
+    pub top: Arc<Isa>,
     /// The bottom ISA, which bottom backends run.
-    pub bottom: Rc<Isa>,
+    pub bottom: Arc<Isa>,
 }
 
 impl QodecModel {
@@ -52,13 +52,13 @@ impl QodecModel {
 #[derive(Clone, Debug)]
 pub struct LayerModel {
     /// The upper ISA.
-    pub upper: Rc<Isa>,
+    pub upper: Arc<Isa>,
     /// The lower ISA.
-    pub lower: Rc<Isa>,
+    pub lower: Arc<Isa>,
     /// Per upper block type: the code that encodes it, if the layer binds one.
-    pub codes: Vec<Option<Rc<CodeModel>>>,
+    pub codes: Vec<Option<Arc<CodeModel>>>,
     /// The gadgets, by [`GadgetId`].
-    pub gadgets: Vec<Rc<GadgetModel>>,
+    pub gadgets: Vec<Arc<GadgetModel>>,
     /// Per upper instruction: the gadget that implements it, if any.
     pub gadget_of: Vec<Option<GadgetId>>,
 }
@@ -109,7 +109,7 @@ pub struct EncodingModel {
     /// The upper block type.
     pub block_type: usize,
     /// The code the layer binds to the block type.
-    pub code: Rc<CodeModel>,
+    pub code: Arc<CodeModel>,
     /// The labels that hold it, in code-qubit order.
     pub labels: Vec<usize>,
 }

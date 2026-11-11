@@ -23,7 +23,7 @@ use super::{
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// Matches steps against the static semantics of a lower ISA.
 #[derive(Debug)]
@@ -130,7 +130,7 @@ impl Resolver {
         let resolved = if let Some(resolved) = cache.0.get(&key) {
             resolved.clone()?
         } else {
-            let resolved = self.bind(step, &key.1, &key.2, width).map(Rc::new);
+            let resolved = self.bind(step, &key.1, &key.2, width).map(Arc::new);
             cache.0.insert(key, resolved.clone());
             resolved?
         };
@@ -305,7 +305,7 @@ type CacheKey = (StepKey, Vec<usize>, Vec<usize>);
 /// flat target positions)`, which determine the result regardless of the
 /// block ids. Failures are cached too.
 #[derive(Debug, Default)]
-pub struct ResolveCache(FxHashMap<CacheKey, Option<Rc<Resolved>>>);
+pub struct ResolveCache(FxHashMap<CacheKey, Option<Arc<Resolved>>>);
 
 /// A resolved lower instruction with its operand blocks.
 #[derive(Clone, Debug, PartialEq)]
@@ -342,21 +342,22 @@ fn is_close(a: f64, b: f64) -> bool {
 /// The [`Fixes`] of a layer's encoders: a [`Resolver`] for the lower ISA,
 /// whose results become lower calls. Results are cached for the life of the
 /// plan: they depend only on the step and the lower types, never on the shot.
+/// The cache is shared by every shot of the plan, on any thread.
 #[derive(Debug)]
 pub struct ResolverFixes {
-    resolver: Rc<Resolver>,
-    lower: Rc<Isa>,
-    cache: RefCell<ResolveCache>,
+    resolver: Arc<Resolver>,
+    lower: Arc<Isa>,
+    cache: Mutex<ResolveCache>,
 }
 
 impl ResolverFixes {
     /// Applies corrections with `resolver`, which indexes `lower`.
     #[must_use]
-    pub fn new(resolver: Rc<Resolver>, lower: Rc<Isa>) -> Self {
+    pub fn new(resolver: Arc<Resolver>, lower: Arc<Isa>) -> Self {
         Self {
             resolver,
             lower,
-            cache: RefCell::default(),
+            cache: Mutex::default(),
         }
     }
 }
@@ -368,15 +369,12 @@ impl Fixes for ResolverFixes {
         qubits: &[(u64, usize)],
         lower_type: &dyn Fn(u64) -> usize,
     ) -> Result<Vec<(Call, CompiledSelect)>, Fault> {
+        // A thread that panicked while holding the lock can only have left
+        // complete entries behind: each is inserted whole, after it is computed.
+        let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
         let parts = self
             .resolver
-            .resolve(
-                step,
-                qubits,
-                lower_type,
-                &self.lower.types,
-                &mut self.cache.borrow_mut(),
-            )
+            .resolve(step, qubits, lower_type, &self.lower.types, &mut cache)
             .ok_or_else(|| {
                 Fault::no_implementation(format!("the lower ISA cannot apply {step} there"))
             })?;

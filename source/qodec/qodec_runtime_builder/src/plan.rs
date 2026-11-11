@@ -8,7 +8,7 @@ use super::design::{Design, LayerBlueprint};
 use qodec_runtime_pieces::{
     Backend, Call, Fault, Isa, Layer, Link, PlanError, QodecLayer, QodecLayers, QodecModel, Reply,
 };
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// The plan of a whole qodec: a blueprint per layer, from which
 /// [`Self::instantiate`] builds fresh layers per shot.
@@ -23,8 +23,8 @@ use std::rc::Rc;
 /// ```
 pub struct QodecPlan {
     blueprints: Vec<Box<dyn LayerBlueprint>>,
-    top: Rc<Isa>,
-    bottom: Rc<Isa>,
+    top: Arc<Isa>,
+    bottom: Arc<Isa>,
 }
 
 impl QodecPlan {
@@ -42,20 +42,20 @@ impl QodecPlan {
             .collect::<Result<_, _>>()?;
         Ok(Self {
             blueprints,
-            top: Rc::clone(&model.top),
-            bottom: Rc::clone(&model.bottom),
+            top: Arc::clone(&model.top),
+            bottom: Arc::clone(&model.bottom),
         })
     }
 
     /// The top ISA, which the layers accept.
     #[must_use]
-    pub fn top(&self) -> &Rc<Isa> {
+    pub fn top(&self) -> &Arc<Isa> {
         &self.top
     }
 
     /// The bottom ISA, which the layers emit.
     #[must_use]
-    pub fn bottom(&self) -> &Rc<Isa> {
+    pub fn bottom(&self) -> &Arc<Isa> {
         &self.bottom
     }
 

@@ -21,7 +21,7 @@ use qodec_runtime_recipes::{
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::{cell::RefCell, collections::VecDeque, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::VecDeque, sync::Arc};
 
 // ── Spec helpers ────────────────────────────────────────────────────────────
 
@@ -512,8 +512,8 @@ impl Backend<Vec<Call>, Result<Vec<BasicReadout>, String>> for BitSim {
 }
 
 /// The plan of the top layer of `qodec`.
-fn top_layer_plan(qodec: &Qodec) -> Rc<LayerModel> {
-    Rc::clone(&read(qodec).expect("qodec reads").layers[0])
+fn top_layer_plan(qodec: &Qodec) -> Arc<LayerModel> {
+    Arc::clone(&read(qodec).expect("qodec reads").layers[0])
 }
 
 /// `qodec`, read and assembled by `design`.
@@ -526,7 +526,7 @@ fn qodec_plan(qodec: &Qodec, design: &dyn Design) -> Result<QodecPlan, PlanError
 fn on_sim<L>(qodec: &Qodec, layer: L) -> Runtime<L, BitSim, String> {
     let layers = qodec.layers();
     let (top, lower) = (&layers[0].instruction_set, &layers[1].instruction_set);
-    let isa = |isa| Rc::new(spec::isa(isa).expect("ISA reads"));
+    let isa = |isa| Arc::new(spec::isa(isa).expect("ISA reads"));
     Runtime::new(layer, BitSim::new(lower), &isa(top), &isa(lower))
 }
 
@@ -776,7 +776,7 @@ fn type_checkers_reject_ill_typed_batches_whole_without_losing_the_shot() {
     let qodec = repetition3();
     let isa = Arc::clone(&qodec.layers()[0].instruction_set);
     let mut checked = Stack::new(
-        TypeChecker::new(&Rc::new(spec::isa(&isa).expect("ISA reads"))),
+        TypeChecker::new(&Arc::new(spec::isa(&isa).expect("ISA reads"))),
         single_layer(&qodec),
     );
     // `prepare_z 0` is fine, but block 1 is not live, so nothing runs.
@@ -827,7 +827,7 @@ fn type_checkers_track_live_blocks_and_undo_rejected_batches() {
         instruction_id: id,
         parameters: [OwnedParam::Block(block)].into_iter().collect(),
     };
-    let mut checker = TypeChecker::<String>::new(&Rc::new(spec::isa(&isa).expect("ISA reads")));
+    let mut checker = TypeChecker::<String>::new(&Arc::new(spec::isa(&isa).expect("ISA reads")));
     checker.check(&[call(0, 7)]).expect("prepares an `a`");
     assert_eq!(checker.live_type(7), Some("a"));
 
@@ -1042,7 +1042,7 @@ impl<C> Backend<Vec<Lower>, Result<Vec<Record>, Fault>> for Tap<'_, C> {
 /// [`Decoder`](crate::Decoder)).
 struct FlipPrepared<D> {
     inner: D,
-    layer: Rc<LayerModel>,
+    layer: Arc<LayerModel>,
     prepare: usize,
 }
 
@@ -1101,7 +1101,7 @@ fn decoders_correct_live_blocks_through_their_encoder() {
         inner: FrameDecoderPlan::plan(&plan)
             .expect("decoder plans")
             .instantiate(),
-        layer: Rc::clone(&plan),
+        layer: Arc::clone(&plan),
         prepare: index_of(&isa, "prepare_z"),
     };
     let encoder = SpecEncoderPlan::<Correction>::plan(&plan)
@@ -1149,7 +1149,7 @@ fn logical_paulis_need_lower_paulis_whatever_the_decoder() {
 /// protocol.
 struct Delayed<D> {
     inner: D,
-    layer: Rc<LayerModel>,
+    layer: Arc<LayerModel>,
     rounds: usize,
     held: VecDeque<Held>,
     /// The live block of each label.
@@ -1238,7 +1238,7 @@ where
 }
 
 struct DelayedPlan {
-    layer: Rc<LayerModel>,
+    layer: Arc<LayerModel>,
     frame: FrameDecoderPlan,
     rounds: usize,
 }
@@ -1249,7 +1249,7 @@ impl Blueprint for DelayedPlan {
     fn instantiate(&self) -> Self::Instance {
         Delayed {
             inner: self.frame.instantiate(),
-            layer: Rc::clone(&self.layer),
+            layer: Arc::clone(&self.layer),
             rounds: self.rounds,
             held: VecDeque::new(),
             live: FxHashMap::default(),
@@ -1269,7 +1269,7 @@ fn delayed_layer(
         UntilReadyPlan::plan(&plan, max_rounds).expect("`idle` is a QEC round"),
         Stack::new(
             DelayedPlan {
-                layer: Rc::clone(&plan),
+                layer: Arc::clone(&plan),
                 frame: FrameDecoderPlan::plan(&plan).expect("decoder plans"),
                 rounds,
             },
@@ -1351,7 +1351,7 @@ impl DeqAtBottom {
 }
 
 impl Design for DeqAtBottom {
-    fn layer(&self, layer: &Rc<LayerModel>) -> Result<Box<dyn LayerBlueprint>, PlanError> {
+    fn layer(&self, layer: &Arc<LayerModel>) -> Result<Box<dyn LayerBlueprint>, PlanError> {
         let deq = layer.lower.name == self.bottom.name;
         self.picked
             .borrow_mut()
@@ -1524,6 +1524,40 @@ fn qodec_plans_instantiate_a_fresh_runtime_per_shot() {
     }
     // Three layers, one bottom batch per shot.
     assert_eq!(sim.batches, 2);
+}
+
+#[test]
+fn plans_are_shared_by_shots_on_many_threads() {
+    let qodec = logical_over_repetition3();
+    let isa = Arc::clone(&qodec.layers()[0].instruction_set);
+    let bottom_isa = Arc::clone(&qodec.layers()[2].instruction_set);
+    let qodec_plan = qodec_plan(&qodec, &FrameDecoding).expect("qodec plans");
+    let (plan, isa, bottom_isa) = (&qodec_plan, &isa, &bottom_isa);
+
+    // `flip` has no gadget, so every shot that flips applies it as a
+    // correction, through the resolver cache that all shots share.
+    std::thread::scope(|scope| {
+        let shots: Vec<_> = (0..8)
+            .map(|t| {
+                let flip = t % 2 == 1;
+                scope.spawn(move || {
+                    let mut ops = vec![op(isa, "prepare", &[0])];
+                    if flip {
+                        ops.push(op(isa, "flip", &[0]));
+                    }
+                    ops.push(op(isa, "measure", &[0]));
+                    let batch = shot(plan, BitSim::new(bottom_isa))
+                        .execute(ops)
+                        .expect("runs");
+                    (flip, outcomes(&batch))
+                })
+            })
+            .collect();
+        for handle in shots {
+            let (flip, outcomes) = handle.join().expect("the shot's thread does not panic");
+            assert_eq!(outcomes, vec![Some(flip)]);
+        }
+    });
 }
 
 #[test]

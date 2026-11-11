@@ -44,3 +44,13 @@ pub use runtime::{
 };
 pub use type_checker::TypeChecker;
 pub use until_ready::{Rounds, UntilReady, UntilReadyPlan};
+
+// Plans and the model they come from are shared by shots on many threads.
+const _: () = {
+    const fn shareable<T: Send + Sync>() {}
+    shareable::<QodecModel>();
+    shareable::<SpecEncoderPlan<Never>>();
+    shareable::<SpecEncoderPlan<Correction>>();
+    shareable::<FrameDecoderPlan>();
+    shareable::<UntilReadyPlan>();
+};

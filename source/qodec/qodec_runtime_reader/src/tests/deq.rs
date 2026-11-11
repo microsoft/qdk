@@ -18,7 +18,7 @@ use qodec_runtime_recipes::{
     Passive, PlanError, Record, RecordLayout,
     parity::{Basis, Parity, Side, Var},
 };
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// The configuration of deq's MWPM decoder: all defaults.
 fn mwpm_config() -> serde_json::Value {
@@ -42,10 +42,10 @@ fn mwpm_config() -> serde_json::Value {
 /// doesn't know them. A real integration needs them declared by the gadgets or
 /// tracked by the decoder.
 pub struct DeqPlan {
-    records: Rc<RecordLayout>,
+    records: Arc<RecordLayout>,
     frame: FrameDecoderPlan,
     /// Per gadget, by `GadgetId`; `None` for gadgets without detectors.
-    gadgets: Rc<Vec<Option<DeqGadget>>>,
+    gadgets: Arc<Vec<Option<DeqGadget>>>,
 }
 
 /// The decoding problem of one gadget, fixed once per layer.
@@ -70,9 +70,9 @@ impl DeqPlan {
             })
             .collect::<Result<_, _>>()?;
         Ok(Self {
-            records: Rc::new(RecordLayout::plan(layer)),
+            records: Arc::new(RecordLayout::plan(layer)),
             frame: FrameDecoderPlan::plan(layer)?,
-            gadgets: Rc::new(gadgets),
+            gadgets: Arc::new(gadgets),
         })
     }
 }
@@ -139,9 +139,9 @@ impl Blueprint for DeqPlan {
 
     fn instantiate(&self) -> Self::Instance {
         Passive::new(
-            Rc::clone(&self.records),
+            Arc::clone(&self.records),
             DeqDecoder {
-                gadgets: Rc::clone(&self.gadgets),
+                gadgets: Arc::clone(&self.gadgets),
                 solvers: self.gadgets.iter().map(|_| None).collect(),
                 frame: self.frame.decoder(),
             },
@@ -150,7 +150,7 @@ impl Blueprint for DeqPlan {
 }
 
 pub struct DeqDecoder {
-    gadgets: Rc<Vec<Option<DeqGadget>>>,
+    gadgets: Arc<Vec<Option<DeqGadget>>>,
     /// One MWPM solver per gadget, built on its first decode.
     solvers: Vec<Option<MwpmDecoderInstance>>,
     frame: FrameDecoder,
@@ -161,7 +161,7 @@ impl Decode for DeqDecoder {
         let Some(inv) = &record.invocation else {
             return self.frame.decode(record);
         };
-        let gadgets = Rc::clone(&self.gadgets);
+        let gadgets = Arc::clone(&self.gadgets);
         let index = inv.gadget.0;
         // With an unknown readout, the syndrome is unknown: leave it to the
         // frame decoder.

@@ -4,18 +4,21 @@
 //! Designs: how each layer of a qodec is assembled from mix-and-match pieces.
 
 use qodec_runtime_pieces::{Blueprint, BoxedLayer, LayerModel, PlanError, QodecLayer};
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// The blueprint of a whole qodec layer, with its instance boxed. Every
 /// [`Blueprint`] of a [`QodecLayer`] is one.
-pub trait LayerBlueprint {
+///
+/// It is `Send + Sync`, so a [`QodecPlan`](crate::QodecPlan) can be shared
+/// by shots on many threads; each shot's layers are its own.
+pub trait LayerBlueprint: Send + Sync {
     /// A fresh layer for one shot.
     fn instantiate_layer(&self) -> BoxedLayer;
 }
 
 impl<B> LayerBlueprint for B
 where
-    B: Blueprint,
+    B: Blueprint + Send + Sync,
     B::Instance: QodecLayer + 'static,
 {
     fn instantiate_layer(&self) -> BoxedLayer {
@@ -30,15 +33,15 @@ where
 /// closure with the same signature is a design.
 pub trait Design {
     /// The blueprint of `layer`.
-    fn layer(&self, layer: &Rc<LayerModel>) -> Result<Box<dyn LayerBlueprint>, PlanError>;
+    fn layer(&self, layer: &Arc<LayerModel>) -> Result<Box<dyn LayerBlueprint>, PlanError>;
 }
 
 /// Automatically implement [`Design`] for functions.
 impl<F> Design for F
 where
-    F: Fn(&Rc<LayerModel>) -> Result<Box<dyn LayerBlueprint>, PlanError>,
+    F: Fn(&Arc<LayerModel>) -> Result<Box<dyn LayerBlueprint>, PlanError>,
 {
-    fn layer(&self, layer: &Rc<LayerModel>) -> Result<Box<dyn LayerBlueprint>, PlanError> {
+    fn layer(&self, layer: &Arc<LayerModel>) -> Result<Box<dyn LayerBlueprint>, PlanError> {
         self(layer)
     }
 }

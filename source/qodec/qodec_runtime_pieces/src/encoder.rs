@@ -23,16 +23,16 @@ use super::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::{cmp::Reverse, collections::BinaryHeap, marker::PhantomData, rc::Rc};
+use std::{cmp::Reverse, collections::BinaryHeap, marker::PhantomData, sync::Arc};
 
 /// What a [`SpecEncoder`] runs on: how to lower each call of one layer's
 /// upper ISA to calls of its lower ISA.
 #[derive(Clone)]
 pub struct EncoderProgram {
     /// The upper ISA, whose calls the encoder takes.
-    pub upper: Rc<Isa>,
+    pub upper: Arc<Isa>,
     /// The lower ISA, whose calls it emits.
-    pub lower: Rc<Isa>,
+    pub lower: Arc<Isa>,
     /// Per upper instruction: how the encoder lowers it.
     pub instructions: Vec<Lowering>,
     /// Per upper block type: the logical operators of its code, which
@@ -44,7 +44,7 @@ pub struct EncoderProgram {
     /// its id.
     pub lower_release: Vec<Option<usize>>,
     /// How to apply a correction with lower calls.
-    pub fixes: Rc<dyn Fixes>,
+    pub fixes: Arc<dyn Fixes>,
     /// What a correction's flags, under its `select` hint, add to the batch.
     pub select_policy: SelectPolicy,
 }
@@ -66,7 +66,7 @@ impl EncoderProgram {
     /// `resolver`, a resolver of the lower ISA. Upper Pauli-only instructions
     /// without a gadget are applied as corrections, so a layer with one needs
     /// lower Paulis (see [`check_pauli_corrections`]).
-    pub fn plan(layer: &LayerModel, resolver: &Rc<Resolver>) -> Result<Self, PlanError> {
+    pub fn plan(layer: &LayerModel, resolver: &Arc<Resolver>) -> Result<Self, PlanError> {
         let instructions: Vec<Lowering> = layer
             .upper
             .instructions
@@ -77,7 +77,7 @@ impl EncoderProgram {
                     let gadget = &layer.gadgets[id.0];
                     let program = GadgetProgram::plan(gadget, layer)
                         .map_err(|e| PlanError(format!("gadget `{}`: {e}", gadget.name)))?;
-                    Lowering::Gadget(Rc::new(program))
+                    Lowering::Gadget(Arc::new(program))
                 } else if is_pauli_only(instruction) {
                     Lowering::LogicalPauli(
                         instruction
@@ -114,8 +114,8 @@ impl EncoderProgram {
             })
             .collect();
         Ok(Self {
-            upper: Rc::clone(&layer.upper),
-            lower: Rc::clone(lower),
+            upper: Arc::clone(&layer.upper),
+            lower: Arc::clone(lower),
             instructions,
             codes: layer
                 .codes
@@ -128,7 +128,7 @@ impl EncoderProgram {
                 })
                 .collect(),
             lower_release,
-            fixes: Rc::new(ResolverFixes::new(Rc::clone(resolver), Rc::clone(lower))),
+            fixes: Arc::new(ResolverFixes::new(Arc::clone(resolver), Arc::clone(lower))),
             select_policy: select::recoverable,
         })
     }
@@ -186,7 +186,7 @@ pub fn check_pauli_corrections(resolver: &Resolver, lower: &Isa) -> Result<(), P
 #[derive(Clone, Debug)]
 pub enum Lowering {
     /// Runs this gadget.
-    Gadget(Rc<GadgetProgram>),
+    Gadget(Arc<GadgetProgram>),
     /// A Pauli-only instruction without a gadget: applied as the code's logical
     /// operator, through corrections. The Paulis are the action's `pauli`
     /// steps, on the instruction's flat indices; their product is applied.
@@ -332,7 +332,10 @@ pub struct GadgetCall {
 }
 
 /// How an encoder applies a correction with calls of its lower ISA.
-pub trait Fixes {
+///
+/// It is part of an encoder's plan, which every shot shares, on any thread:
+/// hence `Send + Sync`.
+pub trait Fixes: Send + Sync {
     /// The lower calls that apply `step`, on the step's own qubits:
     /// qubit `i` of `step` is `qubits[i]`, a (lower block id, logical index in
     /// that block) pair, and `lower_type` gives a live lower block's type.
@@ -371,14 +374,14 @@ impl PlannedFix for Correction {
 /// The blueprint of a [`SpecEncoder`] for one layer, which accepts
 /// corrections of type `C`.
 pub struct SpecEncoderPlan<C = Never> {
-    program: Rc<EncoderProgram>,
+    program: Arc<EncoderProgram>,
     fix: PhantomData<fn(C)>,
 }
 
 impl<C> SpecEncoderPlan<C> {
     /// The blueprint of encoders that run `program`.
     #[must_use]
-    pub fn new(program: Rc<EncoderProgram>) -> Self {
+    pub fn new(program: Arc<EncoderProgram>) -> Self {
         Self {
             program,
             fix: PhantomData,
@@ -387,21 +390,21 @@ impl<C> SpecEncoderPlan<C> {
 
     /// The program the encoders run.
     #[must_use]
-    pub fn program(&self) -> &Rc<EncoderProgram> {
+    pub fn program(&self) -> &Arc<EncoderProgram> {
         &self.program
     }
 
     /// Applies corrections with `fixes` instead of the lower ISA's resolver.
     #[must_use]
-    pub fn with_fixes(mut self, fixes: Rc<dyn Fixes>) -> Self {
-        Rc::make_mut(&mut self.program).fixes = fixes;
+    pub fn with_fixes(mut self, fixes: Arc<dyn Fixes>) -> Self {
+        Arc::make_mut(&mut self.program).fixes = fixes;
         self
     }
 
     /// Reads corrections' `select` hints with `policy` instead.
     #[must_use]
     pub fn with_select_policy(mut self, policy: SelectPolicy) -> Self {
-        Rc::make_mut(&mut self.program).select_policy = policy;
+        Arc::make_mut(&mut self.program).select_policy = policy;
         self
     }
 }
@@ -410,10 +413,10 @@ impl<C: PlannedFix> SpecEncoderPlan<C> {
     /// Plans the encoders of `layer`. Fails if the lower ISA cannot apply the
     /// corrections they take.
     pub fn plan(layer: &LayerModel) -> Result<Self, PlanError> {
-        let resolver = Rc::new(Resolver::new(&layer.lower));
+        let resolver = Arc::new(Resolver::new(&layer.lower));
         let program = EncoderProgram::plan(layer, &resolver)?;
         C::check(&resolver, &layer.lower)?;
-        Ok(Self::new(Rc::new(program)))
+        Ok(Self::new(Arc::new(program)))
     }
 }
 
@@ -421,7 +424,7 @@ impl<C: Fix> Blueprint for SpecEncoderPlan<C> {
     type Instance = SpecEncoder<C>;
 
     fn instantiate(&self) -> SpecEncoder<C> {
-        SpecEncoder::new(Rc::clone(&self.program))
+        SpecEncoder::new(Arc::clone(&self.program))
     }
 }
 
@@ -446,7 +449,7 @@ impl<C: Fix> Blueprint for SpecEncoderPlan<C> {
 /// such as a raised flag, are added to the last record of the batch, or of the
 /// next batch that has records.
 pub struct SpecEncoder<C = Never> {
-    program: Rc<EncoderProgram>,
+    program: Arc<EncoderProgram>,
 
     /// Live upper blocks, keyed by label: the upper block id that the caller
     /// passes as a `Block` operand.
@@ -533,7 +536,7 @@ enum Expected {
 impl<C> SpecEncoder<C> {
     /// A fresh encoder for one shot, which runs `program`.
     #[must_use]
-    pub fn new(program: Rc<EncoderProgram>) -> Self {
+    pub fn new(program: Arc<EncoderProgram>) -> Self {
         Self {
             program,
             blocks: FxHashMap::default(),
@@ -549,7 +552,7 @@ impl<C> SpecEncoder<C> {
 
     /// The program it runs.
     #[must_use]
-    pub fn program(&self) -> &Rc<EncoderProgram> {
+    pub fn program(&self) -> &Arc<EncoderProgram> {
         &self.program
     }
 
@@ -675,7 +678,7 @@ impl<C: Fix> SpecEncoder<C> {
 
     fn lower_call(&mut self, call: &Call, b: &mut Batch<'_, '_>) -> Result<(), Fault> {
         let parsed = self.parse(call)?;
-        let program = Rc::clone(&self.program);
+        let program = Arc::clone(&self.program);
         match &program.instructions[parsed.index] {
             Lowering::Gadget(gp) => self.start_gadget(gp, parsed, b),
             Lowering::LogicalPauli(paulis) => {
@@ -768,7 +771,7 @@ impl<C: Fix> SpecEncoder<C> {
             .iter()
             .map(|l| self.blocks[l].block_ref.clone())
             .collect();
-        let program = Rc::clone(&self.program);
+        let program = Arc::clone(&self.program);
         let output_refs: Vec<BlockRef> = out_ops
             .iter()
             .map(|o| self.fresh_ref(o.label, &program.upper.types.names[o.block_type]))
@@ -952,7 +955,7 @@ impl<C: Fix> SpecEncoder<C> {
         paulis: &[ParsedPauli],
         b: &mut Batch<'_, '_>,
     ) -> Result<(), Fault> {
-        let program = Rc::clone(&self.program);
+        let program = Arc::clone(&self.program);
         let instruction = &program.upper.instructions[call.index];
         // Signs are dropped: the spec defines Pauli steps only up to global
         // phase (https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#actions).
@@ -1039,7 +1042,7 @@ impl<C: Fix> SpecEncoder<C> {
             })
             .collect::<Result<_, _>>()?;
 
-        let program = Rc::clone(&self.program);
+        let program = Arc::clone(&self.program);
         let type_of = &self.type_of;
         let parts = program
             .fixes

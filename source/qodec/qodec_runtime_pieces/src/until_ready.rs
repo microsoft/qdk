@@ -13,7 +13,7 @@ use super::{
 };
 use rustc_hash::FxHashMap;
 use smallvec::smallvec;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// What a decoder asks [`UntilReady`] for: one more QEC round on each of
 /// these live blocks.
@@ -28,7 +28,7 @@ pub struct Rounds {
 /// giving up.
 #[derive(Clone, Debug)]
 pub struct UntilReadyPlan {
-    rounds: Rc<FxHashMap<String, usize>>,
+    rounds: Arc<FxHashMap<String, usize>>,
     max_rounds: usize,
 }
 
@@ -37,7 +37,7 @@ impl UntilReadyPlan {
     /// block of that type.
     pub fn new(rounds: impl IntoIterator<Item = (String, usize)>, max_rounds: usize) -> Self {
         Self {
-            rounds: Rc::new(rounds.into_iter().collect()),
+            rounds: Arc::new(rounds.into_iter().collect()),
             max_rounds,
         }
     }

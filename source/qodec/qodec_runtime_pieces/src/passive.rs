@@ -14,14 +14,14 @@ use super::{
     protocol::{BasicReadout, Call, Fault, Lower, Record, Reply, Status},
     select::{self, CompiledSelect, SelectPolicy, accepts},
 };
-use std::{ops::Range, rc::Rc};
+use std::{ops::Range, sync::Arc};
 
 /// What a decoder needs to know about the records of a layer: the upper
 /// ISA, and the `select` hints of each gadget's body.
 #[derive(Clone, Debug, Default)]
 pub struct RecordLayout {
     /// The upper ISA.
-    pub upper: Rc<Isa>,
+    pub upper: Arc<Isa>,
     /// Per gadget, indexed by [`GadgetId`](crate::GadgetId): the body calls
     /// that have a `select` hint.
     pub gadgets: Vec<Vec<BodySelect>>,
@@ -52,7 +52,7 @@ impl RecordLayout {
             })
             .collect();
         Self {
-            upper: Rc::clone(&layer.upper),
+            upper: Arc::clone(&layer.upper),
             gadgets,
         }
     }
@@ -95,7 +95,7 @@ pub trait Decode {
 /// [`SelectPolicy`] gives (by default [`select::recoverable`]: a mismatch is
 /// the recoverable status `rejected`).
 pub struct Passive<D> {
-    layout: Rc<RecordLayout>,
+    layout: Arc<RecordLayout>,
     inner: D,
     policy: SelectPolicy,
     status: Status,
@@ -103,7 +103,7 @@ pub struct Passive<D> {
 
 impl<D> Passive<D> {
     /// Wraps `inner`, which decodes records laid out as `layout` says.
-    pub fn new(layout: Rc<RecordLayout>, inner: D) -> Self {
+    pub fn new(layout: Arc<RecordLayout>, inner: D) -> Self {
         Self {
             layout,
             inner,
@@ -157,7 +157,7 @@ impl<D: Decode> Layer for Passive<D> {
 impl<D: Decode> Passive<D> {
     /// Decodes one record, and returns its call's result if the call has one.
     fn decode(&mut self, record: &Record) -> Result<Option<Reply>, Fault> {
-        let layout = Rc::clone(&self.layout);
+        let layout = Arc::clone(&self.layout);
         let instruction = layout
             .upper
             .instructions

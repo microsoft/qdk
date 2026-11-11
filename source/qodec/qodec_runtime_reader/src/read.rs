@@ -14,7 +14,7 @@ use qodec_runtime_model::{
     LayerModel, PlanError, QodecModel, TypeTable,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::{collections::BTreeMap, rc::Rc, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 /// Reads `qodec`: every layer but the bottom one becomes a [`LayerModel`],
 /// which lowers it to the next layer's ISA. A qodec with one layer has no
@@ -24,12 +24,12 @@ pub fn read(qodec: &Qodec) -> Result<QodecModel, PlanError> {
     if layers.is_empty() {
         return Err(PlanError("a qodec needs at least one layer".into()));
     }
-    let isas: Vec<Rc<Isa>> = layers
+    let isas: Vec<Arc<Isa>> = layers
         .iter()
         .enumerate()
         .map(|(k, layer)| {
             spec::isa(&layer.instruction_set)
-                .map(Rc::new)
+                .map(Arc::new)
                 .map_err(|e| PlanError(format!("layer {k}: {e}")))
         })
         .collect::<Result<_, _>>()?;
@@ -41,14 +41,14 @@ pub fn read(qodec: &Qodec) -> Result<QodecModel, PlanError> {
                 &isas[k],
                 &isas[k + 1],
             )
-            .map(Rc::new)
+            .map(Arc::new)
             .map_err(|e| PlanError(format!("layer {k}: {e}")))
         })
         .collect::<Result<_, _>>()?;
     Ok(QodecModel {
         layers: models,
-        top: Rc::clone(&isas[0]),
-        bottom: Rc::clone(&isas[isas.len() - 1]),
+        top: Arc::clone(&isas[0]),
+        bottom: Arc::clone(&isas[isas.len() - 1]),
     })
 }
 
@@ -57,13 +57,13 @@ pub fn read(qodec: &Qodec) -> Result<QodecModel, PlanError> {
 fn read_layer(
     layer: &Layer,
     lower_isa: &Arc<InstructionSet>,
-    upper: &Rc<Isa>,
-    lower: &Rc<Isa>,
+    upper: &Arc<Isa>,
+    lower: &Arc<Isa>,
 ) -> Result<LayerModel, PlanError> {
     let codes = plan_codes(layer)?;
-    let code_models: BTreeMap<String, Rc<CodeModel>> = codes
+    let code_models: BTreeMap<String, Arc<CodeModel>> = codes
         .iter()
-        .map(|(block, code)| (block.clone(), Rc::new(code.model())))
+        .map(|(block, code)| (block.clone(), Arc::new(code.model())))
         .collect();
     let context = GadgetContext {
         isa: &layer.instruction_set,
@@ -80,11 +80,11 @@ fn read_layer(
             .read_gadget(GadgetId(id), name, g)
             .map_err(|e| PlanError(format!("gadget `{name}`: {e}")))?;
         gadget_of[gadget.instruction] = Some(GadgetId(id));
-        gadgets.push(Rc::new(gadget));
+        gadgets.push(Arc::new(gadget));
     }
     Ok(LayerModel {
-        upper: Rc::clone(upper),
-        lower: Rc::clone(lower),
+        upper: Arc::clone(upper),
+        lower: Arc::clone(lower),
         codes: upper
             .types
             .names
@@ -100,7 +100,7 @@ fn read_layer(
 /// ISA declares, plus, for each operand type the layer leaves unbound, the code
 /// of its gadget encodings. [`layout_boundary`] later rejects any encoding
 /// whose code differs from the result.
-fn plan_codes(layer: &Layer) -> Result<BTreeMap<String, Rc<CodePlan>>, PlanError> {
+fn plan_codes(layer: &Layer) -> Result<BTreeMap<String, Arc<CodePlan>>, PlanError> {
     let mut raw: BTreeMap<String, Arc<qodec::Code>> = layer
         .codes
         .iter()
@@ -124,7 +124,7 @@ fn plan_codes(layer: &Layer) -> Result<BTreeMap<String, Rc<CodePlan>>, PlanError
         .map(|(block, code)| {
             let bound =
                 CodePlan::new(&code).map_err(|e| PlanError(format!("code for `{block}`: {e}")))?;
-            Ok((block, Rc::new(bound)))
+            Ok((block, Arc::new(bound)))
         })
         .collect()
 }
@@ -133,8 +133,8 @@ fn plan_codes(layer: &Layer) -> Result<BTreeMap<String, Rc<CodePlan>>, PlanError
 struct GadgetContext<'a> {
     isa: &'a InstructionSet,
     lower_isa: &'a InstructionSet,
-    codes: &'a BTreeMap<String, Rc<CodePlan>>,
-    code_models: &'a BTreeMap<String, Rc<CodeModel>>,
+    codes: &'a BTreeMap<String, Arc<CodePlan>>,
+    code_models: &'a BTreeMap<String, Arc<CodeModel>>,
     upper: &'a TypeTable,
     lower: &'a TypeTable,
 }
@@ -198,7 +198,7 @@ impl GadgetContext<'_> {
                 .upper
                 .get(&layout.block_type)
                 .expect("the boundary layout checked the block type"),
-            code: Rc::clone(&self.code_models[&layout.block_type]),
+            code: Arc::clone(&self.code_models[&layout.block_type]),
             labels: layout.labels.iter().map(|l| id_of[l.as_str()]).collect(),
         };
         let calls = body

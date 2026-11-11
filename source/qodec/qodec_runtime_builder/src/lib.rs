@@ -29,3 +29,9 @@ pub use qodec_runtime_pieces::*;
 
 pub use design::{Design, LayerBlueprint};
 pub use plan::{AtLayer, QodecPlan};
+
+// A plan is shared by shots on many threads.
+const _: () = {
+    const fn shareable<T: Send + Sync>() {}
+    shareable::<QodecPlan>();
+};

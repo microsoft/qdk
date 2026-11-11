@@ -12,7 +12,7 @@ use super::{
     runtime::QodecRuntimeError,
 };
 use rustc_hash::FxHashMap;
-use std::{marker::PhantomData, rc::Rc};
+use std::{marker::PhantomData, sync::Arc};
 
 /// Rejects a batch of top-ISA calls, with nothing run, if one of its calls is
 /// ill-typed: an input operand that is not a live block of the type its
@@ -33,7 +33,7 @@ use std::{marker::PhantomData, rc::Rc};
 /// knows nothing of gadgets: a call it accepts may still fail below, for
 /// example when no gadget implements its instruction.
 pub struct TypeChecker<E> {
-    isa: Rc<Isa>,
+    isa: Arc<Isa>,
     /// Live blocks: label → block type.
     live: FxHashMap<u64, usize>,
     error: PhantomData<fn() -> E>,
@@ -45,9 +45,9 @@ type Undo = Vec<(u64, Option<usize>)>;
 impl<E> TypeChecker<E> {
     /// A checker for `isa`, with no live block.
     #[must_use]
-    pub fn new(isa: &Rc<Isa>) -> Self {
+    pub fn new(isa: &Arc<Isa>) -> Self {
         Self {
-            isa: Rc::clone(isa),
+            isa: Arc::clone(isa),
             live: FxHashMap::default(),
             error: PhantomData,
         }
@@ -83,7 +83,7 @@ impl<E> TypeChecker<E> {
     /// Checks one call, and applies its effect: its inputs end, and its
     /// outputs become live with their declared types.
     fn apply(&mut self, call: &Call, undo: &mut Undo) -> Result<(), String> {
-        let isa = Rc::clone(&self.isa);
+        let isa = Arc::clone(&self.isa);
         let parsed = isa.parse_call(call.instruction_id, &call.parameters)?;
         let instruction = &isa.instructions[parsed.index];
         let known: FxHashMap<u64, usize> = parsed

@@ -25,7 +25,7 @@ use super::{
     select::{self, SelectPolicy},
 };
 use rustc_hash::FxHashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Output logical sign -> parity of input signs it carries.
 pub type Transport = Vec<(FrameKey, Parity)>;
@@ -258,9 +258,9 @@ impl CodeShape {
 /// The blueprint of the frame decoder of one layer. It instantiates a fresh
 /// [`FrameDecoder`] per shot, wrapped in [`Passive`].
 pub struct FrameDecoderPlan {
-    layout: Rc<RecordLayout>,
+    layout: Arc<RecordLayout>,
     /// Per gadget, indexed by [`GadgetId`](crate::GadgetId).
-    gadgets: Rc<Vec<FrameGadget>>,
+    gadgets: Arc<Vec<FrameGadget>>,
     policy: SelectPolicy,
 }
 
@@ -268,10 +268,10 @@ impl FrameDecoderPlan {
     /// The frame decoder of the layer whose records `layout` describes, with
     /// `gadgets` indexed by [`GadgetId`](crate::GadgetId).
     #[must_use]
-    pub fn new(layout: Rc<RecordLayout>, gadgets: Vec<FrameGadget>) -> Self {
+    pub fn new(layout: Arc<RecordLayout>, gadgets: Vec<FrameGadget>) -> Self {
         Self {
             layout,
-            gadgets: Rc::new(gadgets),
+            gadgets: Arc::new(gadgets),
             policy: select::recoverable,
         }
     }
@@ -287,7 +287,7 @@ impl FrameDecoderPlan {
                     .map_err(|e| PlanError(format!("gadget `{}`: {e}", gadget.name)))
             })
             .collect::<Result<_, _>>()?;
-        Ok(Self::new(Rc::new(RecordLayout::plan(layer)), gadgets))
+        Ok(Self::new(Arc::new(RecordLayout::plan(layer)), gadgets))
     }
 
     /// Reads `select` hints with `policy` instead (see [`Passive`]).
@@ -302,7 +302,7 @@ impl FrameDecoderPlan {
     #[must_use]
     pub fn decoder(&self) -> FrameDecoder {
         FrameDecoder {
-            gadgets: Rc::clone(&self.gadgets),
+            gadgets: Arc::clone(&self.gadgets),
             signs: FxHashMap::default(),
         }
     }
@@ -312,13 +312,13 @@ impl Blueprint for FrameDecoderPlan {
     type Instance = Passive<FrameDecoder>;
 
     fn instantiate(&self) -> Passive<FrameDecoder> {
-        Passive::new(Rc::clone(&self.layout), self.decoder()).with_select_policy(self.policy)
+        Passive::new(Arc::clone(&self.layout), self.decoder()).with_select_policy(self.policy)
     }
 }
 
 /// The per-shot state of the frame decoder.
 pub struct FrameDecoder {
-    gadgets: Rc<Vec<FrameGadget>>,
+    gadgets: Arc<Vec<FrameGadget>>,
     /// Per output block not yet released: the signs its decode determined,
     /// keyed by (basis, index in that basis).
     signs: FxHashMap<BlockRef, FxHashMap<(Basis, usize), bool>>,
@@ -339,7 +339,7 @@ impl Decode for FrameDecoder {
 
 impl FrameDecoder {
     fn decode_invocation(&mut self, inv: &Invocation, raw: &[Bit]) -> BasicReadout {
-        let gadgets = Rc::clone(&self.gadgets);
+        let gadgets = Arc::clone(&self.gadgets);
         let Some(p) = gadgets.get(inv.gadget.0) else {
             return BasicReadout {
                 status: Status::UNRESOLVED,
