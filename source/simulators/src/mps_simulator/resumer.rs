@@ -41,7 +41,7 @@
 //! **Failures.** A shot fails with its group: its context traps, a call is
 //! refused, or the engine fails. Where a group splits, the copy for the
 //! part that waits is forked and projected after the shots are split, so
-//! its failure fails that part's shots only, and the part that goes on
+//! the copy's failure fails that part's shots only, and the part that goes on
 //! runs on: it may end, or fail on its own. The run names the first
 //! failing shot in the order of the shots, and the waiting groups whose
 //! shots all come after it are dropped unrun.
@@ -404,9 +404,9 @@ impl<E: MpsEngine> Run<'_, E> {
     /// on a tie) goes on as `group`, and the other waits on `pending`, with
     /// a fork of the state. Each part's state keeps its value, and is
     /// returned to |0⟩ when `reset`; `result`, when given, is answered with
-    /// the value. When the waiting part's fork, or its projection, fails,
-    /// it fails that part's shots only (kept in the run's failure), and
-    /// `group` goes on.
+    /// the value. When the waiting part's fork, or the fork's projection,
+    /// fails, the failure fails that part's shots only (kept in the run's
+    /// failure), and `group` goes on.
     fn draw(
         &mut self,
         group: &mut Group<E::State>,
