@@ -11,11 +11,8 @@ use crate::qir::QirProgram;
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_DST_IMM, FLAG_SRC0_IMM, OP_BRANCH, OP_JUMP,
     OP_MEASURE, OP_MOV, OP_PEEK_LOSS, OP_QUANTUM_GATE, OP_READ_RESULT, OP_READOUT_NOISE,
-    OP_RECORD_OUTPUT, OP_RESET, OP_RET, OPID_CORRELATED_NOISE, OPID_RESETZ,
-};
-pub(super) use crate::bytecode::encoding::{
-    OPID_CX, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_RX, OPID_RY, OPID_RZZ,
-    OPID_SWAP, OPID_X,
+    OP_RECORD_OUTPUT, OP_RESET, OP_RET, OPID_CORRELATED_NOISE, OPID_H, OPID_MZ, OPID_RESETZ,
+    OPID_X,
 };
 
 /// A program of `blocks`, the first its entry block, on `qubits` qubits,

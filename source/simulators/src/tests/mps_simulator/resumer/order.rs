@@ -7,7 +7,8 @@
 //! weighed.
 
 use super::super::below;
-use super::super::programs::{OPID_CX, gate2, gate2_from_register, program, ret, set};
+use super::super::programs::{gate2, gate2_from_register, program, ret, set};
+use crate::bytecode::encoding::OPID_CX;
 use crate::mps_simulator::resumer::order::{InteractionWeights, QubitOrder, local_search_order};
 use crate::mps_simulator::resumer::splitmix64::SplitMix64;
 

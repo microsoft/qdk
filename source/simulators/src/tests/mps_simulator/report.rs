@@ -10,8 +10,9 @@ use crate::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use tensornet::MpsShape;
 use tensornet::reference::ExactReference;
 
-use super::programs::{OPID_CX, OPID_H, coins, gate1, gate2, mz, program, ret};
+use super::programs::{coins, gate1, gate2, mz, program, ret};
 use super::reference_spy::{ReferenceSpy, Weight};
+use crate::bytecode::encoding::{OPID_CX, OPID_H};
 use crate::mps_simulator::{
     DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsRunReport, TRUNCATION_TOLERANCE,
 };

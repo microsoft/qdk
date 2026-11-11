@@ -20,11 +20,13 @@ use tensornet::MpsEngine;
 use tensornet::reference::ExactReference;
 
 use super::programs::{
-    OPID_CX, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_SWAP, OPID_X, branch,
-    coin_copied_by_a_branch, coins, correlated_noise, gate, gate1, gate2, jump, measure, mz,
-    peek_loss, program, program_with, read_result, readout_noise, reset, ret, set,
+    branch, coin_copied_by_a_branch, coins, correlated_noise, gate, gate1, gate2, jump, measure,
+    mz, peek_loss, program, program_with, read_result, readout_noise, reset, ret, set,
 };
 use super::reference_spy::{ReferenceSpy, ReferenceSpyError};
+use crate::bytecode::encoding::{
+    OPID_CX, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_SWAP, OPID_X,
+};
 use crate::mps_simulator::resumer::order::QubitOrder;
 use crate::mps_simulator::resumer::splitmix64::SplitMix64;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
