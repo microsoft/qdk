@@ -2,7 +2,7 @@
 
 The `qdk_cutensornet` crate lets a QDK simulator that runs matrix product
 states (MPS) run them on an NVIDIA GPU, unchanged, through NVIDIA's
-cuTensorNet library. It has two parts:
+cuTensorNet library. It has three parts:
 
 - **[The MPS engine](#the-mps-engine):**
   [`CuTensorNetEngine`](src/engine.rs) implements `tensornet::MpsEngine` on
@@ -251,6 +251,16 @@ often without knowing CUDA. It never fails: its
 other copies of a library, and says what to fix for the first problem met,
 looked for in the order of the steps. A caller shows it on request, and its
 text with the error of a GPU run that cannot start.
+
+The check reports the GPUs in CUDA's terms, which a user who does not know
+CUDA meets first here:
+
+- **CUDA device**: a GPU, as CUDA numbers the ones a process sees, from 0.
+  The engine runs on device 0; on a host with several GPUs,
+  `CUDA_VISIBLE_DEVICES` sets which one that is.
+- **compute capability**: NVIDIA's version of a GPU's architecture,
+  major.minor, such as 8.0 for an A100; it says which GPUs a library
+  supports.
 
 | Step                                                                                       | How                                                                                                                                                                                                                 | Why                                                                                                                                                                             |
 | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
