@@ -310,11 +310,11 @@ pub const NAMESPACES_EXPECT_CIRCUIT: Expect = expect!["generated circuit of leng
 pub const NAMESPACES_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 960"];
 pub const NAMESPACES_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1110"];
 pub const OPERATIONS_EXPECT: Expect = expect![[r#"
-    Measurement result: Zero
-    Zero"#]];
+    Measurement result: One
+    One"#]];
 pub const OPERATIONS_EXPECT_DEBUG: Expect = expect![[r#"
-    Measurement result: Zero
-    Zero"#]];
+    Measurement result: One
+    One"#]];
 pub const OPERATIONS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 187"];
 pub const OPERATIONS_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1428"];
 pub const OPERATIONS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1696"];
@@ -337,12 +337,12 @@ pub const PARTIALAPPLICATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
 pub const PARTIALAPPLICATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1110"];
 pub const PAULI_EXPECT: Expect = expect![[r#"
     Pauli dimension: PauliX
-    Measurement result: Zero
-    Zero"#]];
+    Measurement result: One
+    One"#]];
 pub const PAULI_EXPECT_DEBUG: Expect = expect![[r#"
     Pauli dimension: PauliX
-    Measurement result: Zero
-    Zero"#]];
+    Measurement result: One
+    One"#]];
 pub const PAULI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 223"];
 pub const PAULI_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1502"];
 pub const PAULI_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1860"];
@@ -416,11 +416,11 @@ pub const REPEATUNTILLOOPS_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["compilation error: cannot have a loop with a dynamic condition"];
 pub const REPEATUNTILLOOPS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2219"];
 pub const RESULT_EXPECT: Expect = expect![[r#"
-    Measurement: Zero
-    Zero"#]];
+    Measurement: One
+    One"#]];
 pub const RESULT_EXPECT_DEBUG: Expect = expect![[r#"
-    Measurement: Zero
-    Zero"#]];
+    Measurement: One
+    One"#]];
 pub const RESULT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 187"];
 pub const RESULT_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1428"];
 pub const RESULT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1696"];

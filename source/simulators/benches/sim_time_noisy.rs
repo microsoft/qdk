@@ -13,6 +13,7 @@ use qdk_simulators::{
         StabilizerSimulator,
         operation::{Operation, cz, h, id, mov, mz, s, x, y, z},
     },
+    stream_key::StreamKey,
 };
 use rand::{SeedableRng, distr::Uniform, prelude::Distribution, rngs::StdRng};
 use std::{hint::black_box, sync::Arc};
@@ -91,8 +92,12 @@ fn sim_1k_gates(c: &mut Criterion) {
     let noise: Arc<CumulativeNoiseConfig> = Arc::new(NOISE_CONFIG.into());
     c.bench_function("1k gates", |b| {
         b.iter(|| {
-            let mut simulator =
-                StabilizerSimulator::new(NUM_QUBITS, NUM_QUBITS, SEED, noise.clone());
+            let mut simulator = StabilizerSimulator::new(
+                NUM_QUBITS,
+                NUM_QUBITS,
+                StreamKey::session(SEED.into()),
+                noise.clone(),
+            );
             black_box(simulator.apply_gates(black_box(&gates)));
         });
     });
@@ -104,8 +109,12 @@ fn sim_20k_gates(c: &mut Criterion) {
     let noise: Arc<CumulativeNoiseConfig> = Arc::new(NOISE_CONFIG.into());
     c.bench_function("20k gates", |b| {
         b.iter(|| {
-            let mut simulator =
-                StabilizerSimulator::new(NUM_QUBITS, NUM_QUBITS, SEED, noise.clone());
+            let mut simulator = StabilizerSimulator::new(
+                NUM_QUBITS,
+                NUM_QUBITS,
+                StreamKey::session(SEED.into()),
+                noise.clone(),
+            );
             black_box(simulator.apply_gates(black_box(&gates)));
         });
     });
@@ -117,8 +126,12 @@ fn sim_1m_gates(c: &mut Criterion) {
     let noise: Arc<CumulativeNoiseConfig> = Arc::new(NOISE_CONFIG.into());
     c.bench_function("1m gates", |b| {
         b.iter(|| {
-            let mut simulator =
-                StabilizerSimulator::new(NUM_QUBITS, NUM_QUBITS, SEED, noise.clone());
+            let mut simulator = StabilizerSimulator::new(
+                NUM_QUBITS,
+                NUM_QUBITS,
+                StreamKey::session(SEED.into()),
+                noise.clone(),
+            );
             black_box(simulator.apply_gates(black_box(&gates)));
         });
     });

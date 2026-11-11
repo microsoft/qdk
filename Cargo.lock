@@ -1943,6 +1943,7 @@ dependencies = [
  "qsc_passes",
  "qsc_project",
  "qsc_rca",
+ "rand 0.10.2",
  "rustc-hash",
  "thiserror",
 ]

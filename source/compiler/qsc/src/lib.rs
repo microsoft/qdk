@@ -50,6 +50,8 @@ pub mod line_column {
     pub use qsc_data_structures::line_column::{Encoding, Position, Range};
 }
 
+pub use qdk_simulators::stream_key::{Stream, StreamKey};
+
 pub use qsc_eval::{
     backend::{Backend, CliffordSim, SparseSim},
     noise::PauliNoise,

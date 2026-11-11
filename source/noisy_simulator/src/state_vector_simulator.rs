@@ -246,6 +246,18 @@ pub struct StateVectorSimulator {
 }
 
 impl StateVectorSimulator {
+    /// Creates a new `StateVectorSimulator` that draws its random numbers from `rng`.
+    #[must_use]
+    pub fn new_with_rng(number_of_qubits: usize, rng: StdRng) -> Self {
+        let state_vector = StateVector::new(number_of_qubits);
+        let dimension = state_vector.dimension();
+        Self {
+            state: Ok(state_vector),
+            dimension,
+            rng,
+        }
+    }
+
     fn check_out_of_bounds_qubits(&self, qubits: &[usize]) -> Result<(), Error> {
         let number_of_qubits = self.state.as_ref()?.number_of_qubits;
         if let Some(id) = qubits.iter().find(|id| **id >= number_of_qubits) {

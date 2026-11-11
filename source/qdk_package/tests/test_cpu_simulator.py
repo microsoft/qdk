@@ -65,21 +65,26 @@ def test_cpu_seeding_no_noise():
     qir = str(qsharp.compile("BellTest()"))
 
     results = [run_qir_cpu(qir, 1, None, seed)[0] for seed in range(100)]
-    print(results)
 
-    # Results will be an array of 100 lists [Result, Result]
-    # Each result should be [Zero, Zero] or [One, One]
-    # As evident from a manual experiment running with the seeds of 0..99
-    # gives 41:59 results split. Experiment should be repeatable for fixed seeds.
+    # Every seed gives a Bell pair outcome, both outcomes occur, and each seed reproduces.
+    zeros = [Result.Zero, Result.Zero]
+    ones = [Result.One, Result.One]
+    assert all(r in (zeros, ones) for r in results)
+    assert zeros in results and ones in results
+    assert results == [run_qir_cpu(qir, 1, None, seed)[0] for seed in range(100)]
 
-    # Verify we have 6 of each result
-    count_00 = sum(1 for r in results if r == [Result.Zero, Result.Zero])
-    count_11 = sum(1 for r in results if r == [Result.One, Result.One])
-    assert count_00 == 41
-    assert count_11 == 100 - 41
-    # TODO: count_00 is always suspiciously lower than count_11 for MANY ranges of seeds.
-    # Investigate if there's some bias in the simulator. Technically this isn't indication of a fault:
-    # we need roughly equal counts for shots, not for seeds.
+
+def test_cpu_nearby_seeds_produce_unrelated_shots():
+    qsharp.init(target_profile=TargetProfile.Adaptive_RI)
+    qsharp.eval(
+        "operation Coins() : Result[] { use q = Qubit(); mutable rs = []; for _ in 1..32 { H(q); set rs += [MResetZ(q)]; } rs }"
+    )
+    qir = str(qsharp.compile("Coins()"))
+
+    first = [str(shot) for shot in run_qir_cpu(qir, 10, None, 42)]
+    second = [str(shot) for shot in run_qir_cpu(qir, 10, None, 43)]
+    assert len(set(first)) == len(first)
+    assert not set(first) & set(second)
 
 
 def test_cpu_no_noise():

@@ -11,6 +11,8 @@ mod debugger_tests;
 #[cfg(test)]
 mod package_tests;
 #[cfg(test)]
+mod seed_tests;
+#[cfg(test)]
 mod tests;
 
 use std::{cell::RefCell, rc::Rc};
@@ -31,7 +33,10 @@ use debug::format_call_stack;
 use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
-use qdk_simulators::noise_config::NoiseConfig;
+use qdk_simulators::{
+    noise_config::NoiseConfig,
+    stream_key::{Stream, StreamKey},
+};
 use qsc_circuit::{
     Circuit, CircuitTracer, TracerConfig,
     operations::{entry_expr_for_qubit_operation, qubit_param_info},
@@ -84,6 +89,7 @@ use qsc_lowerer::{
 use qsc_partial_eval::PartialEvalConfig;
 use qsc_passes::{PackageType, PassContext};
 use qsc_rca::PackageStoreComputeProperties;
+use rand::{Rng as _, rngs::StdRng};
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 
@@ -353,12 +359,14 @@ pub struct Interpreter {
     sim: SparseSim,
     /// When circuit tracing is enabled, the tracer that records the circuit during evaluation.
     circuit_tracer: Option<CircuitTracer>,
-    /// The quantum seed, if any. This is cached here so that it can be used in calls to
-    /// `run_internal` which use a passed instance of the simulator instead of the one above.
+    /// The quantum seed, if any. This is cached here so that runs on a fresh simulator can
+    /// derive each shot's streams from it.
     quantum_seed: Option<u64>,
-    /// The classical seed, if any. This needs to be passed to the evaluator for use in intrinsic
-    /// calls that produce classical random numbers.
+    /// The classical seed, if any. Runs derive each shot's classical stream from it.
     classical_seed: Option<u64>,
+    /// The classical stream for evaluations that share the interpreter's state, so that
+    /// successive evaluations continue the stream instead of restarting it.
+    classical_rng: StdRng,
     /// The evaluator environment.
     env: Env,
     /// The execution graph configuration to use for evaluation.
@@ -661,6 +669,7 @@ impl Interpreter {
             }),
             quantum_seed: None,
             classical_seed: None,
+            classical_rng: StreamKey::from_entropy().rng(Stream::Classical),
             package,
             source_package: map_hir_package_to_fir(source_package_id),
             eval_config,
@@ -1075,11 +1084,34 @@ impl Interpreter {
 
     pub fn set_quantum_seed(&mut self, seed: Option<u64>) {
         self.quantum_seed = seed;
-        self.sim.set_seed(seed);
+        self.sim.set_seed(seed.map(StreamKey::session));
     }
 
     pub fn set_classical_seed(&mut self, seed: Option<u64>) {
         self.classical_seed = seed;
+        self.classical_rng = seed
+            .map_or_else(StreamKey::from_entropy, StreamKey::session)
+            .rng(Stream::Classical);
+    }
+
+    /// The classical seed for the next evaluation that shares the interpreter's state.
+    fn next_classical_seed(&mut self) -> Option<u64> {
+        Some(self.classical_rng.next_u64())
+    }
+
+    /// The quantum streams and classical seed for shot `shot` of a run on a fresh simulator.
+    /// The run's `seed` takes precedence over the interpreter's seeds; without either, the
+    /// shot is seeded from entropy.
+    fn shot_seeds(&self, seed: Option<u64>, shot: u64) -> (Option<StreamKey>, Option<u64>) {
+        let quantum = seed
+            .or(self.quantum_seed)
+            .map(|seed| StreamKey::shot(seed, shot));
+        let classical = seed.or(self.classical_seed).map(|seed| {
+            StreamKey::shot(seed, shot)
+                .rng(Stream::Classical)
+                .next_u64()
+        });
+        (quantum, classical)
     }
 
     pub fn check_source_lints(&self) -> Vec<Lint> {
@@ -1111,9 +1143,10 @@ impl Interpreter {
     pub fn eval_entry(&mut self, receiver: &mut impl Receiver) -> InterpretResult {
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
+        let classical_seed = self.next_classical_seed();
         eval(
             self.source_package,
-            self.classical_seed,
+            classical_seed,
             graph,
             self.eval_config,
             self.compiler.package_store(),
@@ -1124,21 +1157,23 @@ impl Interpreter {
         )
     }
 
-    /// Executes the entry expression until the end of execution, using the given simulator backend
-    /// and a new instance of the environment.
+    /// Executes the entry expression until the end of execution, as shot `shot` of a run,
+    /// using the given simulator backend and a new instance of the environment.
     pub fn eval_entry_with_sim(
         &mut self,
         sim: &mut impl Backend,
         receiver: &mut impl Receiver,
+        shot: u64,
     ) -> InterpretResult {
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
-        if self.quantum_seed.is_some() {
-            sim.set_seed(self.quantum_seed);
+        let (quantum, classical_seed) = self.shot_seeds(None, shot);
+        if quantum.is_some() {
+            sim.set_seed(quantum);
         }
         eval(
             self.source_package,
-            self.classical_seed,
+            classical_seed,
             graph,
             self.eval_config,
             self.compiler.package_store(),
@@ -1218,9 +1253,10 @@ impl Interpreter {
         // here to keep the package stores consistent.
         self.compiler.update(increment);
 
+        let classical_seed = self.next_classical_seed();
         eval(
             self.package,
-            self.classical_seed,
+            classical_seed,
             graph,
             self.eval_config,
             self.compiler.package_store(),
@@ -1238,9 +1274,10 @@ impl Interpreter {
         callable: Value,
         args: Value,
     ) -> InterpretResult {
+        let classical_seed = self.next_classical_seed();
         qsc_eval::invoke(
             self.package,
-            self.classical_seed,
+            classical_seed,
             &self.fir_store,
             self.eval_config,
             &mut self.env,
@@ -1271,6 +1308,7 @@ impl Interpreter {
         qubit_loss: Option<f64>,
         noise_config: Option<NoiseConfig<f64, f64>>,
         seed: Option<u64>,
+        shot: u64,
         sim_type: SimType,
     ) -> InterpretResult {
         let qubit_loss = if noise_config.is_none() {
@@ -1291,20 +1329,14 @@ impl Interpreter {
                 if let Some(loss) = qubit_loss {
                     sim.set_loss(loss);
                 }
-                if seed.is_some() {
-                    sim.set_seed(seed);
-                }
-                self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
+                self.invoke_with_sim(&mut sim, receiver, callable, args, seed, shot)
             }
             SimType::Clifford(num_qubits) => {
                 let mut sim = match noise_config {
                     Some(config) => CliffordSim::new_with_noise_config(num_qubits, config.into()),
                     None => CliffordSim::new(num_qubits),
                 };
-                if seed.is_some() {
-                    sim.set_seed(seed);
-                }
-                self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
+                self.invoke_with_sim(&mut sim, receiver, callable, args, seed, shot)
             }
         }
     }
@@ -1320,6 +1352,7 @@ impl Interpreter {
         qubit_loss: Option<f64>,
         noise_config: Option<NoiseConfig<f64, f64>>,
         seed: Option<u64>,
+        shot: u64,
         sim_type: SimType,
     ) -> InterpretResult {
         let qubit_loss = if noise_config.is_none() {
@@ -1339,14 +1372,14 @@ impl Interpreter {
                 if let Some(loss) = qubit_loss {
                     sim.set_loss(loss);
                 }
-                self.run_with_sim(&mut sim, receiver, expr, seed)
+                self.run_with_sim(&mut sim, receiver, expr, seed, shot)
             }
             SimType::Clifford(num_qubits) => {
                 let mut sim = match noise_config {
                     Some(config) => CliffordSim::new_with_noise_config(num_qubits, config.into()),
                     None => CliffordSim::new(num_qubits),
                 };
-                self.run_with_sim(&mut sim, receiver, expr, seed)
+                self.run_with_sim(&mut sim, receiver, expr, seed, shot)
             }
         }
     }
@@ -1791,7 +1824,11 @@ impl Interpreter {
 
         match method {
             CircuitGenerationMethod::Simulate => {
+                let (quantum, classical_seed) = self.shot_seeds(None, 0);
                 let mut sim = SparseSim::new();
+                if quantum.is_some() {
+                    sim.set_seed(quantum);
+                }
                 let mut tracing_backend = TracingBackend::new(&mut sim, Some(&mut tracer));
                 if let Some((callable, args)) = invoke_params {
                     self.invoke_with_tracing_backend(
@@ -1800,7 +1837,7 @@ impl Interpreter {
                         callable,
                         args,
                         eval_config,
-                        None,
+                        classical_seed,
                     )?;
                 } else {
                     self.run_with_tracing_backend(
@@ -1808,10 +1845,12 @@ impl Interpreter {
                         &mut out,
                         entry_expr.as_deref(),
                         eval_config,
+                        classical_seed,
                     )?;
                 }
             }
             CircuitGenerationMethod::ClassicalEval => {
+                let (_, classical_seed) = self.shot_seeds(None, 0);
                 let mut tracer = TracingBackend::<SparseSim>::no_backend(&mut tracer);
                 if let Some((callable, args)) = invoke_params {
                     self.invoke_with_tracing_backend(
@@ -1820,7 +1859,7 @@ impl Interpreter {
                         callable,
                         args,
                         eval_config,
-                        None,
+                        classical_seed,
                     )?;
                 } else {
                     self.run_with_tracing_backend(
@@ -1828,6 +1867,7 @@ impl Interpreter {
                         &mut out,
                         entry_expr.as_deref(),
                         eval_config,
+                        classical_seed,
                     )?;
                 }
             }
@@ -1992,14 +2032,15 @@ impl Interpreter {
         Ok(())
     }
 
-    /// Runs the given entry expression on the given simulator with a new instance of the environment
-    /// but using the current compilation.
+    /// Runs the given entry expression as shot `shot` of a run, on the given simulator with a new
+    /// instance of the environment but using the current compilation.
     pub fn run_with_sim(
         &mut self,
         sim: &mut impl Backend,
         receiver: &mut impl Receiver,
         expr: Option<&str>,
         seed: Option<u64>,
+        shot: u64,
     ) -> InterpretResult {
         let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = if let Some(expr) = expr {
@@ -2010,16 +2051,10 @@ impl Interpreter {
             self.expr_graph.clone().ok_or(vec![Error::NoEntryPoint])?
         };
 
-        if seed.is_some() {
-            tracing_backend.set_seed(seed);
-        } else if self.quantum_seed.is_some() {
-            tracing_backend.set_seed(self.quantum_seed);
+        let (quantum, classical_seed) = self.shot_seeds(seed, shot);
+        if quantum.is_some() {
+            tracing_backend.set_seed(quantum);
         }
-
-        let classical_seed = match seed {
-            Some(seed) => Some(seed),
-            None => self.classical_seed,
-        };
 
         eval(
             self.package,
@@ -2040,6 +2075,7 @@ impl Interpreter {
         out: &mut GenericReceiver,
         entry_expr: Option<&str>,
         config: ExecGraphConfig,
+        classical_seed: Option<u64>,
     ) -> InterpretResult {
         let (package_id, graph) = if let Some(entry_expr) = entry_expr {
             // entry expression is provided
@@ -2049,12 +2085,9 @@ impl Interpreter {
             // no entry expression, use the entrypoint in the package
             (self.source_package, self.get_entry_exec_graph()?)
         };
-        if self.quantum_seed.is_some() {
-            tracing_backend.set_seed(self.quantum_seed);
-        }
         eval(
             package_id,
-            self.classical_seed,
+            classical_seed,
             graph,
             config,
             self.compiler.package_store(),
@@ -2065,8 +2098,8 @@ impl Interpreter {
         )
     }
 
-    /// Invokes the given callable with the given arguments on the given simulator with a new instance of the environment
-    /// but using the current compilation.
+    /// Invokes the given callable with the given arguments as shot `shot` of a run, on the given
+    /// simulator with a new instance of the environment but using the current compilation.
     pub fn invoke_with_sim(
         &mut self,
         sim: &mut impl Backend,
@@ -2074,14 +2107,19 @@ impl Interpreter {
         callable: Value,
         args: Value,
         seed: Option<u64>,
+        shot: u64,
     ) -> InterpretResult {
+        let (quantum, classical_seed) = self.shot_seeds(seed, shot);
+        if quantum.is_some() {
+            sim.set_seed(quantum);
+        }
         self.invoke_with_tracing_backend(
             &mut TracingBackend::no_tracer(sim),
             receiver,
             callable,
             args,
             self.eval_config,
-            seed,
+            classical_seed,
         )
     }
 
@@ -2092,12 +2130,8 @@ impl Interpreter {
         callable: Value,
         args: Value,
         config: ExecGraphConfig,
-        seed: Option<u64>,
+        classical_seed: Option<u64>,
     ) -> InterpretResult {
-        let classical_seed = match seed {
-            Some(seed) => Some(seed),
-            None => self.classical_seed,
-        };
         qsc_eval::invoke(
             self.package,
             classical_seed,

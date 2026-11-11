@@ -44,6 +44,7 @@ _BROADCAST_SOURCE = """
 
 
 def test_run_with_noise_produces_noisy_results() -> None:
+    # With 50% noise, a run with fewer than 6 errors is astronomically unlikely for any seed.
     result = run(
         """
         include "stdgates.inc";
@@ -62,7 +63,7 @@ def test_run_with_noise_produces_noisy_results() -> None:
         }
         """,
         shots=1,
-        noise=BitFlipNoise(0.1),
+        noise=BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5
@@ -78,7 +79,7 @@ def test_run_with_noise_produces_noisy_results() -> None:
         }
         """,
         shots=1,
-        noise=BitFlipNoise(0.1),
+        noise=BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5
@@ -245,6 +246,7 @@ def test_import_can_declare_files_with_namespaces() -> None:
 
 
 def test_run_imported_with_noise_produces_noisy_results() -> None:
+    # With 50% noise, a run with fewer than 6 errors is astronomically unlikely for any seed.
     init()
     import_openqasm(
         """
@@ -268,7 +270,7 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
     result = qsharp_run(
         "{ use (q1, q2) = (Qubit(), Qubit()); Program0(q1, q2) }",
         shots=1,
-        noise=BitFlipNoise(0.1),
+        noise=BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5
@@ -289,7 +291,7 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
     result = qsharp_run(
         "{ use q = Qubit(); Program1(q) }",
         shots=1,
-        noise=BitFlipNoise(0.1),
+        noise=BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5
@@ -365,6 +367,17 @@ def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> Non
         seed=None,
     )
     assert result1 != result3
+
+
+def test_run_with_nearby_seeds_produces_unrelated_shots() -> None:
+    init()
+    source = 'include "stdgates.inc";qubit[32] qs;h qs;bit[32] c = measure qs;'
+    import_openqasm(source, program_type=ProgramType.File)
+    for entry in (source, code.qasm_import.program):
+        first = [str(shot) for shot in run(entry, shots=10, seed=42)]
+        second = [str(shot) for shot in run(entry, shots=10, seed=43)]
+        assert len(set(first)) == len(first)
+        assert not set(first) & set(second)
 
 
 def test_run_with_invalid_shots_produces_error() -> None:

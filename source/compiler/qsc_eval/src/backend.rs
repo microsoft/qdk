@@ -13,11 +13,11 @@ use qdk_simulators::{
     MeasurementResult, Simulator as _, SparseStateSim,
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
     stabilizer_simulator::StabilizerSimulator,
+    stream_key::{Stream, StreamKey},
 };
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::fir::PackageStoreLookup;
-use rand::{Rng, RngExt};
-use rand::{SeedableRng, rngs::StdRng};
+use rand::{RngExt, rngs::StdRng};
 
 #[cfg(test)]
 mod noise_tests;
@@ -126,7 +126,9 @@ pub trait Backend {
     ) -> Option<Result<Value, String>> {
         None
     }
-    fn set_seed(&mut self, _seed: Option<u64>) {}
+    /// Replaces the backend's random streams with the ones identified by `key`, or with
+    /// streams seeded from entropy if `key` is `None`.
+    fn set_seed(&mut self, _key: Option<StreamKey>) {}
 }
 
 /// Trait receiving trace events for quantum execution. Each method records
@@ -500,9 +502,9 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn set_seed(&mut self, seed: Option<u64>) {
+    pub fn set_seed(&mut self, key: Option<StreamKey>) {
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.set_seed(seed);
+            backend.set_seed(key);
         }
     }
 }
@@ -556,8 +558,9 @@ pub struct SparseSim {
     /// A bit vector that tracks which qubits were lost.
     pub lost_qubits: BigUint,
     /// Random number generator to sample any noise.
-    /// Noise is not applied when rng is None.
-    pub rng: Option<StdRng>,
+    pub rng: StdRng,
+    /// Whether noise is applied.
+    noisy: bool,
 }
 
 impl Default for SparseSim {
@@ -569,13 +572,15 @@ impl Default for SparseSim {
 impl SparseSim {
     #[must_use]
     pub fn new() -> Self {
+        let key = StreamKey::from_entropy();
         Self {
-            sim: SparseStateSim::new(None),
+            sim: SparseStateSim::new(Some(key.rng(Stream::Measurement))),
             noise_config: None,
             noise: PauliNoise::default(),
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
-            rng: None,
+            rng: key.rng(Stream::Noise),
+            noisy: false,
         }
     }
 
@@ -589,36 +594,27 @@ impl SparseSim {
     #[must_use]
     pub fn new_with_noise_config(noise_config: CumulativeNoiseConfig) -> Self {
         Self {
-            sim: SparseStateSim::new(None),
             noise_config: Some(noise_config),
-            noise: PauliNoise::default(),
-            loss: f64::zero(),
-            lost_qubits: BigUint::zero(),
-            rng: Some(StdRng::from_rng(&mut rand::rng())),
+            noisy: true,
+            ..Self::new()
         }
     }
 
+    // Noise configured during the run keeps drawing from the existing noise stream, so a
+    // seed applied before the program starts still governs it.
     fn set_noise(&mut self, noise: &PauliNoise) {
         self.noise = *noise;
-        if noise.is_noiseless() && self.loss.is_zero() {
-            self.rng = None;
-        } else {
-            self.rng = Some(StdRng::from_rng(&mut rand::rng()));
-        }
+        self.noisy = !(noise.is_noiseless() && self.loss.is_zero());
     }
 
     pub fn set_loss(&mut self, loss: f64) {
         self.loss = loss;
-        if loss.is_zero() && self.noise.is_noiseless() {
-            self.rng = None;
-        } else {
-            self.rng = Some(StdRng::from_rng(&mut rand::rng()));
-        }
+        self.noisy = !(loss.is_zero() && self.noise.is_noiseless());
     }
 
     #[must_use]
     fn is_noiseless(&self) -> bool {
-        self.rng.is_none()
+        !self.noisy
     }
 
     fn apply_faults(
@@ -626,7 +622,7 @@ impl SparseSim {
         get_table: impl Fn(&CumulativeNoiseConfig) -> &CumulativeNoiseTable,
         qs: &[usize],
     ) {
-        if self.rng.is_none() {
+        if self.is_noiseless() {
             return;
         }
         if !self.noise.is_noiseless() || !self.loss.is_zero() {
@@ -642,9 +638,7 @@ impl SparseSim {
             .take()
             .expect("noise config should always be present");
 
-        let fault = get_table(&noise_config)
-            .sampler
-            .sample(self.rng.as_mut().expect("RNG should be present"));
+        let fault = get_table(&noise_config).sampler.sample(&mut self.rng);
 
         if let Some(fault) = fault {
             assert!(fault.0.len() == qs.len());
@@ -682,9 +676,9 @@ impl SparseSim {
             // If the qubit is already lost, we don't apply noise.
             return;
         }
-        if let Some(rng) = &mut self.rng {
+        if self.noisy {
             // First, check for loss.
-            let p = rng.random_range(0.0..1.0);
+            let p = self.rng.random_range(0.0..1.0);
             if p < self.loss {
                 // The qubit is lost, so we reset it.
                 // It is not safe to release the qubit here, as that may
@@ -699,7 +693,7 @@ impl SparseSim {
             }
 
             // Apply noise with a probability distribution defined in `self.noise`.
-            let p = rng.random_range(0.0..1.0);
+            let p = self.rng.random_range(0.0..1.0);
             if p >= self.noise.distribution[2] {
                 // In the most common case we don't apply noise
             } else if p < self.noise.distribution[0] {
@@ -710,7 +704,6 @@ impl SparseSim {
                 self.sim.z(q);
             }
         }
-        // No noise applied if rng is None.
     }
 
     /// Checks if the qubit is lost.
@@ -1177,18 +1170,10 @@ impl Backend for SparseSim {
         }
     }
 
-    fn set_seed(&mut self, seed: Option<u64>) {
-        if let Some(seed) = seed {
-            if !self.is_noiseless() {
-                self.rng = Some(StdRng::seed_from_u64(seed));
-            }
-            self.sim.set_rng_seed(seed);
-        } else {
-            if !self.is_noiseless() {
-                self.rng = Some(StdRng::from_rng(&mut rand::rng()));
-            }
-            self.sim.set_rng_seed(rand::rng().next_u64());
-        }
+    fn set_seed(&mut self, key: Option<StreamKey>) {
+        let key = key.unwrap_or_else(StreamKey::from_entropy);
+        self.rng = key.rng(Stream::Noise);
+        self.sim.set_rng(key.rng(Stream::Measurement));
     }
 }
 
@@ -1203,12 +1188,11 @@ pub struct CliffordSim {
 impl CliffordSim {
     #[must_use]
     pub fn new(num_qubits: usize) -> Self {
-        let seed = rand::rng().next_u32();
         Self {
             sim: StabilizerSimulator::new(
                 num_qubits,
                 1,
-                seed,
+                StreamKey::from_entropy(),
                 CumulativeNoiseConfig::default().into(),
             ),
             num_qubits,
@@ -1219,9 +1203,13 @@ impl CliffordSim {
 
     #[must_use]
     pub fn new_with_noise_config(num_qubits: usize, noise_config: CumulativeNoiseConfig) -> Self {
-        let seed = rand::rng().next_u32();
         Self {
-            sim: StabilizerSimulator::new(num_qubits, 1, seed, noise_config.into()),
+            sim: StabilizerSimulator::new(
+                num_qubits,
+                1,
+                StreamKey::from_entropy(),
+                noise_config.into(),
+            ),
             num_qubits,
             qubit_id_map: IndexMap::new(),
             is_noisy: true,
@@ -1458,12 +1446,9 @@ impl Backend for CliffordSim {
         }
     }
 
-    fn set_seed(&mut self, seed: Option<u64>) {
-        if let Some(seed) = seed {
-            self.sim.set_seed(seed);
-        } else {
-            self.sim.set_seed(rand::rng().next_u64());
-        }
+    fn set_seed(&mut self, key: Option<StreamKey>) {
+        self.sim
+            .set_stream_key(key.unwrap_or_else(StreamKey::from_entropy));
     }
 }
 

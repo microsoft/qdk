@@ -31,6 +31,7 @@ mod given_interpreter {
             None,
             None,
             None,
+            0,
             Default::default(),
         );
         (res, receiver.dump())

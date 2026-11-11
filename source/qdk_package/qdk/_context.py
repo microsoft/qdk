@@ -739,14 +739,7 @@ class Context:
             noise_config = noise
             noise = None
 
-        shot_seed = seed
         for shot in range(shots):
-            # We also don't want every shot to return the same results, so we update the seed for
-            # the next shot with the shot number. This keeps the behavior deterministic if a seed
-            # was provided.
-            if seed is not None:
-                shot_seed = shot + seed
-
             results.append(
                 {
                     "result": None,
@@ -764,9 +757,10 @@ class Context:
                 qubit_loss,
                 callable,
                 args,
-                shot_seed,
+                seed,
                 type,
                 num_qubits,
+                shot,
             )
             run_results = self._qsharp_value_to_python_value(run_results)
             results[-1]["result"] = run_results

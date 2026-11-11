@@ -11,23 +11,16 @@ use crate::{
     noise_config::{
         CumulativeNoiseConfig, CumulativeNoiseTable, Fault, FaultTerm, IntrinsicID, LossPolicy,
     },
+    stream_key::{Stream, StreamKey},
 };
 use branching_state::BranchingState;
 use operation::Operation;
 use paulimer::{PauliObservable, UnitaryOp, core::PositionedPauliObservable, pauli::SparsePauli};
-use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
+use rand::{RngExt as _, rngs::StdRng};
 use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
     sync::Arc,
 };
-
-fn seeded_randomness(seed: u64) -> (StdRng, StdRng) {
-    let mut seed_rng = StdRng::seed_from_u64(seed);
-    (
-        StdRng::from_rng(&mut seed_rng),
-        StdRng::from_rng(&mut seed_rng),
-    )
-}
 
 fn unsupported_apply_anyway(gate: &str) -> ! {
     unreachable!("the `{gate}` gate does not support the ApplyAnyway loss policy")
@@ -54,11 +47,10 @@ pub struct StabilizerSimulator {
 }
 
 impl StabilizerSimulator {
-    /// Sets the random seed of the simulator.
-    pub fn set_seed(&mut self, seed: u64) {
-        let (noise_rng, measurement_rng) = seeded_randomness(seed);
-        self.rng = noise_rng;
-        self.measurement_rng = measurement_rng;
+    /// Replaces the simulator's random streams with the ones identified by `key`.
+    pub fn set_stream_key(&mut self, key: StreamKey) {
+        self.rng = key.rng(Stream::Noise);
+        self.measurement_rng = key.rng(Stream::Measurement);
     }
 
     /// Increment the simulation time by one.
@@ -370,12 +362,16 @@ impl Simulator for StabilizerSimulator {
     type Noise = Arc<CumulativeNoiseConfig>;
     type StateDumpData = BranchingState;
 
-    fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
-        let (rng, measurement_rng) = seeded_randomness(u64::from(seed));
+    fn new(
+        num_qubits: usize,
+        num_results: usize,
+        key: StreamKey,
+        noise_config: Self::Noise,
+    ) -> Self {
         Self {
             noise_config,
-            rng,
-            measurement_rng,
+            rng: key.rng(Stream::Noise),
+            measurement_rng: key.rng(Stream::Measurement),
             state: BranchingState::new(num_qubits),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
@@ -740,14 +736,15 @@ mod tests {
     use super::StabilizerSimulator;
     use crate::{
         MeasurementResult, Simulator, cpu_full_state_simulator::FullStateSimulator,
-        noise_config::CumulativeNoiseConfig,
+        noise_config::CumulativeNoiseConfig, stream_key::StreamKey,
     };
     use std::sync::Arc;
 
     fn sample_t_interference<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>(
         seed: u32,
     ) -> MeasurementResult {
-        let mut simulator = S::new(1, 1, seed, Arc::new(CumulativeNoiseConfig::default()));
+        let key = StreamKey::shot(0, seed.into());
+        let mut simulator = S::new(1, 1, key, Arc::new(CumulativeNoiseConfig::default()));
         simulator.h(0);
         simulator.t(0);
         simulator.h(0);
@@ -782,7 +779,8 @@ mod tests {
     fn sample_entangled_t_circuit<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>(
         seed: u32,
     ) -> usize {
-        let mut simulator = S::new(2, 2, seed, Arc::new(CumulativeNoiseConfig::default()));
+        let key = StreamKey::shot(0, seed.into());
+        let mut simulator = S::new(2, 2, key, Arc::new(CumulativeNoiseConfig::default()));
         simulator.h(0);
         simulator.cx(0, 1);
         simulator.t(0);

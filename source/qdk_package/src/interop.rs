@@ -31,7 +31,7 @@ use qsc::openqasm::semantic::AnalysisResult;
 use qsc::openqasm::{OperationSignature, QubitSemantics};
 use qsc::project::ProjectType;
 use qsc::target::Profile;
-use qsc::{Backend, CliffordSim, PackageType, PauliNoise, SparseSim};
+use qsc::{CliffordSim, PackageType, PauliNoise, SparseSim};
 use qsc::{
     LanguageFeatures, SourceMap, ast::Package, error::WithSource, interpret, project::FileSystem,
 };
@@ -175,7 +175,7 @@ pub(crate) fn run_ast(
     sim_type: SimType,
 ) -> Result<Vec<qsc::interpret::Value>, Vec<interpret::Error>> {
     let mut results = Vec::with_capacity(shots);
-    for i in 0..shots {
+    for shot in 0..shots as u64 {
         let result = match sim_type {
             SimType::Sparse => {
                 let mut sim = if let Some(noise) = noise {
@@ -191,10 +191,7 @@ pub(crate) fn run_ast(
                 if loss > 0.0 {
                     sim.set_loss(loss);
                 }
-                // If seed is provided, we want to use a different seed for each shot
-                // so that the results are different for each shot, but still deterministic
-                sim.set_seed(seed.map(|s| s + i as u64));
-                interpreter.run_with_sim(&mut sim, receiver, None, None)?
+                interpreter.run_with_sim(&mut sim, receiver, None, seed, shot)?
             }
             SimType::Clifford(num_qubits) => {
                 let mut sim = match noise_config {
@@ -203,10 +200,7 @@ pub(crate) fn run_ast(
                         CliffordSim::new_with_noise_config(num_qubits, noise_config.clone().into())
                     }
                 };
-                // If seed is provided, we want to use a different seed for each shot
-                // so that the results are different for each shot, but still deterministic
-                sim.set_seed(seed.map(|s| s + i as u64));
-                interpreter.run_with_sim(&mut sim, receiver, None, None)?
+                interpreter.run_with_sim(&mut sim, receiver, None, seed, shot)?
             }
         };
 

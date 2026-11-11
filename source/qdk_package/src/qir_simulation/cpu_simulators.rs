@@ -14,9 +14,10 @@ use qdk_simulators::{
     cpu_full_state_simulator::FullStateSimulator,
     noise_config::{self, CumulativeNoiseConfig},
     stabilizer_simulator::StabilizerSimulator,
+    stream_key::StreamKey,
 };
-use rand::{RngExt, SeedableRng, rngs::StdRng};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rand::Rng as _;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::sync::Arc;
 
 /// Map a raw [`MeasurementResult`] to its Python `Result` enum counterpart.
@@ -70,8 +71,8 @@ pub fn run_clifford<'py>(
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
-    let make_simulator = |num_qubits, num_results, seed, noise| {
-        StabilizerSimulator::new(num_qubits as usize, num_results as usize, seed, noise)
+    let make_simulator = |num_qubits, num_results, key, noise| {
+        StabilizerSimulator::new(num_qubits as usize, num_results as usize, key, noise)
     };
     py_run(
         py,
@@ -95,8 +96,8 @@ pub fn run_cpu_full_state<'py>(
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
-    let make_simulator = |num_qubits, num_results, seed, noise| {
-        FullStateSimulator::new(num_qubits as usize, num_results as usize, seed, noise)
+    let make_simulator = |num_qubits, num_results, key, noise| {
+        FullStateSimulator::new(num_qubits as usize, num_results as usize, key, noise)
     };
     py_run(
         py,
@@ -122,7 +123,7 @@ fn py_run<'py, SimulatorBuilder, Noise, S>(
     make_simulator: SimulatorBuilder,
 ) -> PyResult<Py<PyAny>>
 where
-    SimulatorBuilder: Fn(u32, u32, u32, Arc<Noise>) -> S,
+    SimulatorBuilder: Fn(u32, u32, StreamKey, Arc<Noise>) -> S,
     SimulatorBuilder: Send + Sync,
     Noise: From<qdk_simulators::noise_config::NoiseConfig<f64, f64>> + Send + Sync,
     S: Simulator,
@@ -169,7 +170,7 @@ fn run<SimulatorBuilder, Noise, S>(
     make_simulator: SimulatorBuilder,
 ) -> Vec<Vec<OutputRecord>>
 where
-    SimulatorBuilder: Fn(u32, u32, u32, Arc<Noise>) -> S,
+    SimulatorBuilder: Fn(u32, u32, StreamKey, Arc<Noise>) -> S,
     SimulatorBuilder: Send + Sync,
     Noise: From<noise_config::NoiseConfig<f64, f64>> + Send + Sync,
     S: Simulator,
@@ -184,20 +185,12 @@ where
         .iter()
         .any(|inst| matches!(inst, QirInstruction::OutputRecording(..)));
 
-    // Create a random number generator to generate the seed for each individual shot.
-    let mut rng = if let Some(seed) = seed {
-        StdRng::seed_from_u64(seed.into())
-    } else {
-        StdRng::from_rng(&mut rand::rng())
-    };
-
-    // run the shots
+    let seed = run_seed(seed);
     (0..shots)
-        .map(|_| rng.random())
-        .collect::<Vec<u32>>()
-        .par_iter()
-        .map(|shot_seed| {
-            let mut simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
+        .into_par_iter()
+        .map(|shot| {
+            let key = StreamKey::shot(seed, shot.into());
+            let mut simulator = make_simulator(num_qubits, num_results, key, noise.clone());
             let records = run_shot(instructions, &mut simulator);
             if has_output_recording {
                 records
@@ -210,6 +203,11 @@ where
             }
         })
         .collect::<Vec<_>>()
+}
+
+/// The seed from which every shot's random streams are derived.
+fn run_seed(seed: Option<u32>) -> u64 {
+    seed.map_or_else(|| rand::rng().next_u64(), u64::from)
 }
 
 fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) -> Vec<OutputRecord> {
@@ -308,8 +306,8 @@ pub fn run_cpu_adaptive<'py>(
         noise_config::NoiseConfig::NOISELESS
     };
 
-    let make_simulator = |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig>| {
-        FullStateSimulator::new(num_qubits, num_results, seed, noise)
+    let make_simulator = |num_qubits, num_results, key, noise: Arc<CumulativeNoiseConfig>| {
+        FullStateSimulator::new(num_qubits, num_results, key, noise)
     };
 
     let output = run_adaptive(&program, shots, seed, noise, make_simulator);
@@ -334,8 +332,8 @@ pub fn run_clifford_adaptive<'py>(
         noise_config::NoiseConfig::NOISELESS
     };
 
-    let make_simulator = |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig>| {
-        StabilizerSimulator::new(num_qubits, num_results, seed, noise)
+    let make_simulator = |num_qubits, num_results, key, noise: Arc<CumulativeNoiseConfig>| {
+        StabilizerSimulator::new(num_qubits, num_results, key, noise)
     };
     let output = run_adaptive(&program, shots, seed, noise, make_simulator);
 
@@ -350,7 +348,7 @@ fn run_adaptive<SimulatorBuilder, Noise, S>(
     make_simulator: SimulatorBuilder,
 ) -> Vec<Vec<OutputRecord>>
 where
-    SimulatorBuilder: Fn(usize, usize, u32, Arc<Noise>) -> S + Send + Sync,
+    SimulatorBuilder: Fn(usize, usize, StreamKey, Arc<Noise>) -> S + Send + Sync,
     Noise: From<noise_config::NoiseConfig<f64, f64>> + Send + Sync,
     S: Simulator,
 {
@@ -370,18 +368,12 @@ where
         .iter()
         .any(|inst| inst.primary_opcode() == OP_RECORD_OUTPUT);
 
-    let mut rng = if let Some(seed) = seed {
-        StdRng::seed_from_u64(seed.into())
-    } else {
-        StdRng::from_rng(&mut rand::rng())
-    };
-
+    let seed = run_seed(seed);
     (0..shots)
-        .map(|_| rng.random())
-        .collect::<Vec<u32>>()
-        .par_iter()
-        .map(|shot_seed| {
-            let mut simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
+        .into_par_iter()
+        .map(|shot| {
+            let key = StreamKey::shot(seed, shot.into());
+            let mut simulator = make_simulator(num_qubits, num_results, key, noise.clone());
             let records = adaptive_run_shot(program, &mut simulator);
             if has_output_recording {
                 records

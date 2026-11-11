@@ -10,8 +10,130 @@ use crate::{
 use expect_test::{Expect, expect};
 use num_bigint::BigUint;
 use num_complex::Complex;
-use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli};
+use qdk_simulators::{
+    noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli},
+    stream_key::StreamKey,
+};
 use std::fmt::Write;
+
+const COINS: usize = 64;
+
+fn pauli_table(pauli: &str, probability: f64) -> NoiseTable<f64> {
+    NoiseTable {
+        qubits: 1,
+        pauli_strings: vec![encode_pauli(pauli)],
+        probabilities: vec![probability],
+        on_loss: LossPolicy::Skip,
+    }
+}
+
+fn seeded_sparse_sim(config: NoiseConfig<f64, f64>, key: StreamKey) -> SparseSim {
+    let mut sim = SparseSim::new_with_noise_config(config.into());
+    sim.set_seed(Some(key));
+    sim
+}
+
+fn measure(sim: &mut SparseSim, q: usize) -> bool {
+    sim.mresetz(q).expect("measurement succeeds").unwrap_bool()
+}
+
+fn assert_random(outcomes: &[bool]) {
+    // Guards the invariance checks below against passing vacuously.
+    assert!(
+        outcomes.contains(&false) && outcomes.contains(&true),
+        "{outcomes:?}"
+    );
+}
+
+/// Measures `COINS` qubits after `H`, whose noise is a 50% `Z` fault when `noisy`. The faults
+/// consume noise draws but can't change the measurement probabilities.
+fn sparse_coins(key: StreamKey, noisy: bool) -> Vec<bool> {
+    let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+    if noisy {
+        config.h = pauli_table("Z", 0.5);
+    }
+    let mut sim = seeded_sparse_sim(config, key);
+    let q = sim.qubit_allocate().expect("allocation succeeds");
+    (0..COINS)
+        .map(|_| {
+            sim.h(q).expect("H succeeds");
+            measure(&mut sim, q)
+        })
+        .collect()
+}
+
+/// Measures `COINS` qubits after `X` with a 50% `X` fault. Each fault is preceded by
+/// `measurement_draws` measurements of another qubit in uniform superposition.
+fn sparse_faults(key: StreamKey, measurement_draws: usize) -> Vec<bool> {
+    let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+    config.x = pauli_table("X", 0.5);
+    let mut sim = seeded_sparse_sim(config, key);
+    let q = sim.qubit_allocate().expect("allocation succeeds");
+    let other = sim.qubit_allocate().expect("allocation succeeds");
+    (0..COINS)
+        .map(|_| {
+            for _ in 0..measurement_draws {
+                sim.h(other).expect("H succeeds");
+                measure(&mut sim, other);
+            }
+            sim.x(q).expect("X succeeds");
+            measure(&mut sim, q)
+        })
+        .collect()
+}
+
+#[test]
+fn sparse_measurement_and_noise_streams_are_independent() {
+    // These hold for every key; a few are checked so no particular value is special.
+    for shot in 0..4 {
+        let key = StreamKey::shot(0, shot);
+
+        let measured = sparse_coins(key, false);
+        assert_random(&measured);
+        assert_eq!(
+            measured,
+            sparse_coins(key, true),
+            "noise draws changed measurements"
+        );
+
+        let faulted = sparse_faults(key, 0);
+        assert_random(&faulted);
+        assert_eq!(
+            faulted,
+            sparse_faults(key, 3),
+            "measurements changed noise draws"
+        );
+    }
+}
+
+#[test]
+fn sparse_noise_configured_after_seeding_follows_the_seed() {
+    // Programs configure noise at runtime with `ConfigurePauliNoise` and `ConfigureQubitLoss`.
+    let bit_flips = PauliNoise::from_probabilities(0.5, 0.0, 0.0).expect("noise is valid");
+    let configure: [&dyn Fn(&mut SparseSim); 2] =
+        [&|sim| sim.set_noise(&bit_flips), &|sim| sim.set_loss(0.5)];
+    for configure in configure {
+        let run = || {
+            let mut sim = SparseSim::new();
+            sim.set_seed(Some(StreamKey::shot(0, 0)));
+            configure(&mut sim);
+            (0..COINS)
+                .map(|_| {
+                    let q = sim.qubit_allocate().expect("allocation succeeds");
+                    let outcome = sim.mresetz(q).expect("measurement succeeds");
+                    sim.qubit_release(q).expect("release succeeds");
+                    outcome
+                })
+                .collect::<Vec<_>>()
+        };
+        let first = run();
+        assert!(
+            first.iter().any(|outcome| *outcome != first[0]),
+            "{first:?}"
+        );
+        assert_eq!(first, run());
+    }
+}
 
 #[test]
 fn fresh_qubit_does_not_inherit_loss() {
@@ -150,7 +272,7 @@ fn noisy_measurement() {
         .expect("bit flip noise with probability 100% should be constructable.");
     let mut sim = SparseSim::new_with_noise(&noise);
     assert!(!sim.is_noiseless(), "Expected noisy simulator.");
-    sim.set_seed(Some(0));
+    sim.set_seed(Some(StreamKey::session(0)));
     let mut true_count = 0;
     for _ in 0..1000 {
         let q = sim.qubit_allocate().expect("sparse simulator is infinite"); // Allocation is noiseless even with noise.

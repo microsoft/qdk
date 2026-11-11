@@ -13,6 +13,7 @@ mod bench {
             StabilizerSimulator,
             operation::{Operation, cz, h, id, mz, s, x, y, z},
         },
+        stream_key::StreamKey,
     };
     use std::{hint::black_box, sync::Arc};
 
@@ -22,7 +23,12 @@ mod bench {
         const NUM_QUBITS: usize = 1224;
         const NUM_RESULTS: usize = NUM_QUBITS;
         let noise: Arc<CumulativeNoiseConfig> = Arc::new(<NoiseConfig<f64, f64>>::NOISELESS.into());
-        let simulator = StabilizerSimulator::new(NUM_QUBITS, NUM_RESULTS, SEED, noise);
+        let simulator = StabilizerSimulator::new(
+            NUM_QUBITS,
+            NUM_RESULTS,
+            StreamKey::session(SEED.into()),
+            noise,
+        );
         (simulator, gates)
     }
 

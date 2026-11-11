@@ -213,6 +213,7 @@ class Interpreter:
         seed: Optional[int],
         sim_type: Optional[Literal["sparse", "clifford"]],
         num_qubits: Optional[int],
+        shot: int = 0,
     ) -> Any:
         """
         Runs the given Q# expression with an independent instance of the simulator.
@@ -226,9 +227,12 @@ class Interpreter:
         :param callable: The callable to run, if no entry expression is provided.
         :param args: The arguments to pass to the callable, if any.
         :param seed: The seed to use for the random number generator in simulation, if any.
+            If None, the interpreter's quantum and classical seeds are used, if set.
         :param sim_type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
         :param num_qubits: The number of qubits to use for the simulation type "clifford".
             If not specified, the Clifford simulator assumes a default of 1000 qubits.
+        :param shot: The index of this shot within its run. Each shot of a seeded run draws
+            from its own independent random streams.
 
         :returns values: A result or runtime errors.
 

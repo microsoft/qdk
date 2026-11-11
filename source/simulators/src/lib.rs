@@ -8,11 +8,13 @@ mod gpu_full_state_simulator;
 pub mod noise_config;
 pub mod sparse_state_simulator;
 pub mod stabilizer_simulator;
+pub mod stream_key;
 
 #[cfg(feature = "gpu")]
 pub use gpu_full_state_simulator::*;
 pub use sparse_state_simulator::SparseStateSim;
 pub use sparse_state_simulator::nearly_zero::NearlyZero;
+use stream_key::StreamKey;
 
 /// A qubit ID.
 pub type QubitID = usize;
@@ -42,8 +44,8 @@ pub trait Simulator {
     type Noise: Default;
     type StateDumpData;
 
-    /// Creates a new simulator.
-    fn new(num_qubits: usize, num_results: usize, seed: u32, noise: Self::Noise) -> Self;
+    /// Creates a new simulator whose random choices come from the streams identified by `key`.
+    fn new(num_qubits: usize, num_results: usize, key: StreamKey, noise: Self::Noise) -> Self;
 
     /// Single qubit X gate.
     fn x(&mut self, target: QubitID);

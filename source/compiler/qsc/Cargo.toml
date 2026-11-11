@@ -36,6 +36,7 @@ qsc_openqasm_compiler = { path = "../qsc_openqasm_compiler" }
 qdk_openqasm = { path = "../../qdk_openqasm" }
 qsc_rca = { path = "../qsc_rca" }
 qsc_circuit = { path = "../qsc_circuit" }
+rand = { workspace = true }
 rustc-hash = { workspace = true }
 thiserror = { workspace = true }
 allocator = { path = "../../allocator" }

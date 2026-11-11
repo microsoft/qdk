@@ -5,10 +5,10 @@
 mod tests;
 
 use qsc::{
-    Backend, BackendResult,
+    Backend, BackendResult, Stream, StreamKey,
     interpret::{self, GenericReceiver, Interpreter, Value},
 };
-use rand::RngExt;
+use rand::{RngExt, rngs::StdRng};
 use rustc_hash::FxHashMap;
 
 use crate::{Trace, instruction_ids};
@@ -23,6 +23,16 @@ pub struct TraceBuilder {
     next_free: usize,
     live_qubits: usize,
     max_live_qubits: usize,
+    measurement_rng: MeasurementRng,
+}
+
+/// Chooses the outcomes of measurements that aren't post-selected.
+struct MeasurementRng(StdRng);
+
+impl Default for MeasurementRng {
+    fn default() -> Self {
+        Self(StreamKey::from_entropy().rng(Stream::Measurement))
+    }
 }
 
 enum PendingOperation {
@@ -115,7 +125,7 @@ impl TraceBuilder {
     fn measurement_result(&mut self, q: usize) -> bool {
         self.post_select_measurements
             .remove(&q)
-            .unwrap_or_else(|| rand::rng().random_bool(0.5))
+            .unwrap_or_else(|| self.measurement_rng.0.random_bool(0.5))
     }
 }
 
@@ -383,6 +393,11 @@ impl Backend for TraceBuilder {
             _ => None,
         }
     }
+
+    fn set_seed(&mut self, key: Option<StreamKey>) {
+        let key = key.unwrap_or_else(StreamKey::from_entropy);
+        self.measurement_rng = MeasurementRng(key.rng(Stream::Measurement));
+    }
 }
 
 pub fn trace_expr(
@@ -394,7 +409,7 @@ pub fn trace_expr(
     let mut out = GenericReceiver::new(&mut stdout);
 
     interpreter
-        .run_with_sim(&mut builder, &mut out, Some(expr), None)
+        .run_with_sim(&mut builder, &mut out, Some(expr), None, 0)
         .map_err(|e| e.into_iter().collect::<Vec<_>>())?;
 
     Ok(builder.into_trace())
@@ -410,7 +425,7 @@ pub fn trace_call(
     let mut out = GenericReceiver::new(&mut stdout);
 
     interpreter
-        .invoke_with_sim(&mut builder, &mut out, callable, args, None)
+        .invoke_with_sim(&mut builder, &mut out, callable, args, None, 0)
         .map_err(|e| e.into_iter().collect::<Vec<_>>())?;
 
     Ok(builder.into_trace())

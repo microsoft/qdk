@@ -98,6 +98,11 @@ impl SparseStateSim {
         }
     }
 
+    /// Replaces the random number generator used for probabilistic operations.
+    pub fn set_rng(&mut self, rng: StdRng) {
+        self.rng.replace(rng);
+    }
+
     /// Sets the seed for the random number generator used for probabilistic operations.
     pub fn set_rng_seed(&mut self, seed: u64) {
         self.rng.replace(StdRng::seed_from_u64(seed));
