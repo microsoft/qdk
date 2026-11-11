@@ -296,7 +296,9 @@ def unusable_setup(monkeypatch):
     monkeypatch.setenv("QDK_CUTENSORNET_LIBRARY", "libcutensornet.so.2")
 
 
-def test_a_setup_problem_raises_os_error_with_the_setup_checks_report(unusable_setup):
+def test_a_setup_problem_raises_os_error_with_the_setup_checks_report(
+    unusable_setup,
+):
     """A user whose setup cannot work (here, an override that is not an
     absolute path) gets an `OSError` whose message is the report
     `check_tensornetwork_setup` gives, with the fix."""
