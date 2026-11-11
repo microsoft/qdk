@@ -24,9 +24,9 @@ pub trait QpuModel: Sized {
     /// Example: initialize factories.
     fn on_start(&mut self, state: &mut TemporalProfilerState<Self>);
 
-    /// Does necessary conversion to native operation and calls state.schedule_operation. Also computes prerequisites
-    ///  For example, for T gate it will schedule InjectT with prerequisite on having resource TState.
-    ///  The intention is that TemporalProfiler.execute_batch() will call model.on_instruction_received() in a loop for all instructions in batch.
+    /// Does necessary conversion to native operation and calls `state.schedule_operation`. Also computes prerequisites
+    ///  For example, for T gate it will schedule `InjectT` with prerequisite on having resource `TState`.
+    ///  The intention is that `TemporalProfiler.execute_batch()` will call `model.on_instruction_received()` in a loop for all instructions in batch.
     fn on_instruction_received(
         &mut self,
         instruction: &QuantumBackendInstruction,
@@ -35,10 +35,11 @@ pub trait QpuModel: Sized {
 
     /// Does necessary updates to model operation start.
     /// Allowed to mutate operation.
-    /// For example, for "InjectT" it will:
+    /// For example, for "`InjectT`" it will:
     ///   - find T factory with available T State.
     ///   - internally mark it as such that cannot be used (consume state).
-    ///   - change op to contain selected factory_id.
+    ///   - change op to contain selected `factory_id`.
+    ///
     /// It is guaranteed that all prerequisites are met, and it's allowed to panic if they are not
     /// met.
     fn on_operation_started(

@@ -35,6 +35,10 @@ impl Default for RzTranspiler {
 
 impl RzTranspiler {
     /// Creates a synthesizer with the given tolerance in (0, 1) and optional angle caching.
+    ///
+    /// # Panics
+    /// Panics if precision is non-finite or outside the open interval (0, 1).
+    #[must_use]
     pub fn new(precision: f64, use_cache: bool) -> Self {
         assert!(
             precision.is_finite() && precision > 0.0 && precision < 1.0,
@@ -186,9 +190,9 @@ impl Transpiler for RzTranspiler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{QuantumBackends, TranspilingAdapter, tests::run_qsharp_main};
+
     use num_complex::Complex64;
-    use qsc_eval::backend::Backend;
+
     use std::f64::consts::FRAC_1_SQRT_2;
 
     /// Builds a rotation on a nonzero qubit ID to check operand preservation.
@@ -202,7 +206,7 @@ mod tests {
     /// Reconstructs both columns of the emitted unitary and measures operator-norm error.
     fn synthesis_error(angle: f64, precision: f64) -> Result<f64, String> {
         let mut output = Vec::new();
-        RzTranspiler::new(precision, false).transpile(&rotation(angle), &mut output);
+        RzTranspiler::new(precision, false).transpile(&rotation(angle), &mut output)?;
         let zero = Complex64::new(0.0, 0.0);
         let one = Complex64::new(1.0, 0.0);
         let mut matrix = [[one, zero], [zero, one]];
@@ -420,7 +424,35 @@ mod tests {
     }
 
     #[test]
-    /// Rejects invalid tolerances, angles, instruction names, and operands without appending output.
+    /// Panics on every invalid precision regardless of whether caching is enabled.
+    fn invalid_precision_panics() {
+        for precision in [
+            0.0,
+            -0.0,
+            -1.0,
+            1.0,
+            2.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ] {
+            for use_cache in [false, true] {
+                let panic = std::panic::catch_unwind(|| RzTranspiler::new(precision, use_cache))
+                    .err()
+                    .expect("invalid precision must panic");
+                let message = panic.downcast_ref::<String>().expect("panic message");
+                assert_eq!(
+                    message,
+                    &format!(
+                        "Rz synthesis precision must be finite and in (0, 1), got {precision}"
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
+    /// Rejects invalid angles, instruction names, and operands without appending output.
     fn invalid_inputs() {
         let mut invalid = vec![
             rotation(f64::NAN),

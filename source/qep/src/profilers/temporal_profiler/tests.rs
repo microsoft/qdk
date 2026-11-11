@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use super::TemporalProfiler;
 use crate::models::{
     QpuModel,
-    demo_model1::{DemoModel1, DemoModel1_NativeOperation, DemoModel1_Resource},
+    demo_model1::{DemoModel1, DemoModel1NativeOperation, DemoModel1Resource},
 };
 use crate::profilers::profile_types::LoggedInstructionParameter::{
     FactoryId as FactoryParameter, QubitId as LoggedQubitId,
@@ -55,7 +55,7 @@ fn pending_instruction_count(profiler: &TemporalProfiler<DemoModel1>) -> usize {
             !operation.done
                 && !matches!(
                     operation.operation,
-                    Some(DemoModel1_NativeOperation::DistillationRound(_))
+                    Some(DemoModel1NativeOperation::DistillationRound(_))
                 )
         })
         .count()
@@ -76,7 +76,7 @@ fn computes_demo_model_error() -> Result<(), String> {
         for factory in &mut profiler.model.t_factories {
             factory.probability_success = 1.0;
         }
-        assert_eq!(profiler.get_result().totals.error, 0.0);
+        assert!(profiler.get_result().totals.error.abs() < f64::EPSILON);
         let instructions: Vec<_> = names
             .iter()
             .map(|&instruction_name| QuantumBackendInstruction {
@@ -419,7 +419,7 @@ fn schedules_optional_single_resource_requirements() -> Result<(), String> {
         ]
     );
     assert_eq!(
-        profiler.state.available_resources[&DemoModel1_Resource::TState],
+        profiler.state.available_resources[&DemoModel1Resource::TState],
         std::collections::VecDeque::from([2, 3, 4])
     );
     // Five states were produced and two were consumed.
@@ -509,7 +509,7 @@ fn retries_failed_rounds_and_holds_one_ready_state() {
         assert_eq!(time, 55_000);
         assert!(matches!(
             profiler.state.operations[event.0 - profiler.state.operations_offset].operation,
-            Some(DemoModel1_NativeOperation::DistillationRound(id)) if id == factory
+            Some(DemoModel1NativeOperation::DistillationRound(id)) if id == factory
         ));
         profiler.state.current_time_nanos = time;
         profiler.complete_operation(event);
@@ -534,13 +534,13 @@ fn retries_failed_rounds_and_holds_one_ready_state() {
         assert_eq!(time, 110_000);
         assert!(matches!(
             profiler.state.operations[event.0 - profiler.state.operations_offset].operation,
-            Some(DemoModel1_NativeOperation::DistillationRound(id)) if id == factory
+            Some(DemoModel1NativeOperation::DistillationRound(id)) if id == factory
         ));
         profiler.state.current_time_nanos = time;
         profiler.complete_operation(event);
     }
     assert_eq!(
-        profiler.state.available_resources[&DemoModel1_Resource::TState],
+        profiler.state.available_resources[&DemoModel1Resource::TState],
         (0..5).collect::<std::collections::VecDeque<_>>()
     );
     assert!(profiler.state.events.is_empty());
@@ -595,7 +595,7 @@ fn reserves_factories_until_injection_completes() -> Result<(), String> {
     }
     assert_eq!(profiler.state.current_time_nanos, 132_000);
     assert_eq!(
-        profiler.state.available_resources[&DemoModel1_Resource::TState],
+        profiler.state.available_resources[&DemoModel1Resource::TState],
         std::collections::VecDeque::from([1])
     );
     assert!(profiler.state.event_recorder.logs.iter().any(
@@ -680,7 +680,7 @@ fn holds_ready_states_across_resource_free_batches() -> Result<(), String> {
     assert_eq!(profiler.state.current_time_nanos, 200_000);
     assert!(profiler.state.events.is_empty());
     assert_eq!(
-        profiler.state.available_resources[&DemoModel1_Resource::TState],
+        profiler.state.available_resources[&DemoModel1Resource::TState],
         (0..5).collect::<std::collections::VecDeque<_>>()
     );
     assert_eq!(
@@ -701,7 +701,7 @@ fn holds_ready_states_across_resource_free_batches() -> Result<(), String> {
     complete_scheduled_instructions(&mut profiler);
     assert_eq!(profiler.state.current_time_nanos, 211_000);
     assert_eq!(
-        profiler.state.available_resources[&DemoModel1_Resource::TState],
+        profiler.state.available_resources[&DemoModel1Resource::TState],
         (1..5).collect::<std::collections::VecDeque<_>>()
     );
     let trace = profiler

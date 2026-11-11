@@ -41,7 +41,7 @@ impl<B: QuantumBackend> TranspilingAdapter<B> {
         })
     }
 
-    /// Wraps a backend with Clifford, SWAP, Toffoli, measurement/reset, and QFT-rotation decompositions.
+    /// Wraps a backend with Clifford, SWAP, Toffoli, measurement/reset, and rotation decompositions.
     pub fn with_defaults(backend: B) -> Self {
         Self::new(
             backend,

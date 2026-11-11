@@ -365,6 +365,7 @@ impl<M: QpuModel> TemporalProfiler<M> {
 }
 
 /// Creates a default demo model with the supplied temporal profiling settings.
+#[must_use]
 pub fn make_profiler_for_demo_model(
     config: TemporalProfilerConfig,
 ) -> TemporalProfiler<DemoModel1> {

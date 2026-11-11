@@ -88,7 +88,7 @@ pub trait Simulator {
     fn cx(&mut self, control: QubitID, target: QubitID);
 
     /// Toffoli gate.
-    fn ccx(&mut self, control0: QubitID, control1: QubitID, target: QubitID) {
+    fn ccx(&mut self, _control0: QubitID, _control1: QubitID, _target: QubitID) {
         unimplemented!("ccx is not implemented");
     }
 

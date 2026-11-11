@@ -15,7 +15,7 @@ use crate::{
 use rand::RngExt;
 use std::collections::VecDeque;
 
-pub enum DemoModel1_NativeOperation {
+pub enum DemoModel1NativeOperation {
     SingleQubitCliffordGate(&'static str, usize), // Gate name, QubitId.
     CnotGate(usize, usize),                       // QubitId, QubitId.
     Measurement(usize),                           // QubitId.
@@ -24,7 +24,7 @@ pub enum DemoModel1_NativeOperation {
     DistillationRound(usize),                     // FactoryId.
 }
 
-impl TryFrom<&QuantumBackendInstruction> for DemoModel1_NativeOperation {
+impl TryFrom<&QuantumBackendInstruction> for DemoModel1NativeOperation {
     type Error = String;
 
     /// Validates the backend instruction and maps it to a native operation.
@@ -48,7 +48,7 @@ impl TryFrom<&QuantumBackendInstruction> for DemoModel1_NativeOperation {
     }
 }
 
-impl LoggableOperation for DemoModel1_NativeOperation {
+impl LoggableOperation for DemoModel1NativeOperation {
     /// Returns the native operation's static metric and trace name.
     fn get_name(&self) -> &str {
         match self {
@@ -91,7 +91,7 @@ impl LoggableOperation for DemoModel1_NativeOperation {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub enum DemoModel1_Resource {
+pub enum DemoModel1Resource {
     TState,
 }
 
@@ -100,20 +100,20 @@ pub enum DemoModel1_Resource {
 ///    * Logical Compute Qubits, number is not fixed in advance.
 ///    * T-factroies, number fixed in advance.
 ///      * Each T-factory uses five logical patches.
-///      * T-factory produces TStates.
-///    * Both standalone LCQs and LCQs inside factories use Surface code with distance ecc_distance.
+///      * T-factory produces `TStates`.
+///    * Both standalone LCQs and LCQs inside factories use Surface code with distance `ecc_distance`.
 ///  * Resources:
 ///    * T-states.
 ///  * Supported operations:
 ///    * Supports Clifford gates, each takes `clifford_gate_time_nanos`.
 ///    * Supports measurments, each takes `measurment_time_nanos`.
 ///      * Each measurments returns |0> or |1> with probability 50%.
-///    * Supports T gates which is implemented by InjectT operation which consumes TState.
-///    * Supports AdjointT gates which is implemented by InjectAdjointT operation which consumes TState.
+///    * Supports T gates which is implemented by `InjectT` operation which consumes `TState`.
+///    * Supports `AdjointT` gates which is implemented by `InjectAdjointT` operation which consumes `TState`.
 ///  * Error model:
 ///    * Each qubit has error 0 at start and after reset.
 ///    * Qubit accrues proportional to time.
-///    * When TState is injected, add output T state error to qubit error.
+///    * When `TState` is injected, add output T state error to qubit error.
 ///    * On measurement, previously unreported qubit error is added to the program budget.
 ///    * This is a linear fault budget, not an exact probability or a noisy simulation.
 pub struct DemoModel1 {
@@ -146,6 +146,7 @@ impl Default for DemoModel1 {
 
 impl DemoModel1 {
     /// Creates the configured factories and sets the model's operation durations.
+    #[must_use]
     pub fn new(
         clifford_gate_time_nanos: usize,
         measurment_time_nanos: usize,
@@ -162,7 +163,7 @@ impl DemoModel1 {
         }
     }
 
-    /// Time to perform "InjectT" or "InjectT Adjoint" gate.
+    /// Time to perform "`InjectT`" or "`InjectT` Adjoint" gate.
     fn inject_t_time(&self) -> usize {
         2 * self.clifford_gate_time_nanos + self.measurment_time_nanos
     }
@@ -173,7 +174,7 @@ impl DemoModel1 {
         factory_id: usize,
         state: &mut TemporalProfilerState<Self>,
     ) {
-        let op = DemoModel1_NativeOperation::DistillationRound(factory_id);
+        let op = DemoModel1NativeOperation::DistillationRound(factory_id);
         let duration = self.t_factories[factory_id].distillation_round_duration_nanos();
         state.schedule_operation_immediately(op, duration);
     }
@@ -192,7 +193,7 @@ impl DemoModel1 {
                 "T state produced",
                 1,
             );
-            state.add_resource(DemoModel1_Resource::TState, factory_id);
+            state.add_resource(DemoModel1Resource::TState, factory_id);
         } else {
             // State generation failed, need retry.
             self.start_distillation_round(factory_id, state);
@@ -201,8 +202,8 @@ impl DemoModel1 {
 }
 
 impl QpuModel for DemoModel1 {
-    type NativeOperation = DemoModel1_NativeOperation;
-    type Resource = DemoModel1_Resource;
+    type NativeOperation = DemoModel1NativeOperation;
+    type Resource = DemoModel1Resource;
 
     /// Hack! We use the same "address space" for factroies and qubits, which needs to be fixed.
     type FunctionalUnitId = usize;
@@ -221,7 +222,7 @@ impl QpuModel for DemoModel1 {
         instruction: &QuantumBackendInstruction,
         state: &mut TemporalProfilerState<Self>,
     ) -> Result<(), String> {
-        let op = DemoModel1_NativeOperation::try_from(instruction)?;
+        let op = DemoModel1NativeOperation::try_from(instruction)?;
 
         let duration_nanos = match instruction.instruction_name {
             "cx" | "h" | "s" | "sadj" | "x" | "y" | "z" => self.clifford_gate_time_nanos,
@@ -234,7 +235,7 @@ impl QpuModel for DemoModel1 {
 
         let preconditions = match instruction.instruction_name {
             "t" | "tadj" => vec![Precondition::ResourceIsAvailable(
-                DemoModel1_Resource::TState,
+                DemoModel1Resource::TState,
             )],
             _ => vec![],
         };
@@ -273,19 +274,19 @@ impl QpuModel for DemoModel1 {
         op: &mut Self::NativeOperation,
         state: &mut TemporalProfilerState<Self>,
     ) {
-        if let DemoModel1_NativeOperation::InjectT(opt_factory_id, _, _) = op {
+        if let DemoModel1NativeOperation::InjectT(opt_factory_id, _, _) = op {
             assert!(
                 opt_factory_id.is_none(),
                 "injection already has an assigned factory"
             );
             let factory_id: usize = state
                 .available_resources
-                .get_mut(&DemoModel1_Resource::TState)
+                .get_mut(&DemoModel1Resource::TState)
                 .and_then(VecDeque::pop_front)
                 .expect("instruction requires an available factory");
             *opt_factory_id = Some(factory_id);
         }
-        if let DemoModel1_NativeOperation::DistillationRound(factory_id) = op {
+        if let DemoModel1NativeOperation::DistillationRound(factory_id) = op {
             state.event_recorder.utilization_aggregator.record_event(
                 state.current_time_nanos,
                 "Factory utilization",
@@ -301,19 +302,19 @@ impl QpuModel for DemoModel1 {
         state: &mut TemporalProfilerState<Self>,
     ) -> Option<QuantumBackendResult> {
         match op {
-            DemoModel1_NativeOperation::Measurement(qubit_id) => {
+            DemoModel1NativeOperation::Measurement(qubit_id) => {
                 state.error += self.qubits[*qubit_id].take_error(state.current_time_nanos);
                 Some(QuantumBackendResult::from(state.rng.random::<bool>()))
             }
-            DemoModel1_NativeOperation::Reset(qubit_id) => {
+            DemoModel1NativeOperation::Reset(qubit_id) => {
                 self.qubits[*qubit_id].reset(state.current_time_nanos);
                 None
             }
-            DemoModel1_NativeOperation::DistillationRound(factory_id) => {
+            DemoModel1NativeOperation::DistillationRound(factory_id) => {
                 self.on_distillation_round_finished(*factory_id, state);
                 None
             }
-            DemoModel1_NativeOperation::InjectT(factory_id, qubit_id, _) => {
+            DemoModel1NativeOperation::InjectT(factory_id, qubit_id, _) => {
                 let factory_id =
                     factory_id.expect("finished injection must have an assigned factory");
 

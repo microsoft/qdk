@@ -86,6 +86,57 @@ impl ProfilerResult {
     }
 }
 
+/// A quantum backend that reports profiling data after execution.
+///
+/// Boxed profilers, including trait objects, support the execution helpers below.
+pub trait Profiler: QuantumBackend {
+    /// Returns the profiling data collected so far.
+    fn get_result(&self) -> ProfilerResult;
+
+    /// Invokes a Q# callable and returns the profiling data collected afterward.
+    fn profile_qsharp(
+        &mut self,
+        interpreter: &mut Interpreter,
+        callable: Value,
+        args: Value,
+    ) -> Result<ProfilerResult, String>
+    where
+        Self: Sized,
+    {
+        run_qsharp_call(interpreter, callable, args, self).map_err(|error| error.to_string())?;
+        Ok(self.get_result())
+    }
+
+    /// Runs a Q# expression and returns the profiling data collected afterward.
+    fn profile_qsharp_expr(
+        &mut self,
+        interpreter: &mut Interpreter,
+        expr: &str,
+    ) -> Result<ProfilerResult, String>
+    where
+        Self: Sized,
+    {
+        run_qsharp_expr(interpreter, expr, self).map_err(|error| error.to_string())?;
+        Ok(self.get_result())
+    }
+
+    /// Executes one shot of lowered adaptive QIR and returns accumulated profiling data.
+    ///
+    /// Inherits the well-formed bytecode requirements and error behavior of
+    /// [`run_adaptive_program`]. Program output is discarded; prior profile data
+    /// is retained, and backend changes are not rolled back after an error.
+    fn profile_adaptive_program(
+        &mut self,
+        program: &AdaptiveProgram<u64>,
+    ) -> Result<ProfilerResult, String>
+    where
+        Self: Sized,
+    {
+        run_adaptive_program(program, self)?;
+        Ok(self.get_result())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,7 +166,7 @@ mod tests {
             let json = serde_json::to_value(&result).expect("profile should serialize");
             assert_eq!(json["totals"]["logical_compute_qubits"], 1);
             assert!(result.totals.total_operations_count > 0);
-            assert_eq!(result.totals.total_runtime_sec, expected_runtime);
+            assert!((result.totals.total_runtime_sec - expected_runtime).abs() < f64::EPSILON);
         }
         Ok(())
     }
@@ -161,7 +212,7 @@ mod tests {
             let result = profiler.profile_adaptive_program(&program)?;
             assert_eq!(result.totals.logical_compute_qubits, 1);
             assert!(result.totals.total_operations_count > 0);
-            assert_eq!(result.totals.total_runtime_sec, expected_runtime);
+            assert!((result.totals.total_runtime_sec - expected_runtime).abs() < f64::EPSILON);
         }
         Ok(())
     }
@@ -236,56 +287,5 @@ mod tests {
         assert!(pretty.contains("trace_operations_count: 4"));
         assert!(!pretty.contains("hidden metric"));
         assert!(!pretty.contains("hidden_instruction"));
-    }
-}
-
-/// A quantum backend that reports profiling data after execution.
-///
-/// Boxed profilers, including trait objects, support the execution helpers below.
-pub trait Profiler: QuantumBackend {
-    /// Returns the profiling data collected so far.
-    fn get_result(&self) -> ProfilerResult;
-
-    /// Invokes a Q# callable and returns the profiling data collected afterward.
-    fn profile_qsharp(
-        &mut self,
-        interpreter: &mut Interpreter,
-        callable: Value,
-        args: Value,
-    ) -> Result<ProfilerResult, String>
-    where
-        Self: Sized,
-    {
-        run_qsharp_call(interpreter, callable, args, self).map_err(|error| error.to_string())?;
-        Ok(self.get_result())
-    }
-
-    /// Runs a Q# expression and returns the profiling data collected afterward.
-    fn profile_qsharp_expr(
-        &mut self,
-        interpreter: &mut Interpreter,
-        expr: &str,
-    ) -> Result<ProfilerResult, String>
-    where
-        Self: Sized,
-    {
-        run_qsharp_expr(interpreter, expr, self).map_err(|error| error.to_string())?;
-        Ok(self.get_result())
-    }
-
-    /// Executes one shot of lowered adaptive QIR and returns accumulated profiling data.
-    ///
-    /// Inherits the well-formed bytecode requirements and error behavior of
-    /// [`run_adaptive_program`]. Program output is discarded; prior profile data
-    /// is retained, and backend changes are not rolled back after an error.
-    fn profile_adaptive_program(
-        &mut self,
-        program: &AdaptiveProgram<u64>,
-    ) -> Result<ProfilerResult, String>
-    where
-        Self: Sized,
-    {
-        run_adaptive_program(program, self)?;
-        Ok(self.get_result())
     }
 }

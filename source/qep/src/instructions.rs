@@ -4,7 +4,7 @@
 //! Defines the logical instruction set that can appear in QIR emitted from Q#.
 
 use crate::interface::{
-    Parameter::{FactoryId, Float, QubitId, ResultId},
+    Parameter::{Float, QubitId, ResultId},
     QuantumBackendInstruction,
 };
 

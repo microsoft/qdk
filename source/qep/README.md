@@ -89,9 +89,10 @@ the table at synthesis precision `1e-10`.
 Non-finite angles and other rotation types return errors. Non-rotation instructions and backend results
 pass through unchanged.
 
-For arbitrary angles, register `RzTranspiler::new(precision, use_cache)?` with
+For arbitrary angles, register `RzTranspiler::new(precision, use_cache)` with
 `TranspilingAdapter::new` instead of `RzQftTranspiler`. Its default precision is
-`1e-6`; explicit precision must be finite and in `(0, 1)`. It extracts exact
+`1e-6`; the constructor panics if explicit precision is non-finite or outside
+`(0, 1)`. It extracts exact
 Z, S, and T rotations, then uses the Rust `rsgridsynth` library only for residual
 angles in `(0, pi/4)`, passing the requested precision as the operator-norm
 tolerance. Residuals no larger than the precision are omitted. Negative rotations
@@ -108,7 +109,7 @@ operator-norm synthesis error, so the combined bound is less than
 `1.5 * precision`, up to floating-point rounding. `Transpiler::transpile` takes
 `&mut self`, so the per-instance cache needs no mutex. With `use_cache = false`, cache lookup and
 insertion are bypassed. `Default` leaves caching disabled.
-The default adapter continues to use the QFT table.
+The default adapter uses `RzTranspiler` with precision `1e-6` and caching enabled.
 
 `QuantumBackendInstruction` directly stores the instruction name and a unified
 operand list in `classical_parameters`. The bytecode runner emits it directly, and

@@ -180,7 +180,7 @@ mod tests {
     use crate::tests::{create_qsharp_interpreter, qsharp_sources_with_arithmetic};
     use crate::{QuantumBackend, QuantumBackendResult};
     use rustc_hash::FxHashMap;
-    use std::{path::PathBuf, time::Instant};
+    use std::time::Instant;
 
     /// Configures one-microsecond timings for all instructions used by the profiling workloads.
     fn create_profiler() -> SequentialCountingProfiler {
