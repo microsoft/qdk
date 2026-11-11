@@ -673,8 +673,12 @@ fn dynamic_for_loop_is_grouped() {
         r"
             operation Main() : Unit {
                use qubit = Qubit();
+                mutable iteration = 0;
                 repeat {
-                    H(qubit);
+                    set iteration += 1;
+                    if iteration < 4 {
+                        X(qubit);
+                    }
                 } until M(qubit) == Zero
                 fixup {
                     Reset(qubit);
@@ -703,46 +707,46 @@ fn dynamic_for_loop_is_grouped() {
                               ╘═════
 
         [1] Main:
-            q_0@test.qs:2:15 ─ loop: M(qubit) == Zero@test.qs:3:16[2] ──
+            q_0@test.qs:2:15 ─ loop: M(qubit) == Zero@test.qs:4:16[2] ──
                                                   ╘═════════════════════
                                                   ╘═════════════════════
                                                   ╘═════════════════════
                                                   ╘═════════════════════
 
         [2] loop: M(qubit) == Zero:
-            q_0@test.qs:2:15 ─ (1)@test.qs:3:23[3] ── (2)@test.qs:3:23[4] ── (3)@test.qs:3:23[5] ── (4)@test.qs:3:23[6] ─
+            q_0@test.qs:2:15 ─ (1)@test.qs:4:23[3] ── (2)@test.qs:4:23[4] ── (3)@test.qs:4:23[5] ── (4)@test.qs:4:23[6] ─
                                         ╘══════════════════════┆══════════════════════┆══════════════════════┆═══════════
                                                                ╘══════════════════════┆══════════════════════┆═══════════
                                                                                       ╘══════════════════════┆═══════════
                                                                                                              ╘═══════════
 
         [3] (1):
-            q_0@test.qs:2:15 ─ H@test.qs:4:20 ─── M@test.qs:5:24 ──── |0〉@test.qs:7:20 ───
+            q_0@test.qs:2:15 ─ X@test.qs:7:24 ─── M@test.qs:9:24 ──── |0〉@test.qs:11:20 ──
                                                          ╘════════════════════════════════
 
 
 
 
         [4] (2):
-            q_0@test.qs:2:15 ─ H@test.qs:4:20 ─── M@test.qs:5:24 ──── |0〉@test.qs:7:20 ───
+            q_0@test.qs:2:15 ─ X@test.qs:7:24 ─── M@test.qs:9:24 ──── |0〉@test.qs:11:20 ──
                                                          │
                                                          ╘════════════════════════════════
 
 
 
         [5] (3):
-            q_0@test.qs:2:15 ─ H@test.qs:4:20 ─── M@test.qs:5:24 ──── |0〉@test.qs:7:20 ───
+            q_0@test.qs:2:15 ─ X@test.qs:7:24 ─── M@test.qs:9:24 ──── |0〉@test.qs:11:20 ──
                                                          │
                                                          │
                                                          ╘════════════════════════════════
 
 
         [6] (4):
-            q_0@test.qs:2:15 ─ H@test.qs:4:20 ─── M@test.qs:5:24 ──
-                                                         │
-                                                         │
-                                                         │
-                                                         ╘═════════
+            q_0@test.qs:2:15 ─ M@test.qs:9:24 ──
+                                      │
+                                      │
+                                      │
+                                      ╘═════════
     "#]]
     .assert_eq(&circ);
 }
@@ -2264,6 +2268,7 @@ mod debugger_stepping {
 
     #[test]
     fn unrestricted_profile_result_comparison() {
+        // Prepare One deterministically so the conditional X is always traced.
         let circs = generate_circuit_steps(
             r"
                 namespace Test {
@@ -2271,7 +2276,7 @@ mod debugger_stepping {
                     @EntryPoint()
                     operation Main() : Result[] {
                         use q = Qubit();
-                        H(q);
+                        X(q);
                         let r = M(q);
                         if (r == One) {
                             X(q);
@@ -2283,33 +2288,29 @@ mod debugger_stepping {
             Profile::Unrestricted,
         );
 
-        // We set the random seed in the test to account for
-        // the nondeterministic output. Since the debugger is running
-        // the real simulator, the circuit is going to vary from run to run
-        // depending on measurement outcomes.
         expect![[r#"
             step:
             step:
             q_0@test.qs:5:24
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
+            q_0@test.qs:5:24 ─ X@test.qs:6:24 ──
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
+            q_0@test.qs:5:24 ─ X@test.qs:6:24 ─── M@test.qs:7:32 ──
                                                          ╘═════════
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
+            q_0@test.qs:5:24 ─ X@test.qs:6:24 ─── M@test.qs:7:32 ──
                                                          ╘═════════
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
+            q_0@test.qs:5:24 ─ X@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
                                                          ╘════════════════════════════
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
+            q_0@test.qs:5:24 ─ X@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
                                                          ╘════════════════════════════
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
+            q_0@test.qs:5:24 ─ X@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
                                                          ╘════════════════════════════
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
+            q_0@test.qs:5:24 ─ X@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
                                                          ╘════════════════════════════
         "#]]
         .assert_eq(&circs);
