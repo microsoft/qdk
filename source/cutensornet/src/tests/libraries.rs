@@ -27,8 +27,8 @@ use crate::{LibraryFault, libraries::validate_override_path};
 use crate::{
     LibraryReport, PackagedLibraries, Version,
     libraries::{
-        NativeLibrary, candidates, cuda_runtime::CudaRuntime, cutensornet::CuTensorNet, inspect,
-        other_copies,
+        InstalledLibraries, LoadedLibraries, NativeLibrary, Opening, candidates,
+        cuda_runtime::CudaRuntime, cutensornet::CuTensorNet, inspect, other_copies,
     },
 };
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -632,4 +632,32 @@ fn only_a_library_loaded_from_its_override_is_reported_so() {
     let (not_loaded, _) = open::<OpenedBesideAnotherFile>(relative, &PackagedLibraries::default());
     assert!(not_loaded.path.is_none(), "a relative override is refused");
     assert!(!not_loaded.loaded_from_override);
+}
+
+/// The setup check has a guide for every library a GPU run opens, so none
+/// is left out of what it shows and advises.
+#[cfg(unix)]
+#[test]
+fn every_library_opened_has_a_setup_guide() {
+    let mut guided: Vec<_> = LoadedLibraries::SETUP_GUIDES
+        .iter()
+        .map(|guide| guide.library)
+        .collect();
+    let packaged = PackagedLibraries::default();
+    let mut opening = Opening::new(InstalledLibraries {
+        read_variable: |_: &'static str| Some(OsString::from("relative.so")),
+        packaged: &packaged,
+    });
+    assert!(
+        LoadedLibraries::open(&mut opening).is_none(),
+        "a relative override makes every library unusable"
+    );
+    let mut opened: Vec<_> = opening
+        .into_reports()
+        .iter()
+        .map(|report| report.library)
+        .collect();
+    guided.sort_unstable();
+    opened.sort_unstable();
+    assert_eq!(guided, opened);
 }

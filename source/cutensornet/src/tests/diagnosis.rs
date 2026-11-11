@@ -9,10 +9,7 @@ use std::path::PathBuf;
 
 use crate::{AvailabilityError, Diagnosis};
 #[cfg(unix)]
-use crate::{
-    AvailabilityReport, DeviceReport, EngineError, LibraryFault, LibraryReport, Version,
-    libraries::LoadedLibraries,
-};
+use crate::{AvailabilityReport, DeviceReport, EngineError, LibraryFault, LibraryReport, Version};
 
 const INSTALL: &str = "pip install \"qdk[tensornetwork]\"";
 
@@ -143,27 +140,6 @@ fn a_ready_diagnosis_lists_what_was_found_and_nothing_to_fix() {
         assert!(report.contains(expected), "{expected:?} in {report}");
     }
     assert!(!report.contains("to fix"), "{report}");
-}
-
-/// The check has a guide for every library discovery opens, so none is
-/// left out of what it shows and advises.
-#[cfg(unix)]
-#[test]
-fn every_library_discovery_opens_has_a_setup_guide() {
-    let mut guided: Vec<_> = LoadedLibraries::SETUP_GUIDES
-        .iter()
-        .map(|guide| guide.library)
-        .collect();
-    let read_variable = |_: &str| Some("relative.so".into());
-    let Err(AvailabilityError::Unusable(report)) =
-        crate::discovery::discover_from(read_variable, &crate::PackagedLibraries::default())
-    else {
-        panic!("a relative override makes every library unusable");
-    };
-    let mut opened: Vec<_> = report.libraries.iter().map(|l| l.library).collect();
-    guided.sort_unstable();
-    opened.sort_unstable();
-    assert_eq!(guided, opened);
 }
 
 /// A library found nowhere is advised the install of every library, at its

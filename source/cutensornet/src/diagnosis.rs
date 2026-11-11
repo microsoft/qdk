@@ -23,13 +23,15 @@
 //! one state of one qubit, a Hadamard and a probability read: the smallest
 //! run that touches the device. Each library's module declares what the
 //! check shows of the library, what to install, and the problems of the
-//! host its report reveals (`SetupGuide`), the CUDA Runtime's driver floor
-//! among them; so a library bound later brings its own.
+//! host its report reveals (its `SetupGuide`, in `libraries::setup_guide`),
+//! the CUDA Runtime's driver floor among them; so a library bound later
+//! brings its own.
 
 use std::fmt;
 
+use crate::libraries::setup_guide::{SetupGuide, or_unread};
 use crate::{
-    AvailabilityError, AvailabilityReport, DeviceReport, EngineError, LibraryFault, LibraryReport,
+    AvailabilityError, AvailabilityReport, DeviceReport, EngineError, LibraryFault,
     MINIMUM_COMPUTE_CAPABILITY, PackagedLibraries,
 };
 
@@ -210,7 +212,7 @@ impl fmt::Display for Diagnosis {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn devices(availability: &crate::Availability) -> Result<Vec<DeviceReport>, EngineError> {
-    availability.devices()
+    DeviceReport::read_all(availability)
 }
 
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
@@ -303,50 +305,10 @@ fn install() -> String {
     )
 }
 
-/// `value`, or `unread` when the report lacks it: a usable library's report
-/// has every value, so the fallback only keeps a hand-made report shown.
-pub(crate) fn or_unread(value: Option<impl fmt::Display>) -> String {
-    value.map_or_else(|| "unread".to_string(), |value| value.to_string())
-}
-
 /// `bytes` in GiB, to one decimal.
 #[allow(clippy::cast_precision_loss)] // A device's memory, shown to 0.1 GiB.
 fn gibibytes(bytes: usize) -> String {
     format!("{:.1}", bytes as f64 / f64::from(1u32 << 30))
-}
-
-/// What the setup check tells a user about one library: what it shows of
-/// the library and what it advises. Each library's module declares it, as
-/// part of its `NativeLibrary`, and `LoadedLibraries::SETUP_GUIDES` lists
-/// them.
-pub(crate) struct SetupGuide {
-    /// The library's name, as its report gives it.
-    pub(crate) library: &'static str,
-    /// The variable that overrides its path.
-    variable: &'static str,
-    /// What to install, for instance `cuTensorNet 2.13`.
-    install: &'static str,
-    /// What to do when a version probe fails, if one can.
-    version_probe_advice: Option<&'static str>,
-    /// The lines that show the usable library.
-    describe: fn(&LibraryReport) -> Vec<String>,
-    /// A problem of the host that the usable library reveals.
-    host_problem: fn(&LibraryReport) -> Option<String>,
-}
-
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-impl SetupGuide {
-    /// The guide that `L`'s module declares.
-    pub(crate) const fn of<L: crate::libraries::NativeLibrary>() -> Self {
-        Self {
-            library: L::NAME,
-            variable: L::VARIABLE,
-            install: L::INSTALL,
-            version_probe_advice: L::VERSION_PROBE_ADVICE,
-            describe: L::describe,
-            host_problem: L::host_problem,
-        }
-    }
 }
 
 /// The guide of each library, in the order the check lists them; none off

@@ -67,8 +67,10 @@ mod tests;
 pub use devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
 pub use diagnosis::{Diagnosis, diagnose};
 pub use discovery::{
-    Availability, PackagedLibraries, discover, discover_with, error::AvailabilityError,
-    report::AvailabilityReport,
+    Availability, discover, discover_with, error::AvailabilityError, report::AvailabilityReport,
 };
 pub use engine::{CuTensorNetEngine, CuTensorNetState, EngineError};
-pub use libraries::report::{LibraryFault, LibraryReport, Version};
+pub use libraries::{
+    PackagedLibraries,
+    report::{LibraryFault, LibraryReport, Version},
+};

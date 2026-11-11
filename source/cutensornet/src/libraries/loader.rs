@@ -6,9 +6,9 @@
 //! `libraries::open` opens each library the crate uses with
 //! [`load_library`], from the first of its candidate paths that exists, and
 //! fills the table of its functions, which `function_table!` declares. The
-//! MPS engine calls the libraries through those tables, in
-//! `engine::native_calls::loaded_libraries`. Looking a function up stores
-//! its address; it does not call it.
+//! MPS engine and the device reads call the libraries through those tables
+//! (`engine::native_calls::loaded_libraries`, `devices::native`). Looking a
+//! function up stores its address; it does not call it.
 //! Opening returns its fault as a [`LibraryFault`]; filling a table returns
 //! every missing function, so that the user fixes them all at once.
 

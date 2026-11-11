@@ -161,7 +161,7 @@ missing.
   of one table per library, each checked against NVIDIA's header when the
   crate compiles ([The bindings](docs/loading.md#the-bindings)).
 - **Open to more libraries.** Each library is one module; adding one adds a
-  field to [`PackagedLibraries`](src/discovery.rs), for its path in a Python
+  field to [`PackagedLibraries`](src/libraries.rs), for its path in a Python
   package, and changes no other public type, as the report is a list with an
   entry per library.
 - **Explicit, no global state.** Nothing happens until `discover` is called,
@@ -181,7 +181,7 @@ flowchart TD
 - [`discover`](src/discovery.rs) selects no device, allocates nothing and
   runs no GPU work.
 - [`discover_with`](src/discovery.rs) is `discover` also given the
-  [`PackagedLibraries`](src/discovery.rs): the paths where Python packages
+  [`PackagedLibraries`](src/libraries.rs): the paths where Python packages
   (NVIDIA's wheels) installed the libraries, which only the QDK's Python
   package can find. `discover` gives none.
 - [`Availability`](src/discovery.rs) holds each library's functions as typed

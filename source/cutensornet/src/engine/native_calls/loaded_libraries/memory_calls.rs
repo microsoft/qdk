@@ -21,13 +21,7 @@ use std::ptr::NonNull;
 
 impl MemoryCalls for LoadedLibraries {
     fn memory_info(&self) -> Result<(usize, usize), EngineError> {
-        let mut free = 0;
-        let mut total = 0;
-        // SAFETY: both arguments are valid writable `size_t` out-pointers.
-        let status =
-            unsafe { (self.cuda_runtime.functions.mem_get_info)(&raw mut free, &raw mut total) };
-        self.check_cuda("cudaMemGetInfo", status)?;
-        Ok((free, total))
+        Ok(self.cuda_runtime.memory_info()?)
     }
 
     fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, EngineError> {

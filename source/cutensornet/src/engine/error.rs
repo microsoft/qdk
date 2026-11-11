@@ -20,6 +20,8 @@
 //! cause. A cleanup attempts every release and returns the first failure
 //! (`first_failure`), so a failed release leaks nothing else.
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use crate::libraries::cuda_runtime::CudaCallFailed;
 use tensornet::{MpsEngineError, Refusal, sampling::TooManyValues};
 use thiserror::Error;
 
@@ -135,6 +137,19 @@ impl MpsEngineError for EngineError {
         match self {
             Self::Refused(refusal) => Some(refusal),
             _ => None,
+        }
+    }
+}
+
+/// A failed CUDA Runtime call, as the engine and the device reads report it.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+impl From<CudaCallFailed> for EngineError {
+    fn from(failed: CudaCallFailed) -> Self {
+        Self::NativeCallFailed {
+            component: "CUDA Runtime",
+            operation: failed.operation,
+            status: failed.status,
+            message: failed.message,
         }
     }
 }

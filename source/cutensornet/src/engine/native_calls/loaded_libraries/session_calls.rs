@@ -13,18 +13,11 @@ use std::ptr::NonNull;
 
 impl SessionCalls for LoadedLibraries {
     fn device_count(&self) -> Result<i32, EngineError> {
-        let mut count = 0;
-        // SAFETY: `count` is a valid writable CUDA `int` out-parameter.
-        let status = unsafe { (self.cuda_runtime.functions.get_device_count)(&raw mut count) };
-        self.check_cuda("cudaGetDeviceCount", status)?;
-        Ok(count)
+        Ok(self.cuda_runtime.device_count()?)
     }
 
     fn set_device(&self, ordinal: i32) -> Result<(), EngineError> {
-        // SAFETY: the call takes no pointer, and CUDA checks the ordinal,
-        // returning an error for an invalid one.
-        let status = unsafe { (self.cuda_runtime.functions.set_device)(ordinal) };
-        self.check_cuda("cudaSetDevice", status)
+        Ok(self.cuda_runtime.set_device(ordinal)?)
     }
 
     fn create_stream(&self) -> Result<Stream, EngineError> {

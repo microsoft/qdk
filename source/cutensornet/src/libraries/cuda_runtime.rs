@@ -41,16 +41,19 @@ mod generated {
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) use generated::cudart_12;
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use super::BoundLibrary;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use super::{NativeLibrary, ProbedVersions};
+use super::{
+    NativeLibrary, PackagedLibraries, ProbedVersions, copy_message, setup_guide::or_unread,
+};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::{
-    LibraryFault, LibraryReport, PackagedLibraries,
-    diagnosis::or_unread,
+    LibraryFault, LibraryReport,
     libraries::loader::{FunctionTable, SymbolResolver},
 };
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use std::{ffi::CStr, path::Path};
+use std::path::Path;
 
 /// The CUDA Runtime.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
@@ -179,6 +182,69 @@ pub(super) fn cuda_version(version: i128) -> String {
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) const STREAM_LEGACY: usize = 1;
 
+/// The CUDA Runtime's calls that both the MPS engine and the setup check's
+/// device reads make, and the check of a status every CUDA call returns:
+/// one implementation each, on the bound library, so the engine and the
+/// device reads share it rather than one calling through the other.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+impl BoundLibrary<CudaRuntime> {
+    /// `Ok` when `status`, which `operation` returned, is CUDA's success;
+    /// or else the failure, with CUDA's text for the status.
+    pub(crate) fn check(
+        &self,
+        operation: &'static str,
+        status: cudart_12::cudaError_t,
+    ) -> Result<(), CudaCallFailed> {
+        if status == cudart_12::cudaError_cudaSuccess {
+            Ok(())
+        } else {
+            Err(CudaCallFailed {
+                operation,
+                status,
+                message: error_message(self.functions.get_error_string, status),
+            })
+        }
+    }
+
+    /// How many CUDA devices the process sees (`cudaGetDeviceCount`).
+    pub(crate) fn device_count(&self) -> Result<i32, CudaCallFailed> {
+        let mut count = 0;
+        // SAFETY: `count` is a valid writable CUDA `int` out-parameter.
+        let status = unsafe { (self.functions.get_device_count)(&raw mut count) };
+        self.check("cudaGetDeviceCount", status)?;
+        Ok(count)
+    }
+
+    /// Makes device `ordinal` current on the calling thread
+    /// (`cudaSetDevice`).
+    pub(crate) fn set_device(&self, ordinal: i32) -> Result<(), CudaCallFailed> {
+        // SAFETY: the call takes no pointer, and CUDA checks the ordinal,
+        // returning an error for an invalid one.
+        let status = unsafe { (self.functions.set_device)(ordinal) };
+        self.check("cudaSetDevice", status)
+    }
+
+    /// The current device's free and total memory, in bytes
+    /// (`cudaMemGetInfo`).
+    pub(crate) fn memory_info(&self) -> Result<(usize, usize), CudaCallFailed> {
+        let mut free = 0;
+        let mut total = 0;
+        // SAFETY: both arguments are valid writable `size_t` out-pointers.
+        let status = unsafe { (self.functions.mem_get_info)(&raw mut free, &raw mut total) };
+        self.check("cudaMemGetInfo", status)?;
+        Ok((free, total))
+    }
+}
+
+/// A CUDA Runtime call that returned an error status: the call, the status,
+/// and CUDA's text for it. Its caller turns it into its own error.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) struct CudaCallFailed {
+    pub(crate) operation: &'static str,
+    pub(crate) status: cudart_12::cudaError_t,
+    pub(crate) message: String,
+}
+
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 super::loader::function_table! {
     /// Every CUDA Runtime function discovery looks up.
@@ -305,21 +371,23 @@ fn probe_version(
     if status == cudart_12::cudaError_cudaSuccess {
         return Ok(version);
     }
-    // SAFETY: CUDA owns the returned null-terminated string; it is copied
-    // immediately and never retained as a borrowed pointer.
-    let message_ptr = unsafe { get_error_string(status) };
-    let message = if message_ptr.is_null() {
-        "CUDA returned a null error string".to_string()
-    } else {
-        // SAFETY: non-null CUDA error strings are documented as
-        // null-terminated and library-owned.
-        unsafe { CStr::from_ptr(message_ptr) }
-            .to_string_lossy()
-            .into_owned()
-    };
     Err(LibraryFault::VersionProbeFailed {
         component,
         status,
-        message,
+        message: error_message(get_error_string, status),
     })
+}
+
+/// CUDA's text for `status`, read with `get_error_string`.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+fn error_message(get_error_string: GetErrorStringFn, status: cudart_12::cudaError_t) -> String {
+    // SAFETY: the pointer was resolved with the audited signature from a
+    // retained library, and CUDA returns null or a null-terminated string it
+    // owns, which is copied before this call returns.
+    unsafe {
+        copy_message(
+            get_error_string(status),
+            "CUDA returned a null error string",
+        )
+    }
 }

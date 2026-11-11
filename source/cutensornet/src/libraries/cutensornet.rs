@@ -63,9 +63,11 @@ pub(crate) use generated::v2_13;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use super::loader::{FunctionTable, SymbolResolver};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use super::{NativeLibrary, ProbedVersions, cuda_runtime};
+use super::{
+    NativeLibrary, PackagedLibraries, ProbedVersions, cuda_runtime, setup_guide::or_unread,
+};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use crate::{LibraryReport, PackagedLibraries, diagnosis::or_unread};
+use crate::LibraryReport;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use std::path::Path;
 

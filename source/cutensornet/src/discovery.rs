@@ -30,14 +30,13 @@
 pub(crate) mod error;
 pub(crate) mod report;
 
+use crate::libraries::PackagedLibraries;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::libraries::{CheckLibrary, InstalledLibraries, LoadedLibraries, Opening};
 use crate::{AvailabilityError, AvailabilityReport};
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-use crate::{DeviceReport, EngineError, devices};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use std::ffi::OsString;
-use std::{fmt, path::PathBuf};
+use std::fmt;
 
 /// The loaded and checked libraries, with their [`AvailabilityReport`].
 ///
@@ -49,7 +48,10 @@ pub struct Availability {
     #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
     #[cfg_attr(
         not(all(target_os = "linux", target_arch = "x86_64")),
-        allow(dead_code, reason = "off Linux x86-64 no engine reads the libraries")
+        allow(
+            dead_code,
+            reason = "off Linux x86-64 neither the engine nor the device reads use the libraries"
+        )
     )]
     libraries: std::sync::Arc<LoadedLibraries>,
 }
@@ -61,25 +63,12 @@ impl Availability {
         &self.report
     }
 
-    /// Every CUDA device, with its compute capability and memory, in
-    /// ordinal order: what the setup check reports. Each is read with its
-    /// own device current, so the last one is left current; the engine
-    /// selects its own device on every call.
-    ///
-    /// # Errors
-    ///
-    /// When the CUDA Runtime fails to count or read the devices (with no
-    /// device or no driver, say).
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    pub fn devices(&self) -> Result<Vec<DeviceReport>, EngineError> {
-        devices::device_reports(self.libraries.as_ref())
-    }
-
-    /// The loaded libraries, for the engines of this crate. They stay
-    /// private to it: a caller outside sees their paths and versions in
-    /// [`report`](Self::report), and reaches them only through this crate's
-    /// API: an engine, which checks each call against its contract, or
-    /// [`devices`](Self::devices).
+    /// The loaded libraries, for the engine and the device reads of this
+    /// crate. They stay private to it: a caller outside sees their paths
+    /// and versions in [`report`](Self::report), and reaches them only
+    /// through this crate's API: an engine, which checks each call against
+    /// its contract, or
+    /// [`DeviceReport::read_all`](crate::DeviceReport::read_all).
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     pub(crate) fn libraries(&self) -> &std::sync::Arc<LoadedLibraries> {
         &self.libraries
@@ -93,19 +82,6 @@ impl fmt::Debug for Availability {
             .field("report", &self.report)
             .finish_non_exhaustive()
     }
-}
-
-/// Where Python packages installed the libraries, for [`discover_with`]:
-/// NVIDIA's wheels (`cutensornet-cu12`, `nvidia-cuda-runtime-cu12`) put them
-/// inside a Python environment, where only the QDK's Python package, which
-/// reads the environment's installed distributions, can find them. A path
-/// is absolute; `None` when the package is not installed.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PackagedLibraries {
-    /// `libcutensornet.so.2` as a package installed it.
-    pub cutensornet: Option<PathBuf>,
-    /// `libcudart.so.12` as a package installed it.
-    pub cuda_runtime: Option<PathBuf>,
 }
 
 /// Finds, loads and checks the native libraries a GPU run needs, today the

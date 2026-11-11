@@ -6,7 +6,8 @@
 //! Each library has its own module, which holds everything the crate assumes
 //! of it, as its implementation of `NativeLibrary`, so a reader finds a
 //! library's settings in one place, with what the setup check tells a user
-//! about it (`diagnosis`). This module holds what the libraries share: the
+//! about it (its `SetupGuide`, in `setup_guide`, which `diagnosis` reads).
+//! This module holds what the libraries share: the
 //! way from one library to the set a GPU run needs.
 //!
 //! ```text
@@ -28,10 +29,11 @@
 //! caller found, then its default paths), the file loaded and its functions
 //! looked up (`loader`), its versions probed, and the other copies of it
 //! visible beside the one loaded. `LoadedLibraries` also lists the
-//! libraries' setup guides (`SETUP_GUIDES`, checked against what discovery
+//! libraries' setup guides (`SETUP_GUIDES`, checked against what it
 //! opens), and `PackagedLibraries` has a field per library.
-//! The MPS engine calls the loaded libraries through their tables, in
-//! `engine::native_calls::loaded_libraries`.
+//! The MPS engine (`engine::native_calls::loaded_libraries`) and the device
+//! reads (`devices::native`) call the loaded libraries through their tables;
+//! the CUDA Runtime calls both make are its module's.
 //!
 //! To bind another library:
 //!
@@ -69,9 +71,8 @@ pub(crate) mod cutensornet;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod loader;
 pub(crate) mod report;
+pub(crate) mod setup_guide;
 
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use crate::{PackagedLibraries, diagnosis::SetupGuide};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use loader::{FunctionTable, OpenLibraryFile, SymbolResolver, load_library};
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
@@ -79,9 +80,12 @@ use report::LibraryFault;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use report::{LibraryReport, Version};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use std::path::Path;
+use setup_guide::SetupGuide;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
-use std::{ffi::OsString, path::PathBuf};
+use std::ffi::OsString;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// The loaded libraries, each with its function table.
 ///
@@ -118,6 +122,20 @@ impl LoadedLibraries {
         SetupGuide::of::<cutensornet::CuTensorNet>(),
         SetupGuide::of::<cuda_runtime::CudaRuntime>(),
     ];
+}
+
+/// Where Python packages installed the libraries, for
+/// [`discover_with`](crate::discover_with): NVIDIA's wheels
+/// (`cutensornet-cu12`, `nvidia-cuda-runtime-cu12`) put them inside a Python
+/// environment, where only the QDK's Python package, which reads the
+/// environment's installed distributions, can find them. A path is
+/// absolute; `None` when the package is not installed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PackagedLibraries {
+    /// `libcutensornet.so.2` as a package installed it.
+    pub cutensornet: Option<PathBuf>,
+    /// `libcudart.so.12` as a package installed it.
+    pub cuda_runtime: Option<PathBuf>,
 }
 
 /// One native library: where it is looked for, the table of its functions,
@@ -413,5 +431,27 @@ impl ProbedVersions {
             component,
             value: found,
         });
+    }
+}
+
+/// The text a library returned for an error, copied, or `null_message`
+/// when it returned none: the libraries own the strings their error
+/// functions return, so each is copied before anything else is called.
+///
+/// # Safety
+///
+/// `pointer` is null, or a null-terminated string that stays valid during
+/// the call, as the error functions of the CUDA Runtime and cuTensorNet
+/// return.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) unsafe fn copy_message(pointer: *const std::ffi::c_char, null_message: &str) -> String {
+    if pointer.is_null() {
+        null_message.to_string()
+    } else {
+        // SAFETY: the caller guarantees a non-null `pointer` is a valid
+        // null-terminated string.
+        unsafe { std::ffi::CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned()
     }
 }
