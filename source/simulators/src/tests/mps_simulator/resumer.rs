@@ -5,7 +5,7 @@
 //! qubits; that its records do not depend on the shots beside it or on
 //! earlier runs; how shots share states; and how a run fails.
 
-mod order;
+mod qubit_order;
 mod splitmix64;
 
 use std::num::NonZeroUsize;
@@ -27,7 +27,7 @@ use super::reference_spy::{ReferenceSpy, ReferenceSpyError};
 use crate::bytecode::encoding::{
     OPID_CX, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_SWAP, OPID_X,
 };
-use crate::mps_simulator::resumer::order::QubitOrder;
+use crate::mps_simulator::resumer::qubit_order::QubitOrder;
 use crate::mps_simulator::resumer::splitmix64::SplitMix64;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
 

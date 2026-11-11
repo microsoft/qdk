@@ -19,16 +19,17 @@
 //! is here, in `mps_simulator/`:
 //!
 //! - `resumer.rs`: [`MpsResumer`], its settings (the max bond dimension χ
-//!   among them) and the grouped run, with `resumer/order.rs` (which site
-//!   holds each qubit, an order chosen from the program's two-qubit
-//!   gates), `resumer/lowering.rs` (a batch's calls as the engine's steps
-//!   on sites, the gates as matrices) and `resumer/splitmix64.rs` (the
-//!   generator each shot's random draws come from);
+//!   among them) and the grouped run, with `resumer/qubit_order.rs`
+//!   (which site holds each qubit, an order chosen from the program's
+//!   two-qubit gates), `resumer/lowering.rs` (a batch's calls as the
+//!   engine's steps on sites, the gates as matrices) and
+//!   `resumer/splitmix64.rs` (the generator each shot's random draws come
+//!   from);
 //! - `fusion.rs`: [`GateFusion`], gates multiplied into fewer one- and
 //!   two-site operators;
 //! - `report.rs`: [`MpsRunReport`] and [`TruncationWarning`], what a run
 //!   cost and the warning when truncation lost weight;
-//! - `error.rs`: [`MpsResumerError`].
+//! - `resumer_error.rs`: [`MpsResumerError`].
 //!
 //! Shots that drew the same values share one state, forked where their
 //! draws differ, so a run costs what its distinct histories cost; each shot
@@ -39,12 +40,12 @@
 //!
 //! [`QirResumer`]: crate::qir::QirResumer
 
-mod error;
 mod fusion;
 mod report;
 pub(crate) mod resumer;
+mod resumer_error;
 
-pub use error::MpsResumerError;
 pub use fusion::GateFusion;
 pub use report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
 pub use resumer::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer};
+pub use resumer_error::MpsResumerError;

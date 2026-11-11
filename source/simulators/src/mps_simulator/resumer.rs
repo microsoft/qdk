@@ -27,7 +27,7 @@
 //!
 //! **How a group runs.** Its context is resumed to its next batch; the
 //! batch's calls are lowered to steps on sites (`resumer/lowering.rs`,
-//! through the program's qubit order, `resumer/order.rs`) and fused
+//! through the program's qubit order, `resumer/qubit_order.rs`) and fused
 //! (`fusion.rs`); the steps run on the group's state, prepared within the
 //! capacity at the first step; the context is resumed with the outcomes.
 //!
@@ -57,12 +57,12 @@ use crate::qir::{
 use tensornet::{MpsEngine, MpsShape};
 
 pub(crate) mod lowering;
-pub(crate) mod order;
+pub(crate) mod qubit_order;
 pub(crate) mod splitmix64;
 
 use super::{GateFusion, MpsResumerError, MpsRunReport};
 use lowering::{Step, lower};
-use order::QubitOrder;
+use qubit_order::QubitOrder;
 use splitmix64::SplitMix64;
 
 /// The max bond dimension χ by default: 128. H₂'s phase estimation, run on

@@ -16,7 +16,7 @@
 
 use crate::qir::{OperatorMatrix, QirCall};
 
-use super::order::QubitOrder;
+use super::qubit_order::QubitOrder;
 use crate::mps_simulator::MpsResumerError;
 
 /// What the MPS simulation method does with a call, on sites.
