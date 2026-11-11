@@ -5,8 +5,8 @@
 //! time.
 
 use qodec_runtime_builder::{
-    Blueprint, Call, Encoder, Fault, Layer, Lower, Never, PlanError, QodecModel, Reply,
-    SpecEncoderPlan, from_fn,
+    Blueprint, Call, Encoder, Fault, GadgetEncoderPlan, Layer, Lower, Never, PlanError, QodecModel,
+    Reply, from_fn,
 };
 
 /// Encoders that lower one after the other, from a qodec's top ISA to its
@@ -42,7 +42,7 @@ impl Compiler {
         Self { encoders }
     }
 
-    /// A [`SpecEncoder`](qodec_runtime_builder::SpecEncoder) for every layer
+    /// A [`GadgetEncoder`](qodec_runtime_builder::GadgetEncoder) for every layer
     /// of `model`. To lower many programs, plan once with [`CompilerPlan`].
     pub fn for_model(model: &QodecModel) -> Result<Self, PlanError> {
         CompilerPlan::new(model).map(|plan| plan.instantiate())
@@ -70,11 +70,11 @@ impl Compiler {
 /// The blueprint of a [`Compiler`]: the encoders of every layer of a qodec,
 /// planned once.
 pub struct CompilerPlan {
-    encoders: Vec<SpecEncoderPlan<Never>>,
+    encoders: Vec<GadgetEncoderPlan<Never>>,
 }
 
 impl CompilerPlan {
-    /// Plans a [`SpecEncoder`](qodec_runtime_builder::SpecEncoder) for every
+    /// Plans a [`GadgetEncoder`](qodec_runtime_builder::GadgetEncoder) for every
     /// layer of `model`.
     pub fn new(model: &QodecModel) -> Result<Self, PlanError> {
         let encoders = model
@@ -82,7 +82,7 @@ impl CompilerPlan {
             .iter()
             .enumerate()
             .map(|(k, layer)| {
-                SpecEncoderPlan::<Never>::plan(layer)
+                GadgetEncoderPlan::<Never>::plan(layer)
                     .map_err(|e| PlanError(format!("layer {k}: {e}")))
             })
             .collect::<Result<_, _>>()?;

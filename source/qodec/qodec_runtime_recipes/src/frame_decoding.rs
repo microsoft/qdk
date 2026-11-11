@@ -4,12 +4,13 @@
 //! [`FrameDecoding`]: the reference design.
 
 use qodec_runtime_builder::{
-    Design, FrameDecoderPlan, LayerBlueprint, LayerModel, Never, PlanError, SpecEncoderPlan, Stack,
+    Design, FrameDecoderPlan, GadgetEncoderPlan, LayerBlueprint, LayerModel, Never, PlanError,
+    Stack,
 };
 use std::sync::Arc;
 
 /// The reference design: in every layer, the Pauli-frame decoder on top of the
-/// spec encoder. Neither pends nor corrects, so no layer needs a controller.
+/// gadget encoder. Neither pends nor corrects, so no layer needs a controller.
 ///
 /// ```text
 ///   │ Call                       │ Reply
@@ -18,7 +19,7 @@ use std::sync::Arc;
 ///  └┬────────────────────────────▲┘
 ///   │ Lower<Never> = Call        │ Record
 ///  ┌▼────────────────────────────┴┐
-///  │ SpecEncoder<Never>           │
+///  │ GadgetEncoder<Never>         │
 ///  └┬────────────────────────────▲┘
 ///   │ Call                       │ Reply
 /// ```
@@ -29,7 +30,7 @@ impl Design for FrameDecoding {
     fn layer(&self, layer: &Arc<LayerModel>) -> Result<Box<dyn LayerBlueprint>, PlanError> {
         Ok(Box::new(Stack::new(
             FrameDecoderPlan::plan(layer)?,
-            SpecEncoderPlan::<Never>::plan(layer)?,
+            GadgetEncoderPlan::<Never>::plan(layer)?,
         )))
     }
 }

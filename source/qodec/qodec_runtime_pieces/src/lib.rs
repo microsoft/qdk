@@ -10,7 +10,7 @@
 //!
 //! | Piece | Role | Plans from a layer |
 //! |---|---|---|
-//! | [`SpecEncoder<C>`] | `Encoder<C>` | [`SpecEncoderPlan::plan`]: each upper instruction's gadget, as slots and call templates |
+//! | [`GadgetEncoder<C>`] | `Encoder<C>` | [`GadgetEncoderPlan::plan`]: each upper instruction's gadget, as slots and call templates |
 //! | [`Passive<D>`] | `Decoder<Never, Never>` | [`RecordLayout::plan`]; turns any [`Decode`] into a decoder |
 //! | [`FrameDecoder`] | [`Decode`] | [`FrameDecoderPlan::plan`]: each gadget's checks, readouts, frames and sign transport |
 //! | [`UntilReady`] | `Controller<Rounds>` | [`UntilReadyPlan::plan`]: each block type's QEC round |
@@ -33,8 +33,8 @@ pub mod until_ready;
 pub use qodec_runtime_model::*;
 
 pub use encoder::{
-    EncoderProgram, Fixes, GadgetCall, GadgetProgram, LiveBlock, LogicalOps, Lowering,
-    OutputEncoding, PlannedFix, SpecEncoder, SpecEncoderPlan, check_pauli_corrections,
+    EncoderProgram, Fixes, GadgetCall, GadgetEncoder, GadgetEncoderPlan, GadgetProgram, LiveBlock,
+    LogicalOps, Lowering, OutputEncoding, PlannedFix, check_pauli_corrections,
 };
 pub use frame_decoder::{CodeShape, FrameDecoder, FrameDecoderPlan, FrameGadget, Transport};
 pub use passive::{BodySelect, Decode, Passive, RecordLayout};
@@ -49,8 +49,8 @@ pub use until_ready::{Rounds, UntilReady, UntilReadyPlan};
 const _: () = {
     const fn shareable<T: Send + Sync>() {}
     shareable::<QodecModel>();
-    shareable::<SpecEncoderPlan<Never>>();
-    shareable::<SpecEncoderPlan<Correction>>();
+    shareable::<GadgetEncoderPlan<Never>>();
+    shareable::<GadgetEncoderPlan<Correction>>();
     shareable::<FrameDecoderPlan>();
     shareable::<UntilReadyPlan>();
 };

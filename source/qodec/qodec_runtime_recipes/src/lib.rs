@@ -7,7 +7,7 @@
 //!
 //! | Recipe | What it is |
 //! |---|---|
-//! | [`FrameDecoding`] | The reference [`Design`]: in every layer, the frame decoder on top of the spec encoder |
+//! | [`FrameDecoding`] | The reference [`Design`]: in every layer, the frame decoder on top of the gadget encoder |
 //! | [`Compiler`] | Encoders without decoders, lowering a whole program ahead of time |
 //! | [`runtime()`] | The usual [`Runtime`] over a plan's layers |
 //!

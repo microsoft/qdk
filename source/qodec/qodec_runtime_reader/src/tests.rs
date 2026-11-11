@@ -8,11 +8,10 @@ use super::{
 use qodec::{BlockOperand, Instruction, InstructionSet, Qodec, SelectPattern};
 use qodec_runtime_recipes::{
     Backend, BasicReadout, BlockRef, Blueprint, Call, CompiledSelect, Compiler, Correction, Design,
-    Encoder, Fault, FaultKind, FrameDecoder, FrameDecoderPlan, FrameDecoding, Layer,
-    LayerBlueprint, LayerModel, Lower, Never, OwnedParam, Passive, PlanError, QodecLayer,
-    QodecPlan, QodecRuntimeError, Record, Reply, Resources, Rounds, Runtime, Selection,
-    SpecEncoder, SpecEncoderPlan, Stack, Status, Step, TypeChecker, TypeTable, UntilReadyPlan,
-    from_fn,
+    Encoder, Fault, FaultKind, FrameDecoder, FrameDecoderPlan, FrameDecoding, GadgetEncoder,
+    GadgetEncoderPlan, Layer, LayerBlueprint, LayerModel, Lower, Never, OwnedParam, Passive,
+    PlanError, QodecLayer, QodecPlan, QodecRuntimeError, Record, Reply, Resources, Rounds, Runtime,
+    Selection, Stack, Status, Step, TypeChecker, TypeTable, UntilReadyPlan, from_fn,
     parity::{Basis, BinarySystem, Inconsistent, Parity, Var},
     pauli::{Clifford, DensePauli, Pauli, PauliOp},
     resolver::{ResolveCache, Resolver},
@@ -531,14 +530,14 @@ fn on_sim<L>(qodec: &Qodec, layer: L) -> Runtime<L, BitSim, String> {
 }
 
 /// The reference layer, assembled by hand from its pieces.
-type FrameLayer = Stack<Passive<FrameDecoder>, SpecEncoder>;
+type FrameLayer = Stack<Passive<FrameDecoder>, GadgetEncoder>;
 
 /// One shot of the top layer of `qodec`, directly over a fresh simulator.
 fn single_layer(qodec: &Qodec) -> Runtime<FrameLayer, BitSim, String> {
     let plan = top_layer_plan(qodec);
     let blueprint = Stack::new(
         FrameDecoderPlan::plan(&plan).expect("decoder plans"),
-        SpecEncoderPlan::<Never>::plan(&plan).expect("encoder plans"),
+        GadgetEncoderPlan::<Never>::plan(&plan).expect("encoder plans"),
     );
     on_sim(qodec, blueprint.instantiate())
 }
@@ -1104,7 +1103,7 @@ fn decoders_correct_live_blocks_through_their_encoder() {
         layer: Arc::clone(&plan),
         prepare: index_of(&isa, "prepare_z"),
     };
-    let encoder = SpecEncoderPlan::<Correction>::plan(&plan)
+    let encoder = GadgetEncoderPlan::<Correction>::plan(&plan)
         .expect("the lower ISA has `x` and `z`")
         .instantiate();
     let mut layer = on_sim(&qodec, Stack::new(decoder, encoder));
@@ -1120,9 +1119,9 @@ fn only_encoders_that_take_corrections_need_lower_paulis() {
     let qodec = logical_over_pauli_free_isa(false);
     assert!(qodec_plan(&qodec, &FrameDecoding).is_ok());
     let plan = top_layer_plan(&qodec);
-    assert!(SpecEncoderPlan::<Never>::plan(&plan).is_ok());
+    assert!(GadgetEncoderPlan::<Never>::plan(&plan).is_ok());
     assert_eq!(
-        SpecEncoderPlan::<Correction>::plan(&plan).err(),
+        GadgetEncoderPlan::<Correction>::plan(&plan).err(),
         Some(PlanError(
             "the lower ISA has no `X` Pauli for block type `qubit`".to_string()
         ))
@@ -1273,7 +1272,7 @@ fn delayed_layer(
                 frame: FrameDecoderPlan::plan(&plan).expect("decoder plans"),
                 rounds,
             },
-            SpecEncoderPlan::<Never>::plan(&plan).expect("encoder plans"),
+            GadgetEncoderPlan::<Never>::plan(&plan).expect("encoder plans"),
         ),
     )
 }
@@ -1359,7 +1358,7 @@ impl Design for DeqAtBottom {
         if deq {
             Ok(Box::new(Stack::new(
                 DeqPlan::new(layer)?,
-                SpecEncoderPlan::<Never>::plan(layer)?,
+                GadgetEncoderPlan::<Never>::plan(layer)?,
             )))
         } else {
             FrameDecoding.layer(layer)
@@ -1736,7 +1735,7 @@ fn compilers_lower_like_runtimes_without_decoders() {
 fn encoders_expecting_no_results_keep_nothing_for_them() {
     let qodec = repetition3();
     let isa = Arc::clone(&qodec.layers()[0].instruction_set);
-    let mut encoder = SpecEncoderPlan::<Never>::plan(&top_layer_plan(&qodec))
+    let mut encoder = GadgetEncoderPlan::<Never>::plan(&top_layer_plan(&qodec))
         .expect("encoder plans")
         .instantiate();
     encoder.expect_no_results();

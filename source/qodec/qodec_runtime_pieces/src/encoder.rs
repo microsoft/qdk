@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`SpecEncoder`]: the [`Encoder`] that lowers each upper call with the gadget
+//! [`GadgetEncoder`]: the [`Encoder`] that lowers each upper call with the gadget
 //! the layer declares for it, as the qodec spec describes; the
 //! [`EncoderProgram`] it runs; and how that program is planned from a
 //! [`LayerModel`].
@@ -25,7 +25,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::{cmp::Reverse, collections::BinaryHeap, marker::PhantomData, sync::Arc};
 
-/// What a [`SpecEncoder`] runs on: how to lower each call of one layer's
+/// What a [`GadgetEncoder`] runs on: how to lower each call of one layer's
 /// upper ISA to calls of its lower ISA.
 #[derive(Clone)]
 pub struct EncoderProgram {
@@ -182,7 +182,7 @@ pub fn check_pauli_corrections(resolver: &Resolver, lower: &Isa) -> Result<(), P
     Ok(())
 }
 
-/// How a [`SpecEncoder`] lowers one upper instruction.
+/// How a [`GadgetEncoder`] lowers one upper instruction.
 #[derive(Clone, Debug)]
 pub enum Lowering {
     /// Runs this gadget.
@@ -207,7 +207,7 @@ pub struct LogicalOps {
     pub z: Vec<Pauli>,
 }
 
-/// How a [`SpecEncoder`] runs one gadget.
+/// How a [`GadgetEncoder`] runs one gadget.
 ///
 /// Every label of the gadget's circuit is a slot. An invocation places each
 /// slot on a lower block id. For example, with slots for labels `0`, `1` and
@@ -371,14 +371,14 @@ impl PlannedFix for Correction {
     }
 }
 
-/// The blueprint of a [`SpecEncoder`] for one layer, which accepts
+/// The blueprint of a [`GadgetEncoder`] for one layer, which accepts
 /// corrections of type `C`.
-pub struct SpecEncoderPlan<C = Never> {
+pub struct GadgetEncoderPlan<C = Never> {
     program: Arc<EncoderProgram>,
     fix: PhantomData<fn(C)>,
 }
 
-impl<C> SpecEncoderPlan<C> {
+impl<C> GadgetEncoderPlan<C> {
     /// The blueprint of encoders that run `program`.
     #[must_use]
     pub fn new(program: Arc<EncoderProgram>) -> Self {
@@ -409,7 +409,7 @@ impl<C> SpecEncoderPlan<C> {
     }
 }
 
-impl<C: PlannedFix> SpecEncoderPlan<C> {
+impl<C: PlannedFix> GadgetEncoderPlan<C> {
     /// Plans the encoders of `layer`. Fails if the lower ISA cannot apply the
     /// corrections they take.
     pub fn plan(layer: &LayerModel) -> Result<Self, PlanError> {
@@ -420,11 +420,11 @@ impl<C: PlannedFix> SpecEncoderPlan<C> {
     }
 }
 
-impl<C: Fix> Blueprint for SpecEncoderPlan<C> {
-    type Instance = SpecEncoder<C>;
+impl<C: Fix> Blueprint for GadgetEncoderPlan<C> {
+    type Instance = GadgetEncoder<C>;
 
-    fn instantiate(&self) -> SpecEncoder<C> {
-        SpecEncoder::new(Arc::clone(&self.program))
+    fn instantiate(&self) -> GadgetEncoder<C> {
+        GadgetEncoder::new(Arc::clone(&self.program))
     }
 }
 
@@ -434,7 +434,7 @@ impl<C: Fix> Blueprint for SpecEncoderPlan<C> {
 /// ```text
 ///   │ Vec<Lower<C>>  upper calls and corrections  ▲ Result<Vec<Record>, Fault>
 ///  ┌▼─────────────────────────────────────────────┴───────────────────────────┐
-///  │ SpecEncoder<C>                                                           │
+///  │ GadgetEncoder<C>                                                         │
 ///  │   live blocks  label → support (lower block ids, in code-qubit order)    │
 ///  │   lower ids    allocated on demand, densely from 0, lowest released first│
 ///  └┬─────────────────────────────────────────────▲───────────────────────────┘
@@ -448,7 +448,7 @@ impl<C: Fix> Blueprint for SpecEncoderPlan<C> {
 /// The results of corrections are not returned. Their recoverable conditions,
 /// such as a raised flag, are added to the last record of the batch, or of the
 /// next batch that has records.
-pub struct SpecEncoder<C = Never> {
+pub struct GadgetEncoder<C = Never> {
     program: Arc<EncoderProgram>,
 
     /// Live upper blocks, keyed by label: the upper block id that the caller
@@ -533,7 +533,7 @@ enum Expected {
     },
 }
 
-impl<C> SpecEncoder<C> {
+impl<C> GadgetEncoder<C> {
     /// A fresh encoder for one shot, which runs `program`.
     #[must_use]
     pub fn new(program: Arc<EncoderProgram>) -> Self {
@@ -563,7 +563,7 @@ impl<C> SpecEncoder<C> {
     }
 }
 
-impl<C: Fix> Layer for SpecEncoder<C> {
+impl<C: Fix> Layer for GadgetEncoder<C> {
     type Input = Vec<Lower<C>>;
     type Output = Result<Vec<Record>, Fault>;
     type LowerInput = Vec<Call>;
@@ -596,13 +596,13 @@ impl<C: Fix> Layer for SpecEncoder<C> {
     }
 }
 
-impl<C: Fix> Encoder<C> for SpecEncoder<C> {
+impl<C: Fix> Encoder<C> for GadgetEncoder<C> {
     fn expect_no_results(&mut self) {
         self.no_results = true;
     }
 }
 
-impl<C: Fix> SpecEncoder<C> {
+impl<C: Fix> GadgetEncoder<C> {
     /// Sends the buffered lower calls below, and files their results.
     fn flush(&mut self, b: &mut Batch<'_, '_>) -> Result<(), Fault> {
         if b.buffer.is_empty() {
