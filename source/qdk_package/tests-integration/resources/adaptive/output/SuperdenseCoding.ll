@@ -11,17 +11,9 @@ define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_15 = alloca i1
   %var_21 = alloca i1
-  %var_22 = alloca i1
-  %var_23 = alloca i1
   %var_40 = alloca i1
   %var_41 = alloca i1
   %var_42 = alloca i64
-  %var_43 = alloca i64
-  %var_48 = alloca i64
-  %var_50 = alloca i1
-  %var_51 = alloca i1
-  %var_52 = alloca i1
-  %var_53 = alloca i1
   call void @__quantum__rt__initialize(ptr null)
   call void @CreateEntangledPair(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
@@ -32,13 +24,9 @@ block_0:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
   %var_18 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   store i1 %var_18, ptr %var_21
-  %var_56 = load i1, ptr %var_15
-  store i1 %var_56, ptr %var_22
-  %var_58 = load i1, ptr %var_21
-  store i1 %var_58, ptr %var_23
-  %var_60 = load i1, ptr %var_22
-  %var_61 = load i1, ptr %var_23
-  call void @SuperdenseEncode(i1 zeroext %var_60, i1 zeroext %var_61, ptr inttoptr (i64 0 to ptr))
+  %var_22 = load i1, ptr %var_15
+  %var_23 = load i1, ptr %var_21
+  call void @SuperdenseEncode(i1 zeroext %var_22, i1 zeroext %var_23, ptr inttoptr (i64 0 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -56,43 +44,32 @@ block_0:
   store i64 0, ptr %var_42
   br label %block_1
 block_1:
-  %var_65 = load i64, ptr %var_42
-  store i64 %var_65, ptr %var_43
-  %var_67 = load i64, ptr %var_43
-  %var_44 = icmp slt i64 %var_67, 2
+  %var_43 = load i64, ptr %var_42
+  %var_44 = icmp slt i64 %var_43, 2
   br i1 %var_44, label %block_2, label %block_3
 block_2:
-  %var_80 = load i64, ptr %var_42
-  %var_81_offset_chk = icmp slt i64 %var_80, 0
-  %var_81_offset = select i1 %var_81_offset_chk, i64 1, i64 0
-  %var_81 = getelementptr [2 x ptr], ptr @array0, i64 %var_81_offset, i64 %var_80
-  %var_45 = load ptr, ptr %var_81
+  %var_59 = load i64, ptr %var_42
+  %var_60_offset_chk = icmp slt i64 %var_59, 0
+  %var_60_offset = select i1 %var_60_offset_chk, i64 1, i64 0
+  %var_60 = getelementptr [2 x ptr], ptr @array0, i64 %var_60_offset, i64 %var_59
+  %var_45 = load ptr, ptr %var_60
   call void @Reset(ptr %var_45)
-  store i64 %var_80, ptr %var_48
-  %var_83 = load i64, ptr %var_48
-  %var_49 = add i64 %var_83, 1
+  %var_48 = load i64, ptr %var_42
+  %var_49 = add i64 %var_48, 1
   store i64 %var_49, ptr %var_42
   br label %block_1
 block_3:
-  %var_68 = load i1, ptr %var_15
-  store i1 %var_68, ptr %var_50
-  %var_70 = load i1, ptr %var_21
-  store i1 %var_70, ptr %var_51
-  %var_72 = load i1, ptr %var_40
-  store i1 %var_72, ptr %var_52
-  %var_74 = load i1, ptr %var_41
-  store i1 %var_74, ptr %var_53
+  %var_50 = load i1, ptr %var_15
+  %var_51 = load i1, ptr %var_21
+  %var_52 = load i1, ptr %var_40
+  %var_53 = load i1, ptr %var_41
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @1)
-  %var_76 = load i1, ptr %var_50
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_76, ptr @2)
-  %var_77 = load i1, ptr %var_51
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_77, ptr @3)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_50, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_51, ptr @3)
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @4)
-  %var_78 = load i1, ptr %var_52
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_78, ptr @5)
-  %var_79 = load i1, ptr %var_53
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_79, ptr @6)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_52, ptr @5)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_53, ptr @6)
   ret i64 0
 }
 

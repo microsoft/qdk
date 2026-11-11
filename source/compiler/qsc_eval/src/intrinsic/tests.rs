@@ -13,6 +13,7 @@ use crate::{
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
+use miette::Diagnostic;
 use num_bigint::BigInt;
 use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_data_structures::source::SourceMap;
@@ -809,11 +810,54 @@ fn draw_random_bool() {
 }
 
 #[test]
+fn draw_random_invalid_arguments() {
+    for expr in [
+        "Std.Random.DrawRandomBool(1.5)",
+        "Std.Random.DrawRandomBool(-0.1)",
+        "Std.Random.DrawRandomBool(0.0 / 0.0)",
+        "Std.Random.DrawRandomDouble(0.0, 1.0 / 0.0)",
+        "Std.Random.DrawRandomDouble(0.0 / 0.0, 1.0)",
+        "Std.Random.DrawRandomDouble(-1.7976931348623157e308, 1.7976931348623157e308)",
+    ] {
+        let mut stdout = vec![];
+        let mut out = GenericReceiver::new(&mut stdout);
+        assert!(
+            matches!(
+                check_intrinsic("", expr, &mut out),
+                Err(Error::IntrinsicFail(..))
+            ),
+            "{expr} should report an invalid distribution"
+        );
+    }
+}
+
+#[test]
 fn truncate() {
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(3.1)", &Value::Int(3));
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(3.9)", &Value::Int(3));
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(-3.1)", &Value::Int(-3));
     check_intrinsic_value("", "Microsoft.Quantum.Math.Truncate(-3.9)", &Value::Int(-3));
+}
+
+#[test]
+fn apply_unitary_nonfinite_entries() {
+    for value in ["0.0 / 0.0", "1.0 / 0.0", "-1.0 / 0.0", "1e308"] {
+        for field in ["Real", "Imag"] {
+            let other = if field == "Real" { "Imag" } else { "Real" };
+            let expr = format!(
+                "{{ use q = Qubit();
+                    let bad = new Std.Math.Complex {{ {field} = {value}, {other} = 0.0 }};
+                    let z = new Std.Math.Complex {{ Real = 0.0, Imag = 0.0 }};
+                    ApplyUnitary([[bad, z], [z, bad]], [q]);
+                }}"
+            );
+            check_intrinsic_result(
+                "",
+                &expr,
+                &expect!["intrinsic callable `Apply` failed: matrix is not unitary"],
+            );
+        }
+    }
 }
 
 #[test]
@@ -1611,7 +1655,9 @@ fn mresetz_qubit_already_released_fails() {
 
 #[test]
 fn unknown_intrinsic() {
-    check_intrinsic_result(
+    let mut stdout = vec![];
+    let mut out = GenericReceiver::new(&mut stdout);
+    let error = check_intrinsic(
         indoc! {"
             namespace Test {
                 function Foo() : Int {
@@ -1620,8 +1666,17 @@ fn unknown_intrinsic() {
             }
         "},
         "Test.Foo()",
-        &expect!["unknown intrinsic `Foo`"],
-    );
+        &mut out,
+    )
+    .expect_err("unknown intrinsic should fail");
+    expect!["unknown intrinsic `Foo`"].assert_eq(&error.to_string());
+    expect!["provide a simulation implementation using the `@SimulatorIntrinsic()` attribute"]
+        .assert_eq(
+            &error
+                .help()
+                .expect("diagnostic should have help")
+                .to_string(),
+        );
 }
 
 #[test]

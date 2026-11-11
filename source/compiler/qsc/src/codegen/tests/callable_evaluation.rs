@@ -31,7 +31,10 @@ fn local_result_array_with_zero_literal_initializes_constant_storage() {
         eval_fragments(&mut interpreter, "Main()"),
         Value::Result(qsc_eval::val::Result::Val(true)),
     );
-    let qir = interpreter.qirgen("Main()").expect("mixed Zero array QIR");
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("mixed Zero array QIR");
     assert!(
         qir.contains(
             "call void @__quantum__rt__write_result(i1 zeroext false, ptr inttoptr (i64 2 to ptr))"
@@ -64,7 +67,10 @@ fn local_result_array_with_one_literal_initializes_constant_storage() {
         eval_fragments(&mut interpreter, "Main()"),
         Value::Result(qsc_eval::val::Result::Val(true)),
     );
-    let qir = interpreter.qirgen("Main()").expect("mixed One array QIR");
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("mixed One array QIR");
     assert!(
         qir.contains(
             "call void @__quantum__rt__write_result(i1 zeroext true, ptr inttoptr (i64 3 to ptr))"
@@ -95,36 +101,34 @@ fn helper_local_qubit_array_loop_emits_initialized_index_to_gate_qir() {
         eval_fragments(&mut interpreter, "Main()"),
         Value::Result(qsc_eval::val::Result::Val(true)),
     );
-    let qir = interpreter.qirgen("Main()").expect("local qubit array QIR");
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("local qubit array QIR");
     expect![[r#"
         block_1:
           %var_1 = alloca ptr
           %var_2 = alloca i64
-          %var_3 = alloca i64
           %var_5 = alloca [1 x ptr]
-          %var_9 = alloca i64
           store ptr %var_0, ptr %var_1
           store i64 0, ptr %var_2
           br label %block_2
         block_2:
-          %var_13 = load i64, ptr %var_2
-          store i64 %var_13, ptr %var_3
-          %var_15 = load i64, ptr %var_3
-          %var_4 = icmp slt i64 %var_15, 1
+          %var_3 = load i64, ptr %var_2
+          %var_4 = icmp slt i64 %var_3, 1
           br i1 %var_4, label %block_3, label %block_4
         block_3:
-          %var_16 = load ptr, ptr %var_1
+          %var_13 = load ptr, ptr %var_1
           %var_5_0 = getelementptr [1 x ptr], ptr %var_5, i64 0, i64 0
-          store ptr %var_16, ptr %var_5_0
-          %var_18 = load i64, ptr %var_2
-          %var_19_offset_chk = icmp slt i64 %var_18, 0
-          %var_19_offset = select i1 %var_19_offset_chk, i64 1, i64 0
-          %var_19 = getelementptr [1 x ptr], ptr %var_5, i64 %var_19_offset, i64 %var_18
-          %var_6 = load ptr, ptr %var_19
+          store ptr %var_13, ptr %var_5_0
+          %var_15 = load i64, ptr %var_2
+          %var_16_offset_chk = icmp slt i64 %var_15, 0
+          %var_16_offset = select i1 %var_16_offset_chk, i64 1, i64 0
+          %var_16 = getelementptr [1 x ptr], ptr %var_5, i64 %var_16_offset, i64 %var_15
+          %var_6 = load ptr, ptr %var_16
           call void @X(ptr %var_6)
-          store i64 %var_18, ptr %var_9
-          %var_21 = load i64, ptr %var_9
-          %var_10 = add i64 %var_21, 1
+          %var_9 = load i64, ptr %var_2
+          %var_10 = add i64 %var_9, 1
           store i64 %var_10, ptr %var_2
           br label %block_2
         block_4:
@@ -162,6 +166,7 @@ fn local_array_access_after_skipped_branch_initializes_its_index_storage() {
     );
     let qir = interpreter
         .qirgen("Main()")
+        .map(|result| result.qir)
         .expect("branch-local array QIR");
     expect![[r#"
         block_1:
@@ -251,9 +256,11 @@ fn check_controlled_phase_capture(body: &str) {
         );
         let actual = interpreter
             .qirgen_from_callable(&target, captured)
+            .map(|result| result.qir)
             .expect("runtime captured phase QIR");
         let expected = interpreter
             .qirgen("Expected()")
+            .map(|result| result.qir)
             .expect("direct controlled-Z QIR");
         assert_eq!(actual, expected, "{profile:?}");
     }
@@ -347,8 +354,14 @@ fn effectful_call_preserves_constant_allocation_size_and_runs_once() {
                 None,
             ),
         );
-        let expected = interpreter.qirgen("Expected()").expect("literal-size QIR");
-        let qir = interpreter.qirgen("Main()").expect("call-result-size QIR");
+        let expected = interpreter
+            .qirgen("Expected()")
+            .map(|result| result.qir)
+            .expect("literal-size QIR");
+        let qir = interpreter
+            .qirgen("Main()")
+            .map(|result| result.qir)
+            .expect("call-result-size QIR");
         assert_eq!(qir, expected, "{profile:?}");
         if profile == Profile::Adaptive {
             assert_eq!(qir.matches("call i64 @Prep(").count(), 1, "{qir}");
@@ -358,6 +371,7 @@ fn effectful_call_preserves_constant_allocation_size_and_runs_once() {
         assert_eq!(
             interpreter
                 .qirgen_from_callable(&target, Value::unit())
+                .map(|result| result.qir)
                 .expect("runtime call-result-size QIR"),
             expected,
             "{profile:?}",
@@ -379,7 +393,10 @@ fn effectful_bool_call_keeps_shared_body_and_known_true_output() {
         }
         "#,
     );
-    let qir = interpreter.qirgen("Main()").expect("known Bool QIR");
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("known Bool QIR");
     assert_eq!(qir.matches("call zeroext i1 @Flag(").count(), 1, "{qir}");
     assert_eq!(qir.matches("call void @X(").count(), 1, "{qir}");
     assert!(qir.contains("ret i1 true"), "{qir}");
@@ -388,6 +405,7 @@ fn effectful_bool_call_keeps_shared_body_and_known_true_output() {
     assert_eq!(
         interpreter
             .qirgen_from_callable(&target, Value::unit())
+            .map(|result| result.qir)
             .expect("runtime QIR"),
         qir
     );
@@ -407,7 +425,10 @@ fn effectful_double_call_keeps_shared_body_and_known_output() {
         }
         "#,
     );
-    let qir = interpreter.qirgen("Main()").expect("known Double QIR");
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("known Double QIR");
     assert_eq!(qir.matches("call double @Angle(").count(), 1, "{qir}");
     assert_eq!(qir.matches("call void @X(").count(), 1, "{qir}");
     assert!(qir.contains("ret double 1.5"), "{qir}");
@@ -416,6 +437,7 @@ fn effectful_double_call_keeps_shared_body_and_known_output() {
     assert_eq!(
         interpreter
             .qirgen_from_callable(&target, Value::unit())
+            .map(|result| result.qir)
             .expect("runtime QIR"),
         qir
     );
@@ -437,7 +459,10 @@ fn repeated_constant_returning_calls_share_effects_without_expanding_the_call_gr
     );
     let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
     eval_fragments(&mut interpreter, &source);
-    let qir = interpreter.qirgen("Main()").expect("shared call graph QIR");
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("shared call graph QIR");
     assert_eq!(qir.matches("call void @X(").count(), 1, "{qir}");
     for level in 0..8 {
         assert_eq!(
@@ -451,6 +476,7 @@ fn repeated_constant_returning_calls_share_effects_without_expanding_the_call_gr
     assert_eq!(
         interpreter
             .qirgen_from_callable(&target, Value::unit())
+            .map(|result| result.qir)
             .expect("runtime QIR"),
         qir
     );
@@ -473,6 +499,7 @@ fn argument_dependent_results_remain_distinct_across_effectful_calls() {
     );
     let qir = interpreter
         .qirgen("Main()")
+        .map(|result| result.qir)
         .expect("argument-dependent QIR");
     assert!(qir.contains("int_record_output(i64 2,"), "{qir}");
     assert!(qir.contains("int_record_output(i64 5,"), "{qir}");
@@ -482,6 +509,7 @@ fn argument_dependent_results_remain_distinct_across_effectful_calls() {
     assert_eq!(
         interpreter
             .qirgen_from_callable(&target, Value::unit())
+            .map(|result| result.qir)
             .expect("runtime QIR"),
         qir
     );
@@ -508,10 +536,14 @@ fn loop_condition_tuple_shift_preserves_measurement_selected_output() {
         let mut interpreter = interpreter_with_capabilities(profile.into());
         eval_fragments(&mut interpreter, source);
         assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::Int(5));
-        let source_qir = interpreter.qirgen("Main()").expect("source QIR");
+        let source_qir = interpreter
+            .qirgen("Main()")
+            .map(|result| result.qir)
+            .expect("source QIR");
         let target = eval_fragments(&mut interpreter, "Main");
         let runtime_qir = interpreter
             .qirgen_from_callable(&target, Value::unit())
+            .map(|result| result.qir)
             .expect("runtime QIR");
         assert_eq!(source_qir, runtime_qir, "{profile:?}");
         if profile != Profile::Adaptive {
@@ -583,10 +615,12 @@ fn loop_carried_result_selection_requires_dynamic_result_support() {
     );
     interpreter
         .qirgen("Test.Main()")
+        .map(|result| result.qir)
         .expect("Adaptive source QIR");
     let target = eval_fragments(&mut interpreter, "Test.Main");
     interpreter
         .qirgen_from_callable(&target, Value::unit())
+        .map(|result| result.qir)
         .expect("Adaptive runtime QIR");
 }
 
@@ -618,15 +652,22 @@ fn unwrapped_callable_preserves_its_operation() {
             eval_fragments(&mut interpreter, "Main()"),
             Value::Result(qsc_eval::val::Result::Val(true))
         );
-        let expected = interpreter.qirgen("Expected()").expect("direct X QIR");
+        let expected = interpreter
+            .qirgen("Expected()")
+            .map(|result| result.qir)
+            .expect("direct X QIR");
         assert_eq!(
-            interpreter.qirgen("Main()").expect("unwrapped X QIR"),
+            interpreter
+                .qirgen("Main()")
+                .map(|result| result.qir)
+                .expect("unwrapped X QIR"),
             expected
         );
         let target = eval_fragments(&mut interpreter, "Main");
         assert_eq!(
             interpreter
                 .qirgen_from_callable(&target, Value::unit())
+                .map(|result| result.qir)
                 .expect("runtime QIR"),
             expected
         );
@@ -661,9 +702,11 @@ fn skipped_short_circuit_return_compiles_to_true() {
         let target = eval_fragments(&mut interpreter, "Test.Main");
         interpreter
             .qirgen_from_callable(&target, Value::unit())
+            .map(|result| result.qir)
             .expect("runtime QIR for skipped return");
         interpreter
             .qirgen("Test.Main()")
+            .map(|result| result.qir)
             .expect("source QIR for skipped return");
     }
 }
@@ -685,37 +728,37 @@ fn measured_short_circuit_callable_reassignment_compiles_on_restricted_profiles(
         let mut interpreter = interpreter_with_capabilities(profile.into());
         eval_fragments(&mut interpreter, source);
         assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::Int(6));
-        let source_qir = interpreter.qirgen("Main()").expect("source QIR");
+        let source_qir = interpreter
+            .qirgen("Main()")
+            .map(|result| result.qir)
+            .expect("source QIR");
         let target = eval_fragments(&mut interpreter, "Main");
         let runtime_qir = interpreter
             .qirgen_from_callable(&target, Value::unit())
+            .map(|result| result.qir)
             .expect("runtime QIR");
         assert_eq!(source_qir, runtime_qir, "{profile:?}");
         let expected_entry = if profile == Profile::Adaptive {
             expect![[r#"
                 block_0:
                   %var_0 = alloca i1
-                  %var_4 = alloca i1
                   %var_5 = alloca i1
                   %var_7 = alloca i64
-                  %var_8 = alloca i64
                   call void @__quantum__rt__initialize(ptr null)
                   store i1 false, ptr %var_0
                   call void @X(ptr inttoptr (i64 0 to ptr))
                   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                   %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
                   store i1 %var_2, ptr %var_0
-                  %var_11 = load i1, ptr %var_0
-                  store i1 %var_11, ptr %var_4
+                  %var_4 = load i1, ptr %var_0
                   store i1 false, ptr %var_5
-                  %var_14 = load i1, ptr %var_4
-                  br i1 %var_14, label %block_1, label %block_2
+                  br i1 %var_4, label %block_1, label %block_2
                 block_1:
                   store i1 true, ptr %var_5
                   br label %block_2
                 block_2:
-                  %var_15 = load i1, ptr %var_0
-                  br i1 %var_15, label %block_3, label %block_4
+                  %var_12 = load i1, ptr %var_0
+                  br i1 %var_12, label %block_3, label %block_4
                 block_3:
                   store i64 6, ptr %var_7
                   br label %block_5
@@ -723,10 +766,8 @@ fn measured_short_circuit_callable_reassignment_compiles_on_restricted_profiles(
                   store i64 4, ptr %var_7
                   br label %block_5
                 block_5:
-                  %var_17 = load i64, ptr %var_7
-                  store i64 %var_17, ptr %var_8
-                  %var_19 = load i64, ptr %var_8
-                  call void @__quantum__rt__int_record_output(i64 %var_19, ptr @0)
+                  %var_8 = load i64, ptr %var_7
+                  call void @__quantum__rt__int_record_output(i64 %var_8, ptr @0)
                   ret i64 0"#]]
         } else {
             expect![[r#"
@@ -789,9 +830,11 @@ fn runtime_saved_generic_closure_instantiates_capture_types() {
         eval_fragments(&mut interpreter, source);
         let expected = interpreter
             .qirgen("Run(SaveInt(Phase, 1))")
+            .map(|result| result.qir)
             .expect("concrete source QIR");
         let generic_source = interpreter
             .qirgen("Run(Save(Phase, 1))")
+            .map(|result| result.qir)
             .expect("generic source QIR");
         assert_eq!(qir_entry_body(&generic_source), qir_entry_body(&expected));
         for argument in [
@@ -803,6 +846,7 @@ fn runtime_saved_generic_closure_instantiates_capture_types() {
             let value = eval_fragments(&mut interpreter, argument);
             let runtime_qir = interpreter
                 .qirgen_from_callable(&target, value)
+                .map(|result| result.qir)
                 .expect("saved closure QIR");
             assert_eq!(
                 qir_entry_body(&runtime_qir),
@@ -814,9 +858,11 @@ fn runtime_saved_generic_closure_instantiates_capture_types() {
         let missing = eval_fragments(&mut interpreter, "Missing(1)");
         let runtime_qir = interpreter
             .qirgen_from_callable(&target, missing)
+            .map(|result| result.qir)
             .expect("body-only type arguments are retained by the saved closure");
         let body_only_source = interpreter
             .qirgen("Run(Missing(1))")
+            .map(|result| result.qir)
             .expect("body-only source instantiation");
         assert_eq!(runtime_qir, body_only_source);
     }
@@ -850,11 +896,18 @@ fn recursive_projected_factory_preserves_closure_input() {
     ] {
         let mut interpreter = interpreter_with_capabilities(profile.into());
         eval_fragments(&mut interpreter, source);
-        let expected = interpreter.qirgen("Expected()").expect("reference QIR");
-        let source_qir = interpreter.qirgen("Run()").expect("source QIR");
+        let expected = interpreter
+            .qirgen("Expected()")
+            .map(|result| result.qir)
+            .expect("reference QIR");
+        let source_qir = interpreter
+            .qirgen("Run()")
+            .map(|result| result.qir)
+            .expect("source QIR");
         let target = eval_fragments(&mut interpreter, "Run");
         let runtime_qir = interpreter
             .qirgen_from_callable(&target, Value::Tuple(Vec::new().into(), None))
+            .map(|result| result.qir)
             .expect("runtime entry QIR");
         assert_eq!(source_qir, expected, "{profile:?}: source closure input");
         assert_eq!(runtime_qir, expected, "{profile:?}: runtime closure input");
@@ -909,13 +962,18 @@ fn nested_callable_arrays_preserve_different_length_environments() {
             ("MakeAll([MakeAll([H, H]), MakeAll([X])])", "Reverse()"),
             ("MakeAll([MakeAll([I, I, X]), MakeAll([I])])", "Flip()"),
         ] {
-            let expected = interpreter.qirgen(reference).expect("reference QIR");
+            let expected = interpreter
+                .qirgen(reference)
+                .map(|result| result.qir)
+                .expect("reference QIR");
             let source_qir = interpreter
                 .qirgen(&format!("Run({argument})"))
+                .map(|result| result.qir)
                 .expect("source QIR");
             let value = eval_fragments(&mut interpreter, argument);
             let runtime_qir = interpreter
                 .qirgen_from_callable(&target, value)
+                .map(|result| result.qir)
                 .expect("runtime argument QIR");
             // Adaptive helper parameter IDs can differ; entry calls must preserve group order.
             assert_eq!(
@@ -956,10 +1014,12 @@ fn nested_function_arrays_preserve_different_length_environments() {
         ] {
             let source_qir = interpreter
                 .qirgen(&format!("Run({argument})"))
+                .map(|result| result.qir)
                 .expect("source QIR");
             let value = eval_fragments(&mut interpreter, argument);
             let runtime_qir = interpreter
                 .qirgen_from_callable(&target, value)
+                .map(|result| result.qir)
                 .expect("runtime argument QIR");
             let output = format!("__quantum__rt__int_record_output(i64 {expected},");
             assert!(
@@ -1024,8 +1084,11 @@ fn closure_factory_preserves_mutable_qubit_capture_time() {
             }
             let mut interpreter = interpreter_with_capabilities(profile.into());
             eval_fragments(&mut interpreter, &source);
-            let expected = interpreter.qirgen("Expected()").expect("snapshot control");
-            match interpreter.qirgen("Run()") {
+            let expected = interpreter
+                .qirgen("Expected()")
+                .map(|result| result.qir)
+                .expect("snapshot control");
+            match interpreter.qirgen("Run()").map(|result| result.qir) {
                 Ok(actual) => assert_eq!(
                     qir_entry_body(&actual),
                     qir_entry_body(&expected),
@@ -1074,11 +1137,13 @@ fn runtime_nested_adjoint_closures_preserve_within_apply() {
         eval_fragments(&mut interpreter, source);
         let expected = interpreter
             .qirgen(&format!("Run({argument})"))
+            .map(|result| result.qir)
             .expect("source entry QIR");
         let target = eval_fragments(&mut interpreter, "Run");
         let value = eval_fragments(&mut interpreter, argument);
         let actual = interpreter
             .qirgen_from_callable(&target, value)
+            .map(|result| result.qir)
             .expect("runtime nested closure QIR");
         assert_eq!(
             qir_entry_body(&actual),
@@ -1126,11 +1191,13 @@ fn runtime_nested_closures_preserve_callable_and_integer_captures() {
         eval_fragments(&mut interpreter, source);
         let expected = interpreter
             .qirgen(&format!("RunWrapped({argument})"))
+            .map(|result| result.qir)
             .expect("source entry QIR");
         let target = eval_fragments(&mut interpreter, "RunWrapped");
         let value = eval_fragments(&mut interpreter, argument);
         let actual = interpreter
             .qirgen_from_callable(&target, value)
+            .map(|result| result.qir)
             .expect("runtime mixed capture QIR");
         assert_eq!(
             qir_entry_body(&actual),

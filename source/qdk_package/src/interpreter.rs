@@ -71,6 +71,33 @@ use std::{cell::RefCell, fmt::Write, path::PathBuf, rc::Rc, str::FromStr, sync::
 /// If the classes are not Send, the Python interpreter
 /// will not be able to use them in a separate thread.
 ///
+pub(crate) type QirOutput = (String, Vec<(String, String)>);
+
+pub(crate) fn qir_output(result: qsc::codegen::qir::QirGenerationResult) -> QirOutput {
+    let warnings = result
+        .warnings
+        .into_iter()
+        .map(|warning| {
+            (
+                warning
+                    .code()
+                    .map(|code| code.to_string())
+                    .unwrap_or_default(),
+                qsc::error::diagnostic_message(&warning),
+            )
+        })
+        .collect();
+    (result.qir, warnings)
+}
+
+/// Compatibility entry points use the same Python presentation policy as public APIs.
+pub(crate) fn report_qir_warnings(py: Python<'_>, result: QirOutput) -> PyResult<String> {
+    py.import("qdk._diagnostics")?
+        .getattr("report_qir_warnings")?
+        .call1((result,))?
+        .extract()
+}
+
 /// This function is used to verify that the classes are Send.
 /// The code will fail to compile if the classes are not Send.
 ///
@@ -475,11 +502,8 @@ impl Interpreter {
                 panic!("file system hooks should have been passed in with a manifest descriptor")
             }
         } else {
-            let graph = PackageGraphSources::with_no_dependencies(
-                Vec::default(),
-                LanguageFeatures::from_iter(language_features),
-                None,
-            );
+            let graph =
+                PackageGraphSources::with_no_dependencies(Vec::default(), language_features, None);
             BuildableProgram::new(target, graph)
         };
 
@@ -897,9 +921,21 @@ impl Interpreter {
         callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
     ) -> PyResult<String> {
+        let result = self.qir_with_diagnostics(py, entry_expr, callable, args)?;
+        report_qir_warnings(py, result)
+    }
+
+    #[pyo3(signature=(entry_expr=None, callable=None, args=None))]
+    fn qir_with_diagnostics(
+        &mut self,
+        py: Python,
+        entry_expr: Option<&str>,
+        callable: Option<Py<PyAny>>,
+        args: Option<Py<PyAny>>,
+    ) -> PyResult<QirOutput> {
         if let Some(entry_expr) = entry_expr {
-            match self.interpreter.qirgen(entry_expr) {
-                Ok(qir) => Ok(qir),
+            match self.interpreter.qirgen_with_diagnostics(entry_expr) {
+                Ok(result) => Ok(qir_output(result)),
                 Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
             }
         } else {
@@ -914,8 +950,11 @@ impl Interpreter {
                 args,
                 &self.callable_owner,
             )?;
-            match self.interpreter.qirgen_from_callable(&callable, args) {
-                Ok(qir) => Ok(qir),
+            match self
+                .interpreter
+                .qirgen_from_callable_with_diagnostics(&callable, args)
+            {
+                Ok(result) => Ok(qir_output(result)),
                 Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
             }
         }

@@ -52,6 +52,15 @@ def test_relocation_preserves_signed_operators_and_gauges() -> None:
     assert code.support == frozenset({0, 1, 2})
 
 
+def test_logical_basis_with_non_contiguous_support_is_valid() -> None:
+    logical_basis = [Pauli("X_0 X_2 X_4"), Pauli("Z_4")]
+
+    code = SubsystemCode([Pauli("Z_0 Z_2"), Pauli("Z_2 Z_4")], logical_basis)
+
+    assert code.logical_basis == logical_basis
+    assert is_symplectic_basis(logical_basis)
+
+
 def assert_consistency_of(code: SubsystemCode) -> None:
     assert_code_generators(code)
     assert_valid_logical_basis(code)

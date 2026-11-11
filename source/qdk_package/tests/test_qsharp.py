@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from textwrap import dedent
+from pathlib import Path
 import pytest
 from qdk import qsharp
 from qdk._native import QSharpError
@@ -9,6 +10,307 @@ from qdk.simulation import run_qir
 import qdk.code
 from contextlib import redirect_stdout
 import io
+import warnings
+import sys
+
+ADAPTIVE_FALLBACK_SOURCE = """
+operation Count(q : Qubit) : Int {
+    mutable n = 0;
+    for _ in 1..3 { X(q); set n += 1; }
+    n
+}
+operation Main() : (Int, Result[]) {
+    use q = Qubit(); let n = Count(q); use qs = Qubit[n];
+    let rs = MResetEachZ(qs);
+    (n + (MResetZ(q) == One ? 10 | 0), rs)
+}
+"""
+
+TRANSFORM_WARNING_SOURCE = (
+    "operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }\n"
+    "operation Main() : Result { use q = Qubit();\n"
+    + "".join(f"Apply(q1 => Rx({angle}.0, q1), q);\n" for angle in range(1, 12))
+    + "MResetZ(q) }\n"
+)
+
+STRUCT_RETURN_LIBRARY_SOURCE = """
+namespace Test {
+    struct Counted { Count : Int }
+    operation Tally(q : Qubit) : Counted {
+        mutable n = 0;
+        for _ in 1..3 { X(q); set n += 1; }
+        new Counted { Count = n }
+    }
+    operation Apply(op : Qubit => Unit) : Result {
+        use q = Qubit();
+        op(q);
+        MResetZ(q)
+    }
+    operation Run() : (Int, Result, Result[]) {
+        use q = Qubit();
+        let value = Tally(q);
+        use qs = Qubit[value.Count];
+        for target in qs { X(target); }
+        (value.Count, MResetZ(q), MResetEachZ(qs))
+    }
+}
+"""
+
+
+def assert_specialization_warning_message(message: str) -> None:
+    assert "Qdk.Qsc.Defunctionalize.ExcessiveSpecializations" in message
+    assert "higher-order function `Apply" in message
+    assert "generated 11 specializations, exceeding the warning threshold" in message
+    assert (
+        "help: consider reducing the number of distinct callable arguments" in message
+    )
+    assert "FIR transform error" not in message
+
+
+def test_transform_warning_adaptive_preserves_message_and_help() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(TRANSFORM_WARNING_SOURCE)
+    with pytest.warns(UserWarning, match="ExcessiveSpecializations") as caught:
+        program = ctx.compile("Main()")
+    assert len(caught) == 1
+    assert_specialization_warning_message(str(caught[0].message))
+    assert "__quantum__qis__rx__body" in str(program)
+
+
+def test_transform_warning_rif_preserves_message_and_help() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    ctx.eval(TRANSFORM_WARNING_SOURCE)
+    with pytest.warns(UserWarning, match="ExcessiveSpecializations") as caught:
+        program = ctx.compile("Main()")
+    assert len(caught) == 1
+    assert_specialization_warning_message(str(caught[0].message))
+    assert "__quantum__qis__rx__body" in str(program)
+
+
+def test_transform_warning_native_details_are_complete_without_presentation() -> None:
+    from qdk._interpreter import get_interpreter
+
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(TRANSFORM_WARNING_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        qir, diagnostics = get_interpreter().qir_with_diagnostics("Main()")
+    assert not caught
+    assert len(diagnostics) == 1
+    code, message = diagnostics[0]
+    assert_specialization_warning_message(f"{code}: {message}")
+    assert "__quantum__qis__rx__body" in qir
+
+
+def test_transform_warning_can_still_be_promoted_to_error() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(TRANSFORM_WARNING_SOURCE)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        with pytest.raises(UserWarning, match="generated 11 specializations"):
+            ctx.compile("Main()")
+
+
+def test_admission_fallback_preserves_adaptive_closure_codegen(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "qsharp.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "Library.qs").write_text(
+        STRUCT_RETURN_LIBRARY_SOURCE,
+        encoding="utf-8",
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        ctx = qdk.Context(
+            target_profile=qsharp.TargetProfile.Adaptive, project_root=str(tmp_path)
+        )
+        closure = ctx.eval("q => X(q)")
+        program = str(ctx.compile(ctx.code.Test.Apply, closure))
+
+    assert not caught
+    assert '!"qir_major_version", i32 2' in program
+    assert run_qir(program, shots=3, type="cpu") == [qsharp.Result.One] * 3
+
+
+def test_adaptive_library_struct_return_qir_matches_simulation_and_quantum_effects(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "qsharp.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "Library.qs").write_text(
+        STRUCT_RETURN_LIBRARY_SOURCE, encoding="utf-8"
+    )
+    ctx = qdk.Context(
+        target_profile=qsharp.TargetProfile.Adaptive, project_root=str(tmp_path)
+    )
+    expected = [(3, qsharp.Result.One, [qsharp.Result.One] * 3)] * 3
+    assert ctx.run(ctx.code.Test.Run, shots=3) == expected
+
+    with pytest.warns(
+        UserWarning, match="Qdk.Qsc.Codegen.AdaptiveProfileFallback"
+    ) as caught:
+        program = str(ctx.compile(ctx.code.Test.Run))
+
+    assert len(caught) == 1
+    assert '!"qir_major_version", i32 1' in program
+    assert run_qir(program, shots=3, type="cpu") == expected
+    assert ctx.run(ctx.code.Test.Run, shots=3) == expected
+
+
+def test_adaptive_fallback_failed_project_reports_original_errors_and_one_note(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "qsharp.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "Main.qs").write_text(
+        "@EntryPoint() operation Main() : Result[] { use q = Qubit(); "
+        "let n = MResetZ(q) == One ? 3 | 2; use qs = Qubit[n]; MResetEachZ(qs) }",
+        encoding="utf-8",
+    )
+    with pytest.raises(QSharpError) as caught:
+        qdk.Context(
+            target_profile=qsharp.TargetProfile.Adaptive, project_root=str(tmp_path)
+        )
+    message = str(caught.value)
+    assert message.count("Adaptive_RIF fallback was also rejected") == 1
+    assert "UseOfDynamicallySizedArray" in message
+    assert "LoopWithDynamicCondition" not in message
+    assert "UseOfDynamicQubit" not in message
+    assert "UseOfDynamicIndex" not in message
+
+
+def test_adaptive_fallback_expression_warning_and_cpu_semantics() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    expected = (13, [qsharp.Result.Zero] * 3)
+    assert qsharp.eval("Main()") == expected
+    with pytest.warns(
+        UserWarning, match="Qdk.Qsc.Codegen.AdaptiveProfileFallback"
+    ) as caught:
+        program = str(qsharp.compile("Main()"))
+    assert len(caught) == 1
+    assert "QIR 1.0" in str(caught[0].message)
+    assert run_qir(program, shots=1, type="cpu") == [expected]
+    assert program.count("call void @__quantum__qis__x__body(") == 3
+    reference = ADAPTIVE_FALLBACK_SOURCE.replace(
+        "let n = Count(q);", "X(q); X(q); X(q); let n = 3;"
+    )
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qsharp.eval(reference)
+    assert qsharp.eval("Main()") == expected
+    assert run_qir(str(qsharp.compile("Main()")), shots=1, type="cpu") == [expected]
+
+
+def test_adaptive_fallback_warning_can_be_promoted_to_error() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        with pytest.raises(UserWarning, match="AdaptiveProfileFallback"):
+            qsharp.compile("Main()")
+
+
+def test_adaptive_fallback_global_warning_points_to_user_call() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        line = sys._getframe().f_lineno + 1
+        qsharp.compile("Main()")
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert caught[0].lineno == line
+
+
+def test_adaptive_fallback_context_warning_points_to_user_call() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        line = sys._getframe().f_lineno + 1
+        ctx.compile("Main()")
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert caught[0].lineno == line
+
+
+def test_adaptive_fallback_default_filter_distinguishes_user_call_sites() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("default")
+        ctx.compile("Main()")
+        ctx.compile("Main()")
+    assert len(caught) == 2
+    assert caught[0].lineno != caught[1].lineno
+
+
+def test_adaptive_fallback_warning_respects_user_module_filter() -> None:
+    ctx = qdk.Context(target_profile=qsharp.TargetProfile.Adaptive)
+    ctx.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("ignore", category=UserWarning, module=f"^{__name__}$")
+        ctx.compile("Main()")
+    assert not caught
+
+
+def test_adaptive_fallback_native_details_do_not_present_warnings() -> None:
+    from qdk._interpreter import get_interpreter
+
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        qir, diagnostics = get_interpreter().qir_with_diagnostics("Main()")
+    assert not caught
+    assert diagnostics[0][0] == "Qdk.Qsc.Codegen.AdaptiveProfileFallback"
+    assert len(diagnostics) == 1
+    assert run_qir(qir, shots=1, type="cpu") == [(13, [qsharp.Result.Zero] * 3)]
+
+
+def test_adaptive_fallback_native_compatibility_warning_uses_python_caller_policy() -> (
+    None
+):
+    from qdk._interpreter import get_interpreter
+
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qsharp.eval(ADAPTIVE_FALLBACK_SOURCE)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        line = sys._getframe().f_lineno + 1
+        qir = get_interpreter().qir("Main()")
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert caught[0].lineno == line
+    assert "Qdk.Qsc.Codegen.AdaptiveProfileFallback" in str(caught[0].message)
+    assert run_qir(qir, shots=1, type="cpu") == [(13, [qsharp.Result.Zero] * 3)]
+
+
+def test_qir_warning_without_frame_support_is_still_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from qdk._diagnostics import report_qir_warnings
+
+    monkeypatch.setattr("qdk._diagnostics.inspect.currentframe", lambda: None)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = report_qir_warnings(("qir", [("test.code", "warning detail")]))
+    assert result == "qir"
+    assert len(caught) == 1
+    assert caught[0].category is UserWarning
+    assert str(caught[0].message) == "test.code: warning detail"
+    assert caught[0].filename == __file__
+
+
+def test_adaptive_fallback_normal_success_has_no_warning() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        qsharp.compile("{ use q = Qubit(); MResetZ(q) }")
+    assert not caught
+
 
 # Tests for the Python library for Q#
 

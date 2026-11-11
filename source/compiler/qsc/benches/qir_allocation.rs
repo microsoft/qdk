@@ -36,7 +36,8 @@ fn qubit_array_allocation(c: &mut Criterion) {
     let qir = interpreter
         .qirgen(EXPRESSION)
         .expect("allocation should generate QIR");
-    assert!(qir.contains("\"required_num_qubits\"=\"20000\""));
+    assert!(qir.warnings.is_empty(), "{:?}", qir.warnings);
+    assert!(qir.qir.contains("\"required_num_qubits\"=\"20000\""));
 
     c.bench_function("qir/qubit_array_allocation/20000", |b| {
         b.iter(|| {

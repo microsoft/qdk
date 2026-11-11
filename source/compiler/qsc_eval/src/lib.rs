@@ -191,6 +191,9 @@ pub enum Error {
     UnboundName(#[label] PackageSpan),
 
     #[error("unknown intrinsic `{0}`")]
+    #[diagnostic(help(
+        "provide a simulation implementation using the `@SimulatorIntrinsic()` attribute"
+    ))]
     #[diagnostic(code("Qdk.Qsc.Eval.UnknownIntrinsic"))]
     UnknownIntrinsic(
         String,

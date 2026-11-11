@@ -17,8 +17,11 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     codegen::qir::{
-        CallableArgsBackend, CodegenFir, entry_from_codegen_fir, prepare_codegen_fir,
-        prepare_codegen_fir_from_fir_store, prepare_codegen_fir_from_typed_callable_args,
+        CallableArgsBackend, CodegenFir, QirGenerationResult, RirGenerationResult,
+        entry_from_codegen_fir, prepare_codegen_fir, prepare_codegen_fir_from_fir_store,
+        prepare_codegen_fir_from_typed_callable_args,
+        prepare_codegen_fir_from_typed_callable_args_with_policy, prepare_qir_fir,
+        prepare_qir_fir_from_fir_store,
     },
     error::{self, WithStack},
     incremental::Compiler,
@@ -102,18 +105,21 @@ fn runtime_functors_to_hir(
 /// Checks target capabilities without changing the interpreter's execution FIR.
 ///
 /// Raw FIR can contain constructs that codegen removes, such as a skipped return
-/// or an indirect callable dispatch. If the ordinary capability check rejects
-/// the package, try to prove each failing scope supported by running the codegen
-/// transform pipeline and capability checks on a disposable copy.
+/// or an indirect callable dispatch. If full Adaptive rejects the package,
+/// first try the unchanged store under `Adaptive_RIF`. If that also fails, try
+/// to prove each failing scope supported by running the codegen transform
+/// pipeline and capability checks on a disposable copy.
 ///
-/// This fallback only admits closed roots: nongeneric Unit-input callables
-/// without a callable parent, or direct item calls to such callables with literal
-/// Unit arguments and no generic arguments. It never invents argument values or
-/// consults live interpreter locals. Every failing scope must pass independently.
+/// The transformed proof only admits closed roots: nongeneric Unit-input
+/// callables without a callable parent, or direct item calls to such callables
+/// with literal Unit arguments and no generic arguments. It never invents
+/// argument values or consults live interpreter locals. Every failing scope
+/// must pass independently.
 ///
-/// On success, the returned compute properties describe the original store, not
-/// the transformed copies. They can still contain features eliminated only in
-/// those copies; acceptance does not rewrite the FIR used for execution/debugging.
+/// On success, the returned compute properties describe the original store and
+/// requested capabilities, not the proof's profile or transformed copies.
+/// Acceptance does not rewrite the FIR used for execution/debugging or select
+/// the backend for later code generation.
 ///
 /// # Errors
 /// Returns the original capability diagnostics if a scope is outside the proof
@@ -124,7 +130,7 @@ fn runtime_functors_to_hir(
 /// # Panics
 /// Panics if compiler invariants are violated, such as a failed capability check
 /// with no failing scope, or a scope referring to missing or non-callable FIR.
-fn validate_increment_capabilities(
+pub fn validate_increment_capabilities(
     store: &fir::PackageStore,
     package_id: PackageId,
     capabilities: TargetCapabilityFlags,
@@ -139,6 +145,12 @@ fn validate_increment_capabilities(
     // The failed check returned errors rather than its analysis. Recompute
     // properties for scope attribution and for the eventual original-store result.
     let properties = qsc_rca::Analyzer::init(store, capabilities).analyze_all();
+    if crate::codegen::qir::adaptive_fallback_eligible(capabilities, &original_errors)
+        && PassContext::run_fir_passes_on_fir(store, package_id, Profile::AdaptiveRIF.into())
+            .is_ok()
+    {
+        return Ok(properties);
+    }
     // Some(item) identifies a declaration body; None identifies the entry.
     // Group by owner rather than filtering particular diagnostic codes.
     let scopes =
@@ -235,7 +247,13 @@ fn validate_increment_capabilities(
         }
         // Recompute analysis for the transformed IDs and check the whole surviving
         // package, including any specialized callees, not just the original root.
-        if PassContext::run_fir_passes_on_fir(&validation_store, package_id, capabilities).is_err()
+        if crate::codegen::qir::analyze_capabilities_with_fallback(
+            &validation_store,
+            package_id,
+            None,
+            capabilities,
+        )
+        .is_err()
         {
             return Err(original_errors);
         }
@@ -257,6 +275,9 @@ impl Error {
 
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    AdaptiveProfileFallback(crate::codegen::qir::AdaptiveProfileFallback),
     #[error(transparent)]
     #[diagnostic(transparent)]
     Compile(#[from] crate::compile::Error),
@@ -285,7 +306,7 @@ pub enum Error {
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]
     PartialEvaluation(#[from] WithSource<qsc_partial_eval::Error>),
-    #[error("FIR transform error")]
+    #[error(transparent)]
     #[diagnostic(transparent)]
     FirTransform(#[from] WithSource<qsc_fir_transforms::PipelineError>),
 }
@@ -303,6 +324,8 @@ pub struct Interpreter {
     compiler: Compiler,
     /// The target capabilities used for compilation.
     capabilities: TargetCapabilityFlags,
+    /// The language features used for compilation.
+    language_features: LanguageFeatures,
     /// The number of lines that have so far been compiled.
     /// This field is used to generate a unique label
     /// for each line evaluated with `eval_fragments`.
@@ -469,7 +492,13 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
-        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
+        Self::with_compiler(
+            eval_config,
+            capabilities,
+            language_features,
+            circuit_tracer_config,
+            compiler,
+        )
     }
 
     pub fn with_package_store(
@@ -502,12 +531,19 @@ impl Interpreter {
             ExecGraphConfig::NoDebug
         };
 
-        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
+        Self::with_compiler(
+            eval_config,
+            capabilities,
+            language_features,
+            circuit_tracer_config,
+            compiler,
+        )
     }
 
     fn with_compiler(
         eval_config: ExecGraphConfig,
         capabilities: TargetCapabilityFlags,
+        language_features: LanguageFeatures,
         circuit_tracer_config: Option<TracerConfig>,
         compiler: Compiler,
     ) -> std::result::Result<Interpreter, Vec<Error>> {
@@ -575,7 +611,13 @@ impl Interpreter {
             // The computed properties are intentionally discarded — only the `?`
             // error propagation is used to surface capability violations.
             let cap_results = if let Some(store) = &transformed_store {
-                PassContext::run_fir_passes_on_fir(store, fir_package_id, capabilities)
+                crate::codegen::qir::analyze_capabilities_with_fallback(
+                    store,
+                    fir_package_id,
+                    None,
+                    capabilities,
+                )
+                .map(|analysis| analysis.compute_properties)
             } else {
                 validate_increment_capabilities(&fir_store, fir_package_id, capabilities)
             };
@@ -583,7 +625,7 @@ impl Interpreter {
                 caps_errors
                     .into_iter()
                     .map(|error| {
-                        let sources = if let qsc_passes::Error::CapabilitiesCk(err) = &error {
+                        let sources = if let Some(err) = error.capability_error() {
                             let err_package = err.span().package;
                             &compiler
                                 .package_store()
@@ -603,6 +645,7 @@ impl Interpreter {
             compiler,
             lines: 0,
             capabilities,
+            language_features,
             fir_store,
             lowerer: qsc_lowerer::Lowerer::new(),
             expr_graph: None,
@@ -1508,21 +1551,100 @@ impl Interpreter {
 
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
     /// and simulator but using the current compilation.
-    pub fn qirgen(&mut self, expr: &str) -> std::result::Result<String, Vec<Error>> {
+    /// Returns QIR and nonfatal diagnostics for the caller to present, without
+    /// logging or publishing warnings.
+    pub fn qirgen(&mut self, expr: &str) -> std::result::Result<QirGenerationResult, Vec<Error>> {
+        self.qirgen_with_diagnostics(expr)
+    }
+
+    /// Generates QIR and retains warnings. Admission is silent; a successful
+    /// `Adaptive_RIF` fallback reports its effective QIR 1.0 backend exactly once.
+    pub fn qirgen_with_diagnostics(
+        &mut self,
+        expr: &str,
+    ) -> std::result::Result<QirGenerationResult, Vec<Error>> {
         if self.capabilities == TargetCapabilityFlags::all() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let prepared_fir = self.prepare_codegen_entry_expr(expr)?;
+        let prepared_fir = self.prepare_qir_entry_expr(expr)?;
         let entry = entry_from_codegen_fir(&prepared_fir);
-        let CodegenFir {
-            fir_store,
-            compute_properties,
-            ..
-        } = prepared_fir;
+        let qir = fir_to_qir(
+            &prepared_fir.fir_store,
+            prepared_fir.capabilities,
+            self.language_features,
+            &prepared_fir.compute_properties,
+            &entry,
+        )
+        .map_err(|e| self.partial_evaluation_error(e))?;
+        Ok(prepared_fir.generated(qir))
+    }
 
-        fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry)
-            .map_err(|e| self.partial_evaluation_error(e))
+    /// Prepares an entry expression for QIR generation or fallback-aware RIR preview.
+    ///
+    /// If `expr` exactly matches the source package's reconstructed `@EntryPoint`
+    /// call, prepares that already-compiled package without recompiling the
+    /// expression. Otherwise, compiles `expr` into the interactive package,
+    /// updating the compiler and FIR state, then prepares a clone of the current
+    /// FIR store.
+    ///
+    /// Both paths apply codegen transformations and capability analysis, allowing
+    /// bounded fallback from full Adaptive to `Adaptive_RIF`. The returned
+    /// `CodegenFir` retains the effective capabilities, transformation warnings,
+    /// and any fallback reason for the caller to report after successful generation.
+    /// This method neither executes the expression nor generates QIR or RIR.
+    ///
+    /// # Errors
+    ///
+    /// Returns expression-compilation, transformation, or capability-analysis
+    /// diagnostics if the entry expression cannot be prepared.
+    fn prepare_qir_entry_expr(
+        &mut self,
+        expr: &str,
+    ) -> std::result::Result<CodegenFir, Vec<Error>> {
+        if self.entry_point_call_expr().as_deref() == Some(expr) {
+            prepare_qir_fir(
+                self.compiler.package_store(),
+                map_fir_package_to_hir(self.source_package),
+                self.capabilities,
+            )
+        } else {
+            let _ = self.compile_entry_expr(expr)?;
+            prepare_qir_fir_from_fir_store(
+                self.compiler.package_store(),
+                map_fir_package_to_hir(self.package),
+                &self.fir_store,
+                self.package,
+                self.capabilities,
+            )
+        }
+    }
+
+    /// Generates backend-preview RIR using QIR's bounded fallback and retaining warnings.
+    /// The existing `get_rir` method remains strict.
+    pub fn get_rir_with_diagnostics(
+        &mut self,
+        expr: &str,
+    ) -> std::result::Result<RirGenerationResult, Vec<Error>> {
+        if self.capabilities == TargetCapabilityFlags::all() {
+            return Err(vec![Error::UnsupportedRuntimeCapabilities]);
+        }
+        let prepared_fir = self.prepare_qir_entry_expr(expr)?;
+        let entry = entry_from_codegen_fir(&prepared_fir);
+        let (raw, ssa) = fir_to_rir(
+            &prepared_fir.fir_store,
+            prepared_fir.capabilities,
+            &prepared_fir.compute_properties,
+            &entry,
+            PartialEvalConfig {
+                generate_debug_metadata: true,
+                ignore_stack_limit: self
+                    .language_features
+                    .contains(LanguageFeatures::IgnoreStackLimit),
+            },
+        )
+        .map_err(|e| self.partial_evaluation_error(e))?;
+        Ok(prepared_fir.generated_rir(vec![raw.to_string(), ssa.to_string()]))
     }
 
     /// Performs RIR codegen using the given entry expression on a new instance of the environment
@@ -1542,6 +1664,9 @@ impl Interpreter {
             &entry,
             PartialEvalConfig {
                 generate_debug_metadata: true,
+                ignore_stack_limit: self
+                    .language_features
+                    .contains(LanguageFeatures::IgnoreStackLimit),
             },
         )
         .map_err(|e| {
@@ -1566,54 +1691,60 @@ impl Interpreter {
     /// The target must be a global value with no applied functors; closures can be
     /// supplied as arguments. Retained instantiations are consumed in private FIR,
     /// without changing the interpreter's source store or simulation behavior.
+    /// Returns QIR and nonfatal diagnostics for the caller to present, without
+    /// logging or publishing warnings.
     pub fn qirgen_from_callable(
         &mut self,
         callable: &Value,
         args: Value,
-    ) -> std::result::Result<String, Vec<Error>> {
+    ) -> std::result::Result<QirGenerationResult, Vec<Error>> {
+        self.qirgen_from_callable_with_diagnostics(callable, args)
+    }
+
+    /// Callable QIR generation retaining the successful attempt's diagnostics.
+    pub fn qirgen_from_callable_with_diagnostics(
+        &mut self,
+        callable: &Value,
+        args: Value,
+    ) -> std::result::Result<QirGenerationResult, Vec<Error>> {
         if self.capabilities == TargetCapabilityFlags::all() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
         let (callable_id, type_args) = Self::hir_item_id_from_value(callable)?;
         let backend_args = Self::remap_value_for_codegen(args);
-        let (prepared_fir, backend) = prepare_codegen_fir_from_typed_callable_args(
+        let (prepared_fir, backend) = prepare_codegen_fir_from_typed_callable_args_with_policy(
             self.compiler.package_store(),
             callable_id,
             &type_args,
             &backend_args,
             self.capabilities,
+            true,
         )?;
 
-        match backend {
+        let qir = match backend {
             CallableArgsBackend::SyntheticEntry => {
                 let entry = entry_from_codegen_fir(&prepared_fir);
-                let CodegenFir {
-                    fir_store,
-                    compute_properties,
-                    ..
-                } = prepared_fir;
-
-                fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry)
-                    .map_err(|e| self.partial_evaluation_error(e))
-            }
-            CallableArgsBackend::ReinvokeOriginal { callable, args } => {
-                let CodegenFir {
-                    fir_store,
-                    compute_properties,
-                    ..
-                } = prepared_fir;
-
-                fir_to_qir_from_callable(
-                    &fir_store,
-                    self.capabilities,
-                    &compute_properties,
-                    callable,
-                    args,
+                fir_to_qir(
+                    &prepared_fir.fir_store,
+                    prepared_fir.capabilities,
+                    self.language_features,
+                    &prepared_fir.compute_properties,
+                    &entry,
                 )
                 .map_err(|e| self.partial_evaluation_error(e))
             }
-        }
+            CallableArgsBackend::ReinvokeOriginal { callable, args } => fir_to_qir_from_callable(
+                &prepared_fir.fir_store,
+                prepared_fir.capabilities,
+                self.language_features,
+                &prepared_fir.compute_properties,
+                callable,
+                args,
+            )
+            .map_err(|e| self.partial_evaluation_error(e)),
+        }?;
+        Ok(prepared_fir.generated(qir))
     }
 
     /// Generates a circuit representation for the program.
@@ -1766,6 +1897,9 @@ impl Interpreter {
                     &entry,
                     PartialEvalConfig {
                         generate_debug_metadata: true,
+                        ignore_stack_limit: self
+                            .language_features
+                            .contains(LanguageFeatures::IgnoreStackLimit),
                     },
                 )
                 .map_err(|e| self.partial_evaluation_error(e))?;
@@ -1793,6 +1927,9 @@ impl Interpreter {
                     args,
                     PartialEvalConfig {
                         generate_debug_metadata: true,
+                        ignore_stack_limit: self
+                            .language_features
+                            .contains(LanguageFeatures::IgnoreStackLimit),
                     },
                 )
                 .map_err(|e| self.partial_evaluation_error(e))?;
@@ -1839,6 +1976,9 @@ impl Interpreter {
             &entry,
             PartialEvalConfig {
                 generate_debug_metadata: true,
+                ignore_stack_limit: self
+                    .language_features
+                    .contains(LanguageFeatures::IgnoreStackLimit),
             },
         )
         .map_err(|e| self.partial_evaluation_error(e))?;
@@ -2058,7 +2198,7 @@ impl Interpreter {
             caps_errors
                 .into_iter()
                 .map(|error| {
-                    let sources = if let qsc_passes::Error::CapabilitiesCk(err) = &error {
+                    let sources = if let Some(err) = error.capability_error() {
                         let err_package = err.span().package;
                         &self
                             .compiler

@@ -14,6 +14,7 @@ import {
   ICompiler,
   ICompilerWorker,
   compilerProtocol,
+  reportQirWarnings,
 } from "./compiler/compiler.js";
 import {
   IDebugService,
@@ -150,7 +151,17 @@ export function getCompilerWorker(
   worker: string | IWorkerHost,
 ): ICompilerWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(worker, wasmModule, compilerProtocol);
+  const compiler: ICompilerWorker = createProxy(
+    worker,
+    wasmModule,
+    compilerProtocol,
+  );
+  compiler.getQir = async (program) => {
+    const result = await compiler.getQirWithDiagnostics(program);
+    reportQirWarnings(result.warnings);
+    return result.qir;
+  };
+  return compiler;
 }
 
 export async function getLanguageService(
@@ -222,6 +233,10 @@ export {
 } from "./language-service/language-service.js";
 export type { Dump, ShotResult } from "./compiler/common.js";
 export type { CompilerState, ProgramConfig } from "./compiler/compiler.js";
+export type {
+  QirGenerationResult,
+  RirGenerationResult,
+} from "../lib/web/qsc_wasm.js";
 export type { ICompiler, ICompilerWorker } from "./compiler/compiler.js";
 export type {
   IDebugService,

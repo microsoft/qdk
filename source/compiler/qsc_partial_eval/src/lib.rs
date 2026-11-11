@@ -160,6 +160,14 @@ pub enum Error {
     #[error("unsupported use of simulation-only intrinsic `{0}`")]
     #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedSimulationIntrinsic"))]
     UnsupportedSimulationIntrinsic(String, #[label] PackageSpan),
+
+    #[error("compile-time stack limit exceeded")]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.StackLimitExceeded"))]
+    #[diagnostic(help(
+        "the compile-time stack limit has been exceeded, consider refactoring to reduce recursion depth"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#compile-time-stack-depth-limit"))]
+    StackLimitExceeded(#[label] PackageSpan),
 }
 
 impl From<EvalError> for Error {
@@ -180,7 +188,8 @@ impl Error {
             | Self::Unexpected(_, span)
             | Self::Unimplemented(_, span)
             | Self::UnsupportedTestCallable(span)
-            | Self::UnsupportedSimulationIntrinsic(_, span) => *span,
+            | Self::UnsupportedSimulationIntrinsic(_, span)
+            | Self::StackLimitExceeded(span) => *span,
         }
     }
 }
@@ -235,6 +244,7 @@ type ResolvedArguments = (Vec<Arg>, Option<Arg>, Vec<Rc<Vec<Value>>>);
 #[derive(Clone, Copy)]
 pub struct PartialEvalConfig {
     pub generate_debug_metadata: bool,
+    pub ignore_stack_limit: bool,
 }
 
 impl<'a> PartialEvaluator<'a> {
@@ -1683,6 +1693,7 @@ impl<'a> PartialEvaluator<'a> {
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
+        let call_span = self.get_expr_package_span(call_expr_id);
         let args_span = self.get_expr_package_span(args_expr_id);
         let (callee_control_flow, args_control_flow) =
             self.try_eval_callee_and_args(callee_expr_id, args_expr_id)?;
@@ -1858,7 +1869,13 @@ impl<'a> PartialEvaluator<'a> {
                         &arg_operands,
                     )?
                 } else {
-                    self.eval_expr_call_to_spec(call_scope, store_item_id, functor_app, spec_decl)?
+                    self.eval_expr_call_to_spec(
+                        call_scope,
+                        store_item_id,
+                        functor_app,
+                        spec_decl,
+                        Some(call_span),
+                    )?
                 }
             }
         };
@@ -1917,10 +1934,14 @@ impl<'a> PartialEvaluator<'a> {
                     return Err(Error::CapabilityError(error));
                 }
 
-                // If the call produces a variable value, we treat it as an error because we know that later
-                // analysis has not taken that variable into account and further partial evaluation may fail
+                // If the call produces a variable value that prior analysis did not account for, we treat it as an error because we know that later
+                // use of that variable is not taken into account by the prior analysis and further partial evaluation may fail
                 // when it encounters that value.
-                if value_kind == ValueKind::Variable {
+                if value_kind == ValueKind::Variable
+                    && !self
+                        .get_expr_compute_kind(call_expr_id)
+                        .is_variable_value_kind()
+                {
                     return Err(Error::UnexpectedDynamicValue(
                         self.get_expr_package_span(call_expr_id),
                     ));
@@ -1975,6 +1996,7 @@ impl<'a> PartialEvaluator<'a> {
             store_item_id,
             FunctorApp::default(),
             spec_decl,
+            None,
         )?;
         Ok(EvalControlFlow::Continue(value))
     }
@@ -2228,8 +2250,14 @@ impl<'a> PartialEvaluator<'a> {
         global_callable_id: StoreItemId,
         functor_app: FunctorApp,
         spec_decl: &SpecDecl,
+        call_span: Option<PackageSpan>,
     ) -> Result<Value, Error> {
-        self.eval_context.push_scope(call_scope);
+        if self.eval_context.push_scope(call_scope) > 100
+            && !self.config.ignore_stack_limit
+            && let Some(call_span) = call_span
+        {
+            return Err(Error::StackLimitExceeded(call_span));
+        }
 
         // Some arguments may include arrays with dynamic content, which we want to allow later instructions to index into.
         // To support this, we treat these as locally constant arrays and emit an RIR instruction to store their contents into a new

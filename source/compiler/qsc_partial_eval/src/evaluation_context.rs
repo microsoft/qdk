@@ -81,8 +81,9 @@ impl EvaluationContext {
     }
 
     /// Pushes a new (call) scope.
-    pub fn push_scope(&mut self, s: Scope) {
+    pub fn push_scope(&mut self, s: Scope) -> usize {
         self.scopes.push(s);
+        self.scopes.len()
     }
 
     /// Determines whether we are currently in a dynamic branch context for any scope.

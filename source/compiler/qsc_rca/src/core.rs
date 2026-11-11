@@ -436,7 +436,11 @@ impl<'a> Analyzer<'a> {
                 value_kind,
             }
         } else {
-            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
+            self.analyze_expr_call_with_static_callee(
+                callee_expr_id,
+                args_expr_id,
+                args_expr_compute_kind,
+            )
         };
 
         // Recursive and unresolved calls bypass the resolved-callee eligibility
@@ -674,16 +678,16 @@ impl<'a> Analyzer<'a> {
         compute_kind: &mut ComputeKind,
         mut ir_function_compute_kind: ComputeKind,
     ) -> bool {
-        let scalar_output = matches!(
-            callable_decl.output,
-            Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
-        );
+        let is_supported_output =
+            is_supported_variable_type(&callable_decl.output, self.target_capabilities);
         let constant_ir_output =
-            scalar_output && !ir_function_compute_kind.is_variable_value_kind();
+            is_supported_output && !ir_function_compute_kind.is_variable_value_kind();
 
         // Inline only when promoting the arguments would lose a known scalar result.
         // Parameter-independent constants can cross an IR-call boundary without expanding effects.
-        if scalar_output && !compute_kind.is_variable_value_kind() && !constant_ir_output {
+        if !compute_kind.is_variable_value_kind()
+            && ir_function_compute_kind.is_variable_value_kind()
+        {
             return true;
         }
         if !constant_ir_output && !matches!(ir_function_compute_kind, ComputeKind::Static) {
@@ -711,10 +715,7 @@ impl<'a> Analyzer<'a> {
             && get_missing_runtime_features(*runtime_features, self.target_capabilities)
                 .is_empty()
                 // ...and the callable's output type is a primitive type that can be returned from an IR function...
-                && (matches!(
-                    &callable_decl.output,
-                    Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
-                ) || callable_decl.output == Ty::UNIT)
+                && is_supported_output
             {
                 // ...then we can emit the callable as an IR function, and we update the compute kind of the call expression to reflect the
                 // capabilities of that IR function.
@@ -730,6 +731,7 @@ impl<'a> Analyzer<'a> {
         &mut self,
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
+        args_expr_compute_kind: ComputeKind,
     ) -> ComputeKind {
         // Try to resolve the callee.
         let package_id = self.get_current_package_id();
@@ -757,23 +759,6 @@ impl<'a> Analyzer<'a> {
             return compute_kind;
         };
 
-        if self.callee_in_active_contexts(&callee) {
-            // This is a recursive call, which we allow with some deferred capabilities checks at runtime.
-            // We treat the call as if it were an unresolved callee, like above, such that partial evaluation will perform
-            // extra validation on the capabilities at runtime. By adding the call expression to the list of unresolved callees,
-            // we ensure that the call is additionally validated at runtime regardless of any runtime flags.
-            // This runtime check covers the corner case where a recursive call is made with a dynamic argument whose
-            // type is allowed to be dynamic but whose usage in later recursion could require additional
-            // capabilities.
-            self.get_current_application_instance_mut()
-                .unresolved_callee_exprs
-                .push(callee_expr_id);
-            return ComputeKind::Dynamic {
-                runtime_features: RuntimeFeatureFlags::empty(),
-                value_kind: ValueKind::Constant,
-            };
-        }
-
         // We try to resolve the callee and determine the compute kind of the call depending on the callee kind.
         let Some(global_callee) = self.package_store.get_global(callee.item) else {
             // If the callee is not found, that is an indication that it is an item that was removed during
@@ -782,12 +767,63 @@ impl<'a> Analyzer<'a> {
             return ComputeKind::Static;
         };
         match global_callee {
-            Global::Callable(callable_decl) => self.analyze_expr_call_with_spec_callee(
-                &callee,
-                callable_decl,
-                args_expr_id,
-                fixed_args,
-            ),
+            Global::Callable(callable_decl) => {
+                if self.callee_in_active_contexts(&callee) {
+                    // This is a recursive call, which we allow with some deferred capabilities checks at runtime.
+                    // We treat the call as if it were an unresolved callee, like above, such that partial evaluation will perform
+                    // extra validation on the capabilities at runtime. By adding the call expression to the list of unresolved callees,
+                    // we ensure that the call is additionally validated at runtime regardless of any runtime flags.
+                    // This runtime check covers the corner case where a recursive call is made with a dynamic argument whose
+                    // type is allowed to be dynamic but whose usage in later recursion could require unanalyzed capabilities.
+                    self.get_current_application_instance_mut()
+                        .unresolved_callee_exprs
+                        .push(callee_expr_id);
+
+                    let callee_input_pattern_id =
+                        StorePatId::from((callee.item.package, callable_decl.input));
+                    let input_ty = &self.package_store.get_pat(callee_input_pattern_id).ty;
+
+                    if (args_expr_compute_kind.is_variable_value_kind()
+                        || callable_decl.kind != CallableKind::Function)
+                        && self
+                            .target_capabilities
+                            .contains(TargetCapabilityFlags::CallSupport)
+                        && is_supported_variable_type(
+                            &callable_decl.output,
+                            self.target_capabilities,
+                        )
+                        && (matches!(input_ty, Ty::Tuple(inner) if inner.iter().all(|ty| is_supported_variable_type(ty, self.target_capabilities)))
+                            || is_supported_variable_type(input_ty, self.target_capabilities))
+                    {
+                        // When the target has call support and the output type is one we support variables for,
+                        // conservatively assume that output is dynamic and may require runtime features.
+                        let dynamic_value_kind =
+                            ValueKind::new_variable_from_type(&callable_decl.output);
+                        let dynamic_runtime_features =
+                            derive_runtime_features_for_value_kind_associated_to_type(
+                                dynamic_value_kind,
+                                &callable_decl.output,
+                            );
+
+                        return ComputeKind::Dynamic {
+                            runtime_features: dynamic_runtime_features,
+                            value_kind: dynamic_value_kind,
+                        };
+                    }
+
+                    return ComputeKind::Dynamic {
+                        runtime_features: RuntimeFeatureFlags::empty(),
+                        value_kind: ValueKind::Constant,
+                    };
+                }
+
+                self.analyze_expr_call_with_spec_callee(
+                    &callee,
+                    callable_decl,
+                    args_expr_id,
+                    fixed_args,
+                )
+            }
             Global::Udt => self.analyze_expr_call_with_udt_callee(args_expr_id),
         }
     }
@@ -822,6 +858,20 @@ impl<'a> Analyzer<'a> {
         // additional runtime feature if the message expression is dynamic.
         let mut compute_kind = ComputeKind::Static;
         compute_kind.aggregate_runtime_features(msg_expr_compute_kind, ValueKind::Constant);
+
+        if !self
+            .get_current_application_instance()
+            .active_dynamic_scopes
+            .is_empty()
+        {
+            compute_kind.aggregate_runtime_features(
+                ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicFail,
+                    value_kind: ValueKind::Constant,
+                },
+                ValueKind::Constant,
+            );
+        }
 
         compute_kind
     }
@@ -3129,6 +3179,12 @@ fn is_any_array(t: &Ty) -> bool {
         Ty::Tuple(ts) => ts.iter().any(is_any_array),
         _ => false,
     }
+}
+
+fn is_supported_variable_type(t: &Ty, target_capabilities: TargetCapabilityFlags) -> bool {
+    let runtime_features =
+        derive_runtime_features_for_value_kind_associated_to_type(ValueKind::Variable, t);
+    get_missing_runtime_features(runtime_features, target_capabilities).is_empty()
 }
 
 struct ClearComputeKinds<'a, 'b> {

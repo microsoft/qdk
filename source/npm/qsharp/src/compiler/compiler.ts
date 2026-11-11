@@ -14,6 +14,9 @@ import {
   TargetProfile,
   type VSDiagnostic,
   ProjectType,
+  QirGenerationResult,
+  RirGenerationResult,
+  IQSharpError,
 } from "../../lib/web/qsc_wasm.js";
 import { log } from "../log.js";
 import { createHostYield } from "../language-service/language-service.js";
@@ -33,6 +36,15 @@ import { callAndTransformExceptions } from "../diagnostics.js";
 
 type Wasm = typeof import("../../lib/web/qsc_wasm.js");
 
+/** Default-visible caller-side compatibility reporting, independent of qscLog. */
+export function reportQirWarnings(warnings: IQSharpError[]): void {
+  for (const warning of warnings) {
+    console.warn(
+      `${warning.diagnostic.code ?? ""}: ${warning.diagnostic.message}`,
+    );
+  }
+}
+
 // These need to be async/promise results for when communicating across a WebWorker, however
 // for running the compiler in the same thread the result will be synchronous (a resolved promise).
 export interface ICompiler {
@@ -43,6 +55,8 @@ export interface ICompiler {
   getHir(program: ProgramConfig): Promise<string>;
 
   getRir(program: ProgramConfig): Promise<string[]>;
+
+  getRirWithDiagnostics(program: ProgramConfig): Promise<RirGenerationResult>;
 
   run(
     program: ProgramConfig,
@@ -60,7 +74,14 @@ export interface ICompiler {
     eventHandler: IQscEventTarget,
   ): Promise<void>;
 
+  /** Returns QIR and reports nonfatal warnings through the caller's console.
+   * A proven Adaptive fallback uses Adaptive_RIF and QIR 1.0.
+   * Use getQirWithDiagnostics to control presentation instead.
+   */
   getQir(program: ProgramConfig): Promise<string>;
+
+  /** Detailed success diagnostics; callers own presentation without duplicates. */
+  getQirWithDiagnostics(program: ProgramConfig): Promise<QirGenerationResult>;
 
   getEstimates(
     program: ProgramConfig,
@@ -166,6 +187,15 @@ export class Compiler implements ICompiler {
     return callAndTransformExceptions(async () => this.wasm.get_rir(config));
   }
 
+  async getRirWithDiagnostics(
+    program: ProgramConfig,
+  ): Promise<RirGenerationResult> {
+    const config = toWasmProgramConfig(program, "adaptive_rif");
+    return callAndTransformExceptions(async () =>
+      this.wasm.get_rir_with_diagnostics(config),
+    );
+  }
+
   async run(
     program: ProgramConfig,
     expr: string,
@@ -206,8 +236,18 @@ export class Compiler implements ICompiler {
   }
 
   async getQir(program: ProgramConfig): Promise<string> {
+    const result = await this.getQirWithDiagnostics(program);
+    reportQirWarnings(result.warnings);
+    return result.qir;
+  }
+
+  async getQirWithDiagnostics(
+    program: ProgramConfig,
+  ): Promise<QirGenerationResult> {
     return callAndTransformExceptions(async () =>
-      this.wasm.get_qir(toWasmProgramConfig(program, "adaptive_rif")),
+      this.wasm.get_qir_with_diagnostics(
+        toWasmProgramConfig(program, "adaptive_rif"),
+      ),
     );
   }
 
@@ -354,7 +394,9 @@ export const compilerProtocol: ServiceProtocol<ICompiler, QscEventData> = {
     getAst: "request",
     getHir: "request",
     getRir: "request",
+    getRirWithDiagnostics: "request",
     getQir: "request",
+    getQirWithDiagnostics: "request",
     getEstimates: "request",
     getCircuit: "request",
     getDocumentation: "request",
