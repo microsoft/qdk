@@ -658,3 +658,39 @@ fn require_and_notleaked_with_multiple_targets() {
             }"#]],
     );
 }
+
+#[test]
+fn records_after_restartable_select_are_not_hoisted() {
+    let source = indoc! {"
+        M 0
+        SELECT {
+          M 1
+          REQUIRE rec[-1]
+        }
+        M 2
+    "};
+    check(
+        source,
+        &expect![[r#"
+        namespace Stim {
+            @EntryPoint()
+            operation Main() : Result[] {
+                use qs = Qubit[3];
+                mutable r_1 = Zero;
+                let r_0 = M(qs[0]);
+                while true {
+                    set r_1 = M(qs[1]);
+                    let loss_0 = IsLossResult(r_1);
+                    let parity_0 = r_1 == One;
+                    let restart_0 = loss_0 or parity_0;
+                    if restart_0 {
+                        continue;
+                    };
+                    break;
+                }
+                let r_2 = M(qs[2]);
+                [r_0, r_1, r_2]
+            }
+        }"#]],
+    );
+}
