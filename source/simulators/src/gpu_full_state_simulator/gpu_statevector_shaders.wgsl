@@ -743,11 +743,15 @@ fn reset_all(shot_idx: i32) {
     // After init, start execution from the first op
     shot.next_op_idx = 0u;
 
-    shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot_id);
-    shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot_id + 1);
-    shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot_id + 2);
-    shot.rng_state.x[3] = rng_seed ^ hash_pcg(shot_id + 3);
-    shot.rng_state.x[4] = rng_seed ^ hash_pcg(shot_id + 4);
+    // Hash the seed before combining it with the shot id: XORing the raw seed into the state
+    // left nearby seeds with nearly identical early draws. The word index occupies the top
+    // bits, so no two shots of a run (fewer than 2^29 shots) share a state word.
+    let shot_key = hash_pcg(rng_seed) ^ shot_id;
+    shot.rng_state.x[0] = hash_pcg(hash_pcg(shot_key));
+    shot.rng_state.x[1] = hash_pcg(hash_pcg(shot_key ^ (1u << 29u)));
+    shot.rng_state.x[2] = hash_pcg(hash_pcg(shot_key ^ (2u << 29u)));
+    shot.rng_state.x[3] = hash_pcg(hash_pcg(shot_key ^ (3u << 29u)));
+    shot.rng_state.x[4] = hash_pcg(hash_pcg(shot_key ^ (4u << 29u)));
 
     shot.op_type = 0;
     shot.op_idx = 0;
