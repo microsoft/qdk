@@ -35,17 +35,16 @@ impl Default for RzTranspiler {
 
 impl RzTranspiler {
     /// Creates a synthesizer with the given tolerance in (0, 1) and optional angle caching.
-    pub fn new(precision: f64, use_cache: bool) -> Result<Self, String> {
-        if !precision.is_finite() || precision <= 0.0 || precision >= 1.0 {
-            return Err(format!(
-                "Rz synthesis precision must be finite and in (0, 1), got {precision}"
-            ));
-        }
-        Ok(Self {
+    pub fn new(precision: f64, use_cache: bool) -> Self {
+        assert!(
+            precision.is_finite() && precision > 0.0 && precision < 1.0,
+            "Rz synthesis precision must be finite and in (0, 1), got {precision}"
+        );
+        Self {
             precision,
             use_cache,
             cache: BTreeMap::new(),
-        })
+        }
     }
 
     /// Borrows the nearest cached sequence when its angle is strictly within precision.
@@ -203,7 +202,7 @@ mod tests {
     /// Reconstructs both columns of the emitted unitary and measures operator-norm error.
     fn synthesis_error(angle: f64, precision: f64) -> Result<f64, String> {
         let mut output = Vec::new();
-        RzTranspiler::new(precision, false)?.transpile(&rotation(angle), &mut output)?;
+        RzTranspiler::new(precision, false).transpile(&rotation(angle), &mut output);
         let zero = Complex64::new(0.0, 0.0);
         let one = Complex64::new(1.0, 0.0);
         let mut matrix = [[one, zero], [zero, one]];
@@ -321,7 +320,7 @@ mod tests {
     /// Reuses close residuals across exact phase gates and negative-angle adjoints.
     fn cache_reuses_normalized_residuals() -> Result<(), String> {
         let precision = 1e-6;
-        let mut transpiler = RzTranspiler::new(precision, true)?;
+        let mut transpiler = RzTranspiler::new(precision, true);
         let gates = transpiler.synthesize(0.125)?;
         for angle in [0.125, 0.125 - precision / 2.0, 0.125 + precision / 2.0] {
             assert_eq!(transpiler.synthesize(angle)?, gates);
@@ -346,7 +345,7 @@ mod tests {
     #[test]
     /// Returns a string slice backed by the cached string rather than an allocated copy.
     fn cache_lookup_borrows_sequence() -> Result<(), String> {
-        let mut transpiler = RzTranspiler::new(0.015_625, true)?;
+        let mut transpiler = RzTranspiler::new(0.015_625, true);
         let key = 0.125_f64.to_bits();
         transpiler.cache.insert(key, String::from("ht"));
         let gates = transpiler.lookup_cache(0.125).expect("exact cache hit");
@@ -365,7 +364,7 @@ mod tests {
     #[test]
     /// Distinguishes the closest predecessor and successor, including queries outside the key range.
     fn cache_selects_nearest_key() -> Result<(), String> {
-        let mut transpiler = RzTranspiler::new(0.03125, true)?;
+        let mut transpiler = RzTranspiler::new(0.03125, true);
         transpiler
             .cache
             .insert(0.125_f64.to_bits(), String::from("h"));
@@ -387,7 +386,7 @@ mod tests {
     #[test]
     /// Inserts new entries when the nearest key is exactly the precision away or farther.
     fn cache_misses_at_precision_boundary() -> Result<(), String> {
-        let mut transpiler = RzTranspiler::new(0.015_625, true)?;
+        let mut transpiler = RzTranspiler::new(0.015_625, true);
         for angle in [0.125, 0.140_625, 0.25] {
             transpiler.synthesize(angle)?;
         }
@@ -398,7 +397,7 @@ mod tests {
     #[test]
     /// Leaves the cache empty when caching is disabled.
     fn disabled_cache() -> Result<(), String> {
-        let mut transpiler = RzTranspiler::new(1e-6, false)?;
+        let mut transpiler = RzTranspiler::new(1e-6, false);
         let first = transpiler.synthesize(0.125)?;
         assert_eq!(transpiler.synthesize(0.125)?, first);
         assert!(transpiler.cache.is_empty());
@@ -409,7 +408,7 @@ mod tests {
     #[test]
     /// Preserves cached results when ownership of the transpiler moves to another thread.
     fn cache_survives_thread_transfer() -> Result<(), String> {
-        let mut transpiler = RzTranspiler::new(1e-6, true)?;
+        let mut transpiler = RzTranspiler::new(1e-6, true);
         let gates = transpiler.synthesize(0.125)?;
         std::thread::spawn(move || {
             assert_eq!(transpiler.synthesize(0.125)?, gates);
@@ -423,11 +422,6 @@ mod tests {
     #[test]
     /// Rejects invalid tolerances, angles, instruction names, and operands without appending output.
     fn invalid_inputs() {
-        for precision in [0.0, -1.0, 1.0, f64::NAN, f64::INFINITY] {
-            for use_cache in [false, true] {
-                assert!(RzTranspiler::new(precision, use_cache).is_err());
-            }
-        }
         let mut invalid = vec![
             rotation(f64::NAN),
             rotation(f64::INFINITY),

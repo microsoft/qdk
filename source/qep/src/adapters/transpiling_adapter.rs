@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    BatchResult, QuantumBackend, QuantumBackendInstruction, RzQftTranspiler,
+    BatchResult, QuantumBackend, QuantumBackendInstruction, RzTranspiler,
     interface::Driver,
     transpilers::{
         CliffordTranspiler, DecomposeToffoliTranspiler, MzResetTranspiler, SwapTransplier,
@@ -48,7 +48,7 @@ impl<B: QuantumBackend> TranspilingAdapter<B> {
             vec![
                 Box::new(SwapTransplier),
                 Box::new(DecomposeToffoliTranspiler),
-                Box::new(RzQftTranspiler),
+                Box::new(RzTranspiler::new(1e-6, true)),
                 Box::new(MzResetTranspiler),
                 Box::new(CliffordTranspiler::Cy),
                 Box::new(CliffordTranspiler::Cz),
