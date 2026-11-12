@@ -8,7 +8,6 @@
 
 mod programs;
 mod reference_spy;
-mod report;
 mod resumer;
 
 use crate::mps_simulator::resumer::shot_stream::SplitMix64;

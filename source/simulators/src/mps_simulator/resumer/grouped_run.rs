@@ -50,7 +50,6 @@ use std::num::NonZeroUsize;
 use std::rc::Rc;
 
 use crate::OutputRecord;
-use crate::mps_simulator::{MpsResumerError, MpsRunReport};
 use crate::qir::{
     QirGate, QirMachine, QirOutcome, QirProgram, QirReadout, QirResumeError, QirShotContext,
     QirShotId, QirStop, QirTrap,
@@ -62,6 +61,8 @@ use super::MpsResumer;
 use super::fusion::GateFusion;
 use super::lowering::{Operator, Step, lower};
 use super::qubit_order::QubitOrder;
+use super::report::MpsRunReport;
+use super::resumer_error::MpsResumerError;
 use super::shot_stream::{SplitMix64, shot_stream};
 
 /// One run of an [`MpsResumer`]: what every group of the run shares, the

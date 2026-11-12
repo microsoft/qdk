@@ -19,18 +19,20 @@
 //! is here, in `mps_simulator/`:
 //!
 //! - `resumer.rs`: [`MpsResumer`] and its settings (the max bond dimension
-//!   χ among them), with `resumer/grouped_run.rs` (the run of a resumer's
-//!   shots in groups that share a state), `resumer/qubit_order.rs`
-//!   (which site holds each qubit, an order chosen from the program's
-//!   two-qubit gates), `resumer/lowering.rs` (a batch's calls as the
-//!   engine's steps on sites, the gates as matrices) and
-//!   `resumer/shot_stream.rs` (the stream each shot draws from, seeded as
-//!   the executor protocol will seed it), `resumer/fusion.rs`
-//!   ([`GateFusion`], gates multiplied into fewer one- and two-site
-//!   operators);
-//! - `report.rs`: [`MpsRunReport`] and [`TruncationWarning`], what a run
-//!   cost and the warning when truncation lost weight;
-//! - `resumer_error.rs`: [`MpsResumerError`].
+//!   χ among them), and in `resumer/` what it runs a program with:
+//!   - `grouped_run.rs`: the run of a resumer's shots in groups that share
+//!     a state;
+//!   - `qubit_order.rs`: which site holds each qubit, an order chosen from
+//!     the program's two-qubit gates;
+//!   - `lowering.rs`: a batch's calls as the engine's steps on sites, the
+//!     gates as matrices;
+//!   - `fusion.rs`: [`GateFusion`], gates multiplied into fewer one- and
+//!     two-site operators;
+//!   - `shot_stream.rs`: the stream each shot draws from, seeded as the
+//!     executor protocol will seed it;
+//!   - `report.rs`: [`MpsRunReport`] and [`TruncationWarning`], what a run
+//!     cost and the warning when truncation lost weight;
+//!   - `resumer_error.rs`: [`MpsResumerError`].
 //!
 //! Shots that drew the same values share one state, forked where their
 //! draws differ, so a run costs what its distinct histories cost; each shot
@@ -43,11 +45,9 @@
 //!
 //! [`QirResumer`]: crate::qir::QirResumer
 
-mod report;
 pub(crate) mod resumer;
-mod resumer_error;
 
-pub use report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
 pub use resumer::fusion::GateFusion;
+pub use resumer::report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
+pub use resumer::resumer_error::MpsResumerError;
 pub use resumer::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer};
-pub use resumer_error::MpsResumerError;

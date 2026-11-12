@@ -17,7 +17,7 @@
 use crate::qir::{OperatorMatrix, QirCall};
 
 use super::qubit_order::QubitOrder;
-use crate::mps_simulator::MpsResumerError;
+use super::resumer_error::MpsResumerError;
 
 /// What the MPS simulation method does with a call, on sites.
 // A gate's matrix is held in place, unboxed: a batch's steps live in one

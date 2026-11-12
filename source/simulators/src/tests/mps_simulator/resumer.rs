@@ -12,6 +12,7 @@ mod fusion;
 mod grouped_run;
 mod lowering;
 mod qubit_order;
+mod report;
 mod shot_stream;
 
 use std::num::NonZeroUsize;
