@@ -23,8 +23,8 @@ use tensornet::MpsEngine;
 
 pub(super) mod fusion;
 mod grouped_run;
+pub(crate) mod layout;
 pub(crate) mod lowering;
-pub(crate) mod qubit_order;
 pub(super) mod report;
 pub(super) mod resumer_error;
 pub(crate) mod shot_stream;
@@ -43,9 +43,9 @@ use resumer_error::MpsResumerError;
 /// of a chain's only participant that draws. So a shot's records depend
 /// only on the program, the seed, the shot's id and the settings: not on
 /// the shots beside it, nor on its place among them, nor on earlier runs.
-/// The qubit order, chosen from the program's two-qubit gates, changes the
-/// bonds and the time, not the records (to rounding, and within the
-/// truncation error).
+/// The layout, an order of the qubits chosen from the program's two-qubit
+/// gates, changes the bonds and the time, not the records (to rounding,
+/// and within the truncation error).
 ///
 /// The cutoff below which an engine drops singular values is the engine's
 /// own setting: the engine contract takes only a capacity (here

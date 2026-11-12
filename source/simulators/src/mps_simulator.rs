@@ -22,8 +22,8 @@
 //!   χ among them), and in `resumer/` what it runs a program with:
 //!   - `grouped_run.rs`: the run of a resumer's shots in groups that share
 //!     a state;
-//!   - `qubit_order.rs`: which site holds each qubit, an order chosen from
-//!     the program's two-qubit gates;
+//!   - `layout.rs`: which site holds each qubit, an order chosen once per
+//!     program from its two-qubit gates;
 //!   - `lowering.rs`: a batch's calls as the engine's steps on sites, the
 //!     gates as matrices;
 //!   - `fusion.rs`: [`GateFusion`], gates multiplied into fewer one- and

@@ -1,13 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A batch's quantum calls ([`QirCall`]) as the steps the MPS simulation
-//! method runs on an engine ([`Step`]), on sites: so that the engine knows
-//! no gate names and no qubits, only matrices and sites.
+//! Lowering: the translation of each quantum call of a batch, on qubits
+//! ([`QirCall`]), into the steps the MPS simulation method runs on an
+//! engine ([`Step`]), on sites, through the layout ([`QubitOrder`]): so
+//! that the engine knows no gate names and no qubits, only matrices and
+//! sites. It is the only place the resumer refuses a call (the engine may
+//! still refuse an operator).
 //!
 //! A gate is its matrix at its angle
-//! ([`QirGate::matrix_at`](crate::qir::QirGate::matrix_at)), in the layout
-//! the engine takes (`M[out][in]`, row-major, the first site the most
+//! ([`QirGate::matrix_at`](crate::qir::QirGate::matrix_at)), as the engine
+//! takes it (`M[out][in]`, row-major, the first site the most
 //! significant), on the sites of its qubits in its operand order, so the
 //! matrix holds on them unchanged. A measurement and a reset are draws
 //! the resumer makes; `move` changes no state and is no step. Correlated
@@ -16,7 +19,7 @@
 
 use crate::qir::{OperatorMatrix, QirCall};
 
-use super::qubit_order::QubitOrder;
+use super::layout::QubitOrder;
 use super::resumer_error::MpsResumerError;
 
 /// What the MPS simulation method does with a call, on sites.
@@ -38,7 +41,7 @@ pub(crate) enum Step {
     Reset { site: usize },
 }
 
-/// A unitary on one or two distinct sites, in the engine's layout: the
+/// A unitary on one or two distinct sites, as the engine takes it: the
 /// first of [`sites`](Self::sites) is the matrix's most significant bit.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Operator {
@@ -54,7 +57,7 @@ impl Operator {
     }
 }
 
-/// The steps of `calls`, in order, each qubit on the site `order` gives it.
+/// The steps of `calls`, in order, each qubit on the site `layout` gives it.
 ///
 /// # Errors
 ///
@@ -62,7 +65,7 @@ impl Operator {
 /// loss) or cannot run (a gate on one qubit twice).
 pub(crate) fn lower<E>(
     calls: &[QirCall],
-    order: &QubitOrder,
+    layout: &QubitOrder,
 ) -> Result<Vec<Step>, MpsResumerError<E>> {
     let mut steps = Vec::with_capacity(calls.len());
     for call in calls {
@@ -74,29 +77,29 @@ pub(crate) fn lower<E>(
             } => {
                 let matrix = gate.matrix_at(angle);
                 let sites = match second {
-                    None => [order.site(first), 0],
+                    None => [layout.site(first), 0],
                     Some(second) if second == first => {
                         return Err(MpsResumerError::RepeatedQubit {
                             instruction: call.instruction(),
                             qubit: first,
                         });
                     }
-                    Some(second) => [order.site(first), order.site(second)],
+                    Some(second) => [layout.site(first), layout.site(second)],
                 };
                 steps.push(Step::Apply(Operator { sites, matrix }));
             }
             QirCall::Measure { qubit, result } => steps.push(Step::Measure {
-                site: order.site(qubit),
+                site: layout.site(qubit),
                 result,
                 reset: false,
             }),
             QirCall::MeasureReset { qubit, result } => steps.push(Step::Measure {
-                site: order.site(qubit),
+                site: layout.site(qubit),
                 result,
                 reset: true,
             }),
             QirCall::Reset { qubit } => steps.push(Step::Reset {
-                site: order.site(qubit),
+                site: layout.site(qubit),
             }),
             QirCall::Move { .. } => {}
             QirCall::CorrelatedNoise { .. }

@@ -11,8 +11,8 @@
 
 mod fusion;
 mod grouped_run;
+mod layout;
 mod lowering;
-mod qubit_order;
 mod report;
 mod shot_stream;
 
@@ -31,7 +31,7 @@ use super::reference_spy::ReferenceSpy;
 use crate::bytecode::encoding::{
     OPID_CX, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_SWAP, OPID_X,
 };
-use crate::mps_simulator::resumer::qubit_order::QubitOrder;
+use crate::mps_simulator::resumer::layout::QubitOrder;
 use crate::mps_simulator::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsResumerError};
 
 type RunResult<E> = Result<Vec<Vec<OutputRecord>>, QirResumeError<MpsResumerError<E>>>;

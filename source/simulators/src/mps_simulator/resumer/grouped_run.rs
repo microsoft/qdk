@@ -20,10 +20,10 @@
 //!
 //! **How a group runs**, in the phases of the README, each a function or a
 //! call of the same name. Once per run, [`GroupedRun::start`] chooses the
-//! qubit order (`qubit_order.rs`) and the capacity. Then a group's context
-//! is resumed to its next batch ([`QirMachine::resume`]), whose calls are
-//! lowered to steps on sites (`lower`, in `lowering.rs`) and fused
-//! ([`GateFusion::fuse`]). Each step runs on the group's state, which
+//! layout, the qubit order (`layout.rs`), and the capacity. Then a group's
+//! context is resumed to its next batch ([`QirMachine::resume`]), whose
+//! calls are lowered to steps on sites (`lower`, in `lowering.rs`) and
+//! fused ([`GateFusion::fuse`]). Each step runs on the group's state, which
 //! `prepare` makes within the capacity at the first step: `apply` applies
 //! an operator; at a measurement or reset, `read_bond` reads the largest
 //! bond for the report, `draw` reads each shot's value, splitting the
@@ -59,8 +59,8 @@ use tensornet::{MpsEngine, MpsShape};
 #[cfg(doc)]
 use super::MpsResumer;
 use super::fusion::GateFusion;
+use super::layout::QubitOrder;
 use super::lowering::{Operator, Step, lower};
-use super::qubit_order::QubitOrder;
 use super::report::MpsRunReport;
 use super::resumer_error::MpsResumerError;
 use super::shot_stream::{SplitMix64, shot_stream};
@@ -72,7 +72,7 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
     machine: &'r QirMachine<'r>,
     /// The run's shots, which a failure is named by.
     shots: &'r [QirShotId],
-    order: QubitOrder,
+    layout: QubitOrder,
     /// The capacity of each state; `None` for a program of no qubits, which
     /// needs no state.
     capacity: Option<MpsShape>,
@@ -90,9 +90,9 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
 
 impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// The run of `shots` of `machine`'s program on `engine`, before any
-    /// shot runs: the qubit order and the capacity, from the program, and
-    /// one group of every shot, each drawing from its stream under `seed`.
-    /// `shots` is not empty: a run of no shots needs neither the order nor
+    /// shot runs: the layout and the capacity, from the program, and one
+    /// group of every shot, each drawing from its stream under `seed`.
+    /// `shots` is not empty: a run of no shots needs neither the layout nor
     /// the capacity, so [`MpsResumer`] does not start it.
     ///
     /// # Errors
@@ -137,7 +137,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             engine,
             machine,
             shots,
-            order: QubitOrder::for_program(program),
+            layout: QubitOrder::for_program(program),
             capacity,
             fusion,
             report,
@@ -222,7 +222,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     return Ok(records.to_vec());
                 }
                 QirStop::Batch(calls) => {
-                    group.steps = self.fusion.fuse(lower(calls, &self.order)?).into();
+                    group.steps = self.fusion.fuse(lower(calls, &self.layout)?).into();
                     group.next = 0;
                     group.outcomes.clear();
                 }
