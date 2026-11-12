@@ -13,7 +13,8 @@
 //! takes it (`M[out][in]`, row-major, the first site the most
 //! significant), on the sites of its qubits in its operand order, so the
 //! matrix holds on them unchanged. A measurement and a reset are draws
-//! the resumer makes; `move` changes no state and is no step. Correlated
+//! the resumer makes; `move`, a relabelling of qubits, changes no state
+//! and is no step. Correlated
 //! noise, readout noise and loss checks are refused
 //! ([`MpsResumerError::Unsupported`]), as is a gate on one qubit twice.
 
@@ -45,15 +46,16 @@ pub(crate) enum Step {
 /// first of [`sites`](Self::sites) is the matrix's most significant bit.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Operator {
-    /// The sites, the second unused for a one-site matrix.
-    pub(crate) sites: [usize; 2],
+    /// Room for two sites, the second unused for a one-site matrix: read
+    /// the sites it acts on through [`sites`](Self::sites).
+    pub(crate) site_slots: [usize; 2],
     pub(crate) matrix: OperatorMatrix,
 }
 
 impl Operator {
     /// The sites it acts on, in the matrix's order.
     pub(crate) fn sites(&self) -> &[usize] {
-        &self.sites[..self.matrix.qubit_count()]
+        &self.site_slots[..self.matrix.qubit_count()]
     }
 }
 
@@ -86,7 +88,10 @@ pub(crate) fn lower<E>(
                     }
                     Some(second) => [layout.site(first), layout.site(second)],
                 };
-                steps.push(Step::Apply(Operator { sites, matrix }));
+                steps.push(Step::Apply(Operator {
+                    site_slots: sites,
+                    matrix,
+                }));
             }
             QirCall::Measure { qubit, result } => steps.push(Step::Measure {
                 site: layout.site(qubit),

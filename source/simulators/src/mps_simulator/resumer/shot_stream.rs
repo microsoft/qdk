@@ -31,8 +31,9 @@ use super::MpsResumer;
 
 /// The stream shot `shot` draws from under the run seed `seed`: the one the
 /// executor protocol (planned) will seed for that shot of the participant
-/// at place 0, which this MPS simulation method holds in a chain of a
-/// driver and itself, the chain's only participant that draws. So such a
+/// at place 0, which this MPS simulation method holds in an executor chain
+/// (the protocol's chain of participants, not the MPS's chain of sites) of
+/// a driver and itself, the chain's only participant that draws. So such a
 /// chain, its executor drawing from that stream as this MPS simulation
 /// method does, will reproduce the records a resumer gives. The protocol's
 /// seed is a hash of the run's seed, the place and the shot, so shots with

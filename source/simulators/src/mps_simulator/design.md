@@ -7,15 +7,15 @@ calls, in order.
 
 ## The calls of each phase
 
-Each band of the diagram is one phase, with its calls in order; lower and
-rewrite call no `MpsEngine` method:
+Each band of the diagram is one phase, with its calls in order; layout,
+lower and rewrite call no `MpsEngine` method:
 
 ```mermaid
 sequenceDiagram
   participant M as QirMachine
   participant R as MpsResumer
   participant E as MpsEngine
-  Note over M,E: Phase: start
+  Note over M,E: Phase: start, then layout
   R->>M: program(), start_shot()
   Note over M,E: Phase: resume
   R->>M: resume(context, outcomes)

@@ -40,12 +40,15 @@ use rewrites::fusion::GateFusion;
 ///
 /// Each shot draws from its own stream, derived from the resumer's seed and
 /// the shot's id as the executor protocol (planned) will derive the seed
-/// of a chain's only participant that draws. So a shot's records depend
-/// only on the program, the seed, the shot's id and the settings: not on
-/// the shots beside it, nor on its place among them, nor on earlier runs.
+/// of the only participant that draws in an executor chain (the protocol's
+/// chain of participants, not the MPS's chain of sites). So a shot's
+/// records depend only on the program, the seed, the shot's id and the
+/// settings: not on the shots beside it, nor on its place among them, nor
+/// on earlier runs.
 /// The layout, an order of the qubits chosen from the program's two-qubit
-/// gates, changes the bonds and the time, not the records (to rounding,
-/// and within the truncation error).
+/// gates, changes the bonds and the time, not the state (to rounding, and
+/// within the truncation error of an engine that truncates), so on an
+/// exact engine not the records.
 ///
 /// The cutoff below which an engine drops singular values is the engine's
 /// own setting: the engine contract takes only a capacity (here

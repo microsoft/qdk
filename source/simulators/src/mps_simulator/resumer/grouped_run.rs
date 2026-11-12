@@ -4,48 +4,28 @@
 //! The grouped run: how an [`MpsResumer`] runs the shots of one run, shots
 //! that drew the same values sharing one state.
 //!
-//! **Shots share states while their histories agree.** A run starts with
-//! one group holding every shot, one machine context and no state. At each
-//! measurement and reset, every shot of the group draws a uniform from its
-//! own stream, seeded from the resumer's seed and the shot's id, and reads
-//! One when it is below the state's P(One). When the shots draw different
-//! values, the group splits: the state is forked after P(One) is read (an
-//! exact copy, so each copy is the state a shot alone would project) and
-//! the context cloned, so each part goes on with its own value. Since a
-//! shot draws one uniform per measurement and reset whatever group it is
-//! in, and a group's state is the state each of its shots would hold
-//! alone, a shot's records are those it gets alone: a run costs what its
-//! distinct histories cost (one state for a program with no random draw,
-//! one per shot at most).
+//! The phases of a run, each a function or a call of the same name here,
+//! are in the table of `src/mps_simulator/README.md` ("How it runs a
+//! program"), with how and why; this header gives the mechanics the table
+//! does not.
 //!
-//! **How a group runs**, in the phases of the README, each a function or a
-//! call of the same name. Once per run, [`GroupedRun::start`] chooses the
-//! layout, the qubit order (`layout.rs`), and the capacity. Then a group's
-//! context is resumed to its next batch ([`QirMachine::resume`]), whose
-//! calls are lowered to steps on sites (`lower`, in `lowering.rs`) and
-//! rewritten (`Rewrite::rewrite`, called by `rewrite_runs` in
-//! `rewrites.rs`, with the resumer's gate fusion). Each step runs on the
-//! group's state, which `prepare` makes within the capacity at the first
-//! step: `apply` applies an operator; at a measurement or reset,
-//! `read_bond` reads the largest bond for the report, `draw` reads each
-//! shot's value, splitting the group when they differ, and `settle`
-//! projects the state on the value. The context is resumed with the
-//! outcomes, until it ends: then `end` reads the state's retained weight.
+//! **The loop.** [`GroupedRun::start`] makes one group of every shot, with
+//! one machine context and no state. `run` pops the groups off a stack, the
+//! last split off first, until none waits; `run_group` runs one group:
+//! its steps, then a bond read, then the context resumed with the
+//! outcomes, whose next batch it lowers and rewrites into the next steps,
+//! until the context ends. `prepare` makes the group's state at the first
+//! step that needs it, and a split pushes the part that waits, with a
+//! cloned context and a forked state, onto the stack.
 //!
-//! **Few states at once.** Where a group splits, the part with fewer shots
-//! goes on (Zero's on a tie) and the other waits on a stack until the part
-//! that went on ends: so each waiting part has at least as many shots as
-//! all the groups that wait above it and the one that runs, and a run of N
-//! shots holds at most ⌊log₂ N⌋ + 1 states at once, which bounds a GPU's
-//! memory whatever the program draws.
+//! **Few states at once.** As the part with fewer shots goes on, each
+//! waiting part has at least as many shots as all the groups that wait
+//! above it and the one that runs, so a run of N shots holds at most
+//! ⌊log₂ N⌋ + 1 states at once.
 //!
-//! **Failures.** A shot fails with its group: its context traps, a call is
-//! refused, or the engine fails. Where a group splits, the copy for the
-//! part that waits is forked and projected after the shots are split, so
-//! the copy's failure fails that part's shots only, and the part that goes on
-//! runs on: it may end, or fail on its own. The run names the first
-//! failing shot in the order of the shots, and the waiting groups whose
-//! shots all come after it are dropped unrun.
+//! **Failures.** `fail` keeps the failure of the first shot in the order of
+//! the shots; since a group's shots keep that order, `run` drops unrun a
+//! waiting group whose first shot comes after it.
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;

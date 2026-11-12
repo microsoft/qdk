@@ -3,9 +3,9 @@
 
 //! Rewrites: a batch's operators, after lowering, changed into cheaper
 //! ones that give the same state, so that the engine, whose time goes to
-//! its operators, does less. Today's one rewrite is gate fusion
-//! ([`fusion`]); when a second rewrite comes, a list of the rewrites a run
-//! applies is added.
+//! its operators, does less. A run applies one rewrite today, which is
+//! `GroupedRun`'s field and `MpsResumer`'s setting; when a second comes,
+//! that one rewrite becomes a list of the rewrites a run applies.
 //!
 //! **The contract**, stated here once, that every [`Rewrite`] keeps:
 //!

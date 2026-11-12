@@ -2,22 +2,21 @@
 // Licensed under the MIT License.
 
 //! The layout: which site of the chain holds each qubit of a program,
-//! chosen once per program, before any shot, and read by every later
-//! phase (lowering puts each call on its qubits' sites). Each run chooses
-//! it again at its start, from the program alone, so every run of a
-//! program has the same. On a chain a layout is an order: its instance is
-//! the qubit order ([`QubitOrder`]), chosen from the program's two-qubit
-//! gates ([`QubitOrder::for_program`]).
+//! chosen at the start of each run, from the program alone and before any
+//! shot, so every run of a program starts with the same; lowering reads
+//! it to put each call on its qubits' sites. On a chain a layout is an
+//! order: its instance is the qubit order ([`QubitOrder`]), chosen from
+//! the program's two-qubit gates ([`QubitOrder::for_program`]).
 //!
 //! An MPS is a chain, so its cost depends on where the qubits sit: a gate
 //! on distant sites is routed through swaps, and each bond is the Schmidt
 //! rank across its cut, which depends on which qubits fall on each side.
-//! Every order holds the same state, so a shot's draws and records do not
-//! depend on it (to rounding, and within the truncation error of an engine
-//! that truncates); the bonds, the time and the weight a max bond dimension
-//! discards do. So the order is the MPS simulation method's own: chosen
-//! inside the resumer and applied to every call it hands the engine, it
-//! never reaches the caller.
+//! Every order holds the same state (to rounding, and within the
+//! truncation error of an engine that truncates), so on an exact engine a
+//! shot's draws and records do not depend on it; the bonds, the time and
+//! the weight a max bond dimension discards do. So the order is the MPS
+//! simulation method's own: chosen inside the resumer and applied to every
+//! call it hands the engine, it never reaches the caller.
 //!
 //! The choice is a local search for the minimum linear arrangement of the
 //! program's interaction graph. On H₂'s phase estimation it lowered the
@@ -47,7 +46,7 @@ impl QubitOrder {
     /// The order for `program`: the local search of [`local_search_order`]
     /// over its two-qubit gates whose qubits it knows before any run
     /// ([`TwoQubitGate::Known`]); a gate whose qubit is in a register is
-    /// not weighed.
+    /// not weighed, nor a gate on one qubit twice, which lowering refuses.
     pub(crate) fn for_program(program: &QirProgram) -> Self {
         let qubits = usize::try_from(program.qubits()).expect("a u32 fits a usize");
         let gates = program

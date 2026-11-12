@@ -18,8 +18,8 @@ use std::collections::BTreeMap;
 use crate::qir::OperatorMatrix;
 use num_complex::Complex64;
 
+use super::super::lowering::Operator;
 use super::Rewrite;
-use crate::mps_simulator::resumer::lowering::Operator;
 
 /// How the MPS simulation method groups the gates of each run between
 /// measurements and resets into the engine's operators.
@@ -90,6 +90,10 @@ fn pairs(run: &[Operator]) -> Vec<Operator> {
             };
             let extra = block.sites.iter().filter(|s| !union.contains(s)).count();
             if union.len() + extra <= MAX_SITES {
+                // With blocks of at most two sites, a block kept here holds
+                // only the gate's sites (a one-site gate joined its open
+                // block above), so the union stays the gate's sites; this
+                // serves blocks of more than two sites.
                 union.extend(block.sites.iter().filter(|s| !on.contains(s)));
                 union.sort_unstable();
                 union.dedup();
@@ -188,7 +192,7 @@ impl Block {
             _ => OperatorMatrix::Two(self.matrix.try_into().expect("a 4×4 block")),
         };
         Operator {
-            sites: [self.sites[0], self.sites.get(1).copied().unwrap_or(0)],
+            site_slots: [self.sites[0], self.sites.get(1).copied().unwrap_or(0)],
             matrix,
         }
     }

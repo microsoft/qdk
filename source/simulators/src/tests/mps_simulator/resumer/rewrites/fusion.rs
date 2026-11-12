@@ -23,7 +23,7 @@ use crate::mps_simulator::{GateFusion, MpsResumer};
 #[test]
 fn gates_on_one_pair_make_one_operator() {
     let on = |gate: QirGate, sites: [usize; 2]| Operator {
-        sites,
+        site_slots: sites,
         matrix: gate.matrix_at(None),
     };
     let run = vec![
@@ -43,7 +43,7 @@ fn gates_on_one_pair_make_one_operator() {
 #[test]
 fn one_qubit_gates_on_a_site_no_pair_claims_make_one_operator() {
     let on = |gate: QirGate, angle: Option<f64>, sites: [usize; 2]| Operator {
-        sites,
+        site_slots: sites,
         matrix: gate.matrix_at(angle),
     };
     let run = vec![

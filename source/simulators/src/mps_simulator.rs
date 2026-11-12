@@ -15,15 +15,15 @@
 //! shot's quantum calls to a resumer ([`QirResumer`]); an engine
 //! ([`MpsEngine`](tensornet::MpsEngine)) holds states and knows only sites
 //! and matrices. This module joins them: [`MpsResumer`] runs the calls of
-//! each shot on an MPS that an engine holds. Everything that knows qubits
-//! is here, in `mps_simulator/`:
+//! each shot on an MPS that an engine holds. Everything that maps qubits to
+//! sites is here, in `mps_simulator/`:
 //!
 //! - `resumer.rs`: [`MpsResumer`] and its settings (the max bond dimension
 //!   χ among them), and in `resumer/` what it runs a program with:
 //!   - `grouped_run.rs`: the run of a resumer's shots in groups that share
 //!     a state;
-//!   - `layout.rs`: which site holds each qubit, an order chosen once per
-//!     program from its two-qubit gates;
+//!   - `layout.rs`: which site holds each qubit, an order chosen at the
+//!     start of each run from the program's two-qubit gates;
 //!   - `lowering.rs`: a batch's calls as the engine's steps on sites, the
 //!     gates as matrices;
 //!   - `rewrites.rs`: the rewrites of a batch's operators into cheaper

@@ -30,7 +30,7 @@ fn every_rewrite() -> [(&'static str, &'static dyn Rewrite); 2] {
 /// `gate` at `angle` on `sites` (the second unused for a one-qubit gate).
 fn at(gate: QirGate, angle: Option<f64>, sites: [usize; 2]) -> Operator {
     Operator {
-        sites,
+        site_slots: sites,
         matrix: gate.matrix_at(angle),
     }
 }
