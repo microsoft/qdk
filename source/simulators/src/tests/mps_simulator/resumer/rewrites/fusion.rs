@@ -35,6 +35,29 @@ fn gates_on_one_pair_make_one_operator() {
     assert!(matches!(fused[0].matrix, OperatorMatrix::Two(_)));
 }
 
+/// A layer of an ansatz: site 3 turns by Rz·Ry·Rz, a rotation in Euler
+/// angles, while sites 0 and 1 are entangled. No pair claims site 3, so
+/// its rotations become one operator on it, beside the pair's.
+#[test]
+fn one_qubit_gates_on_a_site_no_pair_claims_make_one_operator() {
+    let on = |gate: QirGate, angle: Option<f64>, sites: [usize; 2]| Operator {
+        sites,
+        matrix: gate.matrix_at(angle),
+    };
+    let run = vec![
+        on(QirGate::Rz, Some(0.3), [3, 0]),
+        on(QirGate::H, None, [0, 0]),
+        on(QirGate::Ry, Some(1.2), [3, 0]),
+        on(QirGate::Cx, None, [0, 1]),
+        on(QirGate::Rz, Some(-0.8), [3, 0]),
+    ];
+    let fused = GateFusion::Pairs.rewrite(run);
+    let on_site_3: Vec<&Operator> = fused.iter().filter(|o| o.sites() == [3]).collect();
+    assert_eq!(on_site_3.len(), 1, "site 3's rotations make one operator");
+    assert!(matches!(on_site_3[0].matrix, OperatorMatrix::One(_)));
+    assert_eq!(fused.len(), 2, "one operator on site 3, one on the pair");
+}
+
 /// Unfused, every gate is its own operator.
 #[test]
 fn unfused_keeps_one_operator_per_gate() {
