@@ -14,7 +14,7 @@ use nalgebra::Complex;
 use noisy_simulator::{
     Instrument, NoisySimulator as _, Operation, StateVectorSimulator, operation,
 };
-use qsc_data_structures::measurement::OneQubitMeasurement;
+use qsc_data_structures::measurement::MeasurementBasis;
 use rand::{RngExt, SeedableRng as _, rngs::StdRng};
 use std::sync::{Arc, LazyLock};
 
@@ -439,11 +439,11 @@ impl FullStateSimulator {
     }
 
     /// Records a measurement in the specified Pauli basis on the given `target`.
-    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: OneQubitMeasurement) {
+    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: MeasurementBasis) {
         let measurement = match pauli {
-            OneQubitMeasurement::X => self.m_pauli_impl(target, &MX),
-            OneQubitMeasurement::Y => self.m_pauli_impl(target, &MY),
-            OneQubitMeasurement::Z => self.m_pauli_impl(target, &MZ),
+            MeasurementBasis::X => self.m_pauli_impl(target, &MX),
+            MeasurementBasis::Y => self.m_pauli_impl(target, &MY),
+            MeasurementBasis::Z => self.m_pauli_impl(target, &MZ),
         };
         self.measurements[result_id] = measurement;
     }
@@ -655,7 +655,7 @@ impl Simulator for FullStateSimulator {
         // The MX measurement currently uses `mz` noise.
         // TODO(pranavijain): Change noise type when noise for MX is configured.
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, OneQubitMeasurement::X);
+        self.record_m_pauli(target, result_id, MeasurementBasis::X);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
@@ -663,13 +663,13 @@ impl Simulator for FullStateSimulator {
         // The MY measurement currently uses `mz` noise.
         // TODO(pranavijain): Change noise type when noise for MY is configured.
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, OneQubitMeasurement::Y);
+        self.record_m_pauli(target, result_id, MeasurementBasis::Y);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn mz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, OneQubitMeasurement::Z);
+        self.record_m_pauli(target, result_id, MeasurementBasis::Z);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 

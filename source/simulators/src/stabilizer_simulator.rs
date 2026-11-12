@@ -15,7 +15,7 @@ use crate::{
 use branching_state::BranchingState;
 use operation::Operation;
 use paulimer::{PauliObservable, UnitaryOp, core::PositionedPauliObservable, pauli::SparsePauli};
-use qsc_data_structures::measurement::OneQubitMeasurement;
+use qsc_data_structures::measurement::MeasurementBasis;
 use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
@@ -299,7 +299,7 @@ impl StabilizerSimulator {
     }
 
     /// Records a single `Pauli`-measurement on the given `target`.
-    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: OneQubitMeasurement) {
+    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: MeasurementBasis) {
         let measurement = self.m_pauli_impl(target, pauli);
         self.measurements[result_id] = measurement;
     }
@@ -311,16 +311,16 @@ impl StabilizerSimulator {
     }
 
     /// Measures a `Pauli` observable on the given `target`.
-    fn m_pauli_impl(&mut self, target: QubitID, pauli: OneQubitMeasurement) -> MeasurementResult {
+    fn m_pauli_impl(&mut self, target: QubitID, pauli: MeasurementBasis) -> MeasurementResult {
         if self.loss[target] {
             self.loss[target] = false;
             return MeasurementResult::Loss;
         }
 
         let observable = match pauli {
-            OneQubitMeasurement::X => [paulimer::core::x(target)].into(),
-            OneQubitMeasurement::Y => [paulimer::core::y(target)].into(),
-            OneQubitMeasurement::Z => [paulimer::core::z(target)].into(),
+            MeasurementBasis::X => [paulimer::core::x(target)].into(),
+            MeasurementBasis::Y => [paulimer::core::y(target)].into(),
+            MeasurementBasis::Z => [paulimer::core::z(target)].into(),
         };
         let one_probability = self.state.outcome_probability(&observable, true);
         // Snap numerical residue so deterministic measurements do not consume randomness.
@@ -356,7 +356,7 @@ impl StabilizerSimulator {
             return MeasurementResult::Loss;
         }
 
-        let result = self.m_pauli_impl(target, OneQubitMeasurement::Z);
+        let result = self.m_pauli_impl(target, MeasurementBasis::Z);
         if result == MeasurementResult::One {
             self.state.pauli(&[paulimer::core::x(target)].into());
         }
@@ -589,7 +589,7 @@ impl Simulator for StabilizerSimulator {
         // The MX measurement currently use `mz` noise.
         // TODO(pranavijain): Change noise type when noise for MX is configured
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, OneQubitMeasurement::X);
+        self.record_m_pauli(target, result_id, MeasurementBasis::X);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
@@ -597,13 +597,13 @@ impl Simulator for StabilizerSimulator {
         // The MY measurement currently uses `mz` noise.
         // TODO(pranavijain): Change noise type when noise for MY is configured.
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, OneQubitMeasurement::Y);
+        self.record_m_pauli(target, result_id, MeasurementBasis::Y);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn mz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, OneQubitMeasurement::Z);
+        self.record_m_pauli(target, result_id, MeasurementBasis::Z);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
