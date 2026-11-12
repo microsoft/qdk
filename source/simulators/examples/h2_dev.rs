@@ -26,8 +26,13 @@
 //! cargo run --release -p qdk_simulators --example h2_dev -- \
 //!     --engine cpu|cutensornet|reference --bytecode H2.bytecode.json \
 //!     [--readout TABLE] [--readout-first-draw 1399] [--seed 1] [--chi 128] \
-//!     [--first-shot 0] [--shots 1] [--threads 1]
+//!     [--first-shot 0] [--shots 1] [--threads 1] \
+//!     [--routing engine|meet-halfway|meet-halfway-after-fusion]
 //! ```
+//!
+//! `--routing` (EXPERIMENTAL) chooses the resumer's `Routing` of distant
+//! two-qubit gates; `engine`, the default, is the resumer's behaviour
+//! without it.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -38,7 +43,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use num_complex::Complex64;
-use qdk_simulators::mps_simulator::MpsResumer;
+use qdk_simulators::mps_simulator::{MpsResumer, Routing};
 use qdk_simulators::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use qdk_simulators::{MeasurementResult, OutputRecord};
 use tensornet::{MpsEngine, MpsShape, PauliSum};
@@ -206,6 +211,7 @@ struct Options {
     first_shot: u32,
     shots: u32,
     threads: usize,
+    routing: (String, Routing),
 }
 
 impl Options {
@@ -234,6 +240,18 @@ impl Options {
             first_shot: u32::try_from(number("--first-shot", 0)).expect("a shot id"),
             shots: u32::try_from(number("--shots", 1)).expect("a shot count"),
             threads: as_usize(number("--threads", 1)).max(1),
+            routing: {
+                let name = value("--routing").unwrap_or_else(|| "engine".to_string());
+                let routing = match name.as_str() {
+                    "engine" => Routing::Engine,
+                    "meet-halfway" => Routing::MeetHalfway,
+                    "meet-halfway-after-fusion" => Routing::MeetHalfwayAfterFusion,
+                    other => panic!(
+                        "--routing {other}: engine, meet-halfway or meet-halfway-after-fusion"
+                    ),
+                };
+                (name, routing)
+            },
         }
     }
 }
@@ -260,7 +278,9 @@ where
         inner: Rc::clone(&engine),
         seen: Rc::clone(&seen),
     };
-    let mut resumer = MpsResumer::new(probe, options.seed).with_max_bond_dimension(options.chi);
+    let mut resumer = MpsResumer::new(probe, options.seed)
+        .with_max_bond_dimension(options.chi)
+        .with_routing(options.routing.1);
     let (start, started) = (unix_seconds(), Instant::now());
     let run = expect_ready(resumer.run(&QirMachine::new(program), &[QirShotId(shot)]));
     let seconds = started.elapsed().as_secs_f64();
@@ -274,9 +294,10 @@ where
     };
     let report = *resumer.last_run();
     let mut line = format!(
-        "SHOT shot={shot} engine={} chi={} seed={} start_unix={start:.3} end_unix={end:.3} \
+        "SHOT shot={shot} engine={} routing={} chi={} seed={} start_unix={start:.3} end_unix={end:.3} \
          seconds={seconds:.1} records={records} draws={} largest_bond={} lost_weight={:.3e}",
         options.engine,
+        options.routing.0,
         options.chi,
         options.seed,
         seen.draws.get(),
@@ -353,12 +374,13 @@ fn main() {
     let bytecode: bytecode_json::Bytecode = serde_json::from_str(&json).expect("bytecode JSON");
     let program = QirProgram::new(bytecode.program()).expect("the program builds");
     println!(
-        "PROGRAM qubits={} two_qubit_gates={} measurements={} engine={} chi={} seed={} \
+        "PROGRAM qubits={} two_qubit_gates={} measurements={} engine={} routing={} chi={} seed={} \
          first_shot={} shots={} threads={} readout={}",
         program.qubits(),
         program.two_qubit_gates().len(),
         program.measured_qubits().len(),
         options.engine,
+        options.routing.0,
         options.chi,
         options.seed,
         options.first_shot,
