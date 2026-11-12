@@ -131,11 +131,12 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
     /// The first failing shot in the order of `shots`: its context trapped,
     /// or the resumer failed it ([`MpsResumerError`]): a noise or loss call,
     /// a gate on one qubit twice, a capacity that is no chain, or the
-    /// engine's failure. An engine's failure to fork a group's state, or to
-    /// settle the fork (project it, and apply a reset's X), fails the shots
-    /// that were to wait with the fork, though alone they would not have
-    /// forked: a shot's failure, unlike its records, may depend on the
-    /// shots beside it.
+    /// engine's failure. An engine's failure to fork a group's state fails
+    /// all the group's shots, as the engine leaves that state unspecified;
+    /// its failure to settle the fork (project it, and apply a reset's X)
+    /// fails only the shots that were to wait with the fork. Either fails
+    /// shots that alone would not have forked: a shot's failure, unlike its
+    /// records, may depend on the shots beside it.
     async fn run(
         &mut self,
         machine: &QirMachine<'_>,

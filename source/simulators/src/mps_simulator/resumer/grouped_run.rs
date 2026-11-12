@@ -26,8 +26,12 @@
 //! **Failures.** `fail` keeps the failure of the first shot in the order of
 //! the shots; since a group's shots keep that order, a group whose first
 //! shot comes after it is dropped: `run` drops it unrun when it waits, and
-//! `run_group` stops it at the split, failed or not, that leaves it only
-//! such shots going on.
+//! `run_group` stops it at the split that leaves it only such shots going
+//! on, whether settling the fork failed or not. A group that meets a
+//! failure is dropped with its state, which the engine leaves unspecified
+//! after it fails: a failed fork fails the whole group, before its shots
+//! part, while a failure settling the fork fails only the part that waits,
+//! and drops the fork.
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;
@@ -191,8 +195,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
 
     /// Runs `group` until its context ends, giving its records; the groups
     /// that split off it wait on [`Self::waiting`]. Gives `None`, and stops
-    /// at once, when a split of `group`, failed or not, leaves it only shots
-    /// that come after the run's failure.
+    /// at once, when a split of `group` leaves it only shots that come after
+    /// the run's failure, whether settling the fork failed or not.
     fn run_group(
         &mut self,
         group: &mut Group<E::State>,
@@ -284,7 +288,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             .collect();
         let one = value_going_on(&draws);
         if draws.iter().any(|&drew| drew != one) {
-            self.split(group, &draws, one, site, reset, result);
+            self.split(group, &draws, one, site, reset, result)?;
         }
         let state = group.state.as_mut().expect("prepared above");
         self.settle(state, site, one, reset)?;
@@ -294,10 +298,21 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
 
     /// Splits `group` by its shots' `draws` of `site`: the shots that drew
     /// `one` stay in `group`, and the others wait, with a fork of the state
-    /// that keeps their value and a copy of the context. When the fork, or
-    /// its settling ([`Self::settle`]: the projection, and a reset's X),
-    /// fails, the failure fails the waiting shots only (kept in the run's
-    /// failure), and `group` goes on, unless its shots all come after them.
+    /// that keeps their value and a copy of the context. The fork is made
+    /// before `group`'s state is settled, after its P(One) is read: so it
+    /// is the state a shot alone would project.
+    ///
+    /// When settling the fork ([`Self::settle`]: the projection, and a
+    /// reset's X) fails, `group`'s state was not touched, so the failure
+    /// fails the waiting shots only (kept in the run's failure), and
+    /// `group` goes on, unless its shots all come after them.
+    ///
+    /// # Errors
+    ///
+    /// The engine's failure to fork, which fails all of `group`'s shots,
+    /// before they part: the engine leaves the state it failed on
+    /// unspecified (the `MpsEngine` contract), so no part may go on with
+    /// it, and `run` drops it with `group`.
     fn split(
         &mut self,
         group: &mut Group<E::State>,
@@ -306,7 +321,12 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         site: usize,
         reset: bool,
         result: Option<u32>,
-    ) {
+    ) -> Result<(), GroupFailure<E::Error>> {
+        let state = group
+            .state
+            .as_ref()
+            .expect("a group that draws holds a state");
+        let mut fork = self.engine.fork(state).map_err(engine_failure)?;
         let (mut going_on, mut waiting) = (Vec::new(), Vec::new());
         for (shot, &drew) in std::mem::take(&mut group.shots).into_iter().zip(draws) {
             if drew == one {
@@ -316,12 +336,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             }
         }
         group.shots = going_on;
-        let state = group
-            .state
-            .as_ref()
-            .expect("a group that draws holds a state");
-        match self.fork_keeping(state, site, !one, reset) {
-            Ok(fork) => {
+        match self.settle(&mut fork, site, !one, reset) {
+            Ok(()) => {
                 let mut outcomes = group.outcomes.clone();
                 outcomes.extend(answer(result, !one));
                 self.waiting.push(Group {
@@ -334,27 +350,13 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     bond_unread: false,
                 });
             }
-            // Only the shots that wait met the failure: those going on run
-            // on, unless they all come after it (`run_group` then stops
-            // them), and may end, or fail first in the order.
+            // Only the shots that wait met the failure, on the fork, which
+            // is dropped: those going on run on, unless they all come after
+            // it (`run_group` then stops them), and may end, or fail first
+            // in the order.
             Err(failed) => self.fail(waiting[0].place, failed),
         }
-    }
-
-    /// A fork of `state` keeping the value One (`one` true) or Zero (`one`
-    /// false) of `site`, as [`Self::settle`] keeps it. Forked before
-    /// `state` is settled, after its P(One) is read: so the fork is the
-    /// state a shot alone would project.
-    fn fork_keeping(
-        &self,
-        state: &E::State,
-        site: usize,
-        one: bool,
-        reset: bool,
-    ) -> Result<E::State, GroupFailure<E::Error>> {
-        let mut fork = self.engine.fork(state).map_err(engine_failure)?;
-        self.settle(&mut fork, site, one, reset)?;
-        Ok(fork)
+        Ok(())
     }
 
     /// Keeps the value One (`one` true) or Zero (`one` false) of `site` in

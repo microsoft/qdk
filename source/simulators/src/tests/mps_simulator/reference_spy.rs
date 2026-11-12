@@ -6,7 +6,10 @@
 //! counts the operators it applies, the states it prepares and forks, and
 //! the states alive at once; keeps the capacities it is given; and, as a
 //! test sets it, reports a retained weight below one, as an engine that
-//! truncates would, or fails where a device would.
+//! truncates would, or fails where a device would. A state a call failed
+//! on is unspecified, as the `MpsEngine` contract says (the source, for a
+//! fork): the spy counts each later call given it, which it runs on the
+//! reference's state as it is.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -27,6 +30,16 @@ pub(super) enum Weight {
     ByBasisState,
 }
 
+/// A call of [`ReferenceSpy`] a test may fail once.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Call {
+    Prepare,
+    Apply,
+    ProbabilityOfOne,
+    Shape,
+    RetainedWeight,
+}
+
 /// Which calls [`ReferenceSpy`] fails, as a device's error would.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Failing {
@@ -34,6 +47,8 @@ enum Failing {
     ProjectionsOnOne,
     Forks,
     XGates,
+    /// The first call of this kind, and no later one.
+    First(Call),
 }
 
 /// A test spy over the exact reference (see the module documentation).
@@ -41,17 +56,22 @@ pub(super) struct ReferenceSpy {
     reference: ExactReference,
     weight: Weight,
     failing: Failing,
+    /// Whether the call a [`Failing::First`] names has failed.
+    failed_first: Cell<bool>,
     prepared: RefCell<Vec<MpsShape>>,
     applies: Cell<usize>,
     forks: Cell<usize>,
     live: Rc<Cell<usize>>,
     most_live: Cell<usize>,
+    uses_after_failure: Cell<usize>,
 }
 
-/// A state of [`ReferenceSpy`]: the reference's, counted while it lives.
+/// A state of [`ReferenceSpy`]: the reference's, counted while it lives,
+/// and whether a call failed on it.
 pub(super) struct ReferenceSpyState {
     state: ReferenceState,
     live: Rc<Cell<usize>>,
+    failed: Cell<bool>,
 }
 
 impl Drop for ReferenceSpyState {
@@ -86,16 +106,24 @@ impl ReferenceSpy {
         Self::with(Weight::Exact, Failing::XGates)
     }
 
+    /// The reference, failing the first `call` it is given, and no later
+    /// one.
+    pub(super) fn failing_first(call: Call) -> Self {
+        Self::with(Weight::Exact, Failing::First(call))
+    }
+
     fn with(weight: Weight, failing: Failing) -> Self {
         Self {
             reference: ExactReference::new(),
             weight,
             failing,
+            failed_first: Cell::new(false),
             prepared: RefCell::new(Vec::new()),
             applies: Cell::new(0),
             forks: Cell::new(0),
             live: Rc::new(Cell::new(0)),
             most_live: Cell::new(0),
+            uses_after_failure: Cell::new(0),
         }
     }
 
@@ -119,6 +147,11 @@ impl ReferenceSpy {
         self.most_live.get()
     }
 
+    /// The calls given a state that a call had failed on.
+    pub(super) fn uses_after_failure(&self) -> usize {
+        self.uses_after_failure.get()
+    }
+
     fn track(&self, state: ReferenceState) -> ReferenceSpyState {
         self.live.set(self.live.get() + 1);
         self.most_live
@@ -126,6 +159,26 @@ impl ReferenceSpy {
         ReferenceSpyState {
             state,
             live: Rc::clone(&self.live),
+            failed: Cell::new(false),
+        }
+    }
+
+    /// Whether this call of `call` is the one a test set to fail.
+    fn fails_now(&self, call: Call) -> bool {
+        self.failing == Failing::First(call) && !self.failed_first.replace(true)
+    }
+
+    /// A device's failure on `state`, which leaves it unspecified.
+    fn fail_on(state: &ReferenceSpyState) -> ReferenceSpyError {
+        state.failed.set(true);
+        ReferenceSpyError::Device
+    }
+
+    /// Counts a call given `state`, when a call had failed on it.
+    fn note_use(&self, state: &ReferenceSpyState) {
+        if state.failed.get() {
+            self.uses_after_failure
+                .set(self.uses_after_failure.get() + 1);
         }
     }
 }
@@ -176,6 +229,9 @@ impl MpsEngine for ReferenceSpy {
 
     fn prepare(&self, capacity: &MpsShape) -> Result<ReferenceSpyState, ReferenceSpyError> {
         self.prepared.borrow_mut().push(capacity.clone());
+        if self.fails_now(Call::Prepare) {
+            return Err(ReferenceSpyError::Device);
+        }
         Ok(self.track(self.reference.prepare(capacity)?))
     }
 
@@ -185,9 +241,11 @@ impl MpsEngine for ReferenceSpy {
         sites: &[usize],
         matrix: &[Complex64],
     ) -> Result<(), ReferenceSpyError> {
+        self.note_use(state);
         let (zero, one) = (Complex64::new(0.0, 0.0), Complex64::new(1.0, 0.0));
-        if self.failing == Failing::XGates && matrix == [zero, one, one, zero] {
-            return Err(ReferenceSpyError::Device);
+        let x_gate = matrix == [zero, one, one, zero];
+        if (self.failing == Failing::XGates && x_gate) || self.fails_now(Call::Apply) {
+            return Err(Self::fail_on(state));
         }
         self.applies.set(self.applies.get() + 1);
         Ok(self.reference.apply(&mut state.state, sites, matrix)?)
@@ -198,6 +256,10 @@ impl MpsEngine for ReferenceSpy {
         state: &ReferenceSpyState,
         site: usize,
     ) -> Result<f64, ReferenceSpyError> {
+        self.note_use(state);
+        if self.fails_now(Call::ProbabilityOfOne) {
+            return Err(Self::fail_on(state));
+        }
         Ok(self.reference.probability_of_one(&state.state, site)?)
     }
 
@@ -207,15 +269,17 @@ impl MpsEngine for ReferenceSpy {
         site: usize,
         one: bool,
     ) -> Result<f64, ReferenceSpyError> {
+        self.note_use(state);
         if one && self.failing == Failing::ProjectionsOnOne {
-            return Err(ReferenceSpyError::Device);
+            return Err(Self::fail_on(state));
         }
         Ok(self.reference.project(&mut state.state, site, one)?)
     }
 
     fn fork(&self, state: &ReferenceSpyState) -> Result<ReferenceSpyState, ReferenceSpyError> {
+        self.note_use(state);
         if self.failing == Failing::Forks {
-            return Err(ReferenceSpyError::Device);
+            return Err(Self::fail_on(state));
         }
         self.forks.set(self.forks.get() + 1);
         Ok(self.track(self.reference.fork(&state.state)?))
@@ -228,6 +292,7 @@ impl MpsEngine for ReferenceSpy {
         shots: usize,
         seed: u64,
     ) -> Result<Vec<bool>, ReferenceSpyError> {
+        self.note_use(state);
         Ok(self.reference.sample(&state.state, sites, shots, seed)?)
     }
 
@@ -236,14 +301,23 @@ impl MpsEngine for ReferenceSpy {
         state: &ReferenceSpyState,
         observable: &PauliSum,
     ) -> Result<Complex64, ReferenceSpyError> {
+        self.note_use(state);
         Ok(self.reference.expectation(&state.state, observable)?)
     }
 
     fn shape(&self, state: &ReferenceSpyState) -> Result<MpsShape, ReferenceSpyError> {
+        self.note_use(state);
+        if self.fails_now(Call::Shape) {
+            return Err(Self::fail_on(state));
+        }
         Ok(self.reference.shape(&state.state)?)
     }
 
     fn retained_weight(&self, state: &ReferenceSpyState) -> Result<f64, ReferenceSpyError> {
+        self.note_use(state);
+        if self.fails_now(Call::RetainedWeight) {
+            return Err(Self::fail_on(state));
+        }
         Ok(match self.weight {
             Weight::Exact => self.reference.retained_weight(&state.state)?,
             Weight::Fixed(weight) => weight,
