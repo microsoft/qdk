@@ -1,10 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The grouped run's rules: shots that draw the same values share one
-//! state, a split forks it once and keeps few states at once, and a run
-//! names its first failing shot in the order of its shots, whichever part
-//! of a split goes on.
+//! The grouped run's rules: a shot reads One only where One has a
+//! probability; shots that draw the same values share one state; a split
+//! forks it once and keeps few states at once; and a run names its first
+//! failing shot in the order of its shots, whichever part of a split goes
+//! on.
 
 use crate::bytecode::Instruction;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
@@ -17,8 +18,29 @@ use super::super::programs::{
     read_result, ret, set,
 };
 use super::super::reference_spy::{ReferenceSpy, ReferenceSpyError};
-use super::{RunResult, copies, results, run};
+use super::shot_stream::shot_stream;
+use super::{RunResult, copies, ids, results, run};
 use crate::bytecode::encoding::{OPID_H, OPID_RY, OPID_X};
+
+/// A shot reads One only where One has a probability: a qubit at |0⟩ reads
+/// 0 even when the shot's uniform is 0, the smallest it draws. The run's
+/// seed is chosen so that shot 0's first uniform is 0.
+#[test]
+fn a_qubit_at_zero_reads_zero_even_on_a_uniform_of_zero() {
+    let seed = 0xe85b_9f31_99d1_1237;
+    assert_eq!(
+        shot_stream(seed, 0).next_uniform().to_bits(),
+        0.0f64.to_bits(),
+        "the seed gives shot 0 a first uniform of 0"
+    );
+    let program = program(1, &[&[mz(0), ret()]]);
+    let records = run(
+        &mut MpsResumer::new(ExactReference::new(), seed),
+        &program,
+        &ids(&[0]),
+    );
+    assert_eq!(records.expect("the program runs"), vec![results(&[0])]);
+}
 
 /// Shots that draw the same values share one state: a program of no
 /// randomness prepares one state for all its shots and forks none.

@@ -12,7 +12,7 @@ mod reference_spy;
 mod report;
 mod resumer;
 
-use crate::mps_simulator::resumer::splitmix64::SplitMix64;
+use crate::mps_simulator::resumer::shot_stream::SplitMix64;
 
 /// A value of `stream` below `n`, for the tests' random cases.
 fn below(stream: &mut SplitMix64, n: usize) -> usize {

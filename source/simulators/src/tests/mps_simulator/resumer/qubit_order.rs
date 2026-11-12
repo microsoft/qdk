@@ -12,7 +12,7 @@ use crate::bytecode::encoding::OPID_CX;
 use crate::mps_simulator::resumer::qubit_order::{
     InteractionWeights, QubitOrder, local_search_order,
 };
-use crate::mps_simulator::resumer::splitmix64::SplitMix64;
+use crate::mps_simulator::resumer::shot_stream::SplitMix64;
 
 /// On random interaction graphs, the order is a permutation whose span is
 /// at most the identity's, and the same gates give the same order.

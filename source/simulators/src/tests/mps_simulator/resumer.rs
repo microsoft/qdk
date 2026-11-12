@@ -3,15 +3,15 @@
 
 //! The resumer's rules: what a shot records, wherever the order places its
 //! qubits; that its records do not depend on the shots beside it or on
-//! earlier runs; the stream each shot draws from; and a run's edges (no
-//! shots, no qubits, a max bond dimension that makes no chain). How shots
-//! share states and how a run fails are in `resumer/grouped_run.rs`, the
-//! calls refused in `resumer/lowering.rs`.
+//! earlier runs; and a run's edges (no shots, no qubits, a max bond
+//! dimension that makes no chain). How shots draw, share states and fail
+//! is in `resumer/grouped_run.rs`, the stream each draws from in
+//! `resumer/shot_stream.rs`, the calls refused in `resumer/lowering.rs`.
 
 mod grouped_run;
 mod lowering;
 mod qubit_order;
-mod splitmix64;
+mod shot_stream;
 
 use std::num::NonZeroUsize;
 
@@ -29,7 +29,6 @@ use crate::bytecode::encoding::{
     OPID_CX, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_SWAP, OPID_X,
 };
 use crate::mps_simulator::resumer::qubit_order::QubitOrder;
-use crate::mps_simulator::resumer::splitmix64::SplitMix64;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
 
 type RunResult<E> = Result<Vec<Vec<OutputRecord>>, QirResumeError<MpsResumerError<E>>>;
@@ -313,65 +312,6 @@ fn another_seed_gives_other_records() {
     )
     .expect("the program runs");
     assert_ne!(one, other);
-}
-
-/// A shot draws from the stream the executor protocol (planned) will seed
-/// for that shot of a chain's only participant that draws, at place 0, as
-/// this MPS simulation method is in a chain of a driver and itself: so
-/// such a chain, its executor drawing as this MPS simulation method does,
-/// will reproduce the records a resumer gives. Sixteen coins, read in
-/// order, are the first sixteen uniforms of that stream, each against ½,
-/// for several seeds and shots.
-#[test]
-fn a_shot_draws_from_the_executor_protocols_stream_of_the_only_drawing_participant() {
-    let program = coins(16);
-    for seed in [0, 7, u64::MAX] {
-        for shot in [0, 1, 1000] {
-            let mut stream = shot_stream(seed, shot);
-            let bits: Vec<u8> = (0..16)
-                .map(|_| u8::from(stream.next_uniform() < 0.5))
-                .collect();
-            let records = run(
-                &mut MpsResumer::new(ExactReference::new(), seed),
-                &program,
-                &ids(&[shot]),
-            )
-            .expect("the program runs");
-            assert_eq!(records, vec![results(&bits)], "seed {seed}, shot {shot}");
-        }
-    }
-}
-
-/// The stream the executor protocol (planned) seeds for `shot` of a run
-/// seeded `seed`, at place 0: with `mix(x)` the first value of
-/// `SplitMix64::new(x)`, a participant's seed is
-/// `mix(run ^ mix(place + 1))`, and its shot's `mix(participant ^ shot)`.
-fn shot_stream(seed: u64, shot: u32) -> SplitMix64 {
-    fn mix(x: u64) -> u64 {
-        SplitMix64::new(x).next_u64()
-    }
-    let participant = mix(seed ^ mix(1));
-    SplitMix64::new(mix(participant ^ u64::from(shot)))
-}
-
-/// A shot reads One only where One has a probability: a qubit at |0⟩ reads
-/// 0 even when the shot's uniform is 0, the smallest it draws. The run's
-/// seed is chosen so that shot 0's first uniform is 0.
-#[test]
-fn a_qubit_at_zero_reads_zero_even_on_a_uniform_of_zero() {
-    let seed = 0xe85b_9f31_99d1_1237;
-    assert_eq!(
-        shot_stream(seed, 0).next_uniform().to_bits(),
-        0.0f64.to_bits(),
-        "the seed gives shot 0 a first uniform of 0"
-    );
-    let program = program(1, &[&[mz(0), ret()]]);
-    let records = run(
-        &mut MpsResumer::new(ExactReference::new(), seed),
-        &program,
-        &ids(&[0]),
-    );
-    assert_eq!(records.expect("the program runs"), vec![results(&[0])]);
 }
 
 /// A max bond dimension that makes no chain of the program's qubits fails

@@ -12,7 +12,7 @@ use tensornet::{MpsEngine, MpsShape};
 use super::programs::{gate, gate1, gate2, mz, program, ret};
 use crate::bytecode::encoding::{OPID_CX, OPID_H, OPID_RX, OPID_RY, OPID_RZZ};
 use crate::mps_simulator::resumer::lowering::{Operator, Step};
-use crate::mps_simulator::resumer::splitmix64::SplitMix64;
+use crate::mps_simulator::resumer::shot_stream::SplitMix64;
 use crate::mps_simulator::{GateFusion, MpsResumer};
 
 const SITES: usize = 4;

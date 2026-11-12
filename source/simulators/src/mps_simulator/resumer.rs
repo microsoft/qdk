@@ -24,7 +24,7 @@ use tensornet::MpsEngine;
 mod grouped_run;
 pub(crate) mod lowering;
 pub(crate) mod qubit_order;
-pub(crate) mod splitmix64;
+pub(crate) mod shot_stream;
 
 use super::{GateFusion, MpsResumerError, MpsRunReport};
 use grouped_run::GroupedRun;

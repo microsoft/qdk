@@ -24,8 +24,8 @@
 //!   (which site holds each qubit, an order chosen from the program's
 //!   two-qubit gates), `resumer/lowering.rs` (a batch's calls as the
 //!   engine's steps on sites, the gates as matrices) and
-//!   `resumer/splitmix64.rs` (the generator each shot's random draws come
-//!   from);
+//!   `resumer/shot_stream.rs` (the stream each shot draws from, seeded as
+//!   the executor protocol will seed it);
 //! - `fusion.rs`: [`GateFusion`], gates multiplied into fewer one- and
 //!   two-site operators;
 //! - `report.rs`: [`MpsRunReport`] and [`TruncationWarning`], what a run

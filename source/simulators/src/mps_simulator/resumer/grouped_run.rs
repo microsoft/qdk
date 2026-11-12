@@ -61,7 +61,7 @@ use tensornet::{MpsEngine, MpsShape};
 use super::MpsResumer;
 use super::lowering::{Operator, Step, lower};
 use super::qubit_order::QubitOrder;
-use super::splitmix64::SplitMix64;
+use super::shot_stream::{SplitMix64, shot_stream};
 
 /// One run of an [`MpsResumer`]: what every group of the run shares, the
 /// groups that wait their turn, and the first failure.
@@ -506,28 +506,3 @@ fn answer(result: Option<u32>, one: bool) -> Option<QirOutcome> {
 fn engine_failure<E>(error: E) -> GroupFailure<E> {
     GroupFailure::Resumer(MpsResumerError::Engine(error))
 }
-
-/// The stream shot `shot` draws from under the run seed `seed`: the one the
-/// executor protocol (planned) will seed for that shot of the participant
-/// at place 0, which this MPS simulation method holds in a chain of a
-/// driver and itself, the chain's only participant that draws. So such a
-/// chain, its executor drawing from that stream as this MPS simulation
-/// method does, will reproduce the records a resumer gives. The protocol's
-/// seed is a hash of the run's seed, the place and the shot, so shots with
-/// close ids, or close seeds, draw unrelated values: with `mix(x)` the
-/// first value of `SplitMix64::new(x)`, the participant's seed is
-/// `mix(seed ^ mix(place + 1))`, and the shot's `mix(participant ^ shot)`.
-fn shot_stream(seed: u64, shot: QirShotId) -> SplitMix64 {
-    fn mix(x: u64) -> u64 {
-        SplitMix64::new(x).next_u64()
-    }
-    let participant = mix(seed ^ mix(DRAWING_PLACE + 1));
-    SplitMix64::new(mix(participant ^ u64::from(shot.0)))
-}
-
-/// The place of this MPS simulation method among the participants that
-/// draw in a chain of the executor protocol (planned) with a driver that
-/// does not draw: the first, 0. The protocol counts places over the
-/// participants that draw only, so that inserting an observer (a debugger)
-/// moves no draw.
-const DRAWING_PLACE: u64 = 0;
