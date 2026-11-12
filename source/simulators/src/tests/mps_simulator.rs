@@ -6,7 +6,6 @@
 //! spy over it, which records the calls and stands in for an engine that
 //! truncates or fails; `programs.rs` writes the QIR programs they run.
 
-mod fusion;
 mod programs;
 mod reference_spy;
 mod report;

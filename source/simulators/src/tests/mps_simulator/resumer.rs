@@ -8,6 +8,7 @@
 //! is in `resumer/grouped_run.rs`, the stream each draws from in
 //! `resumer/shot_stream.rs`, the calls refused in `resumer/lowering.rs`.
 
+mod fusion;
 mod grouped_run;
 mod lowering;
 mod qubit_order;

@@ -21,12 +21,14 @@ use crate::OutputRecord;
 use crate::qir::{QirMachine, QirResumeError, QirResumer, QirShotId};
 use tensornet::MpsEngine;
 
+pub(crate) mod fusion;
 mod grouped_run;
 pub(crate) mod lowering;
 pub(crate) mod qubit_order;
 pub(crate) mod shot_stream;
 
-use super::{GateFusion, MpsResumerError, MpsRunReport};
+use super::{MpsResumerError, MpsRunReport};
+use fusion::GateFusion;
 use grouped_run::GroupedRun;
 
 /// The max bond dimension χ by default: 128. H₂'s phase estimation, run on

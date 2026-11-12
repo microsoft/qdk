@@ -9,7 +9,7 @@ use num_complex::Complex64;
 use tensornet::reference::{ExactReference, ReferenceState};
 use tensornet::{MpsEngine, MpsShape};
 
-use super::programs::{gate, gate1, gate2, mz, program, ret};
+use super::super::programs::{gate, gate1, gate2, mz, program, ret};
 use crate::bytecode::encoding::{OPID_CX, OPID_H, OPID_RX, OPID_RY, OPID_RZZ};
 use crate::mps_simulator::resumer::lowering::{Operator, Step};
 use crate::mps_simulator::resumer::shot_stream::SplitMix64;
@@ -29,7 +29,7 @@ fn random_gate(stream: &mut SplitMix64) -> Operator {
         QirGate::Rzz,
         QirGate::Swap,
     ];
-    let pick = super::below;
+    let pick = super::super::below;
     let gate = gates[pick(stream, gates.len())];
     let angle = matches!(gate, QirGate::Rx | QirGate::Ry | QirGate::Rzz)
         .then(|| stream.next_uniform() * 6.0);

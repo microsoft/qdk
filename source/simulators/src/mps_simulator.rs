@@ -25,9 +25,9 @@
 //!   two-qubit gates), `resumer/lowering.rs` (a batch's calls as the
 //!   engine's steps on sites, the gates as matrices) and
 //!   `resumer/shot_stream.rs` (the stream each shot draws from, seeded as
-//!   the executor protocol will seed it);
-//! - `fusion.rs`: [`GateFusion`], gates multiplied into fewer one- and
-//!   two-site operators;
+//!   the executor protocol will seed it), `resumer/fusion.rs`
+//!   ([`GateFusion`], gates multiplied into fewer one- and two-site
+//!   operators);
 //! - `report.rs`: [`MpsRunReport`] and [`TruncationWarning`], what a run
 //!   cost and the warning when truncation lost weight;
 //! - `resumer_error.rs`: [`MpsResumerError`].
@@ -43,12 +43,11 @@
 //!
 //! [`QirResumer`]: crate::qir::QirResumer
 
-mod fusion;
 mod report;
 pub(crate) mod resumer;
 mod resumer_error;
 
-pub use fusion::GateFusion;
 pub use report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
+pub use resumer::fusion::GateFusion;
 pub use resumer::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer};
 pub use resumer_error::MpsResumerError;

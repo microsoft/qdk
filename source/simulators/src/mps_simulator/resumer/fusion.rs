@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use crate::qir::OperatorMatrix;
 use num_complex::Complex64;
 
-use crate::mps_simulator::resumer::lowering::{Operator, Step};
+use super::lowering::{Operator, Step};
 
 /// How the MPS simulation method groups the gates of each run between
 /// measurements and resets into the engine's operators.

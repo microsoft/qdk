@@ -50,7 +50,7 @@ use std::num::NonZeroUsize;
 use std::rc::Rc;
 
 use crate::OutputRecord;
-use crate::mps_simulator::{GateFusion, MpsResumerError, MpsRunReport};
+use crate::mps_simulator::{MpsResumerError, MpsRunReport};
 use crate::qir::{
     QirGate, QirMachine, QirOutcome, QirProgram, QirReadout, QirResumeError, QirShotContext,
     QirShotId, QirStop, QirTrap,
@@ -59,6 +59,7 @@ use tensornet::{MpsEngine, MpsShape};
 
 #[cfg(doc)]
 use super::MpsResumer;
+use super::fusion::GateFusion;
 use super::lowering::{Operator, Step, lower};
 use super::qubit_order::QubitOrder;
 use super::shot_stream::{SplitMix64, shot_stream};
