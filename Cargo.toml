@@ -27,6 +27,7 @@ members = [
     "source/fuzz",
     "source/index_map",
     "source/language_service",
+    "source/qodec/qodec_human_interface",
     "source/qodec/qodec_repl",
     "source/qodec/qodec_runtime_builder",
     "source/qodec/qodec_runtime_interface",
@@ -94,8 +95,9 @@ indenter = "0.3"
 regex-lite = "0.1"
 rustc-hash = "1"
 
-# TODO: remove these before merging, they are only needed by qodec_repl, which is a
-# throwaway crate.
+# TODO: remove these before merging, they are only needed by qodec_repl and
+# qodec_human_interface, which are throwaway crates.
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 rustyline = { version = "19.0", default-features = false }
 serde_yaml = "0.9"
 
