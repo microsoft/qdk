@@ -91,6 +91,12 @@ pub struct Strategy {
     /// Whether noise sites join block and diagonal passes (drawn inside
     /// them), rather than each being a Pauli pass of its own.
     pub fuse_noise: bool,
+    /// Whether a block's noise sites move past later ops on other qubits
+    /// (Pauli faults commute with them), so that one-qubit gates still pair.
+    pub sink_noise: bool,
+    /// Whether block and diagonal passes draw each noise site once per
+    /// workgroup into workgroup memory, and skip fault-free sites.
+    pub hoist_noise: bool,
 }
 
 impl Strategy {
@@ -105,6 +111,8 @@ impl Strategy {
         gather: true,
         skip_tail: true,
         fuse_noise: true,
+        sink_noise: true,
+        hoist_noise: true,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -117,6 +125,8 @@ impl Strategy {
         gather: false,
         skip_tail: false,
         fuse_noise: false,
+        sink_noise: false,
+        hoist_noise: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -129,6 +139,8 @@ impl Strategy {
         gather: true,
         skip_tail: true,
         fuse_noise: true,
+        sink_noise: true,
+        hoist_noise: true,
     };
 
     pub fn named(name: &str) -> Option<Self> {
@@ -162,6 +174,20 @@ impl Strategy {
             },
             "sepnoise" => Self {
                 fuse_noise: false,
+                ..Self::ALL
+            },
+            "nosink" => Self {
+                sink_noise: false,
+                ..Self::ALL
+            },
+            "nohoist" => Self {
+                hoist_noise: false,
+                ..Self::ALL
+            },
+            // The first noise commit's fused passes.
+            "fused0" => Self {
+                sink_noise: false,
+                hoist_noise: false,
                 ..Self::ALL
             },
             _ => return None,
@@ -1241,6 +1267,30 @@ fn diag_code(diag_ops: &[Op]) -> (Vec<[f32; 4]>, u32) {
     (code, terms)
 }
 
+/// `block_ops` with each noise site moved down to just before the first
+/// later op on one of its qubits (or to the end). Exact up to a global
+/// phase: a Pauli fault commutes with ops on other qubits, and with other
+/// faults up to a sign.
+fn sink_noise(block_ops: &[Op]) -> Vec<Op> {
+    let mut out = Vec::with_capacity(block_ops.len());
+    let mut pending: Vec<Op> = Vec::new();
+    for op in block_ops {
+        if is_noise(op) {
+            pending.push(op.clone());
+            continue;
+        }
+        let mask = qubit_mask(op);
+        let (hit, keep): (Vec<Op>, Vec<Op>) = pending
+            .drain(..)
+            .partition(|noise| qubit_mask(noise) & mask != 0);
+        out.extend(hit);
+        pending = keep;
+        out.push(op.clone());
+    }
+    out.extend(pending);
+    out
+}
+
 fn push_matrix4(ops: &mut Vec<[f32; 4]>, m: &[Complex64; 16]) {
     for pair in m.chunks(2) {
         let (x, y) = (c32(pair[0]), c32(pair[1]));
@@ -1361,6 +1411,11 @@ struct Layout<'a, 'g> {
     passes: &'a mut Vec<(&'g wgpu::ComputePipeline, u32, u64)>,
     /// Whether pairs of one-qubit gates in a block run as one 4x4 sweep.
     kron: bool,
+    /// Whether a block's noise sites move after the gates on other qubits.
+    sink: bool,
+    /// Whether block and diagonal passes draw each noise site once per
+    /// workgroup (not once per thread), skipping fault-free sites.
+    hoist: bool,
     /// The round, and where the slots' (noise seed, batch length) are in
     /// `shots`, for noise draws.
     round: u32,
@@ -1430,6 +1485,11 @@ impl Layout<'_, '_> {
                     p.op_off = op_off;
                     p.op_len = u32::try_from(code.len()).expect("fits");
                     p.q0 = terms;
+                    // The hoisted draws: one workgroup per shot's slice, and
+                    // the code fits the workgroup's fault array.
+                    p.meas = u32::from(
+                        self.hoist && terms != p.op_len && n >= 8 && code.len() <= 256,
+                    );
                     self.ops.extend(code);
                     self.passes.push((&gpu.diag, slot, (len << n).div_ceil(WG)));
                 }
@@ -1494,6 +1554,12 @@ impl Layout<'_, '_> {
                             Op::Meas { .. } => unreachable!("a measurement is in no block"),
                         })
                         .collect();
+                    let local_ops = if self.sink {
+                        sink_noise(&local_ops)
+                    } else {
+                        local_ops
+                    };
+                    let noisy = local_ops.iter().any(is_noise);
                     let pieces = block_code(&local_ops, self.kron);
                     if pieces.is_empty() {
                         // Only a global phase: nothing to do.
@@ -1514,6 +1580,7 @@ impl Layout<'_, '_> {
                         p.op_len = count;
                         p.kind = u32::try_from(code.len()).expect("fits");
                         p.block = b;
+                        p.meas = u32::from(self.hoist && noisy);
                         self.ops.extend(code);
                         p.write(self.params, at);
                         self.passes.push((&gpu.block, slot, len << (n - b)));
@@ -1761,6 +1828,8 @@ impl QirGpuResumer {
                 ops: &mut ops,
                 passes: &mut passes,
                 kron: self.strategy.kron,
+                sink: self.strategy.sink_noise,
+                hoist: self.strategy.hoist_noise,
                 round: 0,
                 meta_off: 0,
             }
@@ -1832,6 +1901,8 @@ impl QirGpuResumer {
             ops: &mut ops,
             passes: &mut passes,
             kron: self.strategy.kron,
+            sink: self.strategy.sink_noise,
+            hoist: self.strategy.hoist_noise,
             round: 0,
             meta_off: 0,
         }
@@ -2218,6 +2289,8 @@ impl QirGpuResumer {
                     ops: &mut ops,
                     passes: &mut passes,
                     kron: self.strategy.kron,
+                    sink: self.strategy.sink_noise,
+                    hoist: self.strategy.hoist_noise,
                     round,
                     meta_off: 0,
                 };
