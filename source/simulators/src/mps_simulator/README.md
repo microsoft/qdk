@@ -265,16 +265,16 @@ Each item names a case that needs it:
   (`MpsEngine::conditional_probability_of_one`, one probability per
   distinct set of earlier values), with no fork and no projection; a
   state is forked and projected only for the shots whose later batches
-  run on it. Unlike the sampled form, it is `QirResumer::run` itself:
-  each shot still draws from its own stream, so it keeps the records it
-  gets alone, up to a uniform that falls within rounding of a
-  probability. It saves the forks and projections of the measurements at
-  the end of a batch, which today split the state wherever the shots
-  draw different values, up to one fork per shot. Its case: a program
-  that ends by reading many qubits, such as a variational ansatz's
-  readout. A qubit measured again among them (after its reset, for
-  instance) splits as today, since its later value depends on the earlier
-  one and on a reset between.
+  run on it. Unlike the sampled form, it keeps `QirResumer::run`'s
+  contract: each shot still draws from its own stream, so its records are
+  still those it gets alone; they differ from today's only where a
+  uniform falls within rounding of a probability. It saves the forks and
+  projections of the measurements at the end of a batch, which today
+  split the state wherever the shots draw different values, up to one
+  fork per shot. Its case: a program that ends by reading many qubits,
+  such as a variational ansatz's readout. A qubit measured again among
+  them (after its reset, for instance) splits as today, since its later
+  value depends on the earlier one and on a reset between.
 - **Routing in the resumer:** a fourth stage, between layout and
   lowering, that brings a gate's distant sites together by swaps of
   neighbouring sites and keeps where the swaps moved the qubits: the

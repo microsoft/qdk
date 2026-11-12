@@ -77,12 +77,46 @@ fn an_operator_folds_at_most_max_folded_gates() {
     assert_same_product(&run, &fused, "a run one gate past the bound");
 }
 
+/// A block a pair's gate takes in brings its gates to the bound: a qubit
+/// turned by many Rx, then a repeated interaction with its neighbour (Rzz
+/// on the pair), half the bound of each and one gate more, gives two
+/// operators, as a run of that many gates on the pair alone does.
+#[test]
+fn a_block_taken_in_counts_its_gates_toward_the_bound() {
+    let on = |gate: QirGate, angle: f64, sites: [usize; 2]| Operator {
+        site_slots: sites,
+        matrix: gate.matrix_at(Some(angle)),
+    };
+    let mut run = vec![on(QirGate::Rx, 0.3, [0, 0]); MAX_FOLDED_GATES / 2];
+    let rzz = on(QirGate::Rzz, 1.1, [0, 1]);
+    run.extend(vec![rzz; MAX_FOLDED_GATES / 2 + 1]);
+    let fused = GateFusion::Pairs.rewrite(run.clone());
+    assert_eq!(fused.len(), 2, "the bound's gates, then the one after");
+    assert_same_product(&run, &fused, "a run one gate past the bound");
+}
+
+/// A block a pair's gate takes in may fill the bound exactly: a qubit
+/// turned by one Rx fewer than the bound, then one Rzz with its
+/// neighbour, gives one operator.
+#[test]
+fn a_block_taken_in_may_fill_the_bound_exactly() {
+    let on = |gate: QirGate, angle: f64, sites: [usize; 2]| Operator {
+        site_slots: sites,
+        matrix: gate.matrix_at(Some(angle)),
+    };
+    let mut run = vec![on(QirGate::Rx, 0.3, [0, 0]); MAX_FOLDED_GATES - 1];
+    run.push(on(QirGate::Rzz, 1.1, [0, 1]));
+    let fused = GateFusion::Pairs.rewrite(run.clone());
+    assert_eq!(fused.len(), 1, "the bound's gates make one operator");
+    assert_same_product(&run, &fused, "a run that fills the bound");
+}
+
 /// Fusion keeps every operator within the engines' unitarity check, however
 /// long the run: 2.2 million Rzz gates at an angle of 10.617… on one pair,
 /// as a loop that repeats an interaction makes, which folded into one 4×4
 /// would round past the check's tolerance. Ignored for its cost (about
-/// 20 s in debug, and 0.6 GB for the run); run it with
-/// `cargo test -p qdk_simulators --release -- --ignored
+/// 20 s in debug, and 0.6 GB for the run); run it in debug with
+/// `cargo test -p qdk_simulators --lib -- --ignored
 /// a_long_run_on_one_pair_stays_unitary`.
 #[test]
 #[ignore = "slow: about 20 s in debug, and 0.6 GB"]
