@@ -138,6 +138,16 @@ fn the_report_gives_the_max_bond_dimension_of_the_run() {
     }
 }
 
+/// Before any run, the report is that of a run that prepared no state at
+/// the resumer's own max bond dimension: a caller that sets χ to 16 and
+/// reads the report before running reads χ = 16, not the default.
+#[test]
+fn a_resumer_that_has_not_run_reports_its_max_bond_dimension() {
+    let resumer = MpsResumer::new(ExactReference::new(), 7)
+        .with_max_bond_dimension(NonZeroUsize::new(16).expect("not zero"));
+    assert_eq!(*resumer.last_run(), MpsRunReport::new(16));
+}
+
 /// An exact run, which keeps all its weight, warns of nothing.
 #[test]
 fn an_exact_run_warns_of_nothing() {

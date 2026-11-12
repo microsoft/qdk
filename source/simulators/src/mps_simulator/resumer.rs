@@ -87,6 +87,7 @@ impl<E: MpsEngine> MpsResumer<E> {
     #[must_use]
     pub fn with_max_bond_dimension(mut self, max_bond_dimension: NonZeroUsize) -> Self {
         self.max_bond_dimension = max_bond_dimension;
+        self.last_run = MpsRunReport::new(max_bond_dimension.get());
         self
     }
 
