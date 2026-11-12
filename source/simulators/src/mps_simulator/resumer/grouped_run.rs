@@ -48,6 +48,7 @@ use super::report::MpsRunReport;
 use super::resumer_error::MpsResumerError;
 use super::rewrites::fusion::GateFusion;
 use super::rewrites::rewrite_runs;
+use super::routing::{Placement, Routing};
 use super::shot_stream::{SplitMix64, shot_stream};
 
 /// One run of an [`MpsResumer`]: what every group of the run shares, the
@@ -64,6 +65,10 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
     fusion: GateFusion,
     /// The flag that stops the run, if any.
     stop: Option<&'r AtomicBool>,
+    routing: Routing,
+    /// The max bond dimension, which a bond read that reaches it reports to
+    /// the routing's guard.
+    max_bond_dimension: usize,
     report: &'r mut MpsRunReport,
     /// The groups split off that wait their turn, the last to run next.
     waiting: Vec<Group<E::State>>,
@@ -86,6 +91,10 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     ///
     /// [`MpsResumerError::Capacity`], naming the first shot, when the
     /// program's qubits and `max_bond_dimension` make no chain.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "development only: the routing joins the resumer's settings"
+    )]
     pub(super) fn start(
         engine: &'r E,
         machine: &'r QirMachine<'r>,
@@ -93,6 +102,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         seed: u64,
         max_bond_dimension: NonZeroUsize,
         fusion: GateFusion,
+        routing: Routing,
         report: &'r mut MpsRunReport,
     ) -> Result<Self, QirResumeError<MpsResumerError<E::Error>>> {
         let program = machine.program();
@@ -104,6 +114,10 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 shot: first_shot,
                 error,
             })?;
+        let placement = match (routing, &capacity) {
+            (Routing::Engine, _) | (_, None) => None,
+            (_, Some(capacity)) => Some(Placement::in_layout_order(capacity.site_count())),
+        };
         let waiting = vec![Group {
             shots: shots
                 .iter()
@@ -119,6 +133,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             steps: Rc::from([]),
             next: 0,
             bond_unread: false,
+            placement,
         }];
         Ok(Self {
             engine,
@@ -128,6 +143,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             capacity,
             fusion,
             stop: None,
+            routing,
+            max_bond_dimension: max_bond_dimension.get(),
             report,
             waiting,
             records: vec![None; shots.len()],
@@ -218,7 +235,17 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     return Ok(records.to_vec());
                 }
                 QirStop::Batch(calls) => {
-                    group.steps = rewrite_runs(lower(calls, &self.layout)?, &self.fusion).into();
+                    let steps = lower(calls, &self.layout)?;
+                    group.steps = match (self.routing, group.placement.as_mut()) {
+                        (Routing::MeetHalfway, Some(placement)) => {
+                            rewrite_runs(placement.route(steps), &self.fusion)
+                        }
+                        (Routing::MeetHalfwayAfterFusion, Some(placement)) => {
+                            placement.route(rewrite_runs(steps, &self.fusion))
+                        }
+                        _ => rewrite_runs(steps, &self.fusion),
+                    }
+                    .into();
                     group.next = 0;
                     group.outcomes.clear();
                 }
@@ -340,6 +367,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     steps: Rc::clone(&group.steps),
                     next: group.next,
                     bond_unread: false,
+                    placement: group.placement.clone(),
                 });
             }
             // Only the shots that wait met the failure: those going on run
@@ -398,6 +426,11 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 .largest_bond();
             self.report.largest_bond = self.report.largest_bond.max(bond);
             group.bond_unread = false;
+            if bond >= self.max_bond_dimension
+                && let Some(placement) = group.placement.as_mut()
+            {
+                placement.capacity_reached();
+            }
         }
         Ok(())
     }
@@ -442,6 +475,10 @@ struct Group<S> {
     steps: Rc<[Step]>,
     next: usize,
     bond_unread: bool,
+    /// Where each layout site sits in the state's chain once the batch's
+    /// steps have run, when the run routes ([`Routing`] other than
+    /// `Engine`); a fork's is a clone.
+    placement: Option<Placement>,
 }
 
 /// A shot of a group: its place among the run's shots and its stream.

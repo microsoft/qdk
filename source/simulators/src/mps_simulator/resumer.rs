@@ -29,12 +29,14 @@ pub(crate) mod lowering;
 pub(super) mod report;
 pub(super) mod resumer_error;
 pub(crate) mod rewrites;
+pub(crate) mod routing;
 pub(crate) mod shot_stream;
 
 use grouped_run::GroupedRun;
 use report::MpsRunReport;
 use resumer_error::MpsResumerError;
 use rewrites::fusion::GateFusion;
+use routing::Routing;
 
 /// Runs a QIR program's shots on matrix product states held by the engine
 /// `E`, shots that drew the same values sharing one state (how: the header
@@ -61,6 +63,7 @@ pub struct MpsResumer<E: MpsEngine> {
     max_bond_dimension: NonZeroUsize,
     fusion: GateFusion,
     stop: Option<Arc<AtomicBool>>,
+    routing: Routing,
     last_run: MpsRunReport,
 }
 
@@ -81,6 +84,7 @@ impl<E: MpsEngine> MpsResumer<E> {
             max_bond_dimension: DEFAULT_MAX_BOND_DIMENSION,
             fusion: GateFusion::default(),
             stop: None,
+            routing: Routing::default(),
             last_run: MpsRunReport::new(DEFAULT_MAX_BOND_DIMENSION.get()),
         }
     }
@@ -113,6 +117,15 @@ impl<E: MpsEngine> MpsResumer<E> {
     #[must_use]
     pub fn with_gate_fusion(mut self, fusion: GateFusion) -> Self {
         self.fusion = fusion;
+        self
+    }
+
+    /// EXPERIMENTAL, development only: the resumer routing distant two-site
+    /// operators as `routing` says ([`Routing`]); [`Routing::Engine`] by
+    /// default.
+    #[must_use]
+    pub fn with_routing(mut self, routing: Routing) -> Self {
+        self.routing = routing;
         self
     }
 
@@ -163,6 +176,7 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
             self.seed,
             self.max_bond_dimension,
             self.fusion,
+            self.routing,
             &mut self.last_run,
         )?
         .with_stop(self.stop.as_deref())
