@@ -2093,6 +2093,7 @@ version = "0.0.0"
 dependencies = [
  "libloading",
  "num-complex",
+ "qdk_cpu_mps",
  "tensornet",
  "thiserror 2.0.20",
 ]

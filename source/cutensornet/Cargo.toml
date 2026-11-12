@@ -17,6 +17,8 @@ thiserror = { workspace = true }
 [dev-dependencies]
 # Development only: tensornet's conformance kit, on the double and on the GPU.
 tensornet = { path = "../tensornet", features = ["conformance"] }
+# Development only (not for review): the tuning bench's replay check.
+qdk_cpu_mps = { path = "../qdk_cpu_mps" }
 
 [lints]
 workspace = true
