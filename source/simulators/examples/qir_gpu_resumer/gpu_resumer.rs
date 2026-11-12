@@ -32,9 +32,10 @@ use std::time::{Duration, Instant};
 
 use num_complex::Complex64;
 use qdk_simulators::OutputRecord;
+use qdk_simulators::noise_config::{Fault, FaultTerm, NoiseConfig, NoiseTable};
 use qdk_simulators::qir::{
-    OperatorMatrix, QirCall, QirMachine, QirOutcome, QirReadout, QirResumeError, QirResumer,
-    QirShotContext, QirShotId, QirStop,
+    OperatorMatrix, QirCall, QirGate, QirMachine, QirOutcome, QirReadout, QirResumeError,
+    QirResumer, QirShotContext, QirShotId, QirStop,
 };
 
 /// The largest state per binding: 128 MiB of complex f32.
@@ -44,7 +45,9 @@ const BLOCK_QUBITS: u32 = 10;
 const WG: u64 = 256;
 /// The bytes of a pass's parameter slot (dynamic uniform offset).
 const SLOT: u64 = 256;
-const PARAMS_BYTES: u64 = 80;
+const PARAMS_BYTES: u64 = 96;
+/// The most noise sites a diagonal pass holds (the kernel's private array).
+const DIAG_NOISE: usize = 32;
 const NO_RESULT: u32 = u32::MAX;
 /// The qubits every gather block holds, so that its loads and stores are
 /// runs of 8 consecutive amplitudes.
@@ -85,6 +88,9 @@ pub struct Strategy {
     /// submitted, so that it is dropped when every shot ends right after it
     /// (its work is unobservable: a final `ResetAll`).
     pub skip_tail: bool,
+    /// Whether noise sites join block and diagonal passes (drawn inside
+    /// them), rather than each being a Pauli pass of its own.
+    pub fuse_noise: bool,
 }
 
 impl Strategy {
@@ -98,6 +104,7 @@ impl Strategy {
         kron: true,
         gather: true,
         skip_tail: true,
+        fuse_noise: true,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -109,6 +116,7 @@ impl Strategy {
         kron: false,
         gather: false,
         skip_tail: false,
+        fuse_noise: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -120,6 +128,7 @@ impl Strategy {
         kron: true,
         gather: true,
         skip_tail: true,
+        fuse_noise: true,
     };
 
     pub fn named(name: &str) -> Option<Self> {
@@ -149,6 +158,10 @@ impl Strategy {
             },
             "notail" => Self {
                 skip_tail: false,
+                ..Self::ALL
+            },
+            "sepnoise" => Self {
+                fuse_noise: false,
                 ..Self::ALL
             },
             _ => return None,
@@ -243,6 +256,7 @@ pub struct Gpu {
     prob: wgpu::ComputePipeline,
     sample: wgpu::ComputePipeline,
     collapse: wgpu::ComputePipeline,
+    pauli: wgpu::ComputePipeline,
     /// Seconds to create the pipelines, and to compile them at a first
     /// dispatch each (Mesa compiles lazily).
     pub create_seconds: f64,
@@ -342,6 +356,7 @@ impl Gpu {
             prob: make("prob"),
             sample: make("sample"),
             collapse: make("collapse"),
+            pauli: make("pauli"),
             create_seconds: started.elapsed().as_secs_f64(),
             compile_seconds: 0.0,
             adapter_name,
@@ -377,6 +392,7 @@ impl Gpu {
             ("prob", &self.prob),
             ("sample", &self.sample),
             ("collapse", &self.collapse),
+            ("pauli", &self.pauli),
         ] {
             let t = Instant::now();
             let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -424,15 +440,23 @@ struct Params {
     slots: u32,
     per_shot: u32,
     block: u32,
+    /// The round (each shot's batch index), for noise draws.
+    round: u32,
+    /// The batch index of the pass's first call (or, with `site_mode` 1,
+    /// that many calls before the end of each shot's batch).
+    site_off: u32,
+    /// Where each slot's (noise seed, batch length) start in `shots`.
+    meta_off: u32,
+    site_mode: u32,
 }
 
 impl Params {
     fn write(&self, bytes: &mut [u8], at: usize) {
-        let mut words = [0u32; 20];
+        let mut words = [0u32; 24];
         for (i, x) in self.m0.iter().chain(&self.m1).enumerate() {
             words[i] = x.to_bits();
         }
-        words[8..20].copy_from_slice(&[
+        words[8..24].copy_from_slice(&[
             self.n,
             self.q0,
             self.q1,
@@ -445,8 +469,12 @@ impl Params {
             self.slots,
             self.per_shot,
             self.block,
+            self.round,
+            self.site_off,
+            self.meta_off,
+            self.site_mode,
         ]);
-        bytes[at..at + 80].copy_from_slice(bytemuck::cast_slice(&words));
+        bytes[at..at + 96].copy_from_slice(bytemuck::cast_slice(&words));
     }
 }
 
@@ -610,6 +638,148 @@ enum Op {
         kind: u32,
         meas: u32,
     },
+    /// A noise site: a fault drawn from the table at `ops[off..][..len]`
+    /// (per shot, from its seed, the round and the call's batch index
+    /// `site`), applied to `targets`.
+    Noise {
+        targets: Vec<u32>,
+        site: u32,
+        off: u32,
+        len: u32,
+    },
+}
+
+fn is_noise(op: &Op) -> bool {
+    matches!(op, Op::Noise { .. })
+}
+
+/// A noise table on the GPU: `len` entries at `ops[off..]`, each
+/// `(thr_hi, thr_lo, xbits, zbits)`: the cumulative probability as a 32-bit
+/// threshold split in 16-bit halves (`thr_hi` 65536: always), and the
+/// fault's X and Z bits over the call's targets (bit i: target i).
+#[derive(Clone, Copy, Debug)]
+struct Table {
+    off: u32,
+    len: u32,
+    loss: bool,
+}
+
+/// The noise a resumer applies: the QDK's noise config, as GPU tables.
+#[derive(Clone, Debug, Default)]
+pub struct NoiseTables {
+    code: Vec<[f32; 4]>,
+    gates: Vec<(QirGate, Table)>,
+    mz: Option<Table>,
+    mresetz: Option<Table>,
+    mov: Option<Table>,
+    intrinsics: HashMap<u32, Table>,
+}
+
+impl NoiseTables {
+    pub fn new(config: &NoiseConfig<f64, f64>) -> Self {
+        let mut tables = Self::default();
+        let gates: [(QirGate, &NoiseTable<f64>); 20] = [
+            (QirGate::X, &config.x),
+            (QirGate::Y, &config.y),
+            (QirGate::Z, &config.z),
+            (QirGate::H, &config.h),
+            (QirGate::S, &config.s),
+            (QirGate::SAdj, &config.s_adj),
+            (QirGate::T, &config.t),
+            (QirGate::TAdj, &config.t_adj),
+            (QirGate::Sx, &config.sx),
+            (QirGate::SxAdj, &config.sx_adj),
+            (QirGate::Rx, &config.rx),
+            (QirGate::Ry, &config.ry),
+            (QirGate::Rz, &config.rz),
+            (QirGate::Cx, &config.cx),
+            (QirGate::Cy, &config.cy),
+            (QirGate::Cz, &config.cz),
+            (QirGate::Rxx, &config.rxx),
+            (QirGate::Ryy, &config.ryy),
+            (QirGate::Rzz, &config.rzz),
+            (QirGate::Swap, &config.swap),
+        ];
+        for (gate, table) in gates {
+            if let Some(t) = tables.add(table) {
+                tables.gates.push((gate, t));
+            }
+        }
+        tables.mz = tables.add(&config.mz);
+        tables.mresetz = tables.add(&config.mresetz);
+        tables.mov = tables.add(&config.mov);
+        let mut ids: Vec<_> = config.intrinsics.keys().copied().collect();
+        ids.sort_unstable();
+        for id in ids {
+            if let Some(t) = tables.add(&config.intrinsics[&id]) {
+                tables.intrinsics.insert(id, t);
+            }
+        }
+        tables
+    }
+
+    pub fn is_noiseless(&self) -> bool {
+        self.code.is_empty()
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    fn add(&mut self, table: &NoiseTable<f64>) -> Option<Table> {
+        if !table.has_pauli_noise() {
+            return None;
+        }
+        let off = u32::try_from(self.code.len()).expect("fits");
+        let mut loss = false;
+        let mut cumulative = 0.0f64;
+        for (&string, &probability) in table.pauli_strings.iter().zip(&table.probabilities) {
+            cumulative += probability;
+            let fault = Fault::from((string, table.qubits));
+            let (mut x, mut z) = (0u32, 0u32);
+            for (i, term) in fault.0.iter().enumerate() {
+                match term {
+                    FaultTerm::I => {}
+                    FaultTerm::X => x |= 1 << i,
+                    FaultTerm::Z => z |= 1 << i,
+                    FaultTerm::Y => {
+                        x |= 1 << i;
+                        z |= 1 << i;
+                    }
+                    FaultTerm::Loss => loss |= probability > 0.0,
+                }
+            }
+            let threshold = (cumulative * 4_294_967_296.0).floor().min(4_294_967_296.0) as u64;
+            self.code.push([
+                (threshold >> 16) as f32,
+                (threshold & 0xffff) as f32,
+                x as f32,
+                z as f32,
+            ]);
+        }
+        Some(Table {
+            off,
+            len: u32::try_from(self.code.len()).expect("fits") - off,
+            loss,
+        })
+    }
+
+    fn gate(&self, gate: QirGate) -> Option<Table> {
+        self.gates.iter().find(|(g, _)| *g == gate).map(|(_, t)| *t)
+    }
+}
+
+/// How a result-writing call of a batch is answered.
+#[derive(Clone, Copy, Debug)]
+enum Answer {
+    /// The outcome at this index of the round's measurements.
+    Meas(u32),
+    /// A loss check: "not lost" (no loss is simulated).
+    NotLost,
+    /// Readout noise on the result's current value, drawn on the CPU from
+    /// the shot's seed, the round and the call's batch index `site`.
+    Readout {
+        zero_as_one: f64,
+        one_as_zero: f64,
+        site: u32,
+    },
 }
 
 fn is_diag(op: &Op) -> bool {
@@ -620,7 +790,7 @@ fn is_diag(op: &Op) -> bool {
             .iter()
             .enumerate()
             .all(|(i, v)| i / 4 == i % 4 || *v == zero),
-        Op::Meas { .. } => false,
+        Op::Meas { .. } | Op::Noise { .. } => false,
     }
 }
 
@@ -628,6 +798,7 @@ fn qubit_mask(op: &Op) -> u64 {
     match op {
         Op::G1 { q, .. } | Op::Meas { q, .. } => 1 << q,
         Op::G2 { a, b, .. } => (1 << a) | (1 << b),
+        Op::Noise { targets, .. } => targets.iter().fold(0, |m, t| m | 1 << t),
     }
 }
 
@@ -685,6 +856,8 @@ enum SegKind {
         kind: u32,
         meas: u32,
     },
+    /// A noise site in a pass of its own (an `Op::Noise`).
+    Pauli(Op),
 }
 
 #[derive(Clone, Debug)]
@@ -702,17 +875,57 @@ struct Segment {
 #[derive(Clone, Debug)]
 struct Plan {
     segments: Vec<Segment>,
-    results: Vec<(u32, Option<u32>)>,
+    results: Vec<(u32, Answer)>,
     measurements: u32,
 }
 
-fn translate(batch: &[QirCall], n: u32, strategy: Strategy) -> Result<Plan, GpuError> {
+#[allow(clippy::too_many_lines)]
+fn translate(
+    batch: &[QirCall],
+    n: u32,
+    strategy: Strategy,
+    noise: &NoiseTables,
+) -> Result<Plan, GpuError> {
     let block_qubits = BLOCK_QUBITS.min(n);
     let low = (1u64 << block_qubits) - 1;
     let mut segments: Vec<Segment> = Vec::new();
     let mut results = Vec::new();
     let mut measurements = 0;
-    for call in batch {
+    for (site, call) in batch.iter().enumerate() {
+        let site = u32::try_from(site).expect("fits");
+        let (table, targets): (Option<Table>, Vec<u32>) = match call {
+            QirCall::Gate {
+                gate,
+                qubits: (q, second),
+                ..
+            } => (noise.gate(*gate), std::iter::once(*q).chain(*second).collect()),
+            QirCall::Measure { qubit, .. } => (noise.mz, vec![*qubit]),
+            QirCall::MeasureReset { qubit, .. } | QirCall::Reset { qubit } => {
+                (noise.mresetz, vec![*qubit])
+            }
+            QirCall::Move { qubit } => (noise.mov, vec![*qubit]),
+            QirCall::CorrelatedNoise { qubits, table } => (
+                noise.intrinsics.get(table).copied(),
+                qubits.iter().copied().collect(),
+            ),
+            QirCall::PeekLoss { .. } | QirCall::ReadoutNoise { .. } => (None, Vec::new()),
+        };
+        if let Some(table) = table {
+            if table.loss {
+                return Err(GpuError(format!(
+                    "the GPU resumer spike simulates no qubit loss: {call}'s noise table has loss"
+                )));
+            }
+            if targets.len() > 24 {
+                return Err(GpuError(format!("{call}: too many noise targets")));
+            }
+        }
+        let noise_op = table.map(|t| Op::Noise {
+            targets,
+            site,
+            off: t.off,
+            len: t.len,
+        });
         let op = match call {
             QirCall::Gate {
                 gate,
@@ -725,7 +938,7 @@ fn translate(batch: &[QirCall], n: u32, strategy: Strategy) -> Result<Plan, GpuE
             },
             QirCall::Measure { qubit, result } | QirCall::MeasureReset { qubit, result } => {
                 let kind = u32::from(matches!(call, QirCall::MeasureReset { .. }));
-                results.push((*result, Some(measurements)));
+                results.push((*result, Answer::Meas(measurements)));
                 measurements += 1;
                 Op::Meas {
                     q: *qubit,
@@ -738,19 +951,37 @@ fn translate(batch: &[QirCall], n: u32, strategy: Strategy) -> Result<Plan, GpuE
                 kind: 1,
                 meas: NO_RESULT,
             },
-            QirCall::Move { .. } => continue,
-            // No loss without noise: a loss check reads "not lost".
-            QirCall::PeekLoss { result, .. } => {
-                results.push((*result, None));
+            QirCall::Move { .. } | QirCall::CorrelatedNoise { .. } => {
+                if let Some(noise_op) = noise_op {
+                    place(&mut segments, noise_op, low, strategy);
+                }
                 continue;
             }
-            QirCall::CorrelatedNoise { .. } | QirCall::ReadoutNoise { .. } => {
-                return Err(GpuError(format!(
-                    "the GPU resumer spike supports no noise: {call}"
-                )));
+            // No loss is simulated: a loss check reads "not lost".
+            QirCall::PeekLoss { result, .. } => {
+                results.push((*result, Answer::NotLost));
+                continue;
+            }
+            QirCall::ReadoutNoise {
+                zero_as_one,
+                one_as_zero,
+                result,
+            } => {
+                results.push((
+                    *result,
+                    Answer::Readout {
+                        zero_as_one: *zero_as_one,
+                        one_as_zero: *one_as_zero,
+                        site,
+                    },
+                ));
+                continue;
             }
         };
         place(&mut segments, op, low, strategy);
+        if let Some(noise_op) = noise_op {
+            place(&mut segments, noise_op, low, strategy);
+        }
     }
     if strategy.gather {
         segments = drop_small_gathers(segments, low, strategy);
@@ -768,7 +999,8 @@ fn drop_small_gathers(segments: Vec<Segment>, low: u64, strategy: Strategy) -> V
     const MIN_GATHER: usize = 3;
     let small = |s: &Segment| {
         matches!(&s.kind, SegKind::Block { set, ops }
-            if *set != low && ops.iter().filter(|op| !is_diag(op)).count() < MIN_GATHER)
+            if *set != low
+                && ops.iter().filter(|op| !is_diag(op) && !is_noise(op)).count() < MIN_GATHER)
     };
     if !segments.iter().any(small) {
         return segments;
@@ -806,7 +1038,15 @@ fn place(segments: &mut Vec<Segment>, op: Op, low: u64, strategy: Strategy) {
         }
     };
     let start = segments.iter().rposition(conflicts).unwrap_or(0);
-    let is_gate = !matches!(op, Op::Meas { .. });
+    let noise = is_noise(&op);
+    let is_gate = match op {
+        Op::Meas { .. } => false,
+        Op::Noise { .. } => strategy.fuse_noise,
+        _ => true,
+    };
+    // Noise joins a diagonal pass (drawn there, its X part moving the
+    // pass's later phases), up to the kernel's count.
+    let diag_noise = |ops: &Vec<Op>| ops.iter().filter(|op| is_noise(op)).count() < DIAG_NOISE;
     for segment in &mut segments[start..] {
         let joined = match (&mut segment.kind, &op) {
             (SegKind::Block { set, ops }, _)
@@ -822,7 +1062,10 @@ fn place(segments: &mut Vec<Segment>, op: Op, low: u64, strategy: Strategy) {
                 ops.push(op.clone());
                 true
             }
-            (SegKind::Diag(ops), _) if strategy.fuse_diag && diag => {
+            (SegKind::Diag(ops), _)
+                if strategy.fuse_diag
+                    && (diag || (noise && strategy.fuse_noise && diag_noise(ops))) =>
+            {
                 ops.push(op.clone());
                 true
             }
@@ -883,10 +1126,13 @@ fn place(segments: &mut Vec<Segment>, op: Op, low: u64, strategy: Strategy) {
                 ops: vec![op],
             }
         }
-        _ if strategy.fuse_diag && diag => SegKind::Diag(vec![op]),
+        _ if strategy.fuse_diag && (diag || (noise && strategy.fuse_noise)) => {
+            SegKind::Diag(vec![op])
+        }
         Op::G1 { q, m } => SegKind::Gate1 { q, m },
         Op::G2 { a, b, m } => SegKind::Gate2 { a, b, m },
         Op::Meas { q, kind, meas } => SegKind::Meas { q, kind, meas },
+        op @ Op::Noise { .. } => SegKind::Pauli(op),
     };
     segments.push(Segment {
         kind,
@@ -912,7 +1158,7 @@ fn phase_terms<'o>(diag_ops: impl IntoIterator<Item = &'o Op>) -> Vec<[f32; 4]> 
                 single[*b as usize] += p01 - p00;
                 *pairs.entry(((*a).min(*b), (*a).max(*b))).or_default() += p11 - p10 - p01 + p00;
             }
-            Op::Meas { .. } => unreachable!("a measurement is not diagonal"),
+            Op::Meas { .. } | Op::Noise { .. } => unreachable!("not diagonal"),
         }
     }
     #[allow(clippy::cast_possible_truncation)]
@@ -938,6 +1184,53 @@ fn phase_terms<'o>(diag_ops: impl IntoIterator<Item = &'o Op>) -> Vec<[f32; 4]> 
         .collect()
 }
 
+/// A noise site's code, as every kernel reads it: a header `(marker, site,
+/// table offset, table length)`, then `(count, t0, t1, t2)`, `(t3, ..)`: its
+/// targets (global qubits, or block-local ones in a block).
+#[allow(clippy::cast_precision_loss)]
+fn noise_code(op: &Op, marker: f32) -> Vec<[f32; 4]> {
+    let Op::Noise {
+        targets,
+        site,
+        off,
+        len,
+    } = op
+    else {
+        unreachable!("a noise site")
+    };
+    let mut code = vec![[marker, *site as f32, *off as f32, *len as f32]];
+    let words: Vec<f32> = std::iter::once(targets.len() as f32)
+        .chain(targets.iter().map(|&t| t as f32))
+        .collect();
+    for chunk in words.chunks(4) {
+        let mut v = [0.0; 4];
+        v[..chunk.len()].copy_from_slice(chunk);
+        code.push(v);
+    }
+    code
+}
+
+/// A diagonal pass's code: the phase terms of each run of diagonal ops,
+/// and a noise site (marker -1) between runs; and the count of terms.
+fn diag_code(diag_ops: &[Op]) -> (Vec<[f32; 4]>, u32) {
+    let mut code = Vec::new();
+    let mut terms = 0;
+    let mut at = 0;
+    while at < diag_ops.len() {
+        if is_noise(&diag_ops[at]) {
+            code.extend(noise_code(&diag_ops[at], -1.0));
+            at += 1;
+            continue;
+        }
+        let run = diag_ops[at..].iter().take_while(|op| !is_noise(op)).count();
+        let run_terms = phase_terms(&diag_ops[at..at + run]);
+        terms += u32::try_from(run_terms.len()).expect("fits");
+        code.extend(run_terms);
+        at += run;
+    }
+    (code, terms)
+}
+
 fn push_matrix4(ops: &mut Vec<[f32; 4]>, m: &[Complex64; 16]) {
     for pair in m.chunks(2) {
         let (x, y) = (c32(pair[0]), c32(pair[1]));
@@ -953,6 +1246,11 @@ fn block_code(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>)
     let mut at = 0;
     while at < block_ops.len() {
         let op = &block_ops[at];
+        if is_noise(op) {
+            encoded.push(noise_code(op, 14.0));
+            at += 1;
+            continue;
+        }
         if is_diag(op) {
             let run = block_ops[at..].iter().take_while(|op| is_diag(op)).count();
             let terms = phase_terms(&block_ops[at..at + run]);
@@ -1004,7 +1302,7 @@ fn block_code(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>)
                 push_matrix4(&mut code, m);
                 code
             }
-            Op::Meas { .. } => unreachable!("a measurement is in no block"),
+            Op::Meas { .. } | Op::Noise { .. } => unreachable!("not in a block's matrices"),
         });
     }
     let mut pieces: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
@@ -1026,7 +1324,7 @@ fn block_code(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>)
 
 /// The lengths of the prefix and of the suffix that all `batches` share,
 /// not overlapping in any.
-fn common_ends(batches: &[Vec<QirCall>]) -> (usize, usize) {
+pub fn common_ends(batches: &[Vec<QirCall>]) -> (usize, usize) {
     let shortest = batches.iter().map(Vec::len).min().unwrap_or(0);
     let first = &batches[0];
     let pre = (0..shortest)
@@ -1053,12 +1351,27 @@ struct Layout<'a, 'g> {
     passes: &'a mut Vec<(&'g wgpu::ComputePipeline, u32, u64)>,
     /// Whether pairs of one-qubit gates in a block run as one 4x4 sweep.
     kron: bool,
+    /// The round, and where the slots' (noise seed, batch length) are in
+    /// `shots`, for noise draws.
+    round: u32,
+    meta_off: u32,
 }
 
 impl Layout<'_, '_> {
     /// Lays out `plan` on the shots `shots[shot_off..][..shot_len]`, its
     /// outcomes at `meas_off` and after.
-    fn emit(&mut self, plan: &Plan, shot_off: u32, shot_len: u32, meas_off: u32) {
+    /// Its first call is at batch index `site_off` (or, with `site_mode`
+    /// 1, `site_off` calls before the end of each shot's batch).
+    #[allow(clippy::too_many_arguments)]
+    fn emit(
+        &mut self,
+        plan: &Plan,
+        shot_off: u32,
+        shot_len: u32,
+        meas_off: u32,
+        site_off: u32,
+        site_mode: u32,
+    ) {
         let (gpu, n) = (self.gpu, self.n);
         let base = Params {
             n,
@@ -1066,6 +1379,10 @@ impl Layout<'_, '_> {
             shot_len,
             slots: self.slots,
             per_shot: self.per_shot,
+            round: self.round,
+            site_off,
+            meta_off: self.meta_off,
+            site_mode,
             ..Params::default()
         };
         let len = u64::from(shot_len);
@@ -1094,16 +1411,23 @@ impl Layout<'_, '_> {
                         .push((&gpu.gate2, slot, (len << (n - 2)).div_ceil(WG)));
                 }
                 SegKind::Diag(diag_ops) => {
-                    let terms = phase_terms(diag_ops);
-                    if terms.is_empty() {
+                    let (code, terms) = diag_code(diag_ops);
+                    if code.is_empty() {
                         // A global phase: nothing to do.
                         self.params.truncate(at);
                         continue;
                     }
                     p.op_off = op_off;
-                    p.op_len = u32::try_from(terms.len()).expect("fits");
-                    self.ops.extend(terms);
+                    p.op_len = u32::try_from(code.len()).expect("fits");
+                    p.q0 = terms;
+                    self.ops.extend(code);
                     self.passes.push((&gpu.diag, slot, (len << n).div_ceil(WG)));
+                }
+                SegKind::Pauli(op) => {
+                    p.op_off = op_off;
+                    self.ops.extend(noise_code(op, -1.0));
+                    self.passes
+                        .push((&gpu.pauli, slot, (len << (n - 1)).div_ceil(WG)));
                 }
                 SegKind::Block {
                     set,
@@ -1145,6 +1469,17 @@ impl Layout<'_, '_> {
                                 a: at_local(a),
                                 b: at_local(b),
                                 m: *m,
+                            },
+                            Op::Noise {
+                                targets,
+                                site,
+                                off,
+                                len,
+                            } => Op::Noise {
+                                targets: targets.iter().map(at_local).collect(),
+                                site: *site,
+                                off: *off,
+                                len: *len,
                             },
                             Op::Meas { .. } => unreachable!("a measurement is in no block"),
                         })
@@ -1211,6 +1546,7 @@ pub struct QirGpuResumer {
     buffers: Option<Buffers>,
     /// Translated batches, by their calls, reused across rounds and runs.
     cache: RefCell<HashMap<BatchKey, Rc<Plan>>>,
+    noise: Rc<NoiseTables>,
     pub stats: Stats,
 }
 
@@ -1226,8 +1562,18 @@ impl QirGpuResumer {
             failing: Vec::new(),
             buffers: None,
             cache: RefCell::new(HashMap::new()),
+            noise: Rc::new(NoiseTables::default()),
             stats: Stats::default(),
         }
+    }
+
+    /// Applies the QDK noise `config` (Pauli faults after each gate,
+    /// measurement, reset and move, and correlated-noise tables); a call
+    /// whose table has loss fails.
+    pub fn with_noise(mut self, config: &NoiseConfig<f64, f64>) -> Self {
+        self.noise = Rc::new(NoiseTables::new(config));
+        self.cache.borrow_mut().clear();
+        self
     }
 
     pub fn failing(mut self, failing: &[QirShotId]) -> Self {
@@ -1242,13 +1588,13 @@ impl QirGpuResumer {
 
     fn plan(&self, batch: &[QirCall], n: u32) -> Result<Rc<Plan>, GpuError> {
         if !self.strategy.cache {
-            return Ok(Rc::new(translate(batch, n, self.strategy)?));
+            return Ok(Rc::new(translate(batch, n, self.strategy, &self.noise)?));
         }
         let key = format!("{n}:{batch:?}");
         if let Some(plan) = self.cache.borrow().get(&key) {
             return Ok(plan.clone());
         }
-        let plan = Rc::new(translate(batch, n, self.strategy)?);
+        let plan = Rc::new(translate(batch, n, self.strategy, &self.noise)?);
         let mut cache = self.cache.borrow_mut();
         if cache.len() > 4096 {
             cache.clear();
@@ -1405,8 +1751,10 @@ impl QirGpuResumer {
                 ops: &mut ops,
                 passes: &mut passes,
                 kron: self.strategy.kron,
+                round: 0,
+                meta_off: 0,
             }
-            .emit(&plan, 0, slots, 0);
+            .emit(&plan, 0, slots, 0, 0, 0);
             queue.write_buffer(&buffers.uniforms, 0, &params);
             queue.write_buffer(&buffers.ops, 0, bytemuck::cast_slice(&ops));
             let mut best = f64::INFINITY;
@@ -1452,7 +1800,7 @@ impl QirGpuResumer {
         let gpu = self.gpu.clone();
         let (device, queue) = (&gpu.device, &gpu.queue);
         let per_shot = ((1u32 << (n - 1)) / 4096).max(1);
-        let plan = translate(batch, n, self.strategy)?;
+        let plan = translate(batch, n, self.strategy, &self.noise)?;
         if plan.measurements > 0 {
             return Err(GpuError("state_after takes gates only".into()));
         }
@@ -1474,8 +1822,10 @@ impl QirGpuResumer {
             ops: &mut ops,
             passes: &mut passes,
             kron: self.strategy.kron,
+            round: 0,
+            meta_off: 0,
         }
-        .emit(&plan, 0, slots, 0);
+        .emit(&plan, 0, slots, 0, 0, 0);
         let buffers = self
             .buffers
             .get_or_insert_with(|| Buffers::new(device, &gpu.layout));
@@ -1542,22 +1892,53 @@ struct GpuShot {
     outcomes: Vec<QirOutcome>,
     records: Option<Vec<OutputRecord>>,
     group: Option<usize>,
+    /// The seed of its noise draws (from its id).
+    noise_seed: u32,
+    /// Each result's value so far (`true`: One), for readout noise.
+    register: Vec<bool>,
+}
+
+/// A uniform draw in [0, 1) from a shot's noise seed, the round and a
+/// batch index.
+#[allow(clippy::cast_precision_loss)]
+fn cpu_draw(seed: u32, round: u32, site: u32) -> f64 {
+    let x = splitmix(
+        (u64::from(seed) << 32) ^ splitmix((u64::from(round) << 32) | u64::from(site)) ^ 0xC0FFEE,
+    );
+    (x >> 11) as f64 / (1u64 << 53) as f64
 }
 
 /// Answers each grouped shot's batch: its result-writing calls' outcomes,
-/// read from `values` (measurement-major, `slots` per measurement).
-fn answer(shots: &mut [GpuShot], results: &[Vec<(u32, Option<u32>)>], values: &[u32], slots: u32) {
+/// read from `values` (measurement-major, `slots` per measurement), in the
+/// batch's order (readout noise reads the value its result holds then).
+fn answer(
+    shots: &mut [GpuShot],
+    results: &[Vec<(u32, Answer)>],
+    values: &[u32],
+    slots: u32,
+    round: u32,
+) {
     for shot in shots {
         let Some(group) = shot.group else { continue };
         shot.outcomes.clear();
-        for &(result, meas) in &results[group] {
-            let value = match meas {
-                None => QirReadout::Zero,
-                Some(meas) => match values[(meas * slots + shot.slot) as usize] {
-                    0 => QirReadout::Zero,
-                    _ => QirReadout::One,
-                },
+        for &(result, answer) in &results[group] {
+            let one = match answer {
+                Answer::NotLost => false,
+                Answer::Meas(meas) => values[(meas * slots + shot.slot) as usize] != 0,
+                Answer::Readout {
+                    zero_as_one,
+                    one_as_zero,
+                    site,
+                } => {
+                    let held = shot.register.get(result as usize).copied().unwrap_or(false);
+                    let u = cpu_draw(shot.noise_seed, round, site);
+                    if held { u >= one_as_zero } else { u < zero_as_one }
+                }
             };
+            if let Some(slot) = shot.register.get_mut(result as usize) {
+                *slot = one;
+            }
+            let value = if one { QirReadout::One } else { QirReadout::Zero };
             shot.outcomes.push(QirOutcome { result, value });
         }
     }
@@ -1720,8 +2101,12 @@ impl QirGpuResumer {
                 outcomes: Vec::new(),
                 records: None,
                 group: None,
+                #[allow(clippy::cast_possible_truncation)]
+                noise_seed: splitmix(self.seed ^ 0x6E01_5E00 ^ splitmix(u64::from(id.0))) as u32,
+                register: vec![false; machine.program().results() as usize],
             })
             .collect();
+        let noisy = !self.noise.is_noiseless();
         // The first failure in the chunk's order: its place, and the error.
         let mut failure: Option<(usize, QirResumeError<GpuError>)> = None;
         let mut batches: Vec<Vec<QirCall>> = Vec::new();
@@ -1731,6 +2116,9 @@ impl QirGpuResumer {
         // Whether the shots were resumed at the end of the last round (whose
         // submission waited to see whether any shot goes on).
         let mut resumed_ahead = false;
+        // Every running shot is resumed once per resume_round, so the count
+        // of resumes is each shot's batch index.
+        let mut resumes: u32 = 0;
         loop {
             // Resume every running shot to its next stop, grouping them.
             if !resumed_ahead {
@@ -1742,8 +2130,10 @@ impl QirGpuResumer {
                     &mut batches,
                     &mut failure,
                 );
+                resumes += 1;
                 self.stats.machine += t.elapsed();
             }
+            let round = resumes - 1;
             resumed_ahead = false;
             let running = failure.as_ref().map_or(shots.len(), |(place, _)| *place);
             if batches.is_empty() {
@@ -1793,10 +2183,20 @@ impl QirGpuResumer {
             let running = failure.as_ref().map_or(shots.len(), |(place, _)| *place);
             params.clear();
             ops.clear();
+            ops.extend_from_slice(&self.noise.code);
             shot_list.clear();
+            if noisy {
+                // Each slot's noise seed and batch length, for the draws.
+                shot_list.resize(2 * slots as usize, 0);
+                for shot in &shots {
+                    let len = shot.group.map_or(0, |group| batches[group].len());
+                    shot_list[2 * shot.slot as usize] = shot.noise_seed;
+                    shot_list[2 * shot.slot as usize + 1] = u32::try_from(len).expect("fits");
+                }
+            }
             // (pipeline, params slot, workgroups) per pass.
             let mut passes: Vec<(&wgpu::ComputePipeline, u32, u64)> = Vec::new();
-            let mut results: Vec<Vec<(u32, Option<u32>)>> = vec![Vec::new(); batches.len()];
+            let mut results: Vec<Vec<(u32, Answer)>> = vec![Vec::new(); batches.len()];
             let mut total_measurements = 0;
             if let (Ok(shared_pre), Ok(shared_suf)) = (&shared_pre, &shared_suf) {
                 let mut layout = Layout {
@@ -1808,6 +2208,8 @@ impl QirGpuResumer {
                     ops: &mut ops,
                     passes: &mut passes,
                     kron: self.strategy.kron,
+                    round,
+                    meta_off: 0,
                 };
                 // The union of the groups' shots, for the shared pieces.
                 let union_off = u32::try_from(shot_list.len()).expect("fits");
@@ -1819,7 +2221,7 @@ impl QirGpuResumer {
                 );
                 let union_len = u32::try_from(shot_list.len()).expect("fits") - union_off;
                 if union_len > 0 {
-                    layout.emit(shared_pre, union_off, union_len, 0);
+                    layout.emit(shared_pre, union_off, union_len, 0, 0, 0);
                 }
                 let mut most_middle = 0;
                 for (group, middle) in middles.iter().enumerate() {
@@ -1838,27 +2240,61 @@ impl QirGpuResumer {
                     self.stats.groups += 1;
                     most_middle = most_middle.max(middle.measurements);
                     if !middle.segments.is_empty() {
-                        layout.emit(middle, shot_off, shot_len, shared_pre.measurements);
+                        layout.emit(
+                            middle,
+                            shot_off,
+                            shot_len,
+                            shared_pre.measurements,
+                            u32::try_from(pre).expect("fits"),
+                            0,
+                        );
                     }
                 }
                 let suf_off = shared_pre.measurements + most_middle;
                 if union_len > 0 {
-                    layout.emit(shared_suf, union_off, union_len, suf_off);
+                    layout.emit(
+                        shared_suf,
+                        union_off,
+                        union_len,
+                        suf_off,
+                        u32::try_from(suf).expect("fits"),
+                        1,
+                    );
                 }
                 total_measurements = suf_off + shared_suf.measurements;
                 for (group, middle) in middles.iter().enumerate() {
                     let Ok(middle) = middle else { continue };
-                    let shift = |offset: u32| {
-                        move |&(result, meas): &(u32, Option<u32>)| {
-                            (result, meas.map(|m| m + offset))
+                    let shift = |offset: u32, sites: usize| {
+                        let sites = u32::try_from(sites).expect("fits");
+                        move |&(result, answer): &(u32, Answer)| {
+                            let answer = match answer {
+                                Answer::Meas(m) => Answer::Meas(m + offset),
+                                Answer::NotLost => Answer::NotLost,
+                                Answer::Readout {
+                                    zero_as_one,
+                                    one_as_zero,
+                                    site,
+                                } => Answer::Readout {
+                                    zero_as_one,
+                                    one_as_zero,
+                                    site: site + sites,
+                                },
+                            };
+                            (result, answer)
                         }
                     };
+                    let len = batches[group].len();
                     results[group] = shared_pre
                         .results
                         .iter()
-                        .map(shift(0))
-                        .chain(middle.results.iter().map(shift(shared_pre.measurements)))
-                        .chain(shared_suf.results.iter().map(shift(suf_off)))
+                        .map(shift(0, 0))
+                        .chain(
+                            middle
+                                .results
+                                .iter()
+                                .map(shift(shared_pre.measurements, pre)),
+                        )
+                        .chain(shared_suf.results.iter().map(shift(suf_off, len - suf)))
                         .collect();
                 }
             }
@@ -1871,7 +2307,7 @@ impl QirGpuResumer {
             // and is dropped. (Were a shot to go on, the round is submitted
             // as usual, and the next round uses the stops reached.)
             if self.strategy.skip_tail && results.iter().all(Vec::is_empty) {
-                answer(&mut shots[..running], &results, &[], slots);
+                answer(&mut shots[..running], &results, &[], slots, round);
                 let t = Instant::now();
                 resume_round(
                     machine,
@@ -1880,6 +2316,7 @@ impl QirGpuResumer {
                     &mut batches,
                     &mut failure,
                 );
+                resumes += 1;
                 self.stats.machine += t.elapsed();
                 if batches.is_empty() {
                     self.stats.skipped += 1;
@@ -1958,7 +2395,7 @@ impl QirGpuResumer {
             };
             self.stats.wait += t.elapsed();
             if !resumed_ahead {
-                answer(&mut shots[..running], &results, &values, slots);
+                answer(&mut shots[..running], &results, &values, slots, round);
             }
         }
         let t = Instant::now();
