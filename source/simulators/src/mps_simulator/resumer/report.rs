@@ -70,9 +70,10 @@ impl MpsRunReport {
     }
 }
 
-/// A run whose truncations lost more weight than [`TRUNCATION_TOLERANCE`]:
-/// its readouts may be off by up to about √`lost_weight` in total variation
-/// distance. It displays as the message a user reads.
+/// A run whose truncations lost more weight than [`TRUNCATION_TOLERANCE`].
+/// After one truncation its readouts are within √`lost_weight` of the exact
+/// ones in total variation distance; after several, `lost_weight` estimates
+/// the error but bounds nothing. It displays as the message a user reads.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TruncationWarning {
     /// The most weight a shot lost: 1 − its retained weight.

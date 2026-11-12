@@ -13,9 +13,9 @@
 //! takes it (`M[out][in]`, row-major, the first site the most
 //! significant), on the sites of its qubits in its operand order, so the
 //! matrix holds on them unchanged. A measurement and a reset are draws
-//! the resumer makes; `move`, a relabelling of qubits, changes no state
-//! and is no step. Correlated
-//! noise, readout noise and loss checks are refused
+//! the resumer makes; `move` changes no state (a noisy simulator may
+//! charge it with idle noise or loss, planned), so it is no step.
+//! Correlated noise, readout noise and loss checks are refused
 //! ([`MpsResumerError::Unsupported`]), as is a gate on one qubit twice.
 
 use crate::qir::{OperatorMatrix, QirCall};
