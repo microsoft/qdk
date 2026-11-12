@@ -33,6 +33,7 @@ enum Failing {
     Nothing,
     ProjectionsOnOne,
     Forks,
+    XGates,
 }
 
 /// A test spy over the exact reference (see the module documentation).
@@ -78,6 +79,11 @@ impl ReferenceSpy {
     /// The reference, failing every fork.
     pub(super) fn failing_forks() -> Self {
         Self::with(Weight::Exact, Failing::Forks)
+    }
+
+    /// The reference, failing every operator that is the X gate's matrix.
+    pub(super) fn failing_x_gates() -> Self {
+        Self::with(Weight::Exact, Failing::XGates)
     }
 
     fn with(weight: Weight, failing: Failing) -> Self {
@@ -179,6 +185,10 @@ impl MpsEngine for ReferenceSpy {
         sites: &[usize],
         matrix: &[Complex64],
     ) -> Result<(), ReferenceSpyError> {
+        let (zero, one) = (Complex64::new(0.0, 0.0), Complex64::new(1.0, 0.0));
+        if self.failing == Failing::XGates && matrix == [zero, one, one, zero] {
+            return Err(ReferenceSpyError::Device);
+        }
         self.applies.set(self.applies.get() + 1);
         Ok(self.reference.apply(&mut state.state, sites, matrix)?)
     }

@@ -9,8 +9,9 @@ use std::num::NonZeroUsize;
 use crate::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use tensornet::reference::ExactReference;
 
-use super::super::programs::{coins, gate1, gate2, mz, program, ret};
+use super::super::programs::{branch, coins, gate1, gate2, mz, program, read_result, ret, set};
 use super::super::reference_spy::{ReferenceSpy, Weight};
+use super::{results, run};
 use crate::bytecode::encoding::{OPID_CX, OPID_H};
 use crate::mps_simulator::{
     DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsRunReport, TRUNCATION_TOLERANCE,
@@ -94,6 +95,51 @@ fn a_failed_run_reports_what_it_read_before_it_failed() {
     let mut resumer = MpsResumer::new(ReferenceSpy::failing_projections_on_one(), 7);
     expect_ready(resumer.run(&QirMachine::new(&ghz(4)), &QirShotId::first(16)))
         .expect_err("some of 16 shots read One, whose projection fails");
+    assert_eq!(resumer.last_run().largest_bond, 2);
+}
+
+/// A failed run's report also keeps what was read after the failure was
+/// met, by the groups of shots before the failing one, which run on: a
+/// coin, whose shots that read 1 trap, and whose shots that read 0 then
+/// make a Bell pair. Of a shot that reads 0, one that reads 1, and another
+/// that reads 0, the shot that reads 1 goes on, the fewer, and traps
+/// before any bond above 1 is read; the two that read 0 run after it, as
+/// the first comes before it, and the report gives their Bell pair's bond.
+#[test]
+fn a_failed_run_reports_what_was_read_after_the_failure_was_met() {
+    let (trap, rest) = (1, 2);
+    let program = program(
+        3,
+        &[
+            &[
+                gate1(OPID_H, 0),
+                mz(0),
+                read_result(0, 0),
+                branch(0, trap, rest),
+            ],
+            &[set(0, 2), branch(0, rest, rest)],
+            &[gate1(OPID_H, 1), gate2(OPID_CX, 1, 2), ret()],
+        ],
+    );
+    let coin = coins(1);
+    let reading = |value: u8| {
+        let coin = &coin;
+        QirShotId::first(16).into_iter().filter(move |&shot| {
+            run(
+                &mut MpsResumer::new(ExactReference::new(), 5),
+                coin,
+                &[shot],
+            )
+            .expect("a coin runs")
+                == [results(&[value])]
+        })
+    };
+    let one = reading(1).next().expect("some of 16 coins read 1");
+    let mut zeros = reading(0);
+    let zero = zeros.next().expect("some of 16 coins read 0");
+    let other_zero = zeros.next().expect("two of 16 coins read 0");
+    let mut resumer = MpsResumer::new(ExactReference::new(), 5);
+    run(&mut resumer, &program, &[zero, one, other_zero]).expect_err("the shot that reads 1 traps");
     assert_eq!(resumer.last_run().largest_bond, 2);
 }
 

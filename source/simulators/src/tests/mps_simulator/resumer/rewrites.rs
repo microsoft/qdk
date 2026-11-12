@@ -172,7 +172,7 @@ fn split_at_draws(steps: &[Step]) -> (Vec<Step>, Vec<Vec<Operator>>) {
     for step in steps {
         match step {
             Step::Apply(operator) => runs.last_mut().expect("one run").push(*operator),
-            draw => {
+            draw @ (Step::Measure { .. } | Step::Reset { .. }) => {
                 draws.push(draw.clone());
                 runs.push(Vec::new());
             }

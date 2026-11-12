@@ -9,19 +9,19 @@
 //! shots all come after it.
 
 use crate::bytecode::Instruction;
-use crate::mps_simulator::{MpsResumer, MpsResumerError};
+use crate::mps_simulator::{GateFusion, MpsResumer, MpsResumerError};
 use crate::qir::{QirProgram, QirResumeError, QirShotId, QirTrap};
 use tensornet::MpsEngine;
 use tensornet::reference::ExactReference;
 
 use super::super::programs::{
-    branch, coin_copied_by_a_branch, coins, gate, gate1, jump, mz, program, program_with,
+    branch, coin_copied_by_a_branch, coins, gate, gate1, jump, measure, mz, program, program_with,
     read_result, ret, set,
 };
 use super::super::reference_spy::{ReferenceSpy, ReferenceSpyError};
 use super::shot_stream::shot_stream;
 use super::{RunResult, copies, ids, results, run};
-use crate::bytecode::encoding::{OPID_H, OPID_RY, OPID_X};
+use crate::bytecode::encoding::{OPID_H, OPID_MRESETZ, OPID_RY, OPID_X};
 
 /// A shot reads One only where One has a probability: a qubit at |0⟩ reads
 /// 0 even when the shot's uniform is 0, the smallest it draws. The run's
@@ -316,6 +316,27 @@ fn a_zero_then_two_ones() -> [QirShotId; 3] {
     [zero, one, other_one]
 }
 
+/// The shots among the first 64 that read `first` on the first of two coins
+/// with seed 5, and `second`, when given, on the second, as each reads
+/// alone, in order.
+fn reading_on_two_coins(first: u8, second: Option<u8>) -> Vec<QirShotId> {
+    let program = coins(2);
+    QirShotId::first(64)
+        .into_iter()
+        .filter(|&shot| {
+            let read = run(
+                &mut MpsResumer::new(ReferenceSpy::new(), 5),
+                &program,
+                &[shot],
+            )
+            .expect("two coins run")
+            .remove(0);
+            read[0] == results(&[first])[0]
+                && second.is_none_or(|second| read[1] == results(&[second])[0])
+        })
+        .collect()
+}
+
 /// The engines whose failure meets only the waiting part of a split: one
 /// fails the fork, the other the fork's projection on One, the waiting
 /// part's value here.
@@ -347,6 +368,64 @@ fn a_failed_split_fails_only_the_shots_that_wait() {
             "{error:?}"
         );
     }
+}
+
+/// When the copy for the part of a split that waits fails as a reset
+/// returns it to |0⟩, only the shots that wait fail, as when its fork or its
+/// projection fails: a coin read and reset, on an engine whose X gates
+/// fail. The shot that reads 0 goes on, the fewer, and needs no X; the two
+/// that read 1 wait on a copy that keeps One, whose X fails, and the run
+/// names the first of them.
+#[test]
+fn a_failed_reset_of_the_waiting_copy_fails_only_the_shots_that_wait() {
+    let shots = a_zero_then_two_ones();
+    let program = program(
+        1,
+        &[&[gate1(OPID_H, 0), measure(OPID_MRESETZ, 0, 0), ret()]],
+    );
+    let make = || MpsResumer::new(ReferenceSpy::failing_x_gates(), 5);
+    run(&mut make(), &program, &shots[..1]).expect("the shot that reads 0 ends alone");
+    let error = run(&mut make(), &program, &shots).expect_err("the waiting copy's X fails");
+    assert!(
+        matches!(
+            error,
+            QirResumeError::Resumer {
+                shot,
+                error: MpsResumerError::Engine(ReferenceSpyError::Device),
+            } if shot == shots[1]
+        ),
+        "{error:?}"
+    );
+}
+
+/// A failure met later, for shots that come after the first failing shot,
+/// does not replace it: four shots A, B, C, D on two coins, with an engine
+/// whose forks fail. On the first coin, A and C read 0 and B and D read 1:
+/// on the tie, A and C go on, and the fork for B and D fails, failing B. On
+/// the second coin, A reads 0 and C reads 1: on the tie, A goes on, and the
+/// fork for C fails too. The run names B.
+#[test]
+fn a_failure_met_later_for_later_shots_keeps_the_first_failing_shot() {
+    let a = reading_on_two_coins(0, Some(0))[0];
+    let c = reading_on_two_coins(0, Some(1))[0];
+    let ones = reading_on_two_coins(1, None);
+    let (b, d) = (ones[0], ones[1]);
+    let error = run(
+        &mut MpsResumer::new(ReferenceSpy::failing_forks(), 5),
+        &coins(2),
+        &[a, b, c, d],
+    )
+    .expect_err("the forks fail");
+    assert!(
+        matches!(
+            error,
+            QirResumeError::Resumer {
+                shot,
+                error: MpsResumerError::Engine(ReferenceSpyError::Device),
+            } if shot == b
+        ),
+        "{error:?}"
+    );
 }
 
 /// Between a failed split and a shot that goes on from it and fails later
@@ -422,6 +501,50 @@ fn the_part_going_on_from_a_failed_split_stops_when_its_shots_come_after() {
             "only the coin's h is applied"
         );
     }
+}
+
+/// The part going on from any split stops there when its shots all come
+/// after the run's failure, not only from a split that failed: a first
+/// coin, whose shots that read 1 trap, then for the others a second coin
+/// and three X gates on a third qubit, unfused, so that each gate is one
+/// apply. The shots: A and C read 0 then 0, B reads 1, D reads 0 then 1.
+/// On the first coin B goes on, the fewer, and traps; A, C and D run after
+/// it, as A comes before it. On the second coin D goes on alone, after B,
+/// and stops: only A and C apply the three X.
+#[test]
+fn the_part_going_on_from_any_split_stops_when_its_shots_come_after_the_failure() {
+    let (trap, rest) = (1, 2);
+    let program = program(
+        3,
+        &[
+            &[
+                gate1(OPID_H, 0),
+                mz(0),
+                read_result(0, 0),
+                branch(0, trap, rest),
+            ],
+            &[set(0, 2), branch(0, rest, rest)],
+            &[
+                gate1(OPID_H, 1),
+                mz(1),
+                gate1(OPID_X, 2),
+                gate1(OPID_X, 2),
+                gate1(OPID_X, 2),
+                ret(),
+            ],
+        ],
+    );
+    let zeros = reading_on_two_coins(0, Some(0));
+    let (a, c) = (zeros[0], zeros[1]);
+    let b = reading_on_two_coins(1, None)[0];
+    let d = reading_on_two_coins(0, Some(1))[0];
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 5).with_gate_fusion(GateFusion::Unfused);
+    assert_eq!(trapped_shot(run(&mut resumer, &program, &[a, b, c, d])), b);
+    assert_eq!(
+        resumer.engine().applies(),
+        5,
+        "the two coins' h, then the three X once, for A and C"
+    );
 }
 
 /// On a split whose parts are as large, the shots that read 0 go on and
