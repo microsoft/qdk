@@ -49,8 +49,9 @@ use rewrites::fusion::GateFusion;
 /// The layout, an order of the qubits chosen from the program's two-qubit
 /// gates, changes the bonds and the time, not the state (to rounding, and
 /// within the truncation error of an engine that truncates): on an exact
-/// engine, a draw differs between two orders only where its uniform falls
-/// within rounding of the probability it is drawn against.
+/// engine, a record differs between two orders only where a uniform falls
+/// within rounding of a probability, and the shot's later draws may then
+/// differ.
 ///
 /// The cutoff below which an engine drops singular values is the engine's
 /// own setting: the engine contract takes only a capacity (here

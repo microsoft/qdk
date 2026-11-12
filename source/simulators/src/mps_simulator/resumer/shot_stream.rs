@@ -7,9 +7,10 @@
 //! [`SplitMix64`] generates it.
 //!
 //! A shot's records must depend only on the program, the seed, the shot's
-//! id and the settings, and must match what the executor protocol will
-//! draw for that shot: so the resumer needs a stream of uniforms fixed by a
-//! seed, seeded with the protocol's seed. The tests need streams that are
+//! id and the settings, and must match what a last executor of the
+//! executor protocol will draw from the seed the protocol gives it for that
+//! shot: so the resumer needs a stream of uniforms fixed by a seed, seeded
+//! with the protocol's seed. The tests need streams that are
 //! the same on every run too, and use the generator alone.
 //!
 //! The generator is `SplitMix64` (Steele, Lea and Flood, 2014), written
@@ -33,10 +34,11 @@ use super::MpsResumer;
 /// The stream shot `shot` draws from under the run seed `seed`: the one
 /// seeded with the seed the executor protocol (planned) will give that shot
 /// of its last executor, the executor at the end of a chain, which runs the
-/// quantum calls, as this MPS simulation method will. So such a chain, its
-/// last executor drawing from that stream as this method does, will
-/// reproduce the records a resumer gives, whatever adapters above it draw:
-/// the protocol selects each component's seed by its id, and the last
+/// quantum calls, as this MPS simulation method will. So a chain that
+/// runs the program's calls as given, its last executor drawing from that
+/// stream as this method does, will reproduce the records a resumer gives;
+/// an adapter above it that draws shifts none of its draws, since the
+/// protocol selects each component's seed by its id, and the last
 /// executor's id is fixed. The seed is one step of `SplitMix64` applied to
 /// `SplitMix64(seed) ^ shot` (with `mix(x)` the first value of
 /// `SplitMix64::new(x)`, `mix(mix(seed) ^ shot)`), so shots with close ids,

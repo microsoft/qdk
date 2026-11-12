@@ -13,9 +13,9 @@
 //! **The contract**, stated here once, that every [`Rewrite`] keeps:
 //!
 //! 1. **Same state:** the rewritten operators, applied in order, give the
-//!    same state as the run's, to rounding. An engine that truncates does
-//!    so after each operator, so on it the two states may differ within
-//!    the truncation error.
+//!    same state as the run's, to rounding. An engine that truncates may
+//!    truncate after any operator, or where it computes several, so on it
+//!    the two states may differ within the truncation error.
 //! 2. **Engine-ready:** every operator acts on one or two distinct sites,
 //!    the most every engine applies.
 //! 3. **Measurements and resets are barriers:** no operator moves across

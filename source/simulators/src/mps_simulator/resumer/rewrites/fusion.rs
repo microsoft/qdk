@@ -57,7 +57,7 @@ impl Rewrite for GateFusion {
 /// on two sites, the deviation that
 /// [`apply`'s check](tensornet::checks::UNITARITY_TOLERANCE) sums grows by
 /// about 5·10⁻¹⁶ a gate, so without a bound a run of 2.2 million Rzz gates
-/// on one pair, folded into one block, would exceed its 10⁻⁹, and the
+/// on one pair, folded into one block, would exceed its tolerance, and the
 /// engine would refuse a valid program. At this bound the deviation stays
 /// near 5·10⁻¹³, while H₂'s iterative phase estimation (29 qubits) folds
 /// at most 22 gates into a block, so the bound leaves its operators as
