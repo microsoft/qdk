@@ -62,9 +62,12 @@ The two traits speak different terms, `qir`'s of qubits, calls and shots,
 - **stream**: a shot's own sequence of random numbers, each a
   **uniform**: a number spread evenly over [0, 1).
 - **draw**: a shot's value at a measurement or reset, One when a uniform
-  from the shot's own stream is below the state's P(One).
+  from the shot's own stream is below P(One), the state's probability
+  that the site reads One.
 - **group**: the shots of a run that drew the same values so far, which
   share one context and one state.
+- **fork**: an exact copy of a state, which the engine makes
+  (`MpsEngine::fork`).
 
 Between the program's calls on qubits and the engine's operators on
 sites, the resumer works as a small compiler, in three stages of the
@@ -158,17 +161,19 @@ turn.
 | **draw**      | `draw`                                                                                      | the state's P(One) of the site is read once per group; each shot draws a uniform from its own `SplitMix64` stream, seeded from the resumer's seed and the shot's id (`shot_stream`, in [`shot_stream.rs`](resumer/shot_stream.rs)), and reads One when it is below P(One)                                                                                                                                                                  | `QirResumer`'s contract: a shot's records depend neither on the other shots nor on its place among them nor on earlier runs. A shot draws once per measurement and reset, whatever group it is in, so its records are those it gets alone                                                                                                   |
 | **split**     | `split`, with `value_going_on`                                                              | when the shots drew both values, the part with fewer shots goes on (Zero's on a tie), and the other waits on a stack, with a copy of the context and a fork of the state, made after P(One) is read; when the fork, or its projection, fails, only the waiting part fails                                                                                                                                                                  | a fork is exact, so each part's state is the one a shot alone would hold, and a run costs what its distinct histories cost: one state for a program with no random draw, one per shot at most. As the larger part waits, a run of N shots holds at most ⌊log₂ N⌋ + 1 states at once, which bounds a GPU's memory whatever the program draws |
 | **settle**    | `settle`                                                                                    | each part's state is projected on its value (`project`), then a reset that drew One applies X; a measurement's result is answered with the value                                                                                                                                                                                                                                                                                           | the engine has no measurement and no reset, only probabilities, projections and operators                                                                                                                                                                                                                                                   |
-| **end**       | `end`                                                                                       | the context ended: the state's retained weight is read, and kept in the report when the least of the run; the group's records are each of its shots'                                                                                                                                                                                                                                                                                       | the retained weight bounds a truncated run's error: the report warns when a shot lost more than `TRUNCATION_TOLERANCE`, so the user knows when to raise χ                                                                                                                                                                                   |
+| **end**       | `end`                                                                                       | the context ended: the state's retained weight is read, and kept in the report when the least of the run; the group's records are each of its shots'                                                                                                                                                                                                                                                                                       | the retained weight measures what truncation cost (a bound on the error after one truncation, an estimate after several): the report warns when a shot lost more than `TRUNCATION_TOLERANCE`, so the user knows when to raise χ                                                                                                             |
 
 Two rules hold across the phases:
 
 - **Failures** ([`grouped_run.rs`](resumer/grouped_run.rs),
   [`resumer_error.rs`](resumer/resumer_error.rs)): a shot fails with its
-  group, in any phase but rewrite: its context traps, a call is refused,
-  or the engine fails. The run names the first failing shot in the order
-  of the shots, as `QirResumer::run`'s contract requires whatever order
-  they run in, and drops unrun the waiting groups whose shots all come
-  after it, which could not change that name.
+  group, in any phase from resume to end but rewrite: its context traps,
+  a call is refused, or the engine fails. Before any group runs, start
+  fails the run's first shot when the qubits and χ make no chain. The run
+  names the first failing shot in the order of the shots, as
+  `QirResumer::run`'s contract requires whatever order they run in, and
+  drops unrun the waiting groups whose shots all come after it, which
+  could not change that name.
 - **No waiting** ([`resumer.rs`](resumer.rs)): `run` runs every group when
   its future is first polled, so the future is ready at once. `MpsEngine`
   methods return when done, so this simulator has nothing to wait on;
@@ -192,17 +197,20 @@ The public types, each linked to the file that says how it works:
 
 A Bell pair, as the tests run it
 ([`src/tests/mps_simulator/resumer.rs`](../tests/mps_simulator/resumer.rs);
-`program` writes the bytecode, `gate1`, `gate2`, `mz` and `ret` write one
-instruction each, `OPID_*` names a gate, and `expect_ready` polls a future
-that is ready at once):
+`bytecode` writes a program's Adaptive Profile bytecode, which
+`QirProgram::new` checks, `gate1`, `gate2`, `mz` and `ret` write one
+instruction each, `OPID_*` names a gate, `expect_ready` polls a future
+that is ready at once, and `results` gives the records of a shot that read
+the bits given):
 
 ```rust
-// The program: a Bell pair read into two results, in the bytecode the
-// tests write.
-let bell = program(
+// The program: a Bell pair read into two results, written in the
+// Adaptive Profile bytecode, then checked.
+let bytecode = bytecode(
     2,
     &[&[gate1(OPID_H, 0), gate2(OPID_CX, 0, 1), mz(0), mz(1), ret()]],
 );
+let bell = QirProgram::new(bytecode).expect("the Bell pair's bytecode has no fault");
 // The resumer, on the exact reference engine, its draws seeded with 7.
 let mut resumer = MpsResumer::new(ExactReference::new(), 7);
 // One machine runs the program's classical part; the resumer runs the
@@ -210,6 +218,10 @@ let mut resumer = MpsResumer::new(ExactReference::new(), 7);
 let shots = QirShotId::first(32);
 let records =
     expect_ready(resumer.run(&QirMachine::new(&bell), &shots)).expect("the program runs");
+assert!(
+    records.contains(&results(&[0, 0])) && records.contains(&results(&[1, 1])),
+    "32 shots draw both values"
+);
 // In every shot, the two readouts agree.
 assert!(records.iter().all(|shot| shot[0] == shot[1]));
 ```

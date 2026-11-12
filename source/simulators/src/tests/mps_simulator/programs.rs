@@ -21,6 +21,12 @@ pub(super) fn program(qubits: u32, blocks: &[&[Instruction<u64>]]) -> QirProgram
     program_with(qubits, qubits.max(1), &[], blocks)
 }
 
+/// The bytecode of a program of `blocks`, the first its entry block, on
+/// `qubits` qubits, with as many results and registers.
+pub(super) fn bytecode(qubits: u32, blocks: &[&[Instruction<u64>]]) -> AdaptiveProgram<u64> {
+    bytecode_with(qubits, qubits.max(1), &[], blocks)
+}
+
 /// A program of `blocks`, the first its entry block, on `qubits` qubits,
 /// with `results` results, as many registers as either, and the call
 /// arguments `call_args` (registers), built.
@@ -30,6 +36,17 @@ pub(super) fn program_with(
     call_args: &[u64],
     blocks: &[&[Instruction<u64>]],
 ) -> QirProgram {
+    QirProgram::new(bytecode_with(qubits, results, call_args, blocks))
+        .expect("the test's program has no fault")
+}
+
+/// The bytecode of [`program_with`]'s program.
+fn bytecode_with(
+    qubits: u32,
+    results: u32,
+    call_args: &[u64],
+    blocks: &[&[Instruction<u64>]],
+) -> AdaptiveProgram<u64> {
     let mut instructions = Vec::new();
     let mut block_table = Vec::new();
     for block in blocks {
@@ -39,7 +56,7 @@ pub(super) fn program_with(
         });
         instructions.extend_from_slice(block);
     }
-    let bytecode = AdaptiveProgram {
+    AdaptiveProgram {
         num_qubits: qubits,
         num_results: results,
         num_registers: qubits.max(results).max(1),
@@ -55,8 +72,7 @@ pub(super) fn program_with(
         quantum_ops: (0..=OPID_CORRELATED_NOISE)
             .map(|op_id| Op::from_tuple((op_id, 0, 0, 0, 0)))
             .collect(),
-    };
-    QirProgram::new(bytecode).expect("the test's program has no fault")
+    }
 }
 
 /// An instruction of `opcode` whose fields are zero and, but for those

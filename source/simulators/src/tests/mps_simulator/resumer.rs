@@ -25,7 +25,8 @@ use tensornet::reference::ExactReference;
 use tensornet::{MpsEngine, MpsShape};
 
 use super::programs::{
-    coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, program_with, reset, ret,
+    bytecode, coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, program_with,
+    reset, ret,
 };
 use super::reference_spy::ReferenceSpy;
 use crate::bytecode::encoding::{
@@ -156,16 +157,16 @@ fn gates_reach_the_engine_grouped_as_the_gate_fusion_says() {
     }
 }
 
-/// A Bell pair's two readouts agree in every shot, and both values occur
-/// among 32 shots.
+/// A Bell pair's two readouts agree in every shot.
 #[test]
 fn a_bell_pairs_readouts_agree() {
-    // The program: a Bell pair read into two results, in the bytecode the
-    // tests write.
-    let bell = program(
+    // The program: a Bell pair read into two results, written in the
+    // Adaptive Profile bytecode, then checked.
+    let bytecode = bytecode(
         2,
         &[&[gate1(OPID_H, 0), gate2(OPID_CX, 0, 1), mz(0), mz(1), ret()]],
     );
+    let bell = QirProgram::new(bytecode).expect("the Bell pair's bytecode has no fault");
     // The resumer, on the exact reference engine, its draws seeded with 7.
     let mut resumer = MpsResumer::new(ExactReference::new(), 7);
     // One machine runs the program's classical part; the resumer runs the
@@ -173,13 +174,16 @@ fn a_bell_pairs_readouts_agree() {
     let shots = QirShotId::first(32);
     let records =
         expect_ready(resumer.run(&QirMachine::new(&bell), &shots)).expect("the program runs");
+    assert!(
+        records.contains(&results(&[0, 0])) && records.contains(&results(&[1, 1])),
+        "32 shots draw both values"
+    );
     // In every shot, the two readouts agree.
     assert!(records.iter().all(|shot| shot[0] == shot[1]));
-    assert!(records.contains(&results(&[0, 0])) && records.contains(&results(&[1, 1])));
 }
 
 /// A mid-circuit measurement steers its own shot's later gates: a branch
-/// on a coin copies it, in every shot, both values occurring.
+/// on a coin copies it, in every shot.
 #[test]
 fn a_measurement_steers_its_shots_later_gates() {
     let mut resumer = MpsResumer::new(ExactReference::new(), 7);
@@ -189,8 +193,11 @@ fn a_measurement_steers_its_shots_later_gates() {
         &QirShotId::first(32),
     )
     .expect("the program runs");
+    assert!(
+        records.contains(&results(&[0, 0])) && records.contains(&results(&[1, 1])),
+        "32 shots draw both values"
+    );
     assert!(records.iter().all(|shot| shot[0] == shot[1]));
-    assert!(records.contains(&results(&[0, 0])) && records.contains(&results(&[1, 1])));
 }
 
 /// A reset returns a qubit in superposition to |0⟩, in every shot.

@@ -11,9 +11,10 @@
 //! ([`MpsEngine::retained_weight`](tensornet::MpsEngine::retained_weight))
 //! says what that cost: after one truncation the fidelity of the state is
 //! the weight, and the total variation distance of any readout is at most
-//! √(1 − weight). So the report keeps the least weight among the shots
-//! that ended, and warns when one lost more than [`TRUNCATION_TOLERANCE`],
-//! for the user to raise χ.
+//! √(1 − weight); after several, as in a run of many gates, the weight is
+//! an estimate of the fidelity, not a bound. So the report keeps the least
+//! weight among the shots that ended, and warns when one lost more than
+//! [`TRUNCATION_TOLERANCE`], for the user to raise χ.
 //!
 //! The max bond dimension is the engine's to keep: an engine that does not
 //! truncate (the exact reference) may hold bonds above it, which

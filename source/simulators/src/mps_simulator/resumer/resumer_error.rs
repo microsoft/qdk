@@ -76,7 +76,7 @@ impl<E: fmt::Display> fmt::Display for MpsResumerError<E> {
                 f,
                 "{qubits} qubits with bonds of at most {max_bond_dimension} make no chain: {source}"
             ),
-            Self::Engine(error) => write!(f, "the MPS engine failed: {error}"),
+            Self::Engine(error) => write!(f, "the MPS engine failed or refused a call: {error}"),
         }
     }
 }

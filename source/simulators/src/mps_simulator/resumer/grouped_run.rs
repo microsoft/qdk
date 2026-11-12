@@ -260,10 +260,10 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         let p_one = self
             .engine
             .probability_of_one(state, site)
-            .map_err(engine_failure)?
-            .clamp(0.0, 1.0);
+            .map_err(engine_failure)?;
         // A uniform is in [0, 1): One only when P(One) > 0, Zero only when
-        // P(One) < 1.
+        // P(One) < 1; a P(One) rounded past 0 or 1 draws as a P(One) of 0
+        // or 1 would.
         let draws: Vec<bool> = group
             .shots
             .iter_mut()

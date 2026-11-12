@@ -94,8 +94,9 @@ impl InteractionWeights {
         Self { qubits, pairs }
     }
 
-    /// Σ gates · |site(a) − site(b)| over the pairs: the swaps the gates
-    /// cost on the chain under `order`, within a factor of two.
+    /// Σ gates · |site(a) − site(b)| over the pairs: a proxy for the swaps
+    /// the gates cost on the chain under `order`, as a gate on sites d apart
+    /// is routed through d − 1 swaps each way.
     pub(crate) fn span(&self, order: &QubitOrder) -> u64 {
         self.pairs
             .iter()
