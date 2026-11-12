@@ -24,13 +24,13 @@
 //! context is resumed to its next batch ([`QirMachine::resume`]), whose
 //! calls are lowered to steps on sites (`lower`, in `lowering.rs`) and
 //! rewritten (`Rewrite::rewrite`, called by `rewrite_runs` in
-//! `rewrites.rs`, with the resumer's gate fusion). Each step runs on the group's state, which
-//! `prepare` makes within the capacity at the first step: `apply` applies
-//! an operator; at a measurement or reset, `read_bond` reads the largest
-//! bond for the report, `draw` reads each shot's value, splitting the
-//! group when they differ, and `settle` projects the state on the value.
-//! The context is resumed with the outcomes, until it ends: then `end`
-//! reads the state's retained weight.
+//! `rewrites.rs`, with the resumer's gate fusion). Each step runs on the
+//! group's state, which `prepare` makes within the capacity at the first
+//! step: `apply` applies an operator; at a measurement or reset,
+//! `read_bond` reads the largest bond for the report, `draw` reads each
+//! shot's value, splitting the group when they differ, and `settle`
+//! projects the state on the value. The context is resumed with the
+//! outcomes, until it ends: then `end` reads the state's retained weight.
 //!
 //! **Few states at once.** Where a group splits, the part with fewer shots
 //! goes on (Zero's on a tie) and the other waits on a stack until the part

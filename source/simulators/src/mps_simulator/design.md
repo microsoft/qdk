@@ -8,7 +8,7 @@ calls, in order.
 ## The calls of each phase
 
 Each band of the diagram is one phase, with its calls in order; lower and
-fuse call no `MpsEngine` method:
+rewrite call no `MpsEngine` method:
 
 ```mermaid
 sequenceDiagram
@@ -20,7 +20,7 @@ sequenceDiagram
   Note over M,E: Phase: resume
   R->>M: resume(context, outcomes)
   M-->>R: a batch of calls, or the end with the records
-  Note over M,E: Phase: lower, then fuse
+  Note over M,E: Phase: lower, then rewrite
   Note over M,E: Phase: prepare, at the group's first operator or draw
   R->>E: prepare(capacity)
   Note over M,E: Phase: apply
