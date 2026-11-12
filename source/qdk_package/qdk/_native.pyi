@@ -133,20 +133,29 @@ class TargetProfile(Enum):
 
 class GlobalCallable:
     """
-    A callable reference that can be invoked with arguments.
+    An opaque Q# global handle accepted by its originating interpreter's APIs.
+    Retains checked type arguments and an ownership token, not the interpreter itself.
+    Python arguments do not instantiate an unbound generic declaration.
     """
 
     ...
 
 class Closure:
     """
-    A closure reference that can be passed back into Q#.
+    An opaque Q# closure handle retaining captured values and lexical type arguments.
+    It belongs to its originating interpreter. For QIR or static-circuit codegen,
+    pass it as an argument to a global wrapper rather than as the entry target.
     """
 
     ...
 
 class Interpreter:
-    """A Q# interpreter."""
+    """A Q# interpreter.
+
+    Callable handles must originate here. Their instantiated signatures are
+    checked before invocation; Python arguments do not specialize an unbound
+    generic declaration.
+    """
 
     def __init__(
         self,
@@ -235,6 +244,7 @@ class Interpreter:
     ) -> Any:
         """
         Invokes the callable with the given arguments, converted into the appropriate Q# values.
+        Callable ownership and instantiated signatures are checked before execution.
         :param callable: The callable to invoke.
         :param args: The arguments to pass to the callable.
         :param output_fn: A callback function that will be called with each output.
@@ -251,13 +261,28 @@ class Interpreter:
     ) -> str:
         """
         Generates QIR from Q# source code. Either an entry expression or a callable with arguments must be provided.
+        A callable entry must be a global handle without applied functors. Closures
+        can be supplied as arguments. All handles must belong to this interpreter,
+        and generic type arguments must already have been established by Q#.
 
         :param entry_expr: The entry expression.
         :param callable: The callable to generate QIR for, if no entry expression is provided.
         :param args: The arguments to pass to the callable, if any.
 
         :returns qir: The QIR string.
+        Nonfatal warnings use the same Python presentation policy as
+        :meth:`qdk.Context.compile`. Use ``qir_with_diagnostics`` to retain
+        diagnostics without presenting them.
         """
+        ...
+
+    def qir_with_diagnostics(
+        self,
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
+    ) -> Tuple[str, List[Tuple[str, str]]]:
+        """Return QIR and nonfatal (code, message) pairs without presenting warnings."""
         ...
 
     def circuit(
@@ -272,6 +297,8 @@ class Interpreter:
         """
         Synthesizes a circuit for a Q# program. Either an entry
         expression or an operation must be provided.
+        Static generation supports Base, Adaptive_RI, and Adaptive_RIF, and requires
+        a global callable entry without applied functors. Closures can be arguments.
 
         :param config: Circuit generation options.
 
@@ -659,6 +686,52 @@ def compile_qasm_program_to_qir(
     :rtype: str
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error compiling the program.
+    """
+    ...
+
+def compile_qasm_program_to_qir_with_diagnostics(
+    source: str,
+    read_file: Callable[[str], Tuple[str, str]],
+    list_directory: Callable[[str], List[Dict[str, str]]],
+    resolve_path: Callable[[str, str], str],
+    fetch_github: Callable[[str, str, str, str], str],
+    **kwargs: Any,
+) -> Tuple[str, List[Tuple[str, str]]]:
+    """
+    Compiles OpenQASM source code to QIR (Quantum Intermediate Representation)
+    and returns its nonfatal diagnostics without presenting warnings.
+
+    .. note::
+        This call, while exported, is intended for the Python wrapper rather
+        than direct user calls. The wrapper supplies filesystem callbacks and
+        decides how to present the returned diagnostics. This function does not
+        emit Python warnings or apply warning filters.
+
+    :param source: The OpenQASM source code to compile to QIR.
+    :param read_file: A callable that reads a file and returns its path and contents.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
+
+      - ``name`` (str): The name used for the generated entry point. Defaults to
+        ``"program"`` and is sanitized to a valid identifier.
+      - ``target_profile`` (TargetProfile): The requested profile. If omitted,
+        uses the source's profile pragma, or ``Adaptive_RIF`` if there is none.
+      - ``search_path`` (str): The base path for resolving source files and
+        includes. Required by this native function; the Python wrapper supplies
+        ``"."`` when omitted by the user.
+      - ``output_semantics`` (OutputSemantics): The output semantics for the
+        compilation. Defaults to ``OutputSemantics.OpenQasm``.
+    :return: A tuple containing the QIR string and a list of nonfatal
+        ``(code, message)`` diagnostic pairs. The list is empty when generation
+        produces no warnings. A diagnostic without a code uses an empty string.
+        Fatal failures raise an exception instead of returning partial QIR.
+    :rtype: Tuple[str, List[Tuple[str, str]]]
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If compilation or QIR generation fails, including unbound input parameters.
+    :raises TypeError: If a keyword option has an incompatible type.
+    :raises Exception: If the required ``search_path`` option is missing.
     """
     ...
 

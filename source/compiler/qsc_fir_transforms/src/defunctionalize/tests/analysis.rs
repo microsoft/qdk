@@ -17,6 +17,103 @@ use qsc_fir::fir::{LocalVarId, Package, PatKind};
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
 
+fn check_flow_value(source: &str, expected: i64) {
+    // Residual struct values need erasure before their exec graphs can be rebuilt.
+    let (mut store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::UdtErase);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(expected)),
+        "defunctionalization must preserve the value:\n{source}\n{}",
+        crate::pretty::write_package_qsharp_parseable(&store, package)
+    );
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(expected),
+    );
+}
+
+fn check_aggregate_hof_specialization(source: &str, expected: i64) {
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&store, package);
+    let outcome = defunctionalize(&mut store, package, &mut assigners);
+    assert_no_defunctionalization_errors(source, &outcome.diagnostics);
+    let generic = crate::test_utils::callable_id_by_name(store.get(package), "UseS");
+    let reachable = collect_reachable_from_entry(&store, package);
+    assert!(
+        !reachable.contains(&fir::StoreItemId::from((package, generic))),
+        "generic HOF must no longer be reachable:\n{source}"
+    );
+    assert!(
+        reachable.iter().any(|item| {
+            item.package == package
+                && matches!(&store.get(package).get_item(item.item).kind,
+                    ItemKind::Callable(decl) if decl.name.name.starts_with("UseS{"))
+        }),
+        "a specialization must actually be called:\n{source}"
+    );
+    check_flow_value(source, expected);
+}
+
+#[test]
+fn unresolved_factory_captures_defer_whole_dispatch_without_losing_known_candidates() {
+    // A mutable capture can be unresolved before factory specialization. The
+    // whole dispatch must then stay dynamic, whichever producer branch holds it.
+    // The immutable-capture control must retain both statically known choices.
+    for (binding, body, unresolved) in [
+        ("mutable", "x -> f(f(x))", true),
+        ("mutable", "if true { x -> f(f(x)) } else { Inc }", true),
+        ("mutable", "if false { Inc } else { x -> f(f(x)) }", true),
+        ("let", "x -> f(f(x))", false),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(x : Int) : Int {{ x + 1 }}
+            function Dbl(x : Int) : Int {{ 2 * x }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function Twice(f : Int -> Int) : Int -> Int {{ {body} }}
+            @EntryPoint() operation Main() : Int {{
+                mutable f = Inc;
+                {binding} g = Dbl;
+                if true {{ set f = Twice(g); }}
+                Apply(f, 3)
+            }}
+            "#
+        );
+        let (mut store, package) = compile_to_monomorphized_fir(&source);
+        let apply = crate::test_utils::callable_id_by_name(store.get(package), "Apply");
+        let result = super::run_prepass_and_analysis(&mut store, package);
+        let sites: Vec<_> = result
+            .call_sites
+            .iter()
+            .filter(|site| site.hof_item_id.package == package && site.hof_item_id.item == apply)
+            .collect();
+        if unresolved {
+            assert_eq!(
+                sites.len(),
+                1,
+                "an unresolved alternative must defer the entire dispatch"
+            );
+            assert!(matches!(sites[0].callable_arg, ConcreteCallable::Dynamic));
+        } else {
+            assert_eq!(
+                sites.len(),
+                2,
+                "both the factory closure and original Inc must remain known"
+            );
+            assert!(
+                sites
+                    .iter()
+                    .all(|site| !matches!(site.callable_arg, ConcreteCallable::Dynamic))
+            );
+        }
+        // Full lowering also checks that producer-owned guards were copied,
+        // rather than sharing ExprIds with the generated dispatch.
+        check_flow_value(&source, 12);
+    }
+}
+
 #[test]
 fn analysis_no_callable_params() {
     let source = "operation Main() : Unit { }";
@@ -640,8 +737,6 @@ fn analysis_dynamic_callable_detected() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                op = X;
                 ApplyOp_AdjCtl__X_(q);
                 __quantum__rt__qubit_release(q);
             }
@@ -1366,6 +1461,488 @@ fn constructor_and_factory_return_field_projection_resolve_distinctly() {
 }
 
 #[test]
+fn factory_struct_field_into_hof_resolves_captures() {
+    let source = r#"
+        struct Entry { Value : Int, Subsystem : Int[] }
+        struct System { Count : Int, EntryAt : Int -> Entry }
+        function Make(base : Int, coeffs : Int[], subsystems : Int[][]) : System {
+            new System {
+                Count = 2,
+                EntryAt = i -> new Entry {
+                    Value = base + coeffs[i],
+                    Subsystem = subsystems[i]
+                }
+            }
+        }
+        function UseS(s : System, i : Int) : Int {
+            let entry = s.EntryAt(i);
+            s.Count * 1000 + entry.Value * 10 + entry.Subsystem[0]
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            let first = Make(3, [4, 6], [[1], [2]]);
+            let second = Make(10, [2, 8], [[3], [4]]);
+            (UseS(first, 0) + UseS(first, 1)) * 10000
+                + UseS(second, 0) + UseS(second, 1)
+        }
+        "#;
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let analysis = run_prepass_and_analysis(&mut store, package);
+    let sites: Vec<_> = analysis
+        .call_sites
+        .iter()
+        .filter(|site| resolve_item_name(&store, &site.hof_item_id).starts_with("UseS"))
+        .collect();
+    assert_eq!(sites.len(), 4);
+    for site in sites {
+        assert!(
+            matches!(&site.callable_arg, ConcreteCallable::Closure { captures, .. } if captures.len() == 3),
+            "factory field must resolve with scalar and array captures: {:?}",
+            site.callable_arg
+        );
+    }
+    check_flow_value(source, 41_634_307);
+}
+
+#[test]
+fn factory_struct_field_into_hof_rewrite() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int) : Config {
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config, x : Int) : Int { s.Count + s.F(x) }
+        @EntryPoint() operation Main() : Int {
+            let saved = Make(10);
+            UseS(saved, 1)
+        }
+        "#;
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype Config = (Int, (Int -> Int));
+        function Make(base : Int) : __UDT_Item_1__Package_2_ {
+            new Config {
+                Count = 2,
+                F = / * closure item = 5 captures = [base] * / _lambda_5
+            }
+
+        }
+        function UseS(s : __UDT_Item_1__Package_2_, x : Int) : Int {
+            s::Count + s::F(x)
+        }
+        operation Main() : Int {
+            let saved : __UDT_Item_1__Package_2_ = Make(10);
+            UseS(saved, 1)
+        }
+        function _lambda_5(base : Int, x : Int) : Int {
+            base + x
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype Config = (Int, (Int -> Int));
+        function Make(base : Int) : __UDT_Item_1__Package_2_ {
+            new Config {
+                Count = 2,
+                F = __defunc_consumed_closure_7
+            }
+
+        }
+        function UseS(s : __UDT_Item_1__Package_2_, x : Int) : Int {
+            s::Count + s::F(x)
+        }
+        operation Main() : Int {
+            let saved : __UDT_Item_1__Package_2_ = Make(10);
+            UseS_closure_(saved::Count, 1, 10)
+        }
+        function _lambda_5(base : Int, x : Int) : Int {
+            base + x
+        }
+        function UseS_closure_(s : Int, x : Int, __capture_0 : Int) : Int {
+            s + _lambda_5(__capture_0, x)
+        }
+        function __defunc_consumed_closure_7(_ : Int) : Int {
+            fail $"consumed closure stand-in invoked"
+        }
+        // entry
+        Main()
+    "#]],
+    );
+}
+
+#[test]
+fn single_aggregate_factory_stored_rewrite() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int) : Config {
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            let saved = Make(10);
+            UseS(saved)
+        }
+        "#;
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = / * closure item = 5 captures = [base] * / _lambda_5
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                let saved : __UDT_Item_1__Package_2_ = Make(10);
+                UseS(saved)
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = __defunc_consumed_closure_7
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                let saved : __UDT_Item_1__Package_2_ = Make(10);
+                UseS_closure_(saved::Count, 10)
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            function UseS_closure_(s : Int, __capture_0 : Int) : Int {
+                s + _lambda_5(__capture_0, 1)
+            }
+            function __defunc_consumed_closure_7(_ : Int) : Int {
+                fail $"consumed closure stand-in invoked"
+            }
+            // entry
+            Main()
+        "#]],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
+fn single_aggregate_factory_inline_rewrite() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int) : Config {
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int { UseS(Make(10)) }
+        "#;
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = / * closure item = 5 captures = [base] * / _lambda_5
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                UseS(Make(10))
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = __defunc_consumed_closure_7
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                UseS_closure_({
+                    let __aggregate_argument : __UDT_Item_1__Package_2_ = Make(10);
+                    __aggregate_argument::Count
+                }, 10)
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            function UseS_closure_(s : Int, __capture_0 : Int) : Int {
+                s + _lambda_5(__capture_0, 1)
+            }
+            function __defunc_consumed_closure_7(_ : Int) : Int {
+                fail $"consumed closure stand-in invoked"
+            }
+            // entry
+            Main()
+        "#]],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
+fn single_aggregate_factory_argument_forms_specialize() {
+    for argument in [
+        "UseS(Make(10))",
+        "{ let saved = Make(10); UseS(saved) }",
+        "{ let saved = Make(10); let alias = saved; UseS(alias) }",
+    ] {
+        let source = format!(
+            r#"
+            struct Inner {{ Tag : Int, F : Int -> Int }}
+            struct Outer {{ Tag : Int, Inner : Inner }}
+            function Make(base : Int) : Outer {{
+                new Outer {{ Tag = 100, Inner = new Inner {{ Tag = 20, F = x -> base + x }} }}
+            }}
+            function UseS(s : Outer) : Int {{ s.Tag + s.Inner.Tag + s.Inner.F(1) }}
+            @EntryPoint() operation Main() : Int {{ {argument} }}
+            "#
+        );
+        check_aggregate_hof_specialization(&source, 131);
+    }
+    for argument in [
+        "UseS(new Config { Count = 2, F = x -> 10 + x })",
+        "{ let saved = new Config { Count = 2, F = x -> 10 + x }; UseS(saved) }",
+    ] {
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, F : Int -> Int }}
+            function UseS(s : Config) : Int {{ s.Count + s.F(1) }}
+            @EntryPoint() operation Main() : Int {{ {argument} }}
+            "#
+        );
+        check_aggregate_hof_specialization(&source, 13);
+    }
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            mutable count = 2;
+            let saved = new Config { Count = count, F = x -> 10 + x };
+            set count = 20;
+            UseS(saved)
+        }
+        "#;
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
+fn single_aggregate_factory_is_evaluated_once() {
+    for (parameters, arguments, expected) in [
+        ("s : Config", "Make(10)", 41),
+        ("s : Config", "saved", 41),
+        ("s : Config, extra : Int", "Make(10), 0", 41),
+        ("s : Config, extra : Int", "saved, 0", 41),
+    ] {
+        let setup = if arguments.starts_with("Make") {
+            ""
+        } else {
+            "let saved = Make(10);"
+        };
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, Tag : Int, F : Int -> Int }}
+            function Make(base : Int) : Config {{
+                new Config {{ Count = base, Tag = 2 * base, F = x -> base + x }}
+            }}
+            function UseS({parameters}) : Int {{ s.Count + s.Tag + s.F(1) }}
+            @EntryPoint() operation Main() : Int {{
+                {setup}
+                UseS({arguments})
+            }}
+            "#
+        );
+        let (store, package_id) = compile_and_defunctionalize(&source);
+        let package = store.get(package_id);
+        let main = crate::test_utils::find_callable(package, "Main");
+        let make = crate::test_utils::callable_id_by_name(package, "Make");
+        let mut calls = 0;
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &main.implementation,
+            &mut |_, expr| {
+                if let fir::ExprKind::Call(callee, _) = expr.kind
+                    && let fir::ExprKind::Var(fir::Res::Item(target), _) =
+                        package.get_expr(callee).kind
+                    && target.package == package_id
+                    && target.item == make
+                {
+                    calls += 1;
+                }
+            },
+        );
+        assert_eq!(
+            calls, 1,
+            "retained fields must share one evaluation per factory expression: {parameters}, {arguments}"
+        );
+        check_flow_value(&source, expected);
+    }
+}
+
+#[test]
+fn single_aggregate_factory_captures_remain_distinct() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int, values : Int[]) : Config {
+            new Config { Count = 2, F = x -> base + values[x] }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            mutable base = 10;
+            let firstBase = base;
+            let first = Make(firstBase, [1, 3]);
+            set base = 20;
+            let secondBase = base;
+            let second = Make(secondBase, [2, 5]);
+            UseS(first) * 10000 + UseS(first) * 100 + UseS(second)
+        }
+        "#;
+    check_aggregate_hof_specialization(source, 151_527);
+}
+
+#[test]
+fn single_aggregate_factory_tuple_argument_specializes() {
+    for argument in ["UseS(Pack(10))", "{ let saved = Pack(10); UseS(saved) }"] {
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, F : Int -> Int }}
+            function Make(base : Int) : Config {{
+                new Config {{ Count = 2, F = x -> base + x }}
+            }}
+            function Pack(base : Int) : (Config, Int) {{ (Make(base), 1) }}
+            function UseS(s : Config, x : Int) : Int {{ s.Count + s.F(x) }}
+            @EntryPoint() operation Main() : Int {{ {argument} }}
+            "#
+        );
+        check_aggregate_hof_specialization(&source, 13);
+    }
+}
+
+#[test]
+fn factory_struct_field_into_hof_preserves_nested_fields_and_argument_forms() {
+    for argument in [
+        "UseS(Make(10))",
+        "{ let saved = Make(10); UseS(saved) }",
+        "{ let pair = (Make(10), 0); let (saved, _) = pair; UseS(saved) }",
+    ] {
+        check_flow_value(
+            &format!(
+                r#"
+                struct Inner {{ Tag : Int, F : Int -> Int }}
+                struct Outer {{ Tag : Int, Inner : Inner }}
+                function Make(base : Int) : Outer {{
+                    new Outer {{
+                        Tag = 100,
+                        Inner = new Inner {{ Tag = 20, F = x -> base + x }}
+                    }}
+                }}
+                function UseS(s : Outer) : Int {{
+                    s.Tag + s.Inner.Tag + s.Inner.F(1)
+                }}
+                @EntryPoint() operation Main() : Int {{ {argument} }}
+                "#
+            ),
+            131,
+        );
+    }
+}
+
+#[test]
+fn factory_struct_field_into_hof_declines_unsafe_producers() {
+    for prelude in ["fail \"factory failure\";", "let unused = 1 / base;"] {
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, F : Int -> Int }}
+            function Make(base : Int) : Config {{
+                {prelude}
+                new Config {{ Count = 2, F = x -> base + x }}
+            }}
+            function UseS(s : Config) : Int {{ s.Count + s.F(1) }}
+            @EntryPoint() operation Main() : Int {{
+                let saved = Make(0);
+                UseS(saved)
+            }}
+            "#
+        );
+        let (mut store, package) = compile_to_monomorphized_fir(&source);
+        let analysis = run_prepass_and_analysis(&mut store, package);
+        let site = analysis
+            .call_sites
+            .iter()
+            .find(|site| resolve_item_name(&store, &site.hof_item_id).starts_with("UseS"))
+            .expect("factory aggregate must reach the HOF");
+        assert!(
+            matches!(site.callable_arg, ConcreteCallable::Dynamic),
+            "unsafe producer must remain unresolved: {:?}",
+            site.callable_arg
+        );
+        check_errors(
+            &source,
+            &expect!["callable argument could not be resolved statically"],
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn factory_struct_field_into_hof_preserves_producer_effects() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        operation Make(base : Int, q : Qubit) : Config {
+            X(q);
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            use q = Qubit();
+            let saved = Make(10, q);
+            let value = UseS(saved);
+            if MResetZ(q) == One { value } else { 0 }
+        }
+        "#;
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
 fn identity_closure_over_global_callable_collapses() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
@@ -1952,10 +2529,7 @@ fn reaching_def_mutable_multi_assign() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -2024,12 +2598,7 @@ fn reaching_def_mutable_both_branches() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                } else {
-                    op = S;
-                }
+                if true {} else {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -3669,6 +4238,7 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
             });
         }
         "#;
+    crate::test_utils::check_semantic_equivalence(source);
     check_rewrite(
         source,
         &expect![[r#"
@@ -3793,7 +4363,7 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
 
             }
             operation Main() : Unit {
-                Run_PrepareSystems__closure__closure__PreparePhase_(2, [0, 1], 0, 1, 2);
+                Run_PrepareSystems__closure__closure__PreparePhase_((2, [0, 1], 0), 1, 2);
             }
             operation _lambda_7(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
                 ApplyParityOperation(arg, hole, hole_1)
@@ -3802,13 +4372,13 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
                 ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_PrepareSystems__closure__closure__PreparePhase_(config : (Int, Int[], Int), __capture_0 : Int, __capture_1 : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray((config::StatePrep + Length(config::ControlledUnitary)) + config::PhaseQubitPrep);
-                let ancillas : Qubit[] = qs[0..config::StatePrep - 1];
-                let allTargets : Qubit[] = qs[config::StatePrep...];
+                let qs : Qubit[] = AllocateQubitArray((config::Item < 0 > + Length(config::Item < 1 >)) + config::Item < 2 >);
+                let ancillas : Qubit[] = qs[0..config::Item < 0 > - 1];
+                let allTargets : Qubit[] = qs[config::Item < 0 > ...];
                 PrepareSystems(allTargets);
                 PreparePhase(ancillas);
                 {
-                    let _range_id_219 : Range = 0..config::StatePrep - 1;
+                    let _range_id_219 : Range = 0..config::Item < 0 > - 1;
                     mutable _index_id_222 : Int = _range_id_219.Start;
                     let _step_id_227 : Int = _range_id_219.Step;
                     let _end_id_232 : Int = _range_id_219.End;
@@ -4669,8 +5239,6 @@ fn mutable_local_not_promoted() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                op = X;
                 ApplyOp_AdjCtl__X_(q);
                 __quantum__rt__qubit_release(q);
             }
@@ -5040,17 +5608,10 @@ fn reaching_def_mutable_nested_branches() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 if true {
-                    if false {
-                        op = X;
-                    } else {
-                        op = T;
-                    }
+                    if false {} else {}
 
-                } else {
-                    op = S;
-                }
+                } else {}
 
                 if true {
                     if false {
@@ -5133,15 +5694,12 @@ fn callable_in_mutable_with_side_effects_in_if_expr() {
             operation Main() : Unit {
                 mutable __branch_guard : Bool = false;
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 {
                     __branch_guard = {
                         Y(q);
                         true
                     };
-                    if __branch_guard {
-                        op = X;
-                    }
+                    if __branch_guard {}
 
                 }
 
@@ -5252,12 +5810,7 @@ fn reaching_def_mutable_hof_param_substituted_condition() {
                 };
             }
             operation ApplyChoice_AdjCtl__H_(flag : Bool, q : Qubit) : Unit {
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if flag {
-                    op = X;
-                } else {
-                    op = Y;
-                }
+                if flag {} else {}
 
                 if flag {
                     X(q)
@@ -5295,7 +5848,7 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
               site: callee=T:Body, default
             lattice states:
               callable Main:
-                5: Multi([S:Body, T:Body])"#]],
+                5: Dynamic"#]],
     );
     check_rewrite(
         source,
@@ -5428,8 +5981,6 @@ fn operand_block_set_specializes_to_reaching_definition() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
-                f = Bar;
                 let z : Int = 1;
                 Bar(5)
             }
@@ -5476,9 +6027,7 @@ fn operand_block_set_specializes_to_reaching_definition() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let z : Int = {
-                    f = Bar;
                     0
                 } + 1;
                 Bar(5)
@@ -5619,9 +6168,7 @@ fn straight_line_reassignment_is_position_sensitive() {
             operation Foo(x : Int) : Unit {}
             operation Bar(x : Int) : Unit {}
             operation Main() : Unit {
-                mutable f : (Int => Unit) = Foo;
                 Foo(1);
-                f = Bar;
                 Bar(2);
             }
             // entry
@@ -5680,8 +6227,6 @@ fn hof_operand_block_set_specializes_reaching_definition() {
                 g(x)
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
-                f = Bar;
                 let z : Int = 1;
                 Apply_Bar_(5)
             }
@@ -5738,9 +6283,7 @@ fn hof_operand_block_set_specializes_reaching_definition() {
                 g(x)
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let z : Int = {
-                    f = Bar;
                     0
                 } + 1;
                 Apply_Bar_(5)
@@ -5804,10 +6347,7 @@ fn operand_block_conditional_set_generates_branch_dispatch() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -5872,9 +6412,7 @@ fn operand_block_conditional_set_generates_branch_dispatch() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 let z : Int = if true {
-                    op = X;
                     0
                 } else {
                     0
@@ -5951,11 +6489,7 @@ fn operand_block_set_in_branch_uses_correct_arm() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = Y;
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -6025,11 +6559,8 @@ fn operand_block_set_in_branch_uses_correct_arm() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 if true {
-                    op = Y;
                     let z : Int = {
-                        op = X;
                         0
                     } + 0;
                 }
@@ -6457,9 +6988,7 @@ fn binop_andl_short_circuit_rhs_set_does_not_reach_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let b : Bool = false and {
-                    f = Bar;
                     true
                 };
                 if false {
@@ -6516,9 +7045,7 @@ fn binop_orl_short_circuit_rhs_set_does_not_reach_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let b : Bool = true or {
-                    f = Bar;
                     false
                 };
                 if true {
@@ -6578,12 +7105,10 @@ fn assignop_andl_short_circuit_rhs_set_does_not_reach_call() {
             }
             operation Main() : Int {
                 mutable __branch_guard : Bool = false;
-                mutable f : (Int -> Int) = Foo;
                 mutable b : Bool = false;
                 {
                     __branch_guard = b;
                     b = __branch_guard and {
-                        f = Bar;
                         false
                     }
 
@@ -6650,13 +7175,11 @@ fn update_field_replace_then_record_order_reaches_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let r : __UDT_Item_1__Package_2_ = new Rec {
                     A = Bar(5),
                     B = 0
                 }
                     w/::B <- {
-                    f = Bar;
                     0
                 };
                 r::A
@@ -6710,9 +7233,7 @@ fn update_index_container_last_order_reaches_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let arr : Int[] = [Bar(5), 0] w/ 1 <- {
-                    f = Bar;
                     0
                 };
                 arr[0]
@@ -6769,10 +7290,8 @@ fn assignop_non_logical_rhs_set_reaches_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 mutable acc : Int = 0;
                 acc += {
-                    f = Bar;
                     1
                 };
                 Bar(5)
@@ -6837,10 +7356,8 @@ fn orl_runtime_dynamic_condition_branch_split_dispatch() {
             }
             operation Main() : Int {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable f : (Int -> Int) = Foo;
                 let cond : Bool = MResetZ(q) == One;
                 let b : Bool = cond or {
-                    f = Bar;
                     false
                 };
                 let _generated_ident_67 : Int = if cond {
@@ -7047,4 +7564,1727 @@ fn capture_admissibility_assignment_store_order() {
             "stored indexed captures must be recordable before and after the store"
         );
     }
+}
+
+#[test]
+fn flow_indexed_fields_keep_selection_before_later_initializer_writes() {
+    for (index, expected) in [(0, 1), (-1, 2)] {
+        for replacement in [1, 2] {
+            for selection in ["[A, B][index]", "alias"] {
+                for invocation in ["saved.F(saved.Tag)", "Apply(saved.F, saved.Tag)"] {
+                    let source = format!(
+                        r#"
+                        struct Holder {{ F : Int -> Int, Tag : Int }}
+                        function A(x : Int) : Int {{ Message("A"); x + 1 }}
+                        function B(x : Int) : Int {{ Message("B"); x + 2 }}
+                        function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                        @EntryPoint() operation Main() : Int {{
+                            mutable index = {index};
+                            let selected = [A, B][index];
+                            let alias = selected;
+                            let original = new Holder {{
+                                F = {selection},
+                                Tag = {{
+                                    Message("store");
+                                    set index = {replacement};
+                                    0
+                                }}
+                            }};
+                            let saved = original;
+                            Message("invoke");
+                            {invocation}
+                        }}
+                        "#
+                    );
+                    let (mut store, package) = compile_to_monomorphized_fir(&source);
+                    let result = super::run_prepass_and_analysis(&mut store, package);
+                    if invocation.starts_with("Apply") {
+                        assert_eq!(result.call_sites.len(), 1);
+                        assert!(
+                            result.call_sites.iter().all(|site| {
+                                matches!(site.callable_arg, ConcreteCallable::Dynamic)
+                            }),
+                            "aggregate fallback must not recover an invalidated selector"
+                        );
+                    } else {
+                        assert!(
+                            result.direct_call_sites.is_empty(),
+                            "a stale index must not produce concrete dispatch"
+                        );
+                        assert_eq!(result.unresolved_direct_call_sites.len(), 1);
+                    }
+                    check_flow_value(&source, expected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_rows_preserve_all_physical_positions() {
+    for (rows, names, values) in [
+        (
+            "[(A, 0), (A, 0), (B, 0)]",
+            ["A:Body", "A:Body", "B:Body"],
+            [1, 1, 2],
+        ),
+        (
+            "[(A, 0), (B, 0), (A, 0)]",
+            ["A:Body", "B:Body", "A:Body"],
+            [1, 2, 1],
+        ),
+        (
+            "[(A, 0), (A, 0), (A, 0)]",
+            ["A:Body", "A:Body", "A:Body"],
+            [1, 1, 1],
+        ),
+    ] {
+        for index in -3_i64..3 {
+            for selector in [index.to_string(), "index".to_string()] {
+                let source = format!(
+                    r#"
+                    function A(x : Int) : Int {{ Message("A"); x + 1 }}
+                    function B(x : Int) : Int {{ Message("B"); x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable index = {index};
+                        let rows = {rows};
+                        let alias = rows;
+                        let (f, _) = alias[{selector}];
+                        f(0)
+                    }}
+                    "#
+                );
+                let (mut store, package) = compile_to_monomorphized_fir(&source);
+                let result = super::run_prepass_and_analysis(&mut store, package);
+                let candidates: Vec<_> = result
+                    .direct_call_sites
+                    .iter()
+                    .map(|site| format_concrete_callable(&site.callable, &store))
+                    .collect();
+                assert_eq!(candidates, names, "every physical row needs a candidate");
+                let position = usize::try_from(index.rem_euclid(3)).expect("normalized index");
+                check_flow_value(&source, values[position]);
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_joined_indexed_singleton_preserves_false_alternatives() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        function C(x : Int) : Int { x + 3 }
+        function Pick(flag : Bool, index : Int) : Int {
+            let (left, _) = [(A, 0)][0];
+            let selected = if flag { left } else { [B, C][index] };
+            selected(0)
+        }
+        @EntryPoint() operation Main() : Int { Pick(false, 0) }
+    "#;
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let result = super::run_prepass_and_analysis(&mut store, package);
+    // Unequal positional alternatives have no shared index discriminator.
+    assert!(result.direct_call_sites.is_empty());
+    assert_eq!(result.unresolved_direct_call_sites.len(), 1);
+    let (mut store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(2)),
+        "ambiguous indexed alternatives must not become a guarded direct call",
+    );
+    check_flow_value(source, 2);
+}
+
+#[test]
+fn flow_joined_indexed_branches_preserve_all_positions() {
+    for (left_rows, left_values, right_rows, right_values) in [
+        (
+            "[(A, 0)]",
+            &[1_i64][..],
+            "[(B, 0), (C, 0), (B, 0)]",
+            &[2, 3, 2][..],
+        ),
+        (
+            "[(A, 0), (B, 0)]",
+            &[1, 2][..],
+            "[(C, 0), (A, 0), (C, 0)]",
+            &[3, 1, 3][..],
+        ),
+    ] {
+        for (left_rows, left_values, right_rows, right_values) in [
+            (left_rows, left_values, right_rows, right_values),
+            (right_rows, right_values, left_rows, left_values),
+        ] {
+            for (flag, values) in [(true, left_values), (false, right_values)] {
+                let length = i64::try_from(values.len()).expect("small test array");
+                for index in -length..length {
+                    let position =
+                        usize::try_from(index.rem_euclid(length)).expect("normalized index");
+                    for binding in [
+                        "let selected = if flag { left } else { right };",
+                        "mutable selected = left;
+                         if flag { set selected = left; } else { set selected = right; }",
+                    ] {
+                        for invocation in ["selected(0)", "Apply(selected, 0)"] {
+                            let source = format!(
+                                r#"
+                                function A(x : Int) : Int {{ x + 1 }}
+                                function B(x : Int) : Int {{ x + 2 }}
+                                function C(x : Int) : Int {{ x + 3 }}
+                                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                                function Pick(flag : Bool, first : Int, second : Int) : Int {{
+                                    let (left, _) = {left_rows}[first];
+                                    let (right, _) = {right_rows}[second];
+                                    {binding}
+                                    {invocation}
+                                }}
+                                @EntryPoint() operation Main() : Int {{
+                                    Pick({flag}, {first}, {second})
+                                }}
+                                "#,
+                                first = if flag { index } else { 0 },
+                                second = if flag { 0 } else { index },
+                            );
+                            check_flow_value(&source, values[position]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_joined_indexed_branches_preserve_effect_order() {
+    for (flag, values, order) in [
+        (true, &[1_i64, 2][..], 12349),
+        (false, &[2, 3, 2][..], 156_789),
+    ] {
+        let length = i64::try_from(values.len()).expect("small test array");
+        for index in -length..length {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ Message("A"); x + 1 }}
+                function B(x : Int) : Int {{ Message("B"); x + 2 }}
+                function C(x : Int) : Int {{ Message("C"); x + 3 }}
+                function Pick(flag : Bool, index : Int) : Int {{
+                    mutable order = 0;
+                    let selected = if {{ set order = 10 * order + 1; flag }} {{
+                        let (f, _) = [
+                            (A, {{ set order = 10 * order + 2; 0 }}),
+                            (B, {{ set order = 10 * order + 3; 0 }})
+                        ][{{ set order = 10 * order + 4; index }}];
+                        f
+                    }} else {{
+                        let (f, _) = [
+                            (B, {{ set order = 10 * order + 5; 0 }}),
+                            (C, {{ set order = 10 * order + 6; 0 }}),
+                            (B, {{ set order = 10 * order + 7; 0 }})
+                        ][{{ set order = 10 * order + 8; index }}];
+                        f
+                    }};
+                    let result = selected({{ set order = 10 * order + 9; 0 }});
+                    100 * order + result
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}, {index}) }}
+                "#
+            );
+            let position = usize::try_from(index.rem_euclid(length)).expect("normalized index");
+            check_flow_value(&source, 100 * order + values[position]);
+        }
+    }
+}
+
+#[test]
+fn flow_joined_indexed_branches_preserve_bounds_before_argument_failure() {
+    for (flag, length) in [(true, 2), (false, 3)] {
+        for index in [-length - 1, length] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function C(x : Int) : Int {{ x + 3 }}
+                function Mark(label : String) : Int {{ Message(label); 0 }}
+                function Pick(flag : Bool, index : Int) : Int {{
+                    let selected = if {{ Message("guard"); flag }} {{
+                        let (f, _) = [
+                            (A, Mark("true-0")), (B, Mark("true-1"))
+                        ][{{ Message("true-index"); index }}];
+                        f
+                    }} else {{
+                        let (f, _) = [
+                            (B, Mark("false-0")), (C, Mark("false-1")), (B, Mark("false-2"))
+                        ][{{ Message("false-index"); index }}];
+                        f
+                    }};
+                    selected({{ Message("argument"); fail "argument ran before bounds" }})
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}, {index}) }}
+                "#
+            );
+            let error = crate::test_utils::eval_qsharp_original(&source)
+                .expect_err("the selected branch's index must fail first");
+            assert!(error.starts_with("IndexOutOfRange("), "{error}");
+            crate::test_utils::check_semantic_equivalence(&source);
+        }
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_aliases_do_not_replay_later_selector_writes() {
+    for (index, expected) in [(0, 1), (1, 2), (-1, 1)] {
+        for invocation in ["alias(0)", "Apply(alias, 0)"] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable index = {index};
+                        let (selected, _) = [(A, 0), (B, 0), (A, 0)][index];
+                        let alias = selected;
+                        set index = 3;
+                        {invocation}
+                    }}
+                    "#
+                ),
+                expected,
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_rows_preserve_bounds_failures() {
+    for index in [-4, 3] {
+        for selector in [index.to_string(), "index".to_string()] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ Message("A"); x + 1 }}
+                function B(x : Int) : Int {{ Message("B"); x + 2 }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable index = {index};
+                    let (f, _) = [(A, 0), (A, 0), (B, 0)][{selector}];
+                    f(0)
+                }}
+                "#
+            );
+            assert!(
+                crate::test_utils::eval_qsharp_original(&source).is_err(),
+                "the original tuple-array access must fail its bounds check"
+            );
+            crate::test_utils::check_semantic_equivalence(&source);
+        }
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_branch_sources_remain_invalidatable() {
+    for (flag, expected) in [(true, 1), (false, 2)] {
+        check_flow_value(
+            &format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable first = 0;
+                    mutable second = 1;
+                    mutable selected = A;
+                    if {flag} {{
+                        let (f, _) = [(A, 0), (B, 0)][first];
+                        set selected = f;
+                    }} else {{
+                        let (f, _) = [(A, 0), (B, 0)][second];
+                        set selected = f;
+                    }}
+                    let alias = selected;
+                    set first = 1;
+                    set second = 0;
+                    alias(0)
+                }}
+                "#
+            ),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_dispatch_preserves_defunc_call_abi() {
+    let source = r#"
+        function A(pair : (Int, Int)) : Int {
+            let (x, y) = pair;
+            x + y + 1
+        }
+        function B(pair : (Int, Int)) : Int {
+            let (x, y) = pair;
+            x + y + 2
+        }
+        @EntryPoint() operation Main() : Int {
+            let (f, _) = [(A, 0), (A, 0), (B, 0)][1];
+            f((2, 3))
+        }
+    "#;
+    check_invariants(source);
+    let (mut store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(6)),
+        "dispatch must retain the declared tuple input immediately after Defunc"
+    );
+    check_flow_value(source, 6);
+}
+
+#[test]
+fn flow_effectful_callable_argument_guards_are_retained() {
+    // Equal targets may collapse to Single; distinct targets may form Multi.
+    // Neither permits deleting the guard or moving it past the data operand.
+    for flag in [false, true] {
+        for other in ["A", "B"] {
+            for selection in [
+                format!("if Guard() {{ A }} else {{ {other} }}"),
+                format!("{{ if Guard() {{ A }} else {{ {other} }} }}"),
+                format!("if true {{ if Guard() {{ A }} else {{ {other} }} }} else {{ B }}"),
+            ] {
+                let source = format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable visits = 0;
+                        let result = Apply({selection}, {{ set visits = 10 * visits + 2; 0 }});
+                        100 * visits + result
+                    }}
+                    "#
+                )
+                .replace(
+                    "Guard()",
+                    &format!("{{ set visits = 10 * visits + 1; {flag} }}"),
+                );
+                check_flow_value(&source, if flag || other == "A" { 1201 } else { 1202 });
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_callable_argument_guard_failures_are_not_erased() {
+    for other in ["A", "B"] {
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function Guard() : Bool {{ fail "guard must run" }}
+            @EntryPoint() operation Main() : Int {{
+                Apply(if Guard() {{ A }} else {{ {other} }}, {{ fail "argument ran first" }})
+            }}
+            "#
+        );
+        let error = crate::test_utils::eval_qsharp_original(&source)
+            .expect_err("the guard must fail before the data argument");
+        assert!(error.contains("guard must run"), "{error}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn flow_discardable_callable_argument_guards_still_specialize() {
+    for flag in [false, true] {
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            @EntryPoint() operation Main() : Int {{
+                Apply(if {flag} {{ A }} else {{ B }}, 0)
+            }}
+            "#
+        );
+        let (mut store, package) = compile_to_monomorphized_fir(&source);
+        let result = super::run_prepass_and_analysis(&mut store, package);
+        assert!(!result.call_sites.is_empty());
+        assert!(
+            result
+                .call_sites
+                .iter()
+                .all(|site| !matches!(site.callable_arg, ConcreteCallable::Dynamic))
+        );
+        check_flow_value(&source, if flag { 1 } else { 2 });
+    }
+}
+
+#[test]
+fn flow_parallel_capture_limits_rebind_across_producer_environments() {
+    // The body is deliberately local-free. A local in the body remains an
+    // unsupported block capture; the limit is a reconstructible expression.
+    for limit in ["2", "n", "n + 1"] {
+        for producer in ["Make(2)", "Forward(2)", "Again(2)"] {
+            let source = format!(
+                r#"
+                operation Make(n : Int) : Int -> Int {{
+                    let value = parallel within {limit} {{ 7 }};
+                    x -> value + x
+                }}
+                operation Forward(n : Int) : Int -> Int {{ Make(n + 1) }}
+                operation Again(padding : Int) : Int -> Int {{ Forward(2 * padding) }}
+                @EntryPoint() operation Main() : Int {{ {producer}(3) }}
+                "#
+            );
+            check_flow_value(&source, 10);
+        }
+    }
+}
+
+#[test]
+fn flow_unsupported_capture_forms_remain_dynamic() {
+    // These local-bearing leaves cannot be reconstructed by the capture writer.
+    // Also reject operation calls with no locals: absence of a scope leak is
+    // not permission to move an operation's evaluation.
+    for initializer in [
+        "{ n }",
+        "if true { n } else { 0 }",
+        "parallel within 2 { n }",
+        "Read()",
+    ] {
+        let source = format!(
+            r#"
+            operation Read() : Int {{ 7 }}
+            operation Make(n : Int) : Int -> Int {{
+                let value = {initializer};
+                x -> value + x
+            }}
+            @EntryPoint() operation Main() : Int {{ Make(7)(3) }}
+            "#
+        );
+        let (mut store, package) = compile_to_monomorphized_fir(&source);
+        let result = super::run_prepass_and_analysis(&mut store, package);
+        assert!(
+            result
+                .direct_call_sites
+                .iter()
+                .all(|site| matches!(site.callable, ConcreteCallable::Dynamic)),
+            "unsupported producer capture must not yield a concrete call: {initializer}"
+        );
+        check_flow_value(&source, 10);
+    }
+}
+
+#[test]
+fn analysis_collapsed_spans_are_qualified_by_call_package() {
+    use qsc_data_structures::span::Span;
+
+    let (mut store, package_id) = crate::test_utils::compile_to_fir_with_library(
+        r#"
+        namespace Lib {
+            function Inc(x : Int) : Int { x + 1 }
+            function Run() : Int { let f = Inc; f(2) }
+            export Run;
+        }
+        "#,
+        r#"
+        function Inc(x : Int) : Int { x + 1 }
+        @EntryPoint() operation Main() : Int { let f = Inc; f(1) + Lib.Run() }
+        "#,
+    );
+    let reachable = collect_reachable_from_entry(&store, package_id);
+    let mut collapsed_spans = rustc_hash::FxHashMap::default();
+    let local_span = Span { lo: 1000, hi: 1001 };
+    // The prepass only records spans for the current package. Colliding foreign
+    // expression IDs must not inherit those markers.
+    for (expr_id, _) in &store.get(package_id).exprs {
+        collapsed_spans.insert(expr_id, local_span);
+    }
+    let total_foreign = crate::walk_utils::collect_total_foreign_callables(&store);
+    let result = super::super::analysis::analyze(
+        &mut store,
+        package_id,
+        &reachable,
+        &Default::default(),
+        &collapsed_spans,
+        &[],
+        &total_foreign,
+    );
+    assert!(
+        result
+            .direct_call_sites
+            .iter()
+            .any(|site| site.call_pkg_id == package_id)
+    );
+    assert!(
+        result
+            .direct_call_sites
+            .iter()
+            .any(|site| site.call_pkg_id != package_id)
+    );
+    for site in &result.direct_call_sites {
+        assert_eq!(
+            site.def_span,
+            (site.call_pkg_id == package_id).then_some(local_span),
+            "call site metadata must come from its owning package"
+        );
+    }
+}
+
+#[test]
+fn flow_guard_values_survive_later_initializer_writes() {
+    for flag in [false, true] {
+        for binding in ["let", "mutable"] {
+            for (pattern, initializer, callable) in [
+                (
+                    "(saved, _)",
+                    "(if flag { A } else { B }, { set flag = not flag; 0 })",
+                    "saved",
+                ),
+                (
+                    "(saved, _)",
+                    "(selected, { set flag = not flag; 0 })",
+                    "saved",
+                ),
+                (
+                    "(saved, _)",
+                    "(Choose(flag), { set flag = not flag; 0 })",
+                    "saved",
+                ),
+                (
+                    "saved",
+                    "new Holder { F = if flag { A } else { B }, Tag = { set flag = not flag; 0 } }",
+                    "saved.F",
+                ),
+                (
+                    "saved",
+                    "new Holder { F = Choose(flag), Tag = { set flag = not flag; 0 } }",
+                    "saved.F",
+                ),
+                (
+                    "((saved, _), _)",
+                    "(if flag { (A, 7) } else { (B, 7) }, { set flag = not flag; 0 })",
+                    "saved",
+                ),
+            ] {
+                for invocation in [format!("{callable}(0)"), format!("Apply({callable}, 0)")] {
+                    check_flow_value(
+                        &format!(
+                            r#"
+                            struct Holder {{ F : Int -> Int, Tag : Int }}
+                            function A(x : Int) : Int {{ x + 1 }}
+                            function B(x : Int) : Int {{ x + 2 }}
+                            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                            function Choose(flag : Bool) : Int -> Int {{
+                                if flag {{ A }} else {{ B }}
+                            }}
+                            @EntryPoint() operation Main() : Int {{
+                                mutable flag = {flag};
+                                let selected = if flag {{ A }} else {{ B }};
+                                {binding} {pattern} = {initializer};
+                                {invocation}
+                            }}
+                            "#
+                        ),
+                        if flag { 1 } else { 2 },
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_guard_values_survive_simultaneous_stores() {
+    for flag in [false, true] {
+        for rhs in ["if flag { A } else { B }", "selected", "{ selected }"] {
+            for invocation in ["saved(0)", "Apply(saved, 0)"] {
+                check_flow_value(
+                    &format!(
+                        r#"
+                        function A(x : Int) : Int {{ x + 1 }}
+                        function B(x : Int) : Int {{ x + 2 }}
+                        function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                        @EntryPoint() operation Main() : Int {{
+                            mutable flag = {flag};
+                            let selected = if flag {{ A }} else {{ B }};
+                            mutable saved = A;
+                            set (saved, flag) = ({rhs}, not flag);
+                            {invocation}
+                        }}
+                        "#
+                    ),
+                    if flag { 1 } else { 2 },
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_unrelated_writes_keep_guarded_calls_resolvable() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        @EntryPoint() operation Main() : Int {
+            mutable flag = true;
+            mutable unrelated = 0;
+            let (saved, _) = (if flag { A } else { B }, { set unrelated = 1; 0 });
+            saved(0)
+        }
+    "#;
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let result = super::run_prepass_and_analysis(&mut store, package);
+    assert_eq!(result.direct_call_sites.len(), 2);
+    assert!(result.unresolved_direct_call_sites.is_empty());
+    check_flow_value(source, 1);
+}
+
+#[test]
+fn flow_guarded_factory_failure_is_preserved() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        function Guard() : Bool { true }
+        function Choose(flag : Bool) : Int -> Int {
+            fail "producer must run";
+            if flag { A } else { B }
+        }
+        @EntryPoint() operation Main() : Int { Choose(Guard())(0) }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source)
+        .expect_err("the producer must fail before its returned callable is invoked");
+    assert!(error.contains("producer must run"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn flow_guarded_factory_messages_run_once_in_order() {
+    for flag in [false, true] {
+        for (guard_prefix, producer_prefix) in [
+            ("", "Message(\"producer\");"),
+            ("Message(\"guard\");", ""),
+            ("Message(\"guard\");", "Message(\"producer\");"),
+        ] {
+            for selection in [
+                "Choose(Guard())(0)",
+                "{ let saved = Choose(Guard()); saved(0) }",
+                "{ let saved = Choose(Guard()); Apply(saved, 0) }",
+            ] {
+                check_flow_value(
+                    &format!(
+                        r#"
+                        function A(x : Int) : Int {{ x + 1 }}
+                        function B(x : Int) : Int {{ x + 2 }}
+                        function Guard() : Bool {{
+                            {guard_prefix}
+                            {flag}
+                        }}
+                        function Choose(flag : Bool) : Int -> Int {{
+                            {producer_prefix}
+                            if flag {{ A }} else {{ B }}
+                        }}
+                        function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                        @EntryPoint() operation Main() : Int {{
+                            Message("before");
+                            let result = {selection};
+                            Message("after");
+                            result
+                        }}
+                        "#
+                    ),
+                    if flag { 1 } else { 2 },
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_static_index_negation_preserves_wrapping_and_bounds() {
+    for (index, execute_index) in [("0x8000000000000000", false), ("2", true)] {
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            @EntryPoint() operation Main() : Int {{
+                let index = {index};
+                if {execute_index} {{ [A][-index](0) }} else {{ 1 }}
+            }}
+            "#
+        );
+        if execute_index {
+            assert!(
+                crate::test_utils::eval_qsharp_original(&source).is_err(),
+                "the executed negative index must retain its bounds failure"
+            );
+            crate::test_utils::check_semantic_equivalence(&source);
+        } else {
+            check_flow_value(&source, 1);
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_declarations_observe_ordered_initializer_values() {
+    for binding in ["let", "mutable"] {
+        for (pattern, initializer, result, expected) in [
+            ("(tag, g)", "({ set f = B; 0 }, f)", "g(tag)", 2),
+            ("(g, tag)", "(f, { set f = B; 0 })", "g(tag)", 1),
+            (
+                "((before, tag), after)",
+                "((f, { set f = B; 0 }), f)",
+                "10 * before(tag) + after(tag)",
+                12,
+            ),
+        ] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable f = A;
+                        {binding} {pattern} = {initializer};
+                        {result}
+                    }}
+                    "#
+                ),
+                expected,
+            );
+        }
+    }
+}
+
+fn check_callable_assignment_expression_cleanup(statement: &str, reached: bool) {
+    for (replacement, marker, output) in [
+        ("B", 0, "before\nafter\n"),
+        (
+            r#"{ Message("replacement"); set marker += 7; B }"#,
+            if reached { 7 } else { 0 },
+            if reached {
+                "before\nreplacement\nafter\n"
+            } else {
+                "before\nafter\n"
+            },
+        ),
+    ] {
+        let statement = statement.replace("replacement", replacement);
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            function Consume(value : Unit) : Unit {{}}
+            @EntryPoint() operation Main() : Int {{
+                mutable f = A;
+                mutable marker = 0;
+                Message("before");
+                {statement}
+                Message("after");
+                f(10) * 100 + marker
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(if reached { 1200 + marker } else { 1100 }),
+            output,
+        );
+    }
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_local_initializer() {
+    check_callable_assignment_expression_cleanup("let ignored = (set f = replacement);", true);
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_tuple() {
+    check_callable_assignment_expression_cleanup("let pair = ((set f = replacement), 42);", true);
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_call_argument() {
+    check_callable_assignment_expression_cleanup("Consume((set f = replacement));", true);
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_lazy_operand() {
+    for reached in [false, true] {
+        for expression in [
+            format!("{reached} and ((set f = replacement) == ())"),
+            format!("{} or ((set f = replacement) == ())", !reached),
+        ] {
+            check_callable_assignment_expression_cleanup(
+                &format!("let ignored = {expression};"),
+                reached,
+            );
+        }
+    }
+}
+
+#[test]
+fn callable_store_cleanup_preserves_assignment_expression_in_nested_write() {
+    check_callable_assignment_expression_cleanup(
+        "let ignored = (set f = { let inner = (set f = B); replacement });",
+        true,
+    );
+}
+
+/// The saved closure always uses A, while the current callable may become B.
+/// Ordered messages and an increment expose dropped, duplicated or moved RHS
+/// evaluation, including the skipped side of each short-circuit operator.
+fn check_callable_wrapper_effects_and_snapshots(
+    initializer: &str,
+    update: impl Fn(bool) -> String,
+) {
+    for reached in [false, true] {
+        let update = update(reached).replace(
+            "rhs",
+            r#"{ set f = { Message("assignment"); set marker += 7; B }; false }"#,
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &format!(
+                r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable marker = 0;
+                        mutable f = {initializer};
+                        let initial = f;
+                        let saved = (x -> initial(x));
+                        Message("before");
+                        {update}
+                        Message("after");
+                        f(10) * 10000 + saved(10) * 100 + marker
+                    }}
+                    "#
+            ),
+            qsc_eval::val::Value::Int(if reached { 121_107 } else { 111_100 }),
+            if reached {
+                "before\nassignment\nafter\n"
+            } else {
+                "before\nafter\n"
+            },
+        );
+    }
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_and_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_or_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_and_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_or_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+/// The first failure must still win when the replacement is reached, and
+/// neither its message nor its failure may run on a short-circuited path.
+fn check_callable_wrapper_failures(initializer: &str, update: impl Fn(bool) -> String) {
+    for reached in [false, true] {
+        let update = update(reached).replace(
+            "rhs",
+            r#"{ set f = { Message("replacement"); fail "assignment failed"; B }; false }"#,
+        );
+        let source = format!(
+            r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable f = {initializer};
+                        {update}
+                        let value = f(10);
+                        Message("after");
+                        fail "later failure";
+                        value
+                    }}
+                    "#
+        );
+        let error = crate::test_utils::eval_qsharp_original(&source)
+            .expect_err("the reached failure must execute");
+        assert!(
+            error.contains(if reached {
+                "assignment failed"
+            } else {
+                "later failure"
+            }),
+            "unexpected original failure: {error}"
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| format!("let _ = {reached} and rhs;"));
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| format!("let _ = {} or rhs;", !reached));
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_assign_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_assign_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_assign_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_assign_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_preserves_nested_writes_and_selected_effects() {
+    for reached in [false, true] {
+        for choose in [false, true] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable marker = 0;
+                    mutable f = {{ A }};
+                    let _ = {reached} and {{
+                        set f = {{
+                            set f = {{ Message("inner"); set marker += 1; B }};
+                            Message("outer");
+                            set marker += 10;
+                            if {choose} {{ B }} else {{ A }}
+                        }};
+                        false
+                    }};
+                    f(10) * 100 + marker
+                }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected_output(
+                &source,
+                qsc_eval::val::Value::Int(if reached {
+                    if choose { 1211 } else { 1111 }
+                } else {
+                    1100
+                }),
+                if reached { "inner\nouter\n" } else { "" },
+            );
+        }
+    }
+}
+
+/// An indexed write is not a whole-local store. Removing its base or replaying
+/// the alias would lose the array's original first callable.
+#[test]
+fn callable_wrapper_store_cleanup_preserves_partial_updates_and_aliases() {
+    for reached in [false, true] {
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            @EntryPoint() operation Main() : Int {{
+                mutable fs = [A, B];
+                let saved = fs;
+                let _ = {reached} and {{
+                    set fs w/= 0 <- {{ Message("replacement"); B }};
+                    false
+                }};
+                fs[0](10) * 100 + saved[0](10)
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(if reached { 1211 } else { 1111 }),
+            if reached { "replacement\n" } else { "" },
+        );
+    }
+}
+
+#[test]
+fn block_reanalysis_preserves_callable_snapshots() {
+    for (call, expected) in [
+        ("Apply(if true { f } else { B }, { set f = B; 0 })", 1),
+        ("Apply({ f }, { set f = B; 0 })", 1),
+        ("Identity(f)({ set f = B; 0 })", 1),
+        (
+            "{ let (saved, _) = { (f, { set f = B; 0 }) }; saved(0) }",
+            1,
+        ),
+        (
+            "{ mutable (saved, _) = { (f, { set f = B; 0 }) }; Apply(saved, 0) }",
+            1,
+        ),
+        (
+            "{ let ((saved, _), _) = { ((f, 7), { set f = B; 0 }) }; saved(0) }",
+            1,
+        ),
+        (
+            "{ let (saved, _) = { let pair = (f, { set f = B; 0 }); pair }; saved(0) }",
+            1,
+        ),
+        (
+            "mutable total = 0;
+             for i in 0..2 {
+                 let (saved, _) = { (f, { set f = B; 0 }) };
+                 set total += saved(0);
+             }
+             total",
+            5,
+        ),
+        (
+            "mutable total = 0;
+             for i in 0..2 {
+                 let (saved, _) = { (f, { set f = if i % 2 == 0 { B } else { A }; 0 }) };
+                 set total += saved(0);
+             }
+             total",
+            4,
+        ),
+    ] {
+        check_flow_value(
+            &format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                function Identity(f : Int -> Int) : Int -> Int {{ f }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable f = A;
+                    {call}
+                }}
+                "#
+            ),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn producer_guard_replay_requires_stable_arguments() {
+    for flag in [false, true] {
+        for producer in ["Choose", "Forward"] {
+            for (binding, argument, write, dynamic) in [
+                ("mutable", "flag", "set flag = not flag;", true),
+                ("mutable", "not flag", "set flag = not flag;", true),
+                ("mutable", "snapshot", "set flag = not flag;", false),
+                ("let", "flag", "", false),
+            ] {
+                let source = format!(
+                    r#"
+                    function A(x : Int) : Int {{ Message("A"); x + 1 }}
+                    function B(x : Int) : Int {{ Message("B"); x + 2 }}
+                    function Choose(flag : Bool) : Int -> Int {{
+                        if flag {{ A }} else {{ B }}
+                    }}
+                    function Forward(flag : Bool) : Int -> Int {{ Choose(flag) }}
+                    @EntryPoint() operation Main() : Int {{
+                        {binding} flag = {flag};
+                        let snapshot = flag;
+                        let (saved, _) = ({producer}({argument}), {{ {write} 0 }});
+                        saved(0)
+                    }}
+                    "#
+                );
+                let selected_a = if argument == "not flag" { !flag } else { flag };
+                check_flow_value(&source, if selected_a { 1 } else { 2 });
+                let (mut store, package) = compile_to_monomorphized_fir(&source);
+                let result = super::run_prepass_and_analysis(&mut store, package);
+                if dynamic {
+                    assert!(result.direct_call_sites.is_empty(), "{source}");
+                    assert_eq!(result.unresolved_direct_call_sites.len(), 1, "{source}");
+                } else if producer == "Choose" {
+                    assert_eq!(result.direct_call_sites.len(), 2, "{source}");
+                    assert!(result.unresolved_direct_call_sites.is_empty(), "{source}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn block_local_discriminators_do_not_escape() {
+    for binding in ["let", "mutable"] {
+        for index in [0, 1] {
+            for (declaration, selection) in [
+                ("local = index", "[A, B][local]"),
+                ("local = index", "{ let chosen = [A, B][local]; chosen }"),
+                ("local = index == 0", "Choose(local)"),
+            ] {
+                for (pattern, tail, call) in [
+                    ("saved", selection.to_string(), "saved(0)"),
+                    ("saved", selection.to_string(), "Apply(saved, 0)"),
+                    ("(saved, _)", format!("({selection}, 7)"), "saved(0)"),
+                ] {
+                    let source = format!(
+                        r#"
+                        function A(x : Int) : Int {{ x + 1 }}
+                        function B(x : Int) : Int {{ x + 2 }}
+                        function Choose(flag : Bool) : Int -> Int {{
+                            if flag {{ A }} else {{ B }}
+                        }}
+                        function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                        function Pick(index : Int) : Int {{
+                            let {pattern} = {{ {binding} {declaration}; {tail} }};
+                            {call}
+                        }}
+                        @EntryPoint() operation Main() : Int {{ Pick({index}) }}
+                        "#
+                    );
+                    check_flow_value(&source, index + 1);
+                    if selection != "Choose(local)" {
+                        continue;
+                    }
+                    let (mut store, package) = compile_to_monomorphized_fir(&source);
+                    let result = super::run_prepass_and_analysis(&mut store, package);
+                    if call.starts_with("Apply") {
+                        assert!(
+                            result
+                                .call_sites
+                                .iter()
+                                .any(|site| matches!(site.callable_arg, ConcreteCallable::Dynamic)),
+                            "{source}"
+                        );
+                    } else {
+                        assert!(!result.unresolved_direct_call_sites.is_empty(), "{source}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn block_local_indices_preserve_bounds_failures() {
+    for array in ["[A, A]", "[A, B]"] {
+        for index in [-3, 2] {
+            for call in [
+                "saved({ fail \"argument ran first\" })",
+                "Apply(saved, { fail \"argument ran first\" })",
+            ] {
+                let source = format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        let saved = {{ let index = {index}; {array}[index] }};
+                        {call}
+                    }}
+                    "#
+                );
+                let error = crate::test_utils::eval_qsharp_original(&source)
+                    .expect_err("selection must fail before the argument");
+                assert!(error.starts_with("IndexOutOfRange("), "{error}");
+                crate::test_utils::check_semantic_equivalence(&source);
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_producer_aggregates_keep_creation_time_callable_values() {
+    for (initializer, result) in [
+        ("[f]", "saved[0]"),
+        ("(f, 7)", "{ let (selected, _) = saved; selected }"),
+        ("new Holder { F = f }", "saved.F"),
+    ] {
+        check_flow_value(
+            &format!(
+                r#"
+                struct Holder {{ F : Int -> Int }}
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Make() : Int -> Int {{
+                    mutable f = A;
+                    let saved = {initializer};
+                    set f = B;
+                    {result}
+                }}
+                @EntryPoint() operation Main() : Int {{ Make()(0) }}
+                "#
+            ),
+            1,
+        );
+    }
+}
+
+#[test]
+fn flow_return_guards_use_caller_not_producer_local_bindings() {
+    for (flag, expected) in [(true, 1), (false, 2)] {
+        check_flow_value(
+            &format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Choose(flag : Bool) : Int -> Int {{
+                    let unrelated = {opposite};
+                    if flag {{ A }} else {{ B }}
+                }}
+                function Forward(flag : Bool) : Int -> Int {{ Choose(flag) }}
+                @EntryPoint() operation Main() : Int {{
+                    let padding = 0;
+                    let flag = {flag};
+                    Choose(flag)(padding) + 10 * Forward(flag)(padding)
+                }}
+                "#,
+                opposite = !flag,
+            ),
+            11 * expected,
+        );
+    }
+}
+
+#[test]
+fn flow_aggregate_parameters_resolve_in_the_callers_environment() {
+    for body in [
+        "Get(p)(0)",
+        "Forward(p)(0)",
+        "Select(fs, index)(0)",
+        "Project(new Holder { F = A })(0)",
+    ] {
+        check_flow_value(
+            &format!(
+                r#"
+                struct Holder {{ F : Int -> Int }}
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Get(p : (Int -> Int, Int)) : Int -> Int {{
+                    let (f, _) = p;
+                    f
+                }}
+                function Forward(p : (Int -> Int, Int)) : Int -> Int {{ Get(p) }}
+                function Select(fs : (Int -> Int)[], index : Int) : Int -> Int {{
+                    let unrelated = [B];
+                    fs[index]
+                }}
+                function Project(p : Holder) : Int -> Int {{ p.F }}
+                @EntryPoint() operation Main() : Int {{
+                    let p = (A, 0);
+                    let fs = [A, B];
+                    let index = 0;
+                    {body}
+                }}
+                "#
+            ),
+            1,
+        );
+    }
+}
+
+#[test]
+fn flow_recursive_factory_analysis_terminates_through_bindings() {
+    for recursive_call in ["Make(n - 1)", "Forward(n - 1)"] {
+        check_flow_value(
+            &format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function Make(n : Int) : Int -> Int {{
+                    if n == 0 {{ A }} else {{
+                        mutable next = {recursive_call};
+                        next
+                    }}
+                }}
+                function Forward(n : Int) : Int -> Int {{ Make(n) }}
+                @EntryPoint() operation Main() : Int {{ Make(2)(0) }}
+                "#
+            ),
+            1,
+        );
+    }
+}
+
+#[test]
+fn flow_foreign_return_guards_never_escape_their_expression_package() {
+    let source = "@EntryPoint() operation Main() : Int { Lib.Choose()(0) }";
+    for (flag, expected) in [(true, 1), (false, 2)] {
+        let library = format!(
+            r#"
+            namespace Lib {{
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Choose() : Int -> Int {{ if {flag} {{ A }} else {{ B }} }}
+                export Choose;
+            }}
+            "#
+        );
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original_with_library(&library, source),
+            Ok(qsc_eval::val::Value::Int(expected))
+        );
+        let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+            &library,
+            source,
+            crate::PipelineStage::Defunc,
+        );
+        crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package),
+            Ok(qsc_eval::val::Value::Int(expected))
+        );
+        crate::test_utils::check_semantic_equivalence_with_library(&library, source);
+    }
+}
+
+#[test]
+fn flow_indexed_aliases_invalidate_transitive_selector_provenance() {
+    for aliases in [
+        "let alias = saved;",
+        "let middle = saved; let alias = middle;",
+        "let middle = (saved, 7); let (alias, _) = middle;",
+        "let middle = (saved, 7); let unrelated = 0; let (alias, _) = middle;",
+    ] {
+        for invocation in ["alias(3)", "Apply(alias, 3)"] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        let fs = [Inc, Twice];
+                        mutable index = 0;
+                        let saved = fs[index];
+                        {aliases}
+                        set index = 1;
+                        {invocation}
+                    }}
+                    "#
+                ),
+                4,
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_aggregate_guard_invalidation_blocks_initializer_replay() {
+    for flag in [false, true] {
+        for (initializer, invocation) in [
+            ("new Holder { F = if flag { A } else { B } }", "saved.F(0)"),
+            ("new Holder { F = selected }", "Apply(saved.F, 0)"),
+            (
+                "(if flag { A } else { B }, 7)",
+                "{ let (f, _) = saved; f(0) }",
+            ),
+            ("[if flag { A } else { B }]", "saved[0](0)"),
+        ] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    struct Holder {{ F : Int -> Int }}
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable flag = {flag};
+                        let selected = if flag {{ A }} else {{ B }};
+                        let original = {initializer};
+                        let saved = original;
+                        set flag = not flag;
+                        {invocation}
+                    }}
+                    "#
+                ),
+                if flag { 1 } else { 2 },
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_return_guards_are_not_substituted_twice() {
+    for flag in [false, true] {
+        for other in [false, true] {
+            for producer in ["Choose", "Forward"] {
+                check_flow_value(
+                    &format!(
+                        r#"
+                        function A(x : Int) : Int {{ x + 1 }}
+                        function B(x : Int) : Int {{ x + 2 }}
+                        function Choose(flag : Bool, other : Bool) : Int -> Int {{
+                            if flag {{ A }} else {{ B }}
+                        }}
+                        function Forward(flag : Bool, other : Bool) : Int -> Int {{
+                            Choose(flag, other)
+                        }}
+                        @EntryPoint() operation Main() : Int {{
+                            let padding = 0;
+                            mutable flag = {flag};
+                            {producer}(flag, {other})(padding)
+                        }}
+                        "#
+                    ),
+                    if flag { 1 } else { 2 },
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_array_guards_preserve_row_selection() {
+    for flag in [false, true] {
+        for invocation in ["f(0)", "Apply(f, 0)"] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable flag = {flag};
+                        let rows = [(if flag {{ A }} else {{ B }}, 0), (A, 0)];
+                        mutable total = 0;
+                        for (f, _) in rows {{ set total += {invocation}; }}
+                        total
+                    }}
+                    "#
+                ),
+                if flag { 2 } else { 3 },
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_array_nonliteral_rows_keep_all_candidates() {
+    for row in ["hidden", "{ hidden }", "Row()"] {
+        for (index, expected) in [(0, 1), (1, 2), (-1, 2), (-2, 1)] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Row() : (Int -> Int, Int) {{ (B, 0) }}
+                function Pick(index : Int) : Int -> Int {{
+                    let hidden = (B, 0);
+                    let rows = [(A, 0), {row}];
+                    let (f, _) = rows[index];
+                    f
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({index})(0) }}
+                "#
+            );
+            let (mut store, package) = compile_to_monomorphized_fir(&source);
+            let result = super::run_prepass_and_analysis(&mut store, package);
+            let candidates = result
+                .lattice_states
+                .values()
+                .flatten()
+                .find_map(|(_, lattice)| match lattice {
+                    CalleeLattice::Multi(entries) => Some(entries),
+                    _ => None,
+                })
+                .expect("the producer must retain the complete row candidate union");
+            let names: Vec<_> = candidates
+                .iter()
+                .map(|(callable, _)| format_concrete_callable(callable, &store))
+                .collect();
+            assert_eq!(names, ["A:Body", "B:Body"]);
+            assert_eq!(
+                result.unresolved_direct_call_sites.len(),
+                1,
+                "the producer's index cannot be replayed at the caller"
+            );
+            check_flow_value(&source, expected);
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_array_guards_without_index_provenance_remain_residual() {
+    for flag in [false, true] {
+        for index in [0, 1, -1, -2] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Run(flag : Bool) : Int {{
+                    let rows = [(if flag {{ A }} else {{ B }}, 0), (A, 0)];
+                    let (f, _) = rows[{index}];
+                    f(0)
+                }}
+                @EntryPoint() operation Main() : Int {{ Run({flag}) }}
+                "#
+            );
+            let first_row = index == 0 || index == -2;
+            check_flow_value(&source, if first_row && !flag { 2 } else { 1 });
+            let (mut store, package) = compile_to_monomorphized_fir(&source);
+            let result = super::run_prepass_and_analysis(&mut store, package);
+            assert!(result.direct_call_sites.is_empty());
+            assert_eq!(
+                result.unresolved_direct_call_sites.len(),
+                1,
+                "row guards alone must not replace array-index selection"
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_array_unknown_rows_are_not_omitted() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        function Run(row : (Int -> Int, Int)) : Int {
+            let rows = [(A, 0), row];
+            mutable total = 0;
+            for (f, _) in rows { set total += f(0); }
+            total
+        }
+        @EntryPoint() operation Main() : Int { Run((B, 0)) }
+    "#;
+    check_flow_value(source, 3);
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let result = super::run_prepass_and_analysis(&mut store, package);
+    assert_eq!(
+        result.unresolved_direct_call_sites.len(),
+        1,
+        "the unseeded row parameter must make the loop callee unresolved"
+    );
+}
+
+#[test]
+fn flow_computed_callee_residue_is_scoped_to_its_owners() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        function Plain(x : Int) : Int { x }
+        function Pick(index : Int) : Int -> Int {
+            let hidden = (B, 0);
+            let rows = [(A, 0), hidden];
+            let (f, _) = rows[index];
+            f
+        }
+        @EntryPoint() operation Main() : Int { Plain(Pick(1)(0)) }
+    "#;
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&store, package);
+    let outcome = super::defunctionalize(&mut store, package, &mut assigners);
+    assert!(
+        outcome
+            .diagnostics
+            .iter()
+            .any(|error| matches!(error, crate::defunctionalize::Error::DynamicCallable(_)))
+    );
+    let owners: FxHashSet<_> = outcome
+        .residue_items
+        .iter()
+        .map(|item| {
+            let ItemKind::Callable(decl) = &store.get(item.package).get_item(item.item).kind else {
+                panic!("residue owners must be callables");
+            };
+            decl.name.name.as_ref()
+        })
+        .collect();
+    assert_eq!(owners, FxHashSet::from_iter(["Pick", "Main"]));
+    assert!(!outcome.entry_has_residue);
+    check_flow_value(source, 2);
 }

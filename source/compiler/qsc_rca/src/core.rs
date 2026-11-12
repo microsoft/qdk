@@ -8,8 +8,7 @@ use crate::{
     ElementParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
-        AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, LocalsLookup,
-        try_resolve_callee,
+        Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, LocalsLookup, try_resolve_callee,
     },
     errors::get_missing_runtime_features,
     scaffolding::{InternalItemComputeProperties, InternalPackageStoreComputeProperties},
@@ -150,34 +149,24 @@ impl<'a> Analyzer<'a> {
         &mut self,
         assignee_expr_id: ExprId,
         value_expr_id: ExprId,
-        short_circuit: bool,
+        bin_op: Option<BinOp>,
     ) -> ComputeKind {
         // Visit the assignee and value expressions to determine their compute kind.
         self.visit_expr(assignee_expr_id);
-        let within_dynamic_scope = short_circuit
-            && self
-                .last_analyzed_compute_kind
-                .take()
-                .expect("last analyzed compute kind should be set after visiting an expression")
-                .is_variable_value_kind();
-        if within_dynamic_scope {
-            self.get_current_application_instance_mut()
-                .active_dynamic_scopes
-                .push(assignee_expr_id);
-        }
-        self.visit_expr(value_expr_id);
+        let assignee_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("assignee compute kind should be set");
+        self.analyze_bin_op_rhs(
+            bin_op,
+            assignee_expr_id,
+            assignee_compute_kind,
+            value_expr_id,
+        );
         let value_expr_compute_kind = self
             .last_analyzed_compute_kind
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
-        if within_dynamic_scope {
-            let dynamic_scope_expr = self
-                .get_current_application_instance_mut()
-                .active_dynamic_scopes
-                .pop()
-                .expect("at least one dynamic scope should exist");
-            assert_eq!(dynamic_scope_expr, assignee_expr_id);
-        }
 
         // Since this is an assignment, update the local variables on the assignee expression with the compute kind of
         // the value expression.
@@ -197,6 +186,32 @@ impl<'a> Analyzer<'a> {
         // evaluating the value expression might have dynamic side effects).
         compute_kind.aggregate_runtime_features(value_expr_compute_kind, default_value_kind);
         compute_kind
+    }
+
+    fn analyze_bin_op_rhs(
+        &mut self,
+        bin_op: Option<BinOp>,
+        lhs_expr_id: ExprId,
+        lhs_compute_kind: ComputeKind,
+        rhs_expr_id: ExprId,
+    ) {
+        // A lazy RHS has the same conditional-assignment semantics as an if body.
+        let dynamic_scope = matches!(bin_op, Some(BinOp::AndL | BinOp::OrL))
+            && lhs_compute_kind.is_variable_value_kind();
+        if dynamic_scope {
+            self.get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .push(lhs_expr_id);
+        }
+        self.visit_expr(rhs_expr_id);
+        if dynamic_scope {
+            let scope = self
+                .get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .pop()
+                .expect("short-circuit dynamic scope should exist");
+            assert_eq!(scope, lhs_expr_id);
+        }
     }
 
     fn analyze_expr_assign_index(
@@ -288,17 +303,7 @@ impl<'a> Analyzer<'a> {
             .last_analyzed_compute_kind
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
-
-        // If the LHS expression is dynamic and this is a short-circuit binary operator, we push a new dynamic scope.
-        let within_dynamic_scope = (bin_op == BinOp::AndL || bin_op == BinOp::OrL)
-            && lhs_compute_kind.is_variable_value_kind();
-        if within_dynamic_scope {
-            self.get_current_application_instance_mut()
-                .active_dynamic_scopes
-                .push(lhs_expr_id);
-        }
-
-        self.visit_expr(rhs_expr_id);
+        self.analyze_bin_op_rhs(Some(bin_op), lhs_expr_id, lhs_compute_kind, rhs_expr_id);
         let rhs_compute_kind = self
             .last_analyzed_compute_kind
             .take()
@@ -355,15 +360,6 @@ impl<'a> Analyzer<'a> {
                 // this runtime feature.
                 *runtime_features |= RuntimeFeatureFlags::UseOfDynamicString;
             }
-        }
-
-        if within_dynamic_scope {
-            let dynamic_scope_expr = self
-                .get_current_application_instance_mut()
-                .active_dynamic_scopes
-                .pop()
-                .expect("at least one dynamic scope should exist");
-            assert_eq!(dynamic_scope_expr, lhs_expr_id);
         }
 
         compute_kind
@@ -440,13 +436,22 @@ impl<'a> Analyzer<'a> {
                 value_kind,
             }
         } else {
-            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
+            self.analyze_expr_call_with_static_callee(
+                callee_expr_id,
+                args_expr_id,
+                args_expr_compute_kind,
+            )
         };
 
-        // Cache the `MustBeInlined` runtime feature flag if it was set on the compute kind of the call expression.
-        // This allows it to be added again later after aggregating the runtime features of the callee and arguments expressions,
-        // which may have cleared that flag.
-        let must_inline = matches!(compute_kind, ComputeKind::Dynamic { runtime_features, .. } if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
+        // Recursive and unresolved calls bypass the resolved-callee eligibility
+        // check. Their expression types still prohibit callable-valued QIR ABIs.
+        // Reapply this call-site flag after aggregation, which does not propagate it.
+        let must_inline = matches!(compute_kind, ComputeKind::Dynamic { runtime_features, .. } if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined))
+            || (self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::CallSupport)
+                && (self.type_contains_callable(expr_type)
+                    || self.type_contains_callable(&self.get_expr(args_expr_id).ty)));
 
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
         let application_instance = self.get_current_application_instance();
@@ -566,16 +571,20 @@ impl<'a> Analyzer<'a> {
         let ir_function_compute_kind =
             application_generator_set.generate_ir_function_application_compute_kind();
 
-        // If the target capabitlies allow for emitting IR functions, we need to check if the callable can be emitted or must be inlined.
+        let input_ty = &self.package_store.get_pat(callee_input_pattern_id).ty;
+        // Check the signature before considering an IR-function application:
+        // making callable arguments dynamic would introduce spurious capabilities.
         let must_inline = self
             .target_capabilities
             .contains(TargetCapabilityFlags::CallSupport)
-            && self.check_must_inline(
-                callable_decl,
-                &arg_compute_kinds,
-                &mut compute_kind,
-                ir_function_compute_kind,
-            );
+            && (self.type_contains_callable(input_ty)
+                || self.type_contains_callable(&callable_decl.output)
+                || self.check_must_inline(
+                    callable_decl,
+                    &arg_compute_kinds,
+                    &mut compute_kind,
+                    ir_function_compute_kind,
+                ));
 
         // Aggregate the runtime features of the qubit controls expressions.
         let mut has_variable_controls = false;
@@ -642,13 +651,49 @@ impl<'a> Analyzer<'a> {
         compute_kind
     }
 
+    fn type_contains_callable(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Arrow(_) => true,
+            Ty::Array(element) => self.type_contains_callable(element),
+            Ty::Tuple(elements) => elements.iter().any(|ty| self.type_contains_callable(ty)),
+            Ty::Udt(Res::Item(item)) => {
+                let ItemKind::Ty(_, udt) = &self
+                    .package_store
+                    .get(item.package)
+                    .get_item(item.item)
+                    .kind
+                else {
+                    panic!("UDT type must refer to a type item");
+                };
+                self.type_contains_callable(&udt.get_pure_ty())
+            }
+            Ty::Prim(_) | Ty::Param(_) | Ty::Infer(_) | Ty::Udt(_) | Ty::Err => false,
+        }
+    }
+
     fn check_must_inline(
         &self,
         callable_decl: &'a CallableDecl,
         arg_compute_kinds: &[ComputeKind],
         compute_kind: &mut ComputeKind,
-        ir_function_compute_kind: ComputeKind,
+        mut ir_function_compute_kind: ComputeKind,
     ) -> bool {
+        let is_supported_output =
+            is_supported_variable_type(&callable_decl.output, self.target_capabilities);
+        let constant_ir_output =
+            is_supported_output && !ir_function_compute_kind.is_variable_value_kind();
+
+        // Inline only when promoting the arguments would lose a known scalar result.
+        // Parameter-independent constants can cross an IR-call boundary without expanding effects.
+        if !compute_kind.is_variable_value_kind()
+            && ir_function_compute_kind.is_variable_value_kind()
+        {
+            return true;
+        }
+        if !constant_ir_output && !matches!(ir_function_compute_kind, ComputeKind::Static) {
+            ir_function_compute_kind.set_variable_value_kind();
+        }
+
         // We should not try to emit the body of a function that has all static or constant arguments as an IR function.
         // These can be fully computed at partial eval time, and may contribute unnecessary advanced runtime features to the program.
         // We do emit operations, as those may have side effects separate from their capabilities, such as gate calls.
@@ -670,10 +715,7 @@ impl<'a> Analyzer<'a> {
             && get_missing_runtime_features(*runtime_features, self.target_capabilities)
                 .is_empty()
                 // ...and the callable's output type is a primitive type that can be returned from an IR function...
-                && (matches!(
-                    &callable_decl.output,
-                    Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
-                ) || callable_decl.output == Ty::UNIT)
+                && is_supported_output
             {
                 // ...then we can emit the callable as an IR function, and we update the compute kind of the call expression to reflect the
                 // capabilities of that IR function.
@@ -689,6 +731,7 @@ impl<'a> Analyzer<'a> {
         &mut self,
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
+        args_expr_compute_kind: ComputeKind,
     ) -> ComputeKind {
         // Try to resolve the callee.
         let package_id = self.get_current_package_id();
@@ -716,23 +759,6 @@ impl<'a> Analyzer<'a> {
             return compute_kind;
         };
 
-        if self.callee_in_active_contexts(&callee) {
-            // This is a recursive call, which we allow with some deferred capabilities checks at runtime.
-            // We treat the call as if it were an unresolved callee, like above, such that partial evaluation will perform
-            // extra validation on the capabilities at runtime. By adding the call expression to the list of unresolved callees,
-            // we ensure that the call is additionally validated at runtime regardless of any runtime flags.
-            // This runtime check covers the corner case where a recursive call is made with a dynamic argument whose
-            // type is allowed to be dynamic but whose usage in later recursion could require additional
-            // capabilities.
-            self.get_current_application_instance_mut()
-                .unresolved_callee_exprs
-                .push(callee_expr_id);
-            return ComputeKind::Dynamic {
-                runtime_features: RuntimeFeatureFlags::empty(),
-                value_kind: ValueKind::Constant,
-            };
-        }
-
         // We try to resolve the callee and determine the compute kind of the call depending on the callee kind.
         let Some(global_callee) = self.package_store.get_global(callee.item) else {
             // If the callee is not found, that is an indication that it is an item that was removed during
@@ -741,12 +767,63 @@ impl<'a> Analyzer<'a> {
             return ComputeKind::Static;
         };
         match global_callee {
-            Global::Callable(callable_decl) => self.analyze_expr_call_with_spec_callee(
-                &callee,
-                callable_decl,
-                args_expr_id,
-                fixed_args,
-            ),
+            Global::Callable(callable_decl) => {
+                if self.callee_in_active_contexts(&callee) {
+                    // This is a recursive call, which we allow with some deferred capabilities checks at runtime.
+                    // We treat the call as if it were an unresolved callee, like above, such that partial evaluation will perform
+                    // extra validation on the capabilities at runtime. By adding the call expression to the list of unresolved callees,
+                    // we ensure that the call is additionally validated at runtime regardless of any runtime flags.
+                    // This runtime check covers the corner case where a recursive call is made with a dynamic argument whose
+                    // type is allowed to be dynamic but whose usage in later recursion could require unanalyzed capabilities.
+                    self.get_current_application_instance_mut()
+                        .unresolved_callee_exprs
+                        .push(callee_expr_id);
+
+                    let callee_input_pattern_id =
+                        StorePatId::from((callee.item.package, callable_decl.input));
+                    let input_ty = &self.package_store.get_pat(callee_input_pattern_id).ty;
+
+                    if (args_expr_compute_kind.is_variable_value_kind()
+                        || callable_decl.kind != CallableKind::Function)
+                        && self
+                            .target_capabilities
+                            .contains(TargetCapabilityFlags::CallSupport)
+                        && is_supported_variable_type(
+                            &callable_decl.output,
+                            self.target_capabilities,
+                        )
+                        && (matches!(input_ty, Ty::Tuple(inner) if inner.iter().all(|ty| is_supported_variable_type(ty, self.target_capabilities)))
+                            || is_supported_variable_type(input_ty, self.target_capabilities))
+                    {
+                        // When the target has call support and the output type is one we support variables for,
+                        // conservatively assume that output is dynamic and may require runtime features.
+                        let dynamic_value_kind =
+                            ValueKind::new_variable_from_type(&callable_decl.output);
+                        let dynamic_runtime_features =
+                            derive_runtime_features_for_value_kind_associated_to_type(
+                                dynamic_value_kind,
+                                &callable_decl.output,
+                            );
+
+                        return ComputeKind::Dynamic {
+                            runtime_features: dynamic_runtime_features,
+                            value_kind: dynamic_value_kind,
+                        };
+                    }
+
+                    return ComputeKind::Dynamic {
+                        runtime_features: RuntimeFeatureFlags::empty(),
+                        value_kind: ValueKind::Constant,
+                    };
+                }
+
+                self.analyze_expr_call_with_spec_callee(
+                    &callee,
+                    callable_decl,
+                    args_expr_id,
+                    fixed_args,
+                )
+            }
             Global::Udt => self.analyze_expr_call_with_udt_callee(args_expr_id),
         }
     }
@@ -781,6 +858,20 @@ impl<'a> Analyzer<'a> {
         // additional runtime feature if the message expression is dynamic.
         let mut compute_kind = ComputeKind::Static;
         compute_kind.aggregate_runtime_features(msg_expr_compute_kind, ValueKind::Constant);
+
+        if !self
+            .get_current_application_instance()
+            .active_dynamic_scopes
+            .is_empty()
+        {
+            compute_kind.aggregate_runtime_features(
+                ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicFail,
+                    value_kind: ValueKind::Constant,
+                },
+                ValueKind::Constant,
+            );
+        }
 
         compute_kind
     }
@@ -1226,12 +1317,7 @@ impl<'a> Analyzer<'a> {
         index_expr_id: ExprId,
         replacement_value_expr_id: ExprId,
     ) -> ComputeKind {
-        // Visit the array, index and replacement value expressions to determine their compute kind.
-        self.visit_expr(array_expr_id);
-        let array_expr_compute_kind = self
-            .last_analyzed_compute_kind
-            .take()
-            .expect("last analyzed compute kind should be set after visiting an expression");
+        // Match execution order: index, replacement, then container.
         self.visit_expr(index_expr_id);
         let index_expr_compute_kind = self
             .last_analyzed_compute_kind
@@ -1239,6 +1325,11 @@ impl<'a> Analyzer<'a> {
             .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(replacement_value_expr_id);
         let replacement_value_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
+        self.visit_expr(array_expr_id);
+        let array_expr_compute_kind = self
             .last_analyzed_compute_kind
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
@@ -1312,19 +1403,11 @@ impl<'a> Analyzer<'a> {
                 .take()
                 .expect("last analyzed compute kind should be set after visiting an expression");
 
-            let package_id = self.get_current_package_id();
-            let package = self.package_store.get(package_id);
-
-            // We analyze both the condition expression and the block N times, where N is the analysis stabilization limit.
-            // The reason why we need a stabilization limit is because there can be up-to N levels of indirection for the
-            // condition due to variable assignments.
-            // The number of statements with assignments in the condition expression and the loop block is a good proxy for
-            // the worst case scenario regarding the propagation of properties throughout variables. Because of this, we use
-            // it as the stabilization limit.
-            let stabilization_limit = AssignmentStmtCounter::new(package).count_in_block(block_id)
-                + AssignmentStmtCounter::new(package).count_in_expr(condition_expr_id);
+            // Iterate to a fixed point: assignments join compute kinds, so loop-carried locals
+            // only gain runtime features or become variable. This finite lattice guarantees
+            // convergence, unlike an assignment count, which can truncate tuple-shift chains.
             let mut block_compute_kind = None;
-            for _ in 0..=stabilization_limit {
+            loop {
                 let application_instance = self.get_current_application_instance();
                 let previous_locals_map = application_instance.locals_map.clone();
                 let previous_condition_compute_kind = condition_expr_compute_kind;
@@ -2208,13 +2291,12 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ExprKind::ArrayRepeat(value_expr_id, size_expr_id) => {
                 self.analyze_expr_array_repeat(*value_expr_id, *size_expr_id)
             }
-            ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, assignee_expr_id, value_expr_id) => {
-                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, true)
-            }
             ExprKind::Assign(assignee_expr_id, value_expr_id)
-            | ExprKind::AssignField(assignee_expr_id, _, value_expr_id)
-            | ExprKind::AssignOp(_, assignee_expr_id, value_expr_id) => {
-                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, false)
+            | ExprKind::AssignField(assignee_expr_id, _, value_expr_id) => {
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, None)
+            }
+            ExprKind::AssignOp(op, assignee_expr_id, value_expr_id) => {
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, Some(*op))
             }
             ExprKind::AssignIndex(array_expr_id, index_expr_id, replacement_value_expr_id) => self
                 .analyze_expr_assign_index(
@@ -2658,9 +2740,13 @@ fn derive_intrinsic_function_application_generator_set(
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
             _ => ParamApplication::Element(ElementParamApplication {
-                constant: ComputeKind::Dynamic {
-                    runtime_features: RuntimeFeatureFlags::empty(),
-                    value_kind: ValueKind::Constant,
+                constant: if is_any_result(&param.ty) {
+                    param_compute_kind
+                } else {
+                    ComputeKind::Dynamic {
+                        runtime_features: RuntimeFeatureFlags::empty(),
+                        value_kind: ValueKind::Constant,
+                    }
                 },
                 variable: param_compute_kind,
             }),
@@ -3093,6 +3179,12 @@ fn is_any_array(t: &Ty) -> bool {
         Ty::Tuple(ts) => ts.iter().any(is_any_array),
         _ => false,
     }
+}
+
+fn is_supported_variable_type(t: &Ty, target_capabilities: TargetCapabilityFlags) -> bool {
+    let runtime_features =
+        derive_runtime_features_for_value_kind_associated_to_type(ValueKind::Variable, t);
+    get_missing_runtime_features(runtime_features, target_capabilities).is_empty()
 }
 
 struct ClearComputeKinds<'a, 'b> {

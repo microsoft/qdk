@@ -210,15 +210,31 @@ fn add_alloca_load_to_block(
                 continue;
             }
 
+            // A previously inserted load instruction may already exist for this variable, so we check the map to avoid conflicts
+            // or duplicate loads into the same variable.
+            Instruction::Load(_, to_var) => {
+                let has_loaded_before = var_map.remove(&to_var.variable_id).is_some();
+                if has_loaded_before {
+                    // If the variable has been loaded before, we need a new id here for subsequent loads to avoid conflicts.
+                    let new_var = Variable {
+                        variable_id: *next_var_id,
+                        ty: to_var.ty,
+                    };
+                    *next_var_id = next_var_id.successor();
+                    var_map.insert(to_var.variable_id, Operand::Variable(new_var));
+                    *to_var = new_var;
+                } else {
+                    // The variable has not been loaded into before, so map it to itself as a way to track that it has been loaded.
+                    var_map.insert(to_var.variable_id, Operand::Variable(*to_var));
+                }
+            }
+
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
 
             Instruction::Alloca(..) => {
                 panic!("alloca not expected in alloca insertion")
-            }
-            Instruction::Load(..) => {
-                panic!("load not expected in alloca insertion")
             }
         }
         block.0.push(instr);

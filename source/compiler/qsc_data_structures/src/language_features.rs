@@ -10,6 +10,7 @@ pub struct LanguageFeatures(u8);
 bitflags! {
     impl LanguageFeatures: u8 {
         const V2PreviewSyntax = 0b1;
+        const IgnoreStackLimit = 0b10;
     }
 }
 
@@ -33,6 +34,7 @@ where
         iter.into_iter().fold(LanguageFeatures::empty(), |acc, x| {
             acc | match x.as_ref() {
                 "v2-preview-syntax" => LanguageFeatures::V2PreviewSyntax,
+                "ignore-stack-limit" => LanguageFeatures::IgnoreStackLimit,
                 _ => LanguageFeatures::empty(),
             }
         })
@@ -44,6 +46,9 @@ impl From<LanguageFeatures> for Vec<String> {
         let mut result = Vec::new();
         if features.contains(LanguageFeatures::V2PreviewSyntax) {
             result.push("v2-preview-syntax".to_string());
+        }
+        if features.contains(LanguageFeatures::IgnoreStackLimit) {
+            result.push("ignore-stack-limit".to_string());
         }
         result
     }

@@ -15,7 +15,7 @@ from typing import Literal, cast
 
 import numpy as np
 from qodec import Layer
-from deq.circuit import model as circuit  # pyright: ignore[reportMissingImports]
+import deqagram as circuit  # pyright: ignore[reportMissingImports]
 from deq.circuit.parser import parse  # pyright: ignore[reportMissingImports]
 from deq.proto import (  # pyright: ignore[reportMissingImports]
     coordinator_pb2 as coordinator,

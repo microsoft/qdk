@@ -15,7 +15,11 @@ use crate::{
 };
 use num_bigint::BigInt;
 use qsc_fir::fir::PackageStoreLookup;
-use rand::{RngExt, rngs::StdRng};
+use rand::{
+    RngExt,
+    distr::{Bernoulli, Distribution, Uniform},
+    rngs::StdRng,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::convert::TryFrom;
 
@@ -164,12 +168,17 @@ pub(crate) fn call<B: Backend>(
             if lo > hi {
                 Err(Error::EmptyRange(arg_span))
             } else {
-                Ok(Value::Double(rng.random_range(lo..=hi)))
+                let distribution = Uniform::new_inclusive(lo, hi).map_err(|error| {
+                    Error::IntrinsicFail(name.into(), error.to_string(), arg_span)
+                })?;
+                Ok(Value::Double(distribution.sample(rng)))
             }
         }
         "DrawRandomBool" => {
             let p = arg.unwrap_double();
-            Ok(Value::Bool(rng.random_bool(p)))
+            let distribution = Bernoulli::new(p)
+                .map_err(|error| Error::IntrinsicFail(name.into(), error.to_string(), arg_span))?;
+            Ok(Value::Bool(distribution.sample(rng)))
         }
         #[allow(clippy::cast_possible_truncation)]
         "Truncate" => Ok(Value::Int(arg.unwrap_double() as i64)),

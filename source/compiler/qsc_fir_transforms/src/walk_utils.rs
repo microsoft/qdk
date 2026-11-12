@@ -62,6 +62,52 @@
 //!   that is not a `Field::Path` keeps the record value materialized and is
 //!   classified as a whole-value use.
 
+/// Returns every arena expression once, with structural children before parents.
+/// Includes expressions in nested blocks without following callable references.
+/// Arena IDs are not a dependency order after cloning or operand replacement.
+pub(crate) fn expressions_in_postorder(package: &Package) -> Vec<ExprId> {
+    expressions_in_postorder_from_roots(package, package.exprs.iter().map(|(id, _)| id))
+}
+
+/// Returns the roots and their structural descendants once, children first.
+/// Traverses nested blocks but not callable references or unrelated arena nodes.
+/// Root order and arena IDs need not be a dependency order.
+pub(crate) fn expressions_in_postorder_from_roots(
+    package: &Package,
+    roots: impl IntoIterator<Item = ExprId>,
+) -> Vec<ExprId> {
+    let mut pending: Vec<_> = roots.into_iter().map(|id| (id, false)).collect();
+    pending.reverse();
+    let mut seen = FxHashSet::default();
+    let mut ordered = Vec::new();
+    while let Some((id, children_visited)) = pending.pop() {
+        if children_visited {
+            ordered.push(id);
+            continue;
+        }
+        if !seen.insert(id) {
+            continue;
+        }
+        pending.push((id, true));
+        let mut children = Vec::new();
+        for_each_direct_child(&package.get_expr(id).kind, |child| match child {
+            DirectChild::Expr(child) => children.push(child),
+            DirectChild::Block(block) => {
+                for &statement in &package.get_block(block).stmts {
+                    match package.get_stmt(statement).kind {
+                        StmtKind::Expr(child)
+                        | StmtKind::Semi(child)
+                        | StmtKind::Local(_, _, child) => children.push(child),
+                        StmtKind::Item(_) => {}
+                    }
+                }
+            }
+        });
+        pending.extend(children.into_iter().rev().map(|id| (id, false)));
+    }
+    ordered
+}
+
 #[cfg(test)]
 mod tests;
 

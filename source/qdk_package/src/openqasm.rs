@@ -47,7 +47,8 @@ use syntax::build_program;
 
 use crate::{
     interop::{
-        circuit_qasm_program, compile_qasm_program_to_qir, compile_qasm_to_qsharp,
+        circuit_qasm_program, compile_qasm_program_to_qir,
+        compile_qasm_program_to_qir_with_diagnostics, compile_qasm_to_qsharp,
         resource_estimate_qasm_program, run_qasm_program,
     },
     interpreter::QasmError,
@@ -393,6 +394,10 @@ pub(crate) fn register_openqasm_types(py: Python<'_>, m: &Bound<'_, PyModule>) -
     m.add_function(wrap_pyfunction!(run_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        compile_qasm_program_to_qir_with_diagnostics,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
     Ok(())
 }

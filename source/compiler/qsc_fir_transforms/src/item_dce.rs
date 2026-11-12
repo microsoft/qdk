@@ -74,7 +74,7 @@ pub fn eliminate_dead_items(
 }
 
 /// Eliminates entry-unreachable items from every **foreign** (non-entry)
-/// package reached by the entry closure.
+/// package, including packages outside the entry closure.
 ///
 /// Whole-closure structural passes transform only the entry-reachable callables
 /// inside each foreign package, leaving each package internally inconsistent:
@@ -102,20 +102,20 @@ pub fn eliminate_unreachable_foreign_items(
     reachable: &FxHashSet<StoreItemId>,
     pinned_items: &[StoreItemId],
 ) -> usize {
-    let foreign_packages: Vec<PackageId> =
-        crate::reachability::collect_reachable_package_closure(entry_package_id, reachable)
-            .into_iter()
-            .filter(|package_id| *package_id != entry_package_id)
-            .collect();
+    let foreign_packages: Vec<PackageId> = store
+        .iter()
+        .map(|(id, _)| id)
+        .filter(|id| *id != entry_package_id)
+        .collect();
 
     let mut removed = 0;
     for foreign_id in foreign_packages {
-        removed += eliminate_foreign_items_in_package(
-            foreign_id,
-            store.get_mut(foreign_id),
-            reachable,
-            pinned_items,
-        );
+        // A library's independent entry is not an entry point of this closed
+        // compilation. Keeping it would also retain stale top-level nodes.
+        let package = store.get_mut(foreign_id);
+        package.entry = None;
+        package.entry_exec_graph = Default::default();
+        removed += eliminate_foreign_items_in_package(foreign_id, package, reachable, pinned_items);
     }
     removed
 }

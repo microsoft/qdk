@@ -92,7 +92,7 @@ def test_decoder_requires_a_qodec():
         run_qir("", decoder=prepare_decoder)
 
 
-@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
+@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime", "deqagram"])
 @pytest.mark.parametrize("custom_factory", [False, True])
 def test_deq_missing_dependency_has_install_instructions(
     monkeypatch, missing_dependency, custom_factory
@@ -111,7 +111,7 @@ def test_deq_missing_dependency_has_install_instructions(
     def unused_factory(seed):
         pytest.fail("The runtime factory must not run while preparing a layer")
 
-    with pytest.raises(ImportError, match="pip install deq deq-runtime"):
+    with pytest.raises(ImportError, match="pip install deq deqagram deq-runtime"):
         prepare_deq_decoder(
             cast("Layer", object()),
             runtime_factory=unused_factory if custom_factory else None,
@@ -990,7 +990,7 @@ def test_qodec_gpu_selection_is_explicitly_unsupported():
         run_qir("", qodec=codec, type="gpu")
 
 
-def test_physical_execution_does_not_import_ec_dependencies():
+def test_physical_execution_does_not_import_ec_dependencies(tmp_path):
     import subprocess
     from textwrap import dedent
 
@@ -1007,13 +1007,17 @@ def test_physical_execution_does_not_import_ec_dependencies():
         assert "qdk.simulation._qodec" not in sys.modules
     ''')
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, timeout=30
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
-def test_deq_dependency_is_only_required_when_selected(missing_dependency):
+@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime", "deqagram"])
+def test_deq_dependency_is_only_required_when_selected(missing_dependency, tmp_path):
     import subprocess
     from textwrap import dedent
 
@@ -1037,7 +1041,7 @@ def test_deq_dependency_is_only_required_when_selected(missing_dependency):
         try:
             run_qir(qir, qodec=codec, decoder=prepare_deq_decoder)
         except ImportError as error:
-            assert 'pip install deq deq-runtime' in str(error), str(error)
+            assert 'pip install deq deqagram deq-runtime' in str(error), str(error)
         else:
             raise AssertionError("Missing deq dependency was not reported")
     ''')
@@ -1049,6 +1053,7 @@ def test_deq_dependency_is_only_required_when_selected(missing_dependency):
             missing_dependency,
             str(FIXTURES / "repetition3.qodec.yaml"),
         ],
+        cwd=tmp_path,
         capture_output=True,
         text=True,
         timeout=30,

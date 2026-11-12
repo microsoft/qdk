@@ -4,6 +4,48 @@
 use super::*;
 
 #[test]
+fn skipped_short_circuit_return_keeps_only_the_fallthrough_release() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Main() : Bool {
+                use q = Qubit();
+                let r = MResetZ(q) == One;
+                mutable value = true;
+                set value or= { fail "skipped"; r and (return true) };
+                value
+            }
+        }
+    "#};
+    let result = compile_no_hoist_return_unified(source);
+    let package = result.store.get(result.pkg_id);
+    let body = find_body_block_id(package, "Main");
+    let releases = collect_release_callables(&result.store);
+    let mut count = 0;
+    crate::walk_utils::for_each_expr_in_block(package, body, &mut |_, expr| {
+        count +=
+            usize::from(release_store_id(package, expr).is_some_and(|id| releases.contains(&id)));
+    });
+    assert_eq!(count, 1, "{}", result.before_after());
+    check_no_hoist_semantic_equivalence(source);
+}
+
+#[test]
+fn nested_assignment_invalidates_a_short_circuit_guard_fact() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Main() : Result {
+                use q = Qubit();
+                mutable skip = true;
+                if true { set skip = false; }
+                set skip or= { X(q); return MResetZ(q) };
+                fail "the return must run"
+            }
+        }
+    "#};
+    check_no_hoist_semantic_equivalence(source);
+}
+
+#[test]
 fn no_release_hoist_path_local_release_all_branches_return_keeps_branch_releases() {
     let source = indoc! {r#"
         namespace Test {
@@ -389,4 +431,46 @@ fn qubit_arrays_should_be_able_to_be_threaded_through_early_return() {
             Main()
         "#]],
     );
+}
+
+#[test]
+fn early_return_preserves_operand_and_scope_cleanup_order() {
+    let result = compile_no_hoist_return_unified(indoc! {r#"
+        namespace Test {
+            operation Before(q : Qubit) : Unit { body intrinsic; }
+            operation Operand(q : Qubit) : Unit { body intrinsic; }
+            operation After(q : Qubit) : Unit { body intrinsic; }
+            operation Value(q : Qubit) : Bool { Operand(q); false }
+            @EntryPoint() operation Main() : Bool {
+                use outer = Qubit();
+                for _ in [0] {
+                    use qs = Qubit[2];
+                    {
+                        use inner = Qubit();
+                        Before(outer);
+                        Before(qs[0]);
+                        return Value(inner);
+                    }
+                    After(outer);
+                }
+                false
+            }
+        }
+    "#});
+    let mut suffix = result.after.as_str();
+    for effect in [
+        "Value(inner)",
+        "__quantum__rt__qubit_release(inner);",
+        "ReleaseQubitArray(qs);",
+        "__quantum__rt__qubit_release(outer);",
+        "__has_returned = true;",
+    ] {
+        let (_, rest) = suffix
+            .split_once(effect)
+            .unwrap_or_else(|| panic!("missing ordered effect {effect}\n{}", result.after));
+        suffix = rest;
+    }
+    assert!(!suffix.contains("__quantum__rt__qubit_release(inner);"));
+    assert!(!suffix.contains("ReleaseQubitArray(qs);"));
+    assert!(!result.after.contains("After(outer)"), "{}", result.after);
 }

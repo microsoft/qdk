@@ -29,6 +29,109 @@ fn observable_evaluation_records_messages_in_order() {
     assert_eq!(result, Ok(qsc_eval::val::Value::Int(42)));
     assert!(trace.is_empty());
     assert_eq!(output, b"first\nsecond\n");
+    check_semantic_equivalence_with_expected_output(
+        source,
+        qsc_eval::val::Value::Int(42),
+        "first\nsecond\n",
+    );
+    assert_panics_with("unexpected original output", || {
+        check_semantic_equivalence_with_expected_output(
+            source,
+            qsc_eval::val::Value::Int(42),
+            "second\nfirst\n",
+        );
+    });
+}
+
+#[test]
+fn observable_equivalence_accepts_matching_local_and_library_executions() {
+    let library = r#"
+        namespace TestLib {
+            operation Observe() : Int {
+                Message("first");
+                use q = Qubit();
+                X(q);
+                X(q);
+                Message("second");
+                42
+            }
+            export Observe;
+        }
+    "#;
+    let entry = "namespace Test { @EntryPoint() operation Main() : Int { TestLib.Observe() } }";
+    check_semantic_equivalence(&format!("{library}\n{entry}"));
+    check_semantic_equivalence_with_library(library, entry);
+}
+
+#[test]
+fn observable_equivalence_rejects_changed_trace_with_equal_returns() {
+    let source = "@EntryPoint() operation Main() : Int { use q = Qubit(); X(q); X(q); 42 }";
+    check_semantic_equivalence(source);
+    let (store, package) = compile_to_fir(source);
+    let expected = eval_fir_entry_with_observables(&store, package);
+    let mut actual = expected.clone();
+    assert!(
+        !actual.1.is_empty(),
+        "negative control needs a quantum trace"
+    );
+    actual.1.pop();
+    assert_panics_with("effect-trace equivalence violated", || {
+        assert_observable_equivalence(expected, actual);
+    });
+}
+
+#[test]
+fn observable_equivalence_rejects_changed_output_with_equal_returns() {
+    let library = r#"
+        namespace TestLib {
+            function Observe() : Int { Message("first"); Message("second"); 42 }
+            export Observe;
+        }
+    "#;
+    let entry = "namespace Test { @EntryPoint() operation Main() : Int { TestLib.Observe() } }";
+    check_semantic_equivalence_with_library(library, entry);
+    let (store, package) = compile_to_fir_with_library(library, entry);
+    let expected = eval_fir_entry_with_observables(&store, package);
+    assert_eq!(expected.2, b"first\nsecond\n");
+    let mut actual = expected.clone();
+    actual.2 = b"second\nfirst\n".to_vec();
+    assert_panics_with("output equivalence violated", || {
+        assert_observable_equivalence(expected, actual);
+    });
+}
+
+#[test]
+fn observable_equivalence_rejects_changed_prefix_with_equal_failures() {
+    let library = r#"
+        namespace TestLib {
+            operation Observe() : Int {
+                Message("before failure");
+                use q = Qubit();
+                X(q);
+                X(q);
+                fail "same failure";
+            }
+            export Observe;
+        }
+    "#;
+    let entry = "namespace Test { @EntryPoint() operation Main() : Int { TestLib.Observe() } }";
+    check_semantic_equivalence(&format!("{library}\n{entry}"));
+    check_semantic_equivalence_with_library(library, entry);
+    let (store, package) = compile_to_fir_with_library(library, entry);
+    let expected = eval_fir_entry_with_observables(&store, package);
+    assert!(expected.0.is_err());
+    assert!(!expected.1.is_empty());
+    assert_eq!(expected.2, b"before failure\n");
+    let mut changed_trace = expected.clone();
+    changed_trace.1.clear();
+    assert_panics_with("effect-trace equivalence violated", || {
+        assert_observable_equivalence(expected.clone(), changed_trace);
+    });
+    let mut changed_output = expected.clone();
+    changed_output.2.clear();
+    assert_panics_with("output equivalence violated", || {
+        assert_observable_equivalence(expected, changed_output);
+    });
 }
 
 fn panic_message(panic: Box<dyn Any + Send>) -> String {

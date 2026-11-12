@@ -1019,7 +1019,9 @@ impl Backend for SparseSim {
 
     fn qubit_allocate(&mut self) -> Result<usize, String> {
         // Fresh qubit start in ground state even with noise.
-        Ok(self.sim.allocate())
+        let q = self.sim.allocate();
+        self.lost_qubits.set_bit(q as u64, false);
+        Ok(q)
     }
 
     fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
@@ -1144,11 +1146,10 @@ impl Backend for SparseSim {
                 if qubits.iter().all(|&q| !self.is_qubit_lost(q)) {
                     // Confirm the matrix is unitary by checking if multiplying it by its adjoint gives the identity matrix (up to numerical precision).
                     let adj = matrix.t().map(Complex::<f64>::conj);
-                    if (matrix.dot(&adj) - Array2::<Complex<f64>>::eye(1 << qubits.len()))
+                    let error = (matrix.dot(&adj) - Array2::<Complex<f64>>::eye(1 << qubits.len()))
                         .map(|x| x.norm())
-                        .sum()
-                        > 1e-9
-                    {
+                        .sum();
+                    if !error.is_finite() || error > 1e-9 {
                         return Some(Err("matrix is not unitary".to_string()));
                     }
 
@@ -1160,6 +1161,9 @@ impl Backend for SparseSim {
             "PostSelectZ" => {
                 let [result, qubit] = unwrap_tuple(arg);
                 let id = qubit.unwrap_qubit().deref().0;
+                if matches!(result, Value::Result(val::Result::Loss)) {
+                    return Some(Err("cannot post-select on a Loss result".to_string()));
+                }
                 let Value::Result(val::Result::Val(val)) = result else {
                     panic!("first argument to PostSelectZ should be a measurement result");
                 };
@@ -1448,6 +1452,9 @@ impl Backend for CliffordSim {
             "PostSelectZ" => {
                 let [result, qubit] = unwrap_tuple(arg);
                 let id = qubit.unwrap_qubit().deref().0;
+                if matches!(result, Value::Result(val::Result::Loss)) {
+                    return Some(Err("cannot post-select on a Loss result".to_string()));
+                }
                 let Value::Result(val::Result::Val(val)) = result else {
                     panic!("first argument to PostSelectZ should be a measurement result");
                 };

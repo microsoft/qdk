@@ -30,6 +30,7 @@ from typing import (
 )
 
 from . import telemetry_events, code
+from ._diagnostics import report_qir_warnings
 from ._native import (  # type: ignore
     Circuit,
     CircuitConfig,
@@ -161,6 +162,11 @@ class Context:
     operations and types defined in this context. This allows you to call Q# operations
     from Python.
 
+    Callable handles belong to their originating context. Arguments are checked
+    against instantiated Q# signatures before invocation; Python numeric coercions
+    do not change callable signatures. Concrete generic instances retain their
+    Q# type arguments, but Python arguments do not specialize generic declarations.
+
     Example:
 
     .. code-block:: python
@@ -208,6 +214,9 @@ class Context:
             the scoped qubit allocation block form (``use q = Qubit() { ... }``), requiring
             the statement form instead (``use q = Qubit();``). It also removes the requirement
             to use the ``set`` keyword for mutable variable assignments.
+
+            - ``"ignore-stack-limit"``: Ignores the compile-time stack limit when generating
+            circuits or compiling to QIR.
 
         :keyword qdk_config: configuration parameters that will be accessible in Q#
             code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of
@@ -648,6 +657,11 @@ class Context:
         Runs the given Q# expression for the given number of shots.
         Each shot uses an independent instance of the simulator.
 
+        Callable values must belong to this context. Concrete instances retain
+        their Q# type arguments; Python arguments do not specialize a generic
+        declaration. Entry callables cannot have applied functors, while callable
+        arguments may have them when their signatures are compatible.
+
         :param entry_expr: The entry expression. Alternatively, a callable can be provided,
             which must be a Q# callable.
         :param shots: The number of shots to run.
@@ -668,6 +682,8 @@ class Context:
         :rtype: List[Any]
         :raises QSharpError: If there is an error interpreting the input.
         :raises ValueError: If the number of shots is less than 1.
+        :raises TypeError: If a callable argument has an incompatible signature or
+            lacks required functors. Arguments are checked before Q# execution.
         """
         ipython_helper()
 
@@ -783,14 +799,37 @@ class Context:
 
         :return: The compiled program. Use ``str()`` to get the QIR string.
         :rtype: QirInputData
+        :raises TypeError: If a callable argument has an incompatible signature or
+            lacks required functors. Python numeric coercions do not apply to
+            callable signatures.
+        :raises QSharpError: If compilation fails, a target is unsupported, or a
+            callable belongs to a different context.
+
+        Callable values retain type arguments established by Q#. Python does not
+        infer type arguments for an unspecialized generic declaration.
+        A callable entry target must be a global callable with no applied functors.
+        Saved closures can be passed as arguments to a global wrapper instead.
+        Concrete types do not remove target-profile, capture, or codegen-limit
+        restrictions. Compilation does not specialize the live simulation context.
+
+        A proven Adaptive backend fallback preserves source selection and emits
+        Adaptive_RIF / QIR 1.0. It reports a ``UserWarning`` with code
+        ``Qdk.Qsc.Codegen.AdaptiveProfileFallback`` after successful generation.
+        Normal Python warning filters apply; promoting warnings to errors raises
+        ``UserWarning`` rather than returning the compiled program.
+        Warnings are attributed to the caller of this API, not an internal QDK
+        wrapper. The native diagnostic-returning API does not present them.
 
         Example:
 
         .. code-block:: python
-            s = qdk.Context()
-            program = s.compile("...")
-            with open('myfile.ll', 'w') as file:
-                file.write(str(program))
+
+            from qdk import Context, qsharp
+
+            ctx = Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+            ctx.eval("operation Answer() : Int { 42 }")
+            program = ctx.compile(ctx.code.Answer)
+            qir = str(program)
         """
         ipython_helper()
         start = monotonic()
@@ -801,15 +840,16 @@ class Context:
         ):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
-            ll_str = self._interpreter.qir(
+            generated = self._interpreter.qir_with_diagnostics(
                 callable=getattr(entry_expr, "__global_callable"), args=args
             )
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
             args = self._python_args_to_interpreter_args(args)
-            ll_str = self._interpreter.qir(callable=entry_expr, args=args)
+            generated = self._interpreter.qir_with_diagnostics(callable=entry_expr, args=args)
         else:
             assert isinstance(entry_expr, str)
-            ll_str = self._interpreter.qir(entry_expr=entry_expr)
+            generated = self._interpreter.qir_with_diagnostics(entry_expr=entry_expr)
+        ll_str = report_qir_warnings(generated)
         res = QirInputData("main", ll_str)
         durationMs = (monotonic() - start) * 1000
         telemetry_events.on_compile_end(durationMs, target_profile)
@@ -831,6 +871,12 @@ class Context:
         Synthesizes a circuit for a Q# program. Either an entry
         expression or an operation must be provided.
 
+        Callable values must belong to this context and have compatible
+        instantiated signatures. Static generation requires a global entry
+        callable without applied functors; saved closures may be its arguments.
+        Simulation and classical tracing also accept closure entry targets,
+        without applied functors.
+
         :param entry_expr: An entry expression. Alternatively, a callable can be
             provided, which must be a Q# callable.
         :type entry_expr: str or Callable
@@ -848,8 +894,8 @@ class Context:
             :attr:`~qdk.qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
             trace the circuit.
             :attr:`~qdk.qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
-            requires a non-``Unrestricted`` target profile. Defaults to ``None`` which
-            auto-selects the generation method.
+            supports ``Base``, ``Adaptive_RI``, and ``Adaptive_RIF`` target profiles.
+            Defaults to ``None``, which uses ``ClassicalEval``.
         :kwtype generation_method: :class:`~qdk.qsharp.CircuitGenerationMethod`
 
         :keyword max_operations: The maximum number of operations to include in the
@@ -875,6 +921,8 @@ class Context:
         :return: The synthesized circuit.
         :rtype: Circuit
         :raises QSharpError: If there is an error synthesizing the circuit.
+        :raises TypeError: If a callable argument has an incompatible signature or
+            lacks required functors.
         """
         ipython_helper()
         start = monotonic()
@@ -926,6 +974,8 @@ class Context:
 
         :return: Program resources in terms of logical gate counts.
         :rtype: LogicalCounts
+        :raises TypeError: If a callable argument has an incompatible signature or
+            lacks required functors.
         """
         ipython_helper()
 

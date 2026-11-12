@@ -7,30 +7,22 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_1 = alloca i64
-  %var_2 = alloca i64
-  %var_4 = alloca i64
-  %var_7 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   store i64 -2, ptr %var_1
   br label %block_1
 block_1:
-  %var_10 = load i64, ptr %var_1
-  store i64 %var_10, ptr %var_2
-  %var_12 = load i64, ptr %var_2
-  %var_3 = icmp sge i64 %var_12, -3
+  %var_2 = load i64, ptr %var_1
+  %var_3 = icmp sge i64 %var_2, -3
   br i1 %var_3, label %block_2, label %block_3
 block_2:
-  %var_13 = load i64, ptr %var_1
-  store i64 %var_13, ptr %var_4
-  %var_15 = load i64, ptr %var_4
-  %var_16_offset_chk = icmp slt i64 %var_15, 0
-  %var_16_offset = select i1 %var_16_offset_chk, i64 1, i64 0
-  %var_16 = getelementptr [3 x ptr], ptr @array0, i64 %var_16_offset, i64 %var_15
-  %var_5 = load ptr, ptr %var_16
+  %var_4 = load i64, ptr %var_1
+  %var_10_offset_chk = icmp slt i64 %var_4, 0
+  %var_10_offset = select i1 %var_10_offset_chk, i64 1, i64 0
+  %var_10 = getelementptr [3 x ptr], ptr @array0, i64 %var_10_offset, i64 %var_4
+  %var_5 = load ptr, ptr %var_10
   call void @X(ptr %var_5)
-  store i64 %var_13, ptr %var_7
-  %var_18 = load i64, ptr %var_7
-  %var_8 = add i64 %var_18, -1
+  %var_7 = load i64, ptr %var_1
+  %var_8 = add i64 %var_7, -1
   store i64 %var_8, ptr %var_1
   br label %block_1
 block_3:

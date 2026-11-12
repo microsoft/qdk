@@ -3,14 +3,17 @@
 
 #![allow(clippy::too_many_lines)]
 
+mod adaptive_fallback;
 mod adaptive_profile;
 mod adaptive_ri_profile;
 mod adaptive_rif_profile;
 mod base_profile;
+mod callable_evaluation;
+mod early_return_cleanup;
 
 use std::{io::Cursor, rc::Rc, sync::Arc};
 
-use expect_test::expect;
+use expect_test::{Expect, expect};
 use miette::Report;
 use qsc_data_structures::{
     functors::FunctorApp,
@@ -29,7 +32,8 @@ use qsc_passes::{PackageType, lower_hir_to_fir};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::codegen::qir::{
-    CallableArgsBackend, get_qir, get_qir_from_ast, get_rir, prepare_codegen_fir_from_callable_args,
+    CallableArgsBackend, QirGenerationResult, get_qir, get_qir_from_ast, get_rir,
+    prepare_codegen_fir_from_callable_args,
 };
 
 use super::qir::seed_entry_with_callables;
@@ -78,6 +82,13 @@ fn compile_source_to_qir_result(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> Result<String, Vec<crate::interpret::Error>> {
+    compile_source_to_qir_with_diagnostics(source, capabilities).map(|result| result.qir)
+}
+
+fn compile_source_to_qir_with_diagnostics(
+    source: &str,
+    capabilities: TargetCapabilityFlags,
+) -> Result<QirGenerationResult, Vec<crate::interpret::Error>> {
     let sources = source_map_from_source(source);
     let language_features = LanguageFeatures::default();
 
@@ -89,6 +100,2659 @@ fn compile_source_to_qir_result(
         store,
         &[(std_id, None)],
     )
+}
+
+fn qir_entry_body(qir: &str) -> &str {
+    qir.split_once("define i64 @ENTRYPOINT__main()")
+        .expect("entry point should exist")
+        .1
+        .split_once("{\n")
+        .expect("entry body should exist")
+        .1
+        .split_once("\n}")
+        .expect("entry body should terminate")
+        .0
+}
+
+/// Lower profiles inline preparation without changing SSA IDs. Check the gate
+/// and its position before removing it to share the unprepared snapshot.
+/// Full Adaptive emits a separate call and needs its own prepared-entry snapshot.
+fn assert_evaluation_order_qir(
+    qir: &str,
+    profile: Profile,
+    prepared: bool,
+    ssa: &Expect,
+    adaptive: &Expect,
+    prepared_adaptive: &Expect,
+) {
+    let mut entry = qir_entry_body(qir).to_string();
+    if prepared && profile != Profile::Adaptive {
+        let gate = "  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))\n";
+        assert_eq!(entry.matches(gate).count(), 1, "{profile:?}:\n{entry}");
+        assert!(
+            entry.contains(&format!("{gate}  call void @__quantum__qis__mresetz__body")),
+            "preparation must immediately precede measurement, {profile:?}:\n{entry}"
+        );
+        entry = entry.replacen(gate, "", 1);
+    }
+    let snapshot = if profile == Profile::Adaptive {
+        if prepared {
+            prepared_adaptive
+        } else {
+            adaptive
+        }
+    } else {
+        ssa
+    };
+    snapshot.assert_eq(&entry);
+}
+
+#[test]
+fn callable_assignment_expression_cleanup_generates_expected_qir_on_every_profile() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        operation Main() : Result {
+            mutable f = A;
+            let ignored = (set f = B);
+            use q = Qubit();
+            if f(10) == 12 { X(q); }
+            MResetZ(q)
+        }
+    "#;
+    let expected = r#"
+        operation Main() : Result {
+            use q = Qubit();
+            X(q);
+            MResetZ(q)
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        assert_eq!(
+            compile_source_to_qir(source, profile.into()),
+            compile_source_to_qir(expected, profile.into()),
+            "{profile:?}: removing the assignment must preserve the selected callable",
+        );
+    }
+}
+
+#[test]
+fn evaluation_order_logical_and_rhs_assignment_remains_conditional() {
+    check_conditional_rhs_assignment(
+        "let _ = (MResetZ(q) == One) and { set v = 0; false };",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_8 = phi i64 [4, %block_0], [0, %block_1]
+              %var_6 = icmp eq i64 %var_8, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 4, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 0, ptr %var_0
+              br label %block_2
+            block_2:
+              %var_5 = load i64, ptr %var_0
+              %var_6 = icmp eq i64 %var_5, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_1 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              store i64 4, ptr %var_1
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              br i1 %var_2, label %block_1, label %block_2
+            block_1:
+              store i64 0, ptr %var_1
+              br label %block_2
+            block_2:
+              %var_6 = load i64, ptr %var_1
+              %var_7 = icmp eq i64 %var_6, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
+    check_conditional_rhs_assignment(
+        "let _ = (MResetZ(q) == Zero) or { set v = 0; true };",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_2, label %block_1
+            block_1:
+              br label %block_2
+            block_2:
+              %var_8 = phi i64 [4, %block_0], [0, %block_1]
+              %var_6 = icmp eq i64 %var_8, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i64
+              %var_5 = alloca i64
+              %var_7 = alloca i1
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 4, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_2, label %block_1
+            block_1:
+              store i64 0, ptr %var_0
+              br label %block_2
+            block_2:
+              %var_10 = load i64, ptr %var_0
+              store i64 %var_10, ptr %var_5
+              %var_12 = load i64, ptr %var_5
+              %var_6 = icmp eq i64 %var_12, 4
+              store i1 %var_6, ptr %var_7
+              %var_14 = load i1, ptr %var_7
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_14, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_1 = alloca i64
+              %var_6 = alloca i64
+              %var_8 = alloca i1
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              store i64 4, ptr %var_1
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_3 = icmp eq i1 %var_2, false
+              br i1 %var_3, label %block_2, label %block_1
+            block_1:
+              store i64 0, ptr %var_1
+              br label %block_2
+            block_2:
+              %var_11 = load i64, ptr %var_1
+              store i64 %var_11, ptr %var_6
+              %var_13 = load i64, ptr %var_6
+              %var_7 = icmp eq i64 %var_13, 4
+              store i1 %var_7, ptr %var_8
+              %var_15 = load i1, ptr %var_8
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_15, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_compound_and_rhs_assignment_remains_conditional() {
+    check_conditional_rhs_assignment(
+        "mutable b = MResetZ(q) == One; set b and= { set v = 0; false };",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_9 = phi i64 [4, %block_0], [0, %block_1]
+              %var_7 = icmp eq i64 %var_9, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 4, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 0, ptr %var_0
+              br label %block_2
+            block_2:
+              %var_6 = load i64, ptr %var_0
+              %var_7 = icmp eq i64 %var_6, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_1 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              store i64 4, ptr %var_1
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              br i1 %var_2, label %block_1, label %block_2
+            block_1:
+              store i64 0, ptr %var_1
+              br label %block_2
+            block_2:
+              %var_7 = load i64, ptr %var_1
+              %var_8 = icmp eq i64 %var_7, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_8, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
+    check_conditional_rhs_assignment(
+        "mutable b = MResetZ(q) == Zero; set b or= { set v = 0; true };",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_2, label %block_1
+            block_1:
+              br label %block_2
+            block_2:
+              %var_9 = phi i64 [4, %block_0], [0, %block_1]
+              %var_7 = icmp eq i64 %var_9, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i64
+              %var_6 = alloca i64
+              %var_8 = alloca i1
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 4, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_2, label %block_1
+            block_1:
+              store i64 0, ptr %var_0
+              br label %block_2
+            block_2:
+              %var_11 = load i64, ptr %var_0
+              store i64 %var_11, ptr %var_6
+              %var_13 = load i64, ptr %var_6
+              %var_7 = icmp eq i64 %var_13, 4
+              store i1 %var_7, ptr %var_8
+              %var_15 = load i1, ptr %var_8
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_15, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_1 = alloca i64
+              %var_7 = alloca i64
+              %var_9 = alloca i1
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              store i64 4, ptr %var_1
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_3 = icmp eq i1 %var_2, false
+              br i1 %var_3, label %block_2, label %block_1
+            block_1:
+              store i64 0, ptr %var_1
+              br label %block_2
+            block_2:
+              %var_12 = load i64, ptr %var_1
+              store i64 %var_12, ptr %var_7
+              %var_14 = load i64, ptr %var_7
+              %var_8 = icmp eq i64 %var_14, 4
+              store i1 %var_8, ptr %var_9
+              %var_16 = load i1, ptr %var_9
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_16, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+fn check_conditional_rhs_assignment(
+    statement: &str,
+    ssa: &Expect,
+    adaptive: &Expect,
+    prepared_adaptive: &Expect,
+) {
+    for prepare in ["", "X(q);"] {
+        let source = format!(
+            "operation Main() : Bool {{
+                use q = Qubit();
+                {prepare}
+                mutable v = 4;
+                {statement}
+                v == 4
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Bool(prepare.is_empty())
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert_evaluation_order_qir(
+                &qir,
+                profile,
+                !prepare.is_empty(),
+                ssa,
+                adaptive,
+                prepared_adaptive,
+            );
+        }
+    }
+}
+
+#[test]
+fn evaluation_order_static_short_circuit_and_eager_equality_are_preserved() {
+    for (statement, expected) in [
+        ("let _ = false and { set v = 0; true };", 4),
+        ("let _ = true or { set v = 0; false };", 4),
+        ("let _ = true and { set v = 0; true };", 0),
+        ("let _ = false or { set v = 0; false };", 0),
+        ("let _ = (MResetZ(q) == One) == { set v = 0; false };", 0),
+        ("let _ = (MResetZ(q) == One) != { set v = 0; false };", 0),
+    ] {
+        let source = format!(
+            "operation Main() : Int {{
+                use q = Qubit();
+                mutable v = 4;
+                {statement}
+                v
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Int(expected)
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{profile:?}, {statement}: {qir}"
+            );
+        }
+    }
+}
+
+fn check_unit_comparison_qir(
+    logical: &str,
+    comparison: &str,
+    comparison_result: bool,
+    expected: [(bool, i64); 2],
+) {
+    let comparison_expression =
+        format!("((set trace = 10 * trace + 1) {comparison} (set trace = 10 * trace + 2))");
+    let reference_expression = format!(
+        "{{ set trace = 10 * trace + 1; set trace = 10 * trace + 2; {comparison_result} }}"
+    );
+    for (prepare, (expected_comparison, expected_trace)) in ["", "X(q);"].into_iter().zip(expected)
+    {
+        let source = |expression: &str| {
+            format!(
+                "operation Main() : (Bool, Int) {{
+                    use q = Qubit();
+                    {prepare}
+                    mutable trace = 0;
+                    let condition = MResetZ(q) == One;
+                    let comparison = condition {logical} {expression};
+                    (comparison, trace)
+                }}"
+            )
+        };
+        let actual_source = source(&comparison_expression);
+        let reference_source = source(&reference_expression);
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &actual_source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Tuple(
+                vec![Value::Bool(expected_comparison), Value::Int(expected_trace)].into(),
+                None,
+            ),
+            "{logical}, {comparison}, prepare={prepare:?}: source result"
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            assert_eq!(
+                compile_source_to_qir(&actual_source, profile.into()),
+                compile_source_to_qir(&reference_source, profile.into()),
+                "{profile:?}, {logical}, {comparison}, prepare={prepare:?}: operand effects must remain ordered and conditional"
+            );
+        }
+    }
+}
+
+#[test]
+fn unit_equality_in_and_preserves_conditional_operand_effects() {
+    check_unit_comparison_qir("and", "==", true, [(false, 0), (true, 12)]);
+}
+
+#[test]
+fn unit_inequality_in_and_preserves_conditional_operand_effects() {
+    check_unit_comparison_qir("and", "!=", false, [(false, 0), (false, 12)]);
+}
+
+#[test]
+fn unit_equality_in_or_preserves_conditional_operand_effects() {
+    check_unit_comparison_qir("or", "==", true, [(true, 12), (true, 0)]);
+}
+
+#[test]
+fn unit_inequality_in_or_preserves_conditional_operand_effects() {
+    check_unit_comparison_qir("or", "!=", false, [(false, 12), (true, 0)]);
+}
+
+#[test]
+fn unit_comparisons_preserve_quantum_effects_on_every_profile() {
+    for (comparison, expected_gate) in [("==", "X(q);"), ("!=", "")] {
+        let source = format!(
+            "operation Main() : Result {{
+                use q = Qubit();
+                if X(q) {comparison} Reset(q) {{ X(q); }}
+                MResetZ(q)
+            }}"
+        );
+        let reference = format!(
+            "operation Main() : Result {{
+                use q = Qubit();
+                X(q);
+                Reset(q);
+                {expected_gate}
+                MResetZ(q)
+            }}"
+        );
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            assert_eq!(
+                compile_source_to_qir(&source, profile.into()),
+                compile_source_to_qir(&reference, profile.into()),
+                "{profile:?}, {comparison}: both Unit operands must execute before branching"
+            );
+        }
+    }
+}
+
+#[test]
+fn unwrapped_unit_comparisons_match_interpreter_and_qir() {
+    for effects in ["", "X(q); Reset(q);"] {
+        for (comparison, expected_result, expected_gate) in
+            [("==", true, "X(q);"), ("!=", false, "")]
+        {
+            let source = format!(
+                "newtype UnitBox = Unit;
+                 operation Main() : Result {{
+                     use q = Qubit();
+                     let wrapped = UnitBox();
+                     if ({{ {effects} wrapped! }}) {comparison} () {{ X(q); }}
+                     MResetZ(q)
+                 }}"
+            );
+            let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+            eval_fragments(&mut interpreter, &source);
+            assert_eq!(
+                eval_fragments(&mut interpreter, "Main()"),
+                Value::Result(qsc_eval::val::Result::Val(expected_result)),
+                "{comparison}, effects={effects:?}: compare the unwrapped payload"
+            );
+            let reference = format!(
+                "operation Main() : Result {{
+                    use q = Qubit();
+                    {effects}
+                    {expected_gate}
+                    MResetZ(q)
+                }}"
+            );
+            for profile in [
+                Profile::Base,
+                Profile::AdaptiveRI,
+                Profile::AdaptiveRIF,
+                Profile::Adaptive,
+            ] {
+                assert_eq!(
+                    compile_source_to_qir(&source, profile.into()),
+                    compile_source_to_qir(&reference, profile.into()),
+                    "{profile:?}, {comparison}, effects={effects:?}: preserve effects and comparison result"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn evaluation_order_short_circuit_double_assignment_then_arithmetic() {
+    let template = r#"
+        operation Main() : Double {
+            use q = Qubit();
+            mutable v = 4.0;
+            let _ = (MResetZ(q) == One) and { set v = 0.0; false };
+            v / 2.0
+        }
+    "#;
+    let ssa = expect![[r#"
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          br label %block_2
+        block_2:
+          %var_8 = phi double [4.0, %block_0], [0.0, %block_1]
+          %var_6 = fdiv double %var_8, 2.0
+          call void @__quantum__rt__double_record_output(double %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0"#]];
+    let adaptive = expect![[r#"
+        block_0:
+          %var_0 = alloca double
+          call void @__quantum__rt__initialize(ptr null)
+          store double 4.0, ptr %var_0
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          store double 0.0, ptr %var_0
+          br label %block_2
+        block_2:
+          %var_5 = load double, ptr %var_0
+          %var_6 = fdiv double %var_5, 2.0
+          call void @__quantum__rt__double_record_output(double %var_6, ptr @0)
+          ret i64 0"#]];
+    let prepared_adaptive = expect![[r#"
+        block_0:
+          %var_1 = alloca double
+          call void @__quantum__rt__initialize(ptr null)
+          call void @X(ptr inttoptr (i64 0 to ptr))
+          store double 4.0, ptr %var_1
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_2, label %block_1, label %block_2
+        block_1:
+          store double 0.0, ptr %var_1
+          br label %block_2
+        block_2:
+          %var_6 = load double, ptr %var_1
+          %var_7 = fdiv double %var_6, 2.0
+          call void @__quantum__rt__double_record_output(double %var_7, ptr @0)
+          ret i64 0"#]];
+    for (prepare, result) in [("", 2.0), ("X(q);", 0.0)] {
+        let source = template.replace("use q = Qubit();", &format!("use q = Qubit(); {prepare}"));
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Double(result)
+        );
+        for profile in [Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert_evaluation_order_qir(
+                &qir,
+                profile,
+                !prepare.is_empty(),
+                &ssa,
+                &adaptive,
+                &prepared_adaptive,
+            );
+        }
+    }
+}
+
+#[test]
+/// Checks copy-on-write aliases and self-appends through the full QIR generation pipeline.
+fn array_append_preserves_aliases_and_rhs_values() {
+    for (body, expected) in [
+        (
+            "let alias = values; set values += [q]; (Length(alias), Length(values))",
+            "(1, 2)",
+        ),
+        (
+            "set values += values; (Length(values), Length(values))",
+            "(2, 2)",
+        ),
+        (
+            "set values += { set values += [q]; values }; (Length(values), 0)",
+            "(4, 0)",
+        ),
+    ] {
+        let source = format!(
+            "operation Main() : (Int, Int) {{
+                use q = Qubit();
+                mutable values = [q];
+                {body}
+            }}"
+        );
+        let reference = format!(
+            "operation Main() : (Int, Int) {{
+                use q = Qubit();
+                {expected}
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        let actual = eval_fragments(&mut interpreter, "Main()");
+        assert_eq!(actual, eval_fragments(&mut interpreter, expected));
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            assert_eq!(
+                compile_source_to_qir(&source, profile.into()),
+                compile_source_to_qir(&reference, profile.into()),
+                "{profile:?}: {body}"
+            );
+        }
+    }
+}
+
+#[test]
+fn evaluation_order_array_append_reads_target_after_rhs() {
+    let source = r#"
+        operation Main() : Int {
+            use q = Qubit();
+            mutable values = [4];
+            set values += { set values = [7]; [if MResetZ(q) == Zero { 1 } else { 2 }] };
+            values[0]
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::Int(7));
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 7,"),
+            "{profile:?}: append must read the reassigned target:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn evaluation_order_array_concatenation_snapshots_left_operand_before_rhs_mutation() {
+    check_array_operand_snapshot(
+        "(values + { set values w/= 0 <- 0; [] })[0]",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_3
+            block_2:
+              br label %block_3
+            block_3:
+              %var_5 = phi i64 [4, %block_1], [5, %block_2]
+              call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_2
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_2
+              br label %block_3
+            block_3:
+              %var_3 = load i64, ptr %var_2
+              call void @__quantum__rt__int_record_output(i64 %var_3, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_3 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_3
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_3
+              br label %block_3
+            block_3:
+              %var_4 = load i64, ptr %var_3
+              call void @__quantum__rt__int_record_output(i64 %var_4, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_array_indexing_snapshots_array_before_index_mutation() {
+    check_array_operand_snapshot(
+        "values[{ set values w/= 0 <- 0; 0 }]",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_3
+            block_2:
+              br label %block_3
+            block_3:
+              %var_5 = phi i64 [4, %block_1], [5, %block_2]
+              call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_2
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_2
+              br label %block_3
+            block_3:
+              %var_3 = load i64, ptr %var_2
+              call void @__quantum__rt__int_record_output(i64 %var_3, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_3 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_3
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_3
+              br label %block_3
+            block_3:
+              %var_4 = load i64, ptr %var_3
+              call void @__quantum__rt__int_record_output(i64 %var_4, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_array_repetition_snapshots_value_before_size_mutation() {
+    check_array_operand_snapshot(
+        "[values, size = { set values w/= 0 <- 0; 2 }][0][0]",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_3
+            block_2:
+              br label %block_3
+            block_3:
+              %var_5 = phi i64 [4, %block_1], [5, %block_2]
+              call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_2
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_2
+              br label %block_3
+            block_3:
+              %var_3 = load i64, ptr %var_2
+              call void @__quantum__rt__int_record_output(i64 %var_3, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_3 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_3
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_3
+              br label %block_3
+            block_3:
+              %var_4 = load i64, ptr %var_3
+              call void @__quantum__rt__int_record_output(i64 %var_4, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_array_literal_snapshots_element_before_later_element_mutation() {
+    check_array_operand_snapshot(
+        "[values, { set values w/= 0 <- 0; [] }][0][0]",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_3
+            block_2:
+              br label %block_3
+            block_3:
+              %var_5 = phi i64 [4, %block_1], [5, %block_2]
+              call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_2
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_2
+              br label %block_3
+            block_3:
+              %var_3 = load i64, ptr %var_2
+              call void @__quantum__rt__int_record_output(i64 %var_3, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_3 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_3
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_3
+              br label %block_3
+            block_3:
+              %var_4 = load i64, ptr %var_3
+              call void @__quantum__rt__int_record_output(i64 %var_4, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+fn check_array_operand_snapshot(
+    expression: &str,
+    ssa: &Expect,
+    adaptive: &Expect,
+    prepared_adaptive: &Expect,
+) {
+    for (prepare, result) in [("", 4), ("X(q);", 5)] {
+        let source = format!(
+            "operation Main() : Int {{
+                use q = Qubit();
+                {prepare}
+                mutable values = [if MResetZ(q) == Zero {{ 4 }} else {{ 5 }}];
+                {expression}
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Int(result)
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert_evaluation_order_qir(
+                &qir,
+                profile,
+                !prepare.is_empty(),
+                ssa,
+                adaptive,
+                prepared_adaptive,
+            );
+        }
+    }
+}
+
+/// The source interpreter supplies one oracle; the complete QIR entry snapshot
+/// separately connects measurement branches, saved values and effects to output.
+fn check_evaluation_order_callable_residue(
+    body: &str,
+    expected: [i64; 2],
+    prepared_adaptive: &Expect,
+    ssa: &Expect,
+    adaptive: &Expect,
+) {
+    for (prepare, expected) in ["", "X(q);"].into_iter().zip(expected) {
+        let source = format!(
+            "function F(x : Int) : Int {{ x + 1 }}
+             function G(x : Int) : Int {{ x + 2 }}
+             operation Main() : Int {{
+                 use q = Qubit();
+                 {prepare}
+                 let b = MResetZ(q) == One;
+                 {body}
+             }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Int(expected)
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert_evaluation_order_qir(
+                &qir,
+                profile,
+                !prepare.is_empty(),
+                ssa,
+                adaptive,
+                prepared_adaptive,
+            );
+        }
+    }
+}
+
+/// The hundreds encode F(10) or G(10), and the low digits count the reached RHS
+/// effect. Nesting that effect inside the replacement must match a separate
+/// statement, without requiring runtime storage for the consumed callable.
+#[test]
+fn evaluation_order_effectful_callable_and_replacement() {
+    for replacement in [
+        "set f = { set marker += 7; G };",
+        "set marker += 7; set f = G;",
+    ] {
+        check_evaluation_order_callable_residue(
+            &format!(
+                "mutable marker = 0;
+         mutable f = {{ F }};
+         let _ = b and {{ {replacement} false }};
+         f(10) * 100 + marker"
+            ),
+            [1100, 1207],
+            &expect![[r#"
+                block_0:
+                  %var_3 = alloca i1
+                  %var_4 = alloca i64
+                  %var_7 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @X(ptr inttoptr (i64 0 to ptr))
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_1, ptr %var_3
+                  store i64 0, ptr %var_4
+                  %var_5 = load i1, ptr %var_3
+                  br i1 %var_5, label %block_1, label %block_2
+                block_1:
+                  store i64 7, ptr %var_4
+                  br label %block_2
+                block_2:
+                  %var_14 = load i1, ptr %var_3
+                  br i1 %var_14, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_7
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_7
+                  br label %block_5
+                block_5:
+                  %var_8 = load i64, ptr %var_7
+                  %var_9 = mul i64 %var_8, 100
+                  %var_16 = load i64, ptr %var_4
+                  %var_11 = add i64 %var_9, %var_16
+                  call void @__quantum__rt__int_record_output(i64 %var_11, ptr @0)
+                  ret i64 0"#]],
+            &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_0, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_12 = phi i64 [0, %block_0], [7, %block_1]
+              br i1 %var_0, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_13 = phi i64 [12, %block_3], [11, %block_4]
+              %var_8 = mul i64 %var_13, 100
+              %var_10 = add i64 %var_8, %var_12
+              call void @__quantum__rt__int_record_output(i64 %var_10, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+            &expect![[r#"
+                block_0:
+                  %var_2 = alloca i1
+                  %var_3 = alloca i64
+                  %var_6 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_0, ptr %var_2
+                  store i64 0, ptr %var_3
+                  %var_4 = load i1, ptr %var_2
+                  br i1 %var_4, label %block_1, label %block_2
+                block_1:
+                  store i64 7, ptr %var_3
+                  br label %block_2
+                block_2:
+                  %var_13 = load i1, ptr %var_2
+                  br i1 %var_13, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_6
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_6
+                  br label %block_5
+                block_5:
+                  %var_7 = load i64, ptr %var_6
+                  %var_8 = mul i64 %var_7, 100
+                  %var_15 = load i64, ptr %var_3
+                  %var_10 = add i64 %var_8, %var_15
+                  call void @__quantum__rt__int_record_output(i64 %var_10, ptr @0)
+                  ret i64 0"#]],
+        );
+    }
+}
+
+#[test]
+fn evaluation_order_effectful_callable_or_replacement() {
+    check_evaluation_order_callable_residue(
+        "mutable marker = 0;
+         mutable f = { F };
+         let _ = b or { set f = { set marker += 7; G }; false };
+         f(10) * 100 + marker",
+        [1207, 1100],
+        &expect![[r#"
+            block_0:
+              %var_3 = alloca i1
+              %var_4 = alloca i64
+              %var_7 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_1, ptr %var_3
+              store i64 0, ptr %var_4
+              %var_5 = load i1, ptr %var_3
+              br i1 %var_5, label %block_2, label %block_1
+            block_1:
+              store i64 7, ptr %var_4
+              br label %block_2
+            block_2:
+              %var_15 = load i1, ptr %var_3
+              br i1 %var_15, label %block_3, label %block_4
+            block_3:
+              store i64 11, ptr %var_7
+              br label %block_5
+            block_4:
+              store i64 12, ptr %var_7
+              br label %block_5
+            block_5:
+              %var_8 = load i64, ptr %var_7
+              %var_9 = mul i64 %var_8, 100
+              %var_17 = load i64, ptr %var_4
+              %var_11 = add i64 %var_9, %var_17
+              call void @__quantum__rt__int_record_output(i64 %var_11, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_0, label %block_2, label %block_1
+            block_1:
+              br label %block_2
+            block_2:
+              %var_13 = phi i64 [0, %block_0], [7, %block_1]
+              %var_12 = phi i1 [true, %block_0], [false, %block_1]
+              br i1 %var_0, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_14 = phi i64 [11, %block_3], [12, %block_4]
+              %var_8 = mul i64 %var_14, 100
+              %var_10 = add i64 %var_8, %var_13
+              call void @__quantum__rt__int_record_output(i64 %var_10, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i1
+              %var_3 = alloca i64
+              %var_6 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_0, ptr %var_2
+              store i64 0, ptr %var_3
+              %var_4 = load i1, ptr %var_2
+              br i1 %var_4, label %block_2, label %block_1
+            block_1:
+              store i64 7, ptr %var_3
+              br label %block_2
+            block_2:
+              %var_14 = load i1, ptr %var_2
+              br i1 %var_14, label %block_3, label %block_4
+            block_3:
+              store i64 11, ptr %var_6
+              br label %block_5
+            block_4:
+              store i64 12, ptr %var_6
+              br label %block_5
+            block_5:
+              %var_7 = load i64, ptr %var_6
+              %var_8 = mul i64 %var_7, 100
+              %var_16 = load i64, ptr %var_3
+              %var_10 = add i64 %var_8, %var_16
+              call void @__quantum__rt__int_record_output(i64 %var_10, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_effectful_callable_and_assign_replacement() {
+    check_evaluation_order_callable_residue(
+        "mutable marker = 0;
+         mutable f = { F };
+         mutable flag = b;
+         set flag and= { set f = { set marker += 7; G }; false };
+         f(10) * 100 + marker",
+        [1100, 1207],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i1
+              %var_5 = alloca i64
+              %var_9 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i1 false, ptr %var_0
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i64 0, ptr %var_5
+              store i1 %var_2, ptr %var_0
+              %var_7 = load i1, ptr %var_0
+              br i1 %var_7, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_5
+              br label %block_2
+            block_2:
+              %var_17 = load i1, ptr %var_0
+              br i1 %var_17, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_9
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_9
+              br label %block_5
+            block_5:
+              %var_10 = load i64, ptr %var_9
+              %var_11 = mul i64 %var_10, 100
+              %var_19 = load i64, ptr %var_5
+              %var_13 = add i64 %var_11, %var_19
+              call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_14 = phi i64 [0, %block_0], [7, %block_1]
+              br i1 %var_1, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_15 = phi i64 [12, %block_3], [11, %block_4]
+              %var_10 = mul i64 %var_15, 100
+              %var_12 = add i64 %var_10, %var_14
+              call void @__quantum__rt__int_record_output(i64 %var_12, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i1
+              %var_4 = alloca i64
+              %var_8 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i1 false, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i64 0, ptr %var_4
+              store i1 %var_1, ptr %var_0
+              %var_6 = load i1, ptr %var_0
+              br i1 %var_6, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_4
+              br label %block_2
+            block_2:
+              %var_16 = load i1, ptr %var_0
+              br i1 %var_16, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_8
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_8
+              br label %block_5
+            block_5:
+              %var_9 = load i64, ptr %var_8
+              %var_10 = mul i64 %var_9, 100
+              %var_18 = load i64, ptr %var_4
+              %var_12 = add i64 %var_10, %var_18
+              call void @__quantum__rt__int_record_output(i64 %var_12, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_effectful_callable_or_assign_replacement() {
+    check_evaluation_order_callable_residue(
+        "mutable marker = 0;
+         mutable f = { F };
+         mutable flag = b;
+         set flag or= { set f = { set marker += 7; G }; false };
+         f(10) * 100 + marker",
+        [1207, 1100],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i1
+              %var_5 = alloca i64
+              %var_8 = alloca i1
+              %var_9 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i1 false, ptr %var_0
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i64 0, ptr %var_5
+              store i1 %var_2, ptr %var_0
+              %var_7 = load i1, ptr %var_0
+              store i1 true, ptr %var_8
+              br i1 %var_7, label %block_2, label %block_1
+            block_1:
+              store i64 7, ptr %var_5
+              store i1 false, ptr %var_8
+              br label %block_2
+            block_2:
+              %var_6 = load i1, ptr %var_8
+              %var_20 = load i1, ptr %var_0
+              br i1 %var_20, label %block_3, label %block_4
+            block_3:
+              store i64 11, ptr %var_9
+              br label %block_5
+            block_4:
+              store i64 12, ptr %var_9
+              br label %block_5
+            block_5:
+              %var_10 = load i64, ptr %var_9
+              %var_11 = mul i64 %var_10, 100
+              %var_22 = load i64, ptr %var_5
+              %var_13 = add i64 %var_11, %var_22
+              call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_1, label %block_2, label %block_1
+            block_1:
+              br label %block_2
+            block_2:
+              %var_15 = phi i64 [0, %block_0], [7, %block_1]
+              %var_14 = phi i1 [true, %block_0], [false, %block_1]
+              br i1 %var_1, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_16 = phi i64 [11, %block_3], [12, %block_4]
+              %var_10 = mul i64 %var_16, 100
+              %var_12 = add i64 %var_10, %var_15
+              call void @__quantum__rt__int_record_output(i64 %var_12, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i1
+              %var_4 = alloca i64
+              %var_7 = alloca i1
+              %var_8 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i1 false, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i64 0, ptr %var_4
+              store i1 %var_1, ptr %var_0
+              %var_6 = load i1, ptr %var_0
+              store i1 true, ptr %var_7
+              br i1 %var_6, label %block_2, label %block_1
+            block_1:
+              store i64 7, ptr %var_4
+              store i1 false, ptr %var_7
+              br label %block_2
+            block_2:
+              %var_5 = load i1, ptr %var_7
+              %var_19 = load i1, ptr %var_0
+              br i1 %var_19, label %block_3, label %block_4
+            block_3:
+              store i64 11, ptr %var_8
+              br label %block_5
+            block_4:
+              store i64 12, ptr %var_8
+              br label %block_5
+            block_5:
+              %var_9 = load i64, ptr %var_8
+              %var_10 = mul i64 %var_9, 100
+              %var_21 = load i64, ptr %var_4
+              %var_12 = add i64 %var_10, %var_21
+              call void @__quantum__rt__int_record_output(i64 %var_12, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+/// Calling `f` must see the replacement, but `saved` must still call the
+/// original function. The low digits expose skipped or duplicated RHS effects.
+#[test]
+fn evaluation_order_effectful_callable_saved_snapshot_replacement() {
+    check_evaluation_order_callable_residue(
+        "mutable marker = 0;
+         mutable f = { F };
+         let current = f;
+         let saved = (x -> current(x));
+         let _ = b and { set f = { set marker += 7; G }; false };
+         f(10) * 10000 + saved(10) * 100 + marker",
+        [111_100, 121_107],
+        &expect![[r#"
+            block_0:
+              %var_3 = alloca i1
+              %var_4 = alloca i64
+              %var_7 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_1, ptr %var_3
+              store i64 0, ptr %var_4
+              %var_5 = load i1, ptr %var_3
+              br i1 %var_5, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_4
+              br label %block_2
+            block_2:
+              %var_16 = load i1, ptr %var_3
+              br i1 %var_16, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_7
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_7
+              br label %block_5
+            block_5:
+              %var_8 = load i64, ptr %var_7
+              %var_9 = mul i64 %var_8, 10000
+              %var_11 = add i64 %var_9, 1100
+              %var_18 = load i64, ptr %var_4
+              %var_13 = add i64 %var_11, %var_18
+              call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_0, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_14 = phi i64 [0, %block_0], [7, %block_1]
+              br i1 %var_0, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_15 = phi i64 [12, %block_3], [11, %block_4]
+              %var_8 = mul i64 %var_15, 10000
+              %var_10 = add i64 %var_8, 1100
+              %var_12 = add i64 %var_10, %var_14
+              call void @__quantum__rt__int_record_output(i64 %var_12, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i1
+              %var_3 = alloca i64
+              %var_6 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_0, ptr %var_2
+              store i64 0, ptr %var_3
+              %var_4 = load i1, ptr %var_2
+              br i1 %var_4, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_3
+              br label %block_2
+            block_2:
+              %var_15 = load i1, ptr %var_2
+              br i1 %var_15, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_6
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_6
+              br label %block_5
+            block_5:
+              %var_7 = load i64, ptr %var_6
+              %var_8 = mul i64 %var_7, 10000
+              %var_10 = add i64 %var_8, 1100
+              %var_17 = load i64, ptr %var_3
+              %var_12 = add i64 %var_10, %var_17
+              call void @__quantum__rt__int_record_output(i64 %var_12, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_callable_transparent_initializers_reach_qir() {
+    for initializer in ["{ F }", "{{ F }}", "if true { F } else { G }"] {
+        check_evaluation_order_callable_residue(
+            &format!("mutable f = {initializer}; let _ = b and {{ set f = G; false }}; f(10)"),
+            [11, 12],
+            &expect![[r#"
+                block_0:
+                  %var_3 = alloca i1
+                  %var_6 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @X(ptr inttoptr (i64 0 to ptr))
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_1, ptr %var_3
+                  %var_4 = load i1, ptr %var_3
+                  br i1 %var_4, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_9 = load i1, ptr %var_3
+                  br i1 %var_9, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_6
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_6
+                  br label %block_5
+                block_5:
+                  %var_7 = load i64, ptr %var_6
+                  call void @__quantum__rt__int_record_output(i64 %var_7, ptr @0)
+                  ret i64 0"#]],
+            &expect![[r#"
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  br i1 %var_0, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  br i1 %var_0, label %block_3, label %block_4
+                block_3:
+                  br label %block_5
+                block_4:
+                  br label %block_5
+                block_5:
+                  %var_7 = phi i64 [12, %block_3], [11, %block_4]
+                  call void @__quantum__rt__int_record_output(i64 %var_7, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0"#]],
+            &expect![[r#"
+                block_0:
+                  %var_2 = alloca i1
+                  %var_5 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_0, ptr %var_2
+                  %var_3 = load i1, ptr %var_2
+                  br i1 %var_3, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_8 = load i1, ptr %var_2
+                  br i1 %var_8, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_5
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_5
+                  br label %block_5
+                block_5:
+                  %var_6 = load i64, ptr %var_5
+                  call void @__quantum__rt__int_record_output(i64 %var_6, ptr @0)
+                  ret i64 0"#]],
+        );
+    }
+}
+
+#[test]
+fn evaluation_order_callable_captured_snapshot_reaches_qir() {
+    for snapshot in [
+        "let current = f; let saved = (x -> current(x));",
+        "let first = f; let current = first; let saved = (x -> current(x));",
+        "let current = f; let saved = { let next = current; (x -> next(x)) };",
+    ] {
+        check_evaluation_order_callable_residue(
+            &format!(
+                "mutable f = F;
+                 {snapshot}
+                 let _ = b and {{ set f = G; false }};
+                 f(10) * 100 + saved(10)"
+            ),
+            [1111, 1211],
+            &expect![[r#"
+                block_0:
+                  %var_3 = alloca i1
+                  %var_6 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @X(ptr inttoptr (i64 0 to ptr))
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_1, ptr %var_3
+                  %var_4 = load i1, ptr %var_3
+                  br i1 %var_4, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_12 = load i1, ptr %var_3
+                  br i1 %var_12, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_6
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_6
+                  br label %block_5
+                block_5:
+                  %var_7 = load i64, ptr %var_6
+                  %var_8 = mul i64 %var_7, 100
+                  %var_10 = add i64 %var_8, 11
+                  call void @__quantum__rt__int_record_output(i64 %var_10, ptr @0)
+                  ret i64 0"#]],
+            &expect![[r#"
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  br i1 %var_0, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  br i1 %var_0, label %block_3, label %block_4
+                block_3:
+                  br label %block_5
+                block_4:
+                  br label %block_5
+                block_5:
+                  %var_11 = phi i64 [12, %block_3], [11, %block_4]
+                  %var_7 = mul i64 %var_11, 100
+                  %var_9 = add i64 %var_7, 11
+                  call void @__quantum__rt__int_record_output(i64 %var_9, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0"#]],
+            &expect![[r#"
+                block_0:
+                  %var_2 = alloca i1
+                  %var_5 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_0, ptr %var_2
+                  %var_3 = load i1, ptr %var_2
+                  br i1 %var_3, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_11 = load i1, ptr %var_2
+                  br i1 %var_11, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_5
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_5
+                  br label %block_5
+                block_5:
+                  %var_6 = load i64, ptr %var_5
+                  %var_7 = mul i64 %var_6, 100
+                  %var_9 = add i64 %var_7, 11
+                  call void @__quantum__rt__int_record_output(i64 %var_9, ptr @0)
+                  ret i64 0"#]],
+        );
+    }
+}
+
+#[test]
+fn evaluation_order_array_updates_evaluate_index_then_value_then_target() {
+    for (update, expected_trace) in [
+        (
+            "let updated = { set trace = 10 * trace + 3; values }
+                w/ { set trace = 10 * trace + 1; set values = [6, 7]; 0 }
+                <- { set trace = 10 * trace + 2; MResetZ(q); set values = [8, 9]; 11 };",
+            123,
+        ),
+        (
+            "mutable updated = values;
+                set updated w/= { set trace = 10 * trace + 1; set updated = [6, 7]; 0 }
+                <- { set trace = 10 * trace + 2; MResetZ(q); set updated = [8, 9]; 11 };",
+            12,
+        ),
+    ] {
+        let source = format!(
+            "operation Main() : (Int[], Int) {{
+                use q = Qubit();
+                mutable trace = 0;
+                mutable values = [4, 5];
+                {update}
+                (updated, trace)
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Tuple(
+                vec![
+                    Value::Array(vec![Value::Int(11), Value::Int(9)].into()),
+                    Value::Int(expected_trace),
+                ]
+                .into(),
+                None,
+            ),
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            let outputs = qir_entry_body(&qir)
+                .lines()
+                .filter(|line| line.contains("_record_output("))
+                .map(|line| {
+                    line.split_once('(')
+                        .expect("output call")
+                        .1
+                        .split(',')
+                        .next()
+                        .expect("output operand")
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                outputs,
+                [
+                    "i64 2",
+                    "i64 2",
+                    "i64 11",
+                    "i64 9",
+                    &format!("i64 {expected_trace}")
+                ],
+                "{profile:?}, {update}: incorrect updated contents or effect order:\n{qir}",
+            );
+            assert_eq!(
+                qir_entry_body(&qir)
+                    .matches("call void @__quantum__qis__mresetz__body(")
+                    .count(),
+                1,
+                "{profile:?}: replacement measurement must execute once:\n{qir}",
+            );
+        }
+    }
+}
+
+#[test]
+fn evaluation_order_array_construction_and_update_operands_follow_source_order() {
+    for (expression, expected) in [
+        (
+            "[{ set trace = 10 * trace + 1; MResetZ(q) }, { set trace = 10 * trace + 2; MResetZ(q) }]",
+            12,
+        ),
+        (
+            "[{ set trace = 10 * trace + 1; MResetZ(q) }, size = { set trace = 10 * trace + 2; 2 }]",
+            12,
+        ),
+        (
+            "{ set trace = 10 * trace + 1; [MResetZ(q)] } + { set trace = 10 * trace + 2; [MResetZ(q)] }",
+            12,
+        ),
+        (
+            "{ set trace = 10 * trace + 3; [MResetZ(q)] } w/ { set trace = 10 * trace + 1; 0 } <- { set trace = 10 * trace + 2; Zero }",
+            123,
+        ),
+    ] {
+        let source = format!(
+            "operation Main() : Int {{
+                use q = Qubit();
+                mutable trace = 0;
+                let _ = {expression};
+                trace
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Int(expected)
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{profile:?}, {expression}: operands executed out of order:\n{qir}"
+            );
+        }
+    }
+}
+
+const DISCARDED_IF_WITH_LOOP_SOURCE: &str = r#"
+        function F(c : Bool) : Int {
+            if c { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+        operation Main() : (Int, Int) { (F(true), F(false)) }
+    "#;
+
+#[test]
+fn discarded_if_with_loop_preserves_early_return_and_fallthrough_outputs() {
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(DISCARDED_IF_WITH_LOOP_SOURCE, profile.into());
+        let records: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(records.len(), 2, "{profile:?}: {qir}");
+        assert!(records[0].contains("i64 1,"), "{profile:?}: {qir}");
+        assert!(records[1].contains("i64 7,"), "{profile:?}: {qir}");
+    }
+}
+
+#[test]
+fn base_rejects_int_output_after_discarded_if_lowering() {
+    let errors = compile_source_to_qir_result(DISCARDED_IF_WITH_LOOP_SOURCE, Profile::Base.into())
+        .expect_err("Base must reject integer outputs without panicking");
+    let diagnostics = format_interpret_errors(errors);
+    assert!(
+        diagnostics.contains("Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"),
+        "{diagnostics}"
+    );
+}
+
+#[test]
+fn discarded_if_without_loop_preserves_fallthrough_output() {
+    let source = r#"
+        operation Main() : Int {
+            if false { return 1; }
+            if true { 5 } else { 6 }
+            7
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 7);
+    }
+}
+
+#[test]
+fn return_inside_discarded_if_loop_reaches_output() {
+    let source = r#"
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+            7
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn first_return_bearing_tail_if_records_fallthrough_value() {
+    let source = r#"
+        operation Main() : Int {
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 7 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 5);
+    }
+}
+
+#[test]
+fn measurement_selected_early_return_with_discarded_if_matches_semicolon_qir() {
+    assert_measurement_selected_discarded_if_matches_semicolon_qir(true);
+}
+
+#[test]
+fn measurement_selected_fallthrough_with_discarded_if_matches_semicolon_qir() {
+    assert_measurement_selected_discarded_if_matches_semicolon_qir(false);
+}
+
+fn assert_measurement_selected_discarded_if_matches_semicolon_qir(prepare_flag: bool) {
+    let preparation = if prepare_flag { "X(flag);" } else { "" };
+    let source = |terminator: &str| {
+        format!(
+            r#"
+            operation F(c : Bool, target : Qubit) : Int {{
+                if c {{ return 1; }}
+                if true {{ X(target); 5 }} else {{ 6 }}{terminator}
+                7
+            }}
+            operation Main() : (Int, Result) {{
+                use flag = Qubit();
+                use target = Qubit();
+                {preparation}
+                let value = F(MResetZ(flag) == One, target);
+                (value, MResetZ(target))
+            }}
+            "#
+        )
+    };
+    let capabilities = Profile::Adaptive.into();
+    let actual = compile_source_to_qir(&source(""), capabilities);
+    let expected = compile_source_to_qir(&source(";"), capabilities);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn nested_tail_return_after_guard_records_nine() {
+    let source = r#"
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } 5 } else { 6 }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn nested_tail_while_return_after_guard_records_nine() {
+    let source = r#"
+        operation Main() : Int {
+            if false { return 1; }
+            if true {
+                mutable i = 0;
+                while i < 3 {
+                    if i == 1 { return 9; }
+                    set i += 1;
+                }
+                5
+            } else { 6 }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn nested_tail_return_with_skipped_effectful_scalar_tail_records_nine() {
+    let source = r#"
+        function Tail() : Int { Message("tail"); 5 }
+        operation Main() : Int {
+            if false { return 1; }
+            if true { if true { return 9; } Tail() } else { 6 }
+        }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn nested_tail_array_return_with_skipped_effectful_tail_records_element_nine() {
+    let source = r#"
+        function Tail() : Int[] { Message("tail"); [5] }
+        function F(c : Bool, d : Bool) : Int[] {
+            if c { return [1]; }
+            if true { if d { return [9]; } Tail() } else { [6] }
+        }
+        operation Main() : Int { F(false, true)[0] }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn nested_tail_callable_return_with_skipped_effectful_tail_records_invocation_nine() {
+    let source = r#"
+        function First() : Int { 1 }
+        function Nested() : Int { 9 }
+        function Fallback() : Int { 5 }
+        function Tail() : (Unit -> Int) { Message("tail"); Fallback }
+        function F(c : Bool, d : Bool) : (Unit -> Int) {
+            if c { return First; }
+            if true { if d { return Nested; } Tail() } else { Fallback }
+        }
+        operation Main() : Int { let f = F(false, true); f() }
+    "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 9);
+    }
+}
+
+#[test]
+fn measured_nested_tail_return_qir_selects_post_continuation_value() {
+    let source = r#"
+        operation F(c : Bool, d : Bool) : Int {
+            if c { return 1; }
+            if true { if d { return 9; } 5 } else { 6 }
+        }
+        operation Main() : Int {
+            use flags = Qubit[2];
+            X(flags[1]);
+            let c = MResetZ(flags[0]) == One;
+            let d = MResetZ(flags[1]) == One;
+            F(c, d)
+        }
+    "#;
+    let ri = compile_source_to_qir(source, Profile::AdaptiveRI.into());
+    let rif = compile_source_to_qir(source, Profile::AdaptiveRIF.into());
+    assert_eq!(qir_entry_body(&ri), qir_entry_body(&rif));
+    expect![[r#"
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+          %var_4 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          br label %block_2
+        block_2:
+          %var_17 = phi i1 [false, %block_0], [true, %block_1]
+          %var_16 = phi i64 [0, %block_0], [1, %block_1]
+          %var_11 = xor i1 %var_17, true
+          br i1 %var_11, label %block_3, label %block_4
+        block_3:
+          br i1 %var_4, label %block_5, label %block_6
+        block_4:
+          br label %block_7
+        block_5:
+          br label %block_6
+        block_6:
+          %var_19 = phi i1 [%var_17, %block_3], [true, %block_5]
+          %var_18 = phi i64 [%var_16, %block_3], [9, %block_5]
+          br label %block_7
+        block_7:
+          %var_22 = phi i1 [%var_17, %block_4], [%var_19, %block_6]
+          %var_21 = phi i64 [%var_16, %block_4], [5, %block_6]
+          %var_20 = phi i64 [%var_16, %block_4], [%var_18, %block_6]
+          br i1 %var_22, label %block_8, label %block_9
+        block_8:
+          br label %block_10
+        block_9:
+          br label %block_10
+        block_10:
+          %var_23 = phi i64 [%var_20, %block_8], [%var_21, %block_9]
+          call void @__quantum__rt__int_record_output(i64 %var_23, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0"#]].assert_eq(qir_entry_body(&ri));
+
+    let adaptive = compile_source_to_qir(source, Profile::Adaptive.into());
+    let helper = adaptive
+        .split("define ")
+        .find(|definition| {
+            definition
+                .lines()
+                .next()
+                .is_some_and(|line| line.contains("@F("))
+        })
+        .expect("Adaptive retains the dynamic helper");
+    let (helper, _) = helper.split_once("\n}").expect("helper body terminator");
+    expect![[r#"
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @X(ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+          %var_5 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          %var_18 = call i64 @F(i1 zeroext %var_2, i1 zeroext %var_5)
+          call void @__quantum__rt__int_record_output(i64 %var_18, ptr @0)
+          ret i64 0
+
+        internal i64 @F(i1 zeroext %var_10, i1 zeroext %var_11) {
+        block_2:
+          %var_12 = alloca i1
+          %var_13 = alloca i64
+          %var_15 = alloca i64
+          %var_16 = alloca i64
+          %var_17 = alloca i64
+          store i1 false, ptr %var_12
+          store i64 0, ptr %var_13
+          br i1 %var_10, label %block_3, label %block_4
+        block_3:
+          store i64 1, ptr %var_13
+          store i1 true, ptr %var_12
+          br label %block_4
+        block_4:
+          %var_21 = load i1, ptr %var_12
+          %var_14 = xor i1 %var_21, true
+          br i1 %var_14, label %block_5, label %block_6
+        block_5:
+          br i1 %var_11, label %block_7, label %block_8
+        block_6:
+          %var_22 = load i64, ptr %var_13
+          store i64 %var_22, ptr %var_15
+          br label %block_9
+        block_7:
+          store i64 9, ptr %var_13
+          store i1 true, ptr %var_12
+          br label %block_8
+        block_8:
+          store i64 5, ptr %var_15
+          br label %block_9
+        block_9:
+          %var_24 = load i64, ptr %var_15
+          store i64 %var_24, ptr %var_16
+          %var_26 = load i1, ptr %var_12
+          br i1 %var_26, label %block_10, label %block_11
+        block_10:
+          %var_30 = load i64, ptr %var_13
+          store i64 %var_30, ptr %var_17
+          br label %block_12
+        block_11:
+          %var_27 = load i64, ptr %var_16
+          store i64 %var_27, ptr %var_17
+          br label %block_12
+        block_12:
+          %var_29 = load i64, ptr %var_17
+          ret i64 %var_29"#]].assert_eq(&format!("{}\n\n{helper}", qir_entry_body(&adaptive)));
+}
+
+#[test]
+fn loop_condition_assignment_qir_reads_value_after_one_iteration() {
+    let source = r#"
+        operation Main() : (Int, Int) {
+            use q = Qubit();
+            X(q);
+            mutable x = 0;
+            mutable iterations = 0;
+            while ({ set x = 1; MResetZ(q) == One }) {
+                set x = 0;
+                set iterations += 1;
+            }
+            (x, iterations)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Tuple(vec![Value::Int(1), Value::Int(1)].into(), None),
+    );
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("one-iteration QIR");
+    expect![[r#"
+        block_0:
+          %var_1 = alloca i64
+          %var_2 = alloca i64
+          call void @__quantum__rt__initialize(ptr null)
+          call void @X(ptr inttoptr (i64 0 to ptr))
+          store i64 0, ptr %var_1
+          store i64 0, ptr %var_2
+          br label %block_1
+        block_1:
+          store i64 1, ptr %var_1
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_3 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_3, label %block_2, label %block_3
+        block_2:
+          store i64 0, ptr %var_1
+          %var_5 = load i64, ptr %var_2
+          %var_6 = add i64 %var_5, 1
+          store i64 %var_6, ptr %var_2
+          br label %block_1
+        block_3:
+          %var_7 = load i64, ptr %var_1
+          %var_8 = load i64, ptr %var_2
+          call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
+          call void @__quantum__rt__int_record_output(i64 %var_7, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_8, ptr @2)
+          ret i64 0"#]].assert_eq(qir_entry_body(&qir));
+}
+
+#[test]
+fn loop_condition_assignment_qir_reads_value_after_two_iterations() {
+    let source = r#"
+        operation Main() : (Int, Int) {
+            use q = Qubit();
+            X(q);
+            mutable x = 0;
+            mutable iterations = 0;
+            while ({ set x = 1; MResetZ(q) == One }) {
+                set x = 0;
+                set iterations += 1;
+                if iterations < 2 { X(q); }
+            }
+            (x, iterations)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(Profile::Adaptive.into());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Tuple(vec![Value::Int(1), Value::Int(2)].into(), None),
+    );
+    let qir = interpreter
+        .qirgen("Main()")
+        .map(|result| result.qir)
+        .expect("two-iteration QIR");
+    expect![[r#"
+        block_0:
+          %var_1 = alloca i64
+          %var_2 = alloca i64
+          call void @__quantum__rt__initialize(ptr null)
+          call void @X(ptr inttoptr (i64 0 to ptr))
+          store i64 0, ptr %var_1
+          store i64 0, ptr %var_2
+          br label %block_1
+        block_1:
+          store i64 1, ptr %var_1
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_3 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_3, label %block_2, label %block_3
+        block_2:
+          store i64 0, ptr %var_1
+          %var_5 = load i64, ptr %var_2
+          %var_6 = add i64 %var_5, 1
+          store i64 %var_6, ptr %var_2
+          %var_7 = load i64, ptr %var_2
+          %var_8 = icmp slt i64 %var_7, 2
+          br i1 %var_8, label %block_4, label %block_5
+        block_3:
+          %var_9 = load i64, ptr %var_1
+          %var_10 = load i64, ptr %var_2
+          call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
+          call void @__quantum__rt__int_record_output(i64 %var_9, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_10, ptr @2)
+          ret i64 0
+        block_4:
+          call void @X(ptr inttoptr (i64 0 to ptr))
+          br label %block_5
+        block_5:
+          br label %block_1"#]].assert_eq(qir_entry_body(&qir));
+}
+
+#[test]
+fn early_return_skips_later_loop_conditional() {
+    let source = r#"
+        operation Main() : Int {
+            if true { return 1; }
+            if true { return 2; } else { for i in [0] { return 3; } }
+            return 4;
+        }
+    "#;
+    for profile in [Profile::Adaptive, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 1,"),
+            "{profile:?}: {qir}"
+        );
+    }
+}
+
+#[test]
+fn functored_local_after_early_return_generates_qir() {
+    for initializer in ["U", "[U, V][1]"] {
+        for invocation in [
+            "f()",
+            "Adjoint f()",
+            "Adjoint Adjoint f()",
+            "Controlled f([], ())",
+            "Controlled Adjoint f([], ())",
+            "Controlled Controlled f([], ([], ()))",
+        ] {
+            let source = format!(
+                r#"
+                operation U() : Unit is Adj + Ctl {{}}
+                operation V() : Unit is Adj + Ctl {{}}
+                operation Main() : Unit {{
+                    if false {{ return (); }}
+                    let f = {initializer};
+                    {invocation};
+                }}
+                "#
+            );
+            for profile in [
+                Profile::Base,
+                Profile::AdaptiveRI,
+                Profile::AdaptiveRIF,
+                Profile::Adaptive,
+            ] {
+                compile_source_to_qir(&source, profile.into());
+            }
+        }
+    }
+}
+
+#[test]
+fn nested_callable_selectors_generate_correct_qir_on_every_profile() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit { X(q[0]); }
+        operation B(q : Qubit[]) : Unit { X(q[1]); }
+        function Choose(flag : Bool, a : Qubit[] => Unit, b : Qubit[] => Unit) : Qubit[] => Unit {
+            if flag { a } else { b }
+        }
+        operation Main() : Result[] {
+            use q = Qubit[2];
+            let f = Choose(1 < 2, Choose(1 < 2, A, B), B);
+            f(q);
+            MResetEachZ(q)
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let qir = compile_source_to_qir(source, profile.into());
+        if profile == Profile::Adaptive {
+            assert_eq!(qir.matches("call void @X(").count(), 1, "{qir}");
+            assert!(
+                qir.contains("call void @X(ptr inttoptr (i64 0 to ptr))"),
+                "{qir}"
+            );
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{qir}"
+            );
+        } else {
+            assert_x_targets(&qir, &[0]);
+        }
+    }
+}
+
+/// The outer true branch uses the inner selection; inner false must select B.
+#[test]
+fn nested_callable_selectors_inner_false_selects_second_operation() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit { X(q[0]); }
+        operation B(q : Qubit[]) : Unit { X(q[1]); }
+        function Choose(flag : Bool, a : Qubit[] => Unit, b : Qubit[] => Unit) : Qubit[] => Unit {
+            if flag { a } else { b }
+        }
+        operation Main() : Result[] {
+            use q = Qubit[2];
+            let f = Choose(1 < 2, Choose(1 > 2, A, B), B);
+            f(q);
+            MResetEachZ(q)
+        }
+    "#;
+    assert_nested_callable_selector_on_every_profile(source, 1);
+}
+
+/// Even though the inner selection produces A, outer false must select B.
+#[test]
+fn nested_callable_selectors_outer_false_selects_second_operation() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit { X(q[0]); }
+        operation B(q : Qubit[]) : Unit { X(q[1]); }
+        function Choose(flag : Bool, a : Qubit[] => Unit, b : Qubit[] => Unit) : Qubit[] => Unit {
+            if flag { a } else { b }
+        }
+        operation Main() : Result[] {
+            use q = Qubit[2];
+            let f = Choose(1 > 2, Choose(1 < 2, A, B), B);
+            f(q);
+            MResetEachZ(q)
+        }
+    "#;
+    assert_nested_callable_selector_on_every_profile(source, 1);
+}
+
+/// Read the outer flag before the inner argument sets it false: select A.
+/// The later conditional B gate also detects a dropped mutation, which would
+/// otherwise leave the selected target unchanged but execute an extra X.
+#[test]
+fn nested_callable_selectors_snapshot_preserves_argument_effects() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit { X(q[0]); }
+        operation B(q : Qubit[]) : Unit { X(q[1]); }
+        function Choose(flag : Bool, a : Qubit[] => Unit, b : Qubit[] => Unit) : Qubit[] => Unit {
+            if flag { a } else { b }
+        }
+        operation Main() : Result[] {
+            use q = Qubit[2];
+            mutable flag = true;
+            let f = Choose(flag, Choose({ set flag = false; 1 < 2 }, A, B), B);
+            f(q);
+            if flag { B(q); }
+            MResetEachZ(q)
+        }
+    "#;
+    assert_nested_callable_selector_on_every_profile(source, 0);
+}
+
+fn assert_nested_callable_selector_on_every_profile(source: &str, target: usize) {
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let context = format!("{profile:?}: {source}");
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let expected = Value::Array(
+            (0..2)
+                .map(|index| Value::Result(qsc_eval::val::Result::Val(index == target)))
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            expected,
+            "{context}: source must select only qubit {target}"
+        );
+        let qir = compile_source_to_qir(source, profile.into());
+        if profile == Profile::Adaptive {
+            assert_eq!(qir.matches("call void @X(").count(), 1, "{context}:\n{qir}");
+            assert!(
+                qir.contains(&format!("call void @X(ptr inttoptr (i64 {target} to ptr))")),
+                "{context}: expected X on qubit {target}:\n{qir}"
+            );
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{context}:\n{qir}"
+            );
+        } else {
+            assert_x_targets_with_context(&qir, &[target], &context);
+        }
+    }
+}
+
+#[test]
+fn expanding_polymorphic_recursion_reports_source_errors_on_every_compile_profile() {
+    let sources = [
+        // Array growth with a captured callable used to reach a closure-layout panic.
+        r#"operation Rec<'T>(t : 'T, op : 'T => Unit, n : Int) : Unit {
+            if n == 0 { op(t); } else { Rec([t], ts => op(ts[0]), n - 1); }
+        }
+        operation Main() : Result { use q = Qubit(); Rec(q, X, 1); MResetZ(q) }"#,
+        // Tuple duplication grows exponentially, despite the finite runtime depth.
+        r#"function F<'T>(x : 'T, n : Int) : Int {
+            if n == 0 { 0 } else { 1 + F((x, x), n - 1) }
+        }
+        operation Main() : Result {
+            use q = Qubit();
+            if F(1, 2) == 2 { X(q); }
+            MResetZ(q)
+        }"#,
+    ];
+    for source in sources {
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Result(qsc_eval::val::Result::Val(true)),
+            "runtime termination is independent of the static expansion limit"
+        );
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            let capabilities = profile.into();
+            let mut interpreter = interpreter_with_capabilities(capabilities);
+            eval_fragments(&mut interpreter, source);
+            for result in [
+                compile_source_to_qir_result(source, capabilities),
+                interpreter.qirgen("Main()").map(|result| result.qir),
+            ] {
+                let errors = result.expect_err("expanding specialization must not produce QIR");
+                assert_eq!(errors.len(), 1, "{profile:?}: {errors:?}");
+                assert!(matches!(
+                    errors[0],
+                    crate::interpret::Error::FirTransform(_)
+                ));
+                let label = miette::Diagnostic::labels(&errors[0])
+                    .and_then(|mut labels| labels.next())
+                    .expect("expansion error must have a source label");
+                assert!(!label.is_empty());
+                assert!(label.offset() + label.len() <= source.len());
+                assert!(miette::Diagnostic::source_code(&errors[0]).is_some());
+                let diagnostic = format_interpret_errors(errors);
+                assert!(
+                    diagnostic.contains("Qdk.Qsc.Monomorphize.TypeExpansionLimit"),
+                    "{diagnostic}"
+                );
+                assert!(
+                    diagnostic.contains("type expansion exceeds the compiler limit here"),
+                    "{diagnostic}"
+                );
+            }
+            // A failed compilation must not poison the interpreter's original store.
+            eval_fragments(
+                &mut interpreter,
+                "operation Safe() : Result { use q = Qubit(); X(q); MResetZ(q) }",
+            );
+            assert!(
+                interpreter
+                    .qirgen("Safe()")
+                    .map(|result| result.qir)
+                    .is_ok()
+            );
+        }
+    }
+}
+
+#[test]
+fn finite_recursive_type_cycle_generates_qir_for_all_entry_surfaces() {
+    let source = r#"
+        operation Pick<'T, 'U>(x : 'T, y : 'U, n : Int, q : Qubit) : Unit {
+            if n == 0 { X(q); } else { Pick(y, x, n - 1, q); }
+        }
+        operation Main() : Result {
+            use q = Qubit();
+            Pick(2, true, 3, q);
+            MResetZ(q)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+    eval_fragments(&mut interpreter, source);
+    // This is the source oracle. The QIR assertions below check typed
+    // compilation and output plumbing, not execution of the emitted program.
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Result(qsc_eval::val::Result::Val(true))
+    );
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let capabilities = profile.into();
+        let mut interpreter = interpreter_with_capabilities(capabilities);
+        eval_fragments(&mut interpreter, source);
+        let (store, package, items) =
+            compile_and_locate_items(source, &[("Main", true)], capabilities);
+        for qir in [
+            compile_source_to_qir(source, capabilities),
+            interpreter.qirgen("Main()").map_or_else(
+                |errors| panic!("{}", format_interpret_errors(errors)),
+                |result| result.qir,
+            ),
+            callable_args_to_qir(&store, package, items["Main"], &Value::unit(), capabilities),
+        ] {
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{profile:?}: {qir}"
+            );
+            assert_eq!(
+                qir.matches("call void @__quantum__rt__result_record_output")
+                    .count(),
+                1,
+                "{qir}"
+            );
+        }
+    }
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(&mut interpreter, source);
+    let circuit = interpreter
+        .circuit(
+            crate::interpret::CircuitEntryPoint::EntryExpr("Main()".into()),
+            crate::interpret::CircuitGenerationMethod::Static,
+            qsc_circuit::TracerConfig {
+                max_operations: qsc_circuit::TracerConfig::DEFAULT_MAX_OPERATIONS,
+                max_loop_iterations: None,
+                source_locations: false,
+                group_by_scope: false,
+                prune_classical_qubits: false,
+            },
+        )
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+    let gates: Vec<_> = circuit
+        .component_grid
+        .iter()
+        .flat_map(|column| &column.components)
+        .filter_map(|operation| match operation {
+            qsc_circuit::Operation::Unitary(gate) => Some(gate.gate.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(gates, ["X"], "{circuit}");
+}
+
+#[test]
+fn recursive_callable_factory_is_inlined_in_adaptive_qir() {
+    let source = r#"
+        namespace Test {
+            operation Flip(q : Qubit) : Unit { X(q); }
+
+            function Make(n : Int) : Qubit => Unit {
+                if n == 0 {
+                    Flip
+                } else {
+                    let next = Make(n - 1);
+                    next
+                }
+            }
+
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Make(2)(q);
+                MResetZ(q)
+            }
+        }
+    "#;
+    for profile in [Profile::Adaptive, Profile::AdaptiveRIF] {
+        let capabilities = profile.into();
+        let mut interpreter = interpreter_with_capabilities(capabilities);
+        eval_fragments(&mut interpreter, source);
+        let incremental_qir = interpreter.qirgen("Test.Main()").map_or_else(
+            |errors| panic!("{}", format_interpret_errors(errors)),
+            |result| result.qir,
+        );
+        for qir in [compile_source_to_qir(source, capabilities), incremental_qir] {
+            assert!(!qir.contains("@Make"), "factory must be inlined: {qir}");
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{qir}"
+            );
+            assert!(
+                qir.contains("call void @__quantum__rt__result_record_output"),
+                "{qir}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -289,6 +2953,7 @@ fn compile_source_to_qir_with_library_result(
         store,
         &user_dependencies,
     )
+    .map(|result| result.qir)
 }
 
 #[test]
@@ -399,6 +3064,7 @@ fn compile_source_to_qir_from_ast_result(
         sources,
         capabilities,
     )
+    .map(|result| result.qir)
 }
 
 fn compile_source_to_rir(source: &str, capabilities: TargetCapabilityFlags) -> Vec<String> {
@@ -477,7 +3143,7 @@ fn code_with_errors_returns_errors() {
             ],
         )
     "#]]
-    .assert_debug_eq(&get_qir(sources, language_features, capabilities, store, &[(std_id, None)]));
+    .assert_debug_eq(&get_qir(sources, language_features, capabilities, store, &[(std_id, None)]).map(|result| result.qir));
 }
 
 #[test]
@@ -1959,7 +4625,7 @@ fn callable_args_with_arrow_input_survives_dce() {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
         item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
     };
-    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+    let my_op_value = Value::global(my_op_fir_id, FunctorApp::default());
 
     // The synthetic Call path makes ApplyOp entry-reachable. Defunc specializes
     // it to ApplyOp{MyOp}, and the pipeline transforms it fully into a
@@ -1977,6 +4643,7 @@ fn callable_args_with_arrow_input_survives_dce() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         capabilities,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -2085,7 +4752,7 @@ fn callable_args_with_udt_wrapped_arrow_survives_dce() {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
         item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
     };
-    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+    let my_op_value = Value::global(my_op_fir_id, FunctorApp::default());
 
     // Build a Config UDT value: Config(MyOp, 42)
     // UDT values are Value::Tuple(Rc<[Value]>, Option<Rc<StoreItemId>>)
@@ -2175,7 +4842,7 @@ fn callable_with_udt_wrapped_arrow_generates_qir_via_callable_args() {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
         item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
     };
-    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+    let my_op_value = Value::global(my_op_fir_id, FunctorApp::default());
 
     let config_fir_id = qsc_fir::fir::StoreItemId {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
@@ -2201,6 +4868,7 @@ fn callable_with_udt_wrapped_arrow_generates_qir_via_callable_args() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         capabilities,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -2311,7 +4979,7 @@ fn callable_with_nested_udt_wrapped_arrow_generates_qir_via_callable_args() {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
         item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
     };
-    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+    let my_op_value = Value::global(my_op_fir_id, FunctorApp::default());
 
     let config_fir_id = qsc_fir::fir::StoreItemId {
         package: qsc_lowerer::map_hir_package_to_fir(package_id),
@@ -2341,6 +5009,7 @@ fn callable_with_nested_udt_wrapped_arrow_generates_qir_via_callable_args() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         capabilities,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -2494,12 +5163,21 @@ fn callable_args_to_qir(
                     format_interpret_errors(errors)
                 )
             });
+    prepared_callable_to_qir(&codegen_fir, backend, capabilities)
+}
+
+fn prepared_callable_to_qir(
+    codegen_fir: &super::qir::CodegenFir,
+    backend: CallableArgsBackend,
+    capabilities: TargetCapabilityFlags,
+) -> String {
     match backend {
         CallableArgsBackend::SyntheticEntry => {
-            let entry = crate::codegen::qir::entry_from_codegen_fir(&codegen_fir);
+            let entry = crate::codegen::qir::entry_from_codegen_fir(codegen_fir);
             qsc_codegen::qir::fir_to_qir(
                 &codegen_fir.fir_store,
                 capabilities,
+                LanguageFeatures::default(),
                 &codegen_fir.compute_properties,
                 &entry,
             )
@@ -2509,6 +5187,7 @@ fn callable_args_to_qir(
             qsc_codegen::qir::fir_to_qir_from_callable(
                 &codegen_fir.fir_store,
                 capabilities,
+                LanguageFeatures::default(),
                 &codegen_fir.compute_properties,
                 callable,
                 args,
@@ -2545,7 +5224,2280 @@ fn interpreter_with_capabilities(
     .expect("interpreter should be created")
 }
 
+fn runtime_argument_global(interpreter: &crate::interpret::Interpreter, name: &str) -> Value {
+    interpreter
+        .user_globals()
+        .into_iter()
+        .chain(interpreter.source_globals())
+        .find(|global| global.name.as_ref() == name)
+        .expect("source global")
+        .value
+}
+
+/// Uses source typing to establish the target and argument instantiations
+/// without executing the target.
+fn checked_runtime_invocation(
+    interpreter: &mut crate::interpret::Interpreter,
+    target: &str,
+    argument: &str,
+) -> (Value, Value) {
+    let value = eval_fragments(
+        interpreter,
+        &format!(
+            "{{ let selected = {target}; let args = ({argument}); \
+             if false {{ selected(args); }} (selected, args) }}"
+        ),
+    );
+    let Value::Tuple(values, _) = value else {
+        panic!("checked invocation must return target and arguments");
+    };
+    (values[0].clone(), values[1].clone())
+}
+
+#[test]
+fn runtime_callable_argument_generic_bindings_are_consistent_and_scoped() {
+    let source = r#"
+        namespace Test {
+            function Identity<'T>(x : 'T) : 'T { x }
+            operation Wrong(f : Int -> Double) : Unit { let _ = f(0); }
+            operation Pair<'T>(value : 'T, f : 'T -> 'T) : Unit { let _ = f(value); }
+            operation Independent<'T>(value : 'T, f : Int -> Int) : Unit { let _ = (value, f(0)); }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let errors = interpreter
+            .qirgen("Test.Wrong(Test.Identity)")
+            .map(|result| result.qir)
+            .expect_err("source typing must reject inconsistent generic arguments");
+        assert!(format!("{errors:?}").contains("TyMismatch"));
+
+        let (pair, args) =
+            checked_runtime_invocation(&mut interpreter, "Test.Pair", "1, Test.Identity");
+        interpreter
+            .qirgen_from_callable(&pair, args)
+            .map(|result| result.qir)
+            .expect("checked shared type arguments should compile");
+
+        let (independent, args) =
+            checked_runtime_invocation(&mut interpreter, "Test.Independent", "0.5, Test.Identity");
+        interpreter
+            .qirgen_from_callable(&independent, args)
+            .map(|result| result.qir)
+            .expect("distinct declarations' type parameters must not conflict");
+    }
+}
+
+#[test]
+fn runtime_callable_argument_valid_values_match_source_qir() {
+    let source = r#"
+        namespace Test {
+            function Good(x : Int) : Int { x }
+            function Identity<'T>(x : 'T) : 'T { x }
+            function Add(x : Int, y : Int) : Int { x + y }
+            operation Run(f : Int -> Int) : Result {
+                use q = Qubit();
+                if f(0) == 0 { X(q); }
+                MResetZ(q)
+            }
+            operation Each(fs : (Int -> Int)[]) : Result {
+                use q = Qubit();
+                for f in fs { if f(0) == 0 { X(q); } }
+                MResetZ(q)
+            }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        for (target, argument) in [
+            ("Test.Run", "Test.Good"),
+            ("Test.Run", "Test.Identity"),
+            ("Test.Run", "Test.Add(0, _)"),
+            ("Test.Each", "[]"),
+            ("Test.Each", "[Test.Identity]"),
+        ] {
+            let source_call = format!("{target}({argument})");
+            let (target, args) = checked_runtime_invocation(&mut interpreter, target, argument);
+            let qir = interpreter
+                .qirgen_from_callable(&target, args)
+                .map(|result| result.qir)
+                .expect("valid callable arguments must still compile");
+            let source_qir = interpreter
+                .qirgen(&source_call)
+                .map(|result| result.qir)
+                .expect("source invocation");
+            assert_eq!(qir, source_qir, "{profile:?}: {source_call}");
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_argument_functor_shapes_match_source_qir() {
+    let source = r#"
+        namespace Test {
+            operation Extra(q : Qubit) : Unit is Adj + Ctl { X(q); }
+            operation Run(f : Qubit => Unit is Adj) : Result {
+                use q = Qubit();
+                f(q);
+                MResetZ(q)
+            }
+            operation RunControlled(f : (Qubit[], Qubit) => Unit) : Result {
+                use q = Qubit();
+                f([], q);
+                MResetZ(q)
+            }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        for (target, argument) in [
+            ("Test.Run", "Test.Extra"),
+            ("Test.Run", "Adjoint Test.Extra"),
+            ("Test.RunControlled", "Controlled Test.Extra"),
+        ] {
+            let source_call = format!("{target}({argument})");
+            let target = eval_fragments(&mut interpreter, target);
+            let args = eval_fragments(&mut interpreter, argument);
+            let qir = interpreter
+                .qirgen_from_callable(&target, args)
+                .map(|result| result.qir)
+                .expect("supported extra functors and runtime control layers must remain valid");
+            let source_qir = interpreter
+                .qirgen(&source_call)
+                .map(|result| result.qir)
+                .expect("source invocation");
+            assert_eq!(qir, source_qir, "{profile:?}: {source_call}");
+        }
+    }
+}
+
+#[test]
+fn runtime_controlled_generic_callable_matches_source_qir() {
+    check_runtime_controlled_generic_callable("Controlled", 1, true);
+}
+
+#[test]
+fn runtime_controlled_adjoint_generic_callable_matches_source_qir() {
+    check_runtime_controlled_generic_callable("Controlled Adjoint", 1, false);
+}
+
+#[test]
+fn runtime_nested_controlled_generic_callable_matches_source_qir() {
+    check_runtime_controlled_generic_callable("Controlled Controlled", 2, true);
+}
+
+#[test]
+fn runtime_nested_controlled_adjoint_generic_callable_matches_source_qir() {
+    check_runtime_controlled_generic_callable("Controlled Controlled Adjoint", 2, false);
+}
+
+fn check_runtime_controlled_generic_callable(
+    functor: &str,
+    controlled_depth: usize,
+    expected_result: bool,
+) {
+    let mut input = "(Int, Int, Qubit)".to_string();
+    let mut argument = "(7, 8, q)".to_string();
+    for index in (0..controlled_depth).rev() {
+        input = format!("(Qubit[], {input})");
+        argument = format!("([controls[{index}]], {argument})");
+    }
+    for required_functors in ["", "is Adj + Ctl"] {
+        let source = format!(
+            r#"
+            operation Generic<'T: Eq>(left : 'T, right : 'T, q : Qubit) : Unit is Adj + Ctl {{
+                if left != right {{ S(q); }}
+            }}
+            operation Run(f : {input} => Unit {required_functors}) : Result {{
+                use controls = Qubit[{controlled_depth}];
+                for control in controls {{ X(control); }}
+                use q = Qubit();
+                H(q);
+                S(q);
+                f{argument};
+                H(q);
+                for control in controls {{ Reset(control); }}
+                MResetZ(q)
+            }}
+            "#
+        );
+        for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+            let context = format!("{profile:?}, {functor}, required={required_functors:?}");
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, &source);
+            let target = eval_fragments(&mut interpreter, "Run");
+            let argument = eval_fragments(
+                &mut interpreter,
+                &format!("{{ let f : {input} => Unit is Adj + Ctl = {functor} Generic; f }}"),
+            );
+            assert!(
+                matches!(argument, Value::Global(..) | Value::GlobalWithArgs(..)),
+                "{context}: must exercise a runtime generic global"
+            );
+            let mut output = Cursor::new(Vec::new());
+            assert_eq!(
+                interpreter
+                    .invoke(
+                        &mut CursorReceiver::new(&mut output),
+                        target.clone(),
+                        argument.clone(),
+                    )
+                    .unwrap_or_else(|errors| {
+                        panic!(
+                            "{context}: source execution: {}",
+                            format_interpret_errors(errors)
+                        );
+                    }),
+                Value::Result(qsc_eval::val::Result::Val(expected_result)),
+                "{context}: preserve the phase of the functored operation"
+            );
+            let actual = interpreter
+                .qirgen_from_callable(&target, argument)
+                .map_or_else(
+                    |errors| {
+                        panic!(
+                            "{context}: runtime codegen: {}",
+                            format_interpret_errors(errors)
+                        );
+                    },
+                    |result| result.qir,
+                );
+            let expected = interpreter
+                .qirgen(&format!("Run({functor} Generic)"))
+                .map_or_else(
+                    |errors| {
+                        panic!(
+                            "{context}: source codegen: {}",
+                            format_interpret_errors(errors)
+                        );
+                    },
+                    |result| result.qir,
+                );
+            assert_eq!(
+                actual, expected,
+                "{context}: preserve control layers and type arguments"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_checked_type_arguments_resolves_functors_from_later_reader() {
+    check_runtime_nested_functor_inference(
+        "(((Qubit => Unit is Adj + Ctl), Qubit) => Unit is Adj + Ctl)",
+        "Apply",
+        "value(X, q);",
+    );
+}
+
+#[test]
+fn runtime_checked_type_arguments_resolves_functors_inside_array_values() {
+    check_runtime_nested_functor_inference(
+        "(((Qubit => Unit is Adj + Ctl), Qubit) => Unit is Adj + Ctl)[]",
+        "[Apply]",
+        "value[0](X, q);",
+    );
+}
+
+#[test]
+fn runtime_checked_type_arguments_resolves_functors_inside_tuple_values() {
+    check_runtime_nested_functor_inference(
+        "((((Qubit => Unit is Adj + Ctl), Qubit) => Unit is Adj + Ctl), Int)",
+        "(Apply, 7)",
+        "let (op, n) = value; if n == 7 { op(X, q); }",
+    );
+}
+
+fn check_runtime_nested_functor_inference(value_type: &str, value: &str, invoke: &str) {
+    let source = format!(
+        r#"
+        operation Apply(op : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit is Adj + Ctl {{
+            op(q);
+        }}
+        function MakeReader() : ({value_type} => Result) {{
+            value => {{
+                use q = Qubit();
+                {invoke}
+                MResetZ(q)
+            }}
+        }}
+        operation Forward<'T>(value : 'T, read : 'T => Result) : Result {{ read(value) }}
+        operation Reverse<'T>(read : 'T => Result, value : 'T) : Result {{ read(value) }}
+        "#
+    );
+    for (target, arguments) in [
+        ("Forward", format!("({value}, MakeReader())")),
+        ("Reverse", format!("(MakeReader(), {value})")),
+    ] {
+        check_runtime_checked_type_arguments(
+            &source,
+            target,
+            &arguments,
+            &Value::Result(qsc_eval::val::Result::Val(true)),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+#[test]
+fn runtime_checked_type_arguments_keeps_functor_instantiations_independent() {
+    check_runtime_checked_type_arguments(
+        r#"
+        operation Flip(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[0]); }
+        operation Apply(op : Qubit[] => Unit, qs : Qubit[]) : Unit { op(qs); }
+        function AdjointReader() : ((((Qubit[] => Unit is Adj), Qubit[]) => Unit) => Result) {
+            f => { use qs = Qubit[1]; f(Flip, qs); MResetZ(qs[0]) }
+        }
+        function ControlledReader() : ((((Qubit[] => Unit is Ctl), Qubit[]) => Unit) => Result) {
+            f => { use qs = Qubit[1]; f(Flip, qs); MResetZ(qs[0]) }
+        }
+        operation Run<'T, 'U>(left : 'T, readLeft : 'T => Result, readRight : 'U => Result, right : 'U) : Result[] {
+            [readLeft(left), readRight(right)]
+        }
+        "#,
+        "Run",
+        "(Apply, AdjointReader(), ControlledReader(), Apply)",
+        &Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into()),
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+    );
+}
+
+#[test]
+fn runtime_checked_functor_arguments_accepts_mixed_capabilities_in_both_array_orders() {
+    let source = r#"
+        operation Strong<'T>(value : 'T, q : Qubit) : Unit is Adj + Ctl { X(q); }
+        operation Weak<'T>(value : 'T, q : Qubit) : Unit is Adj { X(q); }
+        function AsAdjoint(op : (Int, Qubit) => Unit is Adj) : (Int, Qubit) => Unit is Adj { op }
+        operation Run(ops : ((Int, Qubit) => Unit is Adj)[]) : Result {
+            use q = Qubit();
+            for op in ops { Adjoint op(7, q); }
+            MResetZ(q)
+        }
+    "#;
+    for argument in [
+        "[AsAdjoint(Strong), AsAdjoint(Weak)]",
+        "[AsAdjoint(Weak), AsAdjoint(Strong)]",
+    ] {
+        check_runtime_checked_type_arguments(
+            source,
+            "Run",
+            argument,
+            &Value::Result(qsc_eval::val::Result::Val(false)),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_supports_generic_arrays_in_both_orders() {
+    for argument in [
+        "([AsAdjoint(Strong), AsAdjoint(Weak)], MakeReader())",
+        "([AsAdjoint(Weak), AsAdjoint(Strong)], MakeReader())",
+    ] {
+        check_runtime_common_callable_type("Run", argument);
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_supports_scalar_arguments_in_both_orders() {
+    for argument in [
+        "(AsAdjoint(Strong), AsAdjoint(Weak), MakeReader())",
+        "(AsAdjoint(Weak), AsAdjoint(Strong), MakeReader())",
+    ] {
+        check_runtime_common_callable_type("Pair", argument);
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_supports_reader_first() {
+    for argument in [
+        "(MakeReader(), [AsAdjoint(Strong), AsAdjoint(Weak)])",
+        "(MakeReader(), [AsAdjoint(Weak), AsAdjoint(Strong)])",
+    ] {
+        check_runtime_common_callable_type("ReaderFirst", argument);
+    }
+}
+
+const COMMON_CALLABLE_TYPE_SOURCE: &str = r#"
+    operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+    operation Weak(q : Qubit) : Unit is Adj { X(q); }
+    operation ControlledOnly(q : Qubit) : Unit is Ctl { X(q); }
+    function AsAdjoint(op : Qubit => Unit is Adj) : Qubit => Unit is Adj { op }
+    function AsBody(op : Qubit => Unit) : Qubit => Unit { op }
+    function MakeReader() : ((Qubit => Unit is Adj) => Result) {
+        op => { use q = Qubit(); Adjoint op(q); MResetZ(q) }
+    }
+    function MakeBodyReader() : ((Qubit => Unit) => Result) {
+        op => { use q = Qubit(); op(q); MResetZ(q) }
+    }
+    function MakeControlledReader() : ((Qubit => Unit is Ctl) => Result) {
+        op => { use q = Qubit(); Controlled op([], q); MResetZ(q) }
+    }
+    function Identity<'V>(value : 'V) : 'V { value }
+    operation Run<'T>(values : 'T[], read : 'T => Result) : Result[] {
+        mutable results = [];
+        for value in values { set results += [read(value)]; }
+        results
+    }
+    operation Pair<'T>(left : 'T, right : 'T, read : 'T => Result) : Result[] {
+        [read(left), read(right)]
+    }
+    operation ReaderFirst<'T>(read : 'T => Result, values : 'T[]) : Result[] {
+        mutable results = [];
+        for value in values { set results += [read(value)]; }
+        results
+    }
+    operation Map<'T, 'U>(f : 'T -> 'U, value : 'T, read : 'U => Result) : Result {
+        read(f(value))
+    }
+    operation MapReverse<'T, 'U>(value : 'T, read : 'U => Result, f : 'T -> 'U) : Result {
+        read(f(value))
+    }
+"#;
+
+fn check_runtime_common_callable_type(target: &str, argument: &str) {
+    check_runtime_checked_type_arguments(
+        COMMON_CALLABLE_TYPE_SOURCE,
+        target,
+        argument,
+        &Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into()),
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+    );
+}
+
+#[test]
+fn runtime_common_callable_type_can_require_no_functors() {
+    for argument in [
+        "([AsBody(Weak), AsBody(ControlledOnly)], MakeBodyReader())",
+        "([AsBody(ControlledOnly), AsBody(Weak)], MakeBodyReader())",
+    ] {
+        check_runtime_common_callable_type("Run", argument);
+    }
+}
+
+#[test]
+fn runtime_common_callable_type_supports_factories_with_different_output_capabilities() {
+    let source = r#"
+        operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+        operation Weak(q : Qubit) : Unit is Adj { X(q); }
+        function StrongFactory() : Qubit => Unit is Adj + Ctl { Strong }
+        function WeakFactory() : Qubit => Unit is Adj { Weak }
+        function AsFactory(f : Unit -> (Qubit => Unit is Adj)) : Unit -> (Qubit => Unit is Adj) { f }
+        function MakeReader() : ((Unit -> (Qubit => Unit is Adj)) => Result) {
+            factory => { use q = Qubit(); let op = factory(); Adjoint op(q); MResetZ(q) }
+        }
+        operation Run<'T>(values : 'T[], read : 'T => Result) : Result[] {
+            mutable results = [];
+            for value in values { set results += [read(value)]; }
+            results
+        }
+    "#;
+    for argument in [
+        "([AsFactory(StrongFactory), AsFactory(WeakFactory)], MakeReader())",
+        "([AsFactory(WeakFactory), AsFactory(StrongFactory)], MakeReader())",
+    ] {
+        check_runtime_checked_type_arguments(
+            source,
+            "Run",
+            argument,
+            &Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into()),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+#[test]
+fn runtime_higher_order_consumers_accept_shared_input_capabilities() {
+    check_runtime_higher_order_consumers(false);
+}
+
+#[test]
+fn runtime_higher_order_consumers_accept_reader_first() {
+    check_runtime_higher_order_consumers(true);
+}
+
+fn check_runtime_higher_order_consumers(reader_first: bool) {
+    let source = r#"
+        operation Strong(q : Qubit) : Unit is Adj + Ctl { X(q); }
+        operation NeedsAdjoint(op : Qubit => Unit is Adj, q : Qubit) : Unit {
+            Adjoint op(q);
+        }
+        operation NeedsControl(op : Qubit => Unit is Ctl, q : Qubit) : Unit {
+            Controlled op([], q);
+        }
+        function AsConsumer(f : ((Qubit => Unit is Adj + Ctl), Qubit) => Unit) : ((Qubit => Unit is Adj + Ctl), Qubit) => Unit { f }
+        function MakeReader() : ((((Qubit => Unit is Adj + Ctl), Qubit) => Unit) => Result) {
+            f => { use q = Qubit(); f(Strong, q); MResetZ(q) }
+        }
+        operation Run<'T>(values : 'T[], read : 'T => Result) : Result[] {
+            mutable results = [];
+            for value in values { set results += [read(value)]; }
+            results
+        }
+        operation Reverse<'T>(read : 'T => Result, values : 'T[]) : Result[] {
+            mutable results = [];
+            for value in values { set results += [read(value)]; }
+            results
+        }
+    "#;
+    for consumers in [
+        "[AsConsumer(NeedsAdjoint), AsConsumer(NeedsControl)]",
+        "[AsConsumer(NeedsControl), AsConsumer(NeedsAdjoint)]",
+    ] {
+        let (target, argument) = if reader_first {
+            ("Reverse", format!("(MakeReader(), {consumers})"))
+        } else {
+            ("Run", format!("({consumers}, MakeReader())"))
+        };
+        check_runtime_checked_type_arguments(
+            source,
+            target,
+            &argument,
+            &Value::Array(vec![Value::RESULT_ONE; 2].into()),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+const CAPABILITY_CHAIN_SOURCE: &str = r#"
+    operation Weak(q : Qubit) : Unit is Adj { X(q); }
+    operation Strong(q : Qubit) : Unit is Ctl { X(q); }
+    function Identity<'T>(value : 'T) : 'T { value }
+    function Duplicate<'T>(value : 'T) : ('T, 'T) { (value, value) }
+    function MakeReader() : ((Qubit => Unit is Ctl) => Result) {
+        f => { use q = Qubit(); Controlled f([], q); MResetZ(q) }
+    }
+    function MakePairReader() : (((Qubit => Unit is Ctl), (Qubit => Unit is Ctl)) => Result) {
+        (f, g) => { use q = Qubit(); Controlled f([], q); g(q); MResetZ(q) }
+    }
+    operation Chain<'T, 'U, 'V>(f : 'T -> 'U, g : 'U -> 'V, value : 'T, read : 'V => Result) : Result {
+        read(g(f(value)))
+    }
+    operation Reverse<'T, 'U, 'V>(read : 'V => Result, value : 'T, g : 'U -> 'V, f : 'T -> 'U) : Result {
+        read(g(f(value)))
+    }
+"#;
+
+#[test]
+fn runtime_capability_chain_preserves_supported_control() {
+    check_runtime_capability_chain(false);
+}
+
+#[test]
+fn runtime_capability_chain_with_duplication_preserves_supported_control() {
+    check_runtime_capability_chain(true);
+}
+
+fn check_runtime_capability_chain(duplicate: bool) {
+    let (operation, bound) = ("Strong", "Ctl");
+    let (second, output_type, reader) = if duplicate {
+        (
+            "Duplicate",
+            format!("((Qubit => Unit is {bound}), (Qubit => Unit is {bound}))"),
+            "MakePairReader()",
+        )
+    } else {
+        (
+            "Identity",
+            format!("(Qubit => Unit is {bound})"),
+            "MakeReader()",
+        )
+    };
+    for (target, arguments) in [
+        ("Chain", format!("(first, second, {operation}, {reader})")),
+        ("Reverse", format!("({reader}, {operation}, second, first)")),
+    ] {
+        let expression = format!(
+            "{{ let first : (Qubit => Unit is {bound}) -> (Qubit => Unit is {bound}) = Identity;
+                let second : (Qubit => Unit is {bound}) -> {output_type} = {second};
+                {arguments}
+            }}"
+        );
+        check_runtime_checked_type_arguments(
+            CAPABILITY_CHAIN_SOURCE,
+            target,
+            &expression,
+            &Value::Result(qsc_eval::val::Result::Val(!duplicate)),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+#[test]
+fn runtime_checked_type_arguments_reads_later_array_elements() {
+    let source = r#"
+        operation Run<'T>(values : 'T[][], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            if Length(values[0]) + Length(values[1]) == 1 { op(q); }
+            MResetZ(q)
+        }
+    "#;
+    for argument in ["([[], [7]], X)", "([[7], []], X)"] {
+        check_runtime_checked_type_arguments(
+            source,
+            "Run",
+            argument,
+            &Value::Result(qsc_eval::val::Result::Val(true)),
+            &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        );
+    }
+}
+
+#[test]
+fn runtime_checked_type_arguments_reads_deeply_nested_array_elements() {
+    check_runtime_checked_type_arguments(
+        r#"
+        operation Run<'T>(values : 'T[][][], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            if Length(values[1][1]) == 1 { op(q); }
+            MResetZ(q)
+        }
+        "#,
+        "Run",
+        "([[[], []], [[], [7]]], X)",
+        &Value::Result(qsc_eval::val::Result::Val(true)),
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+    );
+}
+
+#[test]
+fn runtime_checked_type_arguments_preserves_callback_correlations() {
+    check_runtime_checked_type_arguments(
+        r#"
+        function Identity<'V>(value : 'V) : 'V { value }
+        operation Run<'T, 'U>(f : 'T -> 'U, value : 'T) : 'U { f(value) }
+        "#,
+        "Run",
+        "{ let f : Int -> Int = Identity; (f, 7) }",
+        &Value::Int(7),
+        &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
+    );
+}
+
+#[test]
+fn runtime_checked_type_arguments_preserves_callback_correlations_in_reverse_order() {
+    check_runtime_checked_type_arguments(
+        r#"
+        function Identity<'V>(value : 'V) : 'V { value }
+        operation Run<'T, 'U>(value : 'T, f : 'T -> 'U) : 'U { f(value) }
+        "#,
+        "Run",
+        "{ let f : Int -> Int = Identity; (7, f) }",
+        &Value::Int(7),
+        &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
+    );
+}
+
+#[test]
+fn runtime_checked_type_arguments_keeps_callback_instantiations_independent() {
+    check_runtime_checked_type_arguments(
+        r#"
+        function Identity<'V>(value : 'V) : 'V { value }
+        operation Run<'T, 'U>(left : 'T, right : 'U, f : 'T -> 'T, g : 'U -> 'U) : ('T, 'U) {
+            (f(left), g(right))
+        }
+        "#,
+        "Run",
+        "{ let f : Int -> Int = Identity; let g : Bool -> Bool = Identity; (7, true, f, g) }",
+        &Value::Tuple(vec![Value::Int(7), Value::Bool(true)].into(), None),
+        &[Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive],
+    );
+}
+
+fn check_runtime_checked_type_arguments(
+    source: &str,
+    target: &str,
+    argument: &str,
+    expected: &Value,
+    profiles: &[Profile],
+) {
+    for &profile in profiles {
+        let context = format!("{profile:?}, {target}, {argument}");
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(
+            &eval_fragments(&mut interpreter, &format!("{target}({argument})")),
+            expected,
+            "{context}: source result"
+        );
+        let (target_value, value) = checked_runtime_invocation(&mut interpreter, target, argument);
+        let actual = interpreter
+            .qirgen_from_callable(&target_value, value)
+            .map_or_else(
+                |errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                },
+                |result| result.qir,
+            );
+        let reference = interpreter
+            .qirgen(&format!("{target}({argument})"))
+            .map(|result| result.qir)
+            .expect("source call has concrete type evidence");
+        assert_eq!(
+            actual, reference,
+            "{context}: preserve inferred input and output types"
+        );
+    }
+}
+
+#[test]
+fn runtime_callable_entry_rejects_uninferred_type_arguments() {
+    use miette::Diagnostic;
+
+    let source = r#"
+        function Produce<'T>() : 'T { fail "must not run"; }
+        operation Run<'T>(read : Unit -> 'T) : Result {
+            use q = Qubit();
+            MResetZ(q)
+        }
+        operation RunEmpty<'T>(values : 'T[], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            op(q);
+            MResetZ(q)
+        }
+        operation RunNestedEmpty<'T>(values : 'T[][], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            op(q);
+            MResetZ(q)
+        }
+    "#;
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let produce = runtime_argument_global(&interpreter, "Produce");
+        let empty_and_op = Value::Tuple(
+            vec![
+                Value::Array(Vec::new().into()),
+                eval_fragments(&mut interpreter, "X"),
+            ]
+            .into(),
+            None,
+        );
+        let nested_empty_and_op = Value::Tuple(
+            vec![
+                Value::Array(vec![Value::Array(Vec::new().into()); 2].into()),
+                eval_fragments(&mut interpreter, "X"),
+            ]
+            .into(),
+            None,
+        );
+        for (name, args) in [
+            ("Run", produce),
+            ("RunEmpty", empty_and_op),
+            ("RunNestedEmpty", nested_empty_and_op),
+        ] {
+            let errors = interpreter
+                .qirgen_from_callable(&runtime_argument_global(&interpreter, name), args)
+                .map(|result| result.qir)
+                .expect_err("missing type evidence must not be replaced with Unit");
+            assert_eq!(errors.len(), 1, "{profile:?}, {name}: {errors:?}");
+            assert_eq!(
+                errors[0].code().expect("diagnostic code").to_string(),
+                "Qdk.Qsc.EntryPoint.MissingTypeArguments",
+                "{profile:?}, {name}"
+            );
+            let labels: Vec<_> = errors[0].labels().expect("callable source label").collect();
+            assert_eq!(labels.len(), 1);
+            let span = labels[0].inner();
+            assert_eq!(&source[span.offset()..span.offset() + span.len()], name);
+            assert!(errors[0].source_code().is_some());
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_entry_accepts_concrete_type_evidence() {
+    let source = r#"
+        function ProduceInt() : Int { 7 }
+        function ReadInt(value : Int) : Int { value }
+        operation Run<'T>(read : Unit -> 'T) : Result {
+            let _ = read();
+            use q = Qubit();
+            MResetZ(q)
+        }
+        operation RunEmpty<'T>(values : 'T[], op : Qubit => Unit) : Result {
+            use q = Qubit();
+            op(q);
+            MResetZ(q)
+        }
+        operation RunInferred<'T>(values : 'T[], read : 'T -> Int) : Result {
+            use q = Qubit();
+            MResetZ(q)
+        }
+        operation RunInferredReverse<'T>(read : 'T -> Int, values : 'T[]) : Result {
+            use q = Qubit();
+            MResetZ(q)
+        }
+    "#;
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        for (name, expression) in [
+            ("Run", "ProduceInt"),
+            ("RunEmpty", "([7], X)"),
+            (
+                "RunInferred",
+                "({ let values : Int[] = []; values }, ReadInt)",
+            ),
+            (
+                "RunInferredReverse",
+                "(ReadInt, { let values : Int[] = []; values })",
+            ),
+        ] {
+            let (target, argument) = checked_runtime_invocation(&mut interpreter, name, expression);
+            let actual = interpreter
+                .qirgen_from_callable(&target, argument)
+                .map_or_else(
+                    |errors| {
+                        panic!("{profile:?}, {name}: {}", format_interpret_errors(errors));
+                    },
+                    |result| result.qir,
+                );
+            let expected = interpreter
+                .qirgen(&format!("{name}({expression})"))
+                .map(|result| result.qir)
+                .expect("source call has concrete type evidence");
+            assert_eq!(
+                actual, expected,
+                "{profile:?}, {name}: preserve inferred types"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_functor_generic_callable_without_bound_matches_source_qir() {
+    check_runtime_functor_generic_callable("", 0, true, "", false);
+}
+
+#[test]
+fn runtime_functor_generic_callable_with_adjoint_bound_matches_source_qir() {
+    check_runtime_functor_generic_callable("", 0, true, "is Adj", false);
+}
+
+#[test]
+fn runtime_functor_generic_callable_with_controlled_bound_matches_source_qir() {
+    check_runtime_functor_generic_callable("", 0, true, "is Ctl", false);
+}
+
+#[test]
+fn runtime_functor_generic_callable_with_both_bounds_matches_source_qir() {
+    check_runtime_functor_generic_callable("", 0, true, "is Adj + Ctl", false);
+}
+
+#[test]
+fn runtime_functor_generic_adjoint_matches_source_qir() {
+    check_runtime_functor_generic_callable("Adjoint", 0, false, "is Adj + Ctl", false);
+}
+
+#[test]
+fn runtime_functor_generic_controlled_matches_source_qir() {
+    check_runtime_functor_generic_callable("Controlled", 1, true, "is Adj + Ctl", false);
+}
+
+#[test]
+fn runtime_functor_generic_nested_controlled_adjoint_matches_source_qir() {
+    check_runtime_functor_generic_callable(
+        "Controlled Controlled Adjoint",
+        2,
+        false,
+        "is Adj + Ctl",
+        false,
+    );
+}
+
+#[test]
+fn runtime_mixed_type_and_functor_generic_callable_matches_source_qir() {
+    check_runtime_functor_generic_callable("Controlled Adjoint", 1, false, "is Adj + Ctl", true);
+}
+
+fn check_runtime_functor_generic_callable(
+    functor: &str,
+    controlled_depth: usize,
+    expected_result: bool,
+    bound: &str,
+    generic_type: bool,
+) {
+    let (generics, operand_type) = if generic_type {
+        ("<'T>", "'T")
+    } else {
+        ("", "Qubit")
+    };
+    let mut input = format!("((Qubit => Unit {bound}), Qubit)");
+    let mut argument = "(S, q)".to_string();
+    for index in (0..controlled_depth).rev() {
+        input = format!("(Qubit[], {input})");
+        argument = format!("([controls[{index}]], {argument})");
+    }
+    let source = format!(
+        r#"
+        operation ApplyOp{generics}(op : {operand_type} => Unit {bound}, value : {operand_type}) : Unit {bound} {{
+            op(value);
+        }}
+        operation Run(f : {input} => Unit) : Result {{
+            use controls = Qubit[{controlled_depth}];
+            for control in controls {{ X(control); }}
+            use q = Qubit();
+            H(q);
+            S(q);
+            f{argument};
+            H(q);
+            for control in controls {{ Reset(control); }}
+            MResetZ(q)
+        }}
+        "#
+    );
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let context = format!(
+            "{profile:?}, functor={functor:?}, bound={bound:?}, generic_type={generic_type}"
+        );
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, &source);
+        let target = eval_fragments(&mut interpreter, "Run");
+        let argument = eval_fragments(
+            &mut interpreter,
+            &format!("{{ let f : {input} => Unit {bound} = {functor} ApplyOp; f }}"),
+        );
+        assert!(
+            matches!(argument, Value::Global(..) | Value::GlobalWithArgs(..)),
+            "{context}: must exercise a runtime generic global"
+        );
+        let mut output = Cursor::new(Vec::new());
+        assert_eq!(
+            interpreter
+                .invoke(
+                    &mut CursorReceiver::new(&mut output),
+                    target.clone(),
+                    argument.clone(),
+                )
+                .unwrap_or_else(|errors| {
+                    panic!(
+                        "{context}: source execution: {}",
+                        format_interpret_errors(errors)
+                    );
+                }),
+            Value::Result(qsc_eval::val::Result::Val(expected_result)),
+            "{context}: preserve the phase of the applied operation"
+        );
+        let actual = interpreter
+            .qirgen_from_callable(&target, argument)
+            .map_or_else(
+                |errors| {
+                    panic!(
+                        "{context}: runtime codegen: {}",
+                        format_interpret_errors(errors)
+                    );
+                },
+                |result| result.qir,
+            );
+        let expected = interpreter
+            .qirgen(&format!("Run({functor} ApplyOp)"))
+            .map_or_else(
+                |errors| {
+                    panic!(
+                        "{context}: source codegen: {}",
+                        format_interpret_errors(errors)
+                    );
+                },
+                |result| result.qir,
+            );
+        assert_eq!(
+            actual, expected,
+            "{context}: preserve implicit functor arguments"
+        );
+    }
+}
+
+#[test]
+fn runtime_callable_argument_preserves_nominal_udt_identity() {
+    let source = r#"
+        namespace Test {
+            struct A { Data : Int }
+            struct B { Data : Int }
+            struct Config { Transform : A -> A }
+            newtype Scalar = Int;
+            newtype PairValue = (Int, Int);
+            function Identity<'T>(x : 'T) : 'T { x }
+            function IdA(x : A) : A { x }
+            function IdB(x : B) : B { x }
+            function ToB(x : Int) : B { new B { Data = x } }
+            function MakeA(x : A) : (Unit -> A) { () -> x }
+            operation Run(f : A -> A) : Unit { let _ = f(new A { Data = 0 }); }
+            operation Output(f : Int -> A) : Unit { let _ = f(0); }
+            operation Wrapped(config : Config) : Unit {
+                let _ = config.Transform(new A { Data = 0 });
+            }
+            operation Factory(f : Unit -> A) : Unit { let _ = f(); }
+            operation Alias(f : Scalar -> Scalar) : Unit { let _ = f(Scalar(1)); }
+            operation Same<'T>(left : 'T -> 'T, right : 'T -> 'T) : Unit {}
+            operation TupleInput(data : (Int, Int), f : Int -> Int) : Unit {
+                let (x, y) = data;
+                let _ = f(x + y);
+            }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        for (target, argument) in [
+            ("Test.Run", "Test.IdB"),
+            ("Test.Output", "Test.ToB"),
+            ("Test.Wrapped", "new Test.Config { Transform = Test.IdB }"),
+            ("Test.Same", "Test.IdA, Test.IdB"),
+        ] {
+            let source_errors = interpreter
+                .qirgen(&format!("{target}({argument})"))
+                .map(|result| result.qir)
+                .expect_err("source type checker must reject the same nominal mismatch");
+            assert!(format!("{source_errors:?}").contains("TyMismatch"));
+        }
+        for (target, argument) in [
+            ("Test.Run", "Test.IdA"),
+            ("Test.Factory", "Test.MakeA(new Test.A { Data = 0 })"),
+            ("Test.Alias", "Test.Identity"),
+            ("Test.TupleInput", "Test.PairValue(1, 2)!, Test.Identity"),
+        ] {
+            let (target_value, args) =
+                checked_runtime_invocation(&mut interpreter, target, argument);
+            let native = interpreter
+                .qirgen_from_callable(&target_value, args)
+                .map(|result| result.qir)
+                .expect("matching UDT declarations and erased payloads must remain valid");
+            let source = interpreter
+                .qirgen(&format!("{target}({argument})"))
+                .map(|result| result.qir)
+                .expect("valid source call");
+            assert_eq!(native, source, "{profile:?}: {target}({argument})");
+        }
+    }
+}
+
+fn generic_nominal_callback_interpreter(profile: Profile) -> crate::interpret::Interpreter {
+    let mut interpreter = interpreter_with_capabilities(profile.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+        namespace Test {
+            struct A { Data : Int }
+            struct B { Data : Int }
+            struct HolderB { Callback : B -> B }
+            newtype CallbackPair = (Int, (B -> B));
+            function IdA(value : A) : A { value }
+            function IdB(value : B) : B { value }
+            function MakeA(offset : Int) : (A -> A) {
+                value -> new A { Data = value.Data + offset }
+            }
+            function MakeB(offset : Int) : (B -> B) {
+                value -> new B { Data = value.Data + offset }
+            }
+            function ReadB(callback : B -> B) : Int {
+                callback(new B { Data = 4 }).Data
+            }
+            function ReadArrayB(callbacks : (B -> B)[]) : Int {
+                callbacks[0](new B { Data = 4 }).Data
+            }
+            function ReadHolderB(holder : HolderB) : Int {
+                holder.Callback(new B { Data = 4 }).Data
+            }
+            function ReadPairB(pair : (Int, (B -> B))) : Int {
+                let (offset, callback) = pair;
+                callback(new B { Data = 4 }).Data + offset
+            }
+            operation Forward<'T>(value : 'T, read : 'T -> Int) : Unit {
+                let _ = read(value);
+            }
+            operation Reverse<'T>(read : 'T -> Int, value : 'T) : Unit {
+                let _ = read(value);
+            }
+        }
+        "#,
+    );
+    interpreter
+}
+
+#[test]
+fn runtime_callable_argument_generic_nominal_callbacks_accept_matching_values() {
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = generic_nominal_callback_interpreter(profile);
+        for callback in ["Test.IdB", "Test.MakeB(0)"] {
+            for (target, arguments) in [
+                ("Forward", format!("{callback}, Test.ReadB")),
+                ("Reverse", format!("Test.ReadB, {callback}")),
+            ] {
+                let (callee, args) = checked_runtime_invocation(
+                    &mut interpreter,
+                    &format!("Test.{target}"),
+                    &arguments,
+                );
+                interpreter.qirgen_from_callable(&callee, args).map_or_else(
+                    |errors| {
+                        panic!("{profile:?}: {target}, {callback}: {errors:?}");
+                    },
+                    |result| result.qir,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_argument_generic_nominal_callbacks_check_deferred_aggregates() {
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let mut interpreter = generic_nominal_callback_interpreter(profile);
+        for (reader, expression) in [
+            ("ReadArrayB", "[Test.IdB]"),
+            ("ReadHolderB", "new Test.HolderB { Callback = Test.IdB }"),
+            ("ReadPairB", "Test.CallbackPair(0, Test.IdB)!"),
+        ] {
+            for (target, reverse) in [("Forward", false), ("Reverse", true)] {
+                let arguments = if reverse {
+                    format!("Test.{reader}, {expression}")
+                } else {
+                    format!("{expression}, Test.{reader}")
+                };
+                let (callee, args) = checked_runtime_invocation(
+                    &mut interpreter,
+                    &format!("Test.{target}"),
+                    &arguments,
+                );
+                let context = format!("{profile:?}: {target}, {reader}");
+                let result = interpreter
+                    .qirgen_from_callable(&callee, args)
+                    .map(|result| result.qir);
+                result.unwrap_or_else(|errors| panic!("{context}: {errors:?}"));
+            }
+        }
+    }
+}
+
+fn assert_x_targets(qir: &str, expected: &[usize]) {
+    assert_x_targets_with_context(qir, expected, "");
+}
+
+fn assert_x_targets_with_context(qir: &str, expected: &[usize], context: &str) {
+    let calls: Vec<_> = qir
+        .lines()
+        .filter(|line| line.contains("call void @__quantum__qis__x__body("))
+        .collect();
+    assert_eq!(
+        calls.len(),
+        expected.len(),
+        "{context}: unexpected X calls:\n{qir}"
+    );
+    for (call, &target) in calls.iter().zip(expected) {
+        assert!(
+            call.contains(&format!("inttoptr (i64 {target} to %Qubit*)"))
+                || (target == 0 && call.contains("%Qubit* null")),
+            "{context}: expected X on qubit {target}, found {call}:\n{qir}"
+        );
+    }
+}
+
+fn check_nested_selector_qir(selection: &str, target: usize) {
+    for invocation in ["ApplyOne(f, qs)", "f(qs)"] {
+        let source = format!(
+            r#"
+                operation A(qs : Qubit[]) : Unit is Adj + Ctl {{ X(qs[0]); }}
+                operation B(qs : Qubit[]) : Unit is Adj + Ctl {{ X(qs[2]); }}
+                operation ApplyOne(op : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl {{
+                    op(qs);
+                }}
+                function Choose(flag : Bool, a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) {{
+                    if flag {{ a }} else {{ b }}
+                }}
+                function Make() : (Qubit[] => Unit is Adj + Ctl) {{ Choose(1 < 2, A, B) }}
+                operation Main() : Result[] {{
+                    use qs = Qubit[3];
+                    let f = {selection};
+                    {invocation};
+                    MResetEachZ(qs)
+                }}
+                "#
+        );
+        for profile in [Profile::Base, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+            let context = format!("{profile:?}, selection={selection}, invocation={invocation}");
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, &source);
+            let qir = interpreter.qirgen("Main()").map_or_else(
+                |errors| panic!("{context}:\n{}", format_interpret_errors(errors)),
+                |result| result.qir,
+            );
+            assert_x_targets_with_context(&qir, &[target], &context);
+        }
+    }
+}
+
+#[test]
+fn nested_selectors_single_comparison_selects_first_operation() {
+    check_nested_selector_qir("Choose(1 < 2, A, B)", 0);
+}
+
+#[test]
+fn nested_selectors_nested_comparisons_select_first_operation() {
+    check_nested_selector_qir("Choose(1 < 2, Choose(1 < 2, A, B), B)", 0);
+}
+
+#[test]
+fn nested_selectors_inner_false_selects_second_operation() {
+    check_nested_selector_qir("Choose(1 < 2, Choose(1 > 2, A, B), B)", 2);
+}
+
+#[test]
+fn nested_selectors_outer_false_selects_second_operation() {
+    check_nested_selector_qir("Choose(1 > 2, Choose(1 < 2, A, B), B)", 2);
+}
+
+#[test]
+fn nested_selectors_boolean_literals_select_first_operation() {
+    check_nested_selector_qir("Choose(true, Choose(true, A, B), B)", 0);
+}
+
+#[test]
+fn nested_selectors_factory_result_selects_first_operation() {
+    check_nested_selector_qir("Choose(1 < 2, Make(), B)", 0);
+}
+
+const RUNTIME_CALLABLE_CAPTURE_PROFILES: [Profile; 4] = [
+    Profile::Base,
+    Profile::AdaptiveRI,
+    Profile::AdaptiveRIF,
+    Profile::Adaptive,
+];
+
+const RUNTIME_CALLABLE_CAPTURE_SOURCE: &str = indoc::indoc! {r#"
+        operation A(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[0]); }
+        operation B(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[1]); }
+        operation Seq(a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl {
+            a(qs); b(qs);
+        }
+        operation ApplyOnly(a : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl { a(qs); }
+        operation ApplyRepeated(a : (Qubit[] => Unit is Adj + Ctl), n : Int, qs : Qubit[]) : Unit is Adj + Ctl {
+            for _ in 1..n { a(qs); }
+        }
+        function MakeSeq(a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) { Seq(a, b, _) }
+        function MakeForward(a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) { qs => Seq(a, b, qs) }
+        function MakeDirect(a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) { qs => { a(qs); b(qs); } }
+        function MakeOne(a : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) { ApplyOnly(a, _) }
+        function MakeN(a : (Qubit[] => Unit is Adj + Ctl), n : Int) : (Qubit[] => Unit is Adj + Ctl) { ApplyRepeated(a, n, _) }
+        function GetA() : (Qubit[] => Unit is Adj + Ctl) { A }
+        function GetB() : (Qubit[] => Unit is Adj + Ctl) { B }
+        operation Run(f : (Qubit[] => Unit is Adj + Ctl)) : Result[] {
+            use qs = Qubit[2];
+            f(qs);
+            MResetEachZ(qs)
+        }
+        operation RunWithCount(f : (Qubit[] => Unit is Adj + Ctl), count : Int) : Result[] {
+            use qs = Qubit[2];
+            for _ in 1..count { f(qs); }
+            MResetEachZ(qs)
+        }
+        operation RunMany(fs : (Qubit[] => Unit is Adj + Ctl)[]) : Result[] {
+            use qs = Qubit[2];
+            for f in fs { f(qs); }
+            MResetEachZ(qs)
+        }
+        operation RunControlledAdjoint(f : (Qubit[] => Unit is Adj + Ctl)) : Result[] {
+            use control = Qubit();
+            use qs = Qubit[2];
+            X(control);
+            Controlled Adjoint f([control], qs);
+            MResetEachZ([control] + qs)
+        }
+    "#};
+
+fn check_runtime_callable_captures(
+    scenario: &str,
+    factory: &str,
+    capture_count: usize,
+    entry: &str,
+    profiles: &[Profile],
+    targets: &[usize],
+    adaptive_entry: Option<&Expect>,
+) {
+    for &profile in profiles {
+        let context = format!("{scenario}, {profile:?}, factory={factory}, invocation={entry}");
+        let capabilities = profile.into();
+        let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+        let mut interpreter = crate::interpret::Interpreter::new(
+            SourceMap::default(),
+            PackageType::Lib,
+            capabilities,
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+            Default::default(),
+        )
+        .unwrap_or_else(|errors| {
+            panic!("{context}: {}", format_interpret_errors(errors));
+        });
+        let mut eval = |source: &str| {
+            let mut cursor = Cursor::new(Vec::<u8>::new());
+            let mut receiver = CursorReceiver::new(&mut cursor);
+            interpreter
+                .eval_fragments(&mut receiver, source)
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                })
+        };
+        eval(RUNTIME_CALLABLE_CAPTURE_SOURCE);
+        let callable = eval(entry);
+        let closure = eval(factory);
+        assert!(
+            matches!(&closure, Value::Closure(value) if value.fixed_args.len() == capture_count),
+            "{context}: expected {capture_count} captures: {closure:?}"
+        );
+        let args = match entry {
+            "Run" | "RunControlledAdjoint" => closure,
+            "RunWithCount" => Value::Tuple(vec![closure, Value::Int(1)].into(), None),
+            "RunMany" => Value::Array(vec![closure.clone(), closure].into()),
+            _ => panic!("{context}: unsupported capture test entry"),
+        };
+        let qir = interpreter
+            .qirgen_from_callable(&callable, args)
+            .map_or_else(
+                |errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                },
+                |result| result.qir,
+            );
+        if profile == Profile::Adaptive {
+            let entry_body = qir_entry_body(&qir);
+            let x_name = if factory.starts_with("Adjoint ") {
+                "X__Adj"
+            } else {
+                "X"
+            };
+            if let Some(expected) = adaptive_entry {
+                // assert_eq!(entry_body, expected, "{context}: unexpected Adaptive entry");
+                expected.assert_eq(entry_body);
+            } else {
+                let calls = entry_body
+                    .lines()
+                    .filter(|line| line.contains("call void @X"))
+                    .map(str::trim)
+                    .collect::<Vec<_>>();
+                let expected = targets
+                    .iter()
+                    .map(|target| {
+                        format!("call void @{x_name}(ptr inttoptr (i64 {target} to ptr))")
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(calls, expected, "{context}: unexpected Adaptive X targets");
+            }
+            let (_, wrapper) = qir
+                .split_once(&format!("define internal void @{x_name}(ptr "))
+                .unwrap_or_else(|| panic!("{context}: X wrapper should exist:\n{qir}"));
+            let (argument, body) = wrapper
+                .split_once(") {\n")
+                .unwrap_or_else(|| panic!("{context}: X wrapper signature should terminate"));
+            let (body, _) = body
+                .split_once("\n}")
+                .unwrap_or_else(|| panic!("{context}: X wrapper body should terminate"));
+            let (label, instructions) = body
+                .split_once('\n')
+                .unwrap_or_else(|| panic!("{context}: X wrapper should have instructions"));
+            assert!(
+                label.starts_with("block_") && label.ends_with(':'),
+                "{context}: expected X wrapper block label, found {label}"
+            );
+            assert_eq!(
+                instructions,
+                format!("  call void @__quantum__qis__x__body(ptr {argument})\n  ret void"),
+                "{context}: X wrapper must apply exactly one X to its argument"
+            );
+        } else {
+            assert_x_targets_with_context(&qir, targets, &context);
+        }
+        if entry == "RunControlledAdjoint" {
+            let controlled_calls = qir
+                .lines()
+                .filter(|line| line.contains("call void @__quantum__qis__cx__body("))
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join("\n");
+            let qubit_type = if profile == Profile::Adaptive {
+                "ptr"
+            } else {
+                "%Qubit*"
+            };
+            let expected = [2, 1]
+                .map(|target| {
+                    format!(
+                        "call void @__quantum__qis__cx__body({qubit_type} inttoptr (i64 0 to {qubit_type}), {qubit_type} inttoptr (i64 {target} to {qubit_type}))"
+                    )
+                })
+                .join("\n");
+            assert_eq!(
+                controlled_calls, expected,
+                "{context}: controlled adjoint must reverse the captured operations"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_captures_partial_application_of_returned_operations() {
+    check_runtime_callable_captures(
+        "partial application of returned operations",
+        "MakeSeq(GetA(), GetB())",
+        2,
+        "Run",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[0, 1],
+        None,
+    );
+}
+
+#[test]
+fn runtime_callable_captures_partial_application_of_declared_operations() {
+    check_runtime_callable_captures(
+        "partial application of declared operations",
+        "MakeSeq(A, B)",
+        2,
+        "Run",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[0, 1],
+        None,
+    );
+}
+
+#[test]
+fn runtime_callable_captures_adjoint_reverses_captured_operations() {
+    check_runtime_callable_captures(
+        "adjoint of partial application",
+        "Adjoint (MakeSeq(GetA(), GetB()))",
+        2,
+        "Run",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[1, 0],
+        None,
+    );
+}
+
+fn check_runtime_captured_adjoint_phases(controlled: bool) {
+    let (input, invocation, expected_invocation, functor, controls) = if controlled {
+        (
+            "(Qubit[], Qubit[])",
+            "f([control], [q]); Reset(control);",
+            "Controlled Adjoint H([control], q); Controlled Adjoint S([control], q); Reset(control);",
+            "Controlled Adjoint",
+            "use control = Qubit(); X(control);",
+        )
+    } else {
+        (
+            "Qubit[]",
+            "f([q]);",
+            "Adjoint H(q); Adjoint S(q);",
+            "Adjoint",
+            "",
+        )
+    };
+    // The captured S-H adjoint must undo S-H preparation, including S's phase.
+    // Reversing the operations without inverting S would return One, not Zero.
+    let body = |invocation: &str| {
+        format!(
+            "{{ use q = Qubit(); {controls}
+                H(q); S(q); H(q);
+                {invocation}
+                H(q); MResetZ(q)
+            }}"
+        )
+    };
+    for factory in ["Seq(a, b, _)", "qs => { a(qs); b(qs); }"] {
+        let source = format!(
+            r#"
+            operation Phase(qs : Qubit[]) : Unit is Adj + Ctl {{ S(qs[0]); }}
+            operation Basis(qs : Qubit[]) : Unit is Adj + Ctl {{ H(qs[0]); }}
+            operation Seq(a : Qubit[] => Unit is Adj + Ctl, b : Qubit[] => Unit is Adj + Ctl, qs : Qubit[]) : Unit is Adj + Ctl {{
+                a(qs); b(qs);
+            }}
+            function Make(a : Qubit[] => Unit is Adj + Ctl, b : Qubit[] => Unit is Adj + Ctl) : Qubit[] => Unit is Adj + Ctl {{
+                {factory}
+            }}
+            operation Run(f : {input} => Unit is Adj + Ctl) : Result {}
+            operation Expected() : Result {}
+            "#,
+            body(invocation),
+            body(expected_invocation),
+        );
+        for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+            let context = format!("{profile:?}, factory={factory}, functor={functor}");
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, &source);
+            let target = eval_fragments(&mut interpreter, "Run");
+            let captured =
+                eval_fragments(&mut interpreter, &format!("{functor} (Make(Phase, Basis))"));
+            assert!(
+                matches!(&captured, Value::Closure(closure) if closure.fixed_args.len() == 2),
+                "{context}: must exercise two runtime callable captures"
+            );
+            let mut cursor = Cursor::new(Vec::new());
+            assert_eq!(
+                interpreter
+                    .invoke(
+                        &mut CursorReceiver::new(&mut cursor),
+                        target.clone(),
+                        captured.clone(),
+                    )
+                    .unwrap_or_else(|errors| {
+                        panic!("{context}: {}", format_interpret_errors(errors));
+                    }),
+                Value::Result(qsc_eval::val::Result::Val(false)),
+                "{context}: the captured adjoint must undo the preparation"
+            );
+            let qir = interpreter
+                .qirgen_from_callable(&target, captured)
+                .map_or_else(
+                    |errors| {
+                        panic!("{context}: {}", format_interpret_errors(errors));
+                    },
+                    |result| result.qir,
+                );
+            let expected_qir = interpreter.qirgen("Expected()").map_or_else(
+                |errors| {
+                    panic!(
+                        "{context}: reference QIR: {}",
+                        format_interpret_errors(errors)
+                    );
+                },
+                |result| result.qir,
+            );
+            assert_eq!(
+                qir, expected_qir,
+                "{context}: captured adjoints must invert each operation and reverse their order"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_captures_adjoint_inverts_noncommuting_operations() {
+    check_runtime_captured_adjoint_phases(false);
+}
+
+#[test]
+fn runtime_callable_captures_controlled_adjoint_inverts_noncommuting_operations() {
+    check_runtime_captured_adjoint_phases(true);
+}
+
+#[test]
+fn runtime_callable_captures_forwarding_lambda() {
+    check_runtime_callable_captures(
+        "forwarding lambda",
+        "MakeForward(GetA(), GetB())",
+        2,
+        "Run",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[0, 1],
+        None,
+    );
+}
+
+#[test]
+fn runtime_callable_captures_direct_lambda() {
+    check_runtime_callable_captures(
+        "direct lambda",
+        "MakeDirect(GetA(), GetB())",
+        2,
+        "Run",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[0, 1],
+        None,
+    );
+}
+
+#[test]
+fn runtime_callable_captures_single_operation() {
+    check_runtime_callable_captures(
+        "single captured operation",
+        "MakeOne(GetA())",
+        1,
+        "Run",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[0],
+        None,
+    );
+}
+
+#[test]
+fn runtime_callable_captures_operation_and_repeat_count() {
+    check_runtime_callable_captures(
+        "captured operation and repeat count",
+        "MakeN(GetA(), 3)",
+        2,
+        "Run",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[0, 0, 0],
+        Some(&expect![[r#"
+            block_0:
+              %var_1 = alloca i64
+              %var_5 = alloca i1
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 1, ptr %var_1
+              br label %block_1
+            block_1:
+              %var_2 = load i64, ptr %var_1
+              %var_3 = icmp sle i64 %var_2, 3
+              store i1 true, ptr %var_5
+              br i1 %var_3, label %block_2, label %block_3
+            block_2:
+              %var_12 = load i1, ptr %var_5
+              br i1 %var_12, label %block_4, label %block_5
+            block_3:
+              store i1 false, ptr %var_5
+              br label %block_2
+            block_4:
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              %var_7 = load i64, ptr %var_1
+              %var_8 = add i64 %var_7, 1
+              store i64 %var_8, ptr %var_1
+              br label %block_1
+            block_5:
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+              call void @__quantum__rt__array_record_output(i64 2, ptr @0)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @1)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)
+              ret i64 0"#]]),
+    );
+}
+
+#[test]
+fn runtime_callable_captures_controlled_adjoint_reverses_captured_operations() {
+    check_runtime_callable_captures(
+        "controlled adjoint of partial application",
+        "MakeSeq(GetA(), GetB())",
+        2,
+        "RunControlledAdjoint",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[0],
+        None,
+    );
+}
+
+#[test]
+fn runtime_callable_captures_tuple_entry_with_count() {
+    check_runtime_callable_captures(
+        "callable and count tuple entry",
+        "MakeSeq(GetA(), GetB())",
+        2,
+        "RunWithCount",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[0, 1],
+        Some(&expect![[r#"
+            block_0:
+              %var_1 = alloca i64
+              %var_5 = alloca i1
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 1, ptr %var_1
+              br label %block_1
+            block_1:
+              %var_2 = load i64, ptr %var_1
+              %var_3 = icmp sle i64 %var_2, 1
+              store i1 true, ptr %var_5
+              br i1 %var_3, label %block_2, label %block_3
+            block_2:
+              %var_12 = load i1, ptr %var_5
+              br i1 %var_12, label %block_4, label %block_5
+            block_3:
+              store i1 false, ptr %var_5
+              br label %block_2
+            block_4:
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @X(ptr inttoptr (i64 1 to ptr))
+              %var_7 = load i64, ptr %var_1
+              %var_8 = add i64 %var_7, 1
+              store i64 %var_8, ptr %var_1
+              br label %block_1
+            block_5:
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+              call void @__quantum__rt__array_record_output(i64 2, ptr @0)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @1)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)
+              ret i64 0"#]]),
+    );
+}
+
+#[test]
+fn runtime_callable_captures_array_entry() {
+    check_runtime_callable_captures(
+        "callable array entry",
+        "MakeSeq(GetA(), GetB())",
+        2,
+        "RunMany",
+        &RUNTIME_CALLABLE_CAPTURE_PROFILES,
+        &[0, 1, 0, 1],
+        None,
+    );
+}
+
+fn check_runtime_mixed_callable_captures(scenario: &str, make_flip: &str) {
+    for functors in ["", "is Adj", "is Ctl", "is Adj + Ctl"] {
+        let source = format!(
+            r#"
+                operation A(qs : Qubit[]) : Unit {functors} {{ X(qs[0]); }}
+                operation Flip(i : Int, qs : Qubit[]) : Unit {functors} {{ X(qs[i]); }}
+                operation Both(a : (Qubit[] => Unit {functors}), b : (Qubit[] => Unit {functors}), qs : Qubit[]) : Unit {functors} {{
+                    a(qs); b(qs);
+                }}
+                function MakeBoth(a : (Qubit[] => Unit {functors}), b : (Qubit[] => Unit {functors})) : (Qubit[] => Unit {functors}) {{
+                    Both(a, b, _)
+                }}
+                function MakeFlip(i : Int) : (Qubit[] => Unit {functors}) {{ {make_flip} }}
+                operation Run(f : (Qubit[] => Unit {functors})) : Result[] {{
+                    use qs = Qubit[2];
+                    f(qs);
+                    MResetEachZ(qs)
+                }}
+                "#
+        );
+        for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+            let context =
+                format!("{scenario}, {profile:?}, functors={functors:?}, factory={make_flip}");
+            let capabilities = profile.into();
+            let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+            let mut interpreter = crate::interpret::Interpreter::new(
+                SourceMap::default(),
+                PackageType::Lib,
+                capabilities,
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+                Default::default(),
+            )
+            .unwrap_or_else(|errors| {
+                panic!("{context}: {}", format_interpret_errors(errors));
+            });
+            let mut output = Cursor::new(Vec::new());
+            let mut receiver = CursorReceiver::new(&mut output);
+            interpreter
+                .eval_fragments(&mut receiver, &source)
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                });
+            let globals = interpreter.user_globals();
+            let global = |name: &str| {
+                globals
+                    .iter()
+                    .find(|g| g.name.as_ref() == name)
+                    .unwrap_or_else(|| panic!("{context}: {name} should exist"))
+                    .value
+                    .clone()
+            };
+            let flip = interpreter
+                .invoke(&mut receiver, global("MakeFlip"), Value::Int(1))
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: MakeFlip: {}", format_interpret_errors(errors));
+                });
+            let composed = interpreter
+                .invoke(
+                    &mut receiver,
+                    global("MakeBoth"),
+                    Value::Tuple(vec![global("A"), flip].into(), None),
+                )
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: MakeBoth: {}", format_interpret_errors(errors));
+                });
+            let expected =
+                Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into());
+            assert_eq!(
+                interpreter
+                    .invoke(&mut receiver, global("Run"), composed.clone())
+                    .unwrap_or_else(|errors| {
+                        panic!("{context}: Run: {}", format_interpret_errors(errors));
+                    }),
+                expected,
+                "{context}: simulator must flip both qubits"
+            );
+            // Preserve runtime construction: compiling the inline expression
+            // would bypass the closure-value reconstruction that failed.
+            let qir = interpreter
+                .qirgen_from_callable(&global("Run"), composed)
+                .map_or_else(
+                    |errors| {
+                        panic!(
+                            "{context}: QIR generation: {}",
+                            format_interpret_errors(errors)
+                        );
+                    },
+                    |result| result.qir,
+                );
+            if profile == Profile::Adaptive {
+                let calls = qir
+                    .lines()
+                    .filter(|line| line.contains("call void @X("))
+                    .map(str::trim)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    calls,
+                    [
+                        "call void @X(ptr inttoptr (i64 0 to ptr))",
+                        "call void @X(ptr inttoptr (i64 1 to ptr))",
+                    ],
+                    "{context}: unexpected Adaptive X targets"
+                );
+                assert!(
+                    qir.contains("call void @__quantum__qis__x__body("),
+                    "{context}: X wrapper must call the X intrinsic"
+                );
+            } else {
+                assert_x_targets_with_context(&qir, &[0, 1], &context);
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_mixed_callable_captures_partial_application_preserves_operations() {
+    check_runtime_mixed_callable_captures("partial application", "Flip(i, _)");
+}
+
+#[test]
+fn runtime_mixed_callable_captures_lambda_preserves_operations() {
+    check_runtime_mixed_callable_captures("lambda", "qs => Flip(i, qs)");
+}
+
+fn check_runtime_callable_arrays(case: &str) {
+    for functors in ["is Ctl", "is Adj + Ctl"] {
+        for factory in ["ApplyAll(ops, _)", "q => ApplyAll(ops, q)"] {
+            let source = format!(
+                r#"
+                operation A(q : Qubit[]) : Unit {functors} {{ X(q[0]); }}
+                operation B(q : Qubit[]) : Unit is Adj + Ctl {{ X(q[1]); }}
+                operation Flip(i : Int, q : Qubit[]) : Unit {functors} {{ X(q[i]); }}
+                operation ApplyAll(ops : (Qubit[] => Unit {functors})[], q : Qubit[]) : Unit {functors} {{
+                    for op in ops {{ op(q); }}
+                }}
+                function MakeAll(ops : (Qubit[] => Unit {functors})[]) : (Qubit[] => Unit {functors}) {{
+                    {factory}
+                }}
+                function MakeFlip(i : Int) : (Qubit[] => Unit {functors}) {{ Flip(i, _) }}
+                operation Run(f : Qubit[] => Unit {functors}) : Result[] {{
+                    use (control, q) = (Qubit(), Qubit[2]);
+                    X(control);
+                    Controlled f([control], q);
+                    Reset(control);
+                    MResetEachZ(q)
+                }}
+                "#
+            );
+            for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+                let context =
+                    format!("shape={case}, {profile:?}, functors={functors:?}, factory={factory}");
+                let capabilities = profile.into();
+                let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+                let mut interpreter = crate::interpret::Interpreter::new(
+                    SourceMap::default(),
+                    PackageType::Lib,
+                    capabilities,
+                    LanguageFeatures::default(),
+                    store,
+                    &[(std_id, None)],
+                    Default::default(),
+                )
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                });
+                let mut output = Cursor::new(Vec::new());
+                interpreter
+                    .eval_fragments(&mut CursorReceiver::new(&mut output), &source)
+                    .unwrap_or_else(|errors| {
+                        panic!("{context}: {}", format_interpret_errors(errors));
+                    });
+                let globals = interpreter.user_globals();
+                let global = |name: &str| {
+                    globals
+                        .iter()
+                        .find(|g| g.name.as_ref() == name)
+                        .unwrap_or_else(|| panic!("{context}: {name} should exist"))
+                        .value
+                        .clone()
+                };
+                let invoke = |interpreter: &mut crate::interpret::Interpreter, name, args| {
+                    let mut output = Cursor::new(Vec::new());
+                    interpreter
+                        .invoke(&mut CursorReceiver::new(&mut output), global(name), args)
+                        .unwrap_or_else(|errors| {
+                            panic!("{context}: {name}: {}", format_interpret_errors(errors));
+                        })
+                };
+                let values = match case {
+                    "globals" => vec![global("A"), global("B")],
+                    "partial" => vec![
+                        invoke(&mut interpreter, "MakeFlip", Value::Int(0)),
+                        global("B"),
+                    ],
+                    "empty" => Vec::new(),
+                    "nested" => ["A", "B"]
+                        .map(|name| {
+                            invoke(
+                                &mut interpreter,
+                                "MakeAll",
+                                Value::Array(vec![global(name)].into()),
+                            )
+                        })
+                        .to_vec(),
+                    _ => panic!("{context}: unsupported capture-array shape"),
+                };
+                let composed = invoke(&mut interpreter, "MakeAll", Value::Array(values.into()));
+                assert_eq!(
+                    invoke(&mut interpreter, "Run", composed.clone()),
+                    Value::Array(
+                        vec![Value::Result(qsc_eval::val::Result::Val(case != "empty")); 2].into()
+                    ),
+                    "{context}: unexpected simulator results"
+                );
+                let qir = interpreter
+                    .qirgen_from_callable(&global("Run"), composed.clone())
+                    .map_or_else(
+                        |errors| {
+                            panic!(
+                                "{context}: QIR generation: {}",
+                                format_interpret_errors(errors)
+                            );
+                        },
+                        |result| result.qir,
+                    );
+                let calls = qir
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| line.starts_with("call void @__quantum__qis__cx__body("))
+                    .map(|line| line.replace("%Qubit*", "ptr"))
+                    .collect::<Vec<_>>();
+                if case == "empty" {
+                    assert!(
+                        calls.is_empty(),
+                        "{context}: empty captures must apply no controlled gates"
+                    );
+                } else {
+                    assert_eq!(
+                        calls,
+                        [
+                            "call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))",
+                            "call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))",
+                        ],
+                        "{context}: unexpected controlled X operands"
+                    );
+                }
+                if case == "partial" {
+                    let repeated = interpreter
+                        .qirgen_from_callable(&global("Run"), composed)
+                        .map_or_else(
+                            |errors| {
+                                panic!(
+                                    "{context}: repeated QIR generation: {}",
+                                    format_interpret_errors(errors)
+                                );
+                            },
+                            |result| result.qir,
+                        );
+                    assert_eq!(
+                        qir, repeated,
+                        "{context}: compilation must preserve reusable runtime values"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_arrays_global_captures_preserve_declared_functors() {
+    check_runtime_callable_arrays("globals");
+}
+
+#[test]
+fn runtime_callable_arrays_partial_captures_preserve_declared_functors() {
+    check_runtime_callable_arrays("partial");
+}
+
+#[test]
+fn runtime_callable_arrays_empty_captures_preserve_declared_functors() {
+    check_runtime_callable_arrays("empty");
+}
+
+#[test]
+fn runtime_callable_arrays_nested_captures_preserve_declared_functors() {
+    check_runtime_callable_arrays("nested");
+}
+
+#[test]
+fn runtime_normalization_preserves_bounds_and_templates() {
+    use qsc_fir::{
+        fir::{CallableDecl, CallableImpl, Package, Pat, PatId, PatKind},
+        ty::{FunctorSet, FunctorSetValue, Ty},
+    };
+
+    fn controls(decl: &CallableDecl) -> Vec<PatId> {
+        let CallableImpl::Spec(specs) = &decl.implementation else {
+            return Vec::new();
+        };
+        std::iter::once(&specs.body)
+            .chain(specs.adj.iter())
+            .chain(specs.ctl.iter())
+            .chain(specs.ctl_adj.iter())
+            .filter_map(|spec| spec.input)
+            .collect()
+    }
+
+    fn patterns(package: &Package, mut roots: Vec<PatId>) -> Vec<Pat> {
+        let mut result = Vec::new();
+        while let Some(id) = roots.pop() {
+            let pat = package.get_pat(id);
+            if let PatKind::Tuple(children) = &pat.kind {
+                roots.extend(children);
+            }
+            result.push(pat.clone());
+        }
+        result
+    }
+
+    let source = r#"
+        operation ApplyAll(ops : (Qubit => Unit is Adj + Ctl)[], q : Qubit) : Unit is Adj + Ctl {
+            for op in ops { op(q); }
+        }
+        function MakeAll(ops : (Qubit => Unit is Adj + Ctl)[]) : (Qubit => Unit is Adj + Ctl) {
+            ApplyAll(ops, _)
+        }
+    "#;
+    let (store, package_id, items) = compile_and_locate_items(
+        source,
+        &[(".lambda", true), ("ApplyAll", true)],
+        Profile::AdaptiveRIF.into(),
+    );
+    let lambda_id = fir_id_for(package_id, items[".lambda"]);
+    let generic_id = fir_id_for(package_id, items["ApplyAll"]);
+    let hir_package = &store
+        .get(package_id)
+        .expect("source package exists")
+        .package;
+    // A shallow HIR clone shares mutable arrow cells, so snapshot their values.
+    let original_hir = format!("{hir_package:?}");
+    let (fir_store, package_id, _) = lower_hir_to_fir(&store, package_id);
+    let package = fir_store.get(package_id);
+    let FirItemKind::Callable(lambda) = &package.get_item(lambda_id.item).kind else {
+        panic!("lifted lambda should exist");
+    };
+    assert!(lambda.generics.is_empty());
+    let lambda_inputs = patterns(package, vec![lambda.input]);
+    let control_inputs = patterns(package, controls(lambda));
+    assert!(
+        !control_inputs.is_empty(),
+        "fixture must include control bindings"
+    );
+    let is_parameterized_capture = |pat: &Pat| {
+        matches!(&pat.ty, Ty::Array(ty)
+            if matches!(ty.as_ref(), Ty::Arrow(arrow)
+                if matches!(arrow.functors, FunctorSet::Param(_))))
+    };
+    assert!(
+        lambda_inputs.iter().any(is_parameterized_capture),
+        "fixture must expose an inherited functor parameter",
+    );
+    let FirItemKind::Callable(generic) = &package.get_item(generic_id.item).kind else {
+        panic!("generic callable should exist");
+    };
+    assert!(!generic.generics.is_empty());
+    let mut generic_roots = controls(generic);
+    generic_roots.push(generic.input);
+    let generic_inputs = patterns(package, generic_roots);
+    let callables = FxHashSet::from_iter([lambda_id, generic_id]);
+
+    let normalized =
+        super::qir::normalize_runtime_callable_hir(hir_package, package_id, &callables);
+    assert_eq!(format!("{hir_package:?}"), original_hir);
+    assert_eq!(
+        normalized.items.get(items["ApplyAll"]),
+        hir_package.items.get(items["ApplyAll"]),
+        "preserve the entire generic declaration"
+    );
+    let repeated = super::qir::normalize_runtime_callable_hir(&normalized, package_id, &callables);
+    assert_eq!(
+        format!("{normalized:?}"),
+        format!("{repeated:?}"),
+        "normalization is idempotent"
+    );
+    let foreign_callables = callables
+        .iter()
+        .map(|id| StoreItemId {
+            package: qsc_fir::fir::PackageId::from(0_usize),
+            ..*id
+        })
+        .collect();
+    assert!(matches!(
+        super::qir::normalize_runtime_callable_hir(hir_package, package_id, &foreign_callables),
+        std::borrow::Cow::Borrowed(_)
+    ));
+
+    let normalized_fir =
+        qsc_lowerer::Lowerer::new().lower_package(&normalized, &fir_store, package_id);
+    let package = &normalized_fir;
+    for before in &lambda_inputs {
+        let after = package.get_pat(before.id);
+        assert_eq!(
+            after.kind, before.kind,
+            "preserve input bindings and structure"
+        );
+        assert_eq!(after.span, before.span);
+        assert!(
+            !is_parameterized_capture(after),
+            "input must be concrete: {after:?}"
+        );
+        if let Ty::Array(item) = &after.ty
+            && let Ty::Arrow(arrow) = item.as_ref()
+        {
+            assert_eq!(
+                arrow.functors,
+                FunctorSet::Value(FunctorSetValue::CtlAdj),
+                "preserve the capture's declared functor bound"
+            );
+        }
+        if let PatKind::Tuple(children) = &after.kind {
+            let Ty::Tuple(types) = &after.ty else {
+                panic!("tuple pattern must retain its tuple type");
+            };
+            assert_eq!(children.len(), types.len());
+            for (&child, ty) in children.iter().zip(types) {
+                assert_eq!(&package.get_pat(child).ty, ty);
+            }
+        }
+    }
+    for before in generic_inputs.iter().chain(&control_inputs) {
+        assert_eq!(
+            package.get_pat(before.id),
+            before,
+            "preserve generic inputs and controls"
+        );
+    }
+}
+
+#[test]
+fn nested_callable_arrays_control_each_target() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit is Ctl { X(q[0]); }
+        operation B(q : Qubit[]) : Unit is Ctl { X(q[1]); }
+        operation ApplyAll(ops : (Qubit[] => Unit is Ctl)[], q : Qubit[]) : Unit is Ctl {
+            for op in ops { op(q); }
+        }
+        function MakeAll(ops : (Qubit[] => Unit is Ctl)[]) : (Qubit[] => Unit is Ctl) {
+            ApplyAll(ops, _)
+        }
+        operation Run(f : Qubit[] => Unit is Ctl) : Result[] {
+            use (control, q) = (Qubit(), Qubit[2]);
+            X(control);
+            Controlled f([control], q);
+            Reset(control);
+            MResetEachZ(q)
+        }
+        @EntryPoint() operation Main() : Result[] {
+            Run(MakeAll([MakeAll([A]), MakeAll([B])]))
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let qir = compile_source_to_qir(source, profile.into());
+        let gates = qir
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("call void @__quantum__qis__cx__body("))
+            .map(|line| line.replace("%Qubit*", "ptr"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        expect![[r#"
+            call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+            call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))"#]]
+        .assert_eq(&gates);
+    }
+}
+
 // ---- Synthetic path: arrow + non-callable params (tuple input) ----
+
+#[test]
+fn checked_args_reject_mismatched_tuple_arity() {
+    let source = indoc::indoc! {r#"
+        function Id(value : Int) : Int { value }
+        operation Run(read : Int -> Int, value : Int) : Int { read(value) }
+    "#};
+    let caps = Profile::AdaptiveRI.into();
+    let (store, package, items) =
+        compile_and_locate_items(source, &[("Run", true), ("Id", true)], caps);
+    let read = Value::global(fir_id_for(package, items["Id"]), FunctorApp::default());
+    let incomplete_args = Value::Tuple(vec![read].into(), None);
+
+    qsc_fir_transforms::test_utils::assert_panics_with(
+        "tuple argument arity must match its checked type",
+        || {
+            let _ = prepare_codegen_fir_from_callable_args(
+                &store,
+                hir_id_for(package, items["Run"]),
+                &incomplete_args,
+                caps,
+            );
+        },
+    );
+}
+
+#[test]
+fn checked_args_pinned_generic_target_uses_unit_entry() {
+    let source = "operation Ignore<'T>(value : 'T) : Unit {}";
+    let caps = Profile::AdaptiveRI.into();
+    let (store, package, items) = compile_and_locate_items(source, &[("Ignore", true)], caps);
+    let type_args = qsc_eval::callable::TypeArgs::bind(
+        fir_id_for(package, items["Ignore"]),
+        vec![qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Prim(
+            qsc_fir::ty::Prim::Qubit,
+        ))],
+        qsc_eval::callable::TypeArgs::Empty,
+    );
+    let qubit = Rc::new(qsc_eval::val::Qubit(0));
+    let args = Value::Qubit((&qubit).into());
+
+    let (prepared, backend) = super::qir::prepare_codegen_fir_from_typed_callable_args(
+        &store,
+        hir_id_for(package, items["Ignore"]),
+        &type_args,
+        &args,
+        caps,
+    )
+    .expect("runtime qubit argument should use pinned preparation");
+
+    assert!(matches!(
+        backend,
+        CallableArgsBackend::ReinvokeOriginal { .. }
+    ));
+    let package = prepared.fir_store.get(prepared.fir_package_id);
+    let entry = package.get_expr(package.entry.expect("pinned route must seed an entry"));
+    assert_eq!(entry.ty, qsc_fir::ty::Ty::UNIT);
+    assert!(matches!(&entry.kind, FirExprKind::Tuple(elements) if elements.is_empty()));
+}
 
 #[test]
 fn synthetic_path_arrow_and_int_tuple_generates_qir() {
@@ -2567,7 +7519,7 @@ fn synthetic_path_arrow_and_int_tuple_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunOp", true), ("MyH", true)], caps);
 
-    let my_h = Value::Global(fir_id_for(pkg, items["MyH"]), FunctorApp::default());
+    let my_h = Value::global(fir_id_for(pkg, items["MyH"]), FunctorApp::default());
     let args = Value::Tuple(vec![my_h, Value::Int(3)].into(), None);
 
     let qir = callable_args_to_qir(&store, pkg, items["RunOp"], &args, caps);
@@ -2608,8 +7560,8 @@ fn synthetic_path_two_arrow_args_generates_qir() {
         caps,
     );
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(vec![do_h, do_x].into(), None);
 
     let qir = callable_args_to_qir(&store, pkg, items["ApplyBoth"], &args, caps);
@@ -2624,7 +7576,7 @@ fn synthetic_path_two_arrow_args_generates_qir() {
 }
 
 #[test]
-fn synthetic_path_generic_target_infers_type_from_callable_arg() {
+fn synthetic_path_generic_target_uses_checked_type_arguments() {
     let source = indoc::indoc! {r#"
         namespace Test {
             operation ApplyGeneric<'T>(op : 'T => Unit, value : 'T) : Result {
@@ -2645,12 +7597,26 @@ fn synthetic_path_generic_target_infers_type_from_callable_arg() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("ApplyGeneric", true), ("DoHIfOne", true)], caps);
 
-    let do_h_if_one = Value::Global(fir_id_for(pkg, items["DoHIfOne"]), FunctorApp::default());
+    let do_h_if_one = Value::global(fir_id_for(pkg, items["DoHIfOne"]), FunctorApp::default());
     let args = Value::Tuple(vec![do_h_if_one, Value::Int(1)].into(), None);
 
     let target_hir = hir_id_for(pkg, items["ApplyGeneric"]);
-    let (_codegen_fir, backend) = prepare_codegen_fir_from_callable_args(
-        &store, target_hir, &args, caps,
+    let target_types = qsc_eval::callable::TypeArgs::bind(
+        fir_id_for(pkg, items["ApplyGeneric"]),
+        vec![
+            qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Int)),
+            qsc_fir::ty::GenericArg::Functor(qsc_fir::ty::FunctorSet::Value(
+                qsc_fir::ty::FunctorSetValue::Empty,
+            )),
+        ],
+        qsc_eval::callable::TypeArgs::Empty,
+    );
+    let (codegen_fir, backend) = super::qir::prepare_codegen_fir_from_typed_callable_args(
+        &store,
+        target_hir,
+        &target_types,
+        &args,
+        caps,
     )
     .unwrap_or_else(|errors| {
         panic!(
@@ -2663,10 +7629,10 @@ fn synthetic_path_generic_target_infers_type_from_callable_arg() {
         "lowerable generic target args should use the synthetic entry"
     );
 
-    let qir = callable_args_to_qir(&store, pkg, items["ApplyGeneric"], &args, caps);
+    let qir = prepared_callable_to_qir(&codegen_fir, backend, caps);
     assert!(
         qir.contains("__quantum__qis__h__body"),
-        "expected generic target to infer T = Int and emit H:\n{qir}"
+        "expected checked T = Int target and emit H:\n{qir}"
     );
 }
 
@@ -2684,13 +7650,27 @@ fn callable_args_with_top_level_qubit_value_use_reinvoke_original() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("ApplyGeneric", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let qubit = Rc::new(qsc_eval::val::Qubit(0));
     let args = Value::Tuple(vec![do_h, Value::Qubit((&qubit).into())].into(), None);
 
     let target_hir = hir_id_for(pkg, items["ApplyGeneric"]);
-    let (_codegen_fir, backend) = prepare_codegen_fir_from_callable_args(
-        &store, target_hir, &args, caps,
+    let target_types = qsc_eval::callable::TypeArgs::bind(
+        fir_id_for(pkg, items["ApplyGeneric"]),
+        vec![
+            qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Qubit)),
+            qsc_fir::ty::GenericArg::Functor(qsc_fir::ty::FunctorSet::Value(
+                qsc_fir::ty::FunctorSetValue::Empty,
+            )),
+        ],
+        qsc_eval::callable::TypeArgs::Empty,
+    );
+    let (_codegen_fir, backend) = super::qir::prepare_codegen_fir_from_typed_callable_args(
+        &store,
+        target_hir,
+        &target_types,
+        &args,
+        caps,
     )
     .unwrap_or_else(|errors| {
         panic!(
@@ -2727,7 +7707,7 @@ fn synthetic_path_int_arrow_bool_tuple_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Middle", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(vec![Value::Int(2), do_x, Value::Bool(true)].into(), None);
 
     let qir = callable_args_to_qir(&store, pkg, items["Middle"], &args, caps);
@@ -2793,7 +7773,7 @@ fn synthetic_path_struct_with_callable_field_generates_qir() {
         caps,
     );
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let config = Value::Tuple(
         vec![do_h, Value::Int(42)].into(),
         Some(Rc::new(fir_id_for(pkg, items["Config"]))),
@@ -2861,7 +7841,7 @@ fn synthetic_path_single_global_arg_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Invoke", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
 
     let qir = callable_args_to_qir(&store, pkg, items["Invoke"], &do_x, caps);
     assert!(
@@ -2887,6 +7867,7 @@ fn synthetic_path_captureless_closure_adjoint_preserves_functor() {
         compile_and_locate_items(source, &[("Invoke", true), ("DoS", true)], caps);
 
     let adjoint_do_s = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: Vec::<Value>::new().into(),
         id: fir_id_for(pkg, items["DoS"]),
         functor: FunctorApp {
@@ -2908,6 +7889,7 @@ fn synthetic_path_captureless_closure_adjoint_preserves_functor() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         caps,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -2916,6 +7898,231 @@ fn synthetic_path_captureless_closure_adjoint_preserves_functor() {
         qir.contains("__quantum__qis__s__adj"),
         "expected adjoint S gate in QIR:\n{qir}"
     );
+}
+
+#[test]
+fn synthetic_captureless_lambda_array_preserves_input() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation CallAll(ops : (Qubit => Unit)[]) : Result {
+                use q = Qubit();
+                for op in ops {
+                    op(q);
+                }
+                MResetZ(q)
+            }
+        }
+    "#};
+
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let callable = eval_fragments(&mut interpreter, "Test.CallAll");
+        let args = eval_fragments(&mut interpreter, "[q => X(q)]");
+        let qir = interpreter
+            .qirgen_from_callable(&callable, args)
+            .map_or_else(
+                |errors| {
+                    panic!(
+                        "lambda array failed on {profile:?}: {}",
+                        format_interpret_errors(errors)
+                    )
+                },
+                |result| result.qir,
+            );
+        assert_eq!(
+            qir.matches("call void @__quantum__qis__x__body(").count(),
+            1,
+            "{profile:?} should preserve the captureless lambda call:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn foreign_closure_arguments_preserve_package_identity() {
+    let user_source = r#"
+        namespace Test {
+            function DecoyA(value : Int) : Int { value - 100 }
+            function DecoyB(value : Int) : Int { value - 200 }
+            function DecoyC(value : Int) : Int { value - 300 }
+            function Run(actions : (Int -> Int)[]) : Int {
+                mutable answer = 0;
+                for action in actions { set answer += action(3); }
+                answer
+            }
+            function Wrap(action : Int -> Int) : Int -> Int { value -> action(value) + 7 }
+        }
+        "#;
+    for capturing in [false, true] {
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let capabilities = profile.into();
+            let (mut store, user_package, items) = compile_and_locate_items(
+                user_source,
+                &[("Run", true), ("DecoyA", true), (".lambda", true)],
+                capabilities,
+            );
+            let library_source = if capturing {
+                "namespace Library { function Make(offset : Int) : Int -> Int { value -> value + offset } export Make; }"
+            } else {
+                "namespace Library { function Make() : Int -> Int { value -> value + 100 } export Make; }"
+            };
+            let (unit, errors) = crate::compile::compile(
+                &store,
+                &[],
+                source_map_from_source(library_source),
+                PackageType::Lib,
+                capabilities,
+                LanguageFeatures::default(),
+            );
+            assert!(errors.is_empty(), "library must compile: {errors:?}");
+            let lambda = unit
+                .package
+                .items
+                .iter()
+                .find_map(|(id, item)| match &item.kind {
+                    ItemKind::Callable(decl)
+                        if callable_name_matches(decl.name.name.as_ref(), ".lambda") =>
+                    {
+                        Some(id)
+                    }
+                    _ => None,
+                })
+                .expect("library must contain a lifted lambda");
+            let library_package = store.insert(unit);
+            let foreign = Value::Closure(Box::new(qsc_eval::val::Closure {
+                type_args: qsc_eval::callable::TypeArgs::Unbound,
+                id: fir_id_for(library_package, lambda),
+                fixed_args: if capturing {
+                    vec![Value::Int(100)]
+                } else {
+                    vec![]
+                }
+                .into(),
+                functor: FunctorApp::default(),
+            }));
+            let wrapped = Value::Closure(Box::new(qsc_eval::val::Closure {
+                type_args: qsc_eval::callable::TypeArgs::Unbound,
+                id: fir_id_for(user_package, items[".lambda"]),
+                fixed_args: vec![foreign.clone()].into(),
+                functor: FunctorApp::default(),
+            }));
+            for (values, expected) in [
+                (vec![foreign.clone()], 103),
+                (
+                    vec![
+                        foreign,
+                        Value::global(
+                            fir_id_for(user_package, items["DecoyA"]),
+                            FunctorApp::default(),
+                        ),
+                    ],
+                    6,
+                ),
+                (vec![wrapped], 110),
+            ] {
+                let args = Value::Array(values.into());
+                let qir =
+                    callable_args_to_qir(&store, user_package, items["Run"], &args, capabilities);
+                assert!(
+                    qir.contains(&format!(
+                        "call void @__quantum__rt__int_record_output(i64 {expected},"
+                    )),
+                    "foreign closure must retain its package on {profile:?}, capturing={capturing}:\n{qir}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn foreign_operation_closure_arrays_emit_the_library_gate() {
+    let user_source = r#"
+        namespace Test {
+            operation DecoyA(target : Qubit) : Unit { Z(target); }
+            operation DecoyB(target : Qubit) : Unit { H(target); }
+            operation DecoyC(target : Qubit) : Unit { I(target); }
+            operation Run(actions : (Qubit => Unit)[]) : Result {
+                use target = Qubit();
+                for action in actions { action(target); }
+                MResetZ(target)
+            }
+        }
+        "#;
+    for capturing in [false, true] {
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            let capabilities = profile.into();
+            let (mut store, user_package, items) =
+                compile_and_locate_items(user_source, &[("Run", true)], capabilities);
+            let std_id = store
+                .iter()
+                .map(|(id, _)| id)
+                .find(|id| *id != PackageId::CORE && *id != user_package)
+                .expect("the fixture store contains the standard library");
+            let library_source = if capturing {
+                "namespace Library { function Make(enabled : Bool) : Qubit => Unit { target => { if enabled { X(target); } } } export Make; }"
+            } else {
+                "namespace Library { function Make() : Qubit => Unit { target => X(target) } export Make; }"
+            };
+            let (unit, errors) = crate::compile::compile(
+                &store,
+                &[(std_id, None)],
+                source_map_from_source(library_source),
+                PackageType::Lib,
+                capabilities,
+                LanguageFeatures::default(),
+            );
+            assert!(errors.is_empty(), "library must compile: {errors:?}");
+            let lambda = unit
+                .package
+                .items
+                .iter()
+                .find_map(|(id, item)| match &item.kind {
+                    ItemKind::Callable(decl)
+                        if callable_name_matches(decl.name.name.as_ref(), ".lambda") =>
+                    {
+                        Some(id)
+                    }
+                    _ => None,
+                })
+                .expect("library must contain a lifted lambda");
+            let library_package = store.insert(unit);
+            let argument = Value::Array(
+                vec![Value::Closure(Box::new(qsc_eval::val::Closure {
+                    type_args: qsc_eval::callable::TypeArgs::Unbound,
+                    id: fir_id_for(library_package, lambda),
+                    fixed_args: if capturing {
+                        vec![Value::Bool(true)]
+                    } else {
+                        vec![]
+                    }
+                    .into(),
+                    functor: FunctorApp::default(),
+                }))]
+                .into(),
+            );
+            let qir =
+                callable_args_to_qir(&store, user_package, items["Run"], &argument, capabilities);
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body(").count(),
+                1,
+                "{profile:?} must call the library lambda:\n{qir}"
+            );
+            assert!(
+                !qir.contains("__quantum__qis__h__body"),
+                "a same-numbered local item must not be invoked:\n{qir}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -2958,6 +8165,7 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
     // The lifted lambda's input is `(shift, register)`; capturing `shift = 1`
     // leaves the explicit `register` slot for the synthetic entry to supply.
     let shifted_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Int(1)].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -2985,6 +8193,455 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
         qir.contains("__quantum__qis__x__body"),
         "expected X gate from the captured shift in QIR:\n{qir}"
     );
+}
+
+#[test]
+fn synthetic_closure_arrays_preserve_scalar_and_tuple_inputs() {
+    for (input, lambda, argument, expected) in [
+        ("Int", "value -> value + 1", "3", 4),
+        (
+            "(Int, Int)",
+            "(left, right) -> left * 10 + right",
+            "(2, 3)",
+            23,
+        ),
+        ("Unit", "() -> 7", "()", 7),
+    ] {
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(
+                &mut interpreter,
+                &format!(
+                    r#"
+                    function CallAll(actions : ({input} -> Int)[]) : Int {{
+                        mutable result = 0;
+                        for action in actions {{ set result += action({argument}); }}
+                        result
+                    }}
+                    "#
+                ),
+            );
+            let callable = eval_fragments(&mut interpreter, "CallAll");
+            let args = eval_fragments(&mut interpreter, &format!("[{lambda}]"));
+            let qir = interpreter
+                .qirgen_from_callable(&callable, args)
+                .map_or_else(
+                    |errors| {
+                        panic!(
+                            "{input} closure array failed on {profile:?}: {}",
+                            format_interpret_errors(errors)
+                        )
+                    },
+                    |result| result.qir,
+                );
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{input} closure array should return {expected} on {profile:?}:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn indexed_callable_selections_record_expected_values() {
+    // Each call contributes one digit: `Inc(3)` is 4 and `Twice(3)` is 6.
+    // `Pick(false, _)` ignores the index; `Pick(true, -1)` reads the last
+    // element; `Choose` must call the reassigned `functions[-1]`.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Inc(x : Int) : Int { x + 1 }
+            function Twice(x : Int) : Int { 2 * x }
+            function Pick(flag : Bool, index : Int) : Int {
+                let functions = [Inc, Twice];
+                let selected = if flag { functions[index] } else { Inc };
+                selected(3)
+            }
+            function Choose(first : Int, second : Int) : Int {
+                let functions = [Inc, Twice];
+                mutable selected = functions[first];
+                set selected = functions[second];
+                selected(3)
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                Pick(false, 1) * 10000 + Pick(false, 99) * 1000
+                    + Pick(true, 0) * 100 + Pick(true, -1) * 10 + Choose(-2, -1)
+            }
+        }
+    "#};
+
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 44466,"),
+            "{profile:?} should record [4, 4, 4, 6, 6] as 44466:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn forwarded_callable_uses_reassigned_selection() {
+    // `Choose(-2, -1)` forwards `Twice` (6) and `Choose(-1, -2)` forwards
+    // `Inc` (4), so the program records 64.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Inc(value : Int) : Int { value + 1 }
+            function Twice(value : Int) : Int { value * 2 }
+            function Apply(action : Int -> Int, value : Int) : Int { action(value) }
+            function Choose(first : Int, second : Int) : Int {
+                let functions = [Inc, Twice];
+                mutable selected = functions[first];
+                set selected = functions[second];
+                Apply(selected, 3)
+            }
+            @EntryPoint()
+            operation Main() : Int { Choose(-2, -1) * 10 + Choose(-1, -2) }
+        }
+    "#};
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 64,"),
+            "{profile:?} should record both reaching selections as 64:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn reassigned_global_callable_records_array_selection() {
+    for invoke in ["selected(3)", "Apply(selected, 3)"] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            function Choose(index : Int) : Int {{
+                let functions = [Inc, Twice];
+                mutable selected = Inc;
+                set selected = functions[index];
+                {invoke}
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Choose(1) }}
+            "#
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains("call void @__quantum__rt__int_record_output(i64 6,"),
+                "{profile:?} should record 6 for {invoke}:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_index_reassignment_is_rejected_on_adaptive_ri() {
+    for invoke in ["selected(target);", "Apply(selected, target);"] {
+        let source = format!(
+            r#"
+            operation Apply(action : Qubit => Unit, target : Qubit) : Unit {{ action(target); }}
+            operation Choose(first : Int, second : Int, target : Qubit) : Unit {{
+                let actions = [I, X];
+                mutable selected = actions[first];
+                set selected = actions[second];
+                {invoke}
+            }}
+            @EntryPoint()
+            operation Main() : Result {{
+                use flag = Qubit();
+                use target = Qubit();
+                X(flag);
+                let index = if MResetZ(flag) == One {{ 1 }} else {{ 0 }};
+                Choose(0, index, target);
+                MResetZ(target)
+            }}
+            "#
+        );
+        let errors = compile_source_to_qir_result(&source, Profile::AdaptiveRI.into())
+            .expect_err("runtime indexed dispatch must retain capability diagnostics");
+        let diagnostics = format_interpret_errors(errors);
+        assert!(
+            diagnostics.contains("Qdk.Qsc.CapabilitiesCk.UseOfDynamicIndex"),
+            "expected a capability diagnostic for {invoke}:\n{diagnostics}"
+        );
+    }
+}
+
+#[test]
+fn conservative_callable_fallbacks_preserve_results() {
+    // Each body takes a conservative (non-specialized) path that must keep its
+    // result: an argument that changes the returned callable's guard, a stored
+    // partial application with an effectful capture, and an array slot whose
+    // element depends on a runtime index.
+    for (body, expected) in [
+        (
+            "mutable flag = true; let value = Choose(flag, { set flag = false; 0 })(3); value * 10 + (if flag { 1 } else { 0 })",
+            40,
+        ),
+        (
+            "mutable action = Offset(Mark(), _); action(3) * 100 + action(4)",
+            1314,
+        ),
+        ("ReadSelected(0) * 1000 + ReadSelected(1)", 402_602),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Minus(value : Int) : Int {{ value - 1 }}
+            function Choose(flag : Bool, ignored : Int) : Int -> Int {{
+                if flag {{ Inc }} else {{ Twice }}
+            }}
+            function Mark() : Int {{ Message("capture"); 10 }}
+            function Offset(offset : Int, value : Int) : Int {{ value + offset }}
+            function Read(actions : (Int -> Int)[]) : Int {{
+                mutable answer = 0;
+                for action in actions {{ set answer = answer * 100 + action(3); }}
+                answer
+            }}
+            function ReadSelected(index : Int) : Int {{
+                let actions = [Inc, Twice];
+                let choices = [actions[index], Minus];
+                Read(choices)
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ {body} }}
+            "#
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{profile:?} must preserve {expected} for {body}:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn inline_measurement_capture_is_evaluated_once() {
+    // A partial application whose capture is a measurement must still be
+    // specialized: declining it leaves a dynamic callable that Adaptive
+    // targets reject.
+    let source = r#"
+        function FromFlag(flag : Bool, value : Int) : Int {
+            if flag { value + 1 } else { value + 2 }
+        }
+        function Apply(action : Int -> Int, value : Int) : Int { action(value) }
+        @EntryPoint()
+        operation Main() : Int {
+            use flag = Qubit();
+            Apply(FromFlag(MResetZ(flag) == One, _), 3)
+        }
+        "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_eq!(
+            qir.matches("call void @__quantum__qis__mresetz__body(")
+                .count(),
+            1,
+            "capture initialization must measure once on {profile:?}:\n{qir}"
+        );
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 %"),
+            "{profile:?} must preserve the measurement-dependent result:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn aliased_guards_select_expected_gate() {
+    for (threshold, expected, excluded) in [(1, "h", "z"), (3, "z", "h")] {
+        let source = format!(
+            r#"
+            namespace Demo {{
+                function Choose(b : Bool) : (Qubit => Unit) {{
+                    if b {{ H }} else {{ if b {{ X }} else {{ Z }} }}
+                }}
+                @EntryPoint()
+                operation Main() : Result {{
+                    use q = Qubit();
+                    let arr = [1, 2, 3];
+                    let x = Length(arr) > {threshold};
+                    let f = Choose(x);
+                    f(q);
+                    MResetZ(q)
+                }}
+            }}
+            "#
+        );
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, &source);
+            for (path, qir) in [
+                ("program", compile_source_to_qir(&source, profile.into())),
+                (
+                    "interpreter",
+                    interpreter
+                        .qirgen("Demo.Main()")
+                        .map(|result| result.qir)
+                        .expect("issue 3768 must generate QIR"),
+                ),
+            ] {
+                assert_eq!(
+                    qir.matches(&format!("call void @__quantum__qis__{expected}__body("))
+                        .count(),
+                    1,
+                    "{profile:?} {path} must select {expected} for threshold {threshold}:\n{qir}"
+                );
+                assert!(
+                    !qir.contains("call void @__quantum__qis__x__body(")
+                        && !qir.contains(&format!("call void @__quantum__qis__{excluded}__body(")),
+                    "{profile:?} {path} must not select another branch:\n{qir}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn aliased_runtime_guards_compile() {
+    let source = indoc::indoc! {r#"
+        namespace Demo {
+            function Choose(b : Bool) : (Qubit => Unit) {
+                if b { H } else { if b { X } else { Z } }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                use guard = Qubit();
+                let flag = MResetZ(guard) == One;
+                let action = Choose(flag);
+                action(target);
+                MResetZ(target)
+            }
+        }
+    "#};
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("br i1")
+                && qir.contains("call void @__quantum__qis__h__body(")
+                && qir.contains("call void @__quantum__qis__z__body("),
+            "{profile:?} must retain both runtime outcomes:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn nested_runtime_guards_compile_on_adaptive_profiles() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Choose(first : Bool, second : Bool) : (Qubit => Unit) {
+                if first { I } else { if second { X } else { Z } }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                use guard = Qubit();
+                let first = M(guard) == One;
+                let second = M(guard) == Zero;
+                let selected = Choose(first, second);
+                selected(target);
+                Reset(guard);
+                MResetZ(target)
+            }
+        }
+    "#};
+
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__qis__x__body("),
+            "{profile:?} should resolve the runtime-guarded callable selection:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn forwarded_callable_array_emits_both_operations() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation RunLoop(
+                operations : ((Qubit, Qubit) => Unit is Adj)[],
+                qubits : Qubit[]
+            ) : Unit is Adj {
+                for index in 0..Length(operations) - 1 {
+                    operations[index](qubits[index], qubits[2]);
+                }
+            }
+            function MakeLoop(
+                operations : ((Qubit, Qubit) => Unit is Adj)[]
+            ) : Qubit[] => Unit is Adj {
+                RunLoop(operations, _)
+            }
+            operation Forward(action : Qubit[] => Unit is Adj, qubits : Qubit[]) : Unit {
+                action(qubits);
+            }
+            operation Apply(action : Qubit[] => Unit is Adj) : Result[] {
+                use qubits = Qubit[3];
+                X(qubits[0]);
+                X(qubits[1]);
+                Forward(action, qubits);
+                MResetEachZ(qubits)
+            }
+            operation First(control : Qubit, target : Qubit) : Unit is Adj {
+                CNOT(control, target);
+            }
+            operation Second(control : Qubit, target : Qubit) : Unit is Adj {
+                CNOT(control, target);
+                X(control);
+            }
+            @EntryPoint()
+            operation Main() : Result[] {
+                Apply(MakeLoop([First, Second]))
+            }
+        }
+    "#};
+
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let qir = compile_source_to_qir(source, profile.into());
+        let (cnot_call, x_call) = if profile == Profile::Adaptive {
+            for name in ["First", "Second"] {
+                assert_eq!(
+                    qir.matches(&format!("call void @{name}(")).count(),
+                    1,
+                    "{qir}"
+                );
+            }
+            ("call void @CNOT(", "call void @X(")
+        } else {
+            (
+                "call void @__quantum__qis__cx__body(",
+                "call void @__quantum__qis__x__body(",
+            )
+        };
+        assert_eq!(
+            qir.matches(cnot_call).count(),
+            2,
+            "{profile:?} must apply both elements:\n{qir}"
+        );
+        assert_eq!(
+            qir.matches(x_call).count(),
+            3,
+            "{profile:?} must retain the second element's X:\n{qir}"
+        );
+    }
 }
 
 #[test]
@@ -3024,14 +8681,15 @@ fn synthetic_path_returned_for_each_with_generic_global_capture_generates_qir() 
         None,
     );
 
-    let qir = interpreter
-        .qirgen_from_callable(&apply, args)
-        .unwrap_or_else(|errors| {
+    let qir = interpreter.qirgen_from_callable(&apply, args).map_or_else(
+        |errors| {
             panic!(
                 "returned ForEach callable should compile, got: {}",
                 format_interpret_errors(errors)
             )
-        });
+        },
+        |result| result.qir,
+    );
     assert!(
         qir.contains("i64 2") && qir.contains("i64 1"),
         "expected QIR to contain the computed lengths [2, 1]:\n{qir}"
@@ -3074,14 +8732,15 @@ fn synthetic_path_returned_for_each_direct_length_closure_generates_qir() {
         None,
     );
 
-    let qir = interpreter
-        .qirgen_from_callable(&apply, args)
-        .unwrap_or_else(|errors| {
+    let qir = interpreter.qirgen_from_callable(&apply, args).map_or_else(
+        |errors| {
             panic!(
                 "returned direct ForEach callable should compile, got: {}",
                 format_interpret_errors(errors)
             )
-        });
+        },
+        |result| result.qir,
+    );
     assert!(
         qir.contains("i64 2") && qir.contains("i64 1"),
         "expected QIR to contain the computed lengths [2, 1]:\n{qir}"
@@ -3161,11 +8820,12 @@ fn synthetic_path_controlled_hof_forwarded_capturing_closure_generates_qir() {
     );
 
     // prepare = Global(PrepareIdentity); select = Closure capturing coeffs = [1].
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
     let select = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Array(Rc::new(vec![Value::Int(1)]))].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -3257,11 +8917,12 @@ fn synthetic_path_doubly_controlled_hof_forwarded_capturing_closure_generates_qi
         caps,
     );
 
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
     let select = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Array(Rc::new(vec![Value::Int(1)]))].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -3337,6 +8998,7 @@ fn synthetic_path_single_callable_doubly_controlled_hof_forwarded_capturing_clos
     );
 
     let select = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Array(Rc::new(vec![Value::Int(1)]))].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -3459,16 +9121,19 @@ fn same_target_multi_closure_args_route_to_synthetic_entry_and_generate_qir() {
 
     let apply_rz = fir_id_for(pkg, items["ApplyRz"]);
     let first = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Double(1.0)].into(),
         id: apply_rz,
         functor: FunctorApp::default(),
     }));
     let second = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Double(2.0)].into(),
         id: apply_rz,
         functor: FunctorApp::default(),
     }));
     let third = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Double(3.0)].into(),
         id: apply_rz,
         functor: FunctorApp::default(),
@@ -3543,11 +9208,13 @@ fn nested_closure_arg_routes_to_synthetic_entry_and_generates_inner_effect() {
     );
 
     let inner = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Double(4.0)].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
     let outer = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![inner].into(),
         id: fir_id_for(pkg, items["ApplyInner"]),
         functor: FunctorApp::default(),
@@ -3610,6 +9277,7 @@ fn classical_capture_closure_routes_to_synthetic_entry_qubit_capture_does_not() 
     // Keep the captured qubit alive for the duration of the closure value.
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -3654,7 +9322,7 @@ fn synthetic_path_array_arg_preserves_element_values() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunWith", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![
             do_x,
@@ -3695,7 +9363,7 @@ fn synthetic_path_empty_array_arg_does_not_panic() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunWith", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(vec![do_x, Value::Array(vec![].into())].into(), None);
 
     let qir = callable_args_to_qir(&store, pkg, items["RunWith"], &args, caps);
@@ -3731,7 +9399,7 @@ fn synthetic_path_nested_empty_array_arg_does_not_panic() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunNested", true), ("DoX", true)], caps);
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![do_x, Value::Array(vec![Value::Array(vec![].into())].into())].into(),
         None,
@@ -3840,6 +9508,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     // The lifted lambda's input is `(reps, target)`; capturing `reps = 1` leaves the
     // explicit `target` slot for the closure invocation to supply.
     let rotation_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Int(1)].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -3875,6 +9544,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     // Keep the captured qubit alive for the duration of the closure value.
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -3922,6 +9592,7 @@ fn early_return_in_dynamic_branch_reinvoke_original_compiles_parity_target() {
     // Keep the captured qubit alive for the duration of the closure value.
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -3968,7 +9639,7 @@ fn synthetic_path_udt_wrapped_controlled_callable_preserves_functor() {
         caps,
     );
 
-    let controlled_do_x = Value::Global(
+    let controlled_do_x = Value::global(
         fir_id_for(pkg, items["DoX"]),
         FunctorApp {
             adjoint: false,
@@ -3994,6 +9665,7 @@ fn synthetic_path_udt_wrapped_controlled_callable_preserves_functor() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         caps,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -4025,7 +9697,7 @@ fn synthetic_path_single_field_struct_wrapping_callable_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunBoxed", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
 
     let qir = callable_args_to_qir(&store, pkg, items["RunBoxed"], &do_h, caps);
     assert!(
@@ -4057,7 +9729,7 @@ fn synthetic_path_struct_wrapping_callable_and_tag_generates_qir() {
         caps,
     );
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let boxed = Value::Tuple(
         vec![do_h, Value::Int(0)].into(),
         Some(Rc::new(fir_id_for(pkg, items["OpBox"]))),
@@ -4090,7 +9762,7 @@ fn synthetic_path_udt_wrapped_adjoint_callable_preserves_functor() {
         caps,
     );
 
-    let adjoint_do_s = Value::Global(
+    let adjoint_do_s = Value::global(
         fir_id_for(pkg, items["DoS"]),
         FunctorApp {
             adjoint: true,
@@ -4116,6 +9788,7 @@ fn synthetic_path_udt_wrapped_adjoint_callable_preserves_functor() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         caps,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -4146,7 +9819,7 @@ fn synthetic_path_callable_with_double_and_string_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Tagged", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![Value::Double(1.5), do_h, Value::String("test".into())].into(),
         None,
@@ -4192,7 +9865,7 @@ fn synthetic_path_nested_struct_with_callable_generates_qir() {
         caps,
     );
 
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let inner = Value::Tuple(
         vec![do_x, Value::Int(1)].into(),
         Some(Rc::new(fir_id_for(pkg, items["OpBox"]))),
@@ -4246,7 +9919,7 @@ fn synthetic_path_callable_field_taking_udt_with_callable_generates_qir() {
         caps,
     );
 
-    let use_inner = Value::Global(fir_id_for(pkg, items["UseInner"]), FunctorApp::default());
+    let use_inner = Value::global(fir_id_for(pkg, items["UseInner"]), FunctorApp::default());
     let outer = Value::Tuple(
         vec![use_inner, Value::Int(1)].into(),
         Some(Rc::new(fir_id_for(pkg, items["Outer"]))),
@@ -4266,6 +9939,7 @@ fn synthetic_path_callable_field_taking_udt_with_callable_generates_qir() {
     let qir = qsc_codegen::qir::fir_to_qir(
         &codegen_fir.fir_store,
         caps,
+        LanguageFeatures::default(),
         &codegen_fir.compute_properties,
         &entry,
     )
@@ -4295,7 +9969,7 @@ fn synthetic_path_tuple_with_one_callable_among_many_scalars() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Wide", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![
             Value::Int(1),
@@ -4335,7 +10009,7 @@ fn plain_tuple_with_callable_takes_synthetic_path() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("RunPair", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     // Plain tuple — no UDT tag.
     let args = Value::Tuple(vec![do_h, Value::Int(2)].into(), None);
 
@@ -4376,8 +10050,8 @@ fn synthetic_path_struct_with_two_callable_fields_generates_qir() {
         caps,
     );
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
-    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_x = Value::global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
     let ops = Value::Tuple(
         vec![do_h, do_x].into(),
         Some(Rc::new(fir_id_for(pkg, items["Ops"]))),
@@ -4423,7 +10097,7 @@ fn synthetic_path_callable_with_pauli_and_result_values() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("Measure", true), ("DoH", true)], caps);
 
-    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_h = Value::global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
     let args = Value::Tuple(
         vec![do_h, Value::Pauli(qsc_fir::fir::Pauli::Z)].into(),
         None,
@@ -4459,7 +10133,7 @@ fn callable_returning_closure_arg_generates_qir() {
     let (store, pkg, items) =
         compile_and_locate_items(source, &[("DoOp", true), ("MakeOp", true)], caps);
 
-    let make_op = Value::Global(fir_id_for(pkg, items["MakeOp"]), FunctorApp::default());
+    let make_op = Value::global(fir_id_for(pkg, items["MakeOp"]), FunctorApp::default());
     let qir = callable_args_to_qir(&store, pkg, items["DoOp"], &make_op, caps);
     assert!(
         qir.contains("__quantum__qis__h__body"),
@@ -4546,19 +10220,20 @@ fn chemistry_like_sequential_partial_application_generates_qir() {
         caps,
     );
 
-    let first_step = Value::Global(
+    let first_step = Value::global(
         fir_id_for(pkg, items["ApplyFirstStep"]),
         FunctorApp::default(),
     );
-    let second_step = Value::Global(
+    let second_step = Value::global(
         fir_id_for(pkg, items["ApplySecondStep"]),
         FunctorApp::default(),
     );
-    let third_step = Value::Global(
+    let third_step = Value::global(
         fir_id_for(pkg, items["ApplyThirdStep"]),
         FunctorApp::default(),
     );
     let sequential = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![first_step, second_step].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -4642,11 +10317,11 @@ fn chemistry_like_controlled_factory_generates_qir() {
         caps,
     );
 
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
-    let select = Value::Global(
+    let select = Value::global(
         fir_id_for(pkg, items["SelectIdentity"]),
         FunctorApp::default(),
     );
@@ -4743,11 +10418,11 @@ fn chemistry_like_controlled_psp_wrapper_generates_qir() {
         caps,
     );
 
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
-    let select = Value::Global(
+    let select = Value::global(
         fir_id_for(pkg, items["SelectIdentity"]),
         FunctorApp::default(),
     );
@@ -4864,11 +10539,12 @@ fn chemistry_like_state_preparation_closure_with_empty_expansion_ops_generates_q
         None,
     );
     let prepare = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![state_params].into(),
         id: fir_id_for(pkg, items["ApplyStatePreparation"]),
         functor: FunctorApp::default(),
     }));
-    let select = Value::Global(
+    let select = Value::global(
         fir_id_for(pkg, items["SelectIdentity"]),
         FunctorApp::default(),
     );
@@ -4981,24 +10657,24 @@ fn chemistry_like_standard_qpe_callable_array_generates_qir() {
         caps,
     );
 
-    let state_prep = Value::Global(
+    let state_prep = Value::global(
         fir_id_for(pkg, items["PrepareSystems"]),
         FunctorApp::default(),
     );
     let controlled_unitaries = Value::Array(
         vec![
-            Value::Global(
+            Value::global(
                 fir_id_for(pkg, items["ControlledFirst"]),
                 FunctorApp::default(),
             ),
-            Value::Global(
+            Value::global(
                 fir_id_for(pkg, items["ControlledSecond"]),
                 FunctorApp::default(),
             ),
         ]
         .into(),
     );
-    let phase_prep = Value::Global(
+    let phase_prep = Value::global(
         fir_id_for(pkg, items["PreparePhase"]),
         FunctorApp::default(),
     );
@@ -5185,6 +10861,7 @@ fn chemistry_like_standard_qpe_callable_array_of_closures_generates_qir() {
         None,
     );
     let state_prep = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![state_prep_params].into(),
         id: fir_id_for(pkg, items["StatePreparation"]),
         functor: FunctorApp::default(),
@@ -5202,6 +10879,7 @@ fn chemistry_like_standard_qpe_callable_array_of_closures_generates_qir() {
                     None,
                 );
                 Value::Closure(Box::new(qsc_eval::val::Closure {
+                    type_args: qsc_eval::callable::TypeArgs::Unbound,
                     fixed_args: vec![params].into(),
                     id: rep_controlled_id,
                     functor: FunctorApp::default(),
@@ -5211,6 +10889,7 @@ fn chemistry_like_standard_qpe_callable_array_of_closures_generates_qir() {
             .into(),
     );
     let phase_prep = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![].into(),
         id: fir_id_for(pkg, items["PreparePhase"]),
         functor: FunctorApp::default(),
@@ -5335,11 +11014,11 @@ fn chemistry_like_iqpe_params_struct_generates_qir() {
         caps,
     );
 
-    let state_prep = Value::Global(
+    let state_prep = Value::global(
         fir_id_for(pkg, items["PrepareSystems"]),
         FunctorApp::default(),
     );
-    let rep_controlled_unitary = Value::Global(
+    let rep_controlled_unitary = Value::global(
         fir_id_for(pkg, items["RepControlledUnitary"]),
         FunctorApp::default(),
     );
@@ -5464,15 +11143,16 @@ fn chemistry_like_iqpe_with_controlled_psp_closure_generates_qir() {
         caps,
     );
 
-    let prepare = Value::Global(
+    let prepare = Value::global(
         fir_id_for(pkg, items["PrepareIdentity"]),
         FunctorApp::default(),
     );
-    let select = Value::Global(
+    let select = Value::global(
         fir_id_for(pkg, items["SelectIdentity"]),
         FunctorApp::default(),
     );
     let rep_controlled_unitary = Value::Closure(Box::new(qsc_eval::val::Closure {
+        type_args: qsc_eval::callable::TypeArgs::Unbound,
         fixed_args: vec![prepare.clone(), select, Value::Int(1), Value::Int(1)].into(),
         id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
@@ -5588,9 +11268,10 @@ fn chemistry_like_iqpe_with_udt_capture_closure_generates_base_profile_qir() {
         "#,
     );
 
-    let qir = interpreter
-        .qirgen_from_callable(&target, args)
-        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+    let qir = interpreter.qirgen_from_callable(&target, args).map_or_else(
+        |errors| panic!("{}", format_interpret_errors(errors)),
+        |result| result.qir,
+    );
     assert!(
         qir.contains("define i64 @ENTRYPOINT__main()"),
         "expected entry point in QIR:\n{qir}"
@@ -6020,7 +11701,6 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
           %var_6 = alloca i64
           %var_7 = alloca i64
           %var_10 = alloca i64
-          %var_11 = alloca i64
           %var_12 = alloca [2 x i64]
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -6057,19 +11737,17 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
           store i64 0, ptr %var_10
           br label %block_9
         block_9:
-          %var_21 = load i64, ptr %var_10
-          store i64 %var_21, ptr %var_11
-          %var_23 = load i64, ptr %var_3
-          %var_24 = load i64, ptr %var_7
+          %var_11 = load i64, ptr %var_10
+          %var_21 = load i64, ptr %var_3
+          %var_22 = load i64, ptr %var_7
           %var_12_0 = getelementptr [2 x i64], ptr %var_12, i64 0, i64 0
-          store i64 %var_23, ptr %var_12_0
+          store i64 %var_21, ptr %var_12_0
           %var_12_1 = getelementptr [2 x i64], ptr %var_12, i64 0, i64 1
-          store i64 %var_24, ptr %var_12_1
-          %var_26 = load i64, ptr %var_11
-          %var_27_offset_chk = icmp slt i64 %var_26, 0
-          %var_27_offset = select i1 %var_27_offset_chk, i64 1, i64 0
-          %var_27 = getelementptr [2 x i64], ptr %var_12, i64 %var_27_offset, i64 %var_26
-          %var_13 = load i64, ptr %var_27
+          store i64 %var_22, ptr %var_12_1
+          %var_24_offset_chk = icmp slt i64 %var_11, 0
+          %var_24_offset = select i1 %var_24_offset_chk, i64 1, i64 0
+          %var_24 = getelementptr [2 x i64], ptr %var_12, i64 %var_24_offset, i64 %var_11
+          %var_13 = load i64, ptr %var_24
           call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
           ret i64 0
         }
@@ -6129,8 +11807,6 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
           %var_2 = alloca i64
           %var_3 = alloca i64
           %var_6 = alloca i64
-          %var_7 = alloca i64
-          %var_9 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -6154,12 +11830,9 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
           store i64 0, ptr %var_6
           br label %block_6
         block_6:
-          %var_14 = load i64, ptr %var_6
-          store i64 %var_14, ptr %var_7
-          %var_16 = load i64, ptr %var_3
-          store i64 %var_16, ptr %var_9
-          %var_18 = load i64, ptr %var_9
-          call void @__quantum__rt__int_record_output(i64 %var_18, ptr @0)
+          %var_7 = load i64, ptr %var_6
+          %var_9 = load i64, ptr %var_3
+          call void @__quantum__rt__int_record_output(i64 %var_9, ptr @0)
           ret i64 0
         }
 
@@ -6229,7 +11902,6 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
           %var_18 = alloca i64
           %var_19 = alloca i64
           %var_22 = alloca i64
-          %var_23 = alloca i64
           %var_24 = alloca [2 x i64]
           %var_25 = alloca [3 x i64]
           call void @__quantum__rt__initialize(ptr null)
@@ -6303,32 +11975,30 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
           store i64 0, ptr %var_22
           br label %block_18
         block_18:
-          %var_45 = load i64, ptr %var_22
-          store i64 %var_45, ptr %var_23
-          %var_47 = load i64, ptr %var_3
-          %var_48 = load i64, ptr %var_7
+          %var_23 = load i64, ptr %var_22
+          %var_45 = load i64, ptr %var_3
+          %var_46 = load i64, ptr %var_7
           %var_24_0 = getelementptr [2 x i64], ptr %var_24, i64 0, i64 0
-          store i64 %var_47, ptr %var_24_0
+          store i64 %var_45, ptr %var_24_0
           %var_24_1 = getelementptr [2 x i64], ptr %var_24, i64 0, i64 1
-          store i64 %var_48, ptr %var_24_1
-          %var_50 = load i64, ptr %var_11
-          %var_51 = load i64, ptr %var_15
-          %var_52 = load i64, ptr %var_19
+          store i64 %var_46, ptr %var_24_1
+          %var_48 = load i64, ptr %var_11
+          %var_49 = load i64, ptr %var_15
+          %var_50 = load i64, ptr %var_19
           %var_25_0 = getelementptr [3 x i64], ptr %var_25, i64 0, i64 0
-          store i64 %var_50, ptr %var_25_0
+          store i64 %var_48, ptr %var_25_0
           %var_25_1 = getelementptr [3 x i64], ptr %var_25, i64 0, i64 1
-          store i64 %var_51, ptr %var_25_1
+          store i64 %var_49, ptr %var_25_1
           %var_25_2 = getelementptr [3 x i64], ptr %var_25, i64 0, i64 2
-          store i64 %var_52, ptr %var_25_2
-          %var_54 = load i64, ptr %var_23
-          %var_55_offset_chk = icmp slt i64 %var_54, 0
-          %var_55_offset = select i1 %var_55_offset_chk, i64 1, i64 0
-          %var_55 = getelementptr [2 x i64], ptr %var_24, i64 %var_55_offset, i64 %var_54
-          %var_26 = load i64, ptr %var_55
-          %var_56_offset_chk = icmp slt i64 %var_54, 0
-          %var_56_offset = select i1 %var_56_offset_chk, i64 1, i64 0
-          %var_56 = getelementptr [3 x i64], ptr %var_25, i64 %var_56_offset, i64 %var_54
-          %var_28 = load i64, ptr %var_56
+          store i64 %var_50, ptr %var_25_2
+          %var_52_offset_chk = icmp slt i64 %var_23, 0
+          %var_52_offset = select i1 %var_52_offset_chk, i64 1, i64 0
+          %var_52 = getelementptr [2 x i64], ptr %var_24, i64 %var_52_offset, i64 %var_23
+          %var_26 = load i64, ptr %var_52
+          %var_53_offset_chk = icmp slt i64 %var_23, 0
+          %var_53_offset = select i1 %var_53_offset_chk, i64 1, i64 0
+          %var_53 = getelementptr [3 x i64], ptr %var_25, i64 %var_53_offset, i64 %var_23
+          %var_28 = load i64, ptr %var_53
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
           call void @__quantum__rt__int_record_output(i64 %var_26, ptr @1)
           call void @__quantum__rt__int_record_output(i64 %var_28, ptr @2)
@@ -6396,34 +12066,27 @@ fn array_entry_used_as_argument_to_callable_with_inner_branch() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_1 = alloca i64
-          %var_2 = alloca i64
           %var_5 = alloca i1
-          %var_6 = alloca i64
-          %var_11 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           store i64 0, ptr %var_1
           br label %block_1
         block_1:
-          %var_14 = load i64, ptr %var_1
-          store i64 %var_14, ptr %var_2
-          %var_16 = load i64, ptr %var_2
-          %var_3 = icmp sle i64 %var_16, 0
+          %var_2 = load i64, ptr %var_1
+          %var_3 = icmp sle i64 %var_2, 0
           store i1 true, ptr %var_5
           br i1 %var_3, label %block_2, label %block_3
         block_2:
-          %var_19 = load i1, ptr %var_5
-          br i1 %var_19, label %block_4, label %block_5
+          %var_16 = load i1, ptr %var_5
+          br i1 %var_16, label %block_4, label %block_5
         block_3:
           store i1 false, ptr %var_5
           br label %block_2
         block_4:
-          %var_20 = load i64, ptr %var_1
-          store i64 %var_20, ptr %var_6
-          %var_22 = load i64, ptr %var_6
-          %var_23_offset_chk = icmp slt i64 %var_22, 0
-          %var_23_offset = select i1 %var_23_offset_chk, i64 1, i64 0
-          %var_23 = getelementptr [1 x ptr], ptr @array0, i64 %var_23_offset, i64 %var_22
-          %var_7 = load ptr, ptr %var_23
+          %var_6 = load i64, ptr %var_1
+          %var_17_offset_chk = icmp slt i64 %var_6, 0
+          %var_17_offset = select i1 %var_17_offset_chk, i64 1, i64 0
+          %var_17 = getelementptr [1 x ptr], ptr @array0, i64 %var_17_offset, i64 %var_6
+          %var_7 = load ptr, ptr %var_17
           call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_8, label %block_6, label %block_7
@@ -6434,10 +12097,8 @@ fn array_entry_used_as_argument_to_callable_with_inner_branch() {
           call void @X(ptr %var_7)
           br label %block_7
         block_7:
-          %var_24 = load i64, ptr %var_1
-          store i64 %var_24, ptr %var_11
-          %var_26 = load i64, ptr %var_11
-          %var_12 = add i64 %var_26, 1
+          %var_11 = load i64, ptr %var_1
+          %var_12 = add i64 %var_11, 1
           store i64 %var_12, ptr %var_1
           br label %block_1
         }
@@ -6499,7 +12160,6 @@ fn mutable_fixed_size_arrays_constant_update_after_dynamic_update() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_2 = alloca i64
-          %var_3 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -6512,11 +12172,9 @@ fn mutable_fixed_size_arrays_constant_update_after_dynamic_update() {
           store i64 10, ptr %var_2
           br label %block_3
         block_3:
-          %var_5 = load i64, ptr %var_2
-          store i64 %var_5, ptr %var_3
+          %var_3 = load i64, ptr %var_2
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
-          %var_7 = load i64, ptr %var_3
-          call void @__quantum__rt__int_record_output(i64 %var_7, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_3, ptr @1)
           call void @__quantum__rt__int_record_output(i64 3, ptr @2)
           ret i64 0
         }
@@ -6573,7 +12231,6 @@ fn mutable_fixed_size_arrays_snapshot_reassignment_uses_array_copy() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_2 = alloca i64
-          %var_3 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -6586,11 +12243,9 @@ fn mutable_fixed_size_arrays_snapshot_reassignment_uses_array_copy() {
           store i64 10, ptr %var_2
           br label %block_3
         block_3:
-          %var_5 = load i64, ptr %var_2
-          store i64 %var_5, ptr %var_3
+          %var_3 = load i64, ptr %var_2
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
-          %var_7 = load i64, ptr %var_3
-          call void @__quantum__rt__int_record_output(i64 %var_7, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_3, ptr @1)
           call void @__quantum__rt__int_record_output(i64 2, ptr @2)
           ret i64 0
         }
@@ -6715,7 +12370,6 @@ fn mutable_fixed_size_arrays_concatenation_with_literal_array() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_2 = alloca i64
-          %var_3 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -6728,11 +12382,9 @@ fn mutable_fixed_size_arrays_concatenation_with_literal_array() {
           store i64 10, ptr %var_2
           br label %block_3
         block_3:
-          %var_5 = load i64, ptr %var_2
-          store i64 %var_5, ptr %var_3
+          %var_3 = load i64, ptr %var_2
           call void @__quantum__rt__array_record_output(i64 3, ptr @0)
-          %var_7 = load i64, ptr %var_3
-          call void @__quantum__rt__int_record_output(i64 %var_7, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_3, ptr @1)
           call void @__quantum__rt__int_record_output(i64 2, ptr @2)
           call void @__quantum__rt__int_record_output(i64 3, ptr @3)
           ret i64 0
@@ -6797,6 +12449,81 @@ fn mutable_fixed_size_arrays_zero_size_iteration() {
         declare void @__quantum__rt__array_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn closure_built_over_mutable_qubit_variable_preserved_copy() {
+    let source = indoc::indoc! {r#"
+        function MakeFlip(q : Qubit) : (Unit => Unit) { () => X(q) }
+
+        operation Main() : Result[] {
+            use qq = Qubit[2];
+            mutable mq = qq[0];
+            let f = MakeFlip(mq);
+            mq = qq[1];
+            f();
+            MResetEachZ(qq)
+        }
+    "#};
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0r\00"
+        @2 = internal constant [6 x i8] c"2_a1r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @.lambda_3(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__rt__array_record_output(i64 2, ptr @0)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @1)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        define internal void @.lambda_3(ptr %var_3) {
+        block_1:
+          call void @X(ptr %var_3)
+          ret void
+        }
+
+        define internal void @X(ptr %var_4) {
+        block_2:
+          call void @__quantum__qis__x__body(ptr %var_4)
+          ret void
+        }
+
+        declare void @__quantum__qis__x__body(ptr)
+
+        declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
         attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
@@ -7431,9 +13158,10 @@ fn generic_lambda_dependencies_compile_through_incremental_entries() {
     check_generic_lambda_dependency_qir(|source, capabilities| {
         let mut interpreter = interpreter_with_capabilities(capabilities);
         eval_fragments(&mut interpreter, source);
-        interpreter
-            .qirgen("Main()")
-            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)))
+        interpreter.qirgen("Main()").map_or_else(
+            |errors| panic!("{}", format_interpret_errors(errors)),
+            |result| result.qir,
+        )
     });
 }
 
@@ -7618,6 +13346,7 @@ fn explicit_generic_entry_call_requires_type_evidence() {
     );
     let errors = interpreter
         .qirgen("Generic()")
+        .map(|result| result.qir)
         .expect_err("ordinary explicit calls still need type evidence");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(

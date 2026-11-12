@@ -242,10 +242,7 @@ fn guarded_reassignment_callable_resolves_with_fallthrough_to_initial() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -888,18 +885,7 @@ fn five_branch_conditional_callable_resolves_successfully() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 2;
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if n == 0 {
-                    op = X;
-                } else if n == 1 {
-                    op = Y;
-                } else if n == 2 {
-                    op = Z;
-                } else if n == 3 {
-                    op = S;
-                } else {
-                    op = T;
-                }
+                if n == 0 {} else if n == 1 {} else if n == 2 {} else if n == 3 {} else {}
 
                 if n == 0 {
                     Apply_AdjCtl__X_(q)
@@ -1167,6 +1153,7 @@ fn consumed_newtype_callable_fields_keep_typed_replacements_and_live_data() {
     // defunctionalization, before UDT erasure removes the constructor calls.
     // The unused F field still needs an Int -> Int value, so cleanup uses a
     // stand-in rather than the lifted target with its incompatible (Int,) input.
+    // Direct calls must supply the lifted target's outer tuple.
     let source = r#"
         namespace Test {
           newtype Choice = (F : Int -> Int, Offset : Int);
@@ -1190,6 +1177,10 @@ fn consumed_newtype_callable_fields_keep_typed_replacements_and_live_data() {
         }
         "#;
     check_invariants(source);
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(138),
+    );
     check_rewrite(
         source,
         &expect![[r#"
@@ -1233,13 +1224,13 @@ fn consumed_newtype_callable_fields_keep_typed_replacements_and_live_data() {
                 let selectedT : __UDT_Item_1__Package_2_ = Choose(true);
                 let selectedF : __UDT_Item_1__Package_2_ = Choose(false);
                 ((if true {
-                    _lambda_4(10)
+                    _lambda_4(10, )
                 } else {
-                    _lambda_5(10)
+                    _lambda_5(10, )
                 } + if false {
-                    _lambda_4(10)
+                    _lambda_4(10, )
                 } else {
-                    _lambda_5(10)
+                    _lambda_5(10, )
                 }) + selectedT::Offset) + selectedF::Offset
             }
             function _lambda_4(x : Int, ) : Int {
@@ -1922,6 +1913,7 @@ fn deferrable_residue_preserves_local_binding_type_checks() {
         &mut result,
         &mut assigners,
         &exemptions,
+        &[],
     ));
     assert_panics_with("has type Prim(Int) but initializer Expr", || {
         crate::finalize_pipeline(

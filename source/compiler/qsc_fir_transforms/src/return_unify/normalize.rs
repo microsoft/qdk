@@ -53,8 +53,8 @@ mod shape_tests;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BinOp, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup, StmtId, StmtKind,
-        StringComponent,
+        BinOp, ExprId, ExprKind, Lit, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+        PatKind, Res, StmtId, StmtKind, StringComponent, UnOp,
     },
     ty::{Prim, Ty},
 };
@@ -63,6 +63,7 @@ use crate::fir_builder::{
     alloc_block, alloc_bool_lit, alloc_discard_pat, alloc_expr, alloc_expr_stmt, alloc_local_stmt,
     alloc_local_var, alloc_local_var_expr, alloc_not_expr, alloc_semi_stmt,
 };
+use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 use super::detect::contains_return_in_expr;
@@ -207,9 +208,10 @@ pub(super) fn hoist_returns_to_statement_boundary(
     block_id: qsc_fir::fir::BlockId,
     errors: &mut Vec<super::Error>,
 ) -> bool {
+    let mut changed_any = prune_skipped_short_circuit_returns(package, block_id);
+    changed_any |= blockify_return_bearing_if_arms(package, assigner, block_id);
     let hard_cap = package.exprs.iter().count() + package.stmts.iter().count() + 1;
     let mut prev_measure: Option<usize> = None;
-    let mut changed_any = false;
     for _ in 0..hard_cap {
         let blocks = collect_reachable_blocks(package, block_id);
         let mut changed_this_iter = false;
@@ -238,6 +240,178 @@ pub(super) fn hoist_returns_to_statement_boundary(
         (package_id, block_id).into(),
     ));
     changed_any
+}
+
+/// Remove proven skipped operands before return lowering turns their releases
+/// into conditional control flow.
+///
+/// Scan each block in statement order, tracking known Boolean values for simple
+/// bindings and assignments. Facts never flow between blocks, and any nested
+/// write invalidates them. Only statement-root logical operators with a
+/// return-bearing RHS are candidates; this is not general constant folding.
+/// Returns whether any expression was replaced.
+fn prune_skipped_short_circuit_returns(package: &mut Package, root: qsc_fir::fir::BlockId) -> bool {
+    use crate::walk_utils::{assignment_written_locals, for_each_expr};
+
+    // Restrict the proof to side-effect-free expressions: replacing the whole
+    // operator must not discard effects from evaluating its LHS.
+    fn known_bool(
+        package: &Package,
+        expr: ExprId,
+        values: &FxHashMap<LocalVarId, bool>,
+    ) -> Option<bool> {
+        match package.get_expr(expr).kind {
+            ExprKind::Lit(Lit::Bool(value)) => Some(value),
+            ExprKind::Var(Res::Local(local), _) => values.get(&local).copied(),
+            ExprKind::UnOp(UnOp::NotL, operand) => {
+                known_bool(package, operand, values).map(|value| !value)
+            }
+            _ => None,
+        }
+    }
+
+    let mut changed = false;
+    for block in collect_reachable_blocks(package, root) {
+        // In particular, an outer fact cannot be assumed to hold on every
+        // iteration of a nested loop.
+        let mut values = FxHashMap::default();
+        for stmt in package.get_block(block).stmts.clone() {
+            // Extract the expression to inspect and, for a simple declaration,
+            // the local whose Boolean value it may establish. Destructuring
+            // yields no per-element facts, but its initializer is still analyzed.
+            // Expression statements introduce no binding; items are skipped.
+            let (expr, binding) = match package.get_stmt(stmt).kind {
+                StmtKind::Local(_, pat, expr) => {
+                    let binding = match &package.get_pat(pat).kind {
+                        PatKind::Bind(ident) => Some(ident.id),
+                        _ => None,
+                    };
+                    (expr, binding)
+                }
+                StmtKind::Expr(expr) | StmtKind::Semi(expr) => (expr, None),
+                StmtKind::Item(_) => continue,
+            };
+            // `false and rhs` and `true or rhs` skip the RHS, including its
+            // returns and the qubit releases associated with those returns.
+            if let ExprKind::BinOp(op @ (BinOp::AndL | BinOp::OrL), lhs, rhs)
+            | ExprKind::AssignOp(op @ (BinOp::AndL | BinOp::OrL), lhs, rhs) =
+                package.get_expr(expr).kind
+                && known_bool(package, lhs, &values) == Some(op == BinOp::OrL)
+                && contains_return_in_expr(package, rhs)
+            {
+                let expr = package.exprs.get_mut(expr).expect("expression exists");
+                // A skipped compound assignment leaves the target unchanged
+                // and yields Unit; a plain logical operator yields its LHS.
+                expr.kind = if matches!(expr.kind, ExprKind::AssignOp(..)) {
+                    ExprKind::Tuple(Vec::new())
+                } else {
+                    ExprKind::Lit(Lit::Bool(op == BinOp::OrL))
+                };
+                changed = true;
+            }
+            // Capture the new value using pre-write facts, as in `x = not x`.
+            // Reinstall it only after invalidating the statement's writes.
+            let fact = if let Some(local) = binding {
+                known_bool(package, expr, &values).map(|value| (local, value))
+            } else if let ExprKind::Assign(lhs, rhs) = package.get_expr(expr).kind
+                && let ExprKind::Var(Res::Local(local), _) = package.get_expr(lhs).kind
+            {
+                known_bool(package, rhs, &values).map(|value| (local, value))
+            } else {
+                None
+            };
+            // Conservatively kill facts for every remaining write, including
+            // conditional/nested writes and tuple destinations. Walking the
+            // rewritten expression excludes writes in an RHS just removed.
+            for_each_expr(package, expr, &mut |_, expr| {
+                for local in assignment_written_locals(package, expr) {
+                    values.remove(&local);
+                }
+            });
+            // Remember the proven post-statement value for later guards.
+            // Insert it after invalidation so the assignment's own write
+            // cannot erase this new fact.
+            if let Some((local, value)) = fact {
+                values.insert(local, value);
+            }
+        }
+    }
+    changed
+}
+
+/// Wraps non-block, return-bearing `If` arms in value-preserving blocks so
+/// subsequent operand hoists have a statement boundary inside the selected arm.
+///
+/// A hoist from `F(return value)` must stay conditional: lifting it before the
+/// `If` would execute the return even when that arm is not selected. This
+/// pre-pass adds only the block boundary; it does not hoist or lower the return.
+/// Each wrapper retains the arm's type and span and contains the original arm
+/// as its trailing expression, without a semicolon.
+///
+/// Existing blocks, bare returns, and return-free arms are left unchanged.
+/// A return-bearing else-if is also wrapped because it is a nested `If`
+/// expression in the outer conditional's else arm. Conditions are not moved.
+/// Returns `true` if any arm was wrapped.
+///
+/// # Transformation
+///
+/// Simplified FIR notation (`If(condition, then_arm, else_arm)`):
+///
+/// ```text
+/// // Before: a return is buried in a non-block arm.
+/// If(condition, F(return value), fallback)
+///
+/// // After this pre-pass: a later hoist can rewrite the block's statements
+/// // without executing the return on the fallback path.
+/// If(condition, { F(return value) }, fallback)
+///
+/// // Before: the else arm is itself a return-bearing conditional.
+/// If(first, ordinary, If(second, return value, fallback))
+///
+/// // After: the nested conditional stays inside the lazy else block.
+/// If(first, ordinary, { If(second, return value, fallback) })
+/// ```
+fn blockify_return_bearing_if_arms(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    root: qsc_fir::fir::BlockId,
+) -> bool {
+    let mut conditionals = Vec::new();
+    let mut seen = rustc_hash::FxHashSet::default();
+    crate::walk_utils::for_each_expr_in_block(package, root, &mut |id, expr| {
+        if matches!(expr.kind, ExprKind::If(..)) && seen.insert(id) {
+            conditionals.push(id);
+        }
+    });
+    let mut changed = false;
+    for id in conditionals {
+        let ExprKind::If(condition, then, otherwise) = package.get_expr(id).kind else {
+            unreachable!("collected conditional");
+        };
+        let mut wrap = |arm: ExprId| {
+            let expr = package.get_expr(arm).clone();
+            if matches!(expr.kind, ExprKind::Block(_) | ExprKind::Return(_))
+                || !contains_return_in_expr(package, arm)
+            {
+                return arm;
+            }
+            changed = true;
+            let stmt = alloc_expr_stmt(package, assigner, arm, expr.span);
+            let block = alloc_block(package, assigner, vec![stmt], expr.ty.clone(), expr.span);
+            alloc_expr(
+                package,
+                assigner,
+                expr.ty,
+                ExprKind::Block(block),
+                expr.span,
+            )
+        };
+        let then = wrap(then);
+        let otherwise = otherwise.map(wrap);
+        package.exprs.get_mut(id).expect("conditional exists").kind =
+            ExprKind::If(condition, then, otherwise);
+    }
+    changed
 }
 
 /// Collects every block transitively reachable from `root` without crossing
@@ -555,10 +729,10 @@ fn hoist_in_expr(
             hoist_short_circuit(package, assigner, package_id, expr_id, a, b, false)
         }
         ExprKind::AssignOp(BinOp::AndL, place, rhs) => {
-            hoist_short_circuit_assign(package, assigner, expr_id, place, rhs, true)
+            hoist_short_circuit_assign(package, assigner, package_id, expr_id, place, rhs, true)
         }
         ExprKind::AssignOp(BinOp::OrL, place, rhs) => {
-            hoist_short_circuit_assign(package, assigner, expr_id, place, rhs, false)
+            hoist_short_circuit_assign(package, assigner, package_id, expr_id, place, rhs, false)
         }
 
         // Two-operand compounds supplied in runtime order.
@@ -729,9 +903,44 @@ fn hoist_short_circuit(
 
 /// Rewrites a return-bearing short-circuit compound assignment into a guarded
 /// plain assignment, preserving the RHS's conditional evaluation.
+///
+/// The target must already be a variable reference. A fresh read of that
+/// variable supplies the condition: `is_and` selects the value itself for
+/// `and=`, or its negation for `or=`. Thus the RHS runs only when the original
+/// short-circuit operator would evaluate it; otherwise no assignment occurs.
+///
+/// The plain assignment is placed in a Unit-typed block and normalized once
+/// with [`hoist_block_once`]. Keeping operand lifts inside this block prevents
+/// a return or earlier RHS effect from escaping the conditional branch. If
+/// the RHS returns, the assignment does not execute. Further normalization and
+/// flag lowering are handled by the enclosing pipeline.
+///
+/// Mutates `expr_id` in place and returns `None`, even when rewritten: there
+/// are no replacement statements to splice into the enclosing block. A
+/// return-free RHS is left unchanged.
+///
+/// # Transformation
+///
+/// Simplified FIR notation; `rhs` denotes a return-bearing expression:
+///
+/// ```text
+/// // Before                    // Guarded shape before RHS operand hoisting
+/// value and= rhs;              if value { value = rhs; }
+/// value or= rhs;               if not value { value = rhs; }
+///
+/// // Before: F must not be called, and value must not be assigned,
+/// // if evaluating F's argument returns from the enclosing callable.
+/// value and= F(return result);
+///
+/// // After RHS operand hoisting (omitting inert reads of F):
+/// if value {
+///     return result;
+/// }
+/// ```
 fn hoist_short_circuit_assign(
     package: &mut Package,
     assigner: &mut Assigner,
+    package_id: PackageId,
     expr_id: ExprId,
     place: ExprId,
     rhs: ExprId,
@@ -769,8 +978,24 @@ fn hoist_short_circuit_assign(
         ExprKind::Assign(place, rhs),
         package.synthetic_span(),
     );
+    let stmt = alloc_semi_stmt(package, assigner, assign, package.synthetic_span());
+    let block = alloc_block(
+        package,
+        assigner,
+        vec![stmt],
+        Ty::UNIT,
+        package.synthetic_span(),
+    );
+    hoist_block_once(package, assigner, package_id, block);
+    let branch = alloc_expr(
+        package,
+        assigner,
+        Ty::UNIT,
+        ExprKind::Block(block),
+        package.synthetic_span(),
+    );
     let expr = package.exprs.get_mut(expr_id).expect("expr not found");
-    expr.kind = ExprKind::If(cond, assign, None);
+    expr.kind = ExprKind::If(cond, branch, None);
     None
 }
 

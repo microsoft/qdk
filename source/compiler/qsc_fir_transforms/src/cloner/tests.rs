@@ -13,6 +13,44 @@ use qsc_fir::ty::Ty;
 const LET_X_SOURCE: &str = "function Main() : Int { let x = 42; x }";
 
 #[test]
+fn mapped_expression_copies_have_complete_disjoint_maps() {
+    let (store, pkg_id) = compile_to_fir("function Main() : (Int, Int) { (1, 2) }");
+    let source = store.get(pkg_id);
+    let (root, children) = source
+        .exprs
+        .iter()
+        .find_map(|(id, expr)| match &expr.kind {
+            ExprKind::Tuple(fields) if fields.len() == 2 => Some((id, fields.clone())),
+            _ => None,
+        })
+        .expect("Main returns a pair");
+    let mut target = source.clone();
+    let mut assigner = Assigner::from_package(&target);
+    let (first, first_map) = clone_expr_within_package_with_map(&mut target, root, &mut assigner);
+    let (second, second_map) = clone_expr_within_package_with_map(&mut target, root, &mut assigner);
+
+    for (copy, mapping) in [(first, &first_map), (second, &second_map)] {
+        assert_eq!(
+            mapping.len(),
+            3,
+            "only the tuple and its two fields are copied"
+        );
+        assert_eq!(mapping[&root], copy);
+        let ExprKind::Tuple(fields) = &target.exprs.get(copy).expect("copy exists").kind else {
+            panic!("copy must remain a tuple");
+        };
+        assert_eq!(fields, &[mapping[&children[0]], mapping[&children[1]]]);
+        assert!(mapping.values().all(|id| !source.exprs.contains_key(*id)));
+    }
+    assert!(
+        first_map
+            .values()
+            .all(|id| !second_map.values().any(|other| id == other))
+    );
+    assert_eq!(target.exprs.iter().count(), source.exprs.iter().count() + 6);
+}
+
+#[test]
 fn expression_copy_freshens_bindings_but_preserves_closure_target() {
     let (store, pkg_id) = compile_to_fir(
         r#"
@@ -187,6 +225,29 @@ fn clone_preserves_cross_package_res() {
     let cross_res = Res::Item(cross_pkg_item);
     let remapped = cloner.remap_res(&cross_res);
     assert_eq!(remapped, cross_res);
+}
+
+#[test]
+fn clone_exec_graph_remaps_local_res() {
+    use qsc_fir::fir::ExecGraphExpr;
+
+    let (store, pkg_id) = compile_to_fir(LET_X_SOURCE);
+    let source = store.get(pkg_id);
+    let (pat, local) = find_local_bind(source, "x");
+    let mut target = Package::default();
+    let mut cloner = FirCloner::with_local_offset(&target, LocalVarId::from(10u32));
+    cloner.clone_pat(source, pat, &mut target);
+    let span = qsc_data_structures::span::Span::default();
+    assert_eq!(
+        cloner.remap_exec_graph_node(ExecGraphNode::Expr(
+            ExecGraphExpr::Var(Res::Local(local)),
+            span,
+        )),
+        ExecGraphNode::Expr(
+            ExecGraphExpr::Var(Res::Local(LocalVarId::from(10u32))),
+            span,
+        ),
+    );
 }
 
 #[test]

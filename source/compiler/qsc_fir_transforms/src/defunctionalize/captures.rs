@@ -200,6 +200,10 @@ fn clone_capture_literal_with_substitutions(
             step.map(|part| clone_expr(package, part, assigner)),
             end.map(|part| clone_expr(package, part, assigner)),
         ),
+        ExprKind::Parallel(limit, body) => ExprKind::Parallel(
+            limit.map(|limit| clone_expr(package, limit, assigner)),
+            clone_expr(package, *body, assigner),
+        ),
         _ => return clone_expr_within_package(package, expr_id, assigner),
     };
 

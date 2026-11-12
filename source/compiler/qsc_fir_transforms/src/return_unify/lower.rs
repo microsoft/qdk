@@ -65,6 +65,23 @@ fn contains_return_in_while_stmt(package: &Package, stmt_id: StmtId) -> bool {
     }
 }
 
+// Only follow straight-line blocks: a return inside a loop or one arm of
+// a conditional does not establish that the containing statement returns.
+fn stmt_unconditionally_returns(package: &Package, stmt_id: StmtId) -> bool {
+    let (StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id)) = package.get_stmt(stmt_id).kind else {
+        return false;
+    };
+    match package.get_expr(expr_id).kind {
+        ExprKind::Return(_) => true,
+        ExprKind::Block(block_id) => package
+            .get_block(block_id)
+            .stmts
+            .iter()
+            .any(|&stmt_id| stmt_unconditionally_returns(package, stmt_id)),
+        _ => false,
+    }
+}
+
 fn sync_block_type_to_stmt_or_unit(package: &mut Package, block_id: BlockId) {
     let trailing_ty = match package.get_block(block_id).stmts.last() {
         Some(&stmt_id) => match package.get_stmt(stmt_id).kind {
@@ -247,6 +264,10 @@ enum FlagBlockOutput {
     Unit,
 }
 
+fn ends_unit_block(package: &Package, stmt_id: StmtId, output: FlagBlockOutput) -> bool {
+    matches!(output, FlagBlockOutput::Unit) && stmt_unconditionally_returns(package, stmt_id)
+}
+
 impl FlagBlockOutput {
     fn lazy(self) -> Self {
         match self {
@@ -320,6 +341,7 @@ pub(super) struct FlagContext<'a> {
 /// if not __has_returned { bar(); }
 /// if not __has_returned { baz() } else { __return_slot }
 /// ```
+#[allow(clippy::too_many_lines)]
 fn transform_block_stmts_with_flags(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -338,14 +360,20 @@ fn transform_block_stmts_with_flags(
         // - does it hold a `while` loop that itself contains a `return`?
         // - does it contain a `return` anywhere?
         // - is it the block's final trailing expression (the block's value)?
-        let has_return_in_while = match &package.get_stmt(stmt_id).kind {
-            StmtKind::Expr(e) | StmtKind::Semi(e) => contains_return_in_while_expr(package, *e),
-            _ => false,
-        };
+        let has_return_in_while = contains_return_in_while_stmt(package, stmt_id);
         let has_return = contains_return_in_stmt(package, stmt_id);
+        let ends_unit_block = ends_unit_block(package, stmt_id, output);
         let is_final_trailing_expr = output.final_trailing_expr_strategy().is_some()
             && index == original_stmts.len() - 1
             && matches!(package.get_stmt(stmt_id).kind, StmtKind::Expr(_));
+
+        // Ignored expression values are discarded even without a source semicolon.
+        if !is_final_trailing_expr
+            && let StmtKind::Expr(expr_id) = package.get_stmt(stmt_id).kind
+            && package.get_expr(expr_id).ty != Ty::UNIT
+        {
+            package.stmts.get_mut(stmt_id).expect("stmt not found").kind = StmtKind::Semi(expr_id);
+        }
 
         // We are already past an early return, and the rest of the block can't
         // be guarded one statement at a time (e.g. a later binding is needed by
@@ -393,10 +421,17 @@ fn transform_block_stmts_with_flags(
                     new_stmts.push(lazy_continuation);
                     break;
                 }
-                // Preserve, but the trailing expression still has its own
-                // `return` inside it: it can't be kept verbatim, so guard it
-                // lazily like the Lazy case.
-                FinalTrailingExprStrategy::Preserve if has_return => {
+                // Return-bearing tails need a lazy continuation. A non-defaultable
+                // effectful tail of the return type can use the already-written
+                // slot on the skipped path instead of fabricating a resource.
+                FinalTrailingExprStrategy::Preserve
+                    if has_return
+                        || (flag_context.return_slot.strategy
+                            == ReturnSlotStrategy::ArrayBacked
+                            && matches!(package.get_stmt(stmt_id).kind, StmtKind::Expr(expr_id)
+                                if package.get_expr(expr_id).ty == *flag_context.return_ty
+                                    && !expr_is_safe_to_discard(package, flag_context.package_id, expr_id))) =>
+                {
                     let lazy_continuation = create_lazy_flag_continuation_stmt(
                         package,
                         assigner,
@@ -444,6 +479,11 @@ fn transform_block_stmts_with_flags(
             has_return,
             seen_return_bearing_stmt,
         );
+        // The return has already emitted its cleanup and flag/slot writes.
+        // Any remaining statements on this straight-line path are unreachable.
+        if ends_unit_block {
+            break;
+        }
     }
 
     new_stmts
@@ -499,8 +539,8 @@ fn transform_and_push_flag_stmt(
     seen_return_bearing_stmt: bool,
 ) -> bool {
     if has_return_in_while {
-        // A `while` that can early-return is rewritten in place (flag-guarded
-        // loop condition + return replacement in its body) and kept as-is.
+        // Guard the enclosing statement too: its other branches or condition
+        // must not run after an earlier return.
         transform_while_stmt(
             package,
             assigner,
@@ -508,6 +548,17 @@ fn transform_and_push_flag_stmt(
             flag_context,
             arrow_default_cache,
         );
+        let stmt_id = if seen_return_bearing_stmt {
+            guard_stmt_with_flag(
+                package,
+                assigner,
+                flag_context,
+                stmt_id,
+                arrow_default_cache,
+            )
+        } else {
+            stmt_id
+        };
         new_stmts.push(stmt_id);
         true
     } else if has_return && !seen_return_bearing_stmt {
@@ -853,10 +904,8 @@ fn transform_while_in_expr(
                 arrow_default_cache,
             );
         }
-        ExprKind::If(cond_id, then_id, else_opt) => {
+        ExprKind::If(cond_id, _, _) => {
             let cond_id = *cond_id;
-            let then_id = *then_id;
-            let else_opt = *else_opt;
             // A condition *can* itself be a statement sequence (a `Block`, or a
             // short-circuit chain). Normalize's ANF lift hoists any
             // return-bearing `if` condition to a spine `let` temp before flag
@@ -873,17 +922,13 @@ fn transform_while_in_expr(
                 flag_context,
                 arrow_default_cache,
             );
-            replace_returns_in_expr(
+            replace_returns_in_if_branches(
                 package,
                 assigner,
-                then_id,
+                expr_id,
                 flag_context,
                 arrow_default_cache,
             );
-            if let Some(e) = else_opt {
-                replace_returns_in_expr(package, assigner, e, flag_context, arrow_default_cache);
-            }
-            resync_expr_ty_from_children(package, expr_id);
         }
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
             let ids: Vec<ExprId> = exprs.clone();
@@ -1048,6 +1093,104 @@ fn replace_returns_with_flags(
     }
 }
 
+/// Rewrites returns in an `If`'s arms while preserving its value-producing type.
+///
+/// Replacing `Return` with slot/flag writes can leave an arm with type `Unit`.
+/// If the original conditional was non-Unit, append a typed value to that arm:
+/// read the return slot when the conditional and callable return types match,
+/// or require a classical default of the conditional's type otherwise. Slot
+/// reads use the selected [`ReturnSlotStrategy`], including `[0]` for an
+/// array-backed slot; this never allocates a stand-in qubit.
+///
+/// The appended value keeps the conditional well-typed, not the callable
+/// running after a return. Enclosing flag lowering guards the continuation and
+/// ultimately selects the stored return value. Arms that still produce a
+/// non-Unit value need no appended tail. The condition is left to the caller;
+/// this helper rewrites the arms and resynchronizes the conditional's type.
+///
+/// # Transformation
+///
+/// Simplified FIR notation, with the flag and direct return slot already
+/// declared by the enclosing transform:
+///
+/// ```text
+/// // Before: both the conditional and callable return Bool.
+/// if condition { return false; } else { true }
+///
+/// // After: the returning arm still supplies a Bool.
+/// if condition {
+///     { __ret_val = false; __has_returned = true; };
+///     __ret_val
+/// } else {
+///     true
+/// }
+///
+/// // Before: the conditional is Bool, but the callable returns Int.
+/// if condition { return 17; } else { true }
+///
+/// // After: keep the Int return in its slot; supply a Bool to the conditional.
+/// if condition {
+///     { __ret_val = 17; __has_returned = true; };
+///     false
+/// } else {
+///     true
+/// }
+/// ```
+fn replace_returns_in_if_branches(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    expr_id: ExprId,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+) {
+    let expr = package.get_expr(expr_id).clone();
+    let ExprKind::If(condition, then, otherwise) = expr.kind else {
+        unreachable!("conditional branch lowering requires an If");
+    };
+    let mut rewrite = |branch| {
+        let had_return = contains_return_in_expr(package, branch);
+        replace_returns_in_expr(package, assigner, branch, flag_context, arrow_default_cache);
+        if !had_return || expr.ty == Ty::UNIT || package.get_expr(branch).ty != Ty::UNIT {
+            return branch;
+        }
+        // Flag writes replace Return with Unit, but a value-producing If must
+        // still yield a correctly typed value on both dynamic branches.
+        let value = if expr.ty == *flag_context.return_ty {
+            create_return_slot_read_expr(package, assigner, flag_context.return_slot, &expr.ty)
+        } else {
+            require_classical_default(
+                package,
+                assigner,
+                flag_context.package_id,
+                &expr.ty,
+                flag_context.udt_pure_tys,
+                arrow_default_cache,
+                UnsupportedDefaultSite::ConditionalReturnBranch,
+            )
+        };
+        let tail = alloc_expr_stmt(package, assigner, value, expr.span);
+        let ExprKind::Block(block_id) = package.get_expr(branch).kind else {
+            unreachable!("a returning Unit branch must lower to a block");
+        };
+        let block = package
+            .blocks
+            .get_mut(block_id)
+            .expect("branch block exists");
+        block.stmts.push(tail);
+        block.ty = expr.ty.clone();
+        package.exprs.get_mut(branch).expect("branch exists").ty = expr.ty.clone();
+        branch
+    };
+    let then = rewrite(then);
+    let otherwise = otherwise.map(rewrite);
+    package
+        .exprs
+        .get_mut(expr_id)
+        .expect("conditional exists")
+        .kind = ExprKind::If(condition, then, otherwise);
+    resync_expr_ty_from_children(package, expr_id);
+}
+
 #[allow(clippy::too_many_lines)]
 fn replace_returns_in_expr(
     package: &mut Package,
@@ -1126,21 +1269,13 @@ fn replace_returns_in_expr(
             );
             resync_expr_ty_from_children(package, expr_id);
         }
-        ExprKind::If(_, then_id, else_opt) => {
-            let then_id = *then_id;
-            let else_id = *else_opt;
-            replace_returns_in_expr(
-                package,
-                assigner,
-                then_id,
-                flag_context,
-                arrow_default_cache,
-            );
-            if let Some(e) = else_id {
-                replace_returns_in_expr(package, assigner, e, flag_context, arrow_default_cache);
-            }
-            resync_expr_ty_from_children(package, expr_id);
-        }
+        ExprKind::If(..) => replace_returns_in_if_branches(
+            package,
+            assigner,
+            expr_id,
+            flag_context,
+            arrow_default_cache,
+        ),
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
             let ids: Vec<ExprId> = exprs.clone();
             for e in ids {

@@ -125,6 +125,9 @@ def init(
           the statement form instead (``use q = Qubit();``). It also removes the requirement
           to use the ``set`` keyword for mutable variable assignments.
 
+        - ``"ignore-stack-limit"``: Ignores the compile-time stack limit when generating
+          circuits or compiling to QIR.
+
     :keyword trace_circuit: Enables tracing of circuit during execution.
         Passing `True` is required for the `dump_circuit` function to return a circuit.
         The `circuit` function is *NOT* affected by this parameter and will always
@@ -246,6 +249,11 @@ def run(
     Runs the given Q# expression for the given number of shots.
     Each shot uses an independent instance of the simulator.
 
+    See :meth:`qdk.Context.run` for callable type and ownership requirements.
+    Wrapped functions from a context's ``code`` module select that context;
+    otherwise the default context is used. For opaque handles created by an
+    explicit ``Context``, use that context's methods.
+
     :param entry_expr: The entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
     :param shots: The number of shots to run.
@@ -266,6 +274,8 @@ def run(
     :rtype: List[Any]
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
+    :raises TypeError: If a callable argument has an incompatible signature or
+        lacks required functors.
     """
     return _get_context_or_default(entry_expr).run(
         entry_expr,
@@ -288,6 +298,11 @@ def compile(
     Compiles the Q# source code into a program that can be submitted to a target.
     Either an entry expression or a callable with arguments must be provided.
 
+    See :meth:`qdk.Context.compile` for callable-entry and type requirements.
+    Q# establishes generic arguments; Python values do not infer them. Wrapped
+    entry functions select their owning context; other inputs use the default
+    context. For opaque handles from an explicit ``Context``, call its methods.
+
     :param entry_expr: The Q# expression that will be used as the entrypoint
         for the program. Alternatively, a callable can be provided, which must
         be a Q# callable.
@@ -295,13 +310,20 @@ def compile(
 
     :return: The compiled program. Use ``str()`` to get the QIR string.
     :rtype: QirInputData
+    :raises QSharpError: If compilation fails or a callable belongs to another context.
+    :raises TypeError: If a callable argument has an incompatible signature or
+        lacks required functors.
 
     Example:
 
     .. code-block:: python
-        program = qdk.qsharp.compile("...")
-        with open('myfile.ll', 'w') as file:
-            file.write(str(program))
+
+        from qdk import qsharp
+
+        qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RI)
+        qsharp.eval("operation Answer() : Int { 42 }")
+        program = qsharp.compile("Answer()")
+        qir = str(program)
     """
     return _get_context_or_default(entry_expr).compile(entry_expr, *args)
 
@@ -321,6 +343,9 @@ def circuit(
     Synthesizes a circuit for a Q# program. Either an entry
     expression or an operation must be provided.
 
+    See :meth:`qdk.Context.circuit` for callable ownership and entry restrictions.
+    For opaque handles created by an explicit ``Context``, use its methods.
+
     :param entry_expr: An entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
     :type entry_expr: str or Callable
@@ -338,8 +363,8 @@ def circuit(
         :attr:`~qdk.qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
         trace the circuit.
         :attr:`~qdk.qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
-        requires a non-``Unrestricted`` target profile. Defaults to ``None`` which
-        auto-selects the generation method.
+        supports ``Base``, ``Adaptive_RI``, and ``Adaptive_RIF`` target profiles.
+        Defaults to ``None``, which uses ``ClassicalEval``.
     :kwtype generation_method: :class:`~qdk.qsharp.CircuitGenerationMethod`
 
     :keyword max_operations: The maximum number of operations to include in the circuit.
@@ -363,6 +388,8 @@ def circuit(
     :return: The synthesized circuit.
     :rtype: Circuit
     :raises QSharpError: If there is an error synthesizing the circuit.
+    :raises TypeError: If a callable argument has an incompatible signature or
+        lacks required functors.
     """
     return _get_context_or_default(entry_expr).circuit(
         entry_expr,
@@ -386,6 +413,10 @@ def estimate(
     Estimates resources for Q# source code.
     Either an entry expression or a callable with arguments must be provided.
 
+    Callable handles must belong to the selected context and have compatible
+    instantiated signatures. Wrapped entry functions select their context;
+    otherwise the default context is used.
+
     :param entry_expr: The entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
     :param params: The parameters to configure physical estimation.
@@ -393,6 +424,9 @@ def estimate(
 
     :return: The estimated resources.
     :rtype: EstimatorResult
+    :raises TypeError: If a callable argument has an incompatible signature or
+        lacks required functors.
+    :raises QSharpError: If an input is unsupported or belongs to another context.
 
     .. deprecated::
         This function uses the legacy Resource Estimator API. Use
@@ -462,11 +496,17 @@ def logical_counts(
     Extracts logical resource counts from Q# source code.
     Either an entry expression or a callable with arguments must be provided.
 
+    See :meth:`qdk.Context.logical_counts` for callable type requirements.
+    Wrapped entry functions select their context; other inputs use the default.
+
     :param entry_expr: The entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
 
     :return: Program resources in terms of logical gate counts.
     :rtype: LogicalCounts
+    :raises TypeError: If a callable argument has an incompatible signature or
+        lacks required functors.
+    :raises QSharpError: If an input is unsupported or belongs to another context.
     """
     return _get_context_or_default(entry_expr).logical_counts(entry_expr, *args)
 
