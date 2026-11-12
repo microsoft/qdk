@@ -4,9 +4,55 @@
 //! EXPERIMENTAL, development only (not for review): per-thread counters of
 //! the splits, to see where the capacity binds. They count every split of
 //! every state on the calling thread since the last [`reset`]; they change
-//! no value the engine computes.
+//! no value the engine computes. With [`start_split_log`], each split is
+//! also logged as a [`SplitEvent`], until [`take_split_log`].
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+
+/// One split, logged between [`start_split_log`] and [`take_split_log`].
+#[derive(Clone, Copy, Debug)]
+pub struct SplitEvent {
+    /// The cut split: between chain positions `cut` and `cut + 1`.
+    pub cut: usize,
+    /// The bond the cutoff alone would keep.
+    pub need: usize,
+    /// The bond kept.
+    pub bond: usize,
+    /// The largest bond the split could keep: the capacity's at the cut,
+    /// or every value for a transient split (`transient`).
+    pub cap: usize,
+    /// Whether the split was an engine route's outbound SWAP, which keeps
+    /// every value above the cutoff.
+    pub transient: bool,
+    /// The fraction of the block's squared norm the capacity dropped.
+    pub lost: f64,
+}
+
+thread_local! {
+    static LOG: RefCell<Option<Vec<SplitEvent>>> = const { RefCell::new(None) };
+}
+
+/// Starts logging every split on this thread (dropping any log so far).
+pub fn start_split_log() {
+    LOG.with(|log| *log.borrow_mut() = Some(Vec::new()));
+}
+
+/// The splits logged since [`start_split_log`] or the last call; the log
+/// goes on.
+#[must_use]
+pub fn take_split_log() -> Vec<SplitEvent> {
+    LOG.with(|log| {
+        log.borrow_mut()
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    })
+}
+
+/// Stops logging splits on this thread.
+pub fn stop_split_log() {
+    LOG.with(|log| *log.borrow_mut() = None);
+}
 
 /// What the splits on this thread did since the last [`reset`].
 #[derive(Clone, Copy, Debug, Default)]
@@ -48,18 +94,43 @@ pub fn reset() {
 }
 
 /// Records a split of `values` (nonincreasing) that kept `bond` of them,
-/// where the cutoff alone would keep `need`, under the capacity `cap`.
-pub(crate) fn record(values: &[f64], need: usize, bond: usize, cap: usize, cut: usize) {
+/// where the cutoff alone would keep `need`, under the capacity `cap`
+/// (`transient`: an outbound SWAP's split, which `cap` does not bind).
+pub(crate) fn record(
+    values: &[f64],
+    need: usize,
+    bond: usize,
+    cap: usize,
+    cut: usize,
+    transient: bool,
+) {
+    let lost = if bond < need {
+        let largest = values[0];
+        let square = |s: &f64| (s / largest) * (s / largest);
+        let total: f64 = values.iter().map(square).sum();
+        let dropped: f64 = values[bond..need].iter().map(square).sum();
+        dropped / total
+    } else {
+        0.0
+    };
+    LOG.with(|log| {
+        if let Some(log) = log.borrow_mut().as_mut() {
+            log.push(SplitEvent {
+                cut,
+                need,
+                bond,
+                cap,
+                transient,
+                lost,
+            });
+        }
+    });
     TRACE.with(|cell| {
         let mut trace = cell.get();
         trace.splits += 1;
         trace.largest_need = trace.largest_need.max(need);
         if bond < need {
-            let largest = values[0];
-            let square = |s: &f64| (s / largest) * (s / largest);
-            let total: f64 = values.iter().map(square).sum();
-            let dropped: f64 = values[bond..need].iter().map(square).sum();
-            let fraction = dropped / total;
+            let fraction = lost;
             trace.capacity_bound += 1;
             trace.capacity_lost += fraction;
             trace.capacity_lost_max = trace.capacity_lost_max.max(fraction);

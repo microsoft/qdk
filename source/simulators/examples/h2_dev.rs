@@ -49,7 +49,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use num_complex::Complex64;
 use qdk_simulators::mps_simulator::{
-    MpsResumer, Restore, RouteTuning, Routing, reset_routing_trace, routing_trace,
+    BoundCheck, GuardPolicy, MpsResumer, Restore, RouteTuning, Routing, reset_routing_trace,
+    routing_trace,
 };
 use qdk_simulators::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use qdk_simulators::{MeasurementResult, OutputRecord};
@@ -112,7 +113,11 @@ impl<S> Seen<S> {
         let readouts = self.readouts.borrow();
         let readout = readouts.get(index)?;
         let state = &readout.state;
-        let sites: Vec<usize> = readout.sites.iter().map(|site| site.expect("read")).collect();
+        let sites: Vec<usize> = readout
+            .sites
+            .iter()
+            .map(|site| site.expect("read"))
+            .collect();
         let mut rows = vec![(Vec::<(usize, bool)>::new(), 1.0)];
         for &site in &sites {
             let mut next = Vec::new();
@@ -313,7 +318,9 @@ impl Options {
             first_shot: u32::try_from(number("--first-shot", 0)).expect("a shot id"),
             shots: u32::try_from(number("--shots", 1)).expect("a shot count"),
             threads: as_usize(number("--threads", 1)).max(1),
-            group: u32::try_from(number("--group", 1)).expect("a shot count").max(1),
+            group: u32::try_from(number("--group", 1))
+                .expect("a shot count")
+                .max(1),
             routing: {
                 let name = value("--routing").unwrap_or_else(|| "engine".to_string());
                 let routing = match name.as_str() {
@@ -336,6 +343,21 @@ impl Options {
                             bond_guard_percent: small("--bond-guard", 100),
                             max_route_distance: small("--max-route-distance", 0),
                             restore_every_routed: small("--restore-every", 0),
+                            guard: match value("--guard").as_deref() {
+                                None | Some("none") => None,
+                                Some("cut") => Some(GuardPolicy::Cut),
+                                Some("handover") => Some(GuardPolicy::HandOver),
+                                Some(other) => panic!("--guard {other}: none, cut or handover"),
+                            },
+                            cut_after_routed: small("--cut-after", 0),
+                            check_bound: match value("--check-bound").as_deref() {
+                                None | Some("off") => BoundCheck::Off,
+                                Some("reads") => BoundCheck::Reads,
+                                Some("every-apply") => BoundCheck::EveryApply,
+                                Some(other) => {
+                                    panic!("--check-bound {other}: off, reads or every-apply")
+                                }
+                            },
                         })
                     }
                     other => panic!(
@@ -344,13 +366,16 @@ impl Options {
                 };
                 let name = match routing {
                     Routing::Tuned(t) => format!(
-                        "tuned:af={},restore={:?},db={},bg={},md={},re={}",
+                        "tuned:af={},restore={:?},db={},bg={},md={},re={},guard={:?},ca={},check={:?}",
                         u8::from(t.after_fusion),
                         t.restore,
                         t.drift_budget_permille,
                         t.bond_guard_percent,
                         t.max_route_distance,
-                        t.restore_every_routed
+                        t.restore_every_routed,
+                        t.guard,
+                        t.cut_after_routed,
+                        t.check_bound
                     ),
                     _ => name,
                 };
@@ -423,7 +448,9 @@ where
         line,
         " splits={} cap_bound={} cap_lost_sum={:.3e} cap_lost_max={:.3e} need_max={} \
          cap_need={}/{} first_cap={} last_cap={} batches={} routed={} route_swaps={} \
-         restores={} restore_swaps={} drift_fb={} bond_fb={} first_fb={} max_drift={}",
+         restores={} restore_swaps={} drift_fb={} bond_fb={} first_fb={} max_drift={} \
+         guard_rereads={} guard_at_risk={} guard_cuts={} guard_handovers={} threshold_cuts={} \
+         bound_checks={} bound_violations={}",
         splits.splits,
         splits.capacity_bound,
         splits.capacity_lost,
@@ -444,6 +471,13 @@ where
             .first_fallback_batch
             .map_or("none".to_string(), |b| b.to_string()),
         routing.max_drift_permille,
+        routing.guard_rereads,
+        routing.guard_at_risk,
+        routing.guard_cuts,
+        routing.guard_handovers,
+        routing.threshold_cuts,
+        routing.bound_checks,
+        routing.bound_violations,
     )
     .expect("a String takes any text");
     if let Some(table) = &options.readout {

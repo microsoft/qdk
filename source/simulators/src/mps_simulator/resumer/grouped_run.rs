@@ -48,7 +48,9 @@ use super::report::MpsRunReport;
 use super::resumer_error::MpsResumerError;
 use super::rewrites::fusion::GateFusion;
 use super::rewrites::rewrite_runs;
-use super::routing::{Placement, Routing};
+use super::routing::{
+    BondBound, BoundCheck, Placement, Routing, trace_bound_check, trace_guard_reread,
+};
 use super::shot_stream::{SplitMix64, shot_stream};
 
 /// One run of an [`MpsResumer`]: what every group of the run shares, the
@@ -117,8 +119,14 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         let placement = match (routing.tuning(), &capacity) {
             (None, _) | (_, None) => None,
             (Some(tuning), Some(capacity)) => {
-                Some(Placement::tuned(capacity.site_count(), tuning))
+                Some(Placement::tuned(capacity.site_count(), tuning).bounded(capacity))
             }
+        };
+        let checked = match (routing.tuning(), &capacity) {
+            (Some(tuning), Some(capacity)) if tuning.check_bound == BoundCheck::EveryApply => {
+                Some(BondBound::prepared(capacity))
+            }
+            _ => None,
         };
         let waiting = vec![Group {
             shots: shots
@@ -136,6 +144,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             next: 0,
             bond_unread: false,
             placement,
+            unrouted: None,
+            checked,
         }];
         Ok(Self {
             engine,
@@ -226,6 +236,10 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 group.next += 1;
                 self.run_step(&step, group)?;
             }
+            if group.unrouted.is_some() {
+                self.route_segment(group, Vec::new())?;
+                continue;
+            }
             self.read_bond(group)?;
             match self
                 .machine
@@ -238,6 +252,22 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 }
                 QirStop::Batch(calls) => {
                     let steps = lower(calls, &self.layout)?;
+                    group.outcomes.clear();
+                    if let Some(placement) = group
+                        .placement
+                        .as_mut()
+                        .filter(|placement| placement.routes_by_segments())
+                    {
+                        let mut routed = Vec::new();
+                        placement.start_batch(&mut routed);
+                        group.unrouted = Some(Unrouted {
+                            steps: steps.into(),
+                            next: 0,
+                            needs_read: false,
+                        });
+                        self.route_segment(group, routed)?;
+                        continue;
+                    }
                     group.steps = match (self.routing.tuning(), group.placement.as_mut()) {
                         (Some(tuning), Some(placement)) if !tuning.after_fusion => {
                             rewrite_runs(placement.route(steps), &self.fusion)
@@ -249,10 +279,59 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     }
                     .into();
                     group.next = 0;
-                    group.outcomes.clear();
                 }
             }
         }
+    }
+
+    /// Development only: routes the next segment of `group`'s batch after
+    /// `routed` (the batch's start), reading the state's bonds first when
+    /// the guard asked for it, and makes it the group's steps; at the
+    /// batch's end, with its planned restore.
+    fn route_segment(
+        &mut self,
+        group: &mut Group<E::State>,
+        mut routed: Vec<Step>,
+    ) -> Result<(), GroupFailure<E::Error>> {
+        if group.unrouted.as_ref().is_some_and(|u| u.needs_read) {
+            self.reread(group)?;
+        }
+        let unrouted = group.unrouted.as_mut().expect("a batch routed by segments");
+        let placement = group
+            .placement
+            .as_mut()
+            .expect("a batch routed by segments has a placement");
+        let segment = placement.route_segment(&unrouted.steps[unrouted.next..]);
+        routed.extend(segment.steps);
+        unrouted.next += segment.routed;
+        unrouted.needs_read = segment.needs_read;
+        if unrouted.next == unrouted.steps.len() && !segment.needs_read && !segment.at_draw {
+            placement.end_batch(&mut routed);
+            group.unrouted = None;
+        }
+        group.steps = rewrite_runs(routed, &self.fusion).into();
+        group.next = 0;
+        Ok(())
+    }
+
+    /// Development only: the read of the state's bonds the guard asked
+    /// for, given to the placement and the check; neither the report nor
+    /// the capacity fallback sees it, so that they see what `rb` reads.
+    fn reread(&mut self, group: &mut Group<E::State>) -> Result<(), GroupFailure<E::Error>> {
+        let state = group
+            .state
+            .as_ref()
+            .expect("a segment that needs a read ran operators");
+        let shape = self.engine.shape(state).map_err(engine_failure)?;
+        trace_guard_reread();
+        if let Some(placement) = group.placement.as_mut() {
+            placement.bonds_read(&shape);
+        }
+        if let Some(checked) = group.checked.as_mut() {
+            trace_bound_check(checked.exceeded_by(&shape));
+            checked.read(&shape);
+        }
+        Ok(())
     }
 
     /// Fails with [`MpsResumerError::Stopped`] once the stop flag is set.
@@ -292,7 +371,13 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         group.bond_unread = true;
         self.engine
             .apply(state, operator.sites(), operator.matrix.row_major())
-            .map_err(engine_failure)
+            .map_err(engine_failure)?;
+        if let Some(checked) = group.checked.as_mut() {
+            checked.walk(operator);
+            let shape = self.engine.shape(state).map_err(engine_failure)?;
+            trace_bound_check(checked.exceeded_by(&shape));
+        }
+        Ok(())
     }
 
     /// Each shot of `group` draws the value of `site`; when they drew both
@@ -370,6 +455,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     next: group.next,
                     bond_unread: false,
                     placement: group.placement.clone(),
+                    unrouted: group.unrouted.clone(),
+                    checked: group.checked.clone(),
                 });
             }
             // Only the shots that wait met the failure: those going on run
@@ -421,15 +508,17 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// gates ends, before the draws that may shrink it.
     fn read_bond(&mut self, group: &mut Group<E::State>) -> Result<(), GroupFailure<E::Error>> {
         if let (true, Some(state)) = (group.bond_unread, &group.state) {
-            let bond = self
-                .engine
-                .shape(state)
-                .map_err(engine_failure)?
-                .largest_bond();
+            let shape = self.engine.shape(state).map_err(engine_failure)?;
+            let bond = shape.largest_bond();
             self.report.largest_bond = self.report.largest_bond.max(bond);
             group.bond_unread = false;
             if let Some(placement) = group.placement.as_mut() {
+                placement.bonds_read(&shape);
                 placement.bond_read(bond, self.max_bond_dimension);
+            }
+            if let Some(checked) = group.checked.as_mut() {
+                trace_bound_check(checked.exceeded_by(&shape));
+                checked.read(&shape);
             }
         }
         Ok(())
@@ -479,6 +568,22 @@ struct Group<S> {
     /// steps have run, when the run routes ([`Routing`] other than
     /// `Engine`); a fork's is a clone.
     placement: Option<Placement>,
+    /// Development only: the rest of a batch routed by segments, not yet
+    /// routed; a fork's is a clone.
+    unrouted: Option<Unrouted>,
+    /// Development only: the bound walked on the operators as applied,
+    /// checked after each ([`BoundCheck::EveryApply`]).
+    checked: Option<BondBound>,
+}
+
+/// Development only: the rest of a batch routed by segments: its steps on
+/// the layout's sites, from `next` on not yet routed; `needs_read` when the
+/// guard asked for the state's bonds to be read before the next segment.
+#[derive(Clone)]
+struct Unrouted {
+    steps: Rc<[Step]>,
+    next: usize,
+    needs_read: bool,
 }
 
 /// A shot of a group: its place among the run's shots and its stream.

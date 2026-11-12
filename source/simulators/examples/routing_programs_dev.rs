@@ -21,12 +21,27 @@
 //!   splits, the lost weight, the routing's counters and how many shots
 //!   record what the exact reference records; `rb-db250` is `rb` that also
 //!   restores the order when a route leaves the drift above 0.25, and
-//!   `rb-eK` restores it every K routed operators, within a batch too.
+//!   `rb-eK` restores it every K routed operators, within a batch too;
+//!   `guard-a`/`guard-b` are `rb` with the bond guard's policies, `thr-L`
+//!   `rb` with the length threshold, `rb-check` and `rb-check-apply` `rb`
+//!   checking its bond bound. `--routings a,b` keeps those routings.
+//! - `--part need-log --qubits N --chi X --shots S`: where the
+//!   capacity-bound splits sit (see [`need_log`]).
 //!
 //! ```text
 //! cargo run --release -p qdk_simulators --example routing_programs_dev -- \
-//!     --part corpus|programs|adversarial [--qubits 20] [--chi 16] [--shots 16]
+//!     --part corpus|programs|adversarial|need-log [--qubits 20] [--chi 16] \
+//!     [--shots 16] [--programs a,b] [--routings a,b]
 //! ```
+
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::float_cmp,
+    clippy::similar_names,
+    clippy::type_complexity,
+    reason = "a development harness"
+)]
 
 use std::num::NonZeroUsize;
 use std::time::Instant;
@@ -34,7 +49,8 @@ use std::time::Instant;
 use qdk_cpu_mps::CpuMpsEngine;
 use qdk_simulators::bytecode::{AdaptiveProgram, Instruction};
 use qdk_simulators::mps_simulator::{
-    MpsResumer, Restore, RouteTuning, Routing, reset_routing_trace, routing_trace,
+    BoundCheck, GuardPolicy, MpsResumer, Restore, RouteTuning, Routing, reset_routing_trace,
+    routing_trace,
 };
 use qdk_simulators::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use serde::Deserialize;
@@ -362,8 +378,12 @@ fn adversarial_programs(n: usize) -> Vec<(String, usize, QirProgram)> {
     all
 }
 
-/// `Engine`, `rb`, `rb` with a drift budget of 0.25 (`rb-db250`), and
-/// `rb` restoring every K routed operators within a batch too (`rb-eK`).
+/// `Engine`, `rb`, `rb` with a drift budget of 0.25 (`rb-db250`), `rb`
+/// restoring every K routed operators within a batch too (`rb-eK`), `rb`
+/// with the bond guard's policies (`guard-a`: cut, `guard-b`: hand over),
+/// `rb` with the length threshold (`thr-L`: restored after L routed
+/// operators with no draw between), and `rb` checking its bond bound at
+/// every read (`rb-check`) and after every operator (`rb-check-apply`).
 fn adversarial_routings() -> Vec<(String, Routing)> {
     let tuned = |drift_budget_permille, restore_every_routed| {
         Routing::Tuned(RouteTuning {
@@ -371,6 +391,12 @@ fn adversarial_routings() -> Vec<(String, Routing)> {
             drift_budget_permille,
             restore_every_routed,
             ..RouteTuning::default()
+        })
+    };
+    let rb_with = |tuning: RouteTuning| {
+        Routing::Tuned(RouteTuning {
+            restore: Restore::BatchEnd,
+            ..tuning
         })
     };
     let mut all = vec![
@@ -381,10 +407,49 @@ fn adversarial_routings() -> Vec<(String, Routing)> {
     for every in [4, 8, 16, 32] {
         all.push((format!("rb-e{every}"), tuned(1000, every)));
     }
+    for (name, policy) in [
+        ("guard-a", GuardPolicy::Cut),
+        ("guard-b", GuardPolicy::HandOver),
+    ] {
+        all.push((
+            name.to_string(),
+            rb_with(RouteTuning {
+                guard: Some(policy),
+                ..RouteTuning::default()
+            }),
+        ));
+    }
+    for length in [8, 16, 32, 64, 128, 256] {
+        all.push((
+            format!("thr-{length}"),
+            rb_with(RouteTuning {
+                cut_after_routed: length,
+                ..RouteTuning::default()
+            }),
+        ));
+    }
+    for (name, check_bound) in [
+        ("rb-check", BoundCheck::Reads),
+        ("rb-check-apply", BoundCheck::EveryApply),
+    ] {
+        all.push((
+            name.to_string(),
+            rb_with(RouteTuning {
+                check_bound,
+                ..RouteTuning::default()
+            }),
+        ));
+    }
     all
 }
 
-fn adversarial(n: usize, chi: NonZeroUsize, shots: u32, only: Option<&str>) {
+fn adversarial(
+    n: usize,
+    chi: NonZeroUsize,
+    shots: u32,
+    only: Option<&str>,
+    routings: Option<&str>,
+) {
     for (name, count, program) in adversarial_programs(n) {
         if only.is_some_and(|only| !only.split(',').any(|o| o == name)) {
             continue;
@@ -400,6 +465,9 @@ fn adversarial(n: usize, chi: NonZeroUsize, shots: u32, only: Option<&str>) {
             )
         });
         for (routing_name, routing) in adversarial_routings() {
+            if routings.is_some_and(|only| !only.split(',').any(|o| o == routing_name)) {
+                continue;
+            }
             let outcome = run(
                 CpuMpsEngine::default(),
                 &program,
@@ -420,7 +488,9 @@ fn adversarial(n: usize, chi: NonZeroUsize, shots: u32, only: Option<&str>) {
                  routing={routing_name} shots={shots} seconds={:.2} ok={} as_exact={as_exact} \
                  largest_bond={} lost_weight={:.3e} cap_bound={} cap_lost_sum={:.3e} \
                  need_max={} routed={} route_swaps={} restore_swaps={} restores={} \
-                 drift_fb={} bond_fb={} first_fb_batch={:?} max_drift={}",
+                 drift_fb={} bond_fb={} first_fb_batch={:?} max_drift={} \
+                 guard_rereads={} guard_at_risk={} guard_cuts={} guard_handovers={} \
+                 threshold_cuts={} bound_checks={} bound_violations={}",
                 outcome.seconds,
                 outcome.shots.is_ok(),
                 outcome.largest_bond,
@@ -436,6 +506,13 @@ fn adversarial(n: usize, chi: NonZeroUsize, shots: u32, only: Option<&str>) {
                 t.bond_fallbacks,
                 t.first_fallback_batch,
                 t.max_drift_permille,
+                t.guard_rereads,
+                t.guard_at_risk,
+                t.guard_cuts,
+                t.guard_handovers,
+                t.threshold_cuts,
+                t.bound_checks,
+                t.bound_violations,
             );
         }
         if let Some(truth) = truth {
@@ -455,9 +532,8 @@ fn main() {
             .position(|arg| arg == flag)
             .and_then(|i| args.get(i + 1).cloned())
     };
-    let number = |flag: &str, default: usize| {
-        value(flag).map_or(default, |v| v.parse().expect("a number"))
-    };
+    let number =
+        |flag: &str, default: usize| value(flag).map_or(default, |v| v.parse().expect("a number"));
     match value("--part").as_deref() {
         Some("corpus") => corpus(),
         Some("programs") => kit_programs(),
@@ -466,7 +542,349 @@ fn main() {
             NonZeroUsize::new(number("--chi", 16)).expect("--chi: at least 1"),
             u32::try_from(number("--shots", 16)).expect("a shot count"),
             value("--programs").as_deref(),
+            value("--routings").as_deref(),
         ),
-        other => panic!("--part {other:?}: corpus, programs or adversarial"),
+        Some("need-log") => need_log::run_all(
+            number("--qubits", 20),
+            NonZeroUsize::new(number("--chi", 16)).expect("--chi: at least 1"),
+            u32::try_from(number("--shots", 8)).expect("a shot count"),
+            value("--programs").as_deref(),
+            value("--routings").as_deref(),
+        ),
+        other => panic!("--part {other:?}: corpus, programs, adversarial or need-log"),
+    }
+}
+
+/// `--part need-log`: where the capacity-bound splits sit (step 1b).
+///
+/// Each program runs unfused in the resumer (so that every SWAP the
+/// resumer routes reaches the engine as an exact SWAP) on the CPU engine,
+/// wrapped by [`Logged`], which follows the chain's placement from those
+/// SWAPs, keeps the logical pairs a non-SWAP two-site gate joined so far,
+/// and takes the engine's split log after each call. The CPU engine fuses
+/// a pair's gates until the next operation elsewhere, so a split drained
+/// during a call belongs to the placement before that call's operator.
+/// One `NEED` line per program and routing: for the capacity-bound splits
+/// against all splits (the engine's own route splits apart), the share at
+/// a displaced cut (one whose left side holds other sites than the
+/// layout's), the joined pairs that straddle the cut under the placement
+/// and under the layout's order, the inverted pairs that straddle it, and
+/// the capacity-bound splits per cut.
+mod need_log {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::num::NonZeroUsize;
+    use std::rc::Rc;
+
+    use num_complex::Complex64;
+    use qdk_cpu_mps::CpuMpsEngine;
+    use qdk_cpu_mps::dev_trace::{SplitEvent, start_split_log, stop_split_log, take_split_log};
+    use qdk_simulators::mps_simulator::{GateFusion, MpsResumer};
+    use qdk_simulators::qir::{QirMachine, QirResumer, QirShotId, expect_ready};
+    use tensornet::{MpsEngine, MpsShape, PauliSum};
+
+    /// The splits of one class: how many, the weight their capacity
+    /// dropped, and the sums the means are made of.
+    #[derive(Default)]
+    struct Bucket {
+        count: u64,
+        lost: f64,
+        displaced: u64,
+        lost_displaced: f64,
+        straddle_now: u64,
+        straddle_layout: u64,
+        inverted: u64,
+    }
+
+    impl Bucket {
+        fn add(&mut self, event: &SplitEvent, cut: &CutView) {
+            self.count += 1;
+            self.lost += event.lost;
+            if cut.displaced {
+                self.displaced += 1;
+                self.lost_displaced += event.lost;
+            }
+            self.straddle_now += cut.straddle_now;
+            self.straddle_layout += cut.straddle_layout;
+            self.inverted += cut.inverted;
+        }
+
+        fn line(&self, name: &str) -> String {
+            #[allow(clippy::cast_precision_loss)]
+            let mean = |sum: u64| {
+                if self.count == 0 {
+                    0.0
+                } else {
+                    sum as f64 / self.count as f64
+                }
+            };
+            format!(
+                "{name}={} {name}_lost={:.3e} {name}_displaced={} {name}_lost_displaced={:.3e} \
+                 {name}_straddle_now={:.2} {name}_straddle_layout={:.2} {name}_inverted={:.2}",
+                self.count,
+                self.lost,
+                self.displaced,
+                self.lost_displaced,
+                mean(self.straddle_now),
+                mean(self.straddle_layout),
+                mean(self.inverted),
+            )
+        }
+    }
+
+    /// What one cut is, under a placement.
+    struct CutView {
+        displaced: bool,
+        straddle_now: u64,
+        straddle_layout: u64,
+        inverted: u64,
+    }
+
+    #[derive(Default)]
+    struct Stats {
+        /// The splits outside the engine's routes, capacity-bound and all.
+        capacity_bound: Bucket,
+        all: Bucket,
+        /// The splits of the engine's own routes (`Engine`'s distant
+        /// operators), capacity-bound.
+        route_capacity_bound: Bucket,
+        /// The capacity-bound splits (outside routes) per cut.
+        per_cut: BTreeMap<usize, u64>,
+    }
+
+    /// A state with its placement: the layout site at each chain position,
+    /// and the logical pairs a non-SWAP two-site gate joined.
+    struct Placed<S> {
+        inner: S,
+        site_at: Vec<usize>,
+        joined: Vec<(usize, usize)>,
+    }
+
+    impl<S> Placed<S> {
+        fn view(&self, cut: usize) -> CutView {
+            let n = self.site_at.len();
+            let mut position = vec![0; n];
+            for (at, &site) in self.site_at.iter().enumerate() {
+                position[site] = at;
+            }
+            let displaced = self.site_at[..=cut].iter().any(|&site| site > cut);
+            let straddles = |x: usize, y: usize| (x <= cut) != (y <= cut);
+            let straddle_now = self
+                .joined
+                .iter()
+                .filter(|&&(a, b)| straddles(position[a], position[b]))
+                .count() as u64;
+            let straddle_layout = self
+                .joined
+                .iter()
+                .filter(|&&(a, b)| straddles(a, b))
+                .count() as u64;
+            let mut inverted = 0;
+            for a in 0..n {
+                for b in a + 1..n {
+                    if position[a] > position[b] && straddles(position[a], position[b]) {
+                        inverted += 1;
+                    }
+                }
+            }
+            CutView {
+                displaced,
+                straddle_now,
+                straddle_layout,
+                inverted,
+            }
+        }
+    }
+
+    /// The CPU engine, logged (see the module documentation).
+    struct Logged {
+        inner: CpuMpsEngine,
+        stats: Rc<RefCell<Stats>>,
+    }
+
+    fn is_swap(matrix: &[Complex64]) -> bool {
+        let one = |at: usize| [0, 6, 9, 15].contains(&at);
+        matrix.len() == 16
+            && matrix
+                .iter()
+                .enumerate()
+                .all(|(at, z)| z.im == 0.0 && z.re == if one(at) { 1.0 } else { 0.0 })
+    }
+
+    impl Logged {
+        fn drain(&self, state: &Placed<<CpuMpsEngine as MpsEngine>::State>, route: bool) {
+            let mut stats = self.stats.borrow_mut();
+            for event in take_split_log() {
+                if event.transient {
+                    continue;
+                }
+                let cut = state.view(event.cut);
+                let bound = event.bond < event.need;
+                if route {
+                    if bound {
+                        stats.route_capacity_bound.add(&event, &cut);
+                    }
+                    continue;
+                }
+                stats.all.add(&event, &cut);
+                if bound {
+                    stats.capacity_bound.add(&event, &cut);
+                    *stats.per_cut.entry(event.cut).or_default() += 1;
+                }
+            }
+        }
+    }
+
+    type Inner = <CpuMpsEngine as MpsEngine>::State;
+    type Error = <CpuMpsEngine as MpsEngine>::Error;
+
+    impl MpsEngine for Logged {
+        type State = Placed<Inner>;
+        type Error = Error;
+
+        fn prepare(&self, capacity: &MpsShape) -> Result<Self::State, Error> {
+            let state = Placed {
+                inner: self.inner.prepare(capacity)?,
+                site_at: (0..capacity.site_count()).collect(),
+                joined: Vec::new(),
+            };
+            self.drain(&state, false);
+            Ok(state)
+        }
+
+        fn apply(
+            &self,
+            state: &mut Self::State,
+            sites: &[usize],
+            matrix: &[Complex64],
+        ) -> Result<(), Error> {
+            if let &[a, b] = sites {
+                if a.abs_diff(b) > 1 {
+                    self.inner.shape(&state.inner)?;
+                    self.drain(state, false);
+                    let applied = self.inner.apply(&mut state.inner, sites, matrix);
+                    self.drain(state, true);
+                    let pair = (state.site_at[a], state.site_at[b]);
+                    state.joined.push(pair);
+                    return applied;
+                }
+                let applied = self.inner.apply(&mut state.inner, sites, matrix);
+                self.drain(state, false);
+                if is_swap(matrix) {
+                    state.site_at.swap(a, b);
+                } else {
+                    let pair = (state.site_at[a], state.site_at[b]);
+                    state.joined.push(pair);
+                }
+                return applied;
+            }
+            let applied = self.inner.apply(&mut state.inner, sites, matrix);
+            self.drain(state, false);
+            applied
+        }
+
+        fn probability_of_one(&self, state: &Self::State, site: usize) -> Result<f64, Error> {
+            let read = self.inner.probability_of_one(&state.inner, site);
+            self.drain(state, false);
+            read
+        }
+
+        fn project(&self, state: &mut Self::State, site: usize, one: bool) -> Result<f64, Error> {
+            let read = self.inner.project(&mut state.inner, site, one);
+            self.drain(state, false);
+            read
+        }
+
+        fn fork(&self, state: &Self::State) -> Result<Self::State, Error> {
+            let inner = self.inner.fork(&state.inner)?;
+            self.drain(state, false);
+            Ok(Placed {
+                inner,
+                site_at: state.site_at.clone(),
+                joined: state.joined.clone(),
+            })
+        }
+
+        fn sample(
+            &self,
+            state: &Self::State,
+            sites: &[usize],
+            shots: usize,
+            seed: u64,
+        ) -> Result<Vec<bool>, Error> {
+            let read = self.inner.sample(&state.inner, sites, shots, seed);
+            self.drain(state, false);
+            read
+        }
+
+        fn expectation(
+            &self,
+            state: &Self::State,
+            observable: &PauliSum,
+        ) -> Result<Complex64, Error> {
+            let read = self.inner.expectation(&state.inner, observable);
+            self.drain(state, false);
+            read
+        }
+
+        fn shape(&self, state: &Self::State) -> Result<MpsShape, Error> {
+            let read = self.inner.shape(&state.inner);
+            self.drain(state, false);
+            read
+        }
+
+        fn retained_weight(&self, state: &Self::State) -> Result<f64, Error> {
+            let read = self.inner.retained_weight(&state.inner);
+            self.drain(state, false);
+            read
+        }
+    }
+
+    pub(super) fn run_all(
+        n: usize,
+        chi: NonZeroUsize,
+        shots: u32,
+        only: Option<&str>,
+        routings: Option<&str>,
+    ) {
+        for (name, _, program) in super::adversarial_programs(n) {
+            if only.is_some_and(|only| !only.split(',').any(|o| o == name)) {
+                continue;
+            }
+            for (routing_name, routing) in super::adversarial_routings() {
+                if routings.is_some_and(|only| !only.split(',').any(|o| o == routing_name)) {
+                    continue;
+                }
+                let stats = Rc::new(RefCell::new(Stats::default()));
+                let engine = Logged {
+                    inner: CpuMpsEngine::default(),
+                    stats: Rc::clone(&stats),
+                };
+                let mut resumer = MpsResumer::new(engine, 1)
+                    .with_routing(routing)
+                    .with_gate_fusion(GateFusion::Unfused)
+                    .with_max_bond_dimension(chi);
+                start_split_log();
+                let run =
+                    expect_ready(resumer.run(&QirMachine::new(&program), &QirShotId::first(shots)));
+                stop_split_log();
+                let lost = 1.0 - resumer.last_run().least_retained_weight;
+                let stats = stats.borrow();
+                let per_cut = stats
+                    .per_cut
+                    .iter()
+                    .map(|(cut, count)| format!("{cut}:{count}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                println!(
+                    "NEED program={name} qubits={n} chi={chi} routing={routing_name} \
+                     shots={shots} ok={} lost_weight={lost:.3e} {} {} {} cap_cuts={per_cut}",
+                    run.is_ok(),
+                    stats.capacity_bound.line("cap"),
+                    stats.all.line("all"),
+                    stats.route_capacity_bound.line("route_cap"),
+                );
+            }
+        }
     }
 }

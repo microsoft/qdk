@@ -132,7 +132,14 @@ impl<A: LinearAlgebra> Engine<A> {
         };
         let need = self.kept(&svd.singular_values, usize::MAX);
         let bond = need.min(max_bond);
-        crate::dev_trace::record(&svd.singular_values, need, bond, max_bond, cut);
+        crate::dev_trace::record(
+            &svd.singular_values,
+            need,
+            bond,
+            max_bond,
+            cut,
+            matches!(truncation, Truncation::CutoffOnly),
+        );
         let rescale = Self::kept_rescale(chain, &svd.singular_values, bond)?;
         chain.statistics.splits += 1;
         let largest = match truncation {

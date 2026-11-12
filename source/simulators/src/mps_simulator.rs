@@ -55,6 +55,6 @@ pub use resumer::rewrites::fusion::GateFusion;
 pub use resumer::routing::Routing;
 #[doc(hidden)]
 pub use resumer::routing::{
-    Restore, RouteTuning, RoutingTrace, reset_routing_trace, routing_trace,
+    BoundCheck, GuardPolicy, Restore, RouteTuning, RoutingTrace, reset_routing_trace, routing_trace,
 };
 pub use resumer::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer};

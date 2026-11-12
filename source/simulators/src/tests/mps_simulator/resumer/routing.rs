@@ -20,6 +20,8 @@ use super::super::programs::{
 use super::super::reference_spy::ReferenceSpy;
 use super::run;
 
+mod bond_bound;
+
 const ROUTED: [Routing; 2] = [Routing::MeetHalfway, Routing::MeetHalfwayAfterFusion];
 const FUSIONS: [GateFusion; 2] = [GateFusion::Unfused, GateFusion::Pairs];
 
