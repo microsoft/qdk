@@ -12,8 +12,8 @@ those blocks are replaced with ``quiz()`` calls. Afterwards there is nothing
 left to convert and every run is only a rebake.
 
 ID-only cells use the existing runtime lookup. A dedicated code cell tagged
-``quiz`` can instead own one full literal definition; baking reads its data
-without executing the call or looking up its registration.
+``quiz`` can instead own one or more full literal definitions; baking reads
+their data in source order without executing calls or looking up registrations.
 Unit 06's ``iqpe-energy-comparison`` is the first such authored quiz.
 The runtime can display the full call directly; materialization derives an
 ID-only learner call from the saved MCQ outputs without changing those outputs.
@@ -154,8 +154,13 @@ def _group_adjacent_quizzes(
     return grouped
 
 
-def _authored_quiz(cell: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
-    """Validate a dedicated quiz cell and read its full literal definition, if any."""
+def _authored_quizzes(cell: dict[str, Any]) -> list[tuple[str, dict[str, Any]]] | None:
+    """Read full literal quiz definitions in source order.
+
+    Tagged cells may contain only standalone quiz() calls and comments.
+    Calls must be all full authored definitions or all literal ID-only calls;
+    mixing the forms is unsupported. ID-only cells return None.
+    """
     if cell.get("cell_type") != "code" or "quiz" not in _cell_tags(cell):
         return None
     label = f"cell {cell.get('id', '?')}"
@@ -182,35 +187,35 @@ def _authored_quiz(cell: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
             ):
                 raise SystemExit(f"{label}: ID-only quiz() calls need literal string ids")
         return None
-    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Expr):
-        raise SystemExit(f"{label}: an authored quiz needs one standalone quiz() call")
-    call = tree.body[0].value
-    if (
-        not isinstance(call, ast.Call)
-        or not isinstance(call.func, ast.Name)
-        or call.func.id != "quiz"
-        or len(call.args) != 1
-    ):
-        raise SystemExit(f"{label}: expected quiz(id, prompt=..., options=...)")
+    authored: list[tuple[str, dict[str, Any]]] = []
+    for statement in tree.body:
+        call = statement.value
+        if not call.keywords:
+            raise SystemExit(f"{label}: cannot mix authored and ID-only quiz() calls")
+        if len(call.args) != 1:
+            raise SystemExit(f"{label}: expected quiz(id, prompt=..., options=...)")
 
-    fields: dict[str, Any] = {}
-    try:
-        quiz_id = ast.literal_eval(call.args[0])
-        for keyword in call.keywords:
-            if (
-                keyword.arg is None
-                or keyword.arg not in {"prompt", "options", "multi_select", "shuffle"}
-                or keyword.arg in fields
-            ):
-                raise SystemExit(f"{label}: unsupported or duplicate quiz field")
-            fields[keyword.arg] = ast.literal_eval(keyword.value)
-    except (ValueError, TypeError) as error:
-        raise SystemExit(f"{label}: authored quiz arguments must be literal data") from error
-    if not isinstance(quiz_id, str) or not {"prompt", "options"} <= fields.keys():
-        raise SystemExit(f"{label}: quiz needs a string id, prompt and options")
-    if any(not isinstance(fields.get(name, False), bool) for name in ("multi_select", "shuffle")):
-        raise SystemExit(f"{label}: multi_select and shuffle must be booleans")
-    return quiz_id, fields
+        fields: dict[str, Any] = {}
+        try:
+            quiz_id = ast.literal_eval(call.args[0])
+            for keyword in call.keywords:
+                if (
+                    keyword.arg is None
+                    or keyword.arg not in {"prompt", "options", "multi_select", "shuffle"}
+                    or keyword.arg in fields
+                ):
+                    raise SystemExit(f"{label}: unsupported or duplicate quiz field")
+                fields[keyword.arg] = ast.literal_eval(keyword.value)
+        except (ValueError, TypeError) as error:
+            raise SystemExit(f"{label}: authored quiz arguments must be literal data") from error
+        if not isinstance(quiz_id, str) or not {"prompt", "options"} <= fields.keys():
+            raise SystemExit(f"{label}: quiz needs a string id, prompt and options")
+        if any(not isinstance(fields.get(name, False), bool) for name in ("multi_select", "shuffle")):
+            raise SystemExit(f"{label}: multi_select and shuffle must be booleans")
+        if any(existing_id == quiz_id for existing_id, _ in authored):
+            raise SystemExit(f"{label}: duplicate authored quiz id {quiz_id!r}")
+        authored.append((quiz_id, fields))
+    return authored
 
 
 def _baked_outputs(
@@ -221,13 +226,13 @@ def _baked_outputs(
     ``quiz()`` displays rather than returns, so running it yields one
     ``display_data`` output per question.
     """
-    authored = _authored_quiz(cell) if cell is not None else None
+    authored = _authored_quizzes(cell) if cell is not None else None
     outputs = []
-    for quiz_id in ids:
+    for position, quiz_id in enumerate(ids):
         if authored is None:
             output = emitter._lookup_quiz(quiz_id)
         else:
-            _, fields = authored
+            _, fields = authored[position]
             options = fields["options"]
             if fields.get("shuffle", True):
                 options = emitter._shuffled(quiz_id, options)
@@ -282,9 +287,9 @@ def _cell_quiz_ids(cell: dict[str, Any]) -> list[str]:
     """
     if cell.get("cell_type") != "code":
         return []
-    authored = _authored_quiz(cell)
+    authored = _authored_quizzes(cell)
     if authored is not None:
-        return [authored[0]]
+        return [quiz_id for quiz_id, _ in authored]
     source = "".join(cell["source"])
     if "quiz" in _cell_tags(cell):
         return [

@@ -236,7 +236,7 @@ def _shuffled(seed: str, options: Sequence[Sequence[Any]]) -> list[Sequence[Any]
     machine and every run.
     """
     shuffled = list(options)
-    random.Random(seed).shuffle(shuffled)
+    random.Random(seed).shuffle(shuffled)  # DevSkim: ignore DS148264
     return shuffled
 
 
