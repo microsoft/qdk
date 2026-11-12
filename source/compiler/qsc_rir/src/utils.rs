@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::collections::VecDeque;
+
 use crate::rir::{
-    Block, BlockId, Instruction, Operand, OperandMapping, Program, Variable, VariableId,
+    Block, BlockId, Callable, Instruction, Operand, OperandMapping, Program, Variable, VariableId,
 };
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -27,24 +29,26 @@ pub fn get_block_successors(block: &Block) -> Vec<BlockId> {
     successors
 }
 
-/// Given a block ID and a containing program, return the block IDs of all blocks reachable from the given block including itself.
-/// The returned block IDs are sorted in ascending order.
 #[must_use]
-pub fn get_all_block_successors(block: BlockId, program: &Program) -> Vec<BlockId> {
-    let mut blocks_to_visit = get_block_successors(program.get_block(block));
+pub fn get_callable_blocks(callable: &Callable, program: &Program) -> Vec<BlockId> {
+    let Some(entry) = callable.body else {
+        return Vec::new();
+    };
+    let mut blocks_to_visit = VecDeque::default();
+    blocks_to_visit.push_front(entry);
     let mut blocks_visited = FxHashSet::default();
-    while let Some(block_id) = blocks_to_visit.pop() {
-        if blocks_visited.contains(&block_id) {
+    while let Some(block_id) = blocks_to_visit.pop_front() {
+        if !blocks_visited.insert(block_id) {
             continue;
         }
-        blocks_visited.insert(block_id);
         let block = program.get_block(block_id);
-        let block_successors = get_block_successors(block);
-        blocks_to_visit.extend(block_successors.clone());
+        for successor in get_block_successors(block) {
+            blocks_to_visit.push_front(successor);
+        }
     }
-    let mut successors = blocks_visited.into_iter().collect::<Vec<_>>();
-    successors.sort_unstable();
-    successors
+    let mut blocks = blocks_visited.into_iter().collect::<Vec<_>>();
+    blocks.sort_unstable();
+    blocks
 }
 
 /// Given a program, return a map from block IDs to the block IDs of their predecessors.
@@ -288,8 +292,8 @@ fn update_variable_mapping(
 
     // For all existing deep mappings to this variable, downgrade them to shallow mappings.
     // This ensures those previous mappings represent the value at the time they were created, rather than the new value being stored.
-    if let Some(deep_mappings) = reverse_deep_map.get_mut(&var.variable_id) {
-        for &mapped_var_id in deep_mappings.iter() {
+    if let Some(deep_mappings) = reverse_deep_map.remove(&var.variable_id) {
+        for mapped_var_id in deep_mappings {
             if let Some(mapping) = var_map.get_mut(&mapped_var_id)
                 && let OperandMapping::Deep(Operand::Variable(existing)) = mapping
                 && existing.variable_id == var.variable_id

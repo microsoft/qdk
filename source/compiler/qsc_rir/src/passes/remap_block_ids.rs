@@ -3,11 +3,12 @@
 
 use std::collections::VecDeque;
 
-use rustc_hash::FxHashMap;
+use qsc_data_structures::target::TargetCapabilityFlags;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     rir::{BlockId, Instruction, Program},
-    utils::{get_all_block_successors, get_block_successors},
+    utils::get_block_successors,
 };
 
 #[cfg(test)]
@@ -20,13 +21,17 @@ mod tests;
 /// the function will still remap block IDs but the ordering may not be topological.
 pub fn remap_block_ids(program: &mut Program) {
     // Check if the program is acyclic, which lets us construct a topological ordering.
-    let is_acyclic = check_acyclic(program);
+    let is_acyclic = !program
+        .config
+        .capabilities
+        .contains(TargetCapabilityFlags::BackwardsBranching);
 
     // Because we know the program is acyclic, we can keep a list as the map from old block IDs to new block IDs, where
     // the new block ID is the index in the list. We accumulate this list by walking the reachable blocks of every
     // bodied callable in a deterministic order, so block-id assignment is stable across runs (and snapshots).
     // Distinct callable bodies own disjoint block sets, so each callable contributes a contiguous segment of new IDs.
-    let mut block_id_map = Vec::new();
+    let mut block_order = Vec::new();
+    let mut blocks_visited = FxHashSet::default();
     for callable_id in program.all_callable_ids() {
         // Intrinsics (and any other bodyless callables) have no blocks to remap.
         let Some(entry_block_id) = program.get_callable(callable_id).body else {
@@ -39,11 +44,12 @@ pub fn remap_block_ids(program: &mut Program) {
             // This effectively remaps all the blocks in the list and updates the mapped id of the current block.
             // This is only safe without cycles, so on a cyclic graph the node is skipped and not remapped.
             if is_acyclic {
-                block_id_map.retain(|id| *id != block_id);
-            } else if block_id_map.contains(&block_id) {
+                block_order.retain(|id| *id != block_id);
+            } else if blocks_visited.contains(&block_id) {
                 continue;
             }
-            block_id_map.push(block_id);
+            blocks_visited.insert(block_id);
+            block_order.push(block_id);
 
             let successors = get_block_successors(program.get_block(block_id));
             if blocks_to_visit.len() >= successors.len()
@@ -64,7 +70,7 @@ pub fn remap_block_ids(program: &mut Program) {
         }
     }
 
-    let block_id_map = block_id_map
+    let block_id_map = block_order
         .into_iter()
         .enumerate()
         .map(|(new_id, old_id)| (old_id, new_id))
@@ -73,7 +79,6 @@ pub fn remap_block_ids(program: &mut Program) {
     let blocks = program.blocks.drain().collect::<Vec<_>>();
     for (old_block_id, mut block) in blocks {
         let new_block_id = block_id_map[&old_block_id];
-        update_phi_nodes(&block_id_map, &mut block.0);
         update_terminator(
             &block_id_map,
             block
@@ -94,31 +99,6 @@ pub fn remap_block_ids(program: &mut Program) {
             .get_mut(callable_id)
             .expect("callable should exist")
             .body = Some(block_id_map[&old_body].into());
-    }
-}
-
-fn check_acyclic(program: &Program) -> bool {
-    for (block_id, _) in program.blocks.iter() {
-        if get_all_block_successors(block_id, program).contains(&block_id) {
-            return false;
-        }
-    }
-    true
-}
-
-fn update_phi_nodes(block_id_map: &FxHashMap<BlockId, usize>, instrs: &mut [Instruction]) {
-    for instr in instrs.iter_mut() {
-        if let Instruction::Phi(args, _) = instr {
-            for arg in args.iter_mut() {
-                arg.1 = (*block_id_map
-                    .get(&arg.1)
-                    .expect("block ids in phi node should exist in block id map"))
-                .into();
-            }
-        } else {
-            // Since phi nodes are always at the top of the block, we can break early.
-            return;
-        }
     }
 }
 

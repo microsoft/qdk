@@ -3,10 +3,7 @@
 
 use qsc_data_structures::index_map::IndexMap;
 
-use crate::{
-    rir::{BlockId, Program},
-    utils::get_all_block_successors,
-};
+use crate::rir::{BlockId, Program};
 
 #[cfg(test)]
 mod tests;
@@ -38,16 +35,21 @@ pub fn build_dominator_graph(
         // The entry block of a body dominates itself.
         doms.insert(entry_block_id, entry_block_id);
 
-        // The reachable blocks of this body, in ascending id order. The entry block is excluded here
-        // because it is the only block that by definition dominates itself, so it never needs updating.
-        let body_blocks = get_all_block_successors(entry_block_id, program);
-
         // The algorithm needs to run until the dominance map stabilizes, ie: no block's immediate
         // dominator changes.
         let mut changed = true;
         while changed {
             changed = false;
-            for &block_id in &body_blocks {
+
+            // Iterate over the reachable blocks of this body, in ascending id order. The entry block is excluded here
+            // because it is the only block that by definition dominates itself, so it never needs updating.
+            for block_id in program.blocks.iter().filter_map(|(block_id, _)| {
+                if entry_block_id == block_id {
+                    None
+                } else {
+                    Some(block_id)
+                }
+            }) {
                 // The immediate dominator of a block is the intersection of the dominators of its predecessors.
                 // Start from an assumption that the first predecessor is the dominator, and intersect with the rest.
                 let (first_pred, rest_preds) = preds

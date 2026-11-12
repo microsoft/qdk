@@ -11,8 +11,6 @@ mod result_literal;
 mod simplify_control_flow;
 mod ssa_check;
 mod ssa_transform;
-#[cfg(test)]
-mod test_utils;
 mod type_check;
 mod unreachable_code_check;
 

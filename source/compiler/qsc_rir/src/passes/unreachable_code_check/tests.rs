@@ -94,7 +94,7 @@ fn test_check_unreachable_blocks_succeeds_on_no_unreachable_blocks() {
 }
 
 #[test]
-#[should_panic(expected = "Unreachable blocks found: [BlockId(1)]")]
+#[should_panic(expected = "Unreachable block found: BlockId(1)")]
 fn test_check_unreachable_blocks_panics_on_unreachable_block() {
     let mut program = Program::new();
     program.callables.insert(
@@ -176,7 +176,7 @@ fn test_check_unreachable_blocks_succeeds_on_no_unreachable_blocks_with_jump() {
 }
 
 #[test]
-#[should_panic(expected = "Unreachable blocks found: [BlockId(2)]")]
+#[should_panic(expected = "Unreachable block found: BlockId(2)")]
 fn test_check_unreachable_blocks_panics_on_unreachable_block_with_branch() {
     let mut program = Program::new();
     program.callables.insert(
@@ -233,7 +233,7 @@ fn test_check_unreachable_callable_succeeds_on_no_unreachable_callables() {
 }
 
 #[test]
-#[should_panic(expected = "Unreachable callables found: [CallableId(1)]")]
+#[should_panic(expected = "Unreachable callable found: CallableId(1)")]
 fn test_check_unreachable_callable_panics_on_unreachable_callable() {
     let mut program = Program::new();
     program.entry = CallableId(0);
@@ -368,7 +368,7 @@ fn test_check_unreachable_callable_succeeds_on_no_unreachable_callables_with_nes
 }
 
 #[test]
-#[should_panic(expected = "Unreachable callables found: [CallableId(2)]")]
+#[should_panic(expected = "Unreachable callable found: CallableId(2)")]
 fn test_check_unreachable_callable_panics_on_unreachable_callable_with_nested_call() {
     let mut program = Program::new();
     program.entry = CallableId(0);

@@ -262,11 +262,8 @@ fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
               %var_2 = icmp eq i1 %var_1, false
-              br i1 %var_2, label %block_2, label %block_1
+              br i1 %var_2, label %block_1, label %block_2
             block_1:
-              store i64 0, ptr %var_0
-              br label %block_2
-            block_2:
               %var_10 = load i64, ptr %var_0
               store i64 %var_10, ptr %var_5
               %var_12 = load i64, ptr %var_5
@@ -274,7 +271,10 @@ fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
               store i1 %var_6, ptr %var_7
               %var_14 = load i1, ptr %var_7
               call void @__quantum__rt__bool_record_output(i1 zeroext %var_14, ptr @0)
-              ret i64 0"#]],
+              ret i64 0
+            block_2:
+              store i64 0, ptr %var_0
+              br label %block_1"#]],
         &expect![[r#"
             block_0:
               %var_1 = alloca i64
@@ -286,11 +286,8 @@ fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
               %var_3 = icmp eq i1 %var_2, false
-              br i1 %var_3, label %block_2, label %block_1
+              br i1 %var_3, label %block_1, label %block_2
             block_1:
-              store i64 0, ptr %var_1
-              br label %block_2
-            block_2:
               %var_11 = load i64, ptr %var_1
               store i64 %var_11, ptr %var_6
               %var_13 = load i64, ptr %var_6
@@ -298,7 +295,10 @@ fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
               store i1 %var_7, ptr %var_8
               %var_15 = load i1, ptr %var_8
               call void @__quantum__rt__bool_record_output(i1 zeroext %var_15, ptr @0)
-              ret i64 0"#]],
+              ret i64 0
+            block_2:
+              store i64 0, ptr %var_1
+              br label %block_1"#]],
     );
 }
 
@@ -383,11 +383,8 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
               %var_2 = icmp eq i1 %var_1, false
-              br i1 %var_2, label %block_2, label %block_1
+              br i1 %var_2, label %block_1, label %block_2
             block_1:
-              store i64 0, ptr %var_0
-              br label %block_2
-            block_2:
               %var_11 = load i64, ptr %var_0
               store i64 %var_11, ptr %var_6
               %var_13 = load i64, ptr %var_6
@@ -395,7 +392,10 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
               store i1 %var_7, ptr %var_8
               %var_15 = load i1, ptr %var_8
               call void @__quantum__rt__bool_record_output(i1 zeroext %var_15, ptr @0)
-              ret i64 0"#]],
+              ret i64 0
+            block_2:
+              store i64 0, ptr %var_0
+              br label %block_1"#]],
         &expect![[r#"
             block_0:
               %var_1 = alloca i64
@@ -407,11 +407,8 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
               %var_3 = icmp eq i1 %var_2, false
-              br i1 %var_3, label %block_2, label %block_1
+              br i1 %var_3, label %block_1, label %block_2
             block_1:
-              store i64 0, ptr %var_1
-              br label %block_2
-            block_2:
               %var_12 = load i64, ptr %var_1
               store i64 %var_12, ptr %var_7
               %var_14 = load i64, ptr %var_7
@@ -419,7 +416,10 @@ fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
               store i1 %var_8, ptr %var_9
               %var_16 = load i1, ptr %var_9
               call void @__quantum__rt__bool_record_output(i1 zeroext %var_16, ptr @0)
-              ret i64 0"#]],
+              ret i64 0
+            block_2:
+              store i64 0, ptr %var_1
+              br label %block_1"#]],
     );
 }
 
@@ -1222,13 +1222,13 @@ fn evaluation_order_effectful_callable_or_replacement() {
               store i1 %var_1, ptr %var_3
               store i64 0, ptr %var_4
               %var_5 = load i1, ptr %var_3
-              br i1 %var_5, label %block_2, label %block_1
+              br i1 %var_5, label %block_1, label %block_2
             block_1:
-              store i64 7, ptr %var_4
-              br label %block_2
-            block_2:
               %var_15 = load i1, ptr %var_3
               br i1 %var_15, label %block_3, label %block_4
+            block_2:
+              store i64 7, ptr %var_4
+              br label %block_1
             block_3:
               store i64 11, ptr %var_7
               br label %block_5
@@ -1275,13 +1275,13 @@ fn evaluation_order_effectful_callable_or_replacement() {
               store i1 %var_0, ptr %var_2
               store i64 0, ptr %var_3
               %var_4 = load i1, ptr %var_2
-              br i1 %var_4, label %block_2, label %block_1
+              br i1 %var_4, label %block_1, label %block_2
             block_1:
-              store i64 7, ptr %var_3
-              br label %block_2
-            block_2:
               %var_14 = load i1, ptr %var_2
               br i1 %var_14, label %block_3, label %block_4
+            block_2:
+              store i64 7, ptr %var_3
+              br label %block_1
             block_3:
               store i64 11, ptr %var_6
               br label %block_5
@@ -1420,15 +1420,15 @@ fn evaluation_order_effectful_callable_or_assign_replacement() {
               store i1 %var_2, ptr %var_0
               %var_7 = load i1, ptr %var_0
               store i1 true, ptr %var_8
-              br i1 %var_7, label %block_2, label %block_1
+              br i1 %var_7, label %block_1, label %block_2
             block_1:
-              store i64 7, ptr %var_5
-              store i1 false, ptr %var_8
-              br label %block_2
-            block_2:
               %var_6 = load i1, ptr %var_8
               %var_20 = load i1, ptr %var_0
               br i1 %var_20, label %block_3, label %block_4
+            block_2:
+              store i64 7, ptr %var_5
+              store i1 false, ptr %var_8
+              br label %block_1
             block_3:
               store i64 11, ptr %var_9
               br label %block_5
@@ -1478,15 +1478,15 @@ fn evaluation_order_effectful_callable_or_assign_replacement() {
               store i1 %var_1, ptr %var_0
               %var_6 = load i1, ptr %var_0
               store i1 true, ptr %var_7
-              br i1 %var_6, label %block_2, label %block_1
+              br i1 %var_6, label %block_1, label %block_2
             block_1:
-              store i64 7, ptr %var_4
-              store i1 false, ptr %var_7
-              br label %block_2
-            block_2:
               %var_5 = load i1, ptr %var_7
               %var_19 = load i1, ptr %var_0
               br i1 %var_19, label %block_3, label %block_4
+            block_2:
+              store i64 7, ptr %var_4
+              store i1 false, ptr %var_7
+              br label %block_1
             block_3:
               store i64 11, ptr %var_8
               br label %block_5
@@ -2217,23 +2217,23 @@ fn measured_nested_tail_return_qir_selects_post_continuation_value() {
           %var_14 = xor i1 %var_21, true
           br i1 %var_14, label %block_5, label %block_6
         block_5:
-          br i1 %var_11, label %block_7, label %block_8
+          br i1 %var_11, label %block_7, label %block_9
         block_6:
           %var_22 = load i64, ptr %var_13
           store i64 %var_22, ptr %var_15
-          br label %block_9
+          br label %block_8
         block_7:
           store i64 9, ptr %var_13
           store i1 true, ptr %var_12
-          br label %block_8
-        block_8:
-          store i64 5, ptr %var_15
           br label %block_9
-        block_9:
+        block_8:
           %var_24 = load i64, ptr %var_15
           store i64 %var_24, ptr %var_16
           %var_26 = load i1, ptr %var_12
           br i1 %var_26, label %block_10, label %block_11
+        block_9:
+          store i64 5, ptr %var_15
+          br label %block_8
         block_10:
           %var_30 = load i64, ptr %var_13
           store i64 %var_30, ptr %var_17

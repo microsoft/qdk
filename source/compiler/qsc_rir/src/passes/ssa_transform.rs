@@ -6,7 +6,7 @@ mod tests;
 
 use crate::{
     rir::{BlockId, Instruction, Operand, OperandMapping, Program, Ty, Variable, VariableId},
-    utils::{get_all_block_successors, get_variable_assignments, map_variable_use_in_block},
+    utils::{get_variable_assignments, map_variable_use_in_block},
 };
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -30,9 +30,9 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
     // rather than inferring the entry from blocks that happen to have no predecessors.
     for callable_id in program.all_callable_ids() {
         let callable = program.get_callable(callable_id);
-        let Some(entry) = callable.body else {
+        if callable.body.is_none() {
             continue;
-        };
+        }
 
         // Live-in parameters have no defining instruction, so pair each one with its declared type so
         // it can be seeded as a definition at the body entry.
@@ -43,7 +43,7 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
             .zip(callable.input_type.iter().copied())
             .collect();
 
-        transform_body_to_ssa(program, entry, &input_vars, preds, &mut next_var_id);
+        transform_body_to_ssa(program, &input_vars, preds, &mut next_var_id);
     }
 }
 
@@ -51,15 +51,17 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
 // are processed, and the body's live-in parameters are seeded as definitions at the entry.
 fn transform_body_to_ssa(
     program: &mut Program,
-    entry: BlockId,
     input_vars: &[(VariableId, Ty)],
     preds: &IndexMap<BlockId, Vec<BlockId>>,
     next_var_id: &mut VariableId,
 ) {
     // Process the entry block together with every block reachable from it, in ascending block-id
     // order so that each block is handled after its predecessors.
-    let mut body_blocks = vec![entry];
-    body_blocks.append(&mut get_all_block_successors(entry, program));
+    let body_blocks = program
+        .blocks
+        .iter()
+        .map(|(block_id, _)| block_id)
+        .collect::<Vec<_>>();
 
     let mut block_var_map = IndexMap::with_capacity(body_blocks.len());
 

@@ -597,54 +597,54 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           %var_115 = load i64, ptr %var_30
           %var_56 = icmp sgt i64 %var_55, %var_115
           store i1 true, ptr %var_58
-          br i1 %var_56, label %block_9, label %block_6
+          br i1 %var_56, label %block_6, label %block_7
         block_5:
           store i64 %var_12, ptr %var_16
-          br label %block_13
+          br label %block_8
         block_6:
+          %var_122 = load i1, ptr %var_58
+          br i1 %var_122, label %block_9, label %block_10
+        block_7:
           %var_59 = load i64, ptr %var_44
           %var_117 = load i64, ptr %var_30
           %var_60 = icmp eq i64 %var_59, %var_117
           store i1 false, ptr %var_62
-          br i1 %var_60, label %block_7, label %block_8
-        block_7:
-          %var_63 = load i64, ptr %var_54
-          %var_64 = and i64 %var_63, 1
-          %var_66 = icmp eq i64 %var_64, 1
-          store i1 %var_66, ptr %var_62
-          br label %block_8
+          br i1 %var_60, label %block_11, label %block_15
         block_8:
-          %var_119 = load i1, ptr %var_62
-          store i1 %var_119, ptr %var_58
-          br label %block_9
-        block_9:
-          %var_122 = load i1, ptr %var_58
-          br i1 %var_122, label %block_10, label %block_11
-        block_10:
-          %var_68 = load i64, ptr %var_54
-          %var_69 = add i64 %var_68, 1
-          store i64 %var_69, ptr %var_67
-          br label %block_12
-        block_11:
-          %var_123 = load i64, ptr %var_54
-          store i64 %var_123, ptr %var_67
-          br label %block_12
-        block_12:
-          %var_125 = load i64, ptr %var_67
-          store i64 %var_125, ptr %var_16
-          br label %block_13
-        block_13:
           %var_70 = load i64, ptr %var_16
           %var_77 = call i64 @MinI(i64 %var_70, i64 9007199254740991)
           store i64 %var_77, ptr %var_78
           %var_80 = icmp sgt i64 %var_13, 53
-          br i1 %var_80, label %block_14, label %block_15
-        block_14:
+          br i1 %var_80, label %block_12, label %block_13
+        block_9:
+          %var_68 = load i64, ptr %var_54
+          %var_69 = add i64 %var_68, 1
+          store i64 %var_69, ptr %var_67
+          br label %block_14
+        block_10:
+          %var_123 = load i64, ptr %var_54
+          store i64 %var_123, ptr %var_67
+          br label %block_14
+        block_11:
+          %var_63 = load i64, ptr %var_54
+          %var_64 = and i64 %var_63, 1
+          %var_66 = icmp eq i64 %var_64, 1
+          store i1 %var_66, ptr %var_62
+          br label %block_15
+        block_12:
           store i64 53, ptr %var_81
           br label %block_16
-        block_15:
+        block_13:
           store i64 %var_13, ptr %var_81
           br label %block_16
+        block_14:
+          %var_125 = load i64, ptr %var_67
+          store i64 %var_125, ptr %var_16
+          br label %block_8
+        block_15:
+          %var_119 = load i1, ptr %var_62
+          store i1 %var_119, ptr %var_58
+          br label %block_6
         block_16:
           %var_82 = load i64, ptr %var_81
           %var_83 = ashr i64 %var_82, 63
