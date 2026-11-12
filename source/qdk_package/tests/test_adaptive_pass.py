@@ -14,6 +14,7 @@ import pytest
 
 from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode, GATE_MAP
 from qdk._adaptive_bytecode import *
+from qdk.simulation._simulation import DecomposeMxMyPass
 
 _HAS_GLOBAL_VARIABLES = hasattr(
     pyqir.Module(pyqir.Context(), "probe"), "global_variables"
@@ -1635,7 +1636,7 @@ def test_forward_global_ref_constant_data():
 
 
 # ---------------------------------------------------------------------------
-# Test: MX/MY are native ops, or lowered to basis change + MZ when requested
+# Test: MX/MY are native ops; DecomposeMxMyPass lowers them to basis change + M
 # ---------------------------------------------------------------------------
 
 MX_MY_QIR = """\
@@ -1656,18 +1657,27 @@ attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_
 """
 
 
-def _mx_my_op_ids(expand: bool):
+def _mx_my_op_ids(decompose: bool):
     mod = pyqir.Module.from_ir(pyqir.Context(), MX_MY_QIR, "test.ll")
-    program = AdaptiveProfilePass(
-        Bytecode.Bit32, expand_pauli_measurements=expand
-    ).run(mod)
+    if decompose:
+        DecomposeMxMyPass().run(mod)
+    program = AdaptiveProfilePass(Bytecode.Bit32).run(mod)
     return [op.op_id for op in program.quantum_ops]
 
 
 def test_mx_my_are_native_by_default():
-    assert _mx_my_op_ids(expand=False) == [GATE_MAP["mx"], GATE_MAP["my"]]
+    assert _mx_my_op_ids(decompose=False) == [GATE_MAP["mx"], GATE_MAP["my"]]
 
 
-def test_mx_my_expand_to_basis_change_and_mz():
-    expected = ["h", "mz", "h", "s__adj", "h", "mz", "h", "s"]
-    assert _mx_my_op_ids(expand=True) == [GATE_MAP[g] for g in expected]
+def test_decompose_mx_my_to_basis_change_and_m():
+    expected = ["h", "m", "h", "s__adj", "h", "m", "h", "s"]
+    assert _mx_my_op_ids(decompose=True) == [GATE_MAP[g] for g in expected]
+
+
+def test_decompose_mx_my_keeps_result_ids_and_valid_ir():
+    mod = pyqir.Module.from_ir(pyqir.Context(), MX_MY_QIR, "test.ll")
+    DecomposeMxMyPass().run(mod)
+    assert mod.verify() is None
+    program = AdaptiveProfilePass(Bytecode.Bit32).run(mod)
+    measures = [i for i in program.instructions if _primary(i.opcode) == OP_MEASURE]
+    assert [m.aux2 for m in measures] == [0, 1]

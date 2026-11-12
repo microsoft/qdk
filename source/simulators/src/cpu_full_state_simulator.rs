@@ -652,19 +652,22 @@ impl Simulator for FullStateSimulator {
     }
 
     fn mx(&mut self, target: QubitID, result_id: ResultID) {
+        // The MX measurement currently uses `mz` noise.
+        // TODO(pranavijain): Change noise type when noise for MX is configured.
         self.apply_idle_noise(target);
         self.record_m_pauli(target, result_id, OneQubitMeasurement::X);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn my(&mut self, target: QubitID, result_id: ResultID) {
+        // The MY measurement currently uses `mz` noise.
+        // TODO(pranavijain): Change noise type when noise for MY is configured.
         self.apply_idle_noise(target);
         self.record_m_pauli(target, result_id, OneQubitMeasurement::Y);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn mz(&mut self, target: QubitID, result_id: ResultID) {
-        // todo!("Change noise type when new noise is configured")
         self.apply_idle_noise(target);
         self.record_m_pauli(target, result_id, OneQubitMeasurement::Z);
         self.apply_noise(|config| &config.mz, &[target]);
