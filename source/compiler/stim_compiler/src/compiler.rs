@@ -1036,18 +1036,8 @@ impl<'noise> Compiler<'noise> {
         qubit: StimQubitId,
         span: Span,
     ) -> Vec<ast::Stmt> {
-        let op = if reset {
-            QSharpOp::MResetZ
-        } else {
-            QSharpOp::M
-        };
-
-        let mut stmts = self.rotate_to_z_basis(observable, qubit, span);
-        let (result_id, measurement) = self.measure(op, qubit, negated, span);
-        stmts.extend(measurement);
-        stmts.extend(self.rotate_from_z_basis(observable, qubit, span));
-        stmts.extend(self.readout_noise_stmt(readout_noise, result_id, span));
-        stmts
+        let basis_change = self.rotate_to_z_basis(observable, qubit, span);
+        self.compile_measurement(basis_change, qubit, reset, negated, readout_noise, span)
     }
 
     fn compile_two_qubit_measurement(
@@ -1062,44 +1052,23 @@ impl<'noise> Compiler<'noise> {
         use QSharpOp as Op;
         use semantic::PauliPair as P;
 
-        // Stim's decompositions (into H, S, CX, M, R), with `S S` written as `Z`.
-        let steps: &[(Op, &[StimQubitId])] = match observable {
+        // Stim's decompositions (into H, S, CX, M, R).
+        let basis_change: &[(Op, &[StimQubitId])] = match observable {
             // CX 0 1; H 0; M 0; H 0; CX 0 1
-            P::XX => &[
-                (Op::CNOT, &[q0, q1]),
-                (Op::H, &[q0]),
-                (Op::M, &[q0]),
-                (Op::H, &[q0]),
-                (Op::CNOT, &[q0, q1]),
-            ],
+            P::XX => &[(Op::CNOT, &[q0, q1]), (Op::H, &[q0])],
             // S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1
             P::YY => &[
                 (Op::S, &[q0]),
                 (Op::S, &[q1]),
                 (Op::CNOT, &[q0, q1]),
                 (Op::H, &[q0]),
-                (Op::M, &[q0]),
-                (Op::Z, &[q1]),
-                (Op::H, &[q0]),
-                (Op::CNOT, &[q0, q1]),
-                (Op::S, &[q0]),
-                (Op::S, &[q1]),
             ],
-            // CX 0 1; M 1; CX 0 1
-            P::ZZ => &[(Op::CNOT, &[q0, q1]), (Op::M, &[q1]), (Op::CNOT, &[q0, q1])],
+            // CX 1 0; M 0; CX 1 0, which is equivalent to
+            // Stim's CX 0 1; M 1; CX 0 1.
+            P::ZZ => &[(Op::CNOT, &[q1, q0])],
         };
-
-        let mut stmts = Vec::new();
-        for &(op, qubits) in steps {
-            if op == Op::M {
-                let (result_id, measurement) = self.measure(op, qubits[0], negated, span);
-                stmts.extend(measurement);
-                stmts.extend(self.readout_noise_stmt(readout_noise, result_id, span));
-            } else {
-                stmts.push(self.op_call_stmt(op, qubits, span));
-            }
-        }
-        stmts
+        let basis_change = self.multi_qubit_decomposition_stmts(basis_change, span);
+        self.compile_measurement(basis_change, q0, false, negated, readout_noise, span)
     }
 
     fn compile_pauli_product_measurement(
@@ -1111,8 +1080,60 @@ impl<'noise> Compiler<'noise> {
         if product.factors.is_empty() {
             return vec![];
         }
+        let basis_change = self.map_pauli_product_to_z(&product.factors, span);
+        let qubit = product.factors[0].q;
+        self.compile_measurement(
+            basis_change,
+            qubit,
+            false,
+            product.negated,
+            readout_noise,
+            span,
+        )
+    }
 
-        self.conjugate_measure(product, readout_noise, span)
+    /// Compiles a measurement of the observable that `basis_change` maps to Z on `qubit`:
+    /// `r_k = within { basis_change } apply { M(q) };`, with `MResetZ` if `reset`, then optional
+    /// readout noise. A negated measurement also flips `qubit` with `X`.
+    fn compile_measurement(
+        &mut self,
+        mut basis_change: Vec<ast::Stmt>,
+        qubit: StimQubitId,
+        reset: bool,
+        negated: bool,
+        readout_noise: f64,
+        span: Span,
+    ) -> Vec<ast::Stmt> {
+        let mut apply = Vec::new();
+        if negated {
+            let flip = self.op_call_stmt(QSharpOp::X, &[qubit], span);
+
+            // only undo the flip if there is no reset
+            if reset {
+                apply.push(flip);
+            } else {
+                basis_change.push(flip);
+            }
+        }
+        let op = if reset {
+            QSharpOp::MResetZ
+        } else {
+            QSharpOp::M
+        };
+        let mut stmts = Vec::new();
+        let mut measurement = self.op_call_expr(op, &[qubit], span);
+        // Without a basis change there is nothing to undo, so skip `within` and emit `apply`
+        // (at most the reset's flip) right before the measurement.
+        if basis_change.is_empty() {
+            stmts.extend(apply);
+        } else {
+            measurement = build_within_apply_expr(basis_change, apply, measurement, span);
+        }
+
+        let (result_id, record_stmt) = self.record_result(measurement, span);
+        stmts.push(record_stmt);
+        stmts.extend(self.readout_noise_stmt(readout_noise, result_id, span));
+        stmts
     }
 
     fn compile_peek_loss(
@@ -1272,28 +1293,6 @@ impl<'noise> Compiler<'noise> {
         });
     }
 
-    /// `r_k = op(q);` for `M` or `MResetZ`. A negated measurement flips the qubit with `X` before
-    /// measuring, and flips it back afterwards unless the measurement reset it.
-    fn measure(
-        &mut self,
-        op: QSharpOp,
-        qubit: StimQubitId,
-        negated: bool,
-        span: Span,
-    ) -> (ResultId, Vec<ast::Stmt>) {
-        let mut stmts = Vec::new();
-        if negated {
-            stmts.push(self.op_call_stmt(QSharpOp::X, &[qubit], span));
-        }
-        let measure_call = self.op_call_expr(op, &[qubit], span);
-        let (result_id, record_assignment) = self.record_result(measure_call, span);
-        stmts.push(record_assignment);
-        if negated && op != QSharpOp::MResetZ {
-            stmts.push(self.op_call_stmt(QSharpOp::X, &[qubit], span));
-        }
-        (result_id, stmts)
-    }
-
     fn peek_loss(&mut self, qubit: StimQubitId, span: Span) -> (ResultId, ast::Stmt) {
         let args = self.qubit_args(&[qubit], span);
         let declaration = build_intrinsic_decl(
@@ -1334,27 +1333,6 @@ impl<'noise> Compiler<'noise> {
         build_within_apply_stmts(within, apply, span)
     }
 
-    /// `let r_k = within { <product to Z on its first qubit> } apply { M(q_0) };`, followed by
-    /// optional readout noise. A negated product also flips `q_0` within the conjugation.
-    fn conjugate_measure(
-        &mut self,
-        product: &semantic::PauliProduct,
-        readout_noise: f64,
-        span: Span,
-    ) -> Vec<ast::Stmt> {
-        let qubit = product.factors[0].q;
-        let mut within = self.map_pauli_product_to_z(&product.factors, span);
-        if product.negated {
-            within.push(self.op_call_stmt(QSharpOp::X, &[qubit], span));
-        }
-        let measure_call = self.op_call_expr(QSharpOp::M, &[qubit], span);
-        let measurement = build_within_apply_expr(within, measure_call, span);
-        let (result_id, record_stmt) = self.record_result(measurement, span);
-        let mut stmts = vec![record_stmt];
-        stmts.extend(self.readout_noise_stmt(readout_noise, result_id, span));
-        stmts
-    }
-
     /// Rotates each factor to the Z basis, then folds their parity onto the first qubit with
     /// CNOTs, so that the product acts as Z on the first qubit.
     fn map_pauli_product_to_z(
@@ -1385,21 +1363,6 @@ impl<'noise> Compiler<'noise> {
         let basis_change: &[Op] = match pauli {
             X => &[Op::H],
             Y => &[Op::SAdj, Op::H],
-            Z => &[],
-        };
-        self.decomposition_stmts(basis_change, qubit, span)
-    }
-
-    fn rotate_from_z_basis(
-        &mut self,
-        pauli: Pauli,
-        qubit: StimQubitId,
-        span: Span,
-    ) -> Vec<ast::Stmt> {
-        use QSharpOp as Op;
-        let basis_change: &[Op] = match pauli {
-            X => &[Op::H],
-            Y => &[Op::H, Op::S],
             Z => &[],
         };
         self.decomposition_stmts(basis_change, qubit, span)

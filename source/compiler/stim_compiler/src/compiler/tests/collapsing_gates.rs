@@ -30,9 +30,11 @@ fn m_gate_with_negated_target_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    X(qs[0]);
-                    let r_0 = M(qs[0]);
-                    X(qs[0]);
+                    let r_0 = within {
+                        X(qs[0]);
+                    } apply {
+                        M(qs[0])
+                    };
                     [r_0]
                 }
             }"#]],
@@ -104,9 +106,33 @@ fn mrx_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    H(qs[0]);
-                    let r_0 = MResetZ(qs[0]);
-                    H(qs[0]);
+                    let r_0 = within {
+                        H(qs[0]);
+                    } apply {
+                        MResetZ(qs[0])
+                    };
+                    [r_0]
+                }
+            }"#]],
+    );
+}
+
+#[test]
+fn mrx_gate_with_negated_target_yields_expected_qsharp() {
+    let source = "MRX !0";
+    check(
+        source,
+        &expect![[r#"
+            namespace Stim {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use qs = Qubit[1];
+                    let r_0 = within {
+                        H(qs[0]);
+                    } apply {
+                        X(qs[0]);
+                        MResetZ(qs[0])
+                    };
                     [r_0]
                 }
             }"#]],
@@ -123,11 +149,12 @@ fn mry_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    Adjoint S(qs[0]);
-                    H(qs[0]);
-                    let r_0 = MResetZ(qs[0]);
-                    H(qs[0]);
-                    S(qs[0]);
+                    let r_0 = within {
+                        Adjoint S(qs[0]);
+                        H(qs[0]);
+                    } apply {
+                        MResetZ(qs[0])
+                    };
                     [r_0]
                 }
             }"#]],
@@ -144,9 +171,11 @@ fn mx_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    H(qs[0]);
-                    let r_0 = M(qs[0]);
-                    H(qs[0]);
+                    let r_0 = within {
+                        H(qs[0]);
+                    } apply {
+                        M(qs[0])
+                    };
                     [r_0]
                 }
             }"#]],
@@ -163,11 +192,12 @@ fn my_gate_yields_expected_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[1];
-                    Adjoint S(qs[0]);
-                    H(qs[0]);
-                    let r_0 = M(qs[0]);
-                    H(qs[0]);
-                    S(qs[0]);
+                    let r_0 = within {
+                        Adjoint S(qs[0]);
+                        H(qs[0]);
+                    } apply {
+                        M(qs[0])
+                    };
                     [r_0]
                 }
             }"#]],

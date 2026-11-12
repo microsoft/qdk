@@ -14,11 +14,12 @@ fn mxx_measurement_yields_correct_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    CNOT(qs[0], qs[1]);
-                    H(qs[0]);
-                    let r_0 = M(qs[0]);
-                    H(qs[0]);
-                    CNOT(qs[0], qs[1]);
+                    let r_0 = within {
+                        CNOT(qs[0], qs[1]);
+                        H(qs[0]);
+                    } apply {
+                        M(qs[0])
+                    };
                     [r_0]
                 }
             }"#]],
@@ -35,13 +36,13 @@ fn mxx_with_target_negated_yields_correct_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    CNOT(qs[0], qs[1]);
-                    H(qs[0]);
-                    X(qs[0]);
-                    let r_0 = M(qs[0]);
-                    X(qs[0]);
-                    H(qs[0]);
-                    CNOT(qs[0], qs[1]);
+                    let r_0 = within {
+                        CNOT(qs[0], qs[1]);
+                        H(qs[0]);
+                        X(qs[0]);
+                    } apply {
+                        M(qs[0])
+                    };
                     [r_0]
                 }
             }"#]],
@@ -57,12 +58,13 @@ fn mxx_with_readout_noise_yields_correct_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    CNOT(qs[0], qs[1]);
-                    H(qs[0]);
-                    let r_0 = M(qs[0]);
+                    let r_0 = within {
+                        CNOT(qs[0], qs[1]);
+                        H(qs[0]);
+                    } apply {
+                        M(qs[0])
+                    };
                     __quantum__rt__readout_noise(0.01, 0.01, r_0);
-                    H(qs[0]);
-                    CNOT(qs[0], qs[1]);
                     [r_0]
                 }
                 @NoiseIntrinsic()
@@ -83,16 +85,14 @@ fn myy_measurement_yields_correct_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    S(qs[0]);
-                    S(qs[1]);
-                    CNOT(qs[0], qs[1]);
-                    H(qs[0]);
-                    let r_0 = M(qs[0]);
-                    Z(qs[1]);
-                    H(qs[0]);
-                    CNOT(qs[0], qs[1]);
-                    S(qs[0]);
-                    S(qs[1]);
+                    let r_0 = within {
+                        S(qs[0]);
+                        S(qs[1]);
+                        CNOT(qs[0], qs[1]);
+                        H(qs[0]);
+                    } apply {
+                        M(qs[0])
+                    };
                     [r_0]
                 }
             }"#]],
@@ -109,9 +109,11 @@ fn mzz_measurement_yields_correct_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    CNOT(qs[0], qs[1]);
-                    let r_0 = M(qs[1]);
-                    CNOT(qs[0], qs[1]);
+                    let r_0 = within {
+                        CNOT(qs[0], qs[1]);
+                    } apply {
+                        M(qs[1])
+                    };
                     [r_0]
                 }
             }"#]],

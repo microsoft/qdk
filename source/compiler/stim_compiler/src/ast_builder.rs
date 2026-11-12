@@ -7,10 +7,10 @@ use qsc::ast;
 use qsc::ast::builder::{
     build_arg_pat, build_assignment_statement, build_attr, build_binary_expr, build_block,
     build_call_args_expr, build_call_expr, build_conjugate_expr, build_continue_stmt,
-    build_expr_array_expr, build_expr_wrapped_block_expr, build_if_expr_then_block,
-    build_implicit_return_stmt, build_index_expr, build_lit_bool_expr, build_lit_int_expr,
-    build_lit_result_expr, build_local_decl, build_operation_with_stmts, build_path_ident_expr,
-    build_path_ident_ty, build_stmt_semi_from_expr, build_unary_op_expr, wrap_ty_in_array,
+    build_expr_array_expr, build_if_expr_then_block, build_implicit_return_stmt, build_index_expr,
+    build_lit_bool_expr, build_lit_int_expr, build_lit_result_expr, build_local_decl,
+    build_operation_with_stmts, build_path_ident_expr, build_path_ident_ty,
+    build_stmt_semi_from_expr, build_unary_op_expr, wrap_ty_in_array,
 };
 use qsc_data_structures::span::Span;
 
@@ -233,19 +233,23 @@ pub(crate) fn build_within_apply_stmts(
     vec![build_stmt_semi_from_expr(expr)]
 }
 
-/// `within { within } apply { apply }`, whose value is `apply`'s, or just `apply` if `within` is
-/// empty.
+/// `within { within } apply { apply; value }`, whose value is `value`'s.
 pub(crate) fn build_within_apply_expr(
     within: Vec<ast::Stmt>,
-    apply: ast::Expr,
+    apply: Vec<ast::Stmt>,
+    value: ast::Expr,
     span: Span,
 ) -> ast::Expr {
-    if within.is_empty() {
-        return apply;
-    }
+    let value_stmt = ast::Stmt {
+        span: value.span,
+        kind: Box::new(ast::StmtKind::Expr(Box::new(value))),
+        ..Default::default()
+    };
+    let mut apply_stmts = apply;
+    apply_stmts.push(value_stmt);
     build_conjugate_expr(
         build_block(within, span),
-        build_expr_wrapped_block_expr(apply),
+        build_block(apply_stmts, span),
         span,
     )
 }
