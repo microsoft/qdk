@@ -92,6 +92,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// The run of `shots` of `machine`'s program on `engine`, before any
     /// shot runs: the qubit order and the capacity, from the program, and
     /// one group of every shot, each drawing from its stream under `seed`.
+    /// `shots` is not empty: a run of no shots needs neither the order nor
+    /// the capacity, so [`MpsResumer`] does not start it.
     ///
     /// # Errors
     ///
@@ -107,32 +109,30 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         report: &'r mut MpsRunReport,
     ) -> Result<Self, QirResumeError<MpsResumerError<E::Error>>> {
         let program = machine.program();
-        let mut waiting = Vec::new();
-        let mut capacity = None;
-        if let Some(&first_shot) = shots.first() {
-            capacity = capacity_of(program, max_bond_dimension).map_err(|error| {
-                QirResumeError::Resumer {
-                    shot: first_shot,
-                    error,
-                }
+        let &first_shot = shots
+            .first()
+            .expect("the resumer starts no run of no shots");
+        let capacity =
+            capacity_of(program, max_bond_dimension).map_err(|error| QirResumeError::Resumer {
+                shot: first_shot,
+                error,
             })?;
-            waiting.push(Group {
-                shots: shots
-                    .iter()
-                    .enumerate()
-                    .map(|(place, &id)| Shot {
-                        place,
-                        stream: shot_stream(seed, id),
-                    })
-                    .collect(),
-                context: machine.start_shot(),
-                state: None,
-                outcomes: Vec::new(),
-                steps: Rc::from([]),
-                next: 0,
-                bond_unread: false,
-            });
-        }
+        let waiting = vec![Group {
+            shots: shots
+                .iter()
+                .enumerate()
+                .map(|(place, &id)| Shot {
+                    place,
+                    stream: shot_stream(seed, id),
+                })
+                .collect(),
+            context: machine.start_shot(),
+            state: None,
+            outcomes: Vec::new(),
+            steps: Rc::from([]),
+            next: 0,
+            bond_unread: false,
+        }];
         Ok(Self {
             engine,
             machine,

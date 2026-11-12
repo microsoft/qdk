@@ -132,6 +132,9 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
         shots: &[QirShotId],
     ) -> Result<Vec<Vec<OutputRecord>>, QirResumeError<Self::Error>> {
         self.last_run = MpsRunReport::new(self.max_bond_dimension.get());
+        if shots.is_empty() {
+            return Ok(Vec::new());
+        }
         GroupedRun::start(
             &self.engine,
             machine,
