@@ -25,7 +25,7 @@ use tensornet::reference::ExactReference;
 use tensornet::{MpsEngine, MpsShape};
 
 use super::programs::{
-    coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, reset, ret,
+    coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, program_with, reset, ret,
 };
 use super::reference_spy::ReferenceSpy;
 use crate::bytecode::encoding::{
@@ -202,21 +202,27 @@ fn a_reset_returns_a_qubit_to_zero() {
     assert_eq!(records, vec![results(&[0]); 16]);
 }
 
-/// `mresetz` reads a qubit's value, then leaves it at |0⟩.
+/// `mresetz` reads a qubit's value, then leaves it at |0⟩, whichever value
+/// it read: qubit 0, flipped to 1, reads 1 then 0; qubit 1, left at 0,
+/// reads 0 then 0.
 #[test]
 fn a_measure_reset_reads_the_value_then_leaves_zero() {
-    let program = program(
+    let program = program_with(
         2,
+        4,
+        &[],
         &[&[
             gate1(OPID_X, 0),
             measure(OPID_MRESETZ, 0, 0),
             measure(OPID_MZ, 0, 1),
+            measure(OPID_MRESETZ, 1, 2),
+            measure(OPID_MZ, 1, 3),
             ret(),
         ]],
     );
     let mut resumer = MpsResumer::new(ExactReference::new(), 7);
     let records = run(&mut resumer, &program, &ids(&[0])).expect("the program runs");
-    assert_eq!(records, vec![results(&[1, 0])]);
+    assert_eq!(records, vec![results(&[1, 0, 0, 0])]);
 }
 
 /// `move` changes no state: a qubit flipped to 1 and moved still reads 1.

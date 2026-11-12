@@ -41,6 +41,37 @@ fn the_report_gives_the_largest_bond_before_the_readout() {
     assert_eq!(resumer.last_run().largest_bond, 2);
 }
 
+/// The report keeps the largest bond of the run, not the last one read: a
+/// Bell pair's bond of 2 is read before its first qubit is measured, and
+/// a later gate on the second qubit ends a run of gates whose bond is 1.
+#[test]
+fn a_smaller_bond_read_later_keeps_the_largest() {
+    let mut resumer = MpsResumer::new(ExactReference::new(), 7);
+    let program = program(
+        2,
+        &[&[
+            gate1(OPID_H, 0),
+            gate2(OPID_CX, 0, 1),
+            mz(0),
+            gate1(OPID_H, 1),
+            ret(),
+        ]],
+    );
+    run_once(&mut resumer, &program);
+    assert_eq!(resumer.last_run().largest_bond, 2);
+}
+
+/// The report shows a bond above the max bond dimension, which an engine
+/// that does not truncate holds: a GHZ state on the exact reference, with
+/// χ set to 1, holds bonds of 2.
+#[test]
+fn a_bond_above_the_max_bond_dimension_on_an_exact_engine_is_shown() {
+    let mut resumer = MpsResumer::new(ExactReference::new(), 7)
+        .with_max_bond_dimension(NonZeroUsize::new(1).expect("not zero"));
+    run_once(&mut resumer, &ghz(3));
+    assert_eq!(resumer.last_run().largest_bond, 2);
+}
+
 /// Gates after a shot's last measurement count in the largest bond: a
 /// program that reads qubit 2, then entangles qubits 0 and 1 into a Bell
 /// pair and ends without reading them, reports the pair's bond of 2.
