@@ -142,18 +142,17 @@ pub(crate) fn build_records_return_stmt(count: u32, span: Span) -> ast::Stmt {
     build_implicit_return_stmt(build_expr_array_expr(records, span))
 }
 
-/// `r_k == One`, or `r_k == Zero` for a negated record.
-pub(crate) fn build_record_bit_expr(result_id: ResultId, negated: bool, span: Span) -> ast::Expr {
-    let expected = if negated {
-        ast::Result::Zero
-    } else {
-        ast::Result::One
-    };
+/// `r_k == value`
+pub(crate) fn build_record_equals_expr(
+    result_id: ResultId,
+    value: ast::Result,
+    span: Span,
+) -> ast::Expr {
     build_binary_expr(
         false,
         ast::BinOp::Eq,
         build_record_expr(result_id, span),
-        build_lit_result_expr(expected, span),
+        build_lit_result_expr(value, span),
         span,
     )
 }

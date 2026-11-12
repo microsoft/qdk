@@ -11,9 +11,9 @@ use qdk_simulators::noise_config::{
 use qsc::ast;
 use qsc::ast::builder::{
     build_binary_expr, build_block, build_break_stmt, build_expr_array_expr,
-    build_if_expr_then_block, build_lit_bool_expr, build_lit_double_expr, build_lit_result_expr,
-    build_local_decl, build_path_ident_expr, build_stmt_semi_from_expr,
-    build_top_level_ns_with_items, build_while_stmt, managed_qubit_alloc_array,
+    build_if_expr_then_block, build_lit_bool_expr, build_lit_double_expr, build_local_decl,
+    build_path_ident_expr, build_stmt_semi_from_expr, build_top_level_ns_with_items,
+    build_while_stmt, managed_qubit_alloc_array,
 };
 use qsc_data_structures::span::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -22,10 +22,10 @@ use thiserror::Error;
 use crate::ast_builder::{
     build_any_loss_expr, build_continue_if_stmt, build_controlled_qsharp_op_call_stmt,
     build_intrinsic_call_expr, build_intrinsic_call_stmt, build_intrinsic_decl, build_main,
-    build_qsharp_op_call_expr, build_qubit_expr, build_record_assign_stmt, build_record_bit_expr,
-    build_record_expr, build_record_let_stmt, build_record_mutable_decl_stmt,
-    build_records_return_stmt, build_within_apply_expr, build_within_apply_stmts,
-    fold_exprs_with_op,
+    build_qsharp_op_call_expr, build_qubit_expr, build_record_assign_stmt,
+    build_record_equals_expr, build_record_expr, build_record_let_stmt,
+    build_record_mutable_decl_stmt, build_records_return_stmt, build_within_apply_expr,
+    build_within_apply_stmts, fold_exprs_with_op,
 };
 use crate::parser::Pauli::{self, X, Y, Z};
 use crate::semantic;
@@ -180,11 +180,11 @@ struct SymbolTable {
     record_count: u32,
     /// The records produced by PEEK_LOSS, which NOTLEAKED may not reference.
     peek_loss_record_ids: FxHashSet<ResultId>,
-    record_ids_to_hoist: Vec<ResultId>,
+    hoisted_record_ids: Vec<ResultId>,
     /// Whether we are inside a SELECT loop that can restart. Records measured there are declared
     /// `mutable` at the top of `Main`, since the loop may reassign them.
     hoist_records: bool,
-    used_intrinsics: FxHashMap<String, ast::Item>,
+    declared_intrinsics: FxHashMap<String, ast::Item>,
 }
 
 impl SymbolTable {
@@ -194,9 +194,9 @@ impl SymbolTable {
             name_counters: FxHashMap::default(),
             record_count: 0,
             peek_loss_record_ids: FxHashSet::default(),
-            record_ids_to_hoist: Vec::new(),
+            hoisted_record_ids: Vec::new(),
             hoist_records: false,
-            used_intrinsics: FxHashMap::default(),
+            declared_intrinsics: FxHashMap::default(),
         }
     }
 
@@ -454,14 +454,14 @@ impl<'noise> Compiler<'noise> {
                 ast::QubitSource::Fresh,
             ));
         }
-        for &result_id in &self.symbols.record_ids_to_hoist {
+        for &result_id in &self.symbols.hoisted_record_ids {
             stmts.push(build_record_mutable_decl_stmt(result_id, span));
         }
         stmts
     }
 
     fn sorted_intrinsic_declarations(&mut self) -> Vec<ast::Item> {
-        let mut declarations: Vec<_> = self.symbols.used_intrinsics.drain().collect();
+        let mut declarations: Vec<_> = self.symbols.declared_intrinsics.drain().collect();
         declarations.sort_by(|(a, _), (b, _)| a.cmp(b));
         declarations
             .into_iter()
@@ -571,7 +571,7 @@ impl<'noise> Compiler<'noise> {
                 target,
                 pauli,
             } => self.compile_classical_control(*control, *target, *pauli, span),
-            semantic::InstructionKind::Noise(noise) => self.compile_noise(instruction.span, noise),
+            semantic::InstructionKind::Noise(noise) => self.compile_noise(noise, span),
             semantic::InstructionKind::SingleQubitMeasurement {
                 reset,
                 observable,
@@ -945,7 +945,7 @@ impl<'noise> Compiler<'noise> {
         vec![self.conditional_pauli_stmt(pauli, result_id, target, span)]
     }
 
-    fn compile_noise(&mut self, instruction_span: Span, noise: &semantic::Noise) -> Vec<ast::Stmt> {
+    fn compile_noise(&mut self, noise: &semantic::Noise, span: Span) -> Vec<ast::Stmt> {
         match noise {
             semantic::Noise::CorrelatedError {
                 kind,
@@ -954,11 +954,11 @@ impl<'noise> Compiler<'noise> {
             } => match kind {
                 // The chain's noise call is emitted when the chain is flushed.
                 semantic::CorrelatedErrorKind::Initial => {
-                    self.accumulate_correlated_noise(instruction_span, *probability, faults);
+                    self.accumulate_correlated_noise(span, *probability, faults);
                     vec![]
                 }
                 semantic::CorrelatedErrorKind::Else => {
-                    self.continue_correlated_noise(instruction_span, *probability, faults);
+                    self.continue_correlated_noise(span, *probability, faults);
                     vec![]
                 }
             },
@@ -972,14 +972,14 @@ impl<'noise> Compiler<'noise> {
                     TWO_QUBIT_PAULIS.map(encode_pauli).to_vec(),
                     vec![*probability / 15.0; 15],
                 );
-                vec![self.noise_table_stmt(table, &[*q0, *q1], instruction_span)]
+                vec![self.noise_table_stmt(table, &[*q0, *q1], span)]
             }
             semantic::Noise::HeraldedErase { .. } => {
-                self.unsupported("HERALDED_ERASE", instruction_span);
+                self.unsupported("HERALDED_ERASE", span);
                 vec![]
             }
             semantic::Noise::HeraldedPauliChannel1 { .. } => {
-                self.unsupported("HERALDED_PAULI_CHANNEL_1", instruction_span);
+                self.unsupported("HERALDED_PAULI_CHANNEL_1", span);
                 vec![]
             }
             semantic::Noise::PauliChannel1 { probabilities, q } => {
@@ -988,7 +988,7 @@ impl<'noise> Compiler<'noise> {
                     SINGLE_QUBIT_PAULIS.map(encode_pauli).to_vec(),
                     probabilities.to_vec(),
                 );
-                vec![self.noise_table_stmt(table, &[*q], instruction_span)]
+                vec![self.noise_table_stmt(table, &[*q], span)]
             }
             semantic::Noise::PauliChannel2 {
                 probabilities,
@@ -1000,7 +1000,7 @@ impl<'noise> Compiler<'noise> {
                     TWO_QUBIT_PAULIS.map(encode_pauli).to_vec(),
                     probabilities.to_vec(),
                 );
-                vec![self.noise_table_stmt(table, &[*q0, *q1], instruction_span)]
+                vec![self.noise_table_stmt(table, &[*q0, *q1], span)]
             }
             semantic::Noise::SingleQubitNoise {
                 kind,
@@ -1013,7 +1013,7 @@ impl<'noise> Compiler<'noise> {
                         SINGLE_QUBIT_PAULIS.map(encode_pauli).to_vec(),
                         vec![*probability / 3.0; 3],
                     );
-                    vec![self.noise_table_stmt(table, &[*q], instruction_span)]
+                    vec![self.noise_table_stmt(table, &[*q], span)]
                 }
                 semantic::SingleQubitNoiseKind::Fault(kind) => {
                     let table = self.noise_accumulator.build_noise_table(
@@ -1021,7 +1021,7 @@ impl<'noise> Compiler<'noise> {
                         vec![encode_pauli(kind.as_str())],
                         vec![*probability],
                     );
-                    vec![self.noise_table_stmt(table, &[*q], instruction_span)]
+                    vec![self.noise_table_stmt(table, &[*q], span)]
                 }
             },
         }
@@ -1166,29 +1166,30 @@ impl<'noise> Compiler<'noise> {
         let loss_expr = build_any_loss_expr(&result_ids, span);
 
         // parity = (r_a == One) != (r_b == One) != …, with `Zero` for `!rec[..]`
-        let record_bits: Vec<ast::Expr> = result_ids
+        let parity_terms: Vec<ast::Expr> = result_ids
             .iter()
             .zip(records)
-            .map(|(&r, record)| build_record_bit_expr(r, record.negated, span))
+            .map(|(&r, record)| {
+                let expected = if record.negated {
+                    ast::Result::Zero
+                } else {
+                    ast::Result::One
+                };
+                build_record_equals_expr(r, expected, span)
+            })
             .collect();
-        let parity_expr = fold_exprs_with_op(ast::BinOp::Neq, record_bits, span);
+        let parity_expr = fold_exprs_with_op(ast::BinOp::Neq, parity_terms, span);
 
         let (loss, loss_stmt) = self.bind_local("loss", loss_expr, span);
         let (parity, parity_stmt) = self.bind_local("parity", parity_expr, span);
-        let restart_expr = build_binary_expr(
-            false,
-            ast::BinOp::OrL,
-            build_path_ident_expr(&loss, span, span),
-            build_path_ident_expr(&parity, span, span),
-            span,
-        );
+        let restart_expr = build_binary_expr(false, ast::BinOp::OrL, loss, parity, span);
         let (restart, restart_stmt) = self.bind_local("restart", restart_expr, span);
 
         vec![
             loss_stmt,
             parity_stmt,
             restart_stmt,
-            build_continue_if_stmt(build_path_ident_expr(&restart, span, span), span),
+            build_continue_if_stmt(restart, span),
         ]
     }
 
@@ -1220,10 +1221,7 @@ impl<'noise> Compiler<'noise> {
         let loss_expr = build_any_loss_expr(&result_ids, span);
 
         let (loss, loss_stmt) = self.bind_local("loss", loss_expr, span);
-        vec![
-            loss_stmt,
-            build_continue_if_stmt(build_path_ident_expr(&loss, span, span), span),
-        ]
+        vec![loss_stmt, build_continue_if_stmt(loss, span)]
     }
 
     fn accumulate_correlated_noise(
@@ -1295,14 +1293,13 @@ impl<'noise> Compiler<'noise> {
 
     fn peek_loss(&mut self, qubit: StimQubitId, span: Span) -> (ResultId, ast::Stmt) {
         let args = self.qubit_args(&[qubit], span);
-        let declaration = build_intrinsic_decl(
+        self.declare_intrinsic(
             PEEK_LOSS_INTRINSIC,
             "Measurement",
             &["Qubit"],
             "Result",
             span,
         );
-        self.declare_intrinsic(PEEK_LOSS_INTRINSIC, declaration);
         let peek_loss_call = build_intrinsic_call_expr(PEEK_LOSS_INTRINSIC, args, span);
         let (result_id, assignment) = self.record_result(peek_loss_call, span);
         self.symbols.peek_loss_record_ids.insert(result_id);
@@ -1432,13 +1429,7 @@ impl<'noise> Compiler<'noise> {
             Y => QSharpOp::Y,
             Z => QSharpOp::Z,
         };
-        let condition = build_binary_expr(
-            false,
-            ast::BinOp::Eq,
-            build_record_expr(result_id, span),
-            build_lit_result_expr(ast::Result::One, span),
-            span,
-        );
+        let condition = build_record_equals_expr(result_id, ast::Result::One, span);
         let then_block = build_block(vec![self.op_call_stmt(op, &[target], span)], span);
         build_stmt_semi_from_expr(build_if_expr_then_block(condition, then_block, span))
     }
@@ -1456,23 +1447,23 @@ impl<'noise> Compiler<'noise> {
         build_stmt_semi_from_expr(build_qsharp_op_call_expr(op, args, span))
     }
 
-    /// `let {prefix}_n = value;` with a fresh name `{prefix}_n`.
+    /// `let {prefix}_n = value;` with a fresh name `{prefix}_n`. Also returns a reference to it.
     fn bind_local(
         &mut self,
         prefix: &'static str,
         value: ast::Expr,
         span: Span,
-    ) -> (String, ast::Stmt) {
+    ) -> (ast::Expr, ast::Stmt) {
         let name = self.symbols.fresh_name(prefix);
         let stmt = build_local_decl(&name, ast::Mutability::Immutable, value, span, span);
-        (name, stmt)
+        (build_path_ident_expr(name, span, span), stmt)
     }
 
     /// `let r_k = value;` for a new record `r_k`, or `r_k = value;` when records are hoisted.
     fn record_result(&mut self, value: ast::Expr, span: Span) -> (ResultId, ast::Stmt) {
         let result_id = self.symbols.allocate_record();
         let stmt = if self.symbols.hoist_records {
-            self.symbols.record_ids_to_hoist.push(result_id);
+            self.symbols.hoisted_record_ids.push(result_id);
             build_record_assign_stmt(result_id, value, span)
         } else {
             build_record_let_stmt(result_id, value, span)
@@ -1480,12 +1471,19 @@ impl<'noise> Compiler<'noise> {
         (result_id, stmt)
     }
 
-    /// Declares the intrinsic `name`, once.
-    fn declare_intrinsic(&mut self, name: &str, declaration: ast::Item) {
+    /// Declares the intrinsic `@{attr}() operation {name}(…: {param_tys}) : {output}`, once.
+    fn declare_intrinsic(
+        &mut self,
+        name: &str,
+        attr: &str,
+        param_tys: &[&str],
+        output: &str,
+        span: Span,
+    ) {
         self.symbols
-            .used_intrinsics
+            .declared_intrinsics
             .entry(name.to_string())
-            .or_insert(declaration);
+            .or_insert(build_intrinsic_decl(name, attr, param_tys, output, span));
     }
 
     /// `__quantum__rt__readout_noise(p, p, r_k);`, or nothing when `p` is 0.
@@ -1503,14 +1501,13 @@ impl<'noise> Compiler<'noise> {
             build_lit_double_expr(probability, span),
             build_record_expr(result_id, span),
         ];
-        let declaration = build_intrinsic_decl(
+        self.declare_intrinsic(
             READOUT_NOISE_INTRINSIC,
             "NoiseIntrinsic",
             &["Double", "Double", "Result"],
             "Unit",
             span,
         );
-        self.declare_intrinsic(READOUT_NOISE_INTRINSIC, declaration);
         Some(build_intrinsic_call_stmt(
             READOUT_NOISE_INTRINSIC,
             args,
@@ -1535,8 +1532,7 @@ impl<'noise> Compiler<'noise> {
         let name = self.noise_accumulator.get_or_insert_intrinsic(table);
         let args = self.qubit_args(qubits, span);
         let param_tys = vec!["Qubit"; qubits.len()];
-        let declaration = build_intrinsic_decl(&name, "NoiseIntrinsic", &param_tys, "Unit", span);
-        self.declare_intrinsic(&name, declaration);
+        self.declare_intrinsic(&name, "NoiseIntrinsic", &param_tys, "Unit", span);
         build_intrinsic_call_stmt(&name, args, span)
     }
 
