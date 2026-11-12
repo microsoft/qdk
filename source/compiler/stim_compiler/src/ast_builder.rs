@@ -5,11 +5,12 @@
 
 use qsc::ast;
 use qsc::ast::builder::{
-    build_arg_pat, build_attr, build_binary_expr, build_block, build_call_args_expr,
-    build_call_expr, build_conjugate_expr, build_continue_stmt, build_expr_wrapped_block_expr,
-    build_if_expr_then_block, build_index_expr, build_lit_bool_expr, build_lit_int_expr,
+    build_arg_pat, build_assignment_statement, build_attr, build_binary_expr, build_block,
+    build_call_args_expr, build_call_expr, build_conjugate_expr, build_continue_stmt,
+    build_expr_array_expr, build_expr_wrapped_block_expr, build_if_expr_then_block,
+    build_implicit_return_stmt, build_index_expr, build_lit_bool_expr, build_lit_int_expr,
     build_lit_result_expr, build_local_decl, build_operation_with_stmts, build_path_ident_expr,
-    build_path_ident_ty, build_stmt_semi_from_expr, build_unary_op_expr,
+    build_path_ident_ty, build_stmt_semi_from_expr, build_unary_op_expr, wrap_ty_in_array,
 };
 use qsc_data_structures::span::Span;
 
@@ -17,10 +18,7 @@ use crate::compiler::{QSharpOp, QUBIT_REGISTER, QubitId, ResultId};
 
 /// `@EntryPoint() operation Main() : Result[] { stmts }`
 pub(crate) fn build_main(stmts: Vec<ast::Stmt>, span: Span) -> ast::Item {
-    let result_array_ty = ast::Ty {
-        kind: Box::new(ast::TyKind::Array(Box::new(build_path_ident_ty("Result")))),
-        ..Default::default()
-    };
+    let result_array_ty = wrap_ty_in_array(build_path_ident_ty("Result"));
     build_operation_with_stmts("Main", vec![], result_array_ty, stmts, span, true)
 }
 
@@ -82,6 +80,99 @@ pub(crate) fn build_intrinsic_decl(
     }
 }
 
+/// `qs[k]`
+pub(crate) fn build_qubit_expr(qubit: QubitId, span: Span) -> ast::Expr {
+    build_index_expr(
+        build_path_ident_expr(QUBIT_REGISTER, span, span),
+        build_lit_int_expr(i64::from(qubit), span),
+        span,
+    )
+}
+
+fn record_name(result_id: ResultId) -> String {
+    format!("r_{result_id}")
+}
+
+/// `r_k`
+pub(crate) fn build_record_expr(result_id: ResultId, span: Span) -> ast::Expr {
+    build_path_ident_expr(record_name(result_id), span, span)
+}
+
+/// `mutable r_k = Zero;`
+pub(crate) fn build_record_mutable_decl_stmt(result_id: ResultId, span: Span) -> ast::Stmt {
+    let zero = build_lit_result_expr(ast::Result::Zero, span);
+    build_local_decl(
+        record_name(result_id),
+        ast::Mutability::Mutable,
+        zero,
+        span,
+        span,
+    )
+}
+
+/// `let r_k = value;`
+pub(crate) fn build_record_let_stmt(
+    result_id: ResultId,
+    value: ast::Expr,
+    span: Span,
+) -> ast::Stmt {
+    build_local_decl(
+        record_name(result_id),
+        ast::Mutability::Immutable,
+        value,
+        span,
+        span,
+    )
+}
+
+/// `r_k = value;`, for a record declared with [`build_record_mutable_decl_stmt`].
+pub(crate) fn build_record_assign_stmt(
+    result_id: ResultId,
+    value: ast::Expr,
+    span: Span,
+) -> ast::Stmt {
+    build_assignment_statement(build_record_expr(result_id, span), value, span)
+}
+
+/// `[r_0, …, r_{count-1}]` as `Main`'s return value.
+pub(crate) fn build_records_return_stmt(count: u32, span: Span) -> ast::Stmt {
+    let records = (0..count)
+        .map(|result_id| build_record_expr(result_id, span))
+        .collect();
+    build_implicit_return_stmt(build_expr_array_expr(records, span))
+}
+
+/// `r_k == One`, or `r_k == Zero` for a negated record.
+pub(crate) fn build_record_bit_expr(result_id: ResultId, negated: bool, span: Span) -> ast::Expr {
+    let expected = if negated {
+        ast::Result::Zero
+    } else {
+        ast::Result::One
+    };
+    build_binary_expr(
+        false,
+        ast::BinOp::Eq,
+        build_record_expr(result_id, span),
+        build_lit_result_expr(expected, span),
+        span,
+    )
+}
+
+/// `IsLossResult(r_a) or IsLossResult(r_b) or …`
+pub(crate) fn build_any_loss_expr(result_ids: &[ResultId], span: Span) -> ast::Expr {
+    let losses = result_ids
+        .iter()
+        .map(|&result_id| {
+            build_qsharp_op_call_expr(
+                QSharpOp::IsLossResult,
+                vec![build_record_expr(result_id, span)],
+                span,
+            )
+        })
+        .collect();
+    fold_exprs_with_op(ast::BinOp::OrL, losses, span)
+}
+
 /// `{op}`, or `Adjoint {op}` for the adjoint variants such as `SAdj`.
 fn build_qsharp_op_callee(op: QSharpOp, span: Span) -> ast::Expr {
     let callee = build_path_ident_expr(op.name(), span, span);
@@ -121,8 +212,7 @@ pub(crate) fn build_controlled_qsharp_op_call_stmt(
 /// `{name}(args…)`
 pub(crate) fn build_intrinsic_call_expr(name: &str, args: Vec<ast::Expr>, span: Span) -> ast::Expr {
     let callee = build_path_ident_expr(name, span, span);
-    let args = build_call_args_expr(args);
-    build_call_expr(callee, args, span)
+    build_call_expr(callee, build_call_args_expr(args), span)
 }
 
 /// `{name}(args…);`
@@ -130,87 +220,8 @@ pub(crate) fn build_intrinsic_call_stmt(name: &str, args: Vec<ast::Expr>, span: 
     build_stmt_semi_from_expr(build_intrinsic_call_expr(name, args, span))
 }
 
-/// `qs[k]`
-pub(crate) fn build_qubit_expr(qubit: QubitId, span: Span) -> ast::Expr {
-    build_index_expr(
-        build_path_ident_expr(QUBIT_REGISTER, span, span),
-        build_lit_int_expr(i64::from(qubit), span),
-        span,
-    )
-}
-
-fn record_name(result_id: ResultId) -> String {
-    format!("r_{result_id}")
-}
-
-/// `r_k`
-pub(crate) fn build_record_expr(result_id: ResultId, span: Span) -> ast::Expr {
-    build_path_ident_expr(record_name(result_id), span, span)
-}
-
-/// `mutable r_k = Zero;`
-pub(crate) fn build_record_decl_stmt(result_id: ResultId, span: Span) -> ast::Stmt {
-    let zero = build_lit_result_expr(ast::Result::Zero, span);
-    build_local_decl(
-        record_name(result_id),
-        ast::Mutability::Mutable,
-        zero,
-        span,
-        span,
-    )
-}
-
-/// `let r_k = value;`
-pub(crate) fn build_record_let_stmt(
-    result_id: ResultId,
-    value: ast::Expr,
-    span: Span,
-) -> ast::Stmt {
-    build_local_decl(
-        record_name(result_id),
-        ast::Mutability::Immutable,
-        value,
-        span,
-        span,
-    )
-}
-
-/// `r_k == One`, or `r_k == Zero` for a negated record.
-pub(crate) fn build_record_bit_expr(result_id: ResultId, negated: bool, span: Span) -> ast::Expr {
-    let expected = if negated {
-        ast::Result::Zero
-    } else {
-        ast::Result::One
-    };
-    build_binary_expr(
-        false,
-        ast::BinOp::Eq,
-        build_record_expr(result_id, span),
-        build_lit_result_expr(expected, span),
-        span,
-    )
-}
-
-/// `IsLossResult(r_k)`
-pub(crate) fn build_is_loss_expr(result_id: ResultId, span: Span) -> ast::Expr {
-    build_qsharp_op_call_expr(
-        QSharpOp::IsLossResult,
-        vec![build_record_expr(result_id, span)],
-        span,
-    )
-}
-
-/// `IsLossResult(r_a) or IsLossResult(r_b) or …`
-pub(crate) fn build_any_loss_expr(result_ids: &[ResultId], span: Span) -> ast::Expr {
-    let losses = result_ids
-        .iter()
-        .map(|&result_id| build_is_loss_expr(result_id, span))
-        .collect();
-    fold_exprs_with_op(ast::BinOp::OrL, losses, span)
-}
-
 /// `within { within } apply { apply };`, or just the `apply` statements if `within` is empty.
-pub(crate) fn build_stmts_conjugated_by(
+pub(crate) fn build_within_apply_stmts(
     within: Vec<ast::Stmt>,
     apply: Vec<ast::Stmt>,
     span: Span,
@@ -224,7 +235,7 @@ pub(crate) fn build_stmts_conjugated_by(
 
 /// `within { within } apply { apply }`, whose value is `apply`'s, or just `apply` if `within` is
 /// empty.
-pub(crate) fn build_expr_conjugated_by(
+pub(crate) fn build_within_apply_expr(
     within: Vec<ast::Stmt>,
     apply: ast::Expr,
     span: Span,
@@ -239,14 +250,10 @@ pub(crate) fn build_expr_conjugated_by(
     )
 }
 
-/// `if {name} { continue; }`
-pub(crate) fn build_continue_if_stmt(name: &str, span: Span) -> ast::Stmt {
+/// `if condition { continue; }`
+pub(crate) fn build_continue_if_stmt(condition: ast::Expr, span: Span) -> ast::Stmt {
     let then_block = build_block(vec![build_continue_stmt(span)], span);
-    build_stmt_semi_from_expr(build_if_expr_then_block(
-        build_path_ident_expr(name, span, span),
-        then_block,
-        span,
-    ))
+    build_stmt_semi_from_expr(build_if_expr_then_block(condition, then_block, span))
 }
 
 /// Combines the expressions left to right with `op`: `a op b op c …`. `op` must be `or` or
