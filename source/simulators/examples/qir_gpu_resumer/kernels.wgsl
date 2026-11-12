@@ -262,19 +262,25 @@ fn diag_turns(k: u32, faults: ptr<function, array<vec2<u32>, 32>>) -> f32 {
 // The faults of a diagonal pass's noise sites, by code position (hoisted).
 var<workgroup> dmask: array<vec2<u32>, 256>;
 
-// diag_turns with the faults read from dmask by code position.
+var<workgroup> dxor: atomic<u32>;
+var<workgroup> dany: atomic<u32>;
+
+// diag_turns with the faults read from dmask by code position, the code
+// (noise sites between phase terms) at ops[op_off + q0 ..][.. op_len - q0].
 fn diag_turns_w(k: u32) -> f32 {
   var turns = 0.0;
   var c = 0u;
   var odd = 0u;
   var at = 0u;
-  while (at < p.op_len) {
-    let e = ops[p.op_off + at];
+  let len = p.op_len - p.q0;
+  let code = p.op_off + p.q0;
+  while (at < len) {
+    let e = ops[code + at];
     if (e.x < 0.0) {
       let m = dmask[at];
       odd ^= countOneBits((k ^ c) & m.y) & 1u;
       c ^= m.x;
-      at += noise_len(p.op_off + at);
+      at += noise_len(code + at);
     } else {
       turns += term_turns(e, k ^ c);
       at++;
@@ -283,27 +289,22 @@ fn diag_turns_w(k: u32) -> f32 {
   return turns + 0.5 * f32(odd);
 }
 
-// A diagonal pass with noise, its draws hoisted (p.meas == 1; n >= 8 and
-// op_len <= 256): a workgroup's threads are one shot's, so its threads draw
-// one site each into workgroup memory, by the site's code position.
-fn diag_hoisted(lid: u32, w: u32, slot: u32) {
+// A diagonal pass with noise, its draws hoisted (p.meas == 1; n >= 8): the
+// pass's phase without its noise (q0 terms at op_off), then its code. A
+// workgroup's threads are one shot's: `x` is the XOR of the X parts of the
+// shot's faults, `hit` whether it has any.
+fn diag_hoisted(lid: u32, w: u32, slot: u32, x: u32, hit: bool) {
   let k = ((w << 8u) | lid) & ((1u << p.n) - 1u);
   let base = slot << p.n;
-  var x = 0u;
-  var hit = false;
-  var at = 0u;
-  while (at < p.op_len) {
-    let e = ops[p.op_off + at];
-    if (e.x < 0.0) {
-      let m = dmask[at];
-      x ^= m.x;
-      hit = hit || m.x != 0u || m.y != 0u;
-      at += noise_len(p.op_off + at);
-    } else {
-      at++;
+  if (!hit) {
+    if (p.q0 == 0u) { return; }
+    var turns = 0.0;
+    for (var term = 0u; term < p.q0; term++) {
+      turns += term_turns(ops[p.op_off + term], k);
     }
+    s[base | k] = cmul(phase(turns), s[base | k]);
+    return;
   }
-  if (!hit && p.q0 == 0u) { return; }
   if (x == 0u) {
     s[base | k] = cmul(phase(diag_turns_w(k)), s[base | k]);
     return;
@@ -323,12 +324,25 @@ fn diag(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_
     let j = w >> (p.n - 8u);
     if (j >= p.shot_len) { return; }
     let slot = shots[p.shot_off + j];
-    if (lid.x < p.op_len) {
-      let e = ops[p.op_off + lid.x];
-      if (e.x < 0.0) { dmask[lid.x] = fault_masks(draw(slot, e), p.op_off + lid.x); }
+    if (lid.x == 0u) {
+      atomicStore(&dxor, 0u);
+      atomicStore(&dany, 0u);
     }
     workgroupBarrier();
-    diag_hoisted(lid.x, w, slot);
+    if (lid.x < p.op_len - p.q0) {
+      let at = p.op_off + p.q0 + lid.x;
+      let e = ops[at];
+      if (e.x < 0.0) {
+        let m = fault_masks(draw(slot, e), at);
+        dmask[lid.x] = m;
+        if (m.x != 0u || m.y != 0u) {
+          atomicXor(&dxor, m.x);
+          atomicOr(&dany, 1u);
+        }
+      }
+    }
+    workgroupBarrier();
+    diag_hoisted(lid.x, w, slot, atomicLoad(&dxor), atomicLoad(&dany) != 0u);
     return;
   }
   let t = flat(id, nw);
@@ -378,12 +392,13 @@ fn diag(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_
 }
 
 var<workgroup> tile: array<vec2<f32>, 1024>;
-var<workgroup> code: array<vec4<f32>, 128>;
+var<workgroup> code: array<vec4<f32>, 256>;
 // The faults (block-local masks) of a block's noise sites, by op index,
 // and which sites are fault-free (bits), when the draws are hoisted.
-var<workgroup> nmask: array<vec2<u32>, 64>;
-var<workgroup> nfree: array<u32, 64>;
-var<workgroup> nskip: array<u32, 2>;
+var<workgroup> nmask: array<vec2<u32>, 128>;
+var<workgroup> nfree: array<u32, 128>;
+var<workgroup> nskip: vec4<u32>;
+var<workgroup> nany: u32;
 
 // The vec4 the block op at code[off] takes.
 fn op_size(off: u32) -> u32 {
@@ -393,6 +408,20 @@ fn op_size(off: u32) -> u32 {
   if (kind == 12u) { return 9u; }
   if (kind == 14u) { return 1u + (ival(code[off + 1u].x) + 4u) / 4u; }
   return 1u + ival(h.w);
+}
+
+// Whether bits 0..n of `skip` are all set.
+fn all_set(skip: vec4<u32>, n: u32) -> bool {
+  var ok = true;
+  for (var i = 0u; i < 4u; i++) {
+    let lo = i * 32u;
+    if (n > lo) {
+      let count = min(32u, n - lo);
+      let want = select((1u << count) - 1u, 0xffffffffu, count == 32u);
+      ok = ok && (skip[i] & want) == want;
+    }
+  }
+  return ok;
 }
 
 // A block noise site's fault as block-local masks (x, z).
@@ -431,7 +460,9 @@ fn tile_offset(e: u32) -> u32 {
 // low qubits, or a gather block), 2^block amplitudes in workgroup memory;
 // ops name the qubits by their index in the block. The ops are `kind` vec4 at ops[op_off..] (at most 128),
 // copied to workgroup memory; each a header (kind, qa, qb, len), then kind
-// 11: 2x2 rows (2 vec4); kind 12: 4x4 (8 vec4); kind 13: len phase terms.
+// 11: 2x2 rows (2 vec4); kind 12: 4x4 (8 vec4); kind 13: len phase terms;
+// kind 14: a noise site; kind 16: len phase terms standing for the next qa
+// ops (a run of phases and sites) when none of its sites has a fault.
 @compute @workgroup_size(256)
 fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
   let w = flat_group(wid, nw);
@@ -450,15 +481,17 @@ fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
   }
   let base = (shots[p.shot_off + j] << p.n) | rest;
   if (lid.x < p.kind) { code[lid.x] = ops[p.op_off + lid.x]; }
-  if (contiguous) {
-    for (var e = lid.x; e < size; e += WG) { tile[e] = s[base + e]; }
-  } else {
-    for (var e = lid.x; e < size; e += WG) { tile[e] = s[base + tile_offset(e)]; }
-  }
   workgroupBarrier();
-  // Hoisted draws (p.meas == 1): thread o draws op o's site, if a site.
-  var skip0 = 0u;
-  var skip1 = 0u;
+  // Hoisted draws (p.meas == 1): thread o draws op o's site, if a site
+  // (nfree: 1 fault-free, 2 a fault); then thread 0 marks the ops to skip:
+  // fault-free sites, and either a kind-16 op (a run's phase without its
+  // noise) or the run it stands for, by whether a site of the run has a
+  // fault.
+  var skip = vec4(0u, 0u, 0u, 0u);
+  // The code run: by default all of it; for a fault-free shot, the
+  // noiseless variant (p.per_shot - 1 ops at p.m0.x), if there is one.
+  var start = 0u;
+  var count = p.op_len;
   if (p.meas == 1u) {
     if (lid.x < p.op_len) {
       var at = 0u;
@@ -468,32 +501,65 @@ fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
       var free = 0u;
       if (ival(h.x) == 14u) {
         m = block_masks(draw(shots[p.shot_off + j], h), at);
-        free = select(0u, 1u, m.x == 0u && m.y == 0u);
+        free = select(2u, 1u, m.x == 0u && m.y == 0u);
       }
       nmask[lid.x] = m;
       nfree[lid.x] = free;
     }
     workgroupBarrier();
-    if (lid.x == 0u) {
-      var a = 0u;
-      var b = 0u;
-      for (var o = 0u; o < p.op_len; o++) {
-        if (nfree[o] == 1u) {
-          if (o < 32u) { a |= 1u << o; } else { b |= 1u << (o - 32u); }
-        }
+    if (p.per_shot > 0u) {
+      if (lid.x == 0u) {
+        var any = 0u;
+        for (var o = 0u; o < p.op_len; o++) { any |= nfree[o] & 2u; }
+        nany = any;
       }
-      nskip[0] = a;
-      nskip[1] = b;
+      if (workgroupUniformLoad(&nany) == 0u) {
+        start = ival(p.m0.x);
+        count = p.per_shot - 1u;
+        if (count == 0u) { return; }
+      }
     }
-    skip0 = workgroupUniformLoad(&nskip[0]);
-    skip1 = workgroupUniformLoad(&nskip[1]);
   }
-  var off = 0u;
-  for (var o = 0u; o < p.op_len; o++) {
-    let skipped = select(skip1 >> (o & 31u), skip0 >> (o & 31u), o < 32u);
-    if ((skipped & 1u) == 1u) {
-      // A fault-free site: no sweep, no barrier.
-      off += 1u + (ival(code[off + 1u].x) + 4u) / 4u;
+  if (p.meas == 1u && count == p.op_len && start == 0u) {
+    if (lid.x == 0u) {
+      var sk = vec4(0u, 0u, 0u, 0u);
+      var at = 0u;
+      for (var o = 0u; o < p.op_len; o++) {
+        let h = code[at];
+        let kind = ival(h.x);
+        if (kind == 14u && nfree[o] == 1u) {
+          sk[o >> 5u] |= 1u << (o & 31u);
+        }
+        if (kind == 16u) {
+          let r = ival(h.y);
+          var faulty = false;
+          for (var i = o + 1u; i <= o + r; i++) { faulty = faulty || nfree[i] == 2u; }
+          if (faulty) {
+            sk[o >> 5u] |= 1u << (o & 31u);
+          } else {
+            for (var i = o + 1u; i <= o + r; i++) { sk[i >> 5u] |= 1u << (i & 31u); }
+          }
+        }
+        at += op_size(at);
+      }
+      nskip = sk;
+    }
+    skip = workgroupUniformLoad(&nskip);
+    // Every op skipped (a fault-free shot's noise-only piece): the tile is
+    // left as it is.
+    if (all_set(skip, p.op_len)) { return; }
+  }
+  if (contiguous) {
+    for (var e = lid.x; e < size; e += WG) { tile[e] = s[base + e]; }
+  } else {
+    for (var e = lid.x; e < size; e += WG) { tile[e] = s[base + tile_offset(e)]; }
+  }
+  workgroupBarrier();
+  var off = start;
+  for (var o = 0u; o < count; o++) {
+    if (((skip[o >> 5u] >> (o & 31u)) & 1u) == 1u) {
+      // A fault-free site, or a run or its fast phase: no sweep, no barrier.
+      off += op_size(off);
       continue;
     }
     let h = code[off];

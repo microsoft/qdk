@@ -53,7 +53,7 @@ const NO_RESULT: u32 = u32::MAX;
 /// runs of 8 consecutive amplitudes.
 const CARRIERS: u64 = 0b111;
 /// The vec4 of block code the `block` kernel holds in workgroup memory.
-const BLOCK_CODE: usize = 128;
+const BLOCK_CODE: usize = 256;
 
 /// What fails in the resumer's own work: a call it does not support.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -97,6 +97,9 @@ pub struct Strategy {
     /// Whether block and diagonal passes draw each noise site once per
     /// workgroup into workgroup memory, and skip fault-free sites.
     pub hoist_noise: bool,
+    /// Whether a hoisted block also carries its noiseless code, which a
+    /// workgroup whose shot has no fault in the block runs instead.
+    pub clean_variant: bool,
 }
 
 impl Strategy {
@@ -113,6 +116,7 @@ impl Strategy {
         fuse_noise: true,
         sink_noise: true,
         hoist_noise: true,
+        clean_variant: true,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -127,6 +131,7 @@ impl Strategy {
         fuse_noise: false,
         sink_noise: false,
         hoist_noise: false,
+        clean_variant: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -141,6 +146,7 @@ impl Strategy {
         fuse_noise: true,
         sink_noise: true,
         hoist_noise: true,
+        clean_variant: true,
     };
 
     pub fn named(name: &str) -> Option<Self> {
@@ -182,12 +188,18 @@ impl Strategy {
             },
             "nohoist" => Self {
                 hoist_noise: false,
+                clean_variant: false,
+                ..Self::ALL
+            },
+            "noclean" => Self {
+                clean_variant: false,
                 ..Self::ALL
             },
             // The first noise commit's fused passes.
             "fused0" => Self {
                 sink_noise: false,
                 hoist_noise: false,
+                clean_variant: false,
                 ..Self::ALL
             },
             _ => return None,
@@ -1022,6 +1034,28 @@ fn translate(
     if strategy.gather {
         segments = drop_small_gathers(segments, low, strategy);
     }
+    if std::env::var("QDK_PLAN_DUMP").is_ok() {
+        let summary: Vec<String> = segments
+            .iter()
+            .map(|seg| match &seg.kind {
+                SegKind::Block { set, ops } => format!(
+                    "Block({set:#x}: {} ops, {} noise)",
+                    ops.len(),
+                    ops.iter().filter(|op| is_noise(op)).count()
+                ),
+                SegKind::Diag(ops) => format!(
+                    "Diag({} ops, {} noise)",
+                    ops.len(),
+                    ops.iter().filter(|op| is_noise(op)).count()
+                ),
+                SegKind::Gate1 { q, .. } => format!("Gate1({q})"),
+                SegKind::Gate2 { a, b, .. } => format!("Gate2({a},{b})"),
+                SegKind::Pauli(_) => "Pauli".to_string(),
+                SegKind::Meas { q, .. } => format!("Meas({q})"),
+            })
+            .collect();
+        eprintln!("PLAN {} calls: {}", batch.len(), summary.join(" | "));
+    }
     Ok(Plan {
         segments,
         results,
@@ -1267,6 +1301,12 @@ fn diag_code(diag_ops: &[Op]) -> (Vec<[f32; 4]>, u32) {
     (code, terms)
 }
 
+/// Whether `QDK_NOISE_DROP` (a timing experiment: `diag`, `block` or
+/// `both`) drops the noise of this kind of pass.
+fn drop_noise(kind: &str) -> bool {
+    std::env::var("QDK_NOISE_DROP").is_ok_and(|v| v == kind || v == "both")
+}
+
 /// `block_ops` with each noise site moved down to just before the first
 /// later op on one of its qubits (or to the end). Exact up to a global
 /// phase: a Pauli fault commutes with ops on other qubits, and with other
@@ -1300,14 +1340,88 @@ fn push_matrix4(ops: &mut Vec<[f32; 4]>, m: &[Complex64; 16]) {
 
 /// The block ops' code (as the `block` kernel reads it), in pieces of at
 /// most `BLOCK_CODE` vec4: each piece's ops and code. Consecutive diagonal
-/// ops become one op of phase terms.
-fn block_code(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>)> {
-    let mut encoded: Vec<Vec<[f32; 4]>> = Vec::new();
+/// ops become one op of phase terms. With `fast_runs` (hoisted draws), a run
+/// of diagonal ops and noise sites is preceded by a kind-16 op: the run's
+/// phase without its noise, which the kernel runs instead of the run when
+/// none of the run's sites has a fault (and skips otherwise).
+fn block_code(
+    block_ops: &[Op],
+    kron_in_block: bool,
+    fast_runs: bool,
+) -> Vec<(u32, Vec<[f32; 4]>)> {
+    // Units of (op count, code), each kept in one piece.
+    let mut encoded: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
+    let mut at = 0;
+    while at < block_ops.len() {
+        let op = &block_ops[at];
+        if fast_runs && (is_diag(op) || is_noise(op)) {
+            let run = block_ops[at..]
+                .iter()
+                .take_while(|op| is_diag(op) || is_noise(op))
+                .count();
+            let ops = &block_ops[at..at + run];
+            if ops.iter().any(is_noise) && ops.iter().any(is_diag) {
+                let inner = block_units(ops, kron_in_block);
+                let terms = phase_terms(ops.iter().filter(|op| is_diag(op)));
+                let r: u32 = inner.iter().map(|(count, _)| count).sum();
+                #[allow(clippy::cast_precision_loss)]
+                let mut code = vec![[16.0, r as f32, 0.0, terms.len() as f32]];
+                code.extend(terms);
+                for (_, unit) in &inner {
+                    code.extend(unit);
+                }
+                if code.len() <= BLOCK_CODE {
+                    encoded.push((1 + r, code));
+                } else {
+                    encoded.extend(inner);
+                }
+                at += run;
+                continue;
+            }
+        }
+        let run = if is_noise(op) {
+            1
+        } else if is_diag(op) {
+            block_ops[at..].iter().take_while(|op| is_diag(op)).count()
+        } else {
+            // A one-qubit gate and the next (a kron pair), or one gate.
+            match (op, block_ops.get(at + 1)) {
+                (Op::G1 { q, .. }, Some(next @ Op::G1 { q: nq, .. }))
+                    if kron_in_block && q != nq && !is_diag(next) =>
+                {
+                    2
+                }
+                _ => 1,
+            }
+        };
+        encoded.extend(block_units(&block_ops[at..at + run], kron_in_block));
+        at += run;
+    }
+    let mut pieces: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
+    for (count, code) in encoded {
+        assert!(
+            code.len() <= BLOCK_CODE,
+            "a block op fits the kernel's code"
+        );
+        match pieces.last_mut() {
+            Some((ops, piece)) if piece.len() + code.len() <= BLOCK_CODE => {
+                *ops += count;
+                piece.extend(code);
+            }
+            _ => pieces.push((count, code)),
+        }
+    }
+    pieces
+}
+
+/// The block ops' code, one unit per kernel op (count 1 each).
+fn block_units(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>)> {
+    let mut encoded: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
     let mut at = 0;
     while at < block_ops.len() {
         let op = &block_ops[at];
         if is_noise(op) {
-            encoded.push(noise_code(op, 14.0));
+            encoded.push((1, noise_code(op, 14.0)));
             at += 1;
             continue;
         }
@@ -1322,7 +1436,7 @@ fn block_code(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>)
                 #[allow(clippy::cast_precision_loss)]
                 let mut code = vec![[13.0, 0.0, 0.0, terms.len() as f32]];
                 code.extend(terms);
-                encoded.push(code);
+                encoded.push((1, code));
             }
             continue;
         }
@@ -1348,38 +1462,29 @@ fn block_code(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>)
             None => op,
         };
         #[allow(clippy::cast_precision_loss)]
-        encoded.push(match op {
-            Op::G1 { q, m } => {
-                let r: Vec<C32> = m.iter().map(|&c| c32(c)).collect();
-                vec![
-                    [11.0, *q as f32, 0.0, 0.0],
-                    [r[0][0], r[0][1], r[1][0], r[1][1]],
-                    [r[2][0], r[2][1], r[3][0], r[3][1]],
-                ]
-            }
-            Op::G2 { a, b, m } => {
-                let mut code = vec![[12.0, *a as f32, *b as f32, 0.0]];
-                push_matrix4(&mut code, m);
-                code
-            }
-            Op::Meas { .. } | Op::Noise { .. } => unreachable!("not in a block's matrices"),
-        });
+        encoded.push((
+            1,
+            match op {
+                Op::G1 { q, m } => {
+                    let r: Vec<C32> = m.iter().map(|&c| c32(c)).collect();
+                    vec![
+                        [11.0, *q as f32, 0.0, 0.0],
+                        [r[0][0], r[0][1], r[1][0], r[1][1]],
+                        [r[2][0], r[2][1], r[3][0], r[3][1]],
+                    ]
+                }
+                Op::G2 { a, b, m } => {
+                    let mut code = vec![[12.0, *a as f32, *b as f32, 0.0]];
+                    push_matrix4(&mut code, m);
+                    code
+                }
+                Op::Meas { .. } | Op::Noise { .. } => {
+                    unreachable!("not in a block's matrices")
+                }
+            },
+        ));
     }
-    let mut pieces: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
-    for code in encoded {
-        assert!(
-            code.len() <= BLOCK_CODE,
-            "a block op fits the kernel's code"
-        );
-        match pieces.last_mut() {
-            Some((ops, piece)) if piece.len() + code.len() <= BLOCK_CODE => {
-                *ops += 1;
-                piece.extend(code);
-            }
-            _ => pieces.push((1, code)),
-        }
-    }
-    pieces
+    encoded
 }
 
 /// The lengths of the prefix and of the suffix that all `batches` share,
@@ -1416,6 +1521,7 @@ struct Layout<'a, 'g> {
     /// Whether block and diagonal passes draw each noise site once per
     /// workgroup (not once per thread), skipping fault-free sites.
     hoist: bool,
+    clean: bool,
     /// The round, and where the slots' (noise seed, batch length) are in
     /// `shots`, for noise draws.
     round: u32,
@@ -1476,6 +1582,15 @@ impl Layout<'_, '_> {
                         .push((&gpu.gate2, slot, (len << (n - 2)).div_ceil(WG)));
                 }
                 SegKind::Diag(diag_ops) => {
+                    // Timing experiment only (wrong results): drop the
+                    // noise of diagonal passes.
+                    let kept: Vec<Op>;
+                    let diag_ops = if drop_noise("diag") {
+                        kept = diag_ops.iter().filter(|op| !is_noise(op)).cloned().collect();
+                        &kept
+                    } else {
+                        diag_ops
+                    };
                     let (code, terms) = diag_code(diag_ops);
                     if code.is_empty() {
                         // A global phase: nothing to do.
@@ -1486,10 +1601,18 @@ impl Layout<'_, '_> {
                     p.op_len = u32::try_from(code.len()).expect("fits");
                     p.q0 = terms;
                     // The hoisted draws: one workgroup per shot's slice, and
-                    // the code fits the workgroup's fault array.
-                    p.meas = u32::from(
-                        self.hoist && terms != p.op_len && n >= 8 && code.len() <= 256,
-                    );
+                    // the code fits the workgroup's fault array. The code is
+                    // then preceded by the pass's phase without its noise
+                    // (q0 terms), which shots without a fault run alone.
+                    let hoisted =
+                        self.hoist && terms != p.op_len && n >= 8 && code.len() <= 256;
+                    p.meas = u32::from(hoisted);
+                    if hoisted {
+                        let merged = phase_terms(diag_ops.iter().filter(|op| is_diag(op)));
+                        p.q0 = u32::try_from(merged.len()).expect("fits");
+                        p.op_len += p.q0;
+                        self.ops.extend(merged);
+                    }
                     self.ops.extend(code);
                     self.passes.push((&gpu.diag, slot, (len << n).div_ceil(WG)));
                 }
@@ -1554,13 +1677,41 @@ impl Layout<'_, '_> {
                             Op::Meas { .. } => unreachable!("a measurement is in no block"),
                         })
                         .collect();
+                    // Timing experiment only (wrong results): drop the
+                    // noise of blocks.
+                    let local_ops: Vec<Op> = if drop_noise("block") {
+                        local_ops.into_iter().filter(|op| !is_noise(op)).collect()
+                    } else {
+                        local_ops
+                    };
                     let local_ops = if self.sink {
                         sink_noise(&local_ops)
                     } else {
                         local_ops
                     };
                     let noisy = local_ops.iter().any(is_noise);
-                    let pieces = block_code(&local_ops, self.kron);
+                    let mut pieces = block_code(&local_ops, self.kron, self.hoist && noisy);
+                    // The fault-free variant: with hoisted draws, the block's
+                    // code without its noise follows the noisy code, and a
+                    // workgroup whose shot has no fault at any site runs it
+                    // instead (per_shot: its op count + 1, m0.x: its offset).
+                    let mut clean_variant = None;
+                    if self.hoist && noisy && self.clean && pieces.len() == 1 {
+                        let clean_ops: Vec<Op> =
+                            local_ops.iter().filter(|op| !is_noise(op)).cloned().collect();
+                        let clean = block_code(&clean_ops, self.kron, false);
+                        let (count, code) = match clean.as_slice() {
+                            [] => (0, Vec::new()),
+                            [(count, code)] => (*count, code.clone()),
+                            _ => (0, vec![[0.0; 4]; BLOCK_CODE + 1]),
+                        };
+                        if pieces[0].1.len() + code.len() <= BLOCK_CODE {
+                            #[allow(clippy::cast_precision_loss)]
+                            let offset = pieces[0].1.len() as f32;
+                            pieces[0].1.extend(code);
+                            clean_variant = Some((count + 1, offset));
+                        }
+                    }
                     if pieces.is_empty() {
                         // Only a global phase: nothing to do.
                         self.params.truncate(at);
@@ -1581,6 +1732,7 @@ impl Layout<'_, '_> {
                         p.kind = u32::try_from(code.len()).expect("fits");
                         p.block = b;
                         p.meas = u32::from(self.hoist && noisy);
+                        (p.per_shot, p.m0[0]) = clean_variant.unwrap_or((0, 0.0));
                         self.ops.extend(code);
                         p.write(self.params, at);
                         self.passes.push((&gpu.block, slot, len << (n - b)));
@@ -1830,6 +1982,7 @@ impl QirGpuResumer {
                 kron: self.strategy.kron,
                 sink: self.strategy.sink_noise,
                 hoist: self.strategy.hoist_noise,
+                clean: self.strategy.clean_variant,
                 round: 0,
                 meta_off: 0,
             }
@@ -1903,6 +2056,7 @@ impl QirGpuResumer {
             kron: self.strategy.kron,
             sink: self.strategy.sink_noise,
             hoist: self.strategy.hoist_noise,
+            clean: self.strategy.clean_variant,
             round: 0,
             meta_off: 0,
         }
@@ -2291,6 +2445,7 @@ impl QirGpuResumer {
                     kron: self.strategy.kron,
                     sink: self.strategy.sink_noise,
                     hoist: self.strategy.hoist_noise,
+                    clean: self.strategy.clean_variant,
                     round,
                     meta_off: 0,
                 };
