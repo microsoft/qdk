@@ -258,14 +258,10 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             .map_err(engine_failure)
     }
 
-    /// Each shot of `group` draws the value of `site`. When some drew One
-    /// and others Zero, the group splits: the part with fewer shots (Zero's
-    /// on a tie) goes on as `group`, and the other waits, with a fork of
-    /// the state. Each part's state keeps its value, and is returned to |0⟩
-    /// when `reset`; `result`, when given, is answered with the value. When
-    /// the waiting part's fork, or the fork's projection, fails, the
-    /// failure fails that part's shots only (kept in the run's failure),
-    /// and `group` goes on.
+    /// Each shot of `group` draws the value of `site`; when they drew both
+    /// values, the group splits ([`Self::split`]). The state of the part
+    /// that goes on as `group` keeps its value, and is returned to |0⟩ when
+    /// `reset`; `result`, when given, is answered with the value.
     fn draw(
         &mut self,
         group: &mut Group<E::State>,
@@ -287,44 +283,61 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             .iter_mut()
             .map(|shot| shot.stream.next_uniform() < p_one)
             .collect();
-        let ones = draws.iter().filter(|&&one| one).count();
-        let one = if ones == 0 || ones == draws.len() {
-            ones > 0
-        } else {
-            // The part with fewer shots goes on; Zero's on a tie.
-            let one = 2 * ones < draws.len();
-            let (mut going_on, mut waiting) = (Vec::new(), Vec::new());
-            for (shot, &drew) in std::mem::take(&mut group.shots).into_iter().zip(&draws) {
-                if drew == one {
-                    going_on.push(shot);
-                } else {
-                    waiting.push(shot);
-                }
-            }
-            group.shots = going_on;
-            match self.fork_keeping(state, site, !one, reset) {
-                Ok(fork) => {
-                    let mut outcomes = group.outcomes.clone();
-                    outcomes.extend(answer(result, !one));
-                    self.waiting.push(Group {
-                        shots: waiting,
-                        context: group.context.clone(),
-                        state: Some(fork),
-                        outcomes,
-                        steps: Rc::clone(&group.steps),
-                        next: group.next,
-                        bond_unread: false,
-                    });
-                }
-                // Only the shots that wait met the failure: those going on
-                // run on, and may end, or fail first in the order.
-                Err(failed) => self.fail(waiting[0].place, failed),
-            }
-            one
-        };
+        let one = value_going_on(&draws);
+        if draws.iter().any(|&drew| drew != one) {
+            self.split(group, &draws, one, site, reset, result);
+        }
+        let state = group.state.as_mut().expect("prepared above");
         self.settle(state, site, one, reset)?;
         group.outcomes.extend(answer(result, one));
         Ok(())
+    }
+
+    /// Splits `group` by its shots' `draws` of `site`: the shots that drew
+    /// `one` stay in `group`, and the others wait, with a fork of the state
+    /// that keeps their value and a copy of the context. When the fork, or
+    /// its projection, fails, the failure fails the waiting shots only
+    /// (kept in the run's failure), and `group` goes on.
+    fn split(
+        &mut self,
+        group: &mut Group<E::State>,
+        draws: &[bool],
+        one: bool,
+        site: usize,
+        reset: bool,
+        result: Option<u32>,
+    ) {
+        let (mut going_on, mut waiting) = (Vec::new(), Vec::new());
+        for (shot, &drew) in std::mem::take(&mut group.shots).into_iter().zip(draws) {
+            if drew == one {
+                going_on.push(shot);
+            } else {
+                waiting.push(shot);
+            }
+        }
+        group.shots = going_on;
+        let state = group
+            .state
+            .as_ref()
+            .expect("a group that draws holds a state");
+        match self.fork_keeping(state, site, !one, reset) {
+            Ok(fork) => {
+                let mut outcomes = group.outcomes.clone();
+                outcomes.extend(answer(result, !one));
+                self.waiting.push(Group {
+                    shots: waiting,
+                    context: group.context.clone(),
+                    state: Some(fork),
+                    outcomes,
+                    steps: Rc::clone(&group.steps),
+                    next: group.next,
+                    bond_unread: false,
+                });
+            }
+            // Only the shots that wait met the failure: those going on run
+            // on, and may end, or fail first in the order.
+            Err(failed) => self.fail(waiting[0].place, failed),
+        }
     }
 
     /// A fork of `state` keeping the value One (`one` true) or Zero (`one`
@@ -460,6 +473,19 @@ fn capacity_of<E>(
             max_bond_dimension: max_bond_dimension.get(),
             source,
         })
+}
+
+/// The value of the shots that go on as the group, given each shot's draw
+/// (One when true): the value they all drew, or, where they differ, the
+/// value of the fewer, Zero on a tie. So a group that splits keeps at
+/// most half its shots, and a run holds few states at once.
+fn value_going_on(draws: &[bool]) -> bool {
+    let ones = draws.iter().filter(|&&one| one).count();
+    if ones == 0 || ones == draws.len() {
+        ones > 0
+    } else {
+        2 * ones < draws.len()
+    }
 }
 
 /// The outcome that answers `result`, when one is given, with One (`one`
