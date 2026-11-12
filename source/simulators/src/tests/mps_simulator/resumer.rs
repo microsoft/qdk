@@ -15,6 +15,7 @@ mod layout;
 mod lowering;
 mod report;
 mod rewrites;
+mod routing;
 mod shot_stream;
 
 use std::num::NonZeroUsize;
