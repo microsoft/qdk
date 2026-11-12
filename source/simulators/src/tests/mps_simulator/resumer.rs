@@ -4,9 +4,10 @@
 //! The resumer's rules: what a shot records, wherever the order places its
 //! qubits; that its records do not depend on the shots beside it or on
 //! earlier runs; the capacity each state is prepared within; and a run's
-//! edges (no shots, no qubits, a max bond dimension that makes no chain). How shots draw, share states and fail
-//! is in `resumer/grouped_run.rs`, the stream each draws from in
-//! `resumer/shot_stream.rs`, the calls refused in `resumer/lowering.rs`.
+//! edges (no shots, no qubits, a max bond dimension that makes no chain).
+//! How shots draw, share states and fail is in `resumer/grouped_run.rs`,
+//! the stream each draws from in `resumer/shot_stream.rs`, the calls
+//! refused in `resumer/lowering.rs`.
 
 mod fusion;
 mod grouped_run;
