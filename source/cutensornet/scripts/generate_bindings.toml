@@ -1,0 +1,59 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# The pinned inputs generate_bindings.py shares among the libraries it binds:
+# the tools and NVIDIA's archives. It binds each library whose folder,
+# src/libraries/<library>/, has a bindings.toml, which pins the library's own
+# inputs. Every input that can change a generated file is pinned, with its
+# hash or exact version, so that a run on another machine reproduces the
+# checked-in files. The script's docstring says how to run it.
+#
+# The versions are those of the libraries the crate accepts at run time
+# (cuTensorNet 2.13.0 built for CUDA 12, the CUDA Runtime 12.9), and the
+# CUDA archives hold the headers of the apt packages installed on the GPU
+# host the crate was validated on (cuda-cudart-dev-12-9 12.9.79,
+# cuda-crt-12-9 12.9.86, cuda-cccl-12-9 12.9.27).
+
+# Bindgen's output depends on both bindgen and the libclang it parses with;
+# both are checked against `bindgen --version --verbose`. The libclang is
+# Ubuntu 22.04's, so the script runs there.
+[toolchain]
+bindgen = "bindgen 0.72.1"
+libclang = "Ubuntu clang version 14.0.0-1ubuntu1.1"
+# rustfmt formats bindgen's output, so its version can change the files; it is
+# checked against `rustfmt --version` (Rust 1.95's).
+rustfmt = "rustfmt 1.9.0-stable (59807616e1 2026-04-14)"
+# The edition rustfmt formats the output for.
+rust_edition = "2024"
+# Passed to clang, so that the declarations are those of the platform the
+# crate binds, whichever host runs the script.
+target = "x86_64-unknown-linux-gnu"
+
+# NVIDIA's archives, downloaded by hand from `url` into one directory (the
+# script does not download). The script extracts the include/ folder under
+# each one's top-level folder.
+
+# cuQuantum, whose include/ folder holds cutensornet.h.
+[archives.cuquantum]
+file = "cuquantum-linux-x86_64-26.06.0.17_cuda12-archive.tar.xz"
+url = "https://developer.download.nvidia.com/compute/cuquantum/redist/cuquantum/linux-x86_64/cuquantum-linux-x86_64-26.06.0.17_cuda12-archive.tar.xz"
+sha256 = "4c37aa346fab9023d985e79667b047e13a0c0f9b9fea7dfca453979b331c8f77"
+
+# The CUDA Runtime's headers: cuda_runtime_api.h, driver_types.h,
+# library_types.h and the vector types.
+[archives.cuda_cudart]
+file = "cuda_cudart-linux-x86_64-12.9.79-archive.tar.xz"
+url = "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/linux-x86_64/cuda_cudart-linux-x86_64-12.9.79-archive.tar.xz"
+sha256 = "1f6ad42d4f530b24bfa35894ccf6b7209d2354f59101fd62ec4a6192a184ce99"
+
+# crt/host_config.h, which the CUDA Runtime's headers include.
+[archives.cuda_nvcc]
+file = "cuda_nvcc-linux-x86_64-12.9.86-archive.tar.xz"
+url = "https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvcc/linux-x86_64/cuda_nvcc-linux-x86_64-12.9.86-archive.tar.xz"
+sha256 = "7a1a5b652e5ef85c82b721d10672fc9a2dbaab44e9bd3c65a69517bf53998c35"
+
+# The C++ core libraries' headers, which the CUDA Runtime's headers include.
+[archives.cuda_cccl]
+file = "cuda_cccl-linux-x86_64-12.9.27-archive.tar.xz"
+url = "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cccl/linux-x86_64/cuda_cccl-linux-x86_64-12.9.27-archive.tar.xz"
+sha256 = "8b1a5095669e94f2f9afd7715533314d418179e9452be61e2fde4c82a3e542aa"

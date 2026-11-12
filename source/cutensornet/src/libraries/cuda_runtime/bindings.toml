@@ -1,0 +1,18 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# What the CUDA Runtime's bindings are made of, read by
+# scripts/generate_bindings.py with the tools and archives of
+# scripts/generate_bindings.toml. Bindgen declares the header's API, every
+# function, type and constant whose name has the prefix, and the types they
+# reach, into generated/<output>.
+
+# Found in the first of the archives' include/ folders, which clang searches
+# in this order.
+header = "cuda_runtime_api.h"
+includes = ["cuda_cudart", "cuda_nvcc", "cuda_cccl"]
+# In any case: cudaMalloc, cudaError_t, cudaStreamNonBlocking, and the
+# header's version, CUDART_VERSION.
+prefix = "cuda"
+# Named for the release, as the module src/libraries/cuda_runtime.rs declares.
+output = "cudart_12.rs"
