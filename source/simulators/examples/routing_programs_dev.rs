@@ -207,8 +207,11 @@ fn corpus() {
     println!("CORPUS cases={cases} failed={failed}");
 }
 
+/// Makes one of the conformance kit's programs.
+type MakeProgram = fn() -> QirProgram;
+
 fn kit_programs() {
-    let all: [(&str, fn() -> QirProgram); 5] = [
+    let all: [(&str, MakeProgram); 5] = [
         ("coin_then_branch", programs::coin_then_branch),
         ("coin_then_end_or_toss", programs::coin_then_end_or_toss),
         (
@@ -258,12 +261,16 @@ impl Random {
         z ^ (z >> 31)
     }
 
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "53-bit integers convert to f64 exactly"
+    )]
     fn unit(&mut self) -> f64 {
         (self.next() >> 11) as f64 / (1u64 << 53) as f64
     }
 
     fn below(&mut self, n: usize) -> usize {
-        (self.next() % n as u64) as usize
+        usize::try_from(self.next() % n as u64).expect("a value below n fits usize")
     }
 }
 
