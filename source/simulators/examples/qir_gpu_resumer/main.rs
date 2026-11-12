@@ -984,6 +984,20 @@ fn named_noise(name: &str) -> NoiseConfig<f64, f64> {
     if let Some(p) = name.strip_prefix('p') {
         return depolarizing(p.parse().expect("a rate"));
     }
+    if name == "corr" {
+        // Table 0 (3 qubits): XXX with 0.2, ZIY with 0.15 (first qubit high).
+        let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+        let mut table = NoiseTable::<f64>::noiseless(3);
+        table.pauli_strings = vec![(1 << 6) | (1 << 3) | 1, (2 << 6) | 3];
+        table.probabilities = vec![0.2, 0.15];
+        config.intrinsics.insert(0, table);
+        return config;
+    }
+    if let Some(p) = name.strip_prefix("idle") {
+        let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+        config.idle.s_probability = p.parse().expect("a rate");
+        return config;
+    }
     let mut config = NoiseConfig::<f64, f64>::NOISELESS;
     let (string, table) = match name {
         "tz" => (2, &mut config.t),
