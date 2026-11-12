@@ -103,9 +103,10 @@ impl<E: MpsEngine> MpsResumer<E> {
     /// What the last run cost: the largest bond any of its states held
     /// where a run of operators ended, and the least weight kept by a shot
     /// that ended, with the warning they call for
-    /// ([`MpsRunReport::truncation_warning`]). After a failed run, what the
-    /// run read before it failed. Before any run, and after a run of no
-    /// shot, that of a run that prepared no state.
+    /// ([`MpsRunReport::truncation_warning`]). After a failed run, what it
+    /// read until it stopped, including after the failure was met, as the
+    /// groups that hold a shot before the failing shot run on. Before any
+    /// run, and after a run of no shot, that of a run that prepared no state.
     #[must_use]
     pub fn last_run(&self) -> &MpsRunReport {
         &self.last_run
@@ -131,9 +132,10 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
     /// or the resumer failed it ([`MpsResumerError`]): a noise or loss call,
     /// a gate on one qubit twice, a capacity that is no chain, or the
     /// engine's failure. An engine's failure to fork a group's state, or to
-    /// project the fork, fails the shots that were to wait with the fork,
-    /// though alone they would not have forked: a shot's failure, unlike
-    /// its records, may depend on the shots beside it.
+    /// settle the fork (project it, and apply a reset's X), fails the shots
+    /// that were to wait with the fork, though alone they would not have
+    /// forked: a shot's failure, unlike its records, may depend on the
+    /// shots beside it.
     async fn run(
         &mut self,
         machine: &QirMachine<'_>,

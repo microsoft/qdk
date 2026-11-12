@@ -37,6 +37,6 @@ sequenceDiagram
   Note over M,E: Phase: settle
   R->>E: project(state, site, value)
   R->>E: apply(state, site, X), for a reset that drew One
-  Note over M,E: Phase: end
+  Note over M,E: Phase: end, of a group that holds a state
   R->>E: retained_weight(state)
 ```

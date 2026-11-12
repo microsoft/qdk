@@ -26,7 +26,8 @@
 //! **Failures.** `fail` keeps the failure of the first shot in the order of
 //! the shots; since a group's shots keep that order, a group whose first
 //! shot comes after it is dropped: `run` drops it unrun when it waits, and
-//! `run_group` stops it at the failed split it goes on from.
+//! `run_group` stops it at the split, failed or not, that leaves it only
+//! such shots going on.
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;
@@ -190,8 +191,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
 
     /// Runs `group` until its context ends, giving its records; the groups
     /// that split off it wait on [`Self::waiting`]. Gives `None`, and stops
-    /// at once, when a split of `group` failed for shots before all of those
-    /// that go on.
+    /// at once, when a split of `group`, failed or not, leaves it only shots
+    /// that come after the run's failure.
     fn run_group(
         &mut self,
         group: &mut Group<E::State>,
@@ -224,7 +225,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     }
 
     /// Runs `step` on `group`: an operator is applied, a measurement or a
-    /// reset drawn.
+    /// reset drawn. A draw reads the largest bond first ([`Self::read_bond`]),
+    /// as projecting may shrink it; an operator does not.
     fn run_step(
         &mut self,
         step: &Step,
@@ -293,9 +295,9 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// Splits `group` by its shots' `draws` of `site`: the shots that drew
     /// `one` stay in `group`, and the others wait, with a fork of the state
     /// that keeps their value and a copy of the context. When the fork, or
-    /// its projection, fails, the failure fails the waiting shots only
-    /// (kept in the run's failure), and `group` goes on, unless its shots
-    /// all come after them.
+    /// its settling ([`Self::settle`]: the projection, and a reset's X),
+    /// fails, the failure fails the waiting shots only (kept in the run's
+    /// failure), and `group` goes on, unless its shots all come after them.
     fn split(
         &mut self,
         group: &mut Group<E::State>,

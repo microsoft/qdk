@@ -24,7 +24,8 @@ use super::layout::QubitOrder;
 use super::resumer_error::MpsResumerError;
 
 /// What the MPS simulation method does with a call, on sites. A new kind
-/// of step runs in `GroupedRun::run_step`, and `rewrite_runs` decides
+/// of step runs in `GroupedRun::run_step`, which decides whether it reads
+/// the largest bond first, as a draw does, and `rewrite_runs` decides
 /// whether it ends a run of operators that a rewrite is given.
 // A gate's matrix is held in place, unboxed: a batch's steps live in one
 // slice, and a box would allocate once per gate.

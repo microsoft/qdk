@@ -84,9 +84,9 @@ phases below:
   the start of each run from the program alone, before any shot, and read
   by lowering, so that every later phase works on its sites; on a chain a
   layout is an order, the **qubit order**.
-- **lowering**: the translation of each call of a batch into steps on
-  sites, through the layout: a gate becomes an operator, a measurement or
-  a reset a draw.
+- **lowering** (the phase **lower**): the translation of each call of a
+  batch into steps on sites, through the layout: a gate becomes an
+  operator, a measurement or a reset a draw.
 - **rewrite**: a change of a batch's operators, after lowering, into
   cheaper ones that give the same state; **gate fusion** is today's.
 
@@ -167,7 +167,7 @@ turn.
 | **apply**     | `apply`                                                                                     | the engine applies each operator to the group's one state                                                                                                                                                                                                                                                                                                                                                                                  | one call serves every shot of the group                                                                                                                                                                                                                                                                                                     |
 | **read bond** | `read_bond`                                                                                 | where a run of operators ends, before a draw or a resume, the state's largest bond is read, and kept in the report ([`report.rs`](resumer/report.rs)) when it is the largest of the run so far                                                                                                                                                                                                                                             | the bond is what χ caps, and it is read before the draws, which may shrink it                                                                                                                                                                                                                                                               |
 | **draw**      | `draw`                                                                                      | the state's P(One) of the site is read once per group; each shot draws a uniform from its own `SplitMix64` stream, seeded from the resumer's seed and the shot's id (`shot_stream`, in [`shot_stream.rs`](resumer/shot_stream.rs)), and reads One when it is below P(One)                                                                                                                                                                  | `QirResumer`'s contract: a shot's records depend neither on the other shots nor on its place among them nor on earlier runs. A shot draws once per measurement and reset, whatever group it is in, so its records are those it gets alone                                                                                                   |
-| **split**     | `split`, with `value_going_on`                                                              | when the shots drew both values, the part with fewer shots goes on (Zero's on a tie), and the other waits on a stack, with a copy of the context and a fork of the state, made after P(One) is read; when the fork, or its projection, fails, only the waiting part fails                                                                                                                                                                  | a fork is exact, so each part's state is the one a shot alone would hold, and a run costs what its distinct histories cost: one state for a program with no random draw, one per shot at most. As the larger part waits, a run of N shots holds at most ⌊log₂ N⌋ + 1 states at once, which bounds a GPU's memory whatever the program draws |
+| **split**     | `split`, with `value_going_on`                                                              | when the shots drew both values, the part with fewer shots goes on (Zero's on a tie), and the other waits on a stack, with a copy of the context and a fork of the state, made after P(One) is read; when the fork, or its settling (the projection, and a reset's X), fails, only the waiting part fails                                                                                                                                  | a fork is exact, so each part's state is the one a shot alone would hold, and a run costs what its distinct histories cost: one state for a program with no random draw, one per shot at most. As the larger part waits, a run of N shots holds at most ⌊log₂ N⌋ + 1 states at once, which bounds a GPU's memory whatever the program draws |
 | **settle**    | `settle`                                                                                    | each part's state is projected on its value (`project`), then a reset that drew One applies X; a measurement's result is answered with the value                                                                                                                                                                                                                                                                                           | the engine has no measurement and no reset, only probabilities, projections and operators                                                                                                                                                                                                                                                   |
 | **end**       | `end`                                                                                       | the context ended: the state's retained weight is read, and kept in the report when the least of the run; the group's records are each of its shots'                                                                                                                                                                                                                                                                                       | the retained weight measures what truncation cost (a bound on the error after one truncation, an estimate after several): the report warns when a shot lost more than `TRUNCATION_TOLERANCE`, so the user knows when to raise χ                                                                                                             |
 
@@ -181,8 +181,8 @@ Two rules hold across the phases:
   names the first failing shot in the order of the shots, as
   `QirResumer::run`'s contract requires whatever order they run in, and
   drops the groups whose shots all come after it, which could not change
-  that name: unrun when they wait, and at the failed split when they go
-  on from one.
+  that name: unrun when they wait, and, when they run, at the split,
+  failed or not, after which the shots going on all come after it.
 - **No waiting** ([`resumer.rs`](resumer.rs)): `run` runs every group when
   its future is first polled, so the future is ready at once. `MpsEngine`
   methods return when done, so this simulator has nothing to wait on;
@@ -247,18 +247,19 @@ Each item names a case that needs it:
   and loss.
 - **The sampled form:** a program whose classical part does not depend on
   its measurements, run once, its readout drawn for every shot with
-  `MpsEngine::sample`. Its case: sampling a Base Profile program's many
-  shots at the cost of one.
+  `MpsEngine::sample`. Its case: sampling many shots of a Base Profile
+  program (the QIR profile of programs that do not branch on their
+  measurements) at the cost of one.
 - **Routing in the resumer:** a fourth stage, between layout and
   lowering, that brings a gate's distant sites together by swaps of
   neighbouring sites and keeps where the swaps moved the qubits: the
   layout becomes each run's starting placement, and each group carries
   its own, since groups run other gates once they split. An engine such
-  as cuTensorNet's applies an operator on distant sites about 8× slower
+  as cuTensorNet's applies an operator on distant sites more slowly
   than one on neighbouring sites. Its case: a program whose gates act on
   distant qubits, such as H₂'s phase estimation.
 - **Queries** of the state (expectations of Pauli sums, the chain's cost).
   Its case: a chemistry user's energy estimate $\langle H \rangle$ read
   without shots.
-- **Groups run in parallel** on CPU threads. Its case: the polyene of the
-  chemistry case, whose 1,000 shots split into many histories.
+- **Groups run in parallel** on CPU threads. Its case: a chemistry
+  program on a polyene chain, whose 1,000 shots split into many histories.
