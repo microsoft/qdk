@@ -18,8 +18,9 @@
 //! each shot on an MPS that an engine holds. Everything that knows qubits
 //! is here, in `mps_simulator/`:
 //!
-//! - `resumer.rs`: [`MpsResumer`], its settings (the max bond dimension χ
-//!   among them) and the grouped run, with `resumer/qubit_order.rs`
+//! - `resumer.rs`: [`MpsResumer`] and its settings (the max bond dimension
+//!   χ among them), with `resumer/grouped_run.rs` (the run of a resumer's
+//!   shots in groups that share a state), `resumer/qubit_order.rs`
 //!   (which site holds each qubit, an order chosen from the program's
 //!   two-qubit gates), `resumer/lowering.rs` (a batch's calls as the
 //!   engine's steps on sites, the gates as matrices) and
