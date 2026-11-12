@@ -32,7 +32,10 @@ pub enum GateFusion {
     /// one-qubit gate joins the two-site block open on its site (after it),
     /// or the next one that opens on it (before it); consecutive gates on
     /// the same two sites multiply into one 4×4; the one-qubit gates on a
-    /// site no pair claims multiply into one 2×2. The default.
+    /// site no pair claims multiply into one 2×2. An operator takes a
+    /// bounded number of gates, and the next gate starts a new one, so that
+    /// its rounding stays far within the unitarity check of
+    /// [`MpsEngine::apply`](tensornet::MpsEngine::apply). The default.
     #[default]
     Pairs,
 }
@@ -49,14 +52,27 @@ impl Rewrite for GateFusion {
     }
 }
 
+/// The most gates one block multiplies; the next gate on its sites opens a
+/// new block. Rounding grows about linearly with the gates a block folds:
+/// on two sites, the deviation that
+/// [`apply`'s check](tensornet::checks::UNITARITY_TOLERANCE) sums grows by
+/// about 5·10⁻¹⁶ a gate, so without a bound a run of 2.2 million Rzz gates
+/// on one pair, folded into one block, would exceed its 10⁻⁹, and the
+/// engine would refuse a valid program. At this bound the deviation stays
+/// near 5·10⁻¹³, while H₂'s iterative phase estimation (29 qubits) folds
+/// at most 22 gates into a block, so the bound leaves its operators as
+/// they are.
+pub(crate) const MAX_FOLDED_GATES: usize = 1024;
+
 /// `run`'s gates fused into blocks of at most two sites.
 ///
 /// Each site belongs to at most one open block. A gate whose sites one
-/// open block holds multiplies into it. Otherwise the gate opens a new
-/// block on its sites, which takes in the open blocks on its sites that
-/// fit within two sites with it; the blocks that do not fit are closed and
-/// emitted. At the end the open blocks are emitted; they share no site, so
-/// their order does not matter (oldest first).
+/// open block holds multiplies into it, unless that block holds
+/// [`MAX_FOLDED_GATES`] gates. Otherwise the gate opens a new block on its
+/// sites, which takes in the open blocks on its sites that fit within two
+/// sites and within that bound with it; the blocks that do not fit are
+/// closed and emitted. At the end the open blocks are emitted; they share
+/// no site, so their order does not matter (oldest first).
 ///
 /// The order is exact: a block is emitted when a later gate on one of its
 /// sites closes it, before the block that gate opens, so on each site the
@@ -78,19 +94,24 @@ fn pairs(run: &[Operator]) -> Vec<Operator> {
         if let [id] = candidates.as_slice()
             && let Some(block) = open[*id].as_mut()
             && on.iter().all(|s| block.sites.contains(s))
+            && block.gates < MAX_FOLDED_GATES
         {
             block.multiply(on, gate.matrix.row_major());
+            block.gates += 1;
             continue;
         }
-        // A block that fits holds only the gate's sites: a one-site gate
-        // joined its open block above, so this gate has two sites.
+        // A block that fits holds only the gate's sites (a one-site gate
+        // joined its open block above, unless that block was full), and is
+        // kept while the new block stays within the bound.
         let mut kept = Vec::new();
+        let mut gates = 1;
         for id in candidates {
             let Some(block) = open[id].take() else {
                 continue;
             };
             let extra = block.sites.iter().filter(|s| !on.contains(s)).count();
-            if on.len() + extra <= MAX_SITES {
+            if on.len() + extra <= MAX_SITES && gates + block.gates <= MAX_FOLDED_GATES {
+                gates += block.gates;
                 kept.push(block);
             } else {
                 for s in &block.sites {
@@ -108,6 +129,7 @@ fn pairs(run: &[Operator]) -> Vec<Operator> {
             block.multiply(&kept.sites, &kept.matrix);
         }
         block.multiply(on, gate.matrix.row_major());
+        block.gates = gates;
         let id = open.len();
         for &s in &block.sites {
             owner.insert(s, id);
@@ -123,6 +145,8 @@ fn pairs(run: &[Operator]) -> Vec<Operator> {
 struct Block {
     sites: Vec<usize>,
     matrix: Vec<Complex64>,
+    /// The gates multiplied in so far, at most [`MAX_FOLDED_GATES`].
+    gates: usize,
 }
 
 impl Block {
@@ -133,7 +157,11 @@ impl Block {
         for i in 0..dimension {
             matrix[i * dimension + i] = Complex64::ONE;
         }
-        Self { sites, matrix }
+        Self {
+            sites,
+            matrix,
+            gates: 0,
+        }
     }
 
     /// Multiplies `gate`, on `on` (some of the block's sites, in the gate's

@@ -6,13 +6,15 @@
 //! rewrite contract, which fusion keeps, is checked in `rewrites.rs`.
 
 use crate::qir::{OperatorMatrix, QirGate, QirMachine, QirResumer, QirShotId, expect_ready};
+use tensornet::checks;
 use tensornet::reference::ExactReference;
 
 use super::super::super::programs::{gate, gate1, gate2, mz, program, ret};
-use super::random_gate;
+use super::{assert_same_product, random_gate};
 use crate::bytecode::encoding::{OPID_CX, OPID_H, OPID_RX, OPID_RY, OPID_RZZ};
 use crate::mps_simulator::resumer::lowering::Operator;
 use crate::mps_simulator::resumer::rewrites::Rewrite;
+use crate::mps_simulator::resumer::rewrites::fusion::MAX_FOLDED_GATES;
 use crate::mps_simulator::resumer::shot_stream::SplitMix64;
 use crate::mps_simulator::{GateFusion, MpsResumer};
 
@@ -58,6 +60,42 @@ fn one_qubit_gates_on_a_site_no_pair_claims_make_one_operator() {
     assert_eq!(on_site_3.len(), 1, "site 3's rotations make one operator");
     assert!(matches!(on_site_3[0].matrix, OperatorMatrix::One(_)));
     assert_eq!(fused.len(), 2, "one operator on site 3, one on the pair");
+}
+
+/// An operator takes a bounded number of gates: a long run of Rzz on one
+/// pair, as a loop that repeats an interaction makes, one gate longer than
+/// the bound, gives two operators whose product is the run's.
+#[test]
+fn an_operator_folds_at_most_max_folded_gates() {
+    let gate = Operator {
+        site_slots: [0, 1],
+        matrix: QirGate::Rzz.matrix_at(Some(1.1)),
+    };
+    let run = vec![gate; MAX_FOLDED_GATES + 1];
+    let fused = GateFusion::Pairs.rewrite(run.clone());
+    assert_eq!(fused.len(), 2, "the bound's gates, then the one after");
+    assert_same_product(&run, &fused, "a run one gate past the bound");
+}
+
+/// Fusion keeps every operator within the engines' unitarity check, however
+/// long the run: 2.2 million Rzz gates at an angle of 10.617… on one pair,
+/// as a loop that repeats an interaction makes, which folded into one 4×4
+/// would round past the check's tolerance. Ignored for its cost (about
+/// 20 s in debug, and 0.6 GB for the run); run it with
+/// `cargo test -p qdk_simulators --release -- --ignored
+/// a_long_run_on_one_pair_stays_unitary`.
+#[test]
+#[ignore = "slow: about 20 s in debug, and 0.6 GB"]
+fn a_long_run_on_one_pair_stays_unitary() {
+    let gate = Operator {
+        site_slots: [0, 1],
+        matrix: QirGate::Rzz.matrix_at(Some(10.617_283_855_061_67)),
+    };
+    let fused = GateFusion::Pairs.rewrite(vec![gate; 2_200_000]);
+    for operator in &fused {
+        checks::apply(2, operator.sites(), operator.matrix.row_major())
+            .expect("each operator is unitary within the tolerance");
+    }
 }
 
 /// Unfused, every gate is its own operator.

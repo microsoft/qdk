@@ -25,7 +25,7 @@
 //! a measurement or a reset, since [`rewrite_runs`] hands it one run of
 //! operators at a time and keeps each draw in its place.
 
-pub(in crate::mps_simulator) mod fusion;
+pub(crate) mod fusion;
 
 use super::lowering::{Operator, Step};
 
