@@ -34,12 +34,6 @@ use grouped_run::GroupedRun;
 use report::MpsRunReport;
 use resumer_error::MpsResumerError;
 
-/// The max bond dimension χ by default: 128. H₂'s phase estimation, run on
-/// a CPU engine during development, kept every bond it needed within it
-/// (its largest was 24).
-pub const DEFAULT_MAX_BOND_DIMENSION: NonZeroUsize =
-    NonZeroUsize::new(128).expect("128 is not zero");
-
 /// Runs a QIR program's shots on matrix product states held by the engine
 /// `E`, shots that drew the same values sharing one state (how: the header
 /// of `resumer/grouped_run.rs`).
@@ -63,6 +57,12 @@ pub struct MpsResumer<E: MpsEngine> {
     fusion: GateFusion,
     last_run: MpsRunReport,
 }
+
+/// The max bond dimension χ by default: 128. H₂'s phase estimation, run on
+/// a CPU engine during development, kept every bond it needed within it
+/// (its largest was 24).
+pub const DEFAULT_MAX_BOND_DIMENSION: NonZeroUsize =
+    NonZeroUsize::new(128).expect("128 is not zero");
 
 impl<E: MpsEngine> MpsResumer<E> {
     /// The resumer running shots on `engine`, drawing from streams derived
