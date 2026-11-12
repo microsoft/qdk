@@ -35,6 +35,9 @@
 //! each one can find, its `docs/engine.md` how the engine calls cuTensorNet,
 //! and its `README.md` the setup check's steps.
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[doc(hidden)]
+pub mod dev_gate_split;
 #[cfg_attr(
     not(all(target_os = "linux", target_arch = "x86_64")),
     allow(

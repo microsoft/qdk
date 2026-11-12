@@ -19,6 +19,8 @@ thiserror = { workspace = true }
 tensornet = { path = "../tensornet", features = ["conformance"] }
 # Development only (not for review): the tuning bench's replay check.
 qdk_cpu_mps = { path = "../qdk_cpu_mps" }
+# Development only (not for review): the gate-split bench's reference SVD.
+t4a_faer = { package = "t4a-faer", version = "=0.31.0", default-features = false, features = ["std", "linalg"] }
 
 [lints]
 workspace = true

@@ -187,9 +187,12 @@ pub(crate) trait NativeLibrary {
 
 /// An open library with the table of its functions.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-#[expect(
-    dead_code,
-    reason = "the library is held, never read, to keep the table valid"
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    expect(
+        dead_code,
+        reason = "the library is held, never read, to keep the table valid"
+    )
 )]
 pub(crate) struct BoundLibrary<L: NativeLibrary> {
     pub(crate) functions: L::Functions,

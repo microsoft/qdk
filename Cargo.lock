@@ -2094,6 +2094,7 @@ dependencies = [
  "libloading",
  "num-complex",
  "qdk_cpu_mps",
+ "t4a-faer",
  "tensornet",
  "thiserror 2.0.20",
 ]
