@@ -229,9 +229,9 @@ pub trait MpsEngine {
     fn project(&self, state: &mut Self::State, site: usize, one: bool) -> Result<f64, Self::Error>;
 
     /// An independent copy of `state`: what one changes, the other does
-    /// not see. Its case is grouped shots (planned): the shots of a group
-    /// share one state until a measurement splits them, and each value
-    /// drawn takes a fork.
+    /// not see. Its case is grouped shots: the shots of a group share one
+    /// state until a measurement splits them, and each value drawn takes a
+    /// fork.
     ///
     /// The copy holds the state it copies, truncated or not: it reads what
     /// `state` reads and has its retained weight, to rounding. So a fork

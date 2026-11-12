@@ -159,8 +159,6 @@ three ways' promises.
 - **`apply_kraus`**, a non-unitary operator (a Kraus operator of amplitude
   damping, for noisy simulation), of which `project` is the special case it
   generalizes. Until then `apply` refuses a matrix that is not unitary.
-- **Grouped shots**, the case of `fork`: shots that share a state until a
-  measurement splits them.
 - **Reads for a debugger**, which every MPS library offers but no
   simulation method needs yet: the amplitude of a basis state, the reduced
   density matrix of a few sites, and the Schmidt values at a cut (or the
