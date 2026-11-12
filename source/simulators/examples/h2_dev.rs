@@ -43,7 +43,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use num_complex::Complex64;
-use qdk_simulators::mps_simulator::{MpsResumer, Routing};
+use qdk_simulators::mps_simulator::{
+    MpsResumer, Restore, RouteTuning, Routing, reset_routing_trace, routing_trace,
+};
 use qdk_simulators::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use qdk_simulators::{MeasurementResult, OutputRecord};
 use tensornet::{MpsEngine, MpsShape, PauliSum};
@@ -57,6 +59,12 @@ const READOUT: usize = 5;
 /// What the probe saw of a shot.
 struct Seen<S> {
     draws: Cell<usize>,
+    /// Development only: the CPU engine's capacity-bound splits seen so
+    /// far, and when the first and last of them happened (draw, routed
+    /// batch, whether routing had fallen back then).
+    capacity_bound: Cell<u64>,
+    first_capacity_bound: Cell<Option<(usize, u64, bool)>>,
+    last_capacity_bound: Cell<Option<(usize, u64, bool)>>,
     /// The draw before which the readout starts.
     readout_first_draw: Option<usize>,
     /// The state before the readout's first draw.
@@ -117,7 +125,22 @@ impl<E: MpsEngine> MpsEngine for Probe<E> {
         sites: &[usize],
         matrix: &[Complex64],
     ) -> Result<(), E::Error> {
-        self.inner.apply(state, sites, matrix)
+        let applied = self.inner.apply(state, sites, matrix);
+        let bound = qdk_cpu_mps::dev_trace::get().capacity_bound;
+        if bound > self.seen.capacity_bound.get() {
+            self.seen.capacity_bound.set(bound);
+            let routing = routing_trace();
+            let when = (
+                self.seen.draws.get(),
+                routing.batches,
+                routing.first_fallback_batch.is_some(),
+            );
+            if self.seen.first_capacity_bound.get().is_none() {
+                self.seen.first_capacity_bound.set(Some(when));
+            }
+            self.seen.last_capacity_bound.set(Some(when));
+        }
+        applied
     }
 
     fn probability_of_one(&self, state: &E::State, site: usize) -> Result<f64, E::Error> {
@@ -246,9 +269,37 @@ impl Options {
                     "engine" => Routing::Engine,
                     "meet-halfway" => Routing::MeetHalfway,
                     "meet-halfway-after-fusion" => Routing::MeetHalfwayAfterFusion,
+                    "tuned" => {
+                        let small = |flag: &str, default: u64| {
+                            u16::try_from(number(flag, default)).expect("a small number")
+                        };
+                        Routing::Tuned(RouteTuning {
+                            after_fusion: args.iter().any(|arg| arg == "--after-fusion"),
+                            restore: match value("--restore").as_deref() {
+                                None | Some("never") => Restore::Never,
+                                Some("batch") => Restore::BatchEnd,
+                                Some("draws") => Restore::Draws,
+                                Some(other) => panic!("--restore {other}: never, batch or draws"),
+                            },
+                            drift_budget_permille: small("--drift-budget", 1000),
+                            bond_guard_percent: small("--bond-guard", 100),
+                            max_route_distance: small("--max-route-distance", 0),
+                        })
+                    }
                     other => panic!(
-                        "--routing {other}: engine, meet-halfway or meet-halfway-after-fusion"
+                        "--routing {other}: engine, meet-halfway, meet-halfway-after-fusion or tuned"
                     ),
+                };
+                let name = match routing {
+                    Routing::Tuned(t) => format!(
+                        "tuned:af={},restore={:?},db={},bg={},md={}",
+                        u8::from(t.after_fusion),
+                        t.restore,
+                        t.drift_budget_permille,
+                        t.bond_guard_percent,
+                        t.max_route_distance
+                    ),
+                    _ => name,
                 };
                 (name, routing)
             },
@@ -268,8 +319,13 @@ where
     E::Error: std::fmt::Debug,
 {
     let engine = Rc::new(make());
+    qdk_cpu_mps::dev_trace::reset();
+    reset_routing_trace();
     let seen = Rc::new(Seen {
         draws: Cell::new(0),
+        capacity_bound: Cell::new(0),
+        first_capacity_bound: Cell::new(None),
+        last_capacity_bound: Cell::new(None),
         readout_first_draw: options.readout.as_ref().map(|_| options.readout_first_draw),
         readout_state: RefCell::new(None),
         readout_sites: RefCell::new(Vec::new()),
@@ -293,6 +349,7 @@ where
         }
     };
     let report = *resumer.last_run();
+    let (splits, routing) = (qdk_cpu_mps::dev_trace::get(), routing_trace());
     let mut line = format!(
         "SHOT shot={shot} engine={} routing={} chi={} seed={} start_unix={start:.3} end_unix={end:.3} \
          seconds={seconds:.1} records={records} draws={} largest_bond={} lost_weight={:.3e}",
@@ -304,6 +361,38 @@ where
         report.largest_bond,
         1.0 - report.least_retained_weight,
     );
+    let when = |w: Option<(usize, u64, bool)>| {
+        w.map_or("none".to_string(), |(draw, batch, fell)| {
+            format!("d{draw}/b{batch}/{}", if fell { "after" } else { "before" })
+        })
+    };
+    write!(
+        line,
+        " splits={} cap_bound={} cap_lost_sum={:.3e} cap_lost_max={:.3e} need_max={} \
+         cap_need={}/{} first_cap={} last_cap={} batches={} routed={} route_swaps={} \
+         restores={} restore_swaps={} drift_fb={} bond_fb={} first_fb={} max_drift={}",
+        splits.splits,
+        splits.capacity_bound,
+        splits.capacity_lost,
+        splits.capacity_lost_max,
+        splits.largest_need,
+        splits.capacity_bound_need,
+        splits.capacity_bound_cap,
+        when(seen.first_capacity_bound.get()),
+        when(seen.last_capacity_bound.get()),
+        routing.batches,
+        routing.routed,
+        routing.route_swaps,
+        routing.restores,
+        routing.restore_swaps,
+        routing.drift_fallbacks,
+        routing.bond_fallbacks,
+        routing
+            .first_fallback_batch
+            .map_or("none".to_string(), |b| b.to_string()),
+        routing.max_drift_permille,
+    )
+    .expect("a String takes any text");
     if let Some(table) = &options.readout {
         match seen.readout_distribution(&*engine) {
             Some(distribution) if distribution.len() == 1 << READOUT => {
