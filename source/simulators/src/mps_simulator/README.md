@@ -82,14 +82,46 @@ flowchart LR
 | a measurement or a reset, on a qubit    | P(One) of a site, and a projection on a value | draw; settle                     |
 | shots, each with a state of its own     | states, and forks of a state                  | split                            |
 
+## Its files
+
+`MpsResumer`, in [`resumer.rs`](resumer.rs), and everything it uses, in
+[`resumer/`](resumer/), form one module; an arrow points from a file to a
+file it uses, and every one points down or across.
+
+```mermaid
+flowchart TD
+  qir["qir: QirResumer"]
+  subgraph resumer_dir["mps_simulator/resumer.rs and resumer/"]
+    res["resumer.rs: MpsResumer, its settings"]
+    run["grouped_run.rs: GroupedRun"]
+    low["lowering.rs"]
+    fus["fusion.rs"]
+    ord["qubit_order.rs"]
+    ss["shot_stream.rs"]
+    rep["report.rs"]
+    err["resumer_error.rs"]
+  end
+  tn["tensornet: MpsEngine"]
+  qir -->|implemented by| res
+  res --> run & fus & rep & err
+  res --> tn
+  run --> low & fus & ord & ss & rep & err
+  fus --> low
+  low --> ord & err
+  run -->|calls| tn
+```
+
+Each phase of [the next section](#how-it-runs-a-program) is a function or
+a call of the same name in
+[`grouped_run.rs`](resumer/grouped_run.rs), unless its row names another
+file.
+
 ## How it runs a program
 
 `QirResumer::run`, the one method of the trait, runs its shots in groups.
 A run starts with one group of every shot. Each group goes through these
 phases until its context ends, and a split adds a group that waits its
-turn. Each phase is a function or a call of the same name, in
-[`resumer/grouped_run.rs`](resumer/grouped_run.rs) unless its row names
-another file.
+turn.
 
 | Phase         | Function                                                                                         | How                                                                                                                                                                                                                                                                                                                                                                                                                         | Why                                                                                                                                                                                                                                                                                                                                                          |
 | ------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -127,8 +159,7 @@ in [the design notes](design.md#the-calls-of-each-phase).
 The public types, each linked to the file that says how it works:
 
 - [`MpsResumer`](resumer.rs): the resumer, its settings
-  (`with_max_bond_dimension`, `with_gate_fusion`); its grouped run is in
-  [`resumer/grouped_run.rs`](resumer/grouped_run.rs).
+  (`with_max_bond_dimension`, `with_gate_fusion`).
 - [`GateFusion`](resumer/fusion.rs): `Pairs` (the default) or `Unfused`.
 - [`MpsRunReport`, `TruncationWarning`](resumer/report.rs): the
   [report](#terms) and its warning.
