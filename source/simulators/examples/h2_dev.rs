@@ -386,9 +386,7 @@ fn run_on_cutensornet(options: &Options, program: &QirProgram) -> bool {
     let availability = qdk_cutensornet::discover().expect("cuTensorNet and the CUDA Runtime load");
     println!("AVAILABILITY {:?}", availability.report());
     let make = || {
-        availability
-            .mps_engine()
-            .expect("an engine on CUDA device 0")
+        qdk_cutensornet::CuTensorNetEngine::new(&availability).expect("an engine on CUDA device 0")
     };
     run_slice(options, program, &make)
 }

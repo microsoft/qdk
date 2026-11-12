@@ -14,9 +14,8 @@
 fn the_engine_on_the_gpu_conforms_to_the_kit() {
     let availability = qdk_cutensornet::discover().expect("the audited libraries are installed");
     println!("{:#?}", availability.report());
-    let engine = availability
-        .mps_engine()
-        .expect("an engine on CUDA device 0");
+    let engine =
+        qdk_cutensornet::CuTensorNetEngine::new(&availability).expect("an engine on CUDA device 0");
     let failures = tensornet::conformance::check(&engine);
     assert!(failures.is_empty(), "{failures:#?}");
 }
