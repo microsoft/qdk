@@ -6,7 +6,7 @@ mod tests;
 
 use std::ops::Sub;
 
-use qsc_data_structures::measurement::OneQubitMeasurement;
+use qsc_data_structures::measurement::MeasurementBasis;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
@@ -93,13 +93,13 @@ struct MeasurementIds {
 }
 
 impl MeasurementIds {
-    fn basis(&self, call_id: CallableId) -> Option<OneQubitMeasurement> {
+    fn basis(&self, call_id: CallableId) -> Option<MeasurementBasis> {
         if self.mx == Some(call_id) {
-            Some(OneQubitMeasurement::X)
+            Some(MeasurementBasis::X)
         } else if self.my == Some(call_id) {
-            Some(OneQubitMeasurement::Y)
+            Some(MeasurementBasis::Y)
         } else if self.mz == Some(call_id) {
-            Some(OneQubitMeasurement::Z)
+            Some(MeasurementBasis::Z)
         } else {
             None
         }
@@ -113,8 +113,8 @@ impl MeasurementIds {
 struct ReindexQubitPass {
     measurement_ids: MeasurementIds,
     gate_ids: GateIds,
-    instrs_to_transfer: FxHashMap<usize, OneQubitMeasurement>,
-    bases_to_transfer: FxHashSet<OneQubitMeasurement>,
+    instrs_to_transfer: FxHashMap<usize, MeasurementBasis>,
+    bases_to_transfer: FxHashSet<MeasurementBasis>,
     highest_used_id: u32,
 }
 
@@ -172,15 +172,15 @@ impl ReindexQubitPass {
                     .unwrap_or_else(|| add_callable(program, CallableToAdd::CX)),
             );
         }
-        if self.bases_to_transfer.contains(&OneQubitMeasurement::X)
-            || self.bases_to_transfer.contains(&OneQubitMeasurement::Y)
+        if self.bases_to_transfer.contains(&MeasurementBasis::X)
+            || self.bases_to_transfer.contains(&MeasurementBasis::Y)
         {
             self.gate_ids.h = Some(
                 find_callable(program, "__quantum__qis__h__body")
                     .unwrap_or_else(|| add_callable(program, CallableToAdd::H)),
             );
         }
-        if self.bases_to_transfer.contains(&OneQubitMeasurement::Y) {
+        if self.bases_to_transfer.contains(&MeasurementBasis::Y) {
             self.gate_ids.s = Some(
                 find_callable(program, "__quantum__qis__s__body")
                     .unwrap_or_else(|| add_callable(program, CallableToAdd::S)),
@@ -313,13 +313,13 @@ impl ReindexQubitPass {
     fn emit_state_transfer_instrs(
         &mut self,
         block: &mut Block,
-        basis: OneQubitMeasurement,
+        basis: MeasurementBasis,
         old_qubit_id: u32,
         new_qubit_id: u32,
         metadata: Option<Box<InstructionDbgMetadata>>,
     ) {
         // For Y, map the old qubit's basis to X before the X-basis transfer.
-        if basis == OneQubitMeasurement::Y {
+        if basis == MeasurementBasis::Y {
             block.0.push(Instruction::Call(
                 self.gate_ids
                     .sadj
@@ -329,7 +329,7 @@ impl ReindexQubitPass {
                 metadata.clone(),
             ));
         }
-        if basis == OneQubitMeasurement::X || basis == OneQubitMeasurement::Y {
+        if basis == MeasurementBasis::X || basis == MeasurementBasis::Y {
             block.0.push(Instruction::Call(
                 self.gate_ids
                     .h
@@ -350,7 +350,7 @@ impl ReindexQubitPass {
                 metadata.clone(),
             ));
         }
-        if basis == OneQubitMeasurement::Y {
+        if basis == MeasurementBasis::Y {
             block.0.push(Instruction::Call(
                 self.gate_ids
                     .s
@@ -370,7 +370,7 @@ impl ReindexQubitPass {
         }
 
         // Z-basis transfer uses a CNOT from the old qubit to the new qubit.
-        if basis == OneQubitMeasurement::Z {
+        if basis == MeasurementBasis::Z {
             block.0.push(Instruction::Call(
                 self.gate_ids
                     .cx
