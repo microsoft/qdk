@@ -26,6 +26,10 @@ struct P {
   slots: u32,
   per_shot: u32,
   block: u32,
+  round: u32,
+  site_off: u32,
+  meta_off: u32,
+  site_mode: u32,
 }
 
 @group(0) @binding(0) var<storage, read_write> s: array<vec2<f32>>;
@@ -132,19 +136,175 @@ fn phase(turns: f32) -> vec2<f32> {
   return vec2(cos(a), sin(a));
 }
 
-// op_len phase terms (ops[op_off..]) on every amplitude.
+// ---------------------------------------------------------------------------
+// Noise. A noise site's fault is drawn per shot from a hash of the shot's
+// noise seed, the round and the call's batch index (so every thread and
+// workgroup of a shot agrees, and a shot's draws depend only on its id),
+// and picked from its table (entries (thr_hi, thr_lo, xbits, zbits) in ops):
+// the first entry whose cumulative threshold exceeds the draw.
+
+fn mix(v: u32) -> u32 {
+  var x = v;
+  x ^= x >> 16u;
+  x *= 0x7feb352du;
+  x ^= x >> 15u;
+  x *= 0x846ca68bu;
+  x ^= x >> 16u;
+  return x;
+}
+
+fn below(hi: u32, lo: u32, e: vec4<f32>) -> bool {
+  let th = ival(e.x);
+  return hi < th || (hi == th && lo < ival(e.y));
+}
+
+// The fault (xbits, zbits over the targets) of the noise site whose header
+// is h = (marker, site, table offset, table length), for the shot in `slot`.
+fn draw(slot: u32, h: vec4<f32>) -> vec2<u32> {
+  let at = p.meta_off + 2u * slot;
+  var site = p.site_off + ival(h.y);
+  if (p.site_mode == 1u) { site = shots[at + 1u] - p.site_off + ival(h.y); }
+  let u = mix(shots[at] ^ mix((p.round * 0x9e3779b9u) ^ mix(site ^ 0x632be5abu)));
+  let hi = u >> 16u;
+  let lo = u & 0xffffu;
+  let off = ival(h.z);
+  let len = ival(h.w);
+  // Most draws are fault-free: the last entry's threshold is the total.
+  if (!below(hi, lo, ops[off + len - 1u])) { return vec2(0u, 0u); }
+  for (var e = 0u; e < len; e++) {
+    let entry = ops[off + e];
+    if (below(hi, lo, entry)) { return vec2(ival(entry.z), ival(entry.w)); }
+  }
+  return vec2(0u, 0u);
+}
+
+// The fault as qubit masks (x, z): the targets' bits, the targets read
+// from ops[at + 1..] (global qubits).
+fn fault_masks(f: vec2<u32>, at: u32) -> vec2<u32> {
+  var m = vec2(0u, 0u);
+  if (f.x == 0u && f.y == 0u) { return m; }
+  let count = ival(ops[at + 1u].x);
+  for (var i = 0u; i < count; i++) {
+    let w = i + 1u;
+    let q = 1u << ival(ops[at + 1u + w / 4u][w % 4u]);
+    if (((f.x >> i) & 1u) == 1u) { m.x |= q; }
+    if (((f.y >> i) & 1u) == 1u) { m.y |= q; }
+  }
+  return m;
+}
+
+// The vec4 a noise site's code takes (header and targets).
+fn noise_len(at: u32) -> u32 {
+  return 1u + (ival(ops[at + 1u].x) + 4u) / 4u;
+}
+
+fn sign_of(i: u32, z: u32) -> f32 {
+  return select(1.0, -1.0, (countOneBits(i & z) & 1u) == 1u);
+}
+
+// One noise site (ops[op_off..]) on each group shot: a thread per pair of
+// amplitudes; shots without a fault leave at once.
+@compute @workgroup_size(256)
+fn pauli(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+  let t = flat(id, nw);
+  let j = t >> (p.n - 1u);
+  if (j >= p.shot_len) { return; }
+  let k = t & ((1u << (p.n - 1u)) - 1u);
+  let slot = shots[p.shot_off + j];
+  let f = draw(slot, ops[p.op_off]);
+  if (f.x == 0u && f.y == 0u) { return; }
+  let m = fault_masks(f, p.op_off);
+  let base = slot << p.n;
+  if (m.x == 0u) {
+    let i0 = insert0(k, 0u);
+    let i1 = i0 | 1u;
+    s[base | i0] = s[base | i0] * sign_of(i0, m.y);
+    s[base | i1] = s[base | i1] * sign_of(i1, m.y);
+  } else {
+    let pivot = firstLeadingBit(m.x);
+    let i0 = insert0(k, pivot);
+    let i1 = i0 ^ m.x;
+    let a = s[base | i0];
+    let b = s[base | i1];
+    s[base | i1] = a * sign_of(i0, m.y);
+    s[base | i0] = b * sign_of(i1, m.y);
+  }
+}
+
+// The phase (in turns) a diagonal pass's code gives the amplitude that
+// starts at k: phase terms evaluated at k moved by the X parts of the
+// faults before them, and each fault's Z sign (half a turn).
+fn diag_turns(k: u32, faults: ptr<function, array<vec2<u32>, 32>>) -> f32 {
+  var turns = 0.0;
+  var c = 0u;
+  var odd = 0u;
+  var f = 0u;
+  var at = 0u;
+  while (at < p.op_len) {
+    let e = ops[p.op_off + at];
+    if (e.x < 0.0) {
+      let m = (*faults)[f];
+      f++;
+      odd ^= countOneBits((k ^ c) & m.y) & 1u;
+      c ^= m.x;
+      at += noise_len(p.op_off + at);
+    } else {
+      turns += term_turns(e, k ^ c);
+      at++;
+    }
+  }
+  return turns + 0.5 * f32(odd);
+}
+
+// A diagonal pass: op_len vec4 of code (ops[op_off..]): phase terms, and
+// noise sites (marker -1) between them; q0 the count of terms. A thread
+// per amplitude; with a fault's X part, the pair (k, k ^ X) by one thread.
 @compute @workgroup_size(256)
 fn diag(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
   let t = flat(id, nw);
   let j = t >> p.n;
   if (j >= p.shot_len) { return; }
   let k = t & ((1u << p.n) - 1u);
-  let i = (shots[p.shot_off + j] << p.n) | k;
-  var turns = 0.0;
-  for (var term = 0u; term < p.op_len; term++) {
-    turns += term_turns(ops[p.op_off + term], k);
+  let slot = shots[p.shot_off + j];
+  let base = slot << p.n;
+  if (p.q0 == p.op_len) {
+    // Phase terms only.
+    var turns = 0.0;
+    for (var term = 0u; term < p.op_len; term++) {
+      turns += term_turns(ops[p.op_off + term], k);
+    }
+    s[base | k] = cmul(phase(turns), s[base | k]);
+    return;
   }
-  s[i] = cmul(phase(turns), s[i]);
+  var faults: array<vec2<u32>, 32>;
+  var x = 0u;
+  var hit = false;
+  var f = 0u;
+  var at = 0u;
+  while (at < p.op_len) {
+    let e = ops[p.op_off + at];
+    if (e.x < 0.0) {
+      let m = fault_masks(draw(slot, e), p.op_off + at);
+      faults[f] = m;
+      f++;
+      x ^= m.x;
+      hit = hit || m.x != 0u || m.y != 0u;
+      at += noise_len(p.op_off + at);
+    } else {
+      at++;
+    }
+  }
+  if (!hit && p.q0 == 0u) { return; }
+  if (x == 0u) {
+    s[base | k] = cmul(phase(diag_turns(k, &faults)), s[base | k]);
+    return;
+  }
+  if (((k >> firstLeadingBit(x)) & 1u) == 1u) { return; }
+  let k1 = k ^ x;
+  let a = s[base | k];
+  let b = s[base | k1];
+  s[base | k1] = cmul(phase(diag_turns(k, &faults)), a);
+  s[base | k] = cmul(phase(diag_turns(k1, &faults)), b);
 }
 
 var<workgroup> tile: array<vec2<f32>, 1024>;
@@ -236,6 +396,36 @@ fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
         tile[i3] = row4w(off + 1u, 3u, v0, v1, v2, v3);
       }
       off += 9u;
+    } else if (kind == 14u) {
+      // A noise site; its targets (block-local) follow the header.
+      let f = draw(shots[p.shot_off + j], h);
+      let count = ival(code[off + 1u].x);
+      if (f.x != 0u || f.y != 0u) {
+        var mx = 0u;
+        var mz = 0u;
+        for (var i = 0u; i < count; i++) {
+          let wi = i + 1u;
+          let q = 1u << ival(code[off + 1u + wi / 4u][wi % 4u]);
+          if (((f.x >> i) & 1u) == 1u) { mx |= q; }
+          if (((f.y >> i) & 1u) == 1u) { mz |= q; }
+        }
+        if (mx == 0u) {
+          for (var e = lid.x; e < size; e += WG) {
+            tile[e] = tile[e] * sign_of(e, mz);
+          }
+        } else {
+          let pivot = firstLeadingBit(mx);
+          for (var e = lid.x; e < size / 2u; e += WG) {
+            let i0 = insert0(e, pivot);
+            let i1 = i0 ^ mx;
+            let a = tile[i0];
+            let c = tile[i1];
+            tile[i1] = a * sign_of(i0, mz);
+            tile[i0] = c * sign_of(i1, mz);
+          }
+        }
+      }
+      off += 1u + (count + 4u) / 4u;
     } else {
       for (var e = lid.x; e < size; e += WG) {
         var turns = 0.0;

@@ -34,9 +34,10 @@ use std::time::Instant;
 
 use num_complex::Complex64;
 use qdk_simulators::cpu_full_state_simulator::FullStateSimulator;
+use qdk_simulators::noise_config::{CumulativeNoiseConfig, LossPolicy, NoiseConfig, NoiseTable};
 use qdk_simulators::qir::{
-    OperatorMatrix, QirCall, QirGate, QirMachine, QirProgram, QirResumer, QirShotId, conformance,
-    expect_ready,
+    OperatorMatrix, QirCall, QirGate, QirMachine, QirOutcome, QirProgram, QirResumer, QirShotId,
+    QirStop, conformance, expect_ready,
 };
 use qdk_simulators::{MeasurementResult, OutputRecord, Simulator};
 use serde::Deserialize;
@@ -48,6 +49,25 @@ use simulator_resumer::QirSimulatorResumer;
 fn main() {
     let arg = std::env::args().nth(1).unwrap_or_default();
     let words: Vec<&str> = arg.split(',').collect();
+    if words[0] == "groups" {
+        // CPU only: no GPU.
+        let ok = groups_mode(&words[1..]);
+        println!("{}", if ok { "PASS" } else { "FAIL" });
+        std::io::stdout().flush().expect("stdout flushes");
+        std::process::exit(i32::from(!ok));
+    }
+    if words[0] != "conformance" {
+        // A panic would hang at exit (as below): end the process at once.
+        std::panic::set_hook(Box::new(|info| {
+            println!("PANIC: {info}");
+            std::io::stdout().flush().expect("stdout flushes");
+            unsafe extern "C" {
+                fn _exit(code: i32) -> !;
+            }
+            // SAFETY: output is flushed; nothing else needs to run.
+            unsafe { _exit(101) }
+        }));
+    }
     let started = Instant::now();
     let gpu = Gpu::new();
     println!(
@@ -64,6 +84,7 @@ fn main() {
             words.get(1).map_or(2000, |w| w.parse().expect("shots")),
         ),
         "tests" => tests_mode(&gpu, words[1]),
+        "noisy" => noisy_mode(&gpu, &words[1..]),
         "bench" => bench_mode(&gpu, &words[1..]),
         "profile" => profile_mode(&gpu, &words[1..]),
         "state" => state_mode(&gpu, &words[1..]),
@@ -153,16 +174,71 @@ fn results(records: &[OutputRecord]) -> String {
 /// Shots of `machine`'s program on the CPU simulator resumer (f64), each
 /// seeded from its id (seeds unlike the GPU's).
 fn cpu_shots(machine: &QirMachine<'_>, shots: u32) -> Vec<Vec<OutputRecord>> {
+    cpu_noisy_shots(machine, shots, &Arc::default())
+}
+
+/// `cpu_shots` under `noise`, in chunks of shots that fit in 2 GiB.
+fn cpu_noisy_shots(
+    machine: &QirMachine<'_>,
+    shots: u32,
+    noise: &Arc<CumulativeNoiseConfig>,
+) -> Vec<Vec<OutputRecord>> {
     let full_state = |program: &QirProgram, shot: QirShotId| {
         FullStateSimulator::new(
             program.qubits() as usize,
             program.results() as usize,
             shot.0.wrapping_mul(2_654_435_761).wrapping_add(17),
-            Arc::default(),
+            noise.clone(),
         )
     };
-    expect_ready(QirSimulatorResumer::new(full_state).run(machine, &QirShotId::first(shots)))
-        .expect("the CPU runs the program")
+    let per_shot = 16u64 << machine.program().qubits();
+    let chunk = u32::try_from(((2u64 << 30) / per_shot).clamp(1, u64::from(shots.max(1))))
+        .expect("fits");
+    let mut records = Vec::new();
+    for first in (0..shots).step_by(chunk as usize) {
+        let ids: Vec<QirShotId> = (first..(first + chunk).min(shots)).map(QirShotId).collect();
+        records.extend(
+            expect_ready(QirSimulatorResumer::new(full_state).run(machine, &ids))
+                .expect("the CPU runs the program"),
+        );
+    }
+    records
+}
+
+/// A corpus case's noise (`{"tables": {gate: {qubits, on_loss, entries}}}`).
+fn case_noise(value: &serde_json::Value) -> NoiseConfig<f64, f64> {
+    let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+    let tables = value["tables"].as_object().expect("noise tables");
+    for (gate, table) in tables {
+        let entries = table["entries"].as_array().expect("entries");
+        let on_loss = match table["on_loss"].as_str().expect("a policy") {
+            "Skip" => LossPolicy::Skip,
+            "Propagate" => LossPolicy::Propagate,
+            "Degrade" => LossPolicy::Degrade,
+            "ResidualSDagger" => LossPolicy::ResidualSDagger,
+            other => panic!("no loss policy {other}"),
+        };
+        let table = NoiseTable {
+            qubits: u32::try_from(table["qubits"].as_u64().expect("qubits")).expect("fits"),
+            pauli_strings: entries
+                .iter()
+                .map(|e| e["encoded"].as_u64().expect("encoded"))
+                .collect(),
+            probabilities: entries
+                .iter()
+                .map(|e| e["probability"].as_f64().expect("probability"))
+                .collect(),
+            on_loss,
+        };
+        match gate.as_str() {
+            "s" => config.s = table,
+            "z" => config.z = table,
+            "t" => config.t = table,
+            "mov" => config.mov = table,
+            other => panic!("no noise of {other} here"),
+        }
+    }
+    config
 }
 
 fn counts(shots: &[Vec<OutputRecord>]) -> BTreeMap<String, usize> {
@@ -306,29 +382,42 @@ fn corpus_mode(gpu: &Rc<Gpu>, at_least: u32) -> bool {
         "../../tests/run_shot_compatibility/run_shot_cases.json"
     ))
     .expect("the corpus parses");
-    let mut resumer = QirGpuResumer::new(gpu.clone(), Strategy::ALL);
+    let mut noiseless = QirGpuResumer::new(gpu.clone(), Strategy::ALL);
     let (mut run, mut passed, mut skipped, mut failed) = (0, 0, Vec::new(), Vec::new());
     let mut tvd_max: (f64, String) = (0.0, String::new());
     let mut z_max: (f64, String) = (0.0, String::new());
     let t = Instant::now();
     for case in &corpus.cases {
-        if case.noise.is_some() {
-            skipped.push(format!("{}: noise", case.name));
-            continue;
-        }
         let program = QirProgram::new(case.bytecode.program()).expect("the case builds");
         let machine = QirMachine::new(&program);
         let shots = at_least.max(case.shots);
         run += 1;
+        let config = case.noise.as_ref().map(case_noise);
+        let mut noisy;
+        let resumer = match &config {
+            None => &mut noiseless,
+            Some(config) => {
+                noisy = QirGpuResumer::new(gpu.clone(), Strategy::ALL).with_noise(config);
+                &mut noisy
+            }
+        };
         let gpu_shots = match expect_ready(resumer.run(&machine, &QirShotId::first(shots))) {
             Ok(records) => records,
             Err(error) => {
-                failed.push(format!("{}: the GPU run fails: {error}", case.name));
+                if error.to_string().contains("no qubit loss") {
+                    // Unsupported, refused: not a silent wrong answer.
+                    println!("{}: refused: {error}", case.name);
+                    skipped.push(format!("{}: refused: {error}", case.name));
+                } else {
+                    failed.push(format!("{}: the GPU run fails: {error}", case.name));
+                }
                 continue;
             }
         };
         let misses = case.misses(&gpu_shots);
-        let cpu = cpu_shots(&machine, shots);
+        let noise: Arc<CumulativeNoiseConfig> =
+            Arc::new(config.clone().unwrap_or(NoiseConfig::NOISELESS).into());
+        let cpu = cpu_noisy_shots(&machine, shots, &noise);
         let (tvd, z) = compare(&gpu_shots, &cpu);
         if tvd > tvd_max.0 {
             tvd_max = (tvd, case.name.clone());
@@ -368,7 +457,7 @@ fn corpus_mode(gpu: &Rc<Gpu>, at_least: u32) -> bool {
     for f in &failed {
         println!("FAILED: {f}");
     }
-    println!("stats: {}", resumer.stats);
+    println!("stats: {}", noiseless.stats);
     failed.is_empty()
 }
 
@@ -383,12 +472,14 @@ struct Named {
     bytecode: Bytecode,
 }
 
-fn load_programs(path: &str) -> Vec<(String, QirProgram)> {
-    let text = std::fs::read_to_string(path).expect("the programs file reads");
-    let programs: Programs = serde_json::from_str(&text).expect("the programs parse");
-    programs
-        .programs
-        .into_iter()
+fn load_programs(paths: &str) -> Vec<(String, QirProgram)> {
+    paths
+        .split('+')
+        .flat_map(|path| {
+            let text = std::fs::read_to_string(path).expect("the programs file reads");
+            let programs: Programs = serde_json::from_str(&text).expect("the programs parse");
+            programs.programs
+        })
         .map(|p| {
             let program = QirProgram::new(p.bytecode.program()).expect("the program builds");
             (p.name, program)
@@ -563,15 +654,20 @@ fn bench_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
     let programs = load_programs(words[0]);
     for config in &words[1..] {
         let parts: Vec<&str> = config.split(':').collect();
-        let n: u32 = parts[0].parse().expect("qubits");
+        // `<qubits>` names `bench_<qubits>`; another word names a program.
+        let (n, name) = match parts[0].parse::<u32>() {
+            Ok(n) => (n, format!("bench_{n}")),
+            Err(_) => (0, parts[0].to_string()),
+        };
         let shots: u32 = parts[1].parse().expect("shots");
         let strategy_name = parts.get(2).copied().unwrap_or("blocked");
+        let p: f64 = parts.get(3).map_or(0.0, |p| p.parse().expect("a rate"));
         if strategy_name == "cpu" {
             // The CPU simulator resumer (f64, one thread) on the same
             // machine: one warm-up, then the best of 3.
             let program = &programs
                 .iter()
-                .find(|(p, _)| *p == format!("bench_{n}"))
+                .find(|(p, _)| *p == name)
                 .expect("the bench program")
                 .1;
             let machine = QirMachine::new(program);
@@ -591,7 +687,7 @@ fn bench_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
             );
             continue;
         }
-        bench_one(gpu, &programs, n, shots, strategy_name);
+        bench_one(gpu, &programs, &name, shots, strategy_name, p);
     }
     true
 }
@@ -599,19 +695,20 @@ fn bench_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
 fn bench_one(
     gpu: &Rc<Gpu>,
     programs: &[(String, QirProgram)],
-    n: u32,
+    name: &str,
     shots: u32,
     strategy_name: &str,
+    p: f64,
 ) {
     let strategy = Strategy::named(strategy_name).expect("a strategy");
-    let name = format!("bench_{n}");
     let (_, program) = programs
         .iter()
-        .find(|(p, _)| *p == name)
+        .find(|(p, _)| p == name)
         .expect("the bench program");
+    let n = program.qubits();
     let machine = QirMachine::new(program);
     let ids = QirShotId::first(shots);
-    let mut resumer = QirGpuResumer::new(gpu.clone(), strategy);
+    let mut resumer = QirGpuResumer::new(gpu.clone(), strategy).with_noise(&depolarizing(p));
     let mut best = f64::INFINITY;
     let mut best_stats = None;
     let mut first = 0.0;
@@ -638,7 +735,7 @@ fn bench_one(
     #[allow(clippy::cast_precision_loss)]
     let per_pass = stats.total().as_secs_f64() / stats.passes as f64;
     println!(
-        "BENCH n={n} shots={shots} strategy={strategy_name}: first {first:.4} s, best {best:.4} s, \
+        "BENCH n={n} shots={shots} strategy={strategy_name} p={p:e}: first {first:.4} s, best {best:.4} s, \
          {:.3} ms per round, {:.3} ms per pass; best: {stats}",
         per_round * 1e3,
         per_pass * 1e3,
@@ -819,4 +916,274 @@ fn state_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
         }
     }
     ok
+}
+
+/// Depolarizing noise of rate `p` after every gate, measurement and move
+/// (`set_depolarizing(p)` on each table, as the Python `NoiseConfig` sets
+/// it: each non-identity Pauli string of the table's qubits with
+/// probability p / (4^q - 1)), keeping each table's loss policy.
+fn depolarizing(p: f64) -> NoiseConfig<f64, f64> {
+    let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+    if p == 0.0 {
+        return config;
+    }
+    let set = |table: &mut NoiseTable<f64>| {
+        let q = table.qubits;
+        let strings: Vec<u64> = (1..(1u64 << (2 * q)))
+            .map(|code| {
+                // Each qubit's 2 bits as I, X, Z, Y (0..3), first qubit high.
+                (0..q).fold(0u64, |acc, i| {
+                    (acc << 3) | ((code >> (2 * (q - 1 - i))) & 3)
+                })
+            })
+            .collect();
+        #[allow(clippy::cast_precision_loss)]
+        let each = p / strings.len() as f64;
+        table.probabilities = vec![each; strings.len()];
+        table.pauli_strings = strings;
+    };
+    for table in [
+        &mut config.x,
+        &mut config.y,
+        &mut config.z,
+        &mut config.h,
+        &mut config.s,
+        &mut config.s_adj,
+        &mut config.t,
+        &mut config.t_adj,
+        &mut config.sx,
+        &mut config.sx_adj,
+        &mut config.rx,
+        &mut config.ry,
+        &mut config.rz,
+        &mut config.cx,
+        &mut config.cy,
+        &mut config.cz,
+        &mut config.rxx,
+        &mut config.ryy,
+        &mut config.rzz,
+        &mut config.swap,
+        &mut config.mov,
+        &mut config.mz,
+        &mut config.mresetz,
+    ] {
+        set(table);
+    }
+    config
+}
+
+/// A noise config by name: `p<rate>` depolarizing, `tz` (a Z fault after
+/// every T), `tx`, `tloss<rate>` (loss after every T).
+fn named_noise(name: &str) -> NoiseConfig<f64, f64> {
+    if let Some(p) = name.strip_prefix("tloss") {
+        let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+        config.t.pauli_strings = vec![4];
+        config.t.probabilities = vec![p.parse().expect("a rate")];
+        return config;
+    }
+    if let Some(p) = name.strip_prefix('p') {
+        return depolarizing(p.parse().expect("a rate"));
+    }
+    let mut config = NoiseConfig::<f64, f64>::NOISELESS;
+    let (string, table) = match name {
+        "tz" => (2, &mut config.t),
+        "tx" => (1, &mut config.t),
+        "hy" => (3, &mut config.h),
+        "mzx" => (1, &mut config.mz),
+        "cxzz" => ((2 << 3) | 2, &mut config.cx),
+        "cxxy" => ((1 << 3) | 3, &mut config.cx),
+        other => panic!("no noise named {other}"),
+    };
+    table.pauli_strings = vec![string];
+    table.probabilities = vec![1.0];
+    config
+}
+
+/// `noisy,<programs>,<noise>,<name>:<shots>[:<strategy>],...`: the GPU
+/// resumer under `named_noise(<noise>)` against the CPU simulator resumer
+/// under the same noise (z <= 5), or refused with an error.
+fn noisy_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
+    let programs = load_programs(words[0]);
+    let config = named_noise(words[1]);
+    let noise: Arc<CumulativeNoiseConfig> = Arc::new(config.clone().into());
+    let mut ok = true;
+    for word in &words[2..] {
+        let parts: Vec<&str> = word.split(':').collect();
+        let name = parts[0];
+        let shots: u32 = parts[1].parse().expect("shots");
+        let strategy_name = parts.get(2).copied().unwrap_or("all");
+        let (_, program) = programs
+            .iter()
+            .find(|(p, _)| p == name)
+            .expect("the program");
+        let machine = QirMachine::new(program);
+        let mut resumer =
+            QirGpuResumer::new(gpu.clone(), Strategy::named(strategy_name).expect("a strategy"))
+                .with_noise(&config);
+        let t = Instant::now();
+        let gpu_shots = match expect_ready(resumer.run(&machine, &QirShotId::first(shots))) {
+            Ok(records) => records,
+            Err(error) => {
+                println!("NOISY {name} {} {strategy_name}: refused: {error}", words[1]);
+                continue;
+            }
+        };
+        let gpu_seconds = t.elapsed().as_secs_f64();
+        let t = Instant::now();
+        let cpu = cpu_noisy_shots(&machine, shots, &noise);
+        let cpu_seconds = t.elapsed().as_secs_f64();
+        let (tvd, z) = compare(&gpu_shots, &cpu);
+        let (gc, cc) = (count_results(&gpu_shots), count_results(&cpu));
+        let top = |c: &BTreeMap<String, usize>| {
+            let mut v: Vec<_> = c.iter().map(|(k, n)| (*n, k.clone())).collect();
+            v.sort_unstable_by(|a, b| b.cmp(a));
+            v.truncate(4);
+            v
+        };
+        let pass = z <= 5.0;
+        ok &= pass;
+        println!(
+            "NOISY {name} {} {strategy_name}: {shots} shots, gpu {gpu_seconds:.2} s, cpu              {cpu_seconds:.2} s, distinct gpu {} cpu {}, tvd {tvd:.4}, z {z:.2}: {};              top gpu {:?}; top cpu {:?}; stats {}",
+            words[1],
+            gc.len(),
+            cc.len(),
+            if pass { "ok" } else { "FAILED" },
+            top(&gc),
+            top(&cc),
+            resumer.stats
+        );
+    }
+    ok
+}
+
+/// `groups,<programs>,<name>:<shots>,...`: Q1 of the noise spike, on the CPU.
+/// Runs each program's shots in lockstep, as the GPU resumer does, each on
+/// its own f64 simulator with depolarizing noise of each rate, and counts the
+/// distinct batches (groups) of each round, and the calls a resumer would
+/// dispatch for them (the common prefix and suffix once, each group's
+/// middle once).
+fn groups_mode(words: &[&str]) -> bool {
+    let programs = load_programs(words[0]);
+    for config in &words[1..] {
+        let (name, shots) = config.split_once(':').expect("name:shots");
+        let shots: usize = shots.parse().expect("shots");
+        let (_, program) = programs
+            .iter()
+            .find(|(p, _)| p == name)
+            .expect("the program");
+        let machine = QirMachine::new(program);
+        let mut base_calls = 0usize;
+        for p in [0.0, 1e-4, 1e-3, 1e-2] {
+            let t = Instant::now();
+            let noise: Arc<CumulativeNoiseConfig> = Arc::new(depolarizing(p).into());
+            // Full-state simulators of every shot at once do not fit in memory
+            // past ~18 qubits, so shots run in chunks; a round's distinct
+            // batches are the union of each chunk's.
+            let per_shot = 16usize << program.qubits();
+            let chunk = ((2usize << 30) / per_shot).clamp(1, shots);
+            let mut rounds: Vec<Vec<Vec<QirCall>>> = Vec::new();
+            let mut faults = 0usize;
+            for first in (0..shots).step_by(chunk) {
+                let ids: Vec<usize> = (first..(first + chunk).min(shots)).collect();
+                let mut sims: Vec<FullStateSimulator> = ids
+                    .iter()
+                    .map(|&s| {
+                        FullStateSimulator::new(
+                            program.qubits() as usize,
+                            program.results() as usize,
+                            (s as u32).wrapping_mul(2_654_435_761).wrapping_add(17),
+                            noise.clone(),
+                        )
+                    })
+                    .collect();
+                let n = ids.len();
+                let mut contexts: Vec<_> = (0..n).map(|_| machine.start_shot()).collect();
+                let mut outcomes: Vec<Vec<QirOutcome>> = vec![Vec::new(); n];
+                let mut done = vec![false; n];
+                let mut round = 0usize;
+                loop {
+                    let mut batches: Vec<Vec<QirCall>> = Vec::new();
+                    let mut assign: Vec<Option<usize>> = vec![None; n];
+                    for s in 0..n {
+                        if done[s] {
+                            continue;
+                        }
+                        match machine.resume(&mut contexts[s], &outcomes[s]) {
+                            Ok(QirStop::Ended(_)) => done[s] = true,
+                            Ok(QirStop::Batch(batch)) => {
+                                let g = batches
+                                    .iter()
+                                    .position(|b| b[..] == *batch)
+                                    .unwrap_or_else(|| {
+                                        batches.push(batch.to_vec());
+                                        batches.len() - 1
+                                    });
+                                assign[s] = Some(g);
+                            }
+                            Err(trap) => {
+                                println!("GROUPS {name} p={p}: shot {} traps: {trap:?}", ids[s]);
+                                done[s] = true;
+                                faults += 1;
+                            }
+                        }
+                    }
+                    if batches.is_empty() {
+                        break;
+                    }
+                    for s in 0..n {
+                        if let Some(g) = assign[s] {
+                            outcomes[s].clear();
+                            simulator_resumer::run_batch(&mut sims[s], &batches[g], &mut outcomes[s]);
+                        }
+                    }
+                    if rounds.len() <= round {
+                        rounds.push(Vec::new());
+                    }
+                    for b in batches {
+                        if !rounds[round].contains(&b) {
+                            rounds[round].push(b);
+                        }
+                    }
+                    round += 1;
+                }
+            }
+            let mut per_round: Vec<usize> = Vec::new();
+            let (mut calls, mut all_calls) = (0usize, 0usize);
+            for batches in &rounds {
+                let (pre, suf) = if batches.len() == 1 {
+                    (batches[0].len(), 0)
+                } else {
+                    gpu_resumer::common_ends(batches)
+                };
+                calls += pre
+                    + suf
+                    + batches
+                        .iter()
+                        .map(|b| b.len() - pre - suf)
+                        .sum::<usize>();
+                all_calls += batches.iter().map(Vec::len).sum::<usize>();
+                per_round.push(batches.len());
+            }
+            if p == 0.0 {
+                base_calls = calls;
+            }
+            let total: usize = per_round.iter().sum();
+            #[allow(clippy::cast_precision_loss)]
+            let mean = total as f64 / per_round.len() as f64;
+            #[allow(clippy::cast_precision_loss)]
+            let growth = calls as f64 / base_calls.max(1) as f64;
+            println!(
+                "GROUPS {name} qubits={} shots={shots} p={p:e}: rounds {}, groups {total} \
+                 (max {} per round, mean {mean:.2}), calls dispatched {calls} \
+                 ({growth:.2}x noiseless; unshared {all_calls}), traps {faults}, \
+                 per round {per_round:?} ({:.1} s)",
+                program.qubits(),
+                per_round.len(),
+                per_round.iter().max().copied().unwrap_or(0),
+                t.elapsed().as_secs_f64()
+            );
+            std::io::stdout().flush().expect("stdout flushes");
+        }
+    }
+    true
 }
