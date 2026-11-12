@@ -5,8 +5,8 @@
 //! time.
 
 use crate::{
-    Blueprint, Call, Encoder, Fault, GadgetEncoderPlan, Layer, Lower, Never, PlanError, QodecModel,
-    Reply, from_fn,
+    Blueprint, Call, Encoder, Fault, GadgetEncoderPlan, Layer, Lower, Lowering, Never, PlanError,
+    QodecModel, Reply, from_fn,
 };
 
 /// Encoders that lower one after the other, from a qodec's top ISA to its
@@ -24,9 +24,11 @@ use crate::{
 ///   bottom-ISA calls
 /// ```
 ///
-/// Results never come back, so it lowers any program whose gadgets don't feed
-/// a readout into a later `bit` argument. Such a program is adaptive: it needs
-/// a decoder at run time.
+/// Results never come back, so it lowers only programs whose gadgets don't
+/// feed a readout into a later `bit` argument. Such a gadget is adaptive: it
+/// needs a decoder at run time. A [`CompilerPlan`] rejects a qodec that has
+/// one; encoders passed to [`Compiler::new`] instead fail when a program
+/// invokes one.
 pub struct Compiler {
     encoders: Vec<Box<dyn Encoder<Never>>>,
 }
@@ -74,16 +76,27 @@ pub struct CompilerPlan {
 }
 
 impl CompilerPlan {
-    /// Plans a [`GadgetEncoder`](crate::GadgetEncoder) for every
-    /// layer of `model`.
+    /// Plans a [`GadgetEncoder`](crate::GadgetEncoder) for every layer of
+    /// `model`. Fails if a layer has an adaptive gadget, one that feeds a
+    /// readout into a later call: it can't be lowered ahead of time.
     pub fn new(model: &QodecModel) -> Result<Self, PlanError> {
         let encoders = model
             .layers
             .iter()
             .enumerate()
             .map(|(k, layer)| {
-                GadgetEncoderPlan::<Never>::plan(layer)
-                    .map_err(|e| PlanError(format!("layer {k}: {e}")))
+                let fail = |e: String| PlanError(format!("layer {k}: {e}"));
+                let plan = GadgetEncoderPlan::<Never>::plan(layer).map_err(|e| fail(e.0))?;
+                if let Some(gadget) = plan.program().instructions.iter().find_map(|l| match l {
+                    Lowering::Gadget(gadget) if gadget.is_adaptive() => Some(gadget),
+                    _ => None,
+                }) {
+                    return Err(fail(format!(
+                        "gadget `{}` feeds a readout into a later call, so it can't be lowered ahead of time",
+                        gadget.name
+                    )));
+                }
+                Ok(plan)
             })
             .collect::<Result<_, _>>()?;
         Ok(Self { encoders })

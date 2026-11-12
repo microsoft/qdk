@@ -76,7 +76,7 @@ pub fn signature(instruction: &Instruction, types: &TypeTable) -> Result<Signatu
             .collect(),
         outcomes: instruction.observe_count(),
         flags: instruction.flags.len(),
-        action: compile_action(instruction),
+        action: compile_action(instruction)?,
     })
 }
 
@@ -108,8 +108,7 @@ pub fn param_kind(kind: ParameterKind) -> ParamKind {
 ///   so `[1, 2]` would supply an `integer` parameter.
 ///
 /// A parameter's declared kind is its contract, and no action step can use a
-/// list, so a gadget that passes one fails with `InvalidInstruction` when it
-/// runs.
+/// list, so a qodec whose gadget passes one fails to read.
 ///
 /// `Argument::Qubit` never matches either; the qodec parser never produces
 /// it. Neither does `Argument::Readout`: reading a circuit replaces readout

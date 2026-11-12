@@ -29,7 +29,7 @@ pub mod select;
 
 pub use qodec_runtime_interface::*;
 
-pub use action::{ActionStep, Angle, CliffordMap, ParsedPauli, PauliExpr, StepAction};
+pub use action::{ActionStep, Angle, CliffordMap, PauliExpr, StepAction};
 pub use error::PlanError;
 pub use isa::{BoundOperand, Isa, Operand, ParamKind, Parameter, ParsedCall, Signature, TypeTable};
 pub use layer_model::{

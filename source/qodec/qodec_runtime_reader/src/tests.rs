@@ -7,11 +7,12 @@ use super::{
 };
 use qodec::{BlockOperand, Instruction, InstructionSet, Qodec, SelectPattern};
 use qodec_runtime_recipes::{
-    Backend, BasicReadout, BlockRef, Blueprint, Call, CompiledSelect, Compiler, Correction, Design,
-    Encoder, Fault, FaultKind, FrameDecoder, FrameDecoderPlan, FrameDecoding, GadgetEncoder,
-    GadgetEncoderPlan, Layer, LayerBlueprint, LayerModel, Lower, Never, OwnedParam, Passive,
-    PlanError, QodecLayer, QodecPlan, QodecRuntimeError, Record, Reply, Resources, Rounds, Runtime,
-    Selection, Stack, Status, Step, TypeChecker, TypeTable, UntilReadyPlan, from_fn,
+    Backend, BasicReadout, BlockRef, Blueprint, Call, CompiledSelect, Compiler, CompilerPlan,
+    Correction, Design, Encoder, Fault, FaultKind, FrameDecoder, FrameDecoderPlan, FrameDecoding,
+    GadgetEncoder, GadgetEncoderPlan, Layer, LayerBlueprint, LayerModel, Lower, Never, OwnedParam,
+    Passive, PlanError, QodecLayer, QodecPlan, QodecRuntimeError, Record, Reply, Resources, Rounds,
+    Runtime, Selection, Stack, Status, Step, TypeChecker, TypeTable, UntilReadyPlan,
+    check_pauli_corrections, from_fn,
     parity::{Basis, BinarySystem, Inconsistent, Parity, Var},
     pauli::{Clifford, DensePauli, Pauli, PauliOp},
     resolver::{ResolveCache, Resolver},
@@ -20,7 +21,7 @@ use qodec_runtime_recipes::{
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::{cell::RefCell, collections::VecDeque, sync::Arc};
+use std::{cell::RefCell, collections::VecDeque, fmt::Write as _, sync::Arc};
 
 // ── Spec helpers ────────────────────────────────────────────────────────────
 
@@ -358,6 +359,20 @@ measure.gadget.yaml:
 fn logical_over_repetition3() -> Qodec {
     let bundle = format!(
         "qodec.yaml:\n  name: logical\n  layers:\n{LOGICAL_LAYER}{REPETITION3_LAYER}    - instruction_set: physical.isa.yaml\n{LOGICAL_ARTIFACTS}{REPETITION3_ARTIFACTS}"
+    );
+    Qodec::from_bundle_str(&bundle).expect("bundle should load")
+}
+
+/// [`logical_over_repetition3`] without `measure_reset`, whose gadget feeds a
+/// readout into a later call: every gadget left can be lowered ahead of time.
+fn non_adaptive_logical_over_repetition3() -> Qodec {
+    let instruction = "    - {mnemonic: measure_reset, description: '', in: [repetition3], out: [repetition3], action: [observe: Z_0, stabilize: Z_0]}\n";
+    let gadget = "        measure_reset: measure_reset.gadget.yaml\n";
+    assert!(REPETITION3_ARTIFACTS.contains(instruction) && REPETITION3_LAYER.contains(gadget));
+    let bundle = format!(
+        "qodec.yaml:\n  name: logical\n  layers:\n{LOGICAL_LAYER}{}    - instruction_set: physical.isa.yaml\n{LOGICAL_ARTIFACTS}{}",
+        REPETITION3_LAYER.replace(gadget, ""),
+        REPETITION3_ARTIFACTS.replace(instruction, ""),
     );
     Qodec::from_bundle_str(&bundle).expect("bundle should load")
 }
@@ -909,8 +924,8 @@ fn list_arguments_are_type_errors() {
     assert!(!matches(ParameterKind::String, &names));
     assert_eq!(encode_arg(&names), None);
 
-    // A qodec whose gadget passes a list still loads and plans; running the
-    // gadget fails.
+    // A qodec whose gadget passes a list loads, but fails to read, even if no
+    // program would invoke the gadget.
     let bundle = r"qodec.yaml:
   name: lists
   layers:
@@ -948,16 +963,209 @@ tagged.gadget.yaml:
   circuit: {source: [{tag: [0, targets: [1, 2]]}]}
 ";
     let qodec = Qodec::from_bundle_str(bundle).expect("bundle should load");
-    let isa = Arc::clone(&qodec.layers()[0].instruction_set);
-    let bottom = Arc::clone(&qodec.layers()[1].instruction_set);
-    let qodec_plan = qodec_plan(&qodec, &FrameDecoding).expect("qodec plans");
-    let err = shot(&qodec_plan, BitSim::new(&bottom))
-        .execute(vec![op(&isa, "prepare", &[0]), op(&isa, "tagged", &[0])])
-        .expect_err("`tag` takes one integer");
-    let QodecRuntimeError::Fault(fault) = err else {
-        panic!("expected a fault, got {err:?}");
+    assert_eq!(
+        read(&qodec).err(),
+        Some(PlanError(
+            "layer 0: gadget `tagged`: call `tag`: argument `targets` of kind `integer` does not take this value"
+                .to_string()
+        ))
+    );
+}
+
+// ── Failing early ───────────────────────────────────────────────────────────
+
+/// A qodec of one layer, from a logical ISA with `logical_blocks` to a
+/// physical ISA with `physical_blocks`. `logical` and `physical` are each
+/// ISA's instructions; `gadgets` are the layer's, as (mnemonic, document). The
+/// layer binds the trivial one-qubit code to block type `lq`.
+fn one_layer(
+    logical_blocks: &str,
+    logical: &[&str],
+    physical_blocks: &str,
+    physical: &[&str],
+    gadgets: &[(&str, &str)],
+) -> Qodec {
+    let mut bundle = String::from(
+        "qodec.yaml:\n  name: one_layer\n  layers:\n    - instruction_set: logical.isa.yaml\n      codes: {lq: trivial.code.yaml}\n      gadgets:\n",
+    );
+    for (mnemonic, _) in gadgets {
+        writeln!(bundle, "        {mnemonic}: {mnemonic}.gadget.yaml").expect("writes");
+    }
+    bundle += "    - instruction_set: physical.isa.yaml\n";
+    for (name, blocks, instructions) in [
+        ("logical", logical_blocks, logical),
+        ("physical", physical_blocks, physical),
+    ] {
+        writeln!(
+            bundle,
+            "---\n{name}.isa.yaml:\n  name: {name}\n  blocks: {blocks}\n  instructions:"
+        )
+        .expect("writes");
+        for instruction in instructions {
+            writeln!(bundle, "    - {instruction}").expect("writes");
+        }
+    }
+    bundle +=
+        "---\ntrivial.code.yaml:\n  name: trivial\n  stabilizers: []\n  x: [X_0]\n  z: [Z_0]\n";
+    for (mnemonic, document) in gadgets {
+        write!(bundle, "---\n{mnemonic}.gadget.yaml:\n{document}").expect("writes");
+    }
+    Qodec::from_bundle_str(&bundle).expect("bundle should load")
+}
+
+const PREPARE: &str = "{mnemonic: prepare, description: '', out: [lq], action: [stabilize: Z_0]}";
+const R: &str = "{mnemonic: R, description: '', out: [qubit], action: [stabilize: Z_0]}";
+const PREPARE_GADGET: (&str, &str) = ("prepare", "  circuit: {source: [{R: [0]}]}\n");
+
+#[test]
+fn instructions_that_cannot_be_lowered_fail_to_plan() {
+    // `hadamard` has no gadget, and is neither a logical Pauli nor a release.
+    // No program needs to call it for the qodec to fail.
+    let hadamard = "{mnemonic: hadamard, description: '', in: [lq], out: [lq], action: [clifford: {X_0: Z_0, Z_0: X_0}]}";
+    let qodec = one_layer(
+        "{lq: 1}",
+        &[PREPARE, hadamard],
+        "{qubit: 1}",
+        &[R],
+        &[PREPARE_GADGET],
+    );
+    assert_eq!(
+        qodec_plan(&qodec, &FrameDecoding).err(),
+        Some(PlanError(
+            "layer 0: no gadget implements `hadamard`, and it is neither a Pauli-only instruction nor a release"
+                .to_string()
+        ))
+    );
+}
+
+#[test]
+fn actions_that_cannot_be_read_fail_to_read() {
+    let read_error = |instruction: &str| {
+        let qodec = one_layer(
+            "{lq: 1}",
+            &[PREPARE, instruction],
+            "{qubit: 1}",
+            &[R],
+            &[PREPARE_GADGET],
+        );
+        read(&qodec).err().map(|e| e.0)
     };
-    assert_eq!(fault.kind, FaultKind::InvalidInstruction);
+    // The spec lets a rotation angle name only a `number` or `integer`.
+    assert_eq!(
+        read_error(
+            "{mnemonic: tilt, description: '', in: [lq], out: [lq], parameters: {label: string}, action: [rotate: {pauli: Z_0, angle: label}]}"
+        ),
+        Some(
+            "layer 0: `tilt`, action step 0: the angle names no `number` or `integer` parameter `label`"
+                .to_string()
+        )
+    );
+    // A Clifford tableau maps literal generators to literal images.
+    assert_eq!(
+        read_error(
+            "{mnemonic: twist, description: '', in: [lq], out: [lq], parameters: {p: pauli}, action: [clifford: {X_0: p}]}"
+        ),
+        Some(
+            "layer 0: `twist`, action step 0: a `clifford` step maps literal Paulis, not the parameter `p`"
+                .to_string()
+        )
+    );
+}
+
+#[test]
+fn forwarded_parameters_must_fit_their_use() {
+    let qodec = |kind: &str| {
+        let rotate = format!(
+            "{{mnemonic: rotate, description: '', in: [lq], out: [lq], parameters: {{theta: {kind}}}, action: [rotate: {{pauli: Z_0, angle: theta}}]}}"
+        );
+        one_layer(
+            "{lq: 1}",
+            &[PREPARE, &rotate],
+            "{qubit: 1}",
+            &[
+                R,
+                "{mnemonic: RZ, description: '', in: [qubit], out: [qubit], parameters: {steps: integer}, action: [rotate: {pauli: Z_0, angle: steps}]}",
+            ],
+            &[
+                PREPARE_GADGET,
+                (
+                    "rotate",
+                    "  circuit:\n    source: [RZ: [0, steps: theta]]\n  parameter_bindings: {theta: circuit.source.theta}\n",
+                ),
+            ],
+        )
+    };
+    // Every `integer` is an `integer`, but not every `number` is.
+    assert!(read(&qodec("integer")).is_ok());
+    assert_eq!(
+        read(&qodec("number")).err(),
+        Some(PlanError(
+            "layer 0: gadget `rotate`: call `RZ`: argument `steps` of kind `integer` does not take every value of the forwarded `number` parameter `theta`"
+                .to_string()
+        ))
+    );
+}
+
+#[test]
+fn encodings_of_a_block_type_must_agree() {
+    // `prepare` leaves an `lq` on a `qubit`, but `measure` takes it from a
+    // `spare`: the block that one outputs would never fit the other.
+    let qodec = one_layer(
+        "{lq: 1}",
+        &[
+            PREPARE,
+            "{mnemonic: measure, description: '', in: [lq], action: [observe: Z_0]}",
+        ],
+        "{qubit: 1, spare: 1}",
+        &[
+            R,
+            "{mnemonic: MS, description: '', in: [spare], action: [observe: Z_0]}",
+        ],
+        &[
+            (
+                "prepare",
+                "  circuit: {source: [{R: [0]}], out: {\"0\": qubit}}\n  out: [{lq: [0]}]\n",
+            ),
+            (
+                "measure",
+                "  circuit: {source: [{MS: [0]}], in: {\"0\": spare}}\n  in: [{lq: [0]}]\n  readouts: [[\"circuit.readouts[0]\", \"in[0].z[0]\"]]\n",
+            ),
+        ],
+    );
+    assert_eq!(
+        read(&qodec).err(),
+        Some(PlanError(
+            "layer 0: gadgets `measure` and `prepare` encode block type `lq` on different lower block types"
+                .to_string()
+        ))
+    );
+}
+
+#[test]
+fn logical_paulis_need_a_code() {
+    // `flip` has no gadget, so it would apply the logical X of `bare`'s code,
+    // but the layer binds none.
+    let qodec = one_layer(
+        "{lq: 1, bare: 1}",
+        &[
+            PREPARE,
+            "{mnemonic: flip, description: '', in: [bare], out: [bare], action: [pauli: X_0]}",
+        ],
+        "{qubit: 1}",
+        &[
+            R,
+            "{mnemonic: X, description: '', in: [qubit], out: [qubit], action: [pauli: X_0]}",
+            "{mnemonic: Z, description: '', in: [qubit], out: [qubit], action: [pauli: Z_0]}",
+        ],
+        &[PREPARE_GADGET],
+    );
+    assert_eq!(
+        qodec_plan(&qodec, &FrameDecoding).err(),
+        Some(PlanError(
+            "layer 0: `flip`: the layer binds no code to block type `bare`, so no logical operator applies it"
+                .to_string()
+        ))
+    );
 }
 
 // ── Corrections ─────────────────────────────────────────────────────────────
@@ -1123,7 +1331,7 @@ fn only_encoders_that_take_corrections_need_lower_paulis() {
     assert_eq!(
         GadgetEncoderPlan::<Correction>::plan(&plan).err(),
         Some(PlanError(
-            "the lower ISA has no `X` Pauli for block type `qubit`".to_string()
+            "the lower ISA has no `X` Pauli on qubit 0 of block type `qubit`".to_string()
         ))
     );
 }
@@ -1136,7 +1344,35 @@ fn logical_paulis_need_lower_paulis_whatever_the_decoder() {
         .expect("`flip` is applied through `x` below");
     assert_eq!(
         err,
-        PlanError("layer 0: the lower ISA has no `X` Pauli for block type `qubit`".to_string())
+        PlanError(
+            "layer 0: the lower ISA has no `X` Pauli on qubit 0 of block type `qubit`".to_string()
+        )
+    );
+}
+
+#[test]
+fn pauli_corrections_need_lower_paulis_on_every_logical_qubit() {
+    // A `pair` holds two qubits, and only the first has a `Z`.
+    let bundle = r"qodec.yaml:
+  name: pairs
+  layers:
+    - instruction_set: pairs.isa.yaml
+---
+pairs.isa.yaml:
+  name: pairs
+  blocks: {pair: 2}
+  instructions:
+    - {mnemonic: X0, description: '', in: [pair], out: [pair], action: [pauli: X_0]}
+    - {mnemonic: Z0, description: '', in: [pair], out: [pair], action: [pauli: Z_0]}
+    - {mnemonic: X1, description: '', in: [pair], out: [pair], action: [pauli: X_1]}
+";
+    let qodec = Qodec::from_bundle_str(bundle).expect("bundle should load");
+    let isa = spec::isa(&qodec.layers()[0].instruction_set).expect("ISA reads");
+    assert_eq!(
+        check_pauli_corrections(&Resolver::new(&isa), &isa),
+        Err(PlanError(
+            "the lower ISA has no `Z` Pauli on qubit 1 of block type `pair`".to_string()
+        ))
     );
 }
 
@@ -1710,7 +1946,7 @@ fn steps_resolve_by_their_action() {
 
 #[test]
 fn compilers_lower_like_runtimes_without_decoders() {
-    let qodec = logical_over_repetition3();
+    let qodec = non_adaptive_logical_over_repetition3();
     let isa = Arc::clone(&qodec.layers()[0].instruction_set);
     let bottom_isa = Arc::clone(&qodec.layers()[2].instruction_set);
     let qodec_plan = qodec_plan(&qodec, &FrameDecoding).expect("qodec plans");
@@ -1761,16 +1997,39 @@ fn encoders_expecting_no_results_keep_nothing_for_them() {
 }
 
 #[test]
-fn compilers_reject_adaptive_programs() {
+fn encoders_expecting_no_results_fail_adaptive_gadgets() {
     let qodec = repetition3();
     let isa = Arc::clone(&qodec.layers()[0].instruction_set);
-    let err = Compiler::for_model(&read(&qodec).expect("qodec reads"))
-        .expect("encoders plan")
-        .lower([op(&isa, "prepare_z", &[0]), op(&isa, "measure_reset", &[0])])
+    let mut encoder = GadgetEncoderPlan::<Never>::plan(&top_layer_plan(&qodec))
+        .expect("encoder plans")
+        .instantiate();
+    encoder.expect_no_results();
+    let mut collect = from_fn(|_: Vec<Call>| -> Result<Vec<Reply>, Fault> { Ok(Vec::new()) });
+    let err = encoder
+        .execute(
+            vec![
+                Lower::Call(op(&isa, "prepare_z", &[0])),
+                Lower::Call(op(&isa, "measure_reset", &[0])),
+            ],
+            &mut collect,
+        )
         .expect_err("`measure_reset` feeds a readout forward");
+    assert_eq!(err.kind, FaultKind::NoImplementation);
+}
+
+#[test]
+fn compilers_reject_qodecs_with_adaptive_gadgets() {
+    // `measure_reset` feeds a readout into a later call. The compiler is
+    // rejected when it is planned, whether a program would call it or not.
+    let err = CompilerPlan::new(&read(&repetition3()).expect("qodec reads"))
+        .err()
+        .expect("`measure_reset` is adaptive");
     assert_eq!(
-        (err.kind, err.layer),
-        (FaultKind::NoImplementation, Some(0))
+        err,
+        PlanError(
+            "layer 0: gadget `measure_reset` feeds a readout into a later call, so it can't be lowered ahead of time"
+                .to_string()
+        )
     );
 }
 

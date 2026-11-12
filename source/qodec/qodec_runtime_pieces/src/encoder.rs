@@ -7,7 +7,7 @@
 //! [`LayerModel`].
 
 use super::{
-    action::{ParsedPauli, StepAction},
+    action::{PauliExpr, StepAction, action_extent},
     backend::Backend,
     error::PlanError,
     isa::{BoundOperand, Isa, Operand, ParsedCall, Signature},
@@ -66,6 +66,10 @@ impl EncoderProgram {
     /// `resolver`, a resolver of the lower ISA. Upper Pauli-only instructions
     /// without a gadget are applied as corrections, so a layer with one needs
     /// lower Paulis (see [`check_pauli_corrections`]).
+    ///
+    /// Fails if an upper instruction has no gadget and is neither a Pauli-only
+    /// instruction nor a release: every instruction of the layer must be
+    /// lowerable, whether a program calls it or not.
     pub fn plan(layer: &LayerModel, resolver: &Arc<Resolver>) -> Result<Self, PlanError> {
         let instructions: Vec<Lowering> = layer
             .upper
@@ -73,27 +77,21 @@ impl EncoderProgram {
             .iter()
             .zip(&layer.gadget_of)
             .map(|(instruction, gadget)| -> Result<Lowering, PlanError> {
-                Ok(if let Some(id) = gadget {
+                if let Some(id) = gadget {
                     let gadget = &layer.gadgets[id.0];
                     let program = GadgetProgram::plan(gadget, layer)
                         .map_err(|e| PlanError(format!("gadget `{}`: {e}", gadget.name)))?;
-                    Lowering::Gadget(Arc::new(program))
+                    Ok(Lowering::Gadget(Arc::new(program)))
                 } else if is_pauli_only(instruction) {
-                    Lowering::LogicalPauli(
-                        instruction
-                            .action
-                            .iter()
-                            .filter_map(|step| match &step.action {
-                                StepAction::Pauli(p) => Some(p.clone()),
-                                _ => None,
-                            })
-                            .collect(),
-                    )
+                    plan_logical_pauli(instruction, layer)
                 } else if is_release(instruction) {
-                    Lowering::Release
+                    Ok(Lowering::Release)
                 } else {
-                    Lowering::Unsupported
-                })
+                    Err(PlanError(format!(
+                        "no gadget implements `{}`, and it is neither a Pauli-only instruction nor a release",
+                        instruction.mnemonic
+                    )))
+                }
             })
             .collect::<Result<_, _>>()?;
         if instructions
@@ -134,6 +132,41 @@ impl EncoderProgram {
     }
 }
 
+/// The [`Lowering::LogicalPauli`] of `instruction`, a Pauli-only instruction
+/// without a gadget. Fails if the layer binds no code to one of its operand
+/// types, or if a literal Pauli of its action addresses a flat index past its
+/// operands.
+fn plan_logical_pauli(instruction: &Signature, layer: &LayerModel) -> Result<Lowering, PlanError> {
+    let fail = |e: String| PlanError(format!("`{}`: {e}", instruction.mnemonic));
+    let types = &layer.upper.types;
+    for operand in &instruction.inputs {
+        if layer.codes[operand.block].is_none() {
+            return Err(fail(format!(
+                "the layer binds no code to block type `{}`, so no logical operator applies it",
+                types.names[operand.block]
+            )));
+        }
+    }
+    if instruction.inputs.iter().all(|o| !o.variadic) {
+        let width: usize = instruction.inputs.iter().map(|o| types.caps[o.block]).sum();
+        if action_extent(&instruction.action) > width {
+            return Err(fail(format!(
+                "its action addresses a flat index past its {width} qubits"
+            )));
+        }
+    }
+    Ok(Lowering::LogicalPauli(
+        instruction
+            .action
+            .iter()
+            .filter_map(|step| match &step.action {
+                StepAction::Pauli(p) => Some(p.clone()),
+                _ => None,
+            })
+            .collect(),
+    ))
+}
+
 /// Whether `instruction` is lowered as [`Lowering::LogicalPauli`] when no
 /// gadget implements it: its action is non-empty and has only unguarded `pauli`
 /// steps, it has no flags, and its boundary is in place: at least one input,
@@ -160,22 +193,22 @@ fn is_release(instruction: &Signature) -> bool {
 }
 
 /// Checks that `lower` can carry Pauli corrections: one instruction must
-/// apply `X`, and one `Z`, on logical index 0 of every lower type. A `Y` falls
-/// back to them (see [`Resolver::resolve`]).
+/// apply `X`, and one `Z`, on every logical index of every lower type. A `Y`
+/// falls back to them, and so does a Pauli on several qubits that no single
+/// instruction applies (see [`Resolver::resolve`]), so every Pauli correction
+/// on live blocks can then be applied.
 ///
 /// Only an encoder that issues Pauli corrections needs this: one with a
-/// [`Lowering::LogicalPauli`] instruction, or that accepts [`Correction`]s. The
-/// check catches a lower ISA without Pauli instructions at plan time. It
-/// doesn't cover the other logical indices of a multi-qubit lower type; a
-/// correction the resolver can't bind there fails when it is issued, with
-/// `NoImplementation`.
+/// [`Lowering::LogicalPauli`] instruction, or that accepts [`Correction`]s.
 pub fn check_pauli_corrections(resolver: &Resolver, lower: &Isa) -> Result<(), PlanError> {
     for (t, name) in lower.types.names.iter().enumerate() {
-        for op in [PauliOp::X, PauliOp::Z] {
-            if !resolver.binds_directly(op, t, &lower.types) {
-                return Err(PlanError(format!(
-                    "the lower ISA has no `{op:?}` Pauli for block type `{name}`"
-                )));
+        for index in 0..lower.types.caps[t] {
+            for op in [PauliOp::X, PauliOp::Z] {
+                if !resolver.binds_directly(op, t, index, &lower.types) {
+                    return Err(PlanError(format!(
+                        "the lower ISA has no `{op:?}` Pauli on qubit {index} of block type `{name}`"
+                    )));
+                }
             }
         }
     }
@@ -190,11 +223,9 @@ pub enum Lowering {
     /// A Pauli-only instruction without a gadget: applied as the code's logical
     /// operator, through corrections. The Paulis are the action's `pauli`
     /// steps, on the instruction's flat indices; their product is applied.
-    LogicalPauli(Vec<ParsedPauli>),
+    LogicalPauli(Vec<PauliExpr>),
     /// Releases the block.
     Release,
-    /// Fails with `NoImplementation`.
-    Unsupported,
 }
 
 /// The logical operators of a code: one X and one Z per logical qubit, on the
@@ -239,6 +270,16 @@ pub struct GadgetProgram {
 }
 
 impl GadgetProgram {
+    /// Whether a call of its body takes an earlier readout of the body, so
+    /// running it needs results to come back (see
+    /// [`Encoder::expect_no_results`]).
+    #[must_use]
+    pub fn is_adaptive(&self) -> bool {
+        self.calls
+            .iter()
+            .any(|call| call.args.iter().any(|arg| matches!(arg, Arg::Readout(_))))
+    }
+
     /// The program of `gadget`, of `layer`. Its slots are the gadget's label
     /// ids.
     pub fn plan(gadget: &GadgetModel, layer: &LayerModel) -> Result<Self, String> {
@@ -321,10 +362,8 @@ pub struct GadgetCall {
     pub instruction: usize,
     /// The operands, as slots.
     pub operands: Vec<usize>,
-    /// The arguments, in the lower instruction's parameter order. `None` if
-    /// they can never be valid, so running the call fails with
-    /// `InvalidInstruction`.
-    pub args: Option<Vec<Arg>>,
+    /// The arguments, in the lower instruction's parameter order.
+    pub args: Vec<Arg>,
     /// The call's observe outcomes.
     pub outcomes: usize,
     /// The call's flags.
@@ -695,10 +734,6 @@ impl<C: Fix> GadgetEncoder<C> {
                 b.records[record].released.extend(released);
                 Ok(())
             }
-            Lowering::Unsupported => Err(Fault::no_implementation(format!(
-                "no gadget implements `{}`",
-                program.upper.instructions[parsed.index].mnemonic
-            ))),
         }
     }
 
@@ -811,12 +846,7 @@ impl<C: Fix> GadgetEncoder<C> {
     ) -> Result<(), Fault> {
         let mut offset = 0;
         for call in &gp.calls {
-            let args = call.args.as_ref().ok_or_else(|| {
-                Fault::invalid(format!(
-                    "gadget `{}` passes invalid arguments to `{}`",
-                    gp.name, self.program.lower.instructions[call.instruction].mnemonic
-                ))
-            })?;
+            let args = &call.args;
             let mut params: SmallVec<[OwnedParam; 2]> =
                 SmallVec::with_capacity(call.operands.len() + args.len());
             params.extend(
@@ -952,7 +982,7 @@ impl<C: Fix> GadgetEncoder<C> {
     fn apply_logical_pauli(
         &mut self,
         call: &ParsedCall,
-        paulis: &[ParsedPauli],
+        paulis: &[PauliExpr],
         b: &mut Batch<'_, '_>,
     ) -> Result<(), Fault> {
         let program = Arc::clone(&self.program);
@@ -961,11 +991,8 @@ impl<C: Fix> GadgetEncoder<C> {
         // phase (https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/instruction-set.md#actions).
         let mut product = Pauli::default();
         for pauli in paulis {
-            let p = pauli
-                .as_ref()
-                .map_err(Clone::clone)
-                .and_then(|e| e.resolve(&call.args))
-                .map_err(Fault::invalid)?;
+            // Only a `pauli` argument, which the call supplies, can fail here.
+            let p = pauli.resolve(&call.args).map_err(Fault::invalid)?;
             product = product.mul_unsigned(&p);
         }
         let input_types = self.input_types(&call.operands);

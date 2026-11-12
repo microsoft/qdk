@@ -13,7 +13,7 @@
 //! [frames]: https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/gadget.md#frames
 
 use super::{
-    action::{ActionStep, CliffordMap, ParsedPauli, StepAction, action_clifford, action_extent},
+    action::{ActionStep, CliffordMap, PauliExpr, StepAction, action_clifford, action_extent},
     error::PlanError,
     layer::Blueprint,
     layer_model::{EncodingModel, FrameKey, GadgetModel, LayerModel},
@@ -466,7 +466,8 @@ impl FrameDecoder {
 /// instruction's action instead of the gadget body. Fails if a guarded or
 /// `stabilize` step touches a qubit whose frame `sys` does not determine to be
 /// zero, if `sys` does not determine that a `rotate` step's Pauli commutes with
-/// the frame, or if a Pauli of the action cannot be resolved.
+/// the frame, or if the call's argument for a `pauli` parameter of the action
+/// is not a Pauli.
 ///
 /// Each logical qubit q carries a pair `(z_sign, x_sign)` of parities over the
 /// input sign variables. `z_sign` is flipped by an X-type frame on q; `x_sign`
@@ -498,13 +499,7 @@ fn action_transport(
         }
     }
     let known_zero = |p: &Parity| sys.value(p.clone()) == Some(false);
-    let resolve = |pauli: &ParsedPauli| {
-        pauli
-            .as_ref()
-            .map_err(|_| Unresolved)?
-            .resolve(&inv.args)
-            .map_err(|_| Unresolved)
-    };
+    let resolve = |pauli: &PauliExpr| pauli.resolve(&inv.args).map_err(|_| Unresolved);
 
     for step in &gadget.action {
         if step.guarded {
@@ -520,8 +515,7 @@ fn action_transport(
             continue;
         }
         match &step.action {
-            StepAction::Clifford { map, .. } => {
-                let map = map.as_ref().map_err(|_| Unresolved)?;
+            StepAction::Clifford(map) => {
                 s = conjugate_frame(&s, map)?;
             }
             StepAction::Stabilize(paulis) => {
@@ -599,14 +593,14 @@ fn conjugate_frame(
 /// The flat indices an action step touches.
 fn step_support(
     action: &StepAction,
-    resolve: &impl Fn(&ParsedPauli) -> Result<Pauli, Unresolved>,
+    resolve: &impl Fn(&PauliExpr) -> Result<Pauli, Unresolved>,
 ) -> Result<Vec<usize>, Unresolved> {
     let mut support = Vec::new();
     match action {
-        StepAction::Clifford { images, .. } => {
-            for (generator, image) in images {
-                support.extend(resolve(generator)?.support());
-                support.extend(resolve(image)?.support());
+        StepAction::Clifford(map) => {
+            for (&(q, _), image) in map {
+                support.push(q);
+                support.extend(image.support());
             }
         }
         StepAction::Pauli(p) | StepAction::Rotate { pauli: p, .. } => {

@@ -61,6 +61,15 @@ fn read_layer(
     lower: &Arc<Isa>,
 ) -> Result<LayerModel, PlanError> {
     let codes = plan_codes(layer)?;
+    // The spec's logical capacity rule: one logical X and one Z per logical
+    // qubit of the block type, for every code the layer binds.
+    for (block, code) in &codes {
+        if code.x.len() != code.z.len() || Some(code.x.len()) != upper.types.cap(block) {
+            return Err(PlanError(format!(
+                "code for `{block}` does not encode its block's logical qubits"
+            )));
+        }
+    }
     let code_models: BTreeMap<String, Arc<CodeModel>> = codes
         .iter()
         .map(|(block, code)| (block.clone(), Arc::new(code.model())))
@@ -82,6 +91,7 @@ fn read_layer(
         gadget_of[gadget.instruction] = Some(GadgetId(id));
         gadgets.push(Arc::new(gadget));
     }
+    check_layouts(&gadgets, &upper.types)?;
     Ok(LayerModel {
         upper: Arc::clone(upper),
         lower: Arc::clone(lower),
@@ -94,6 +104,37 @@ fn read_layer(
         gadgets,
         gadget_of,
     })
+}
+
+/// Requires every encoding of an upper block type, input or output, to put
+/// the block on the same lower block types in the same order. Otherwise a
+/// block that one gadget outputs would not fit a gadget that takes it.
+fn check_layouts(gadgets: &[Arc<GadgetModel>], upper: &TypeTable) -> Result<(), PlanError> {
+    let mut layouts: FxHashMap<usize, (&str, Vec<usize>)> = FxHashMap::default();
+    for gadget in gadgets {
+        for encoding in gadget.inputs.iter().chain(&gadget.outputs) {
+            let types: Vec<usize> = encoding
+                .labels
+                .iter()
+                .map(|&label| gadget.label_types[label])
+                .collect();
+            let (first, layout) = layouts
+                .entry(encoding.block_type)
+                .or_insert((&gadget.name, types.clone()));
+            if *layout != types {
+                let gadgets = if *first == gadget.name {
+                    format!("gadget `{first}` encodes")
+                } else {
+                    format!("gadgets `{first}` and `{}` encode", gadget.name)
+                };
+                return Err(PlanError(format!(
+                    "{gadgets} block type `{}` on different lower block types",
+                    upper.names[encoding.block_type]
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Plans the layer's code bindings: the layer's `codes` for block types its
@@ -204,13 +245,17 @@ impl GadgetContext<'_> {
         let calls = body
             .calls
             .iter()
-            .map(|cp| CallModel {
-                instruction: cp.instruction,
-                operands: cp.operands.iter().map(|o| id_of[o.as_str()]).collect(),
-                args: compile_args(cp, &self.lower_isa.instructions[cp.instruction]),
-                select: cp.select.clone(),
+            .map(|cp| {
+                let called = &self.lower_isa.instructions[cp.instruction];
+                Ok(CallModel {
+                    instruction: cp.instruction,
+                    operands: cp.operands.iter().map(|o| id_of[o.as_str()]).collect(),
+                    args: compile_args(cp, called, instruction)
+                        .map_err(|e| format!("call `{}`: {e}", called.mnemonic))?,
+                    select: cp.select.clone(),
+                })
             })
-            .collect();
+            .collect::<Result<_, String>>()?;
 
         let inputs = inputs.iter().map(encoding).collect();
         let outputs = outputs.iter().map(encoding).collect();
@@ -275,40 +320,58 @@ fn intern_labels(
     Ok((labels, label_type))
 }
 
-/// A call's arguments in the lower instruction's parameter order, with
-/// literal values validated and encoded once, or `None` if they can never be
-/// valid. Invalid arguments are not an error of the model, so that a qodec
-/// whose broken gadget a program never invokes still runs.
-fn compile_args(cp: &CallPlan, instruction: &Instruction) -> Option<Vec<Arg>> {
-    (cp.args.len() == instruction.parameters.len())
-        .then(|| {
-            instruction
-                .parameters
+/// A call's arguments in the `called` instruction's parameter order, with
+/// literal values validated and encoded once. Fails if the call misses a
+/// parameter, or passes one a value it can never take: a literal of the wrong
+/// kind or a list, or a parameter of `implemented` whose kind does not fit.
+fn compile_args(
+    cp: &CallPlan,
+    called: &Instruction,
+    implemented: &Instruction,
+) -> Result<Vec<Arg>, String> {
+    called
+        .parameters
+        .iter()
+        .map(|parameter| {
+            let name = &parameter.name;
+            let kind = param_kind(parameter.kind);
+            let (_, arg) = cp
+                .args
                 .iter()
-                .map(|parameter| {
-                    let (_, arg) = cp.args.iter().find(|(name, _)| *name == parameter.name)?;
-                    Some(match arg {
-                        ArgumentPlan::Value(value) => {
-                            if !matches(parameter.kind, value) {
-                                return None;
-                            }
-                            Arg::Value(encode_arg(value)?)
-                        }
-                        ArgumentPlan::Forwarded(name) => Arg::Forwarded {
-                            name: name.clone(),
-                            kind: param_kind(parameter.kind),
-                        },
-                        ArgumentPlan::Readout(j) => {
-                            if !matches(parameter.kind, &Argument::Boolean(false)) {
-                                return None;
-                            }
-                            Arg::Readout(*j)
-                        }
-                    })
-                })
-                .collect::<Option<Vec<_>>>()
+                .find(|(arg, _)| arg == name)
+                .ok_or_else(|| format!("missing argument `{name}`"))?;
+            Ok(match arg {
+                ArgumentPlan::Value(value) => matches(parameter.kind, value)
+                    .then(|| encode_arg(value))
+                    .flatten()
+                    .map(Arg::Value)
+                    .ok_or_else(|| format!("argument `{name}` of kind `{kind}` does not take this value"))?,
+                ArgumentPlan::Forwarded(source) => {
+                    let upper = implemented
+                        .parameters
+                        .iter()
+                        .find(|p| &p.name == source)
+                        .ok_or_else(|| format!("forwards unknown parameter `{source}`"))?;
+                    let upper_kind = param_kind(upper.kind);
+                    if !kind.accepts_all(upper_kind) {
+                        return Err(format!(
+                            "argument `{name}` of kind `{kind}` does not take every value of the forwarded `{upper_kind}` parameter `{source}`"
+                        ));
+                    }
+                    Arg::Forwarded {
+                        name: source.clone(),
+                        kind,
+                    }
+                }
+                ArgumentPlan::Readout(j) => {
+                    if !matches(parameter.kind, &Argument::Boolean(false)) {
+                        return Err(format!("argument `{name}` of kind `{kind}` does not take a readout"));
+                    }
+                    Arg::Readout(*j)
+                }
+            })
         })
-        .flatten()
+        .collect()
 }
 
 /// The plan of a gadget body: its parsed circuit, checked against the lower

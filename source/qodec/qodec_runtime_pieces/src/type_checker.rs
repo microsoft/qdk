@@ -31,7 +31,7 @@ use std::{marker::PhantomData, sync::Arc};
 ///
 /// It tracks blocks from the `in` and `out` operands the top ISA declares, and
 /// knows nothing of gadgets: a call it accepts may still fail below, for
-/// example when no gadget implements its instruction.
+/// example when its argument for a `pauli` parameter is not a Pauli.
 pub struct TypeChecker<E> {
     isa: Arc<Isa>,
     /// Live blocks: label → block type.

@@ -6,6 +6,10 @@
 //! and gadgets with their circuits, checks, readouts and frames. Names are
 //! interned: block types, instructions and circuit labels are ids, and their
 //! names stay in side tables for messages.
+//!
+//! A model is well formed: reading a qodec checks every gadget, including the
+//! ones a program never invokes, so a broken qodec fails to read instead of
+//! failing a shot.
 
 use super::{
     error::PlanError,
@@ -121,10 +125,8 @@ pub struct CallModel {
     pub instruction: usize,
     /// The operands, as label ids.
     pub operands: Vec<usize>,
-    /// The arguments, in the lower instruction's parameter order. `None` if
-    /// they can never be valid. That is not an error of the model: a qodec
-    /// whose broken gadget a program never invokes still runs.
-    pub args: Option<Vec<Arg>>,
+    /// The arguments, in the lower instruction's parameter order.
+    pub args: Vec<Arg>,
     /// The call's `select` hint, over its flags.
     pub select: CompiledSelect,
 }
@@ -139,7 +141,9 @@ pub enum Arg {
     Forwarded {
         /// The parameter of the implemented instruction.
         name: String,
-        /// The kind of the lower parameter it is passed to.
+        /// The kind of the lower parameter it is passed to. It accepts every
+        /// value of the implemented instruction's parameter (see
+        /// [`ParamKind::accepts_all`]).
         kind: ParamKind,
     },
     /// `circuit.readouts[j]`, an earlier record bit.

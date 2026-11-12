@@ -8,7 +8,7 @@
 
 use super::{action::ActionStep, protocol::OwnedParam};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::{collections::BTreeMap, hash::Hash};
+use std::{collections::BTreeMap, fmt, hash::Hash};
 
 /// An instruction set: its block types and its instructions.
 #[derive(Clone, Debug, Default)]
@@ -226,6 +226,20 @@ impl ParamKind {
         }
     }
 
+    /// Whether every value of a parameter of kind `upper` is a valid value of
+    /// this kind, so `upper` can always be forwarded to a parameter of this
+    /// kind. The spec lets forwarded parameters keep their declared kinds, and
+    /// [integers supply `number` parameters, but not the reverse](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/validation.md#circuit-sources).
+    /// Likewise a `boolean` always fits a `bit`.
+    #[must_use]
+    pub fn accepts_all(self, upper: ParamKind) -> bool {
+        self == upper
+            || matches!(
+                (upper, self),
+                (ParamKind::Integer, ParamKind::Number) | (ParamKind::Boolean, ParamKind::Bit)
+            )
+    }
+
     /// The spec lets [integers supply `number` parameters](https://github.com/microsoft/qdk-ec/blob/fabb5bd8b24615caff42163a2db9f14124cae925/qodec/docs/concepts/validation.md#circuit-sources)
     /// as well as `integer` ones.
     fn matches_int(self, value: i128) -> bool {
@@ -243,6 +257,20 @@ impl ParamKind {
     fn matches_text(self, value: &str) -> bool {
         matches!(self, ParamKind::String | ParamKind::Pauli)
             && !value.starts_with("circuit.readouts[")
+    }
+}
+
+/// The kind's name in the spec, such as `bit` or `number`.
+impl fmt::Display for ParamKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            ParamKind::Bit => "bit",
+            ParamKind::Number => "number",
+            ParamKind::Integer => "integer",
+            ParamKind::Boolean => "boolean",
+            ParamKind::String => "string",
+            ParamKind::Pauli => "pauli",
+        })
     }
 }
 

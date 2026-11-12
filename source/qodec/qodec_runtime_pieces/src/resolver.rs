@@ -140,12 +140,18 @@ impl Resolver {
         }])
     }
 
-    /// Whether a single lower instruction applies `op` on logical index 0 of a
-    /// block of type `block_type`.
+    /// Whether a single lower instruction applies `op` on logical index
+    /// `index` of a block of type `block_type`.
     #[must_use]
-    pub fn binds_directly(&self, op: PauliOp, block_type: usize, lower: &TypeTable) -> bool {
+    pub fn binds_directly(
+        &self,
+        op: PauliOp,
+        block_type: usize,
+        index: usize,
+        lower: &TypeTable,
+    ) -> bool {
         let step = Step::Pauli(Pauli::single(0, op));
-        self.bind(&step, &[block_type], &[0], lower.caps[block_type])
+        self.bind(&step, &[block_type], &[index], lower.caps[block_type])
             .is_some()
     }
 
@@ -246,8 +252,8 @@ fn semantics(index: usize, instruction: &Signature, types: &TypeTable) -> Option
     let rotation = match instruction.action.as_slice() {
         [step] => match &step.action {
             StepAction::Rotate {
-                pauli: Ok(PauliExpr::Literal(p)),
-                angle: Ok(angle),
+                pauli: PauliExpr::Literal(p),
+                angle,
             } if p.max_qubit().is_some_and(|q| q < width) => Some((p.clone(), angle.clone())),
             _ => None,
         },
