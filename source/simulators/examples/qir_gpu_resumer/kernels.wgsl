@@ -259,8 +259,78 @@ fn diag_turns(k: u32, faults: ptr<function, array<vec2<u32>, 32>>) -> f32 {
 // A diagonal pass: op_len vec4 of code (ops[op_off..]): phase terms, and
 // noise sites (marker -1) between them; q0 the count of terms. A thread
 // per amplitude; with a fault's X part, the pair (k, k ^ X) by one thread.
+// The faults of a diagonal pass's noise sites, by code position (hoisted).
+var<workgroup> dmask: array<vec2<u32>, 256>;
+
+// diag_turns with the faults read from dmask by code position.
+fn diag_turns_w(k: u32) -> f32 {
+  var turns = 0.0;
+  var c = 0u;
+  var odd = 0u;
+  var at = 0u;
+  while (at < p.op_len) {
+    let e = ops[p.op_off + at];
+    if (e.x < 0.0) {
+      let m = dmask[at];
+      odd ^= countOneBits((k ^ c) & m.y) & 1u;
+      c ^= m.x;
+      at += noise_len(p.op_off + at);
+    } else {
+      turns += term_turns(e, k ^ c);
+      at++;
+    }
+  }
+  return turns + 0.5 * f32(odd);
+}
+
+// A diagonal pass with noise, its draws hoisted (p.meas == 1; n >= 8 and
+// op_len <= 256): a workgroup's threads are one shot's, so its threads draw
+// one site each into workgroup memory, by the site's code position.
+fn diag_hoisted(lid: u32, w: u32, slot: u32) {
+  let k = ((w << 8u) | lid) & ((1u << p.n) - 1u);
+  let base = slot << p.n;
+  var x = 0u;
+  var hit = false;
+  var at = 0u;
+  while (at < p.op_len) {
+    let e = ops[p.op_off + at];
+    if (e.x < 0.0) {
+      let m = dmask[at];
+      x ^= m.x;
+      hit = hit || m.x != 0u || m.y != 0u;
+      at += noise_len(p.op_off + at);
+    } else {
+      at++;
+    }
+  }
+  if (!hit && p.q0 == 0u) { return; }
+  if (x == 0u) {
+    s[base | k] = cmul(phase(diag_turns_w(k)), s[base | k]);
+    return;
+  }
+  if (((k >> firstLeadingBit(x)) & 1u) == 1u) { return; }
+  let k1 = k ^ x;
+  let a = s[base | k];
+  let b = s[base | k1];
+  s[base | k1] = cmul(phase(diag_turns_w(k)), a);
+  s[base | k] = cmul(phase(diag_turns_w(k1)), b);
+}
+
 @compute @workgroup_size(256)
-fn diag(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+fn diag(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+  if (p.meas == 1u) {
+    let w = flat_group(wid, nw);
+    let j = w >> (p.n - 8u);
+    if (j >= p.shot_len) { return; }
+    let slot = shots[p.shot_off + j];
+    if (lid.x < p.op_len) {
+      let e = ops[p.op_off + lid.x];
+      if (e.x < 0.0) { dmask[lid.x] = fault_masks(draw(slot, e), p.op_off + lid.x); }
+    }
+    workgroupBarrier();
+    diag_hoisted(lid.x, w, slot);
+    return;
+  }
   let t = flat(id, nw);
   let j = t >> p.n;
   if (j >= p.shot_len) { return; }
@@ -309,6 +379,34 @@ fn diag(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) n
 
 var<workgroup> tile: array<vec2<f32>, 1024>;
 var<workgroup> code: array<vec4<f32>, 128>;
+// The faults (block-local masks) of a block's noise sites, by op index,
+// and which sites are fault-free (bits), when the draws are hoisted.
+var<workgroup> nmask: array<vec2<u32>, 64>;
+var<workgroup> nfree: array<u32, 64>;
+var<workgroup> nskip: array<u32, 2>;
+
+// The vec4 the block op at code[off] takes.
+fn op_size(off: u32) -> u32 {
+  let h = code[off];
+  let kind = ival(h.x);
+  if (kind == 11u) { return 3u; }
+  if (kind == 12u) { return 9u; }
+  if (kind == 14u) { return 1u + (ival(code[off + 1u].x) + 4u) / 4u; }
+  return 1u + ival(h.w);
+}
+
+// A block noise site's fault as block-local masks (x, z).
+fn block_masks(f: vec2<u32>, off: u32) -> vec2<u32> {
+  var m = vec2(0u, 0u);
+  let count = ival(code[off + 1u].x);
+  for (var i = 0u; i < count; i++) {
+    let wi = i + 1u;
+    let q = 1u << ival(code[off + 1u + wi / 4u][wi % 4u]);
+    if (((f.x >> i) & 1u) == 1u) { m.x |= q; }
+    if (((f.y >> i) & 1u) == 1u) { m.y |= q; }
+  }
+  return m;
+}
 
 // Row r of the 4x4 matrix at code[off] (row-major, 2 entries per vec4).
 fn row4w(off: u32, r: u32, v0: vec2<f32>, v1: vec2<f32>, v2: vec2<f32>, v3: vec2<f32>) -> vec2<f32> {
@@ -358,8 +456,46 @@ fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
     for (var e = lid.x; e < size; e += WG) { tile[e] = s[base + tile_offset(e)]; }
   }
   workgroupBarrier();
+  // Hoisted draws (p.meas == 1): thread o draws op o's site, if a site.
+  var skip0 = 0u;
+  var skip1 = 0u;
+  if (p.meas == 1u) {
+    if (lid.x < p.op_len) {
+      var at = 0u;
+      for (var o = 0u; o < lid.x; o++) { at += op_size(at); }
+      let h = code[at];
+      var m = vec2(0u, 0u);
+      var free = 0u;
+      if (ival(h.x) == 14u) {
+        m = block_masks(draw(shots[p.shot_off + j], h), at);
+        free = select(0u, 1u, m.x == 0u && m.y == 0u);
+      }
+      nmask[lid.x] = m;
+      nfree[lid.x] = free;
+    }
+    workgroupBarrier();
+    if (lid.x == 0u) {
+      var a = 0u;
+      var b = 0u;
+      for (var o = 0u; o < p.op_len; o++) {
+        if (nfree[o] == 1u) {
+          if (o < 32u) { a |= 1u << o; } else { b |= 1u << (o - 32u); }
+        }
+      }
+      nskip[0] = a;
+      nskip[1] = b;
+    }
+    skip0 = workgroupUniformLoad(&nskip[0]);
+    skip1 = workgroupUniformLoad(&nskip[1]);
+  }
   var off = 0u;
   for (var o = 0u; o < p.op_len; o++) {
+    let skipped = select(skip1 >> (o & 31u), skip0 >> (o & 31u), o < 32u);
+    if ((skipped & 1u) == 1u) {
+      // A fault-free site: no sweep, no barrier.
+      off += 1u + (ival(code[off + 1u].x) + 4u) / 4u;
+      continue;
+    }
     let h = code[off];
     let kind = ival(h.x);
     let qa = ival(h.y);
@@ -398,17 +534,16 @@ fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
       off += 9u;
     } else if (kind == 14u) {
       // A noise site; its targets (block-local) follow the header.
-      let f = draw(shots[p.shot_off + j], h);
+      var m = vec2(0u, 0u);
+      if (p.meas == 1u) {
+        m = nmask[o];
+      } else {
+        m = block_masks(draw(shots[p.shot_off + j], h), off);
+      }
       let count = ival(code[off + 1u].x);
-      if (f.x != 0u || f.y != 0u) {
-        var mx = 0u;
-        var mz = 0u;
-        for (var i = 0u; i < count; i++) {
-          let wi = i + 1u;
-          let q = 1u << ival(code[off + 1u + wi / 4u][wi % 4u]);
-          if (((f.x >> i) & 1u) == 1u) { mx |= q; }
-          if (((f.y >> i) & 1u) == 1u) { mz |= q; }
-        }
+      if (m.x != 0u || m.y != 0u) {
+        let mx = m.x;
+        let mz = m.y;
         if (mx == 0u) {
           for (var e = lid.x; e < size; e += WG) {
             tile[e] = tile[e] * sign_of(e, mz);
