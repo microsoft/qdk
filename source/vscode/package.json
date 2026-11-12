@@ -1354,7 +1354,7 @@
         ],
         "toolReferenceName": "qdkLearningShow",
         "displayName": "QDK Learning: Show Activity",
-        "modelDescription": "Show the current learning activity. Opens the Lesson panel for Q# courses or the current activity in the workbook for notebook courses. Use to start or resume a learning session.",
+        "modelDescription": "Show the current learning activity. Preserves selected activity or markdown context in an active learning workbook without navigating or changing the saved position. Otherwise opens the saved activity in the Lesson panel for Q# courses or the workbook for notebook courses. Use Go To for explicit navigation.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {

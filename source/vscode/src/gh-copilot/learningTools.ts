@@ -236,25 +236,20 @@ export class LearningTools {
   // ─── Navigation & actions (show the active learning surface) ───
 
   /**
-   * Show the selected notebook activity when available, otherwise the saved activity.
+   * Preserve selected notebook activity or markdown context, otherwise show the saved activity.
    */
   async show(): Promise<StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const selected = this.notebookLearningState();
-      if (
-        selected?.position.content.type === "exercise" ||
-        selected?.position.content.type === "code-cell"
-      ) {
-        return this.goTo(selected.position.location);
-      }
       const editor = vscode.window.activeNotebookEditor;
       if (
         selected &&
-        editor?.notebook.cellAt(editor.selection.start).kind ===
-          vscode.NotebookCellKind.Markup
+        (selected.position.content.type === "exercise" ||
+          selected.position.content.type === "code-cell" ||
+          editor?.notebook.cellAt(editor.selection.start).kind ===
+            vscode.NotebookCellKind.Markup)
       ) {
-        // Markdown is chat context, not a catalog activity to save.
         return { state: this.serializeState(true) };
       }
       await this.showActivity();
