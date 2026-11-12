@@ -1236,3 +1236,14 @@ fn every_expectation_takes_the_engines_hyper_samples() {
         "one expectation per read, two for the conditional"
     );
 }
+
+/// Development check, not for the PR: `tensornet`'s conformance kit on the
+/// engine over the double.
+#[test]
+fn the_engine_conforms_to_the_kit() {
+    let (engine, native) = engine();
+    let failures = tensornet::conformance::check(&engine);
+    assert!(failures.is_empty(), "{failures:#?}");
+    drop(engine);
+    assert_eq!(native.live_objects(), 0);
+}

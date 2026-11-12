@@ -46,6 +46,9 @@ qdk_simulators = { path = ".", features = ["conformance"] }
 # bench, in JSON.
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Development only: the H2 example and the dev tests on the CPU and GPU engines.
+qdk_cpu_mps = { path = "../qdk_cpu_mps" }
+qdk_cutensornet = { path = "../cutensornet" }
 
 [lints]
 workspace = true

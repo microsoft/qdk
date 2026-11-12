@@ -14,5 +14,9 @@ num-complex = { workspace = true }
 tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+# Development only: tensornet's conformance kit, on the double and on the GPU.
+tensornet = { path = "../tensornet", features = ["conformance"] }
+
 [lints]
 workspace = true

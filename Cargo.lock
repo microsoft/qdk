@@ -2132,6 +2132,8 @@ dependencies = [
  "num-traits",
  "paulimer",
  "pauliverse",
+ "qdk_cpu_mps",
+ "qdk_cutensornet",
  "qdk_simulators",
  "qsc_data_structures",
  "rand 0.10.2",
