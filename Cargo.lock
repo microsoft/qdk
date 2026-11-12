@@ -1899,10 +1899,13 @@ dependencies = [
  "num-traits",
  "paulimer",
  "pauliverse",
+ "qdk_simulators",
  "qsc_data_structures",
  "rand 0.10.2",
  "regex-lite",
  "rustc-hash",
+ "serde",
+ "serde_json",
  "tensornet",
  "wgpu",
 ]

@@ -11,6 +11,9 @@ repository.workspace = true
 [features]
 default = ["gpu"]
 gpu = ["dep:futures", "dep:wgpu"]
+# The `qir::conformance` module: checks of `QirResumer`'s rules, for
+# implementers' tests.
+conformance = []
 
 [dependencies]
 binar = { workspace = true }
@@ -37,6 +40,12 @@ expect-test = { workspace = true }
 criterion = { workspace = true }
 # The exact reference engine, which the MPS simulator's tests run on.
 tensornet = { path = "../tensornet", features = ["conformance"] }
+# The resumers of `tests/resumers/` run the `qir::conformance` checks.
+qdk_simulators = { path = ".", features = ["conformance"] }
+# The corpus of `tests/run_shot_compatibility` and of the `qir_machine`
+# bench, in JSON.
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
@@ -61,6 +70,12 @@ harness = false
 
 [[bench]]
 name = "sparse_sim"
+harness = false
+
+# A plain binary: it asserts that the runtimes it measures agree, then
+# prints their times and ratios.
+[[bench]]
+name = "qir_machine"
 harness = false
 
 [[bin]]

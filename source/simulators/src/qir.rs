@@ -11,7 +11,8 @@
 //!   `prepared_quantum_calls`, `fault`, `quantum_instruction_encoding`;
 //! - the machine running a context: `machine`, `trap`;
 //! - the contract between the machine and a resumer: `call`, `gate`,
-//!   `operator_matrix`, `resumer`, `program`.
+//!   `operator_matrix`, `resumer`, `program`; the `conformance` kit checks
+//!   resumers against it.
 //!
 //! A resumer drives a context through [`QirMachine::resume`], and never
 //! sees the bytecode or how it encodes the quantum instructions: it reads
@@ -56,6 +57,9 @@ mod program;
 mod quantum_instruction_encoding;
 mod resumer;
 mod trap;
+
+#[cfg(any(test, feature = "conformance"))]
+pub use resumer::conformance;
 
 pub use call::{QirCall, QirInstruction, QirOutcome, QirQubits, QirReadout};
 pub use fault::{QirError, QirFault, QirFaultSite, QirFaults, SideTable};
