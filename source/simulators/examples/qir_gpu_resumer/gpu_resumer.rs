@@ -54,6 +54,8 @@ const NO_RESULT: u32 = u32::MAX;
 const CARRIERS: u64 = 0b111;
 /// The vec4 of block code the `block` kernel holds in workgroup memory.
 const BLOCK_CODE: usize = 256;
+/// The code (vec4) of a noiseless block piece (the `block_plain` kernel).
+const PLAIN_CODE: usize = 128;
 
 /// What fails in the resumer's own work: a call it does not support.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,6 +102,9 @@ pub struct Strategy {
     /// Whether a hoisted block also carries its noiseless code, which a
     /// workgroup whose shot has no fault in the block runs instead.
     pub clean_variant: bool,
+    /// Whether noiseless diagonal and block passes run kernels specialised
+    /// for noiseless code.
+    pub plain_kernels: bool,
 }
 
 impl Strategy {
@@ -117,6 +122,7 @@ impl Strategy {
         sink_noise: true,
         hoist_noise: true,
         clean_variant: true,
+        plain_kernels: true,
     };
     pub const PER_GATE: Self = Self {
         fuse_diag: false,
@@ -132,6 +138,7 @@ impl Strategy {
         sink_noise: false,
         hoist_noise: false,
         clean_variant: false,
+        plain_kernels: false,
     };
     pub const FUSED: Self = Self {
         fuse_diag: true,
@@ -147,6 +154,7 @@ impl Strategy {
         sink_noise: true,
         hoist_noise: true,
         clean_variant: true,
+        plain_kernels: true,
     };
 
     pub fn named(name: &str) -> Option<Self> {
@@ -189,6 +197,10 @@ impl Strategy {
             "nohoist" => Self {
                 hoist_noise: false,
                 clean_variant: false,
+                ..Self::ALL
+            },
+            "noplain" => Self {
+                plain_kernels: false,
                 ..Self::ALL
             },
             "noclean" => Self {
@@ -291,6 +303,10 @@ pub struct Gpu {
     gate2: wgpu::ComputePipeline,
     diag: wgpu::ComputePipeline,
     block: wgpu::ComputePipeline,
+    /// The noiseless `diag` and `block`: specialised, so that their
+    /// register and workgroup-memory use is that of noiseless code alone.
+    diag_plain: wgpu::ComputePipeline,
+    block_plain: wgpu::ComputePipeline,
     prob: wgpu::ComputePipeline,
     sample: wgpu::ComputePipeline,
     collapse: wgpu::ComputePipeline,
@@ -391,6 +407,8 @@ impl Gpu {
             gate2: make("gate2"),
             diag: make("diag"),
             block: make("block"),
+            diag_plain: make("diag_plain"),
+            block_plain: make("block_plain"),
             prob: make("prob"),
             sample: make("sample"),
             collapse: make("collapse"),
@@ -427,6 +445,8 @@ impl Gpu {
             ("gate2", &self.gate2),
             ("diag", &self.diag),
             ("block", &self.block),
+            ("diag_plain", &self.diag_plain),
+            ("block_plain", &self.block_plain),
             ("prob", &self.prob),
             ("sample", &self.sample),
             ("collapse", &self.collapse),
@@ -1348,6 +1368,7 @@ fn block_code(
     block_ops: &[Op],
     kron_in_block: bool,
     fast_runs: bool,
+    limit: usize,
 ) -> Vec<(u32, Vec<[f32; 4]>)> {
     // Units of (op count, code), each kept in one piece.
     let mut encoded: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
@@ -1361,7 +1382,7 @@ fn block_code(
                 .count();
             let ops = &block_ops[at..at + run];
             if ops.iter().any(is_noise) && ops.iter().any(is_diag) {
-                let inner = block_units(ops, kron_in_block);
+                let inner = block_units(ops, kron_in_block, limit);
                 let terms = phase_terms(ops.iter().filter(|op| is_diag(op)));
                 let r: u32 = inner.iter().map(|(count, _)| count).sum();
                 #[allow(clippy::cast_precision_loss)]
@@ -1370,7 +1391,7 @@ fn block_code(
                 for (_, unit) in &inner {
                     code.extend(unit);
                 }
-                if code.len() <= BLOCK_CODE {
+                if code.len() <= limit {
                     encoded.push((1 + r, code));
                 } else {
                     encoded.extend(inner);
@@ -1394,17 +1415,14 @@ fn block_code(
                 _ => 1,
             }
         };
-        encoded.extend(block_units(&block_ops[at..at + run], kron_in_block));
+        encoded.extend(block_units(&block_ops[at..at + run], kron_in_block, limit));
         at += run;
     }
     let mut pieces: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
     for (count, code) in encoded {
-        assert!(
-            code.len() <= BLOCK_CODE,
-            "a block op fits the kernel's code"
-        );
+        assert!(code.len() <= limit, "a block op fits the kernel's code");
         match pieces.last_mut() {
-            Some((ops, piece)) if piece.len() + code.len() <= BLOCK_CODE => {
+            Some((ops, piece)) if piece.len() + code.len() <= limit => {
                 *ops += count;
                 piece.extend(code);
             }
@@ -1415,7 +1433,11 @@ fn block_code(
 }
 
 /// The block ops' code, one unit per kernel op (count 1 each).
-fn block_units(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>)> {
+fn block_units(
+    block_ops: &[Op],
+    kron_in_block: bool,
+    limit: usize,
+) -> Vec<(u32, Vec<[f32; 4]>)> {
     let mut encoded: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
     let mut at = 0;
     while at < block_ops.len() {
@@ -1432,7 +1454,7 @@ fn block_units(block_ops: &[Op], kron_in_block: bool) -> Vec<(u32, Vec<[f32; 4]>
             if terms.is_empty() {
                 continue;
             }
-            for terms in terms.chunks(BLOCK_CODE - 1) {
+            for terms in terms.chunks(limit - 1) {
                 #[allow(clippy::cast_precision_loss)]
                 let mut code = vec![[13.0, 0.0, 0.0, terms.len() as f32]];
                 code.extend(terms);
@@ -1522,6 +1544,9 @@ struct Layout<'a, 'g> {
     /// workgroup (not once per thread), skipping fault-free sites.
     hoist: bool,
     clean: bool,
+    /// Whether noiseless diagonal and block passes run the specialised
+    /// `diag_plain` and `block_plain` kernels.
+    plain: bool,
     /// The round, and where the slots' (noise seed, batch length) are in
     /// `shots`, for noise draws.
     round: u32,
@@ -1614,7 +1639,12 @@ impl Layout<'_, '_> {
                         self.ops.extend(merged);
                     }
                     self.ops.extend(code);
-                    self.passes.push((&gpu.diag, slot, (len << n).div_ceil(WG)));
+                    let pipe = if terms == p.op_len && self.plain {
+                        &gpu.diag_plain
+                    } else {
+                        &gpu.diag
+                    };
+                    self.passes.push((pipe, slot, (len << n).div_ceil(WG)));
                 }
                 SegKind::Pauli(op) => {
                     p.op_off = op_off;
@@ -1690,7 +1720,10 @@ impl Layout<'_, '_> {
                         local_ops
                     };
                     let noisy = local_ops.iter().any(is_noise);
-                    let mut pieces = block_code(&local_ops, self.kron, self.hoist && noisy);
+                    let plain = !noisy && self.plain;
+                    let limit = if plain { PLAIN_CODE } else { BLOCK_CODE };
+                    let mut pieces =
+                        block_code(&local_ops, self.kron, self.hoist && noisy, limit);
                     // The fault-free variant: with hoisted draws, the block's
                     // code without its noise follows the noisy code, and a
                     // workgroup whose shot has no fault at any site runs it
@@ -1699,7 +1732,7 @@ impl Layout<'_, '_> {
                     if self.hoist && noisy && self.clean && pieces.len() == 1 {
                         let clean_ops: Vec<Op> =
                             local_ops.iter().filter(|op| !is_noise(op)).cloned().collect();
-                        let clean = block_code(&clean_ops, self.kron, false);
+                        let clean = block_code(&clean_ops, self.kron, false, BLOCK_CODE);
                         let (count, code) = match clean.as_slice() {
                             [] => (0, Vec::new()),
                             [(count, code)] => (*count, code.clone()),
@@ -1735,7 +1768,8 @@ impl Layout<'_, '_> {
                         (p.per_shot, p.m0[0]) = clean_variant.unwrap_or((0, 0.0));
                         self.ops.extend(code);
                         p.write(self.params, at);
-                        self.passes.push((&gpu.block, slot, len << (n - b)));
+                        let pipe = if plain { &gpu.block_plain } else { &gpu.block };
+                        self.passes.push((pipe, slot, len << (n - b)));
                     }
                     continue;
                 }
@@ -1983,6 +2017,7 @@ impl QirGpuResumer {
                 sink: self.strategy.sink_noise,
                 hoist: self.strategy.hoist_noise,
                 clean: self.strategy.clean_variant,
+                plain: self.strategy.plain_kernels,
                 round: 0,
                 meta_off: 0,
             }
@@ -2057,6 +2092,7 @@ impl QirGpuResumer {
             sink: self.strategy.sink_noise,
             hoist: self.strategy.hoist_noise,
             clean: self.strategy.clean_variant,
+            plain: self.strategy.plain_kernels,
             round: 0,
             meta_off: 0,
         }
@@ -2446,6 +2482,7 @@ impl QirGpuResumer {
                     sink: self.strategy.sink_noise,
                     hoist: self.strategy.hoist_noise,
                     clean: self.strategy.clean_variant,
+                    plain: self.strategy.plain_kernels,
                     round,
                     meta_off: 0,
                 };
