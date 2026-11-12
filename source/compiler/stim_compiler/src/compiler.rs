@@ -834,9 +834,9 @@ impl<'noise> Compiler<'noise> {
         use QSharpOp as Op;
         use semantic::ThreeQubitGateKind as G;
 
+        // CCZ uses Clifft's decomposition: H 2; CCX 0 1 2; H 2
         let decomposition: &[(Op, &[StimQubitId])] = match gate {
             G::CCX => &[(Op::CCNOT, &[q0, q1, q2])],
-            // Clifft decomposition: H 2; CCX 0 1 2; H 2
             G::CCZ => &[(Op::H, &[q2]), (Op::CCNOT, &[q0, q1, q2]), (Op::H, &[q2])],
         };
         self.multi_qubit_decomposition_stmts(decomposition, span)
@@ -872,10 +872,12 @@ impl<'noise> Compiler<'noise> {
         qubit: StimQubitId,
         span: Span,
     ) -> Vec<ast::Stmt> {
+        use QSharpOp as Op;
+
         let op = match axis {
-            X => QSharpOp::Rx,
-            Y => QSharpOp::Ry,
-            Z => QSharpOp::Rz,
+            X => Op::Rx,
+            Y => Op::Ry,
+            Z => Op::Rz,
         };
         vec![self.rotation_stmt(op, angle, &[qubit], span)]
     }
@@ -888,10 +890,12 @@ impl<'noise> Compiler<'noise> {
         q1: StimQubitId,
         span: Span,
     ) -> Vec<ast::Stmt> {
+        use QSharpOp as Op;
+
         let op = match axis {
-            semantic::PauliPair::XX => QSharpOp::Rxx,
-            semantic::PauliPair::YY => QSharpOp::Ryy,
-            semantic::PauliPair::ZZ => QSharpOp::Rzz,
+            semantic::PauliPair::XX => Op::Rxx,
+            semantic::PauliPair::YY => Op::Ryy,
+            semantic::PauliPair::ZZ => Op::Rzz,
         };
         vec![self.rotation_stmt(op, angle, &[q0, q1], span)]
     }
@@ -905,10 +909,12 @@ impl<'noise> Compiler<'noise> {
         qubit: StimQubitId,
         span: Span,
     ) -> Vec<ast::Stmt> {
+        use QSharpOp as Op;
+
         vec![
-            self.rotation_stmt(QSharpOp::Rz, lambda, &[qubit], span),
-            self.rotation_stmt(QSharpOp::Ry, theta, &[qubit], span),
-            self.rotation_stmt(QSharpOp::Rz, phi, &[qubit], span),
+            self.rotation_stmt(Op::Rz, lambda, &[qubit], span),
+            self.rotation_stmt(Op::Ry, theta, &[qubit], span),
+            self.rotation_stmt(Op::Rz, phi, &[qubit], span),
         ]
     }
 
@@ -1135,6 +1141,7 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         };
 
+        // loss = IsLossResult(r_a) or IsLossResult(r_b) or …
         let loss_expr = build_any_loss_expr(&result_ids, span);
 
         // parity = (r_a == One) != (r_b == One) != …, with `Zero` for `!rec[..]`
@@ -1188,6 +1195,7 @@ impl<'noise> Compiler<'noise> {
             return vec![];
         }
 
+        // loss = IsLossResult(r_a) or IsLossResult(r_b) or …
         let loss_expr = build_any_loss_expr(&result_ids, span);
 
         let (loss, loss_stmt) = self.bind_local("loss", loss_expr, span);
