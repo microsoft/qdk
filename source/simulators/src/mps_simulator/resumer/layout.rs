@@ -13,9 +13,11 @@
 //! instance), and each bond is the Schmidt rank across its cut, which
 //! depends on which qubits fall on each side.
 //! Every order holds the same state (to rounding, and within the
-//! truncation error of an engine that truncates), so on an exact engine a
-//! shot's draws and records do not depend on it; the bonds, the time and
-//! the weight a max bond dimension discards do. So the order is the MPS
+//! truncation error of an engine that truncates), so each probability a
+//! shot draws against agrees to rounding: on an exact engine, a draw
+//! differs between two orders only where its uniform falls within rounding
+//! of the probability. The bonds, the time and the weight a max bond
+//! dimension discards depend on the order. So the order is the MPS
 //! simulation method's own: chosen inside the resumer and applied to every
 //! call it hands the engine, it never reaches the caller.
 //!
