@@ -43,7 +43,7 @@ fn the_report_gives_the_largest_bond_before_the_readout() {
 
 /// The report keeps the largest bond of the run, not the last one read: a
 /// Bell pair's bond of 2 is read before its first qubit is measured, and
-/// a later gate on the second qubit ends a run of gates whose bond is 1.
+/// a later gate on the second qubit ends a run of operators whose bond is 1.
 #[test]
 fn a_smaller_bond_read_later_keeps_the_largest() {
     let mut resumer = MpsResumer::new(ExactReference::new(), 7);

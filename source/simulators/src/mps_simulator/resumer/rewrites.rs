@@ -5,7 +5,10 @@
 //! ones that give the same state, so that the engine, whose time goes to
 //! its operators, does less. A run applies one rewrite today, which is
 //! `GroupedRun`'s field and `MpsResumer`'s setting; when a second comes,
-//! that one rewrite becomes a list of the rewrites a run applies.
+//! that one rewrite becomes a list of the rewrites a run applies. A new
+//! rewrite also joins `every_rewrite`, the list of the contract tests in
+//! `src/tests/mps_simulator/resumer/rewrites.rs`, which check each clause
+//! below on it.
 //!
 //! **The contract**, stated here once, that every [`Rewrite`] keeps:
 //!
@@ -27,8 +30,9 @@ pub(in crate::mps_simulator) mod fusion;
 use super::lowering::{Operator, Step};
 
 /// A rewrite of the operators of a batch, keeping the contract of this
-/// module. It takes one run at a time: the operators ([`Step::Apply`])
-/// between two measurements or resets, or the batch's ends.
+/// module. It takes one run of operators at a time: the operators
+/// ([`Step::Apply`]) between two measurements or resets, or the batch's
+/// ends.
 pub(crate) trait Rewrite {
     /// The operators that replace `run`, keeping the contract.
     fn rewrite(&self, run: Vec<Operator>) -> Vec<Operator>;

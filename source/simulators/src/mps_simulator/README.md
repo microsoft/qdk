@@ -7,7 +7,8 @@ entangles them little, as chemistry programs such as H₂'s phase
 estimation do. Its [`MpsResumer`](resumer.rs) implements
 `qir`'s [`QirResumer`](../qir/resumer.rs) once over `tensornet`'s
 [`MpsEngine`](../../../tensornet/src/engine.rs), so it runs on any engine
-(for instance `tensornet`'s exact reference, or cuTensorNet's on a GPU),
+(for instance `tensornet`'s exact reference, or one over cuTensorNet,
+NVIDIA's tensor network library, on a GPU),
 and a new engine needs no change here. What the two traits require is in
 [`qir`'s README](../qir/README.md),
 [`tensornet`'s README](../../../tensornet/README.md#the-contract) and their
@@ -31,6 +32,9 @@ The two traits speak different terms, `qir`'s of qubits, calls and shots,
 - **`MpsEngine` method**: an operation the trait declares and engines
   implement (`apply`, `project`, `probability_of_one`, …). The MPS
   simulation method calls them.
+- **run**: one call of the resumer's `run` (`QirResumer::run`) on some
+  shots of a program, which gives every shot's records or the first
+  failing shot.
 - **machine**, **context** and **batch** (`qir`'s): the machine runs a
   program's classical part, one context per shot, and stops a context at
   each batch of its quantum calls, and at its end with the shot's records.
@@ -68,6 +72,9 @@ The two traits speak different terms, `qir`'s of qubits, calls and shots,
   share one context and one state.
 - **fork**: an exact copy of a state, which the engine makes
   (`MpsEngine::fork`).
+- **run of operators**: the operators of a batch between two of its
+  draws, or between a draw and the batch's start or end, which a rewrite
+  takes as one; one run of the resumer goes through many.
 
 Between the program's calls on qubits and the engine's operators on
 sites, the resumer works as a small compiler, in three stages of the
@@ -106,8 +113,9 @@ flowchart LR
 ## Its files
 
 `MpsResumer`, in [`resumer.rs`](resumer.rs), and everything it uses, in
-[`resumer/`](resumer/), form one module; an arrow points from a file to a
-file it uses, and every one points down or across.
+[`resumer/`](resumer/), form one module; each file's header says what it
+holds. An arrow points from a file to a file it uses, and every one
+points down or across.
 
 ```mermaid
 flowchart TD
@@ -154,10 +162,10 @@ turn.
 | **layout**    | `QubitOrder::for_program` ([`layout.rs`](resumer/layout.rs)), called by `GroupedRun::start` | at the start of each run, from the program alone, before any shot runs: a local search for the qubit order places qubits that share two-qubit gates close on the chain, weighing the gates whose qubits the program names                                                                                                                                                                                                                  | an MPS is a chain: a gate on distant sites is routed through swaps, and each bond depends on which qubits fall on each side of it. Every order holds the same state (to rounding, and within the truncation error of an engine that truncates), so on an exact engine no record depends on it, and no caller sees sites                     |
 | **resume**    | `QirMachine::resume`, called by `run_group`                                                 | the machine runs the group's context to its next batch, or to its end with the shot's records, given the outcomes of the batch before                                                                                                                                                                                                                                                                                                      | the machine runs the program's classical part and stops at each batch, so the values drawn reach the program before it goes on                                                                                                                                                                                                              |
 | **lower**     | `lower` ([`lowering.rs`](resumer/lowering.rs))                                              | each gate becomes its matrix at its angle, as the engine takes it, on the sites the layout gives its qubits, in its operand order, and each measurement and reset a draw on a site; `move`, a relabelling of qubits, changes no state, so it is no operator. Correlated noise, readout noise and loss checks fail the shot that reaches them ([`resumer_error.rs`](resumer/resumer_error.rs)), as does a two-qubit gate on one qubit twice | the engine knows no gate names and no qubits, only matrices and sites. Noise and loss on matrix product states are [planned](#planned); refused at the call, a program whose noise is on a path no shot takes runs. No matrix on two distinct sites applies a gate on one qubit twice, and the machine does not check it                    |
-| **rewrite**   | `Rewrite::rewrite`, called by `rewrite_runs` ([`rewrites.rs`](resumer/rewrites.rs))         | each run of operators between two draws is given to the rewrite, which keeps [its contract](resumer/rewrites.rs). Today's rewrite is gate fusion ([`rewrites/fusion.rs`](resumer/rewrites/fusion.rs)): `GateFusion::Pairs`, the default, multiplies each run into operators on one or two sites; `GateFusion::Unfused` keeps one operator per gate                                                                                         | an engine's time goes to its operators, so fewer, larger ones may cost less ([the timings](resumer/rewrites/fusion.rs))                                                                                                                                                                                                                     |
+| **rewrite**   | `Rewrite::rewrite`, called by `rewrite_runs` ([`rewrites.rs`](resumer/rewrites.rs))         | each run of operators is given to the rewrite, which keeps [its contract](resumer/rewrites.rs). Today's rewrite is gate fusion ([`rewrites/fusion.rs`](resumer/rewrites/fusion.rs)): `GateFusion::Pairs`, the default, multiplies each run of operators into operators on one or two sites; `GateFusion::Unfused` keeps one operator per gate                                                                                              | an engine's time goes to its operators, so fewer, larger ones may cost less ([the timings](resumer/rewrites/fusion.rs))                                                                                                                                                                                                                     |
 | **prepare**   | `prepare`                                                                                   | at the group's first operator or draw, the engine prepares a state of all zeros within the capacity; a program of no qubits prepares none                                                                                                                                                                                                                                                                                                  | a shot with no quantum call costs no state                                                                                                                                                                                                                                                                                                  |
 | **apply**     | `apply`                                                                                     | the engine applies each operator to the group's one state                                                                                                                                                                                                                                                                                                                                                                                  | one call serves every shot of the group                                                                                                                                                                                                                                                                                                     |
-| **read bond** | `read_bond`                                                                                 | where a run of operators ends, before a draw or a resume, the state's largest bond is read, and kept in the report ([`report.rs`](resumer/report.rs)) when the largest of the run                                                                                                                                                                                                                                                          | the bond is what χ caps, and it is read before the draws, which may shrink it                                                                                                                                                                                                                                                               |
+| **read bond** | `read_bond`                                                                                 | where a run of operators ends, before a draw or a resume, the state's largest bond is read, and kept in the report ([`report.rs`](resumer/report.rs)) when it is the largest of the run so far                                                                                                                                                                                                                                             | the bond is what χ caps, and it is read before the draws, which may shrink it                                                                                                                                                                                                                                                               |
 | **draw**      | `draw`                                                                                      | the state's P(One) of the site is read once per group; each shot draws a uniform from its own `SplitMix64` stream, seeded from the resumer's seed and the shot's id (`shot_stream`, in [`shot_stream.rs`](resumer/shot_stream.rs)), and reads One when it is below P(One)                                                                                                                                                                  | `QirResumer`'s contract: a shot's records depend neither on the other shots nor on its place among them nor on earlier runs. A shot draws once per measurement and reset, whatever group it is in, so its records are those it gets alone                                                                                                   |
 | **split**     | `split`, with `value_going_on`                                                              | when the shots drew both values, the part with fewer shots goes on (Zero's on a tie), and the other waits on a stack, with a copy of the context and a fork of the state, made after P(One) is read; when the fork, or its projection, fails, only the waiting part fails                                                                                                                                                                  | a fork is exact, so each part's state is the one a shot alone would hold, and a run costs what its distinct histories cost: one state for a program with no random draw, one per shot at most. As the larger part waits, a run of N shots holds at most ⌊log₂ N⌋ + 1 states at once, which bounds a GPU's memory whatever the program draws |
 | **settle**    | `settle`                                                                                    | each part's state is projected on its value (`project`), then a reset that drew One applies X; a measurement's result is answered with the value                                                                                                                                                                                                                                                                                           | the engine has no measurement and no reset, only probabilities, projections and operators                                                                                                                                                                                                                                                   |
@@ -172,8 +180,9 @@ Two rules hold across the phases:
   fails the run's first shot when the qubits and χ make no chain. The run
   names the first failing shot in the order of the shots, as
   `QirResumer::run`'s contract requires whatever order they run in, and
-  drops unrun the waiting groups whose shots all come after it, which
-  could not change that name.
+  drops the groups whose shots all come after it, which could not change
+  that name: unrun when they wait, and at the failed split when they go
+  on from one.
 - **No waiting** ([`resumer.rs`](resumer.rs)): `run` runs every group when
   its future is first polled, so the future is ready at once. `MpsEngine`
   methods return when done, so this simulator has nothing to wait on;
@@ -197,7 +206,8 @@ The public types, each linked to the file that says how it works:
 
 A Bell pair, as the tests run it
 ([`src/tests/mps_simulator/resumer.rs`](../tests/mps_simulator/resumer.rs);
-`bytecode` writes a program's Adaptive Profile bytecode, which
+`bytecode` writes a program's bytecode in the Adaptive Profile (the QIR
+profile of programs that branch on their measurements), which
 `QirProgram::new` checks, `gate1`, `gate2`, `mz` and `ret` write one
 instruction each, `OPID_*` names a gate, `expect_ready` polls a future
 that is ready at once, and `results` gives the records of a shot that read
@@ -239,11 +249,14 @@ Each item names a case that needs it:
   its measurements, run once, its readout drawn for every shot with
   `MpsEngine::sample`. Its case: sampling a Base Profile program's many
   shots at the cost of one.
-- **Routing in the resumer:** a gate on distant sites lowered into swaps
-  of neighbouring sites, the moved placement kept per group, since an
-  engine such as cuTensorNet's applies an operator on distant sites about
-  8× slower than one on neighbouring sites. Its case: a program whose
-  gates act on distant qubits, such as H₂'s phase estimation.
+- **Routing in the resumer:** a fourth stage, between layout and
+  lowering, that brings a gate's distant sites together by swaps of
+  neighbouring sites and keeps where the swaps moved the qubits: the
+  layout becomes each run's starting placement, and each group carries
+  its own, since groups run other gates once they split. An engine such
+  as cuTensorNet's applies an operator on distant sites about 8× slower
+  than one on neighbouring sites. Its case: a program whose gates act on
+  distant qubits, such as H₂'s phase estimation.
 - **Queries** of the state (expectations of Pauli sums, the chain's cost).
   Its case: a chemistry user's energy estimate $\langle H \rangle$ read
   without shots.

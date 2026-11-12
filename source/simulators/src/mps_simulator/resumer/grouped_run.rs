@@ -4,10 +4,10 @@
 //! The grouped run: how an [`MpsResumer`] runs the shots of one run, shots
 //! that drew the same values sharing one state.
 //!
-//! The phases of a run, each a function or a call of the same name here,
-//! are in the table of `src/mps_simulator/README.md` ("How it runs a
-//! program"), with how and why; this header gives the mechanics the table
-//! does not.
+//! The phases of a run, each a function or a call of the same name here or
+//! in the file its row names, are in the table of
+//! `src/mps_simulator/README.md` ("How it runs a program"), with how and
+//! why; this header gives the mechanics the table does not.
 //!
 //! **The loop.** [`GroupedRun::start`] makes one group of every shot, with
 //! one machine context and no state. `run` pops the groups off a stack, the
@@ -379,7 +379,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
 
     /// Keeps the largest bond of `group`'s state in the report, when gates
     /// were applied since it was last read: so it is read where a run of
-    /// gates ends, before the draws that may shrink it.
+    /// operators ends, before the draws that may shrink it.
     fn read_bond(&mut self, group: &mut Group<E::State>) -> Result<(), GroupFailure<E::Error>> {
         if let (true, Some(state)) = (group.bond_unread, &group.state) {
             let bond = self

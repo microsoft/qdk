@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`GateFusion`]: the rewrite that groups each run of gates into fewer,
-//! larger operators; it keeps the contract of [`Rewrite`] (in
+//! [`GateFusion`]: the rewrite that groups each run of operators into
+//! fewer, larger operators; it keeps the contract of [`Rewrite`] (in
 //! `rewrites.rs`).
 //!
 //! An engine's time goes to its operators (one per
@@ -21,8 +21,8 @@ use num_complex::Complex64;
 use super::super::lowering::Operator;
 use super::Rewrite;
 
-/// How the MPS simulation method groups the gates of each run between
-/// measurements and resets into the engine's operators.
+/// How the MPS simulation method groups the gates between measurements and
+/// resets into the engine's operators.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum GateFusion {
@@ -31,8 +31,8 @@ pub enum GateFusion {
     /// Operators on at most two sites, the most every engine applies: a
     /// one-qubit gate joins the two-site block open on its site (after it),
     /// or the next one that opens on it (before it); consecutive gates on
-    /// the same two sites multiply into one 4×4; a run of one-qubit gates on
-    /// a site no pair claims multiplies into one 2×2. The default.
+    /// the same two sites multiply into one 4×4; the one-qubit gates on a
+    /// site no pair claims multiply into one 2×2. The default.
     #[default]
     Pairs,
 }

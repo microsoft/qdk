@@ -7,8 +7,9 @@ calls, in order.
 
 ## The calls of each phase
 
-Each band of the diagram is one phase, with its calls in order; layout,
-lower and rewrite call no `MpsEngine` method:
+Each band of the diagram is a phase, or two that call nothing between
+them, with its calls in order; layout, lower and rewrite call no
+`MpsEngine` method:
 
 ```mermaid
 sequenceDiagram

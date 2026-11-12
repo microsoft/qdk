@@ -11,10 +11,10 @@
 //! ([`MpsEngine::retained_weight`](tensornet::MpsEngine::retained_weight))
 //! says what that cost: after one truncation the fidelity of the state is
 //! the weight, and the total variation distance of any readout is at most
-//! √(1 − weight); after several, as in a run of many gates, the weight is
-//! an estimate of the fidelity, not a bound. So the report keeps the least
-//! weight among the shots that ended, and warns when one lost more than
-//! [`TRUNCATION_TOLERANCE`], for the user to raise χ.
+//! √(1 − weight); after several, as in a program of many gates, the weight
+//! is an estimate of the fidelity, not a bound. So the report keeps the
+//! least weight among the shots that ended, and warns when one lost more
+//! than [`TRUNCATION_TOLERANCE`], for the user to raise χ.
 //!
 //! The max bond dimension is the engine's to keep: an engine that does not
 //! truncate (the exact reference) may hold bonds above it, which
@@ -33,8 +33,8 @@ pub const TRUNCATION_TOLERANCE: f64 = 1e-3;
 /// What a run cost, over its shots.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MpsRunReport {
-    /// The largest bond a state held where a run of gates ended, before
-    /// the measurements after it
+    /// The largest bond a state held where a run of operators ended,
+    /// before the measurements after it
     /// ([`MpsShape::largest_bond`](tensornet::MpsShape::largest_bond)):
     /// what the run's costliest gates paid for. One when no shot applied a
     /// gate. Above [`max_bond_dimension`](Self::max_bond_dimension) only on

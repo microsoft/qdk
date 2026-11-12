@@ -45,6 +45,7 @@ use rewrites::fusion::GateFusion;
 /// records depend only on the program, the seed, the shot's id and the
 /// settings: not on the shots beside it, nor on its place among them, nor
 /// on earlier runs.
+///
 /// The layout, an order of the qubits chosen from the program's two-qubit
 /// gates, changes the bonds and the time, not the state (to rounding, and
 /// within the truncation error of an engine that truncates), so on an
@@ -91,8 +92,8 @@ impl<E: MpsEngine> MpsResumer<E> {
         self
     }
 
-    /// The resumer grouping each run of gates into operators as `fusion`
-    /// says.
+    /// The resumer grouping the gates between measurements and resets into
+    /// operators as `fusion` says.
     #[must_use]
     pub fn with_gate_fusion(mut self, fusion: GateFusion) -> Self {
         self.fusion = fusion;
@@ -100,8 +101,8 @@ impl<E: MpsEngine> MpsResumer<E> {
     }
 
     /// What the last run cost: the largest bond any of its states held
-    /// where a run of gates ended, and the least weight kept by a shot that
-    /// ended, with the warning they call for
+    /// where a run of operators ended, and the least weight kept by a shot
+    /// that ended, with the warning they call for
     /// ([`MpsRunReport::truncation_warning`]). After a failed run, what the
     /// run read before it failed. Before any run, and after a run of no
     /// shot, that of a run that prepared no state.

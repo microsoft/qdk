@@ -60,9 +60,9 @@ fn random_gate(stream: &mut SplitMix64) -> Operator {
     at(gate, angle, [first, second])
 }
 
-/// Runs that stress a rewrite: the empty run, one gate, overlapping and
-/// disjoint pairs, one-site gates before and after pairs, distant sites,
-/// random runs and a long one.
+/// Runs of operators that stress a rewrite: the empty run, one gate,
+/// overlapping and disjoint pairs, one-site gates before and after pairs,
+/// distant sites, random runs and a long one.
 fn runs() -> Vec<Vec<Operator>> {
     use QirGate::{Cx, Cy, Cz, H, Rx, Rzz, S, Swap, T};
     let mut runs = vec![
@@ -181,8 +181,9 @@ fn split_at_draws(steps: &[Step]) -> (Vec<Step>, Vec<Vec<Operator>>) {
     (draws, runs)
 }
 
-/// Clause 1, same state: on every run, every rewrite's operators have the
-/// product of the run's, so they give the same state from every state.
+/// Clause 1, same state: on every run of operators, every rewrite's
+/// operators have the product of the run's, so they give the same state
+/// from every state.
 #[test]
 fn every_rewrite_gives_the_same_state() {
     for (name, rewrite) in every_rewrite() {
@@ -193,8 +194,8 @@ fn every_rewrite_gives_the_same_state() {
     }
 }
 
-/// Clause 2, engine-ready: on every run, every operator a rewrite gives acts
-/// on one site or two distinct sites.
+/// Clause 2, engine-ready: on every run of operators, every operator a
+/// rewrite gives acts on one site or two distinct sites.
 #[test]
 fn every_rewrite_puts_each_operator_on_one_or_two_distinct_sites() {
     for (name, rewrite) in every_rewrite() {
@@ -210,11 +211,11 @@ fn every_rewrite_puts_each_operator_on_one_or_two_distinct_sites() {
     }
 }
 
-/// Clause 3, measurements and resets are barriers: in a batch of runs
-/// between draws (a reset first, a measurement and a reset with no gate
-/// between, a measurement that resets, a measurement last), every rewrite
-/// keeps the draws, in order, and each run between them keeps its product,
-/// so no operator moves across a draw.
+/// Clause 3, measurements and resets are barriers: in a batch of runs of
+/// operators between draws (a reset first, a measurement and a reset with
+/// no gate between, a measurement that resets, a measurement last), every
+/// rewrite keeps the draws, in order, and each run of operators between
+/// them keeps its product, so no operator moves across a draw.
 #[test]
 fn measurements_and_resets_are_barriers_to_every_rewrite() {
     let runs = runs();

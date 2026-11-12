@@ -3,7 +3,8 @@
 
 //! The MPS simulator: runs QIR programs on matrix product states (MPS), on
 //! any engine of the `tensornet` contract (for instance `tensornet`'s exact
-//! reference, or cuTensorNet's on a GPU).
+//! reference, or one over cuTensorNet, NVIDIA's tensor network library, on
+//! a GPU).
 //!
 //! An MPS simulates many more qubits than a state vector when a program
 //! entangles them little, as chemistry programs do. A caller builds an
@@ -16,34 +17,18 @@
 //! ([`MpsEngine`](tensornet::MpsEngine)) holds states and knows only sites
 //! and matrices. This module joins them: [`MpsResumer`] runs the calls of
 //! each shot on an MPS that an engine holds. Everything that maps qubits to
-//! sites is here, in `mps_simulator/`:
-//!
-//! - `resumer.rs`: [`MpsResumer`] and its settings (the max bond dimension
-//!   χ among them), and in `resumer/` what it runs a program with:
-//!   - `grouped_run.rs`: the run of a resumer's shots in groups that share
-//!     a state;
-//!   - `layout.rs`: which site holds each qubit, an order chosen at the
-//!     start of each run from the program's two-qubit gates;
-//!   - `lowering.rs`: a batch's calls as the engine's steps on sites, the
-//!     gates as matrices;
-//!   - `rewrites.rs`: the rewrites of a batch's operators into cheaper
-//!     ones that give the same state, and their contract; in `rewrites/`:
-//!     - `fusion.rs`: [`GateFusion`], gates multiplied into fewer one- and
-//!       two-site operators;
-//!   - `shot_stream.rs`: the stream each shot draws from, seeded as the
-//!     executor protocol will seed it;
-//!   - `report.rs`: [`MpsRunReport`] and [`TruncationWarning`], what a run
-//!     cost and the warning when truncation lost weight;
-//!   - `resumer_error.rs`: [`MpsResumerError`].
+//! sites is here, in `mps_simulator/`: [`MpsResumer`] and its settings in
+//! `resumer.rs`, and what it runs a program with in `resumer/`, one file
+//! per part, each saying in its header what it holds.
 //!
 //! Shots that drew the same values share one state, forked where their
 //! draws differ, so a run costs what its distinct histories cost; each shot
 //! draws from its own stream, so its records do not depend on the shots
 //! beside it.
 //!
-//! An overview, with the phases of a run and an example, is in
-//! `src/mps_simulator/README.md`; the calls each phase makes, in
-//! `src/mps_simulator/design.md`.
+//! An overview, with the module's files and which uses which, the phases of
+//! a run and an example, is in `src/mps_simulator/README.md`; the calls
+//! each phase makes, in `src/mps_simulator/design.md`.
 //!
 //! [`QirResumer`]: crate::qir::QirResumer
 
