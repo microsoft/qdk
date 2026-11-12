@@ -26,6 +26,7 @@ use tensornet::MpsEngine;
 mod grouped_run;
 pub(crate) mod layout;
 pub(crate) mod lowering;
+pub(crate) mod pauli_faults;
 pub(super) mod report;
 pub(super) mod resumer_error;
 pub(crate) mod rewrites;
@@ -33,6 +34,7 @@ pub(crate) mod routing;
 pub(crate) mod shot_stream;
 
 use grouped_run::GroupedRun;
+use pauli_faults::PauliFaults;
 use report::MpsRunReport;
 use resumer_error::MpsResumerError;
 use rewrites::fusion::GateFusion;
@@ -64,6 +66,7 @@ pub struct MpsResumer<E: MpsEngine> {
     fusion: GateFusion,
     stop: Option<Arc<AtomicBool>>,
     routing: Routing,
+    pauli_faults: Option<PauliFaults>,
     last_run: MpsRunReport,
 }
 
@@ -85,6 +88,7 @@ impl<E: MpsEngine> MpsResumer<E> {
             fusion: GateFusion::default(),
             stop: None,
             routing: Routing::default(),
+            pauli_faults: None,
             last_run: MpsRunReport::new(DEFAULT_MAX_BOND_DIMENSION.get()),
         }
     }
@@ -126,6 +130,15 @@ impl<E: MpsEngine> MpsResumer<E> {
     #[must_use]
     pub fn with_routing(mut self, routing: Routing) -> Self {
         self.routing = routing;
+        self
+    }
+
+    /// EXPERIMENTAL, development only: the resumer injecting Pauli faults
+    /// after every two-site gate ([`PauliFaults`]). A run with faults takes
+    /// one shot: its faults would otherwise need the group to split.
+    #[must_use]
+    pub fn with_pauli_faults(mut self, faults: PauliFaults) -> Self {
+        self.pauli_faults = Some(faults);
         self
     }
 
@@ -180,6 +193,7 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
             &mut self.last_run,
         )?
         .with_stop(self.stop.as_deref())
+        .with_pauli_faults(self.pauli_faults)
         .run()
     }
 }

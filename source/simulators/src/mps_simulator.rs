@@ -49,6 +49,8 @@
 
 pub(crate) mod resumer;
 
+#[doc(hidden)]
+pub use resumer::pauli_faults::PauliFaults;
 pub use resumer::report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
 pub use resumer::resumer_error::MpsResumerError;
 pub use resumer::rewrites::fusion::GateFusion;

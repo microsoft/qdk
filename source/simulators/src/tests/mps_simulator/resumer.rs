@@ -13,6 +13,7 @@
 mod grouped_run;
 mod layout;
 mod lowering;
+mod pauli_faults;
 mod report;
 mod rewrites;
 mod routing;

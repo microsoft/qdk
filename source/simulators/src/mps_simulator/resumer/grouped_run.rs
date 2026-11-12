@@ -44,6 +44,7 @@ use tensornet::{MpsEngine, MpsShape};
 use super::MpsResumer;
 use super::layout::QubitOrder;
 use super::lowering::{Operator, Step, lower};
+use super::pauli_faults::PauliFaults;
 use super::report::MpsRunReport;
 use super::resumer_error::MpsResumerError;
 use super::rewrites::fusion::GateFusion;
@@ -66,6 +67,9 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
     /// The flag that stops the run, if any.
     stop: Option<&'r AtomicBool>,
     routing: Routing,
+    /// The Pauli faults injected after each two-site gate, if any, and the
+    /// stream of the run's one shot they are drawn from.
+    pauli_faults: Option<(PauliFaults, SplitMix64)>,
     /// The max bond dimension, which a bond read that reaches it reports to
     /// the routing's guard.
     max_bond_dimension: usize,
@@ -116,9 +120,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             })?;
         let placement = match (routing.tuning(), &capacity) {
             (None, _) | (_, None) => None,
-            (Some(tuning), Some(capacity)) => {
-                Some(Placement::tuned(capacity.site_count(), tuning))
-            }
+            (Some(tuning), Some(capacity)) => Some(Placement::tuned(capacity.site_count(), tuning)),
         };
         let waiting = vec![Group {
             shots: shots
@@ -146,6 +148,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             fusion,
             stop: None,
             routing,
+            pauli_faults: None,
             max_bond_dimension: max_bond_dimension.get(),
             report,
             waiting,
@@ -158,6 +161,23 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// ([`MpsResumer::with_stop`]).
     pub(super) fn with_stop(mut self, stop: Option<&'r AtomicBool>) -> Self {
         self.stop = stop;
+        self
+    }
+
+    /// The run injecting `faults`, if any
+    /// ([`MpsResumer::with_pauli_faults`]).
+    ///
+    /// # Panics
+    ///
+    /// With faults, when the run has more than one shot: each shot draws
+    /// its own faults, so its group would split at each gate.
+    pub(super) fn with_pauli_faults(mut self, faults: Option<PauliFaults>) -> Self {
+        self.pauli_faults = faults.map(|faults| {
+            let [shot] = *self.shots else {
+                panic!("a run with Pauli faults takes one shot");
+            };
+            (faults, faults.stream(shot))
+        });
         self
     }
 
@@ -237,7 +257,10 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     return Ok(records.to_vec());
                 }
                 QirStop::Batch(calls) => {
-                    let steps = lower(calls, &self.layout)?;
+                    let mut steps = lower(calls, &self.layout)?;
+                    if let Some((faults, stream)) = self.pauli_faults.as_mut() {
+                        steps = faults.inject(steps, stream);
+                    }
                     group.steps = match (self.routing.tuning(), group.placement.as_mut()) {
                         (Some(tuning), Some(placement)) if !tuning.after_fusion => {
                             rewrite_runs(placement.route(steps), &self.fusion)
