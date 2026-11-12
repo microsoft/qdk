@@ -211,7 +211,7 @@ fn require_allows_peek_record_mixed_with_measurement() {
                         set r_0 = __quantum__qis__peek_loss__body(qs[0]);
                         set r_1 = M(qs[1]);
                         let loss_0 = IsLossResult(r_1) or IsLossResult(r_0);
-                        let parity_0 = r_1 == One != r_0 == One;
+                        let parity_0 = (r_1 == One) != (r_0 == One);
                         let restart_0 = loss_0 or parity_0;
                         if restart_0 {
                             continue;

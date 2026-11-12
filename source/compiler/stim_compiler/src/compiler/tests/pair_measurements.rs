@@ -85,14 +85,16 @@ fn myy_measurement_yields_correct_qsharp() {
                 @EntryPoint()
                 operation Main() : Result[] {
                     use qs = Qubit[2];
-                    let r_0 = within {
-                        S(qs[0]);
-                        S(qs[1]);
-                        CNOT(qs[0], qs[1]);
-                        H(qs[0]);
-                    } apply {
-                        M(qs[0])
-                    };
+                    S(qs[0]);
+                    S(qs[1]);
+                    CNOT(qs[0], qs[1]);
+                    H(qs[0]);
+                    let r_0 = M(qs[0]);
+                    Z(qs[1]);
+                    H(qs[0]);
+                    CNOT(qs[0], qs[1]);
+                    S(qs[0]);
+                    S(qs[1]);
                     [r_0]
                 }
             }"#]],

@@ -13,7 +13,7 @@ use qsc::ast::builder::{
     build_binary_expr, build_block, build_break_stmt, build_expr_array_expr,
     build_if_expr_then_block, build_lit_bool_expr, build_lit_double_expr, build_local_decl,
     build_path_ident_expr, build_stmt_semi_from_expr, build_top_level_ns_with_items,
-    build_while_stmt, managed_qubit_alloc_array,
+    build_while_stmt, managed_qubit_alloc_array, wrap_expr_in_parens,
 };
 use qsc_data_structures::span::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -1053,22 +1053,54 @@ impl<'noise> Compiler<'noise> {
         use semantic::PauliPair as P;
 
         // Stim's decompositions (into H, S, CX, M, R).
-        let basis_change: &[(Op, &[StimQubitId])] = match observable {
+        match observable {
             // CX 0 1; H 0; M 0; H 0; CX 0 1
-            P::XX => &[(Op::CNOT, &[q0, q1]), (Op::H, &[q0])],
-            // S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1
-            P::YY => &[
-                (Op::S, &[q0]),
-                (Op::S, &[q1]),
-                (Op::CNOT, &[q0, q1]),
-                (Op::H, &[q0]),
-            ],
-            // CX 1 0; M 0; CX 1 0, which is equivalent to
-            // Stim's CX 0 1; M 1; CX 0 1.
-            P::ZZ => &[(Op::CNOT, &[q1, q0])],
-        };
-        let basis_change = self.multi_qubit_decomposition_stmts(basis_change, span);
-        self.compile_measurement(basis_change, q0, false, negated, readout_noise, span)
+            P::XX => {
+                let basis_change = self.multi_qubit_decomposition_stmts(
+                    &[(Op::CNOT, &[q0, q1]), (Op::H, &[q0])],
+                    span,
+                );
+                self.compile_measurement(basis_change, q0, false, negated, readout_noise, span)
+            }
+            // S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1, with `S S` written as
+            // `Z`. The uncompute is not the adjoint of the compute, so it can't use `within`.
+            P::YY => {
+                let mut stmts = self.multi_qubit_decomposition_stmts(
+                    &[
+                        (Op::S, &[q0]),
+                        (Op::S, &[q1]),
+                        (Op::CNOT, &[q0, q1]),
+                        (Op::H, &[q0]),
+                    ],
+                    span,
+                );
+                stmts.extend(self.compile_measurement(
+                    vec![],
+                    q0,
+                    false,
+                    negated,
+                    readout_noise,
+                    span,
+                ));
+                stmts.extend(self.multi_qubit_decomposition_stmts(
+                    &[
+                        (Op::Z, &[q1]),
+                        (Op::H, &[q0]),
+                        (Op::CNOT, &[q0, q1]),
+                        (Op::S, &[q0]),
+                        (Op::S, &[q1]),
+                    ],
+                    span,
+                ));
+                stmts
+            }
+            // CX 0 1; M 1; CX 0 1
+            P::ZZ => {
+                let basis_change =
+                    self.multi_qubit_decomposition_stmts(&[(Op::CNOT, &[q0, q1])], span);
+                self.compile_measurement(basis_change, q1, false, negated, readout_noise, span)
+            }
+        }
     }
 
     fn compile_pauli_product_measurement(
@@ -1104,31 +1136,31 @@ impl<'noise> Compiler<'noise> {
         readout_noise: f64,
         span: Span,
     ) -> Vec<ast::Stmt> {
-        let mut apply = Vec::new();
-        if negated {
-            let flip = self.op_call_stmt(QSharpOp::X, &[qubit], span);
-
-            // only undo the flip if there is no reset
-            if reset {
-                apply.push(flip);
-            } else {
-                basis_change.push(flip);
-            }
-        }
         let op = if reset {
             QSharpOp::MResetZ
         } else {
             QSharpOp::M
         };
-        let mut stmts = Vec::new();
-        let mut measurement = self.op_call_expr(op, &[qubit], span);
-        // Without a basis change there is nothing to undo, so skip `within` and emit `apply`
-        // (at most the reset's flip) right before the measurement.
-        if basis_change.is_empty() {
-            stmts.extend(apply);
-        } else {
-            measurement = build_within_apply_expr(basis_change, apply, measurement, span);
+        let measure = self.op_call_expr(op, &[qubit], span);
+
+        // Flip before measuring, and undo the flip afterwards unless the qubit is reset.
+        let mut flip = Vec::new();
+        if negated {
+            let x = self.op_call_stmt(QSharpOp::X, &[qubit], span);
+            if reset {
+                flip.push(x);
+            } else {
+                basis_change.push(x);
+            }
         }
+
+        let mut stmts = Vec::new();
+        let measurement = if basis_change.is_empty() {
+            stmts.extend(flip);
+            measure
+        } else {
+            build_within_apply_expr(basis_change, flip, measure, span)
+        };
 
         let (result_id, record_stmt) = self.record_result(measurement, span);
         stmts.push(record_stmt);
@@ -1175,7 +1207,13 @@ impl<'noise> Compiler<'noise> {
                 } else {
                     ast::Result::One
                 };
-                build_record_equals_expr(r, expected, span)
+                let term = build_record_equals_expr(r, expected, span);
+                // `==` and `!=` are non-associative in Q#, so chained terms need parentheses.
+                if result_ids.len() > 1 {
+                    wrap_expr_in_parens(term, span)
+                } else {
+                    term
+                }
             })
             .collect();
         let parity_expr = fold_exprs_with_op(ast::BinOp::Neq, parity_terms, span);

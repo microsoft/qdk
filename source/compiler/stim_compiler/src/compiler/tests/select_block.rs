@@ -59,7 +59,7 @@ fn require_with_negated_record_yields_expected_qsharp() {
                         set r_0 = M(qs[0]);
                         set r_1 = M(qs[1]);
                         let loss_0 = IsLossResult(r_1) or IsLossResult(r_0);
-                        let parity_0 = r_1 == Zero != r_0 == One;
+                        let parity_0 = (r_1 == Zero) != (r_0 == One);
                         let restart_0 = loss_0 or parity_0;
                         if restart_0 {
                             continue;
@@ -103,7 +103,7 @@ fn long_select_block() {
                         set r_1 = M(qs[1]);
                         set r_2 = M(qs[2]);
                         let loss_0 = IsLossResult(r_2) or IsLossResult(r_1) or IsLossResult(r_0);
-                        let parity_0 = r_2 == One != r_1 == One != r_0 == One;
+                        let parity_0 = (r_2 == One) != (r_1 == One) != (r_0 == One);
                         let restart_0 = loss_0 or parity_0;
                         if restart_0 {
                             continue;
@@ -145,7 +145,7 @@ fn multiple_requires_in_block() {
                         };
                         set r_1 = M(qs[1]);
                         let loss_1 = IsLossResult(r_1) or IsLossResult(r_0);
-                        let parity_1 = r_1 == One != r_0 == One;
+                        let parity_1 = (r_1 == One) != (r_0 == One);
                         let restart_1 = loss_1 or parity_1;
                         if restart_1 {
                             continue;
@@ -186,7 +186,7 @@ fn multiple_targets_in_require() {
                         set r_2 = M(qs[2]);
                         set r_3 = M(qs[3]);
                         let loss_0 = IsLossResult(r_3) or IsLossResult(r_2) or IsLossResult(r_1) or IsLossResult(r_0);
-                        let parity_0 = r_3 == One != r_2 == One != r_1 == One != r_0 == One;
+                        let parity_0 = (r_3 == One) != (r_2 == One) != (r_1 == One) != (r_0 == One);
                         let restart_0 = loss_0 or parity_0;
                         if restart_0 {
                             continue;
@@ -646,7 +646,7 @@ fn require_and_notleaked_with_multiple_targets() {
                             continue;
                         };
                         let loss_1 = IsLossResult(r_2) or IsLossResult(r_1) or IsLossResult(r_0);
-                        let parity_0 = r_2 == One != r_1 == One != r_0 == One;
+                        let parity_0 = (r_2 == One) != (r_1 == One) != (r_0 == One);
                         let restart_0 = loss_1 or parity_0;
                         if restart_0 {
                             continue;
