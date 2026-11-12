@@ -11,12 +11,14 @@ written by ``rst_to_notebook.py`` render each ``quiz-question`` admonition as a
 those blocks are replaced with ``quiz()`` calls. Afterwards there is nothing
 left to convert and every run is only a rebake.
 
-ID-only cells use the choices written by hand in ``_unit.py``. A dedicated
-code cell tagged ``quiz`` can instead own one full literal definition; baking
-reads its data without executing the call or looking up its registration.
-Unit 06's ``iqpe-energy-comparison`` is the first such baking-only proof:
-runtime execution and workbook materialization do not yet support this form.
-This never writes ``_unit.py``.
+ID-only cells use the existing runtime lookup. A dedicated code cell tagged
+``quiz`` can instead own one full literal definition; baking reads its data
+without executing the call or looking up its registration.
+Unit 06's ``iqpe-energy-comparison`` is the first such authored quiz.
+The runtime can display the full call directly; materialization derives an
+ID-only learner call from the saved MCQ outputs without changing those outputs.
+Its ID-only runtime lookup reads the bound authored notebook's saved output.
+This tool never writes ``_unit.py``.
 
 Both steps are idempotent. The one-time conversion:
 
@@ -32,8 +34,9 @@ A first conversion needs the ids to substitute, in document order::
 
     python details_to_quiz.py 06-iterative-phase-estimation --ids iqpe-grid-target ...
 
-After that the notebook names them, so rebaking after editing ``_unit.py`` is
-just the unit, and ``--check`` reports drift without writing::
+After that the notebook names them, so rebaking an edited authored definition
+or legacy ``_unit.py`` registration is just the unit. ``--check`` validates the
+definitions and reports baked-output drift without writing::
 
     python details_to_quiz.py 06-iterative-phase-estimation --check
 """
@@ -152,7 +155,7 @@ def _group_adjacent_quizzes(
 
 
 def _authored_quiz(cell: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
-    """Read a tagged literal definition, leaving ID-only calls on their old path."""
+    """Validate a dedicated quiz cell and read its full literal definition, if any."""
     if cell.get("cell_type") != "code" or "quiz" not in _cell_tags(cell):
         return None
     label = f"cell {cell.get('id', '?')}"
@@ -161,7 +164,23 @@ def _authored_quiz(cell: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
     except SyntaxError as error:
         raise SystemExit(f"{label}: invalid quiz syntax: {error.msg}") from error
 
-    if not any(isinstance(node, ast.keyword) for node in ast.walk(tree)):
+    if not tree.body or any(
+        not isinstance(statement, ast.Expr)
+        or not isinstance(statement.value, ast.Call)
+        or not isinstance(statement.value.func, ast.Name)
+        or statement.value.func.id != "quiz"
+        for statement in tree.body
+    ):
+        raise SystemExit(f"{label}: a quiz cell may contain only quiz() calls and comments")
+
+    if not any(statement.value.keywords for statement in tree.body):
+        for statement in tree.body:
+            call = statement.value
+            if not call.args or any(
+                not isinstance(arg, ast.Constant) or not isinstance(arg.value, str)
+                for arg in call.args
+            ):
+                raise SystemExit(f"{label}: ID-only quiz() calls need literal string ids")
         return None
     if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Expr):
         raise SystemExit(f"{label}: an authored quiz needs one standalone quiz() call")
@@ -267,6 +286,12 @@ def _cell_quiz_ids(cell: dict[str, Any]) -> list[str]:
     if authored is not None:
         return [authored[0]]
     source = "".join(cell["source"])
+    if "quiz" in _cell_tags(cell):
+        return [
+            arg.value
+            for statement in ast.parse(source).body
+            for arg in statement.value.args
+        ]
     return [
         quiz_id
         for call in QUIZ_CALL.findall(source)

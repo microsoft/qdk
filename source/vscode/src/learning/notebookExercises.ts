@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import { log } from "qsharp-lang";
+import { isRecord, MIME_TYPE } from "../notebookRenderer/schema.js";
 import type {
   CatalogActivity,
   CatalogCodeCell,
@@ -33,14 +34,15 @@ import type {
  *
  * This module works on raw notebook JSON rather than VS Code's notebook API
  * because both course load and materialization happen with the file closed.
- * The transform is delete-only, so no nbformat cells are ever constructed.
+ * Materialization removes author-only cells and canonicalizes dedicated quizzes
+ * without constructing cells or regenerating outputs.
  */
 
 /** Tag marking the code cell a learner edits. */
 const EXERCISE_TAG = "exercise";
 
 /**
- * Tag marking a code cell that only shows a registered quiz.
+ * Tag marking a dedicated quiz-only code cell.
  *
  * A quiz cell is learner content, so unlike the authoring tags it stays in the
  * working copy — but it is not an activity, for the reasons in
@@ -64,6 +66,7 @@ interface RawCell {
   id?: unknown;
   cell_type?: unknown;
   source?: unknown;
+  outputs?: unknown;
   metadata?: { tags?: unknown };
 }
 
@@ -215,10 +218,11 @@ export function parseNotebookActivities(
  * Remove the author-only cells from a notebook's JSON text, returning the
  * notebook the learner works in.
  *
- * Retained cells preserve their content, ids, and other tags, including the
- * `exercise` tag. The test-only `skip-test` tag is removed so it doesn't leak
- * into the learner's working copy. Returns `undefined` if the text isn't a
- * notebook, leaving the caller to decide on a fallback.
+ * Dedicated quiz cells get canonical ID-only source from their ordered baked
+ * MCQ outputs, preserving all other fields. Other retained cells preserve their
+ * content, ids, and tags except the test-only `skip-test` tag.
+ * Returns `undefined` if the text isn't a notebook. Invalid baked quiz data
+ * throws instead so the caller cannot copy answer-bearing source as a fallback.
  */
 export function stripAuthoringCells(
   text: string,
@@ -235,6 +239,9 @@ export function stripAuthoringCells(
   });
 
   for (const cell of notebook.cells) {
+    if (cellKind(cell) === "code" && cellTags(cell).includes(QUIZ_TAG)) {
+      materializeQuizSource(cell, unitLabel);
+    }
     const metadata = cell.metadata;
     if (metadata && Array.isArray(metadata.tags)) {
       metadata.tags = metadata.tags.filter((tag) => tag !== SKIP_TEST_TAG);
@@ -244,6 +251,49 @@ export function stripAuthoringCells(
   // Match the ipynb serializer's formatting so the file stays diff-stable
   // once VS Code starts saving it: one space of indent, trailing newline.
   return `${JSON.stringify(notebook, undefined, 1)}\n`;
+}
+
+function materializeQuizSource(cell: RawCell, unitLabel: string): void {
+  const invalidOutput = new Error(
+    `Cannot materialize quiz cell "${cellIdOf(cell) ?? "unknown"}" in ` +
+      `unit "${unitLabel}": expected saved display_data MCQ outputs ` +
+      `with unique, valid payload IDs. Re-bake the authored notebook.`,
+  );
+  if (!Array.isArray(cell.outputs)) {
+    throw invalidOutput;
+  }
+  const ids = new Set<string>();
+  for (const output of cell.outputs) {
+    if (
+      !isRecord(output) ||
+      (output.data !== undefined && !isRecord(output.data))
+    ) {
+      throw invalidOutput;
+    }
+    if (!isRecord(output.data) || !(MIME_TYPE in output.data)) {
+      continue;
+    }
+    const payload = output.data[MIME_TYPE];
+    if (
+      output.output_type !== "display_data" ||
+      !isRecord(payload) ||
+      payload.schemaVersion !== 1 ||
+      payload.kind !== "multiple-choice" ||
+      typeof payload.payloadId !== "string" ||
+      payload.payloadId !== payload.payloadId.trim() ||
+      !/^[a-z0-9][a-z0-9-]{0,63}$/.test(payload.payloadId) ||
+      ids.has(payload.payloadId)
+    ) {
+      throw invalidOutput;
+    }
+    ids.add(payload.payloadId);
+  }
+  if (ids.size === 0) {
+    throw invalidOutput;
+  }
+
+  const source = `quiz(${[...ids].map((id) => JSON.stringify(id)).join(", ")})\n`;
+  cell.source = Array.isArray(cell.source) ? [source] : source;
 }
 
 // ─── Cell readers ───
