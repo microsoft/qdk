@@ -9,7 +9,7 @@ from qdk._adaptive_pass import AdaptiveProfilePass, Bytecode
 from qdk._interpreter import _get_context_or_default
 from qdk.estimator._estimator import LogicalCounts
 from qdk.qre._application import Application
-from qdk.qre._qre import Profiler, ProfilerResult
+from qdk.qre._qre import Profiler, ProfilerResult, SequentialCountingProfiler
 from qdk.qre.application._openqasm import (
     OpenQASMApplication,
     _find_unique_openqasm_name,
@@ -24,6 +24,19 @@ class QREProfiler:
     def __init__(self, profiler: Profiler):
         """Wraps a backend profiler."""
         self.profiler = profiler
+
+    @staticmethod
+    def counting() -> "QREProfiler":
+        """Returns profiler that counts instructions."""
+        gate_names = (  # noqa: SIM905
+            "ccx cx cy cz rx rxx ry ryy rz rzz h s sadj sx t tadj x y z swap "
+            "reset mz_store mz_store_reset read_result mz mz_reset"
+        ).split()
+        profiler = SequentialCountingProfiler(
+            physical_qubits_per_logical=1,
+            gate_time_sec={name: 0.0 for name in gate_names},
+        )
+        return QREProfiler(profiler)
 
     def _profile_qir(self, qir: str | bytes) -> ProfilerResult:
         """Profiles QIR supplied as LLVM text or binary bitcode."""
