@@ -9,12 +9,17 @@
 //! that truncates keeps the bonds within χ and drops the smallest Schmidt
 //! values. The weight it keeps
 //! ([`MpsEngine::retained_weight`](tensornet::MpsEngine::retained_weight))
-//! says what that cost: after one truncation the fidelity of the state is
-//! the weight, and the total variation distance of any readout is at most
-//! √(1 − weight); after several, as in a program of many gates, the weight
-//! is an estimate of the fidelity, not a bound. So the report keeps the
-//! least weight among the shots that ended, and warns when one lost more
-//! than [`TRUNCATION_TOLERANCE`], for the user to raise χ.
+//! says what that cost. The engine contract bounds the error by it only
+//! for a state with one truncation and gates only after it: the fidelity
+//! is then the weight, and any readout is within √(1 − weight) in total
+//! variation distance. A shot's state is read after its measurements,
+//! which project it: a readout conditioned on an outcome may be far off
+//! though the weight is near 1. After several truncations, as in a program
+//! of many gates, the weight is an estimate of the fidelity, not a bound.
+//! So, for the report, the weight is the bookkeeping of what truncation
+//! dropped, an estimate of the loss: the report keeps the least weight
+//! among the shots that ended, and warns when one lost more than
+//! [`TRUNCATION_TOLERANCE`], for the user to raise χ.
 //!
 //! The max bond dimension is the engine's to keep: an engine that does not
 //! truncate (the exact reference) may hold bonds above it, which
@@ -71,9 +76,10 @@ impl MpsRunReport {
 }
 
 /// A run whose truncations lost more weight than [`TRUNCATION_TOLERANCE`].
-/// After one truncation its readouts are within √`lost_weight` of the exact
-/// ones in total variation distance; after several, `lost_weight` estimates
-/// the error but bounds nothing. It displays as the message a user reads.
+/// `lost_weight` estimates the error of its results, and bounds it only
+/// where the engine contract says (one truncation, gates only after it):
+/// a shot that measures after a truncation may read further off. It
+/// displays as the message a user reads.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TruncationWarning {
     /// The most weight a shot lost: 1 − its retained weight.
