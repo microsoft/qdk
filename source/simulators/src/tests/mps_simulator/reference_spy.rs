@@ -3,12 +3,13 @@
 
 //! [`ReferenceSpy`]: a test spy over the exact reference, which runs every
 //! call on [`ExactReference`] and records what the resumer asked of it: it
-//! counts the operators it applies, the states it prepares and forks, and
-//! the states alive at once; keeps the capacities it is given; and, as a
-//! test sets it, reports a retained weight below one, as an engine that
-//! truncates would, or fails where a device would. A state a call failed
-//! on is unspecified, as the `MpsEngine` contract says (the source, for a
-//! fork): the spy counts each later call given it, which it runs on the
+//! counts the operators it applies, the shapes it reads, the states it
+//! prepares and forks, and the states alive at once; keeps the capacities
+//! it is given; and, as a test sets it, reports a retained weight below
+//! one, as an engine that truncates would, or fails where a device would.
+//! A state a call failed on is unspecified, by the `MpsEngine` contract's
+//! rule for every method's failure, which a fork's source falls under as
+//! well: the spy counts each later call given it, which it runs on the
 //! reference's state as it is.
 
 use std::cell::{Cell, RefCell};
@@ -36,6 +37,7 @@ pub(super) enum Call {
     Prepare,
     Apply,
     ProbabilityOfOne,
+    Project,
     Shape,
     RetainedWeight,
 }
@@ -60,6 +62,7 @@ pub(super) struct ReferenceSpy {
     failed_first: Cell<bool>,
     prepared: RefCell<Vec<MpsShape>>,
     applies: Cell<usize>,
+    shapes: Cell<usize>,
     forks: Cell<usize>,
     live: Rc<Cell<usize>>,
     most_live: Cell<usize>,
@@ -120,6 +123,7 @@ impl ReferenceSpy {
             failed_first: Cell::new(false),
             prepared: RefCell::new(Vec::new()),
             applies: Cell::new(0),
+            shapes: Cell::new(0),
             forks: Cell::new(0),
             live: Rc::new(Cell::new(0)),
             most_live: Cell::new(0),
@@ -135,6 +139,11 @@ impl ReferenceSpy {
     /// The operators it applied, one per `apply` call.
     pub(super) fn applies(&self) -> usize {
         self.applies.get()
+    }
+
+    /// The shapes it read, one per `shape` call.
+    pub(super) fn shapes(&self) -> usize {
+        self.shapes.get()
     }
 
     /// The states it forked.
@@ -270,7 +279,7 @@ impl MpsEngine for ReferenceSpy {
         one: bool,
     ) -> Result<f64, ReferenceSpyError> {
         self.note_use(state);
-        if one && self.failing == Failing::ProjectionsOnOne {
+        if (one && self.failing == Failing::ProjectionsOnOne) || self.fails_now(Call::Project) {
             return Err(Self::fail_on(state));
         }
         Ok(self.reference.project(&mut state.state, site, one)?)
@@ -310,6 +319,7 @@ impl MpsEngine for ReferenceSpy {
         if self.fails_now(Call::Shape) {
             return Err(Self::fail_on(state));
         }
+        self.shapes.set(self.shapes.get() + 1);
         Ok(self.reference.shape(&state.state)?)
     }
 

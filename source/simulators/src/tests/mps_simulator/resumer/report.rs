@@ -62,6 +62,28 @@ fn a_smaller_bond_read_later_keeps_the_largest() {
     assert_eq!(resumer.last_run().largest_bond, 2);
 }
 
+/// The bond is read once per run of operators, where it ends, not before
+/// every draw: a shot of a Bell pair, both qubits read, then an H gate,
+/// reads it before the first measurement (none before the second, with no
+/// gate between) and after the H, as its context ends.
+#[test]
+fn the_bond_is_read_once_per_run_of_operators() {
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
+    let program = program(
+        2,
+        &[&[
+            gate1(OPID_H, 0),
+            gate2(OPID_CX, 0, 1),
+            mz(0),
+            mz(1),
+            gate1(OPID_H, 1),
+            ret(),
+        ]],
+    );
+    run(&mut resumer, &program, &QirShotId::first(1)).expect("the program runs");
+    assert_eq!(resumer.engine().shapes(), 2);
+}
+
 /// The report shows a bond above the max bond dimension, which an engine
 /// that does not truncate holds: a GHZ state on the exact reference, with
 /// χ set to 1, holds bonds of 2.

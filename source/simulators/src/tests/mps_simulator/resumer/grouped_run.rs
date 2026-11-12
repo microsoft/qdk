@@ -370,7 +370,7 @@ fn an_engine_failure_names_the_first_shot_whose_group_met_it() {
 }
 
 /// A Bell pair read into two results: a run of one shot makes each call
-/// of [`ENGINE_CALLS`].
+/// of [`LONE_SHOT_CALLS`].
 fn bell() -> QirProgram {
     program(
         2,
@@ -378,23 +378,26 @@ fn bell() -> QirProgram {
     )
 }
 
-/// The engine's calls a run of [`bell`] makes: it prepares a state,
-/// applies the pair's gates, reads the largest bond and P(One) before each
-/// measurement, and the retained weight at the end.
-const ENGINE_CALLS: [Call; 5] = [
+/// The engine's calls a run of one shot of [`bell`] makes: it prepares a
+/// state, applies the pair's gates, reads the largest bond, reads P(One)
+/// and projects at each measurement, and reads the retained weight at the
+/// end. Only a split forks, which a lone shot never makes: a failed fork
+/// has its own tests below.
+const LONE_SHOT_CALLS: [Call; 6] = [
     Call::Prepare,
     Call::Apply,
     Call::Shape,
     Call::ProbabilityOfOne,
+    Call::Project,
     Call::RetainedWeight,
 ];
 
-/// An engine's failure in any call fails the shot whose group met it with
+/// An engine's failure in any call a shot makes alone fails the shot with
 /// that failure: a Bell pair's shot, on an engine that fails the first of
-/// one of the calls the run makes.
+/// one of those calls.
 #[test]
-fn an_engine_failure_in_any_call_fails_the_shot_with_the_engines_error() {
-    for call in ENGINE_CALLS {
+fn a_failure_of_any_call_a_lone_shot_makes_fails_it_with_the_engines_error() {
+    for call in LONE_SHOT_CALLS {
         let error = run(
             &mut MpsResumer::new(ReferenceSpy::failing_first(call), 5),
             &bell(),
@@ -419,7 +422,7 @@ fn an_engine_failure_in_any_call_fails_the_shot_with_the_engines_error() {
 /// one of the calls given a state.
 #[test]
 fn a_state_a_call_failed_on_is_not_used_again() {
-    for call in ENGINE_CALLS {
+    for call in LONE_SHOT_CALLS {
         if call == Call::Prepare {
             continue; // A failed preparation gives no state.
         }
@@ -441,7 +444,7 @@ fn a_run_after_a_failed_run_gives_the_records_of_a_new_resumer() {
         &shots,
     )
     .expect("the program runs");
-    for call in ENGINE_CALLS {
+    for call in LONE_SHOT_CALLS {
         let mut resumer = MpsResumer::new(ReferenceSpy::failing_first(call), 5);
         run(&mut resumer, &bell(), &shots).expect_err("the call fails");
         let next = run(&mut resumer, &bell(), &shots).expect("the engine fails only once");
@@ -489,27 +492,30 @@ fn reading_on_two_coins(first: u8, second: Option<u8>) -> Vec<QirShotId> {
         .collect()
 }
 
-/// When the fork of a group's state fails, the whole group fails, the
-/// shots going on too: the engine leaves the state it failed on
-/// unspecified, so no part may go on with it. The shot that reads 0 on a
-/// coin, which would go on, the fewer, and end, comes first, and the run
-/// names it.
+/// When the fork of a group's state fails, the whole group fails, before
+/// its shots part: the engine leaves the state it failed on unspecified, so
+/// no part may go on with it. On a coin, the shot that reads 0 would go on,
+/// the fewer, and the two that read 1 would wait; the run names the first
+/// shot, which ends alone, whichever part it would be in: the shot that
+/// reads 0 first, then a shot that reads 1 first.
 #[test]
 fn a_failed_fork_fails_the_shots_going_on_too() {
-    let shots = a_zero_then_two_ones();
+    let [zero, one, other_one] = a_zero_then_two_ones();
     let make = || MpsResumer::new(ReferenceSpy::failing_forks(), 5);
-    run(&mut make(), &coins(1), &shots[..1]).expect("the shot that reads 0 ends alone");
-    let error = run(&mut make(), &coins(1), &shots).expect_err("the fork fails");
-    assert!(
-        matches!(
-            error,
-            QirResumeError::Resumer {
-                shot,
-                error: MpsResumerError::Engine(ReferenceSpyError::Device),
-            } if shot == shots[0]
-        ),
-        "{error:?}"
-    );
+    for shots in [[zero, one, other_one], [one, zero, other_one]] {
+        run(&mut make(), &coins(1), &shots[..1]).expect("the first shot ends alone");
+        let error = run(&mut make(), &coins(1), &shots).expect_err("the fork fails");
+        assert!(
+            matches!(
+                error,
+                QirResumeError::Resumer {
+                    shot,
+                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
+                } if shot == shots[0]
+            ),
+            "{shots:?}: {error:?}"
+        );
+    }
 }
 
 /// The state whose fork failed is not used again, as the engine leaves it
@@ -636,12 +642,12 @@ fn a_failed_waiting_copy_and_a_later_failure_name_the_first_shot_in_order() {
     );
 }
 
-/// The part that goes on from a split whose waiting copy failed stops there
-/// when its shots all come after the shots that failed, since it could not
-/// change the shot the run names: a coin, then three X gates on a second
-/// qubit, on an engine whose projections on One fail; the two shots that
-/// read 1 first, which wait and whose copy fails, then the shot that reads
-/// 0, which goes on and applies none of the gates.
+/// The part that goes on from a split whose waiting copy failed runs no
+/// later step when its shots all come after the shots that failed, since it
+/// could not change the shot the run names: a coin, then three X gates on
+/// a second qubit, on an engine whose projections on One fail; the two
+/// shots that read 1 first, which wait and whose copy fails, then the shot
+/// that reads 0, which goes on and applies none of the gates.
 #[test]
 fn the_part_going_on_from_a_failed_waiting_copy_stops_when_its_shots_come_after() {
     let [zero, one, other_one] = a_zero_then_two_ones();
@@ -676,8 +682,8 @@ fn the_part_going_on_from_a_failed_waiting_copy_stops_when_its_shots_come_after(
     );
 }
 
-/// The part going on from any split stops there when its shots all come
-/// after the run's failure, not only from a split whose waiting copy
+/// The part going on from any split runs no later step when its shots all
+/// come after the run's failure, not only from a split whose waiting copy
 /// failed: a first coin, whose shots that read 1 trap, then for the others
 /// a second coin and three X gates on a third qubit, unfused, so that each
 /// gate is one apply. The shots: A and C read 0 then 0, B reads 1, D reads

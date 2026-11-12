@@ -26,8 +26,9 @@
 //! **Failures.** `fail` keeps the failure of the first shot in the order of
 //! the shots; since a group's shots keep that order, a group whose first
 //! shot comes after it is dropped: `run` drops it unrun when it waits, and
-//! `run_group` stops it at the split that leaves it only such shots going
-//! on, whether settling the fork failed or not. A group that meets a
+//! `run_group` stops it after the step whose split leaves it only such
+//! shots going on, whether settling the fork failed or not (that step
+//! settles the group's own value first). A group that meets a
 //! failure is dropped with its state, which the engine leaves unspecified
 //! after it fails: a failed fork fails the whole group, before its shots
 //! part, while a failure settling the fork fails only the part that waits,
@@ -194,9 +195,10 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     }
 
     /// Runs `group` until its context ends, giving its records; the groups
-    /// that split off it wait on [`Self::waiting`]. Gives `None`, and stops
-    /// at once, when a split of `group` leaves it only shots that come after
-    /// the run's failure, whether settling the fork failed or not.
+    /// that split off it wait on [`Self::waiting`]. Gives `None`, and stops,
+    /// after a step whose split leaves `group` only shots that come after
+    /// the run's failure, whether settling the fork failed or not: the step
+    /// has settled `group`'s own value, and no later step runs.
     fn run_group(
         &mut self,
         group: &mut Group<E::State>,

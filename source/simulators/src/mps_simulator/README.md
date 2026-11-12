@@ -174,15 +174,19 @@ turn.
 Two rules hold across the phases:
 
 - **Failures** ([`grouped_run.rs`](resumer/grouped_run.rs),
-  [`resumer_error.rs`](resumer/resumer_error.rs)): a shot fails with its
-  group, in any phase from resume to end but rewrite: its context traps,
-  a call is refused, or the engine fails. Before any group runs, start
-  fails the run's first shot when the qubits and χ make no chain. The run
-  names the first failing shot in the order of the shots, as
-  `QirResumer::run`'s contract requires whatever order they run in, and
-  drops the groups whose shots all come after it, which could not change
-  that name: unrun when they wait, and, when they run, at the split,
-  failed or not, after which the shots going on all come after it.
+  [`resumer_error.rs`](resumer/resumer_error.rs)): a shot fails with the
+  shots that share its state when the failure is met, in any phase from
+  resume to end but rewrite: its context traps, a call is refused, or the
+  engine fails. So a failed fork fails the whole group, and a failure
+  settling the fork fails only the part that was to wait (see split).
+  Before any group runs, start fails the run's first shot when the qubits
+  and χ make no chain. The run names the first failing shot in the order
+  of the shots, as `QirResumer::run`'s contract requires whatever order
+  they run in, and drops what could not change that name: a waiting group
+  whose shots all come after it is dropped unrun, and a running group
+  stops after the step whose split leaves it only shots that come after
+  it, whether settling the fork failed or not; that step first settles
+  the group's own value.
 - **No waiting** ([`resumer.rs`](resumer.rs)): `run` runs every group when
   its future is first polled, so the future is ready at once. `MpsEngine`
   methods return when done, so this simulator has nothing to wait on;
@@ -242,8 +246,8 @@ Each item names a case that needs it:
 
 - **Noise and loss on matrix product states:** the calls this simulator
   does not run yet, and a noise model given to the simulator (as the
-  other simulators of this crate take one); `MpsResumer` has no such
-  setting yet. Its case: a logical Bell test on 56 qubits with Pauli noise
+  other simulators of this crate take one), which may also charge idle
+  noise and loss on `move`; `MpsResumer` has no such setting yet. Its case: a logical Bell test on 56 qubits with Pauli noise
   and loss.
 - **The sampled form:** a program whose classical part does not depend on
   its measurements, run once, its readout drawn for every shot with
@@ -266,16 +270,17 @@ Each item names a case that needs it:
   without shots.
 - **Groups run in parallel** on CPU threads. Its case: a chemistry
   program on a polyene chain, whose 1,000 shots split into many histories.
-- **A result per shot:** today a run is all or nothing, as in the QDK's
-  other simulators: when one shot fails, `QirResumer::run` gives no
-  records, so one failed shot of 100 loses the other 99. Planned: each
+- **A result per shot:** today a run is all or nothing: when one shot
+  fails, `QirResumer::run` gives no records, so one failed shot of 100
+  loses the other 99. Planned: each
   shot's own result, its records or its error, so that a caller keeps the
   shots that ended; a program's trap as the outcome of the shot that
   trapped, apart from the engine's failures and the resumer's refusals;
   and a shot that failed on the engine's failure (a fork its GPU had no
   memory for) run again alone, with no fork, which gives exactly the
   records it would have had, since a shot's records depend neither on the
-  other shots nor on how they are grouped. This changes the contract of
+  other shots nor on how they are grouped (as `run_qir` already retries a
+  failed shot with a Qodec, `on_shot_failure="retry"`). This changes the contract of
   `QirResumer::run`. Its cases: a long GPU run, such as H₂'s phase
   estimation, whose hours of shots one transient out-of-memory loses, and
   programs some of whose shots trap.

@@ -104,8 +104,8 @@ impl<E: MpsEngine> MpsResumer<E> {
     /// where a run of operators ended, and the least weight kept by a shot
     /// that ended, with the warning they call for
     /// ([`MpsRunReport::truncation_warning`]). After a failed run, what it
-    /// read until it stopped, including after the failure was met, as the
-    /// groups that hold a shot before the failing shot run on. Before any
+    /// read until it stopped: groups holding a shot before the failing one
+    /// run on after the failure, and what they read counts too. Before any
     /// run, and after a run of no shot, that of a run that prepared no state.
     #[must_use]
     pub fn last_run(&self) -> &MpsRunReport {
