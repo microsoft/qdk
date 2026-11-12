@@ -322,15 +322,17 @@ fn a_run_whose_bond_reaches_the_capacity_records_as_the_engines_routing() {
 fn tuned_routings() -> Vec<Routing> {
     let mut routings = Vec::new();
     for after_fusion in [false, true] {
-        for (restore, drift_budget_permille) in [
-            (Restore::BatchEnd, 1000),
-            (Restore::Draws, 1000),
-            (Restore::Never, 50),
+        for (restore, drift_budget_permille, restore_every_routed) in [
+            (Restore::BatchEnd, 1000, 0),
+            (Restore::Draws, 1000, 0),
+            (Restore::Never, 50, 0),
+            (Restore::BatchEnd, 1000, 2),
         ] {
             routings.push(Routing::Tuned(RouteTuning {
                 after_fusion,
                 restore,
                 drift_budget_permille,
+                restore_every_routed,
                 ..RouteTuning::default()
             }));
         }
@@ -390,4 +392,20 @@ fn a_drift_past_the_budget_restores_the_order_without_falling_back() {
     assert!(!placement.fell_back());
     assert_eq!(swaps(&steps), 8, "four to route, four to restore");
     assert_eq!(last_operator_sites(&steps), [1, 2], "on the layout's order");
+}
+
+/// Development only: restoring after every routed operator (K = 1), the
+/// next operator runs on the layout's order, within the batch.
+#[test]
+fn a_periodic_restore_restores_the_order_within_a_batch() {
+    let tuning = RouteTuning {
+        restore: Restore::BatchEnd,
+        restore_every_routed: 1,
+        ..RouteTuning::default()
+    };
+    let mut placement = Placement::tuned(6, tuning);
+    // Routed, (0, 3) leaves site 0 at position 1 and site 1 at position 0.
+    let steps = placement.route(vec![cx(0, 3), cx(0, 1)]);
+    assert_eq!(swaps(&steps), 4, "two to route, two to restore");
+    assert_eq!(last_operator_sites(&steps), [0, 1], "on the layout's order");
 }

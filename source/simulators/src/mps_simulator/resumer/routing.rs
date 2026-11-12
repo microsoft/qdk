@@ -155,6 +155,9 @@ pub struct RouteTuning {
     /// A distant operator whose sites are further apart than this goes to
     /// the engine as it is, from the positions they hold; 0: no limit.
     pub max_route_distance: u16,
+    /// Every this many routed operators since the order was last the
+    /// layout's, the order is restored, within a batch too; 0: never.
+    pub restore_every_routed: u16,
 }
 
 impl Default for RouteTuning {
@@ -165,6 +168,7 @@ impl Default for RouteTuning {
             drift_budget_permille: 1000,
             bond_guard_percent: 100,
             max_route_distance: 0,
+            restore_every_routed: 0,
         }
     }
 }
@@ -185,6 +189,7 @@ pub(crate) struct Placement {
     inversions: usize,
     fell_back: bool,
     restore_pending: bool,
+    routed_since_restore: u16,
     tuning: RouteTuning,
 }
 
@@ -203,6 +208,7 @@ impl Placement {
             inversions: 0,
             fell_back: false,
             restore_pending: false,
+            routed_since_restore: 0,
             tuning,
         }
     }
@@ -325,6 +331,11 @@ impl Placement {
                     self.fall_back(routed);
                 } else if permille > u32::from(self.tuning.drift_budget_permille) {
                     self.restore(routed);
+                } else if self.tuning.restore_every_routed > 0 {
+                    self.routed_since_restore += 1;
+                    if self.routed_since_restore >= self.tuning.restore_every_routed {
+                        self.restore(routed);
+                    }
                 }
                 return;
             }
@@ -352,6 +363,7 @@ impl Placement {
     /// then site 1, and so on): as many as the inversions, the fewest
     /// adjacent SWAPs that sort the chain.
     fn restore(&mut self, routed: &mut Vec<Step>) {
+        self.routed_since_restore = 0;
         if self.inversions == 0 {
             return;
         }

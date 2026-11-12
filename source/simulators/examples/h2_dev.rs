@@ -26,9 +26,14 @@
 //! cargo run --release -p qdk_simulators --example h2_dev -- \
 //!     --engine cpu|cutensornet|reference --bytecode H2.bytecode.json \
 //!     [--readout TABLE] [--readout-first-draw 1399] [--seed 1] [--chi 128] \
-//!     [--first-shot 0] [--shots 1] [--threads 1] \
+//!     [--first-shot 0] [--shots 1] [--threads 1] [--group 1] \
 //!     [--routing engine|meet-halfway|meet-halfway-after-fusion]
 //! ```
+//!
+//! `--group K` (development only) runs each K consecutive shots of the slice
+//! in one `run` call, so that they share a state until a draw splits them:
+//! one `CALL` line per call (time, forks, the TVD of each state that reached
+//! the readout) and one `GSHOT` line per shot (its records).
 //!
 //! `--routing` (EXPERIMENTAL) chooses the resumer's `Routing` of distant
 //! two-qubit gates; `engine`, the default, is the resumer's behaviour
@@ -56,9 +61,26 @@ mod bytecode_json;
 /// The results a readout reads.
 const READOUT: usize = 5;
 
-/// What the probe saw of a shot.
+/// Development only: a state of the probe, with the draws it has seen
+/// (copied on a fork) and the readout it reached, if any.
+struct Tagged<S> {
+    inner: S,
+    draws: usize,
+    readout: Cell<Option<usize>>,
+}
+
+/// A state before a readout's first draw, and the readout's sites.
+struct Readout<S> {
+    state: S,
+    sites: Vec<Option<usize>>,
+}
+
+/// What the probe saw of a shot (or of a call's shots, with `--group`).
 struct Seen<S> {
+    /// The draws of all states.
     draws: Cell<usize>,
+    /// The forks.
+    forks: Cell<usize>,
     /// Development only: the CPU engine's capacity-bound splits seen so
     /// far, and when the first and last of them happened (draw, routed
     /// batch, whether routing had fallen back then).
@@ -67,10 +89,9 @@ struct Seen<S> {
     last_capacity_bound: Cell<Option<(usize, u64, bool)>>,
     /// The draw before which the readout starts.
     readout_first_draw: Option<usize>,
-    /// The state before the readout's first draw.
-    readout_state: RefCell<Option<S>>,
-    /// The sites of the readout's draws, in order.
-    readout_sites: RefCell<Vec<usize>>,
+    /// Each state that reached the readout's first draw, before it (one
+    /// per shot alone; one per state a grouped call's forks left).
+    readouts: RefCell<Vec<Readout<S>>>,
 }
 
 /// The engine `E`, observed (see the module documentation).
@@ -83,10 +104,15 @@ impl<S> Seen<S> {
     /// The exact joint distribution of the readout's draws, in the order
     /// they were drawn (the first the most significant bit), read by
     /// `engine` on the state before the first of them.
-    fn readout_distribution<E: MpsEngine<State = S>>(&self, engine: &E) -> Option<Vec<f64>> {
-        let start = self.readout_state.borrow();
-        let state = start.as_ref()?;
-        let sites = self.readout_sites.borrow().clone();
+    fn readout_distribution<E: MpsEngine<State = S>>(
+        &self,
+        engine: &E,
+        index: usize,
+    ) -> Option<Vec<f64>> {
+        let readouts = self.readouts.borrow();
+        let readout = readouts.get(index)?;
+        let state = &readout.state;
+        let sites: Vec<usize> = readout.sites.iter().map(|site| site.expect("read")).collect();
         let mut rows = vec![(Vec::<(usize, bool)>::new(), 1.0)];
         for &site in &sites {
             let mut next = Vec::new();
@@ -112,20 +138,24 @@ impl<S> Seen<S> {
 }
 
 impl<E: MpsEngine> MpsEngine for Probe<E> {
-    type State = E::State;
+    type State = Tagged<E::State>;
     type Error = E::Error;
 
-    fn prepare(&self, capacity: &MpsShape) -> Result<E::State, E::Error> {
-        self.inner.prepare(capacity)
+    fn prepare(&self, capacity: &MpsShape) -> Result<Self::State, E::Error> {
+        Ok(Tagged {
+            inner: self.inner.prepare(capacity)?,
+            draws: 0,
+            readout: Cell::new(None),
+        })
     }
 
     fn apply(
         &self,
-        state: &mut E::State,
+        state: &mut Self::State,
         sites: &[usize],
         matrix: &[Complex64],
     ) -> Result<(), E::Error> {
-        let applied = self.inner.apply(state, sites, matrix);
+        let applied = self.inner.apply(&mut state.inner, sites, matrix);
         let bound = qdk_cpu_mps::dev_trace::get().capacity_bound;
         if bound > self.seen.capacity_bound.get() {
             self.seen.capacity_bound.set(bound);
@@ -143,48 +173,66 @@ impl<E: MpsEngine> MpsEngine for Probe<E> {
         applied
     }
 
-    fn probability_of_one(&self, state: &E::State, site: usize) -> Result<f64, E::Error> {
-        let draw = self.seen.draws.get();
+    fn probability_of_one(&self, state: &Self::State, site: usize) -> Result<f64, E::Error> {
+        let draw = state.draws;
         if let Some(first) = self.seen.readout_first_draw
             && (first..first + READOUT).contains(&draw)
         {
-            if draw == first {
-                *self.seen.readout_state.borrow_mut() = Some(self.inner.fork(state)?);
+            if draw == first && state.readout.get().is_none() {
+                let mut readouts = self.seen.readouts.borrow_mut();
+                readouts.push(Readout {
+                    state: self.inner.fork(&state.inner)?,
+                    sites: vec![None; READOUT],
+                });
+                state.readout.set(Some(readouts.len() - 1));
             }
-            self.seen.readout_sites.borrow_mut().push(site);
+            if let Some(index) = state.readout.get() {
+                let mut readouts = self.seen.readouts.borrow_mut();
+                readouts[index].sites[draw - first].get_or_insert(site);
+            }
         }
-        self.inner.probability_of_one(state, site)
+        self.inner.probability_of_one(&state.inner, site)
     }
 
-    fn project(&self, state: &mut E::State, site: usize, one: bool) -> Result<f64, E::Error> {
+    fn project(&self, state: &mut Self::State, site: usize, one: bool) -> Result<f64, E::Error> {
         self.seen.draws.set(self.seen.draws.get() + 1);
-        self.inner.project(state, site, one)
+        state.draws += 1;
+        self.inner.project(&mut state.inner, site, one)
     }
 
-    fn fork(&self, state: &E::State) -> Result<E::State, E::Error> {
-        self.inner.fork(state)
+    fn fork(&self, state: &Self::State) -> Result<Self::State, E::Error> {
+        self.seen.forks.set(self.seen.forks.get() + 1);
+        Ok(Tagged {
+            inner: self.inner.fork(&state.inner)?,
+            draws: state.draws,
+            readout: Cell::new(state.readout.get()),
+        })
     }
 
     fn sample(
         &self,
-        state: &E::State,
+        state: &Self::State,
         sites: &[usize],
         shots: usize,
         seed: u64,
     ) -> Result<Vec<bool>, E::Error> {
-        self.inner.sample(state, sites, shots, seed)
+        self.inner.sample(&state.inner, sites, shots, seed)
     }
 
-    fn expectation(&self, state: &E::State, observable: &PauliSum) -> Result<Complex64, E::Error> {
-        self.inner.expectation(state, observable)
+    fn expectation(
+        &self,
+        state: &Self::State,
+        observable: &PauliSum,
+    ) -> Result<Complex64, E::Error> {
+        self.inner.expectation(&state.inner, observable)
     }
 
-    fn shape(&self, state: &E::State) -> Result<MpsShape, E::Error> {
-        self.inner.shape(state)
+    fn shape(&self, state: &Self::State) -> Result<MpsShape, E::Error> {
+        self.inner.shape(&state.inner)
     }
 
-    fn retained_weight(&self, state: &E::State) -> Result<f64, E::Error> {
-        self.inner.retained_weight(state)
+    fn retained_weight(&self, state: &Self::State) -> Result<f64, E::Error> {
+        self.inner.retained_weight(&state.inner)
     }
 }
 
@@ -234,6 +282,8 @@ struct Options {
     first_shot: u32,
     shots: u32,
     threads: usize,
+    /// Development only: the shots of one `run` call (1: each shot alone).
+    group: u32,
     routing: (String, Routing),
 }
 
@@ -263,6 +313,7 @@ impl Options {
             first_shot: u32::try_from(number("--first-shot", 0)).expect("a shot id"),
             shots: u32::try_from(number("--shots", 1)).expect("a shot count"),
             threads: as_usize(number("--threads", 1)).max(1),
+            group: u32::try_from(number("--group", 1)).expect("a shot count").max(1),
             routing: {
                 let name = value("--routing").unwrap_or_else(|| "engine".to_string());
                 let routing = match name.as_str() {
@@ -284,6 +335,7 @@ impl Options {
                             drift_budget_permille: small("--drift-budget", 1000),
                             bond_guard_percent: small("--bond-guard", 100),
                             max_route_distance: small("--max-route-distance", 0),
+                            restore_every_routed: small("--restore-every", 0),
                         })
                     }
                     other => panic!(
@@ -292,12 +344,13 @@ impl Options {
                 };
                 let name = match routing {
                     Routing::Tuned(t) => format!(
-                        "tuned:af={},restore={:?},db={},bg={},md={}",
+                        "tuned:af={},restore={:?},db={},bg={},md={},re={}",
                         u8::from(t.after_fusion),
                         t.restore,
                         t.drift_budget_permille,
                         t.bond_guard_percent,
-                        t.max_route_distance
+                        t.max_route_distance,
+                        t.restore_every_routed
                     ),
                     _ => name,
                 };
@@ -323,12 +376,12 @@ where
     reset_routing_trace();
     let seen = Rc::new(Seen {
         draws: Cell::new(0),
+        forks: Cell::new(0),
         capacity_bound: Cell::new(0),
         first_capacity_bound: Cell::new(None),
         last_capacity_bound: Cell::new(None),
         readout_first_draw: options.readout.as_ref().map(|_| options.readout_first_draw),
-        readout_state: RefCell::new(None),
-        readout_sites: RefCell::new(Vec::new()),
+        readouts: RefCell::new(Vec::new()),
     });
     let probe = Probe {
         inner: Rc::clone(&engine),
@@ -394,35 +447,138 @@ where
     )
     .expect("a String takes any text");
     if let Some(table) = &options.readout {
-        match seen.readout_distribution(&*engine) {
+        match seen.readout_distribution(&*engine, 0) {
             Some(distribution) if distribution.len() == 1 << READOUT => {
-                let row = |index: usize| format!("{index:0READOUT$b}");
-                let tvd = 0.5
-                    * distribution
-                        .iter()
-                        .enumerate()
-                        .map(|(index, p)| {
-                            (p - table.get(&row(index)).copied().unwrap_or(0.0)).abs()
-                        })
-                        .sum::<f64>();
-                let mut order: Vec<usize> = (0..distribution.len()).collect();
-                order.sort_by(|a, b| distribution[*b].total_cmp(&distribution[*a]));
-                // Chemistry order: the record order reversed.
-                let peaks: Vec<String> = order
-                    .iter()
-                    .take(2)
-                    .map(|&i| row(i).chars().rev().collect())
-                    .collect();
-                write!(line, " tvd={tvd:.3e} peaks={}", peaks.join(","))
-                    .expect("a String takes any text");
+                let (tvd, peaks) = tvd_and_peaks(&distribution, table);
+                write!(line, " tvd={tvd:.3e} peaks={peaks}").expect("a String takes any text");
             }
             _ => line += " tvd=none peaks=none",
         }
     }
     // The readout's fork is released before the engine.
-    seen.readout_state.borrow_mut().take();
+    seen.readouts.borrow_mut().clear();
     drop(resumer);
     println!("{line}");
+    true
+}
+
+/// The TVD of a readout's `distribution` from the exact `table`, and its
+/// two peaks, in chemistry order.
+fn tvd_and_peaks(distribution: &[f64], table: &BTreeMap<String, f64>) -> (f64, String) {
+    let row = |index: usize| format!("{index:0READOUT$b}");
+    let tvd = 0.5
+        * distribution
+            .iter()
+            .enumerate()
+            .map(|(index, p)| (p - table.get(&row(index)).copied().unwrap_or(0.0)).abs())
+            .sum::<f64>();
+    let mut order: Vec<usize> = (0..distribution.len()).collect();
+    order.sort_by(|a, b| distribution[*b].total_cmp(&distribution[*a]));
+    // Chemistry order: the record order reversed.
+    let peaks: Vec<String> = order
+        .iter()
+        .take(2)
+        .map(|&i| row(i).chars().rev().collect())
+        .collect();
+    (tvd, peaks.join(","))
+}
+
+/// Development only: runs the shots `first..first + count` in ONE `run`
+/// call (so they share a state until a draw splits them, and the resumer
+/// forks), and prints a `CALL` line and one `GSHOT` line per shot. Whether
+/// it succeeded.
+fn run_call<E: MpsEngine>(
+    options: &Options,
+    program: &QirProgram,
+    make: &(dyn Fn() -> E + Sync),
+    first: u32,
+    count: u32,
+) -> bool
+where
+    E::Error: std::fmt::Debug,
+{
+    let engine = Rc::new(make());
+    qdk_cpu_mps::dev_trace::reset();
+    reset_routing_trace();
+    let seen = Rc::new(Seen {
+        draws: Cell::new(0),
+        forks: Cell::new(0),
+        capacity_bound: Cell::new(0),
+        first_capacity_bound: Cell::new(None),
+        last_capacity_bound: Cell::new(None),
+        readout_first_draw: options.readout.as_ref().map(|_| options.readout_first_draw),
+        readouts: RefCell::new(Vec::new()),
+    });
+    let probe = Probe {
+        inner: Rc::clone(&engine),
+        seen: Rc::clone(&seen),
+    };
+    let mut resumer = MpsResumer::new(probe, options.seed)
+        .with_max_bond_dimension(options.chi)
+        .with_routing(options.routing.1);
+    let shots: Vec<QirShotId> = (first..first + count).map(QirShotId).collect();
+    let started = Instant::now();
+    let run = expect_ready(resumer.run(&QirMachine::new(program), &shots));
+    let seconds = started.elapsed().as_secs_f64();
+    let records = match run {
+        Ok(records) => records,
+        Err(error) => {
+            println!("FAILED call={first} seconds={seconds:.1} error={error:?}");
+            return false;
+        }
+    };
+    let report = *resumer.last_run();
+    let (splits, routing) = (qdk_cpu_mps::dev_trace::get(), routing_trace());
+    let mut tvds = Vec::new();
+    let mut peaks = Vec::new();
+    if let Some(table) = &options.readout {
+        for index in 0..seen.readouts.borrow().len() {
+            if let Some(distribution) = seen.readout_distribution(&*engine, index) {
+                let (tvd, peak) = tvd_and_peaks(&distribution, table);
+                tvds.push(format!("{tvd:.3e}"));
+                peaks.push(peak);
+            }
+        }
+    }
+    let max_tvd = tvds
+        .iter()
+        .map(|t| t.parse::<f64>().expect("a number"))
+        .fold(0.0, f64::max);
+    println!(
+        "CALL first={first} shots={count} engine={} routing={} chi={} seed={} seconds={seconds:.1} \
+         draws={} forks={} readouts={} max_tvd={max_tvd:.3e} tvds={} peaks={} largest_bond={} \
+         lost_weight={:.3e} splits={} cap_bound={} need_max={} batches={} route_swaps={} \
+         restore_swaps={} drift_fb={} bond_fb={}",
+        options.engine,
+        options.routing.0,
+        options.chi,
+        options.seed,
+        seen.draws.get(),
+        seen.forks.get(),
+        tvds.len(),
+        tvds.join(","),
+        peaks.join(";"),
+        report.largest_bond,
+        1.0 - report.least_retained_weight,
+        splits.splits,
+        splits.capacity_bound,
+        splits.largest_need,
+        routing.batches,
+        routing.route_swaps,
+        routing.restore_swaps,
+        routing.drift_fallbacks,
+        routing.bond_fallbacks,
+    );
+    for (shot, records) in (first..).zip(&records) {
+        println!(
+            "GSHOT shot={shot} call={first} routing={} seed={} records={}",
+            options.routing.0,
+            options.seed,
+            bits(records)
+        );
+    }
+    seen.readouts.borrow_mut().clear();
+    drop(resumer);
     true
 }
 
@@ -443,11 +599,16 @@ where
         for _ in 0..options.threads {
             scope.spawn(|| {
                 loop {
-                    let shot = next.fetch_add(1, Ordering::Relaxed);
+                    let shot = next.fetch_add(options.group, Ordering::Relaxed);
                     if shot >= end {
                         break;
                     }
-                    if !run_shot(options, program, make, shot) {
+                    let done = if options.group > 1 {
+                        run_call(options, program, make, shot, options.group.min(end - shot))
+                    } else {
+                        run_shot(options, program, make, shot)
+                    };
+                    if !done {
                         ok.store(false, Ordering::Relaxed);
                     }
                 }
