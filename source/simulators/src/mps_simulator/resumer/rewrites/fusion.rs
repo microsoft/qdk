@@ -51,11 +51,12 @@ impl Rewrite for GateFusion {
 
 /// `run`'s gates fused into blocks of at most two sites.
 ///
-/// Each site belongs to at most one open block. A gate joins the open
-/// blocks on its sites, smallest first, while their union fits two sites;
-/// the blocks that do not fit are closed and emitted, and the gate opens a
-/// new block with those that fit. At the end the open blocks are emitted;
-/// they share no site, so their order does not matter (oldest first).
+/// Each site belongs to at most one open block. A gate whose sites one
+/// open block holds multiplies into it. Otherwise the gate opens a new
+/// block on its sites, which takes in the open blocks on its sites that
+/// fit within two sites with it; the blocks that do not fit are closed and
+/// emitted. At the end the open blocks are emitted; they share no site, so
+/// their order does not matter (oldest first).
 ///
 /// The order is exact: a block is emitted when a later gate on one of its
 /// sites closes it, before the block that gate opens, so on each site the
@@ -81,22 +82,15 @@ fn pairs(run: &[Operator]) -> Vec<Operator> {
             block.multiply(on, gate.matrix.row_major());
             continue;
         }
-        candidates.sort_by_key(|&id| (open[id].as_ref().map_or(0, |b| b.sites.len()), id));
-        let mut union: Vec<usize> = on.to_vec();
+        // A block that fits holds only the gate's sites: a one-site gate
+        // joined its open block above, so this gate has two sites.
         let mut kept = Vec::new();
         for id in candidates {
             let Some(block) = open[id].take() else {
                 continue;
             };
-            let extra = block.sites.iter().filter(|s| !union.contains(s)).count();
-            if union.len() + extra <= MAX_SITES {
-                // With blocks of at most two sites, a block kept here holds
-                // only the gate's sites (a one-site gate joined its open
-                // block above), so the union stays the gate's sites; this
-                // serves blocks of more than two sites.
-                union.extend(block.sites.iter().filter(|s| !on.contains(s)));
-                union.sort_unstable();
-                union.dedup();
+            let extra = block.sites.iter().filter(|s| !on.contains(s)).count();
+            if on.len() + extra <= MAX_SITES {
                 kept.push(block);
             } else {
                 for s in &block.sites {
@@ -105,8 +99,9 @@ fn pairs(run: &[Operator]) -> Vec<Operator> {
                 emitted.push(block.into_operator());
             }
         }
-        union.sort_unstable();
-        let mut block = Block::identity(union);
+        let mut sites = on.to_vec();
+        sites.sort_unstable();
+        let mut block = Block::identity(sites);
         // The kept blocks are on disjoint sites, so their order does not
         // matter; all of them precede the gate.
         for kept in kept {

@@ -24,8 +24,9 @@
 //! ⌊log₂ N⌋ + 1 states at once.
 //!
 //! **Failures.** `fail` keeps the failure of the first shot in the order of
-//! the shots; since a group's shots keep that order, `run` drops unrun a
-//! waiting group whose first shot comes after it.
+//! the shots; since a group's shots keep that order, a group whose first
+//! shot comes after it is dropped: `run` drops it unrun when it waits, and
+//! `run_group` stops it at the failed split it goes on from.
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;
@@ -135,20 +136,16 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         mut self,
     ) -> Result<Vec<Vec<OutputRecord>>, QirResumeError<MpsResumerError<E::Error>>> {
         while let Some(mut group) = self.waiting.pop() {
-            // A group's shots are in the order of the run's: a split keeps it.
-            if self
-                .failure
-                .as_ref()
-                .is_some_and(|(place, _)| *place < group.shots[0].place)
-            {
+            if self.comes_after_the_failure(&group) {
                 continue;
             }
             match self.run_group(&mut group) {
-                Ok(ended) => {
+                Ok(Some(ended)) => {
                     for shot in &group.shots {
                         self.records[shot.place] = Some(ended.clone());
                     }
                 }
+                Ok(None) => {}
                 // The group's shots now, which failed: a split may have
                 // moved its first shots to a part that went on apart.
                 Err(failed) => self.fail(group.shots[0].place, failed),
@@ -182,16 +179,30 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         }
     }
 
+    /// Whether a shot before every shot of `group` failed: the run's result
+    /// is then that failure, whatever `group` does, so `group` is dropped.
+    fn comes_after_the_failure(&self, group: &Group<E::State>) -> bool {
+        // A group's shots are in the order of the run's: a split keeps it.
+        self.failure
+            .as_ref()
+            .is_some_and(|(place, _)| *place < group.shots[0].place)
+    }
+
     /// Runs `group` until its context ends, giving its records; the groups
-    /// that split off it wait on [`Self::waiting`].
+    /// that split off it wait on [`Self::waiting`]. Gives `None`, and stops
+    /// at once, when a split of `group` failed for shots before all of those
+    /// that go on.
     fn run_group(
         &mut self,
         group: &mut Group<E::State>,
-    ) -> Result<Vec<OutputRecord>, GroupFailure<E::Error>> {
+    ) -> Result<Option<Vec<OutputRecord>>, GroupFailure<E::Error>> {
         loop {
             while let Some(step) = group.steps.get(group.next).cloned() {
                 group.next += 1;
                 self.run_step(&step, group)?;
+                if self.comes_after_the_failure(group) {
+                    return Ok(None);
+                }
             }
             self.read_bond(group)?;
             match self
@@ -201,7 +212,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             {
                 QirStop::Ended(records) => {
                     self.end(group.state.as_ref())?;
-                    return Ok(records.to_vec());
+                    return Ok(Some(records.to_vec()));
                 }
                 QirStop::Batch(calls) => {
                     group.steps = rewrite_runs(lower(calls, &self.layout)?, &self.fusion).into();
@@ -283,7 +294,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// `one` stay in `group`, and the others wait, with a fork of the state
     /// that keeps their value and a copy of the context. When the fork, or
     /// its projection, fails, the failure fails the waiting shots only
-    /// (kept in the run's failure), and `group` goes on.
+    /// (kept in the run's failure), and `group` goes on, unless its shots
+    /// all come after them.
     fn split(
         &mut self,
         group: &mut Group<E::State>,
@@ -321,7 +333,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 });
             }
             // Only the shots that wait met the failure: those going on run
-            // on, and may end, or fail first in the order.
+            // on, unless they all come after it (`run_group` then stops
+            // them), and may end, or fail first in the order.
             Err(failed) => self.fail(waiting[0].place, failed),
         }
     }

@@ -5,7 +5,8 @@
 //! probability; shots that draw the same values share one state, prepared
 //! only when a shot first needs it; a split forks it once and keeps few
 //! states at once; and a run names its first failing shot in the order of
-//! its shots, whichever part of a split goes on.
+//! its shots, whichever part of a split goes on, and drops the groups whose
+//! shots all come after it.
 
 use crate::bytecode::Instruction;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
@@ -378,6 +379,47 @@ fn a_failed_split_and_a_later_failure_name_the_first_shot_in_order() {
                 } if shot == one
             ),
             "{zero_last:?}"
+        );
+    }
+}
+
+/// The part that goes on from a failed split stops there when its shots all
+/// come after the shots that failed, since it could not change the shot the
+/// run names: a coin, then three X gates on a second qubit; the two shots
+/// that read 1 first, which wait and whose copy fails, then the shot that
+/// reads 0, which goes on and applies none of the gates.
+#[test]
+fn the_part_going_on_from_a_failed_split_stops_when_its_shots_come_after() {
+    let [zero, one, other_one] = a_zero_then_two_ones();
+    let program = program(
+        2,
+        &[&[
+            gate1(OPID_H, 0),
+            mz(0),
+            gate1(OPID_X, 1),
+            gate1(OPID_X, 1),
+            gate1(OPID_X, 1),
+            ret(),
+        ]],
+    );
+    for engine in FAILING_SPLITS {
+        let mut resumer = MpsResumer::new(engine(), 5);
+        let error = run(&mut resumer, &program, &[one, other_one, zero])
+            .expect_err("the waiting part's copy fails");
+        assert!(
+            matches!(
+                error,
+                QirResumeError::Resumer {
+                    shot,
+                    error: MpsResumerError::Engine(ReferenceSpyError::Device),
+                } if shot == one
+            ),
+            "{error:?}"
+        );
+        assert_eq!(
+            resumer.engine().applies(),
+            1,
+            "only the coin's h is applied"
         );
     }
 }
