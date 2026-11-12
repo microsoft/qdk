@@ -36,6 +36,7 @@ pub enum QsharpRunError {
 /// to reset qubits before releasing them. State capture and non-destructive zero
 /// checks are unsupported, and quantum seeds cannot be forwarded to the backend.
 /// Global phase is discarded because it has no corresponding backend instruction.
+/// Memory/compute architecture configuration and Load/Store annotations are ignored.
 pub fn run_qsharp_call(
     interpreter: &mut Interpreter,
     callable: Value,
@@ -172,7 +173,7 @@ impl Backend for QsBackendReverseShim<'_> {
         Err("QuantumBackend does not support non-destructive zero checks".into())
     }
 
-    /// Executes cacheable blocks normally, omits global phase, and rejects unsupported intrinsics.
+    /// Executes cacheable blocks normally and ignores global phase and memory annotations.
     fn custom_intrinsic(
         &mut self,
         name: &str,
@@ -180,7 +181,11 @@ impl Backend for QsBackendReverseShim<'_> {
         _globals: &impl qsc::fir::PackageStoreLookup,
     ) -> Option<Result<Value, String>> {
         match name {
-            "GlobalPhase" | "EndEstimateCaching" => Some(Ok(Value::unit())),
+            "GlobalPhase"
+            | "EndEstimateCaching"
+            | "EnableMemoryComputeArchitecture"
+            | "Load"
+            | "Store" => Some(Ok(Value::unit())),
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
             "IsResourceEstimating" => Some(Ok(Value::Bool(false))),
             _ => Some(Err(format!("Custom intrinsic `{name}` is not supported"))),
