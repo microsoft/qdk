@@ -10,8 +10,9 @@ histograms must agree within a statistical tolerance.
 from collections import Counter
 import math
 import os
+import random
 from textwrap import dedent
-from typing import Literal
+from typing import Literal, Optional
 
 import pytest
 import stim as reference_stim
@@ -48,25 +49,35 @@ SIGMAS = 6
 _BITS = {Result.Zero: "0", Result.One: "1"}
 
 
-def sample_reference(source: str, shots: int) -> Counter[str]:
+def sample_reference(source: str, shots: int, seed: int) -> Counter[str]:
     circuit = reference_stim.Circuit(source)
-    samples = circuit.compile_sampler().sample(shots=shots)
+    samples = circuit.compile_sampler(seed=seed).sample(shots=shots)
     return Counter("".join("1" if bit else "0" for bit in row) for row in samples)
 
 
-def sample_qdk(source: str, shots: int, backend: Backend) -> Counter[str]:
-    results = qdk_stim.run(source, shots=shots, type=backend)
+def sample_qdk(source: str, shots: int, backend: Backend, seed: int) -> Counter[str]:
+    results = qdk_stim.run(source, shots=shots, type=backend, seed=seed)
     return Counter("".join(_BITS[bit] for bit in row) for row in results)
 
 
-def assert_matches_stim(source: str, shots: int, backend: Backend) -> None:
+def assert_matches_stim(
+    source: str, shots: int, backend: Backend, seed: Optional[int] = None
+) -> None:
+    """Samples `source` on both simulators with the same seed. Each call draws a fresh
+    seed unless one is given, and a failure prints the call that reproduces it."""
     source = dedent(source).strip()
-    reference = sample_reference(source, shots)
-    actual = sample_qdk(source, shots, backend)
+    if seed is None:
+        seed = random.randrange(2**32)
+    reference = sample_reference(source, shots, seed)
+    actual = sample_qdk(source, shots, backend, seed)
     try:
         check_histograms_match(actual, reference)
     except AssertionError as error:
-        raise AssertionError(f"{error}\nProgram:\n{source}") from None
+        # The seed reproduces Stim's samples only with the same Stim version on the same CPU architecture.
+        raise AssertionError(
+            f"{error}\n\nReproduce with:\n"
+            f'assert_matches_stim("""\n{source}\n""", {shots}, {backend!r}, seed={seed})'
+        ) from None
 
 
 def check_histograms_match(actual: Counter[str], expected: Counter[str]) -> None:
