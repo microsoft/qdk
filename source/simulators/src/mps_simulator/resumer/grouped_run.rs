@@ -228,6 +228,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         }
     }
 
+    /// Runs `step` on `group`: an operator is applied, a measurement or a
+    /// reset drawn.
     fn run_step(
         &mut self,
         step: &Step,
