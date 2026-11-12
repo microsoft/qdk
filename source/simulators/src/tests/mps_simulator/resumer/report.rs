@@ -7,7 +7,6 @@
 use std::num::NonZeroUsize;
 
 use crate::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
-use tensornet::MpsShape;
 use tensornet::reference::ExactReference;
 
 use super::super::programs::{coins, gate1, gate2, mz, program, ret};
@@ -110,19 +109,17 @@ fn the_report_keeps_the_least_weight_among_the_shots() {
     }
 }
 
-/// Each state is prepared within `MpsShape::qubit_chain(n, χ)`, χ the max
-/// bond dimension: 128 by default, else the one set.
+/// The report gives the max bond dimension χ the run's states were
+/// prepared within: 128 by default, else the one set.
 #[test]
-fn each_state_is_prepared_within_a_qubit_chain_of_the_max_bond_dimension() {
+fn the_report_gives_the_max_bond_dimension_of_the_run() {
     for (max_bond_dimension, expected) in [(None, DEFAULT_MAX_BOND_DIMENSION.get()), (Some(1), 1)] {
-        let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
+        let mut resumer = MpsResumer::new(ExactReference::new(), 7);
         if let Some(max_bond_dimension) = max_bond_dimension {
             resumer = resumer
                 .with_max_bond_dimension(NonZeroUsize::new(max_bond_dimension).expect("not zero"));
         }
         run_once(&mut resumer, &ghz(3));
-        let capacity = MpsShape::qubit_chain(3, expected).expect("three sites form a chain");
-        assert_eq!(resumer.engine().prepared(), vec![capacity]);
         assert_eq!(resumer.last_run().max_bond_dimension, expected);
     }
 }

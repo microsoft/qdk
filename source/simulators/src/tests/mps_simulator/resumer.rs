@@ -3,8 +3,8 @@
 
 //! The resumer's rules: what a shot records, wherever the order places its
 //! qubits; that its records do not depend on the shots beside it or on
-//! earlier runs; and a run's edges (no shots, no qubits, a max bond
-//! dimension that makes no chain). How shots draw, share states and fail
+//! earlier runs; the capacity each state is prepared within; and a run's
+//! edges (no shots, no qubits, a max bond dimension that makes no chain). How shots draw, share states and fail
 //! is in `resumer/grouped_run.rs`, the stream each draws from in
 //! `resumer/shot_stream.rs`, the calls refused in `resumer/lowering.rs`.
 
@@ -20,8 +20,8 @@ use std::num::NonZeroUsize;
 use crate::bytecode::Instruction;
 use crate::qir::{QirMachine, QirProgram, QirResumeError, QirResumer, QirShotId, expect_ready};
 use crate::{MeasurementResult, OutputRecord};
-use tensornet::MpsEngine;
 use tensornet::reference::ExactReference;
+use tensornet::{MpsEngine, MpsShape};
 
 use super::programs::{
     coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, program_with, reset, ret,
@@ -31,7 +31,7 @@ use crate::bytecode::encoding::{
     OPID_CX, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_SWAP, OPID_X,
 };
 use crate::mps_simulator::resumer::qubit_order::QubitOrder;
-use crate::mps_simulator::{MpsResumer, MpsResumerError};
+use crate::mps_simulator::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsResumerError};
 
 type RunResult<E> = Result<Vec<Vec<OutputRecord>>, QirResumeError<MpsResumerError<E>>>;
 
@@ -336,6 +336,24 @@ fn a_max_bond_dimension_that_makes_no_chain_fails_naming_the_first_shot() {
         "{error:?}"
     );
     assert!(resumer.engine().prepared().is_empty());
+}
+
+/// Each state is prepared within `MpsShape::qubit_chain(n, χ)`, n the
+/// program's qubits and χ the max bond dimension: 128 by default, else the
+/// one set.
+#[test]
+fn each_state_is_prepared_within_a_qubit_chain_of_the_max_bond_dimension() {
+    let program = program(3, &[&[gate1(OPID_H, 0), gate2(OPID_CX, 0, 1), ret()]]);
+    for (max_bond_dimension, expected) in [(None, DEFAULT_MAX_BOND_DIMENSION.get()), (Some(1), 1)] {
+        let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
+        if let Some(max_bond_dimension) = max_bond_dimension {
+            resumer = resumer
+                .with_max_bond_dimension(NonZeroUsize::new(max_bond_dimension).expect("not zero"));
+        }
+        run(&mut resumer, &program, &ids(&[0])).expect("the program runs");
+        let capacity = MpsShape::qubit_chain(3, expected).expect("three sites form a chain");
+        assert_eq!(resumer.engine().prepared(), vec![capacity]);
+    }
 }
 
 /// No shots, no records.
