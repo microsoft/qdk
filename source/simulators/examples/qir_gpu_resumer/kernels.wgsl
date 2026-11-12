@@ -646,6 +646,116 @@ fn block(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wi
   }
 }
 
+// The noiseless kernels: `diag` and `block` without their noise paths, so
+// that the driver gives them the registers and workgroup memory of
+// noiseless code alone (one kernel with both paths costs noiseless passes
+// up to 20%).
+
+// op_len phase terms (ops[op_off..]) on every amplitude.
+@compute @workgroup_size(256)
+fn diag_plain(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+  let t = flat(id, nw);
+  let j = t >> p.n;
+  if (j >= p.shot_len) { return; }
+  let k = t & ((1u << p.n) - 1u);
+  let i = (shots[p.shot_off + j] << p.n) | k;
+  var turns = 0.0;
+  for (var term = 0u; term < p.op_len; term++) {
+    turns += term_turns(ops[p.op_off + term], k);
+  }
+  s[i] = cmul(phase(turns), s[i]);
+}
+
+var<workgroup> ptile: array<vec2<f32>, 1024>;
+var<workgroup> pcode: array<vec4<f32>, 128>;
+
+fn prow4w(off: u32, r: u32, v0: vec2<f32>, v1: vec2<f32>, v2: vec2<f32>, v3: vec2<f32>) -> vec2<f32> {
+  let a = pcode[off + r * 2u];
+  let b = pcode[off + r * 2u + 1u];
+  return cmul(a.xy, v0) + cmul(a.zw, v1) + cmul(b.xy, v2) + cmul(b.zw, v3);
+}
+
+// `block` for noiseless code (kinds 11, 12 and 13; at most 128 vec4).
+@compute @workgroup_size(256)
+fn block_plain(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
+  let w = flat_group(wid, nw);
+  let b = p.block;
+  let high = p.n - b;
+  let j = w >> high;
+  if (j >= p.shot_len) { return; }
+  let size = 1u << b;
+  let contiguous = tile_pos(b - 1u) == b - 1u;
+  var rest = w & ((1u << high) - 1u);
+  if (contiguous) {
+    rest = rest << b;
+  } else {
+    for (var i = 0u; i < b; i++) { rest = insert0(rest, tile_pos(i)); }
+  }
+  let base = (shots[p.shot_off + j] << p.n) | rest;
+  if (lid.x < p.kind) { pcode[lid.x] = ops[p.op_off + lid.x]; }
+  if (contiguous) {
+    for (var e = lid.x; e < size; e += WG) { ptile[e] = s[base + e]; }
+  } else {
+    for (var e = lid.x; e < size; e += WG) { ptile[e] = s[base + tile_offset(e)]; }
+  }
+  workgroupBarrier();
+  var off = 0u;
+  for (var o = 0u; o < p.op_len; o++) {
+    let h = pcode[off];
+    let kind = ival(h.x);
+    let qa = ival(h.y);
+    let qb = ival(h.z);
+    let len = ival(h.w);
+    if (kind == 11u) {
+      let r0 = pcode[off + 1u];
+      let r1 = pcode[off + 2u];
+      for (var e = lid.x; e < size / 2u; e += WG) {
+        let i0 = insert0(e, qa);
+        let i1 = i0 | (1u << qa);
+        let a = ptile[i0];
+        let c = ptile[i1];
+        ptile[i0] = cmul(r0.xy, a) + cmul(r0.zw, c);
+        ptile[i1] = cmul(r1.xy, a) + cmul(r1.zw, c);
+      }
+      off += 3u;
+    } else if (kind == 12u) {
+      let e = lid.x;
+      if (e < size / 4u) {
+        let lo = min(qa, qb);
+        let hi = max(qa, qb);
+        let i0 = insert0(insert0(e, lo), hi);
+        let i1 = i0 | (1u << qb);
+        let i2 = i0 | (1u << qa);
+        let i3 = i2 | (1u << qb);
+        let v0 = ptile[i0];
+        let v1 = ptile[i1];
+        let v2 = ptile[i2];
+        let v3 = ptile[i3];
+        ptile[i0] = prow4w(off + 1u, 0u, v0, v1, v2, v3);
+        ptile[i1] = prow4w(off + 1u, 1u, v0, v1, v2, v3);
+        ptile[i2] = prow4w(off + 1u, 2u, v0, v1, v2, v3);
+        ptile[i3] = prow4w(off + 1u, 3u, v0, v1, v2, v3);
+      }
+      off += 9u;
+    } else {
+      for (var e = lid.x; e < size; e += WG) {
+        var turns = 0.0;
+        for (var term = 0u; term < len; term++) {
+          turns += term_turns(pcode[off + 1u + term], e);
+        }
+        ptile[e] = cmul(phase(turns), ptile[e]);
+      }
+      off += 1u + len;
+    }
+    workgroupBarrier();
+  }
+  if (contiguous) {
+    for (var e = lid.x; e < size; e += WG) { s[base + e] = ptile[e]; }
+  } else {
+    for (var e = lid.x; e < size; e += WG) { s[base + tile_offset(e)] = ptile[e]; }
+  }
+}
+
 var<workgroup> acc2: array<vec2<f32>, 256>;
 
 // Per group shot j and chunk c: the sums of |amp|^2 with qubit q0 = 0 and 1
