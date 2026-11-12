@@ -38,6 +38,24 @@
 //! `--routing` (EXPERIMENTAL) chooses the resumer's `Routing` of distant
 //! two-qubit gates; `engine`, the default, is the resumer's behaviour
 //! without it.
+//!
+//! `--record-calls FILE [--record-draws 300]` (development only, one shot)
+//! writes the engine calls of the shot's state until its N-th draw, with
+//! their answers, for `qdk_cutensornet`'s `tuning_bench` to replay. One
+//! line per call:
+//!
+//! ```text
+//! # calls v1 key=value...      the run that recorded it
+//! P n b0 b1 ... b(n-2)         prepare: n qubits, the capacity's bonds
+//! M id re im re im ...         a matrix, first used next (row-major)
+//! A id site...                 apply matrix id
+//! R site p                     probability_of_one, its answer
+//! J site 0|1 p                 project, its answer
+//! S b0 b1 ...                  shape, the realized bonds
+//! W w                          retained_weight, its answer
+//! U name                       a call the replay does not support; the
+//!                              trace stops there
+//! ```
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -92,6 +110,74 @@ struct Seen<S> {
     /// Each state that reached the readout's first draw, before it (one
     /// per shot alone; one per state a grouped call's forks left).
     readouts: RefCell<Vec<Readout<S>>>,
+    /// Development only: the calls recorded for `--record-calls`.
+    recorder: RefCell<Option<Recorder>>,
+}
+
+/// Development only: the calls of one state, until `limit` draws (see the
+/// module documentation for the format).
+struct Recorder {
+    lines: Vec<String>,
+    matrices: BTreeMap<Vec<u64>, usize>,
+    draws: usize,
+    limit: usize,
+    /// Why recording stopped, if it did.
+    stopped: Option<String>,
+}
+
+impl Recorder {
+    fn new(limit: usize) -> Self {
+        Self {
+            lines: Vec::new(),
+            matrices: BTreeMap::new(),
+            draws: 0,
+            limit,
+            stopped: None,
+        }
+    }
+
+    fn active(&self) -> bool {
+        self.stopped.is_none()
+    }
+
+    fn push(&mut self, line: String) {
+        if self.active() {
+            self.lines.push(line);
+        }
+    }
+
+    fn unsupported(&mut self, call: &str) {
+        if self.active() {
+            self.lines.push(format!("U {call}"));
+            self.stopped = Some(format!("unsupported {call}"));
+        }
+    }
+
+    fn matrix(&mut self, matrix: &[Complex64]) -> usize {
+        let key: Vec<u64> = matrix
+            .iter()
+            .flat_map(|z| [z.re.to_bits(), z.im.to_bits()])
+            .collect();
+        if let Some(&id) = self.matrices.get(&key) {
+            return id;
+        }
+        let id = self.matrices.len();
+        self.matrices.insert(key, id);
+        let mut line = format!("M {id}");
+        for z in matrix {
+            write!(line, " {} {}", z.re, z.im).expect("a String takes any text");
+        }
+        self.push(line);
+        id
+    }
+
+    fn bonds(shape: &MpsShape) -> String {
+        (0..shape.site_count().saturating_sub(1))
+            .filter_map(|cut| shape.bond_dim(cut))
+            .map(|bond| bond.to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 /// The engine `E`, observed (see the module documentation).
@@ -112,7 +198,11 @@ impl<S> Seen<S> {
         let readouts = self.readouts.borrow();
         let readout = readouts.get(index)?;
         let state = &readout.state;
-        let sites: Vec<usize> = readout.sites.iter().map(|site| site.expect("read")).collect();
+        let sites: Vec<usize> = readout
+            .sites
+            .iter()
+            .map(|site| site.expect("read"))
+            .collect();
         let mut rows = vec![(Vec::<(usize, bool)>::new(), 1.0)];
         for &site in &sites {
             let mut next = Vec::new();
@@ -137,11 +227,30 @@ impl<S> Seen<S> {
     }
 }
 
+impl<E: MpsEngine> Probe<E> {
+    /// Development only: records a call with `--record-calls`.
+    fn record(&self, record: impl FnOnce(&mut Recorder)) {
+        if let Some(recorder) = self.seen.recorder.borrow_mut().as_mut()
+            && recorder.active()
+        {
+            record(recorder);
+        }
+    }
+}
+
 impl<E: MpsEngine> MpsEngine for Probe<E> {
     type State = Tagged<E::State>;
     type Error = E::Error;
 
     fn prepare(&self, capacity: &MpsShape) -> Result<Self::State, E::Error> {
+        self.record(|recorder| {
+            if recorder.lines.is_empty() {
+                let line = format!("P {} {}", capacity.site_count(), Recorder::bonds(capacity));
+                recorder.push(line);
+            } else {
+                recorder.unsupported("prepare");
+            }
+        });
         Ok(Tagged {
             inner: self.inner.prepare(capacity)?,
             draws: 0,
@@ -156,6 +265,13 @@ impl<E: MpsEngine> MpsEngine for Probe<E> {
         matrix: &[Complex64],
     ) -> Result<(), E::Error> {
         let applied = self.inner.apply(&mut state.inner, sites, matrix);
+        if applied.is_ok() {
+            self.record(|recorder| {
+                let id = recorder.matrix(matrix);
+                let sites: Vec<String> = sites.iter().map(ToString::to_string).collect();
+                recorder.push(format!("A {id} {}", sites.join(" ")));
+            });
+        }
         let bound = qdk_cpu_mps::dev_trace::get().capacity_bound;
         if bound > self.seen.capacity_bound.get() {
             self.seen.capacity_bound.set(bound);
@@ -191,16 +307,27 @@ impl<E: MpsEngine> MpsEngine for Probe<E> {
                 readouts[index].sites[draw - first].get_or_insert(site);
             }
         }
-        self.inner.probability_of_one(&state.inner, site)
+        let p = self.inner.probability_of_one(&state.inner, site)?;
+        self.record(|recorder| recorder.push(format!("R {site} {p}")));
+        Ok(p)
     }
 
     fn project(&self, state: &mut Self::State, site: usize, one: bool) -> Result<f64, E::Error> {
         self.seen.draws.set(self.seen.draws.get() + 1);
         state.draws += 1;
-        self.inner.project(&mut state.inner, site, one)
+        let p = self.inner.project(&mut state.inner, site, one)?;
+        self.record(|recorder| {
+            recorder.push(format!("J {site} {} {p}", u8::from(one)));
+            recorder.draws += 1;
+            if recorder.draws >= recorder.limit {
+                recorder.stopped = Some("limit".to_string());
+            }
+        });
+        Ok(p)
     }
 
     fn fork(&self, state: &Self::State) -> Result<Self::State, E::Error> {
+        self.record(|recorder| recorder.unsupported("fork"));
         self.seen.forks.set(self.seen.forks.get() + 1);
         Ok(Tagged {
             inner: self.inner.fork(&state.inner)?,
@@ -216,6 +343,7 @@ impl<E: MpsEngine> MpsEngine for Probe<E> {
         shots: usize,
         seed: u64,
     ) -> Result<Vec<bool>, E::Error> {
+        self.record(|recorder| recorder.unsupported("sample"));
         self.inner.sample(&state.inner, sites, shots, seed)
     }
 
@@ -224,15 +352,20 @@ impl<E: MpsEngine> MpsEngine for Probe<E> {
         state: &Self::State,
         observable: &PauliSum,
     ) -> Result<Complex64, E::Error> {
+        self.record(|recorder| recorder.unsupported("expectation"));
         self.inner.expectation(&state.inner, observable)
     }
 
     fn shape(&self, state: &Self::State) -> Result<MpsShape, E::Error> {
-        self.inner.shape(&state.inner)
+        let shape = self.inner.shape(&state.inner)?;
+        self.record(|recorder| recorder.push(format!("S {}", Recorder::bonds(&shape))));
+        Ok(shape)
     }
 
     fn retained_weight(&self, state: &Self::State) -> Result<f64, E::Error> {
-        self.inner.retained_weight(&state.inner)
+        let weight = self.inner.retained_weight(&state.inner)?;
+        self.record(|recorder| recorder.push(format!("W {weight}")));
+        Ok(weight)
     }
 }
 
@@ -285,6 +418,8 @@ struct Options {
     /// Development only: the shots of one `run` call (1: each shot alone).
     group: u32,
     routing: (String, Routing),
+    /// Development only: `--record-calls FILE` and `--record-draws N`.
+    record_calls: Option<(String, usize)>,
 }
 
 impl Options {
@@ -313,7 +448,9 @@ impl Options {
             first_shot: u32::try_from(number("--first-shot", 0)).expect("a shot id"),
             shots: u32::try_from(number("--shots", 1)).expect("a shot count"),
             threads: as_usize(number("--threads", 1)).max(1),
-            group: u32::try_from(number("--group", 1)).expect("a shot count").max(1),
+            group: u32::try_from(number("--group", 1))
+                .expect("a shot count")
+                .max(1),
             routing: {
                 let name = value("--routing").unwrap_or_else(|| "engine".to_string());
                 let routing = match name.as_str() {
@@ -356,6 +493,8 @@ impl Options {
                 };
                 (name, routing)
             },
+            record_calls: value("--record-calls")
+                .map(|path| (path, as_usize(number("--record-draws", 300)))),
         }
     }
 }
@@ -382,6 +521,12 @@ where
         last_capacity_bound: Cell::new(None),
         readout_first_draw: options.readout.as_ref().map(|_| options.readout_first_draw),
         readouts: RefCell::new(Vec::new()),
+        recorder: RefCell::new(
+            options
+                .record_calls
+                .as_ref()
+                .map(|&(_, limit)| Recorder::new(limit)),
+        ),
     });
     let probe = Probe {
         inner: Rc::clone(&engine),
@@ -455,11 +600,40 @@ where
             _ => line += " tvd=none peaks=none",
         }
     }
+    if let Some(recorder) = seen.recorder.borrow_mut().take() {
+        let draws = write_calls(options, shot, &recorder);
+        write!(line, " recorded={draws}").expect("a String takes any text");
+    }
     // The readout's fork is released before the engine.
     seen.readouts.borrow_mut().clear();
     drop(resumer);
     println!("{line}");
     true
+}
+
+/// Development only: writes the calls `recorder` recorded to the
+/// `--record-calls` file; the draws recorded.
+fn write_calls(options: &Options, shot: u32, recorder: &Recorder) -> usize {
+    let (path, _) = options
+        .record_calls
+        .as_ref()
+        .expect("a recorder is made for --record-calls");
+    let mut text = format!(
+        "# calls v1 engine={} routing={} chi={} seed={} shot={shot} draws={} stopped={}",
+        options.engine,
+        options.routing.0,
+        options.chi,
+        options.seed,
+        recorder.draws,
+        recorder.stopped.as_deref().unwrap_or("end"),
+    );
+    for recorded in &recorder.lines {
+        text.push('\n');
+        text += recorded;
+    }
+    text.push('\n');
+    std::fs::write(path, text).expect("the calls file is writable");
+    recorder.draws
 }
 
 /// The TVD of a readout's `distribution` from the exact `table`, and its
@@ -508,6 +682,12 @@ where
         last_capacity_bound: Cell::new(None),
         readout_first_draw: options.readout.as_ref().map(|_| options.readout_first_draw),
         readouts: RefCell::new(Vec::new()),
+        recorder: RefCell::new(
+            options
+                .record_calls
+                .as_ref()
+                .map(|&(_, limit)| Recorder::new(limit)),
+        ),
     });
     let probe = Probe {
         inner: Rc::clone(&engine),
@@ -620,6 +800,10 @@ where
 
 fn main() {
     let options = Options::parse();
+    assert!(
+        options.record_calls.is_none() || (options.shots == 1 && options.group == 1),
+        "--record-calls records one shot alone: --shots 1 --group 1"
+    );
     let json = std::fs::read_to_string(&options.bytecode).expect("the bytecode is readable");
     let bytecode: bytecode_json::Bytecode = serde_json::from_str(&json).expect("bytecode JSON");
     let program = QirProgram::new(bytecode.program()).expect("the program builds");

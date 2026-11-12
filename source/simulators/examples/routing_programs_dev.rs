@@ -455,9 +455,8 @@ fn main() {
             .position(|arg| arg == flag)
             .and_then(|i| args.get(i + 1).cloned())
     };
-    let number = |flag: &str, default: usize| {
-        value(flag).map_or(default, |v| v.parse().expect("a number"))
-    };
+    let number =
+        |flag: &str, default: usize| value(flag).map_or(default, |v| v.parse().expect("a number"));
     match value("--part").as_deref() {
         Some("corpus") => corpus(),
         Some("programs") => kit_programs(),

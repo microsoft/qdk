@@ -116,9 +116,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             })?;
         let placement = match (routing.tuning(), &capacity) {
             (None, _) | (_, None) => None,
-            (Some(tuning), Some(capacity)) => {
-                Some(Placement::tuned(capacity.site_count(), tuning))
-            }
+            (Some(tuning), Some(capacity)) => Some(Placement::tuned(capacity.site_count(), tuning)),
         };
         let waiting = vec![Group {
             shots: shots
