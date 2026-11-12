@@ -32,7 +32,7 @@ use crate::bytecode::encoding::{OPID_CX, OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RY,
 /// seed is chosen so that shot 0's first uniform is 0.
 #[test]
 fn a_qubit_at_zero_reads_zero_even_on_a_uniform_of_zero() {
-    let seed = 0xe85b_9f31_99d1_1237;
+    let seed = 0x7951_b2dd_10d3_4ef6;
     assert_eq!(
         shot_stream(seed, 0).next_uniform().to_bits(),
         0.0f64.to_bits(),

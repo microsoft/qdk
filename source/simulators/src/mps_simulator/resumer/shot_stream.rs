@@ -2,13 +2,14 @@
 // Licensed under the MIT License.
 
 //! The stream each shot of an [`MpsResumer`] draws its measurements and
-//! resets from: [`shot_stream`] seeds it as the executor protocol
-//! (planned) will, and [`SplitMix64`] generates it.
+//! resets from: [`shot_stream`] seeds it with the seed the executor
+//! protocol (planned) will give a chain's last executor in that shot, and
+//! [`SplitMix64`] generates it.
 //!
 //! A shot's records must depend only on the program, the seed, the shot's
 //! id and the settings, and must match what the executor protocol will
 //! draw for that shot: so the resumer needs a stream of uniforms fixed by a
-//! seed, seeded by the protocol's formula. The tests need streams that are
+//! seed, seeded with the protocol's seed. The tests need streams that are
 //! the same on every run too, and use the generator alone.
 //!
 //! The generator is `SplitMix64` (Steele, Lea and Flood, 2014), written
@@ -29,31 +30,23 @@ use crate::qir::QirShotId;
 #[cfg(doc)]
 use super::MpsResumer;
 
-/// The stream shot `shot` draws from under the run seed `seed`: the one the
-/// executor protocol (planned) will seed for that shot of the participant
-/// at place 0, which this MPS simulation method holds in an executor chain
-/// (the protocol's chain of participants, not the MPS's chain of sites) of
-/// a driver and itself, the chain's only participant that draws. So such a
-/// chain, its executor drawing from that stream as this MPS simulation
-/// method does, will reproduce the records a resumer gives. The protocol's
-/// seed is a hash of the run's seed, the place and the shot, so shots with
-/// close ids, or close seeds, draw unrelated values: with `mix(x)` the
-/// first value of `SplitMix64::new(x)`, the participant's seed is
-/// `mix(seed ^ mix(place + 1))`, and the shot's `mix(participant ^ shot)`.
+/// The stream shot `shot` draws from under the run seed `seed`: the one
+/// seeded with the seed the executor protocol (planned) will give that shot
+/// of its last executor, the executor at the end of a chain, which runs the
+/// quantum calls, as this MPS simulation method will. So such a chain, its
+/// last executor drawing from that stream as this method does, will
+/// reproduce the records a resumer gives, whatever adapters above it draw:
+/// the protocol selects each component's seed by its id, and the last
+/// executor's id is fixed. The seed is one step of `SplitMix64` applied to
+/// `SplitMix64(seed) ^ shot` (with `mix(x)` the first value of
+/// `SplitMix64::new(x)`, `mix(mix(seed) ^ shot)`), so shots with close ids,
+/// or close seeds, draw unrelated values.
 pub(super) fn shot_stream(seed: u64, shot: QirShotId) -> SplitMix64 {
     fn mix(x: u64) -> u64 {
         SplitMix64::new(x).next_u64()
     }
-    let participant = mix(seed ^ mix(DRAWING_PLACE + 1));
-    SplitMix64::new(mix(participant ^ u64::from(shot.0)))
+    SplitMix64::new(mix(mix(seed) ^ u64::from(shot.0)))
 }
-
-/// The place of this MPS simulation method among the participants that
-/// draw in a chain of the executor protocol (planned) with a driver that
-/// does not draw: the first, 0. The protocol counts places over the
-/// participants that draw only, so that inserting an observer (a debugger)
-/// moves no draw.
-const DRAWING_PLACE: u64 = 0;
 
 /// The `SplitMix64` generator: the stream of 64-bit values, and of uniforms
 /// in [0, 1), that a seed gives.

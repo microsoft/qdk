@@ -1,10 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A shot's stream: a shot draws from the stream the executor protocol
-//! (planned) will seed for it; and `SplitMix64`, its generator, gives the
-//! published values, a uniform being the top 53 bits of the next value,
-//! from 0 included to 1 excluded.
+//! A shot's stream: a shot draws from the stream seeded with the seed the
+//! executor protocol (planned) will give a chain's last executor in that
+//! shot; and `SplitMix64`, its generator, gives the published values, a
+//! uniform being the top 53 bits of the next value, from 0 included to 1
+//! excluded.
 
 use crate::mps_simulator::MpsResumer;
 use crate::mps_simulator::resumer::shot_stream::SplitMix64;
@@ -13,48 +14,54 @@ use tensornet::reference::ExactReference;
 use super::super::programs::coins;
 use super::{ids, results, run};
 
-/// A shot draws from the stream the executor protocol (planned) will seed
-/// for that shot of a chain's only participant that draws, at place 0, as
-/// this MPS simulation method is in a chain of a driver and itself: so
-/// such a chain, its executor drawing as this MPS simulation method does,
-/// will reproduce the records a resumer gives. Sixteen coins, read in
-/// order, are the first sixteen uniforms of that stream, each against ½,
-/// for several seeds and shots.
+/// A shot draws from the stream seeded with the seed the executor protocol
+/// (planned) will give a chain's last executor, the one that runs the
+/// quantum calls, in that shot: so such a chain, its last executor drawing
+/// as this MPS simulation method does, will reproduce the records a
+/// resumer gives. Sixteen coins, read in order, are the first sixteen
+/// uniforms of `SplitMix64` from that seed, each against ½, for the run
+/// seeds and shots whose seeds the protocol's own tests fix.
 #[test]
-fn a_shot_draws_from_the_executor_protocols_stream_of_the_only_drawing_participant() {
+fn a_shot_draws_from_the_stream_of_the_protocols_last_executor() {
+    // The protocol's known answers for its `shot_seed(seed, shot)`, from an
+    // independent implementation of `SplitMix64`.
+    let known: [(u64, u32, u64); 5] = [
+        (0, 0, 12_035_550_249_420_947_055),
+        (0, 1, 627_405_149_472_732_430),
+        (7, 1, 4_414_019_431_610_648_415),
+        (7, 1000, 6_785_964_006_689_842_358),
+        (u64::MAX, u32::MAX, 16_813_757_279_435_679_236),
+    ];
     let program = coins(16);
-    for seed in [0, 7, u64::MAX] {
-        for shot in [0, 1, 1000] {
-            let mut stream = shot_stream(seed, shot);
-            let bits: Vec<u8> = (0..16)
-                .map(|_| u8::from(stream.next_uniform() < 0.5))
-                .collect();
-            let records = run(
-                &mut MpsResumer::new(ExactReference::new(), seed),
-                &program,
-                &ids(&[shot]),
-            )
-            .expect("the program runs");
-            assert_eq!(records, vec![results(&bits)], "seed {seed}, shot {shot}");
-        }
+    for (seed, shot, shot_seed) in known {
+        let mut stream = SplitMix64::new(shot_seed);
+        let bits: Vec<u8> = (0..16)
+            .map(|_| u8::from(stream.next_uniform() < 0.5))
+            .collect();
+        let records = run(
+            &mut MpsResumer::new(ExactReference::new(), seed),
+            &program,
+            &ids(&[shot]),
+        )
+        .expect("the program runs");
+        assert_eq!(records, vec![results(&bits)], "seed {seed}, shot {shot}");
     }
 }
 
-/// The stream the executor protocol (planned) seeds for `shot` of a run
-/// seeded `seed`, at place 0: with `mix(x)` the first value of
-/// `SplitMix64::new(x)`, a participant's seed is
-/// `mix(run ^ mix(place + 1))`, and its shot's `mix(participant ^ shot)`.
+/// The stream of `shot` of a run seeded `seed`, as the tests' oracle: with
+/// `mix(x)` the first value of `SplitMix64::new(x)`, the seed the executor
+/// protocol (planned) gives a chain's last executor in that shot is
+/// `mix(mix(seed) ^ shot)`.
 pub(super) fn shot_stream(seed: u64, shot: u32) -> SplitMix64 {
     fn mix(x: u64) -> u64 {
         SplitMix64::new(x).next_u64()
     }
-    let participant = mix(seed ^ mix(1));
-    SplitMix64::new(mix(participant ^ u64::from(shot)))
+    SplitMix64::new(mix(mix(seed) ^ u64::from(shot)))
 }
 
 /// The values the published algorithm (Steele, Lea and Flood, 2014) gives
 /// for seed 1234567, a test vector its implementations share: a shot's
-/// draws, and the seed the executor protocol (planned) derives for it, are
+/// draws, and the seed the executor protocol (planned) gives it, are
 /// `SplitMix64`'s, whatever this crate's version.
 #[test]
 fn a_seed_gives_the_published_splitmix64_values() {

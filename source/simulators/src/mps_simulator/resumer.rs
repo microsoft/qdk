@@ -38,13 +38,13 @@ use rewrites::fusion::GateFusion;
 /// `E`, shots that drew the same values sharing one state (how: the header
 /// of `resumer/grouped_run.rs`).
 ///
-/// Each shot draws from its own stream, derived from the resumer's seed and
-/// the shot's id as the executor protocol (planned) will derive the seed
-/// of the only participant that draws in an executor chain (the protocol's
-/// chain of participants, not the MPS's chain of sites). So a shot's
-/// records depend only on the program, the seed, the shot's id and the
-/// settings: not on the shots beside it, nor on its place among them, nor
-/// on earlier runs.
+/// Each shot draws from its own stream, seeded from the resumer's seed and
+/// the shot's id as the executor protocol (planned) will seed the last
+/// executor of a chain, the one that runs the quantum calls, in that shot
+/// (the protocol's chain of executors, not the MPS's chain of sites). So a
+/// shot's records depend only on the program, the seed, the shot's id and
+/// the settings: not on the shots beside it, nor on its place among them,
+/// nor on earlier runs.
 ///
 /// The layout, an order of the qubits chosen from the program's two-qubit
 /// gates, changes the bonds and the time, not the state (to rounding, and
