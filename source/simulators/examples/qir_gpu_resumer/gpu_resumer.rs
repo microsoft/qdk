@@ -673,11 +673,16 @@ pub struct NoiseTables {
     mresetz: Option<Table>,
     mov: Option<Table>,
     intrinsics: HashMap<u32, Table>,
+    /// Idle noise is configured: refused (not simulated).
+    idle: bool,
 }
 
 impl NoiseTables {
     pub fn new(config: &NoiseConfig<f64, f64>) -> Self {
-        let mut tables = Self::default();
+        let mut tables = Self {
+            idle: config.idle.s_probability > 0.0,
+            ..Self::default()
+        };
         let gates: [(QirGate, &NoiseTable<f64>); 20] = [
             (QirGate::X, &config.x),
             (QirGate::Y, &config.y),
@@ -719,7 +724,7 @@ impl NoiseTables {
     }
 
     pub fn is_noiseless(&self) -> bool {
-        self.code.is_empty()
+        self.code.is_empty() && !self.idle
     }
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
@@ -886,6 +891,11 @@ fn translate(
     strategy: Strategy,
     noise: &NoiseTables,
 ) -> Result<Plan, GpuError> {
+    if noise.idle {
+        return Err(GpuError(
+            "the GPU resumer spike simulates no idle noise".to_string(),
+        ));
+    }
     let block_qubits = BLOCK_QUBITS.min(n);
     let low = (1u64 << block_qubits) - 1;
     let mut segments: Vec<Segment> = Vec::new();
