@@ -8,6 +8,7 @@ mod adaptive_profile;
 mod adaptive_ri_profile;
 mod adaptive_rif_profile;
 mod base_profile;
+mod branch_qubit_state;
 mod callable_evaluation;
 mod early_return_cleanup;
 
@@ -2552,6 +2553,45 @@ fn assert_nested_callable_selector_on_every_profile(source: &str, target: usize)
             assert_x_targets_with_context(&qir, &[target], &context);
         }
     }
+}
+
+#[test]
+fn issue_3940_adaptive_qubit_array_without_loop_compiles() {
+    let source =
+        r#"@EntryPoint(Adaptive) operation Main() : Bool { use qs = Qubit[4]; return false; }"#;
+    let _ = compile_source_to_qir(source, Profile::Adaptive.into());
+}
+
+#[test]
+fn issue_3940_adaptive_loop_with_scalar_qubit_and_early_return_compiles() {
+    let source = r#"@EntryPoint(Adaptive) operation Main() : Bool { for e in [0] { use q = Qubit(); return false; } return false; }"#;
+    let _ = compile_source_to_qir(source, Profile::Adaptive.into());
+}
+
+#[test]
+fn issue_3940_adaptive_loop_with_qubit_array_without_early_return_compiles() {
+    let source = r#"@EntryPoint(Adaptive) operation Main() : Bool { for e in [0] { use qs = Qubit[4]; } return false; }"#;
+    let _ = compile_source_to_qir(source, Profile::Adaptive.into());
+}
+
+// Return unification introduces a loop around the early return. Indexing the
+// qubit array in that loop used to panic with "qubit should still be alive".
+#[test]
+fn issue_3940_adaptive_loop_with_indexed_qubit_array_and_early_return_compiles() {
+    let source = r#"
+        @EntryPoint(Adaptive)
+        operation Main() : Int {
+            use qs = Qubit[2];
+            mutable acc = 0;
+            for j in 0..1 {
+                if j == 9 { return 0; }
+                set acc += MResetZ(qs[j]) == One ? 1 | 0;
+            }
+            acc
+        }
+    "#;
+
+    let _ = compile_source_to_qir(source, Profile::Adaptive.into());
 }
 
 #[test]
@@ -9619,6 +9659,50 @@ fn early_return_in_dynamic_branch_reinvoke_original_compiles_parity_target() {
 }
 
 #[test]
+fn issue_3940_callable_input_qubit_release_is_not_hidden_by_external_owner() {
+    let caps = TargetCapabilityFlags::from(Profile::AdaptiveRIF)
+        | TargetCapabilityFlags::DynamicQubitAllocation;
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Run(q : Qubit) : Unit {
+                QIR.Runtime.__quantum__rt__qubit_release(q);
+                let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                X(q);
+                QIR.Runtime.__quantum__rt__qubit_release(fresh);
+            }
+        }
+    "#};
+    let (store, pkg, items) = compile_and_locate_items(source, &[("Run", true)], caps);
+    let external = Rc::new(qsc_eval::val::Qubit(0));
+    let args = Value::Qubit((&external).into());
+    let (codegen_fir, backend) =
+        prepare_codegen_fir_from_callable_args(&store, hir_id_for(pkg, items["Run"]), &args, caps)
+            .unwrap_or_else(|errors| {
+                panic!("preparation failed: {}", format_interpret_errors(errors))
+            });
+    let CallableArgsBackend::ReinvokeOriginal { callable, args } = backend else {
+        panic!("qubit arguments must use reinvocation");
+    };
+    // Numeric-ID reuse and distinct allocation identities are asserted directly
+    // by imported_qubit_preserves_identity_across_release_and_reuse. This
+    // integration test checks the diagnostic through callable QIR generation.
+    let error = qsc_codegen::qir::fir_to_qir_from_callable(
+        &codegen_fir.fir_store,
+        caps,
+        LanguageFeatures::default(),
+        &codegen_fir.compute_properties,
+        callable,
+        args,
+    )
+    .expect_err("a caller-owned Rc must not hide release");
+    assert!(matches!(
+        error,
+        qsc_partial_eval::Error::EvaluationFailed(message, _)
+            if message == "qubit used after release"
+    ));
+}
+
+#[test]
 fn synthetic_path_udt_wrapped_controlled_callable_preserves_functor() {
     let source = indoc::indoc! {r#"
         namespace Test {
@@ -13673,4 +13757,28 @@ fn return_in_while_condition_emits_forty_two_in_base_and_adaptive_qir() {
         "#},
         42,
     );
+}
+
+#[test]
+fn issue_3940_branch_local_explicit_allocations_compile_for_adaptive() {
+    let qir = compile_source_to_qir(
+        indoc::indoc! { r#"
+            namespace Test {
+                operation Op(q : Qubit) : Unit { body intrinsic; }
+                @EntryPoint()
+                operation Main() : Unit {
+                    use control = Qubit();
+                    if MResetZ(control) == One {
+                        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                        Op(q);
+                    } else {
+                        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                        Op(q);
+                    }
+                }
+            }
+        "# },
+        Profile::Adaptive.into(),
+    );
+    assert_eq!(qir.matches("call void @Op(").count(), 2, "{qir}");
 }

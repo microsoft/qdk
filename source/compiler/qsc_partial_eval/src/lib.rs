@@ -14,11 +14,14 @@
 mod tests;
 
 mod evaluation_context;
+mod loop_liveness;
 mod management;
 
 use core::panic;
 use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Scope};
-use management::{QuantumIntrinsicsChecker, ResourceManager};
+use management::{
+    QuantumIntrinsicsChecker, QubitStateSnapshot, ResourceManager, ResourcePredicate,
+};
 use miette::Diagnostic;
 use num_bigint::BigInt;
 use qsc_data_structures::{functors::FunctorApp, span::Span, target::TargetCapabilityFlags};
@@ -91,6 +94,13 @@ pub fn partially_evaluate(
 }
 
 /// Partially evaluates a callable with the specified arguments.
+///
+/// The caller must supply live qubit arguments, including qubits captured by
+/// closures. Their identities are registered as inputs to this evaluation;
+/// releases performed by this evaluation are tracked independently. A
+/// `QubitRef` carries no source-manager liveness information beyond its weak
+/// reference, so a reference retained by another owner cannot establish that
+/// the source manager has not released it.
 pub fn partially_evaluate_call(
     package_store: &PackageStore,
     compute_properties: &PackageStoreComputeProperties,
@@ -206,6 +216,8 @@ struct PartialEvaluator<'a> {
     package_store: &'a PackageStore,
     compute_properties: &'a PackageStoreComputeProperties,
     resource_manager: ResourceManager,
+    loop_events: Vec<loop_liveness::Event>,
+    emitted_loop_depth: usize,
     backend: QuantumIntrinsicsChecker,
     callables_map: FxHashMap<Rc<str>, CallableId>,
     /// Cache of callables emitted as QIR "IR functions", keyed by the specialization they were
@@ -335,6 +347,8 @@ impl<'a> PartialEvaluator<'a> {
             compute_properties,
             eval_context: context,
             resource_manager,
+            loop_events: Vec::new(),
+            emitted_loop_depth: 0,
             backend: QuantumIntrinsicsChecker::default(),
             callables_map: FxHashMap::default(),
             ir_function_callables: FxHashMap::default(),
@@ -567,6 +581,19 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn invoke(mut self, callable: StoreItemId, args: Value) -> Result<Program, Error> {
+        // Import caller-owned identities once, before evaluating the body.
+        // Later uses must pass the manager's allocation-aware liveness check;
+        // an external strong reference must not mask a release in this call.
+        for qubit in args.qubits() {
+            if !self.resource_manager.register_input_qubit(&qubit) {
+                return Err(
+                    EvalError::QubitUsedAfterRelease(map_fir_package_span_to_hir(
+                        fir::PackageSpan::new(callable.package, Default::default()),
+                    ))
+                    .into(),
+                );
+            }
+        }
         // Evaluate the callalbe.
         let ret_val = self.eval_global_call(callable, args)?.into_value();
         let global = self
@@ -660,6 +687,7 @@ impl<'a> PartialEvaluator<'a> {
         rhs_expr_id: ExprId,
         lhs_span: PackageSpan,         // For diagnostic purposes only.
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
+        lhs_resource_predicate: Option<&ResourcePredicate>,
     ) -> Result<EvalControlFlow, Error> {
         // Evaluate the binary operation differently depending on the LHS value variant.
         match lhs_value {
@@ -709,13 +737,21 @@ impl<'a> PartialEvaluator<'a> {
                 if let Some(literal) = self.safe_static_value(lhs_eval_var.id.into())
                     && let Some(lhs_value) = map_rir_literal_to_eval_value(literal, lhs_eval_var.ty)
                 {
-                    self.eval_bin_op(bin_op, lhs_value, rhs_expr_id, lhs_span, bin_op_expr_span)
+                    self.eval_bin_op(
+                        bin_op,
+                        lhs_value,
+                        rhs_expr_id,
+                        lhs_span,
+                        bin_op_expr_span,
+                        lhs_resource_predicate,
+                    )
                 } else {
                     self.eval_bin_op_with_lhs_var(
                         bin_op,
                         lhs_eval_var,
                         rhs_expr_id,
                         bin_op_expr_span,
+                        lhs_resource_predicate,
                     )
                 }
             }
@@ -1004,6 +1040,7 @@ impl<'a> PartialEvaluator<'a> {
         lhs_eval_var: Var,
         rhs_expr_id: ExprId,
         bin_op_expr_span: PackageSpan,
+        lhs_resource_predicate: Option<&ResourcePredicate>,
     ) -> Result<EvalControlFlow, Error> {
         let result_var = match bin_op {
             BinOp::Eq | BinOp::Neq => {
@@ -1012,12 +1049,24 @@ impl<'a> PartialEvaluator<'a> {
             BinOp::AndL => {
                 // Logical AND Boolean operations short-circuit on false.
                 let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
-                self.eval_logical_bool_bin_op(false, lhs_rir_var, rhs_expr_id, bin_op_expr_span)?
+                self.eval_logical_bool_bin_op(
+                    false,
+                    lhs_rir_var,
+                    rhs_expr_id,
+                    bin_op_expr_span,
+                    lhs_resource_predicate,
+                )?
             }
             BinOp::OrL => {
                 // Logical OR Boolean operations short-circuit on true.
                 let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
-                self.eval_logical_bool_bin_op(true, lhs_rir_var, rhs_expr_id, bin_op_expr_span)?
+                self.eval_logical_bool_bin_op(
+                    true,
+                    lhs_rir_var,
+                    rhs_expr_id,
+                    bin_op_expr_span,
+                    lhs_resource_predicate,
+                )?
             }
             _ => panic!("invalid Boolean operator {bin_op:?}"),
         };
@@ -1082,6 +1131,7 @@ impl<'a> PartialEvaluator<'a> {
         lhs_rir_var: rir::Variable,
         rhs_expr_id: ExprId,
         bin_op_expr_span: PackageSpan,
+        lhs_resource_predicate: Option<&ResourcePredicate>,
     ) -> Result<Var, Error> {
         self.fail_if_in_parallel_expr(bin_op_expr_span)?;
 
@@ -1121,7 +1171,17 @@ impl<'a> PartialEvaluator<'a> {
         };
         self.eval_context.push_block_node(rhs_eval_block_node);
 
-        // Evaluate the RHS expression
+        // Snapshot the LHS value before evaluating a potentially mutating RHS.
+        // These facts select resource paths only and never specialize RIR.
+        let lhs_flag = self.resource_manager.new_resource_flag();
+        self.resource_manager
+            .assign_resource_flag(lhs_flag, lhs_resource_predicate);
+        let lhs_predicate = ResourcePredicate::Flag(lhs_flag);
+        let state_before_rhs = self.resource_manager.save_qubit_state();
+        self.resource_manager
+            .restrict_resource_paths(&lhs_predicate, !short_circuit_on_true);
+
+        // Evaluate the RHS expression.
         let cached_mappings = self.clone_current_static_var_map();
         let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
         let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
@@ -1149,6 +1209,14 @@ impl<'a> PartialEvaluator<'a> {
         let _ = self.eval_context.pop_block_node();
 
         self.keep_matching_static_var_mappings(&cached_mappings);
+
+        let state_after_rhs = self.resource_manager.save_qubit_state();
+        self.resource_manager.restore_qubit_state(state_before_rhs);
+        self.resource_manager
+            .restrict_resource_paths(&lhs_predicate, short_circuit_on_true);
+        self.resource_manager.merge_qubit_state(state_after_rhs);
+        self.resource_manager
+            .forget_resource_flags(std::iter::once(lhs_flag));
 
         // Now that we have constructed both the conditional and continuation blocks, insert the jump instruction and
         // return the variable that stores the result of the Boolean operation.
@@ -1317,6 +1385,7 @@ impl<'a> PartialEvaluator<'a> {
         lhs_eval_var: Var,
         rhs_expr_id: ExprId,
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
+        lhs_resource_predicate: Option<&ResourcePredicate>,
     ) -> Result<EvalControlFlow, Error> {
         match lhs_eval_var.ty {
             VarTy::Boolean => self.eval_bin_op_with_lhs_dynamic_bool_operand(
@@ -1324,6 +1393,7 @@ impl<'a> PartialEvaluator<'a> {
                 lhs_eval_var,
                 rhs_expr_id,
                 bin_op_expr_span,
+                lhs_resource_predicate,
             ),
             VarTy::Integer => {
                 let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
@@ -1583,6 +1653,13 @@ impl<'a> PartialEvaluator<'a> {
         lhs_expr_id: ExprId,
         rhs_expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
+        let resource_predicate = self.resource_predicate(rhs_expr_id);
+        let captured_flag = resource_predicate.as_ref().map(|predicate| {
+            let flag = self.resource_manager.new_resource_flag();
+            self.resource_manager
+                .assign_resource_flag(flag, Some(predicate));
+            flag
+        });
         let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
         let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
             return Err(Error::Unexpected(
@@ -1592,6 +1669,13 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         self.update_bindings(lhs_expr_id, rhs_value)?;
+        if let Some(flag) = captured_flag {
+            if let ExprKind::Var(Res::Local(local), _) = self.get_expr(lhs_expr_id).kind {
+                self.assign_resource_predicate(local, Some(&ResourcePredicate::Flag(flag)));
+            }
+            self.resource_manager
+                .forget_resource_flags(std::iter::once(flag));
+        }
         Ok(EvalControlFlow::Continue(Value::unit()))
     }
 
@@ -1646,12 +1730,14 @@ impl<'a> PartialEvaluator<'a> {
         }
         let lhs_value = lhs_control_flow.into_value();
         let lhs_value = self.copy_value_if_needed(lhs_value);
+        let lhs_resource_predicate = self.resource_predicate(lhs_expr_id);
         let bin_op_control_flow = self.eval_bin_op(
             bin_op,
             lhs_value,
             rhs_expr_id,
             lhs_expr_package_span,
             bin_op_expr_span,
+            lhs_resource_predicate.as_ref(),
         )?;
         let EvalControlFlow::Continue(bin_op_value) = bin_op_control_flow else {
             panic!(
@@ -1683,7 +1769,15 @@ impl<'a> PartialEvaluator<'a> {
         // Now that we have a LHS value, evaluate the binary operation, which will properly consider short-circuiting
         // logic in the case of Boolean operations.
         let lhs_span = self.get_expr_package_span(lhs_expr_id);
-        self.eval_bin_op(bin_op, lhs_value, rhs_expr_id, lhs_span, bin_op_expr_span)
+        let lhs_resource_predicate = self.resource_predicate(lhs_expr_id);
+        self.eval_bin_op(
+            bin_op,
+            lhs_value,
+            rhs_expr_id,
+            lhs_span,
+            bin_op_expr_span,
+            lhs_resource_predicate.as_ref(),
+        )
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1785,37 +1879,35 @@ impl<'a> PartialEvaluator<'a> {
                                 if runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
                         )
                 })
-                .map(|_| {
-                    args.iter()
-                        .map(|arg| {
-                            let value = match arg {
-                                Arg::Discard(value) => value,
-                                Arg::Var(_, var) => &var.value,
-                            };
-                            self.map_eval_value_to_rir_operand(value)
-                        })
-                        .collect::<Vec<Operand>>()
-                })
-                .filter(|arg_operands| {
-                    // Only emit the call as an IR function when it genuinely produces a runtime value.
-                    // A purely-classical callable (one whose inherent compute kind is `Static`) invoked
-                    // with all compile-time-constant arguments evaluates to a compile-time constant, and
-                    // that constant may be required by later static control flow (for example an array
-                    // length check or a `use qs = Qubit[n]` size). Emitting such a call would replace the
-                    // known constant with an opaque IR variable, turning statically-decidable branches
-                    // into dynamic ones and breaking constant-dependent evaluation. In that case fall
-                    // through to the inline path, which constant-folds the body. The call is still
-                    // emitted when the callable carries quantum/runtime content (`Dynamic` inherent) or
-                    // when at least one argument is a runtime variable, so classical callables are still
-                    // emitted as functions whenever they are actually invoked with runtime values.
+                .filter(|_| {
+                    // Preserve compile-time folding before promoting arguments to the IR ABI.
                     matches!(
                         self.spec_inherent_compute_kind(store_item_id, functor_app),
                         Some(ComputeKind::Dynamic { .. })
-                    )
-                        || arg_operands
-                            .iter()
-                            .any(|operand| matches!(operand, Operand::Variable(_)))
+                    ) || args.iter().any(|arg| match arg {
+                        Arg::Discard(value) => matches!(value, Value::Var(_)),
+                        Arg::Var(_, var) => matches!(var.value, Value::Var(_)),
+                    })
                 })
+                .map(|_| {
+                    let mut operands = Vec::with_capacity(args.len());
+                    for arg in &args {
+                        let value = match arg {
+                            Arg::Discard(value) => value,
+                            Arg::Var(_, var) => &var.value,
+                        };
+                        // The flattened argument list also includes closure captures.
+                        for qubit in value.qubits() {
+                            if !self.resource_manager.is_qubit_live(&qubit) {
+                                return Err(Error::from(EvalError::QubitUsedAfterRelease(args_span)));
+                            }
+                            self.record_loop_qubit_event(&qubit, false, args_span);
+                        }
+                        operands.push(self.map_eval_value_to_rir_operand(value));
+                    }
+                    Ok(operands)
+                })
+                .transpose()?
         };
         let call_scope = Scope::new(
             store_item_id.package,
@@ -2032,15 +2124,20 @@ impl<'a> PartialEvaluator<'a> {
         args_span: PackageSpan,        // For diagnostic purposes only.
         callee_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<Value, Error> {
+        if callable_decl.name.name.as_ref() != "__quantum__rt__qubit_release" {
+            for qubit in args_value.qubits() {
+                self.record_loop_qubit_event(&qubit, false, args_span);
+            }
+        }
         // Check if any qubits passed as arguments have been released.
         let qubits = args_value.qubits();
         let qubits_len = qubits.len();
         if qubits_len > 0 {
-            let qubits = qubits
+            let live_qubits = qubits
                 .iter()
-                .filter_map(|q| q.try_deref().map(|q| q.0))
-                .collect::<Vec<_>>();
-            if qubits.len() != qubits_len {
+                .filter(|q| self.resource_manager.is_qubit_live(q))
+                .count();
+            if live_qubits != qubits_len {
                 return if callable_decl.name.name.as_ref() == "__quantum__rt__qubit_release" {
                     Err(EvalError::QubitDoubleRelease(args_span).into())
                 } else {
@@ -2272,6 +2369,8 @@ impl<'a> PartialEvaluator<'a> {
 
         let block_value = self.try_eval_block(spec_decl.block)?.into_value();
         let popped_scope = self.eval_context.pop_scope();
+        self.resource_manager
+            .forget_resource_flags(popped_scope.resource_flag_keys.into_iter());
         assert!(
             popped_scope.package_id == global_callable_id.package,
             "scope package ID mismatch"
@@ -2377,6 +2476,19 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
+        // Static qubit lifetimes must be evaluated with the actual argument identities.
+        // An emitted body receives opaque RIR variables, so its releases cannot update
+        // the caller's resource state. Keep releasing callables on the inline path.
+        if !self
+            .program
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::DynamicQubitAllocation)
+            && self.spec_block_may_release_qubits(store_item_id.package, spec_decl.block)
+        {
+            return false;
+        }
+
         // Late-resolved callees may lack call-site MustBeInlined. Recheck allocation
         // with runtime parameters before static qubit identities can escape into an IR function.
         if !self
@@ -2438,12 +2550,57 @@ impl<'a> PartialEvaluator<'a> {
     fn spec_block_has_return(&self, package_id: PackageId, block_id: BlockId) -> bool {
         use qsc_fir::visit::Visitor;
         let package = self.package_store.get(package_id);
-        let mut scanner = ReturnScanner {
+        let mut scanner = CallableBodyScanner {
             package,
-            found: false,
+            found_return: false,
+            references: FxHashSet::default(),
         };
         scanner.visit_block(block_id);
-        scanner.found
+        scanner.found_return
+    }
+
+    /// Conservatively follows resolved callable references, including aliases.
+    /// Each resolved callable specialization is visited at most once.
+    fn spec_block_may_release_qubits(&self, package_id: PackageId, block: BlockId) -> bool {
+        use qsc_fir::visit::Visitor;
+
+        let mut pending = vec![(package_id, block)];
+        let mut visited = FxHashSet::default();
+        while let Some((package_id, block)) = pending.pop() {
+            let mut scanner = CallableBodyScanner {
+                package: self.package_store.get(package_id),
+                found_return: false,
+                references: FxHashSet::default(),
+            };
+            scanner.visit_block(block);
+            for (item, functor) in scanner.references {
+                if !visited.insert((item, functor)) {
+                    continue;
+                }
+                let Some(Global::Callable(callable)) = self.package_store.get_global(item) else {
+                    continue;
+                };
+                if item.package == PackageId::CORE
+                    && matches!(
+                        callable.name.name.as_ref(),
+                        "__quantum__rt__qubit_release" | "ReleaseQubitArray"
+                    )
+                {
+                    return true;
+                }
+                if let CallableImpl::Spec(specs) = &callable.implementation {
+                    let functor_app = FunctorApp {
+                        adjoint: matches!(functor, FunctorSetValue::Adj | FunctorSetValue::CtlAdj),
+                        controlled: u8::from(matches!(
+                            functor,
+                            FunctorSetValue::Ctl | FunctorSetValue::CtlAdj
+                        )),
+                    };
+                    pending.push((item.package, get_spec_decl(specs, functor_app).block));
+                }
+            }
+        }
+        false
     }
 
     /// Emits an eligible specialization as a QIR "IR function": a `Regular` RIR callable
@@ -2688,6 +2845,8 @@ impl<'a> PartialEvaluator<'a> {
             popped_scope.package_id == store_item_id.package,
             "IR-function scope package ID mismatch"
         );
+        self.resource_manager
+            .forget_resource_flags(popped_scope.resource_flag_keys.into_iter());
         self.eval_context.pop_block_node();
 
         Ok(callable_id)
@@ -2761,9 +2920,16 @@ impl<'a> PartialEvaluator<'a> {
 
         // Evaluate the body expression.
         // First, we cache the current static variable mappings so that we can restore them later.
+        let resource_predicate = self.resource_predicate(condition_expr_id);
         let cached_mappings = self.clone_current_static_var_map();
+        let qubit_state_before_branch = self.resource_manager.save_qubit_state();
+        if let Some(predicate) = &resource_predicate {
+            self.resource_manager
+                .restrict_resource_paths(predicate, true);
+        }
         let if_true_block_id =
             self.eval_expr_if_branch(body_expr_id, continuation_block_node_id, maybe_if_expr_var)?;
+        let qubit_state_after_true = self.resource_manager.save_qubit_state();
 
         // Evaluate the otherwise expression (if any), and determine the block to branch to if the condition is false.
         let if_false_block_id = if let Some(otherwise_expr_id) = otherwise_expr_id {
@@ -2771,6 +2937,12 @@ impl<'a> PartialEvaluator<'a> {
             let post_if_true_mappings = self.clone_current_static_var_map();
             // Restore the cached mappings from before evaluating the true block.
             self.overwrite_current_static_var_map(cached_mappings);
+            self.resource_manager
+                .restore_qubit_state(qubit_state_before_branch);
+            if let Some(predicate) = &resource_predicate {
+                self.resource_manager
+                    .restrict_resource_paths(predicate, false);
+            }
             let if_false_block_id = self.eval_expr_if_branch(
                 otherwise_expr_id,
                 continuation_block_node_id,
@@ -2785,9 +2957,23 @@ impl<'a> PartialEvaluator<'a> {
             // the variable is no longer static across the if expression.
             self.keep_matching_static_var_mappings(&cached_mappings);
 
+            // With no otherwise branch, the false path leaves resources exactly
+            // as they were before the true branch was evaluated.
+            self.resource_manager
+                .restore_qubit_state(qubit_state_before_branch);
+            if let Some(predicate) = &resource_predicate {
+                self.resource_manager
+                    .restrict_resource_paths(predicate, false);
+            }
+
             // Since there is no otherwise block, we branch to the continuation block.
             continuation_block_node_id
         };
+
+        // Preserve the true branch's peak qubit count even when its extra
+        // allocations have been released and the false path is implicit.
+        self.resource_manager
+            .merge_qubit_state(qubit_state_after_true);
 
         // Finally, we insert the branch instruction.
         let condition_value_var = condition_value.unwrap_var();
@@ -3271,6 +3457,14 @@ impl<'a> PartialEvaluator<'a> {
         condition_expr_id: ExprId,
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
+        let entry_resources = self.resource_manager.save_qubit_state();
+        let entry_literals = if self.emitted_loop_depth == 0 {
+            self.clone_current_static_var_map()
+        } else {
+            FxHashMap::default()
+        };
+        let event_start = self.loop_events.len();
+        self.emitted_loop_depth += 1;
         // Pop the current block node and create the necessary block nodes for the loop structure.
         let current_block_node = self.eval_context.pop_block_node();
         let conditional_block_node_id = self.create_program_block();
@@ -3309,6 +3503,7 @@ impl<'a> PartialEvaluator<'a> {
                 .0
                 .push(jump_to_continuation_ins);
             let _ = self.eval_context.pop_block_node();
+            self.finish_loop_recording();
             return Ok(EvalControlFlow::Continue(Value::unit()));
         }
 
@@ -3337,6 +3532,7 @@ impl<'a> PartialEvaluator<'a> {
             .eval_context
             .get_current_scope()
             .clone_static_var_mappings();
+        let zero_iteration_resources = self.resource_manager.save_qubit_state();
 
         // In the body block, evaluate the loop body and jump back to the conditional block.
         self.eval_context.push_block_node(body_block_node);
@@ -3353,11 +3549,82 @@ impl<'a> PartialEvaluator<'a> {
             .push(jump_to_condition_ins);
         let _ = self.eval_context.pop_block_node();
 
+        self.validate_loop_resources(
+            entry_resources,
+            event_start,
+            conditional_block_node_id,
+            continuation_block_node_id,
+            &entry_literals,
+        )?;
+        self.resource_manager
+            .merge_qubit_state(zero_iteration_resources);
+
         self.eval_context
             .get_current_scope_mut()
             .keep_matching_static_var_mappings(&condition_mappings);
 
         Ok(EvalControlFlow::Continue(Value::unit()))
+    }
+
+    fn validate_loop_resources(
+        &mut self,
+        entry_resources: QubitStateSnapshot,
+        event_start: usize,
+        header: rir::BlockId,
+        continuation: rir::BlockId,
+        entry_literals: &FxHashMap<VariableId, Literal>,
+    ) -> Result<(), Error> {
+        let body_resources = self.resource_manager.save_qubit_state();
+        self.resource_manager.restore_qubit_state(entry_resources);
+        let scope = self.eval_context.get_current_scope();
+        let flag_variables: Vec<_> = scope
+            .resource_flags
+            .iter()
+            .filter_map(|(local, flag)| {
+                if let Value::Var(var) = scope.get_hybrid_local_value(*local) {
+                    Some((*flag, VariableId::from(var.id)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut inputs = Vec::new();
+        for event in &self.loop_events[event_start..] {
+            if self.resource_manager.is_qubit_reserved(&event.qubit)
+                && !inputs
+                    .iter()
+                    .any(|input: &loop_liveness::Input| Rc::ptr_eq(&input.qubit, &event.qubit))
+            {
+                let entry_states = self
+                    .resource_manager
+                    .qubit_entry_paths(&event.qubit)
+                    .map(|(flags, released)| loop_liveness::EntryState {
+                        released,
+                        booleans: flag_variables
+                            .iter()
+                            .filter_map(|(flag, variable)| {
+                                flags.get(flag).map(|value| (*variable, *value))
+                            })
+                            .collect(),
+                    })
+                    .collect();
+                inputs.push(loop_liveness::Input {
+                    qubit: Rc::clone(&event.qubit),
+                    entry_states,
+                });
+            }
+        }
+        self.resource_manager.restore_qubit_state(body_resources);
+        let validation = loop_liveness::validate(
+            &self.program,
+            header,
+            continuation,
+            &self.loop_events[event_start..],
+            &inputs,
+            entry_literals,
+        );
+        self.finish_loop_recording();
+        validation
     }
 
     fn eval_result_as_bool_operand(&mut self, result: &Value) -> Operand {
@@ -4081,9 +4348,37 @@ impl<'a> PartialEvaluator<'a> {
         result_value
     }
 
+    fn record_loop_qubit_event(&mut self, qubit: &val::QubitRef, release: bool, span: PackageSpan) {
+        if self.emitted_loop_depth == 0 {
+            return;
+        }
+        if let Some(qubit) = qubit.try_deref() {
+            let block = self.eval_context.get_current_block_id();
+            let offset = self.get_current_rir_block_mut().0.len();
+            self.loop_events.push(loop_liveness::Event {
+                block,
+                offset,
+                qubit,
+                release,
+                span,
+            });
+        }
+    }
+
+    fn finish_loop_recording(&mut self) {
+        self.emitted_loop_depth -= 1;
+        if self.emitted_loop_depth == 0 {
+            self.loop_events.clear();
+        }
+    }
+
     fn release_qubit(&mut self, args_value: Value, arg_span: PackageSpan) -> Result<Value, Error> {
         match args_value {
             Value::Qubit(qubit) => {
+                if !self.resource_manager.is_qubit_live(&qubit) {
+                    return Err(EvalError::QubitDoubleRelease(arg_span).into());
+                }
+                self.record_loop_qubit_event(&qubit, true, arg_span);
                 self.resource_manager.release_qubit(&qubit);
             }
             // A runtime qubit allocated via the dynamic-allocation path is released with a runtime
@@ -4278,6 +4573,16 @@ impl<'a> PartialEvaluator<'a> {
                 let control_flow = self.try_eval_expr(expr_id)?;
                 match control_flow {
                     EvalControlFlow::Continue(value) => {
+                        if let PatKind::Bind(ident) = &self.get_pat(pat_id).kind {
+                            let predicate = self.resource_predicate(expr_id).or({
+                                if let Value::Bool(value) = &value {
+                                    Some(ResourcePredicate::Constant(*value))
+                                } else {
+                                    None
+                                }
+                            });
+                            self.bind_resource_predicate(ident.id, predicate.as_ref());
+                        }
                         self.bind_value_to_pat(mutability, pat_id, value);
                         Ok(EvalControlFlow::Continue(Value::unit()))
                     }
@@ -4441,6 +4746,12 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn update_hybrid_local(&mut self, local_var_id: LocalVarId, value: Value) -> Result<(), Error> {
+        let predicate = if let Value::Bool(value) = &value {
+            Some(ResourcePredicate::Constant(*value))
+        } else {
+            None
+        };
+        self.assign_resource_predicate(local_var_id, predicate.as_ref());
         let bound_value = self
             .eval_context
             .get_current_scope()
@@ -4470,6 +4781,75 @@ impl<'a> PartialEvaluator<'a> {
                 .update_hybrid_local_value(local_var_id, value);
         }
         Ok(())
+    }
+
+    fn bind_resource_predicate(
+        &mut self,
+        local: LocalVarId,
+        predicate: Option<&ResourcePredicate>,
+    ) {
+        if predicate.is_some() {
+            let flag = self.resource_manager.new_resource_flag();
+            self.resource_manager.assign_resource_flag(flag, predicate);
+            self.eval_context
+                .get_current_scope_mut()
+                .resource_flags
+                .insert(local, flag);
+            self.eval_context
+                .get_current_scope_mut()
+                .resource_flag_keys
+                .push(flag);
+        }
+    }
+
+    fn assign_resource_predicate(
+        &mut self,
+        local: LocalVarId,
+        predicate: Option<&ResourcePredicate>,
+    ) {
+        if let Some(flag) = self
+            .eval_context
+            .get_current_scope()
+            .resource_flags
+            .get(&local)
+        {
+            self.resource_manager.assign_resource_flag(*flag, predicate);
+        }
+    }
+
+    fn resource_predicate(&self, expr: ExprId) -> Option<ResourcePredicate> {
+        match &self.get_expr(expr).kind {
+            ExprKind::Var(Res::Local(local), _) => self
+                .eval_context
+                .get_current_scope()
+                .resource_flags
+                .get(local)
+                .copied()
+                .map(ResourcePredicate::Flag),
+            ExprKind::Lit(fir::Lit::Bool(value)) => Some(ResourcePredicate::Constant(*value)),
+            ExprKind::UnOp(UnOp::NotL, operand) => Some(ResourcePredicate::Not(Box::new(
+                self.resource_predicate(*operand)?,
+            ))),
+            ExprKind::BinOp(BinOp::AndL, lhs, rhs) => Some(ResourcePredicate::And(
+                Box::new(self.resource_predicate(*lhs)?),
+                Box::new(self.resource_predicate(*rhs)?),
+            )),
+            ExprKind::BinOp(BinOp::OrL, lhs, rhs) => Some(ResourcePredicate::Or(
+                Box::new(self.resource_predicate(*lhs)?),
+                Box::new(self.resource_predicate(*rhs)?),
+            )),
+            ExprKind::Block(block) => self.get_block(*block).stmts.last().and_then(|stmt| {
+                if self.get_block(*block).stmts.len() != 1 {
+                    return None;
+                }
+                if let StmtKind::Expr(expr) = self.get_stmt(*stmt).kind {
+                    self.resource_predicate(expr)
+                } else {
+                    None
+                }
+            }),
+            _ => None,
+        }
     }
 
     fn value_into_static_mapping(&self, value: Value) -> Value {
@@ -5628,20 +6008,56 @@ fn functor_app_to_functor_set_value(functor_app: FunctorApp) -> FunctorSetValue 
     }
 }
 
-/// A FIR visitor that detects whether a block contains any residual `Return` expression.
-struct ReturnScanner<'a> {
+/// Collects return presence and resolved callable references within a FIR body.
+struct CallableBodyScanner<'a> {
     package: &'a fir::Package,
-    found: bool,
+    found_return: bool,
+    references: FxHashSet<(StoreItemId, FunctorSetValue)>,
 }
 
-impl<'a> qsc_fir::visit::Visitor<'a> for ReturnScanner<'a> {
-    fn visit_expr(&mut self, expr: ExprId) {
-        match self.get_expr(expr).kind {
-            ExprKind::Return(_) => {
-                self.found = true;
+impl CallableBodyScanner<'_> {
+    fn resolve_reference(&self, mut expr: ExprId) -> Option<(StoreItemId, FunctorSetValue)> {
+        let mut functor_app = FunctorApp::default();
+        loop {
+            match self.package.exprs.get(expr)?.kind {
+                ExprKind::Var(Res::Item(item), _) => {
+                    return Some((
+                        StoreItemId {
+                            package: item.package,
+                            item: item.item,
+                        },
+                        functor_app_to_functor_set_value(functor_app),
+                    ));
+                }
+                ExprKind::UnOp(UnOp::Functor(functor), operand) => {
+                    functor_app = update_functor_app(functor, functor_app);
+                    expr = operand;
+                }
+                _ => return None,
             }
-            _ => qsc_fir::visit::walk_expr(self, expr),
         }
+    }
+}
+
+impl<'a> qsc_fir::visit::Visitor<'a> for CallableBodyScanner<'a> {
+    fn visit_expr(&mut self, expr: ExprId) {
+        if let Some(reference) = self.resolve_reference(expr) {
+            self.references.insert(reference);
+            return;
+        }
+        if matches!(self.get_expr(expr).kind, ExprKind::Return(_)) {
+            self.found_return = true;
+        }
+        if let ExprKind::Closure(_, item) = self.get_expr(expr).kind {
+            self.references.insert((
+                StoreItemId {
+                    package: self.package.id,
+                    item,
+                },
+                FunctorSetValue::Empty,
+            ));
+        }
+        qsc_fir::visit::walk_expr(self, expr);
     }
 
     fn get_block(&self, id: BlockId) -> &'a Block {

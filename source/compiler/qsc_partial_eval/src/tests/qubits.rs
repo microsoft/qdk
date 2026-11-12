@@ -5,12 +5,12 @@
 
 use super::{
     assert_block_instructions, assert_callable, assert_error, get_partial_evaluation_error,
-    get_rir_program,
+    get_partial_evaluation_error_with_capabilities, get_rir_program,
 };
 use crate::tests::get_rir_program_with_capabilities;
 use expect_test::expect;
 use indoc::indoc;
-use qsc_data_structures::target::Profile;
+use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
@@ -492,6 +492,151 @@ fn qubit_double_release_triggers_runtime_error() {
 }
 
 #[test]
+fn released_qubit_inside_dynamic_branch_reports_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    Op(q);
+                }
+            }
+        }
+        "#,
+    });
+
+    assert!(matches!(
+        error,
+        crate::Error::EvaluationFailed(message, _)
+            if message == "qubit used after release"
+    ));
+}
+
+#[test]
+fn released_qubit_id_reused_inside_dynamic_branch_reports_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                    Op(fresh);
+                    Op(q);
+                    QIR.Runtime.__quantum__rt__qubit_release(fresh);
+                }
+            }
+        }
+        "#,
+    });
+
+    assert!(matches!(
+        error,
+        crate::Error::EvaluationFailed(message, _)
+            if message == "qubit used after release"
+    ));
+}
+
+#[test]
+fn released_qubit_id_reused_in_else_branch_reports_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+
+                if MResetZ(control) == One {
+                    Op(q);
+                } else {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                    Op(fresh);
+                    Op(q);
+                    QIR.Runtime.__quantum__rt__qubit_release(fresh);
+                }
+            }
+        }
+        "#,
+    });
+
+    assert!(matches!(
+        error,
+        crate::Error::EvaluationFailed(message, _)
+            if message == "qubit used after release"
+    ));
+}
+
+#[test]
+fn fresh_qubit_after_release_inside_dynamic_branch_is_live() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                    Op(fresh);
+                    QIR.Runtime.__quantum__rt__qubit_release(fresh);
+                }
+            }
+        }
+        "#,
+    });
+
+    assert_eq!(program.num_qubits, 2);
+}
+
+#[test]
+fn dynamic_branch_without_else_preserves_peak_qubit_count() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+
+                if MResetZ(control) == One {
+                    use qs = Qubit[3];
+                    Op(qs[0]);
+                    Op(qs[1]);
+                    Op(qs[2]);
+                }
+            }
+        }
+        "#,
+    });
+
+    // The branch-local qubits are released, but its peak slots remain part
+    // of the statically allocated program even on an implicit false path.
+    assert_eq!(program.num_qubits, 4);
+}
+
+#[test]
 fn qubit_relabel_in_dynamic_block_triggers_capability_error() {
     let error = get_partial_evaluation_error(indoc! {
         r#"
@@ -630,4 +775,446 @@ fn qubit_relabel_uses_expected_ids_in_adaptive_global_arrays() {
             array_literals:
                 [0]: [Qubit(2), Qubit(3)]
     "#]].assert_eq(&program.to_string());
+}
+
+#[test]
+fn branch_local_explicit_allocations_share_capacity_at_join() {
+    let program = get_rir_program_with_capabilities(
+        indoc! { r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                if MResetZ(control) == One {
+                    let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                    Op(q);
+                } else {
+                    let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                    Op(q);
+                }
+            }
+        }
+        "# },
+        Profile::AdaptiveRIF.into(),
+    );
+    assert_eq!(program.num_qubits, 2);
+}
+
+#[test]
+fn liveness_control_one_sided_release_rejects_unconditional_continuation() {
+    // Keep the diagnostic requirement even while the published implementation accepts this use.
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                }
+                Op(q);
+            }
+        }
+        "#,
+    });
+    assert!(matches!(
+        error,
+        crate::Error::EvaluationFailed(message, _)
+            if message == "qubit used after release"
+    ));
+}
+
+#[test]
+fn liveness_control_callee_early_return_does_not_revive_released_caller_qubit() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            operation Release(stop : Bool, q : Qubit) : Unit {
+                QIR.Runtime.__quantum__rt__qubit_release(q);
+                if stop { return (); }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                Release(true, q);
+                Op(q);
+            }
+        }
+        "#,
+    });
+    assert!(
+        matches!(
+            &error,
+            crate::Error::EvaluationFailed(message, _)
+                if message == "qubit used after release"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn liveness_control_released_alias_stays_invalid_after_callee_exit_and_id_reuse() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            operation Release(stop : Bool, q : Qubit) : Unit {
+                QIR.Runtime.__quantum__rt__qubit_release(q);
+                if stop { return (); }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                let alias = q;
+                Release(true, q);
+                let fresh = QIR.Runtime.__quantum__rt__qubit_allocate();
+                Op(fresh);
+                Op(alias);
+                QIR.Runtime.__quantum__rt__qubit_release(fresh);
+            }
+        }
+        "#,
+    });
+    assert!(
+        matches!(
+            &error,
+            crate::Error::EvaluationFailed(message, _)
+                if message == "qubit used after release"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn liveness_control_loop_release_then_exit_rejects_after_loop_use() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable keep = MResetZ(control) == One;
+                while keep {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    set keep = false;
+                }
+                Op(q);
+            }
+        }
+        "#,
+        },
+        TargetCapabilityFlags::from(Profile::AdaptiveRIF)
+            | TargetCapabilityFlags::BackwardsBranching,
+    );
+    assert!(
+        matches!(
+            &error,
+            crate::Error::EvaluationFailed(message, _)
+                if message == "qubit used after release"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn liveness_control_loop_backedge_rejects_next_iteration_use() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {
+        r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable keep = MResetZ(control) == One;
+                while keep {
+                    Op(q);
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    set keep = MResetZ(control) == One;
+                }
+            }
+        }
+        "#,
+        },
+        TargetCapabilityFlags::from(Profile::AdaptiveRIF)
+            | TargetCapabilityFlags::BackwardsBranching,
+    );
+    assert!(
+        matches!(
+            &error,
+            crate::Error::EvaluationFailed(message, _)
+                if message == "qubit used after release"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn liveness_control_loop_backedge_rejects_next_iteration_release() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable keep = MResetZ(control) == One;
+                while keep {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    set keep = MResetZ(control) == One;
+                }
+            }
+        }
+        "#,
+        },
+        TargetCapabilityFlags::from(Profile::AdaptiveRIF)
+            | TargetCapabilityFlags::BackwardsBranching,
+    );
+    assert!(
+        matches!(
+            &error,
+            crate::Error::EvaluationFailed(message, _)
+                if message == "qubit double release"
+        ),
+        "{error:?}"
+    );
+}
+#[test]
+fn boolean_review_compound_assignment_must_invalidate_old_fact() {
+    let error = get_partial_evaluation_error(indoc! {r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable flag = true;
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                } else {
+                    set flag = false;
+                }
+                set flag and= MResetZ(control) == One;
+                if not flag { Op(q); }
+            }
+        }
+    "#});
+    assert!(
+        matches!(error, crate::Error::EvaluationFailed(message, _) if message == "qubit used after release")
+    );
+}
+
+#[test]
+fn boolean_review_mutating_rhs_must_preserve_lhs_read_value() {
+    let error = get_partial_evaluation_error(indoc! {r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable flag = true;
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                } else {
+                    set flag = false;
+                }
+                if flag and { set flag = false; true } { Op(q); }
+            }
+        }
+    "#});
+    assert!(
+        matches!(error, crate::Error::EvaluationFailed(message, _) if message == "qubit used after release")
+    );
+}
+
+#[test]
+fn boolean_review_copy_is_snapshot_before_source_mutation() {
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable flag = false;
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    set flag = true;
+                }
+                let snapshot = flag;
+                set flag = false;
+                if not snapshot { Op(q); }
+            }
+        }
+    "#});
+    assert_eq!(program.num_qubits, 2);
+}
+
+#[test]
+fn boolean_review_tuple_assignment_must_invalidate_old_fact() {
+    let error = get_partial_evaluation_error(indoc! {r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable flag = true;
+                mutable other = false;
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                } else {
+                    set flag = false;
+                }
+                set (flag, other) = (MResetZ(control) == One, false);
+                if not flag { Op(q); }
+            }
+        }
+    "#});
+    assert!(
+        matches!(error, crate::Error::EvaluationFailed(message, _) if message == "qubit used after release")
+    );
+}
+
+#[test]
+fn short_circuit_resource_and_rhs_only_uses_live_fallthrough() {
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable returned = false;
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    set returned = true;
+                }
+                let proceed = not returned and { Op(q); true };
+            }
+        }
+    "#});
+    assert_eq!(program.num_qubits, 2);
+}
+
+#[test]
+fn short_circuit_resource_or_rhs_only_uses_live_fallthrough() {
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable returned = false;
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    set returned = true;
+                }
+                let proceed = returned or { Op(q); false };
+            }
+        }
+    "#});
+    assert_eq!(program.num_qubits, 2);
+}
+
+#[test]
+fn partially_live_loop_entry_still_checks_released_backedge() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable released = false;
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    set released = true;
+                }
+                while MResetZ(control) == One {
+                    if not released {
+                        Op(q);
+                        QIR.Runtime.__quantum__rt__qubit_release(q);
+                    }
+                }
+            }
+        }
+        "#},
+        TargetCapabilityFlags::from(Profile::AdaptiveRIF)
+            | TargetCapabilityFlags::BackwardsBranching,
+    );
+    assert!(matches!(error, crate::Error::EvaluationFailed(message, _)
+        if message == "qubit used after release"));
+}
+
+#[test]
+fn partially_live_loop_entry_preserves_release_guard_correlation() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable released = false;
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    set released = true;
+                }
+                while MResetZ(control) == One {
+                    if not released {
+                        Op(q);
+                        QIR.Runtime.__quantum__rt__qubit_release(q);
+                        set released = true;
+                    }
+                }
+            }
+        }
+        "#},
+        TargetCapabilityFlags::from(Profile::AdaptiveRIF)
+            | TargetCapabilityFlags::BackwardsBranching,
+    );
+    assert_eq!(program.num_qubits, 2);
+}
+
+#[test]
+fn loop_backedge_rechecks_an_identity_released_before_entry() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {r#"
+        namespace Test {
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use control = Qubit();
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                mutable released = false;
+                if MResetZ(control) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                    set released = true;
+                }
+                while MResetZ(control) == One {
+                    if not released { Op(q); }
+                    set released = false;
+                }
+            }
+        }
+        "#},
+        TargetCapabilityFlags::from(Profile::AdaptiveRIF)
+            | TargetCapabilityFlags::BackwardsBranching,
+    );
+    assert!(matches!(error, crate::Error::EvaluationFailed(message, _)
+        if message == "qubit used after release"));
 }
