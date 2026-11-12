@@ -37,7 +37,9 @@
 //! draws from its own stream, so its records do not depend on the shots
 //! beside it.
 //!
-//! An overview, with an example, is in `src/mps_simulator/README.md`.
+//! An overview, with the phases of a run and an example, is in
+//! `src/mps_simulator/README.md`; the calls each phase makes, in
+//! `src/mps_simulator/design.md`.
 //!
 //! [`QirResumer`]: crate::qir::QirResumer
 
