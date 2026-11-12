@@ -72,6 +72,8 @@
 //! ```
 
 mod chain;
+#[doc(hidden)]
+pub mod dev_trace;
 mod engine;
 mod error;
 mod linear_algebra;

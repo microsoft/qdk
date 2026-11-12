@@ -130,7 +130,9 @@ impl<A: LinearAlgebra> Engine<A> {
             // `capacity_bonds[cut + 1]`.)
             Truncation::CutoffOnly => svd.singular_values.len(),
         };
-        let bond = self.kept(&svd.singular_values, max_bond);
+        let need = self.kept(&svd.singular_values, usize::MAX);
+        let bond = need.min(max_bond);
+        crate::dev_trace::record(&svd.singular_values, need, bond, max_bond, cut);
         let rescale = Self::kept_rescale(chain, &svd.singular_values, bond)?;
         chain.statistics.splits += 1;
         let largest = match truncation {

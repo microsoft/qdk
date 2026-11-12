@@ -114,9 +114,11 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 shot: first_shot,
                 error,
             })?;
-        let placement = match (routing, &capacity) {
-            (Routing::Engine, _) | (_, None) => None,
-            (_, Some(capacity)) => Some(Placement::in_layout_order(capacity.site_count())),
+        let placement = match (routing.tuning(), &capacity) {
+            (None, _) | (_, None) => None,
+            (Some(tuning), Some(capacity)) => {
+                Some(Placement::tuned(capacity.site_count(), tuning))
+            }
         };
         let waiting = vec![Group {
             shots: shots
@@ -236,11 +238,11 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 }
                 QirStop::Batch(calls) => {
                     let steps = lower(calls, &self.layout)?;
-                    group.steps = match (self.routing, group.placement.as_mut()) {
-                        (Routing::MeetHalfway, Some(placement)) => {
+                    group.steps = match (self.routing.tuning(), group.placement.as_mut()) {
+                        (Some(tuning), Some(placement)) if !tuning.after_fusion => {
                             rewrite_runs(placement.route(steps), &self.fusion)
                         }
-                        (Routing::MeetHalfwayAfterFusion, Some(placement)) => {
+                        (Some(_), Some(placement)) => {
                             placement.route(rewrite_runs(steps, &self.fusion))
                         }
                         _ => rewrite_runs(steps, &self.fusion),
@@ -426,10 +428,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 .largest_bond();
             self.report.largest_bond = self.report.largest_bond.max(bond);
             group.bond_unread = false;
-            if bond >= self.max_bond_dimension
-                && let Some(placement) = group.placement.as_mut()
-            {
-                placement.capacity_reached();
+            if let Some(placement) = group.placement.as_mut() {
+                placement.bond_read(bond, self.max_bond_dimension);
             }
         }
         Ok(())

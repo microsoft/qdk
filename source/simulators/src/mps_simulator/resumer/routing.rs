@@ -31,9 +31,59 @@
 //!   capacity it prepared), so until the read, a drifted state may lose
 //!   weight at a cut that is not the layout's.
 
+use std::cell::Cell;
+
 use crate::qir::QirGate;
 
 use super::lowering::{Operator, Step};
+
+/// EXPERIMENTAL, development only (not for review): what the routing of
+/// the batches routed on this thread did since the last
+/// [`reset_routing_trace`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RoutingTrace {
+    /// The batches routed (`Placement::route` calls).
+    pub batches: u64,
+    /// The distant operators routed.
+    pub routed: u64,
+    /// The SWAPs of routes.
+    pub route_swaps: u64,
+    /// The SWAPs that restored the layout's order.
+    pub restore_swaps: u64,
+    /// The restores of the layout's order (fallbacks and planned).
+    pub restores: u64,
+    /// The fallbacks by drift, and by a bond read.
+    pub drift_fallbacks: u64,
+    pub bond_fallbacks: u64,
+    /// The batch (1-based) of the first fallback.
+    pub first_fallback_batch: Option<u64>,
+    /// The largest drift a route left, in thousandths.
+    pub max_drift_permille: u32,
+}
+
+thread_local! {
+    static TRACE: Cell<RoutingTrace> = Cell::new(RoutingTrace::default());
+}
+
+/// EXPERIMENTAL, development only: the routing's counters on this thread.
+#[must_use]
+pub fn routing_trace() -> RoutingTrace {
+    TRACE.with(Cell::get)
+}
+
+/// EXPERIMENTAL, development only: zeroes the routing's counters on this
+/// thread.
+pub fn reset_routing_trace() {
+    TRACE.with(|trace| trace.set(RoutingTrace::default()));
+}
+
+fn trace(update: impl FnOnce(&mut RoutingTrace)) {
+    TRACE.with(|cell| {
+        let mut trace = cell.get();
+        update(&mut trace);
+        cell.set(trace);
+    });
+}
 
 /// EXPERIMENTAL: how the resumer routes a two-site operator whose sites are
 /// not neighbours (see the module documentation).
@@ -52,6 +102,71 @@ pub enum Routing {
     /// fusion groups the gates on the layout's sites, and each fused
     /// operator is routed once.
     MeetHalfwayAfterFusion,
+    /// Development only: `MeetHalfway` with the guards and restores of
+    /// [`RouteTuning`].
+    Tuned(RouteTuning),
+}
+
+impl Routing {
+    /// The tuning of a routing that routes; `None` for `Engine`.
+    pub(crate) fn tuning(self) -> Option<RouteTuning> {
+        match self {
+            Self::Engine => None,
+            Self::MeetHalfway => Some(RouteTuning::default()),
+            Self::MeetHalfwayAfterFusion => Some(RouteTuning {
+                after_fusion: true,
+                ..RouteTuning::default()
+            }),
+            Self::Tuned(tuning) => Some(tuning),
+        }
+    }
+}
+
+/// EXPERIMENTAL, development only: when a routed state restores the
+/// layout's order and goes on routing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Restore {
+    /// Only on a fallback (`MeetHalfway`).
+    #[default]
+    Never,
+    /// At the end of every batch, so that a batch starts in the layout's
+    /// order.
+    BatchEnd,
+    /// Before every draw (measurement or reset), and at the end of every
+    /// batch.
+    Draws,
+}
+
+/// EXPERIMENTAL, development only: the knobs of a `MeetHalfway` routing.
+/// The default is [`Routing::MeetHalfway`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct RouteTuning {
+    /// Routed after gate fusion, not before.
+    pub after_fusion: bool,
+    /// When the order is restored, beyond the fallbacks.
+    pub restore: Restore,
+    /// A route that leaves the drift above this (thousandths) restores the
+    /// layout's order at once, and routing goes on; 1000 or more: never.
+    pub drift_budget_permille: u16,
+    /// A bond read at or above this percentage of the max bond dimension
+    /// makes the state restore and fall back for good at its next batch
+    /// (100: `MeetHalfway`'s capacity guard).
+    pub bond_guard_percent: u16,
+    /// A distant operator whose sites are further apart than this goes to
+    /// the engine as it is, from the positions they hold; 0: no limit.
+    pub max_route_distance: u16,
+}
+
+impl Default for RouteTuning {
+    fn default() -> Self {
+        Self {
+            after_fusion: false,
+            restore: Restore::Never,
+            drift_budget_permille: 1000,
+            bond_guard_percent: 100,
+            max_route_distance: 0,
+        }
+    }
 }
 
 /// The drift above which a route makes a state fall back to
@@ -70,17 +185,25 @@ pub(crate) struct Placement {
     inversions: usize,
     fell_back: bool,
     restore_pending: bool,
+    tuning: RouteTuning,
 }
 
 impl Placement {
-    /// The layout's order on `sites` sites.
+    /// The layout's order on `sites` sites, routed as `MeetHalfway`.
+    #[cfg(test)]
     pub(crate) fn in_layout_order(sites: usize) -> Self {
+        Self::tuned(sites, RouteTuning::default())
+    }
+
+    /// The layout's order on `sites` sites, routed as `tuning` says.
+    pub(crate) fn tuned(sites: usize, tuning: RouteTuning) -> Self {
         Self {
             position: (0..sites).collect(),
             site: (0..sites).collect(),
             inversions: 0,
             fell_back: false,
             restore_pending: false,
+            tuning,
         }
     }
 
@@ -104,15 +227,30 @@ impl Placement {
         }
     }
 
+    /// Records a bond read of `bond` under the max bond dimension `chi`:
+    /// at or above the tuning's guard, the next [`route`](Self::route)
+    /// restores the layout's order and falls back.
+    pub(crate) fn bond_read(&mut self, bond: usize, chi: usize) {
+        let guard = (chi * usize::from(self.tuning.bond_guard_percent)).div_ceil(100);
+        if bond >= guard {
+            self.capacity_reached();
+        }
+    }
+
     /// `steps`, on the layout's sites, on the chain's: each distant
     /// two-site operator routed by `MeetHalfway` (until the state falls
     /// back), every operator, measurement and reset on the positions its
     /// sites hold when it runs; this placement left as the steps leave the
     /// chain.
     pub(crate) fn route(&mut self, steps: Vec<Step>) -> Vec<Step> {
+        trace(|t| t.batches += 1);
         let mut routed = Vec::with_capacity(steps.len());
         if self.restore_pending {
             self.restore_pending = false;
+            trace(|t| {
+                t.bond_fallbacks += 1;
+                t.first_fallback_batch.get_or_insert(t.batches);
+            });
             self.fall_back(&mut routed);
         }
         for step in steps {
@@ -122,15 +260,28 @@ impl Placement {
                     site,
                     result,
                     reset,
-                } => routed.push(Step::Measure {
-                    site: self.position[site],
-                    result,
-                    reset,
-                }),
-                Step::Reset { site } => routed.push(Step::Reset {
-                    site: self.position[site],
-                }),
+                } => {
+                    if self.tuning.restore == Restore::Draws {
+                        self.restore(&mut routed);
+                    }
+                    routed.push(Step::Measure {
+                        site: self.position[site],
+                        result,
+                        reset,
+                    });
+                }
+                Step::Reset { site } => {
+                    if self.tuning.restore == Restore::Draws {
+                        self.restore(&mut routed);
+                    }
+                    routed.push(Step::Reset {
+                        site: self.position[site],
+                    });
+                }
             }
+        }
+        if self.tuning.restore != Restore::Never {
+            self.restore(&mut routed);
         }
         routed
     }
@@ -145,7 +296,10 @@ impl Placement {
                 let (pa, pb) = (self.position[a], self.position[b]);
                 (pa.min(pb), pa.max(pb))
             };
-            if !self.fell_back && high - low >= 2 {
+            let within = self.tuning.max_route_distance == 0
+                || high - low <= usize::from(self.tuning.max_route_distance);
+            if !self.fell_back && high - low >= 2 && within {
+                trace(|t| t.routed += 1);
                 let meet = low + (high - low - 1) / 2;
                 for cut in low..meet {
                     self.swap(cut, routed);
@@ -153,9 +307,24 @@ impl Placement {
                 for cut in (meet + 1..high).rev() {
                     self.swap(cut, routed);
                 }
+                trace(|t| t.route_swaps += (high - low - 1) as u64);
                 routed.push(Step::Apply(self.on_chain(operator)));
-                if self.drift() > FALLBACK_DRIFT {
+                let drift = self.drift();
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a drift is in [0, 1]"
+                )]
+                let permille = (drift * 1000.0).round() as u32;
+                trace(|t| t.max_drift_permille = t.max_drift_permille.max(permille));
+                if drift > FALLBACK_DRIFT {
+                    trace(|t| {
+                        t.drift_fallbacks += 1;
+                        t.first_fallback_batch.get_or_insert(t.batches);
+                    });
                     self.fall_back(routed);
+                } else if permille > u32::from(self.tuning.drift_budget_permille) {
+                    self.restore(routed);
                 }
                 return;
             }
@@ -175,12 +344,27 @@ impl Placement {
     /// Restores the layout's order by SWAPs (site 0 down to position 0,
     /// then site 1, and so on), and falls back for good.
     fn fall_back(&mut self, routed: &mut Vec<Step>) {
+        self.restore(routed);
+        self.fell_back = true;
+    }
+
+    /// Restores the layout's order by SWAPs (site 0 down to position 0,
+    /// then site 1, and so on): as many as the inversions, the fewest
+    /// adjacent SWAPs that sort the chain.
+    fn restore(&mut self, routed: &mut Vec<Step>) {
+        if self.inversions == 0 {
+            return;
+        }
+        let swaps = self.inversions as u64;
+        trace(|t| {
+            t.restores += 1;
+            t.restore_swaps += swaps;
+        });
         for site in 0..self.site.len() {
             for cut in (site..self.position[site]).rev() {
                 self.swap(cut, routed);
             }
         }
-        self.fell_back = true;
     }
 
     /// A SWAP of the positions `cut` and `cut + 1`, emitted and recorded:

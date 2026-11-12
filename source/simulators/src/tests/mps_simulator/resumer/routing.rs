@@ -10,7 +10,7 @@ use crate::OutputRecord;
 use crate::bytecode::encoding::{OPID_CX, OPID_CZ, OPID_H, OPID_MZ, OPID_RY, OPID_X};
 use crate::mps_simulator::resumer::lowering::{Operator, Step};
 use crate::mps_simulator::resumer::routing::Placement;
-use crate::mps_simulator::{GateFusion, MpsResumer, Routing};
+use crate::mps_simulator::{GateFusion, MpsResumer, Restore, RouteTuning, Routing};
 use crate::qir::{QirGate, QirProgram, QirShotId};
 use tensornet::reference::ExactReference;
 
@@ -314,4 +314,80 @@ fn a_run_whose_bond_reaches_the_capacity_records_as_the_engines_routing() {
         run(&mut resumer, &program, &QirShotId::first(64)).expect("the program runs")
     };
     assert_eq!(run_with(Routing::MeetHalfway), run_with(Routing::Engine));
+}
+
+/// Development only: the tuned routings, each restoring the layout's order
+/// at batch ends, before draws, or past a drift budget, before and after
+/// fusion.
+fn tuned_routings() -> Vec<Routing> {
+    let mut routings = Vec::new();
+    for after_fusion in [false, true] {
+        for (restore, drift_budget_permille) in [
+            (Restore::BatchEnd, 1000),
+            (Restore::Draws, 1000),
+            (Restore::Never, 50),
+        ] {
+            routings.push(Routing::Tuned(RouteTuning {
+                after_fusion,
+                restore,
+                drift_budget_permille,
+                ..RouteTuning::default()
+            }));
+        }
+    }
+    routings
+}
+
+/// Development only: a run routed by a tuned routing records what the
+/// engine's routing records, across draws and forks.
+#[test]
+fn a_tuned_routing_records_as_the_engines_routing() {
+    for program in [
+        distant_gates_with_draws_between(),
+        a_branch_after_distant_gates(),
+    ] {
+        for fusion in FUSIONS {
+            let expected = records(&program, Routing::Engine, fusion);
+            for routing in tuned_routings() {
+                assert_eq!(
+                    records(&program, routing, fusion),
+                    expected,
+                    "{routing:?}, {fusion:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Development only: restoring at batch ends, a batch leaves the layout's
+/// order, by as many SWAPs as its route made inversions, and routing goes
+/// on at the next batch.
+#[test]
+fn a_batch_end_restore_leaves_the_layouts_order_and_routing_goes_on() {
+    let tuning = RouteTuning {
+        restore: Restore::BatchEnd,
+        ..RouteTuning::default()
+    };
+    let mut placement = Placement::tuned(6, tuning);
+    let first = placement.route(vec![cx(0, 5)]);
+    assert_eq!(swaps(&first), 8, "four to route, four to restore");
+    assert!((0..6).all(|site| placement.position(site) == site));
+    let second = placement.route(vec![cx(0, 5)]);
+    assert!(!placement.fell_back());
+    assert_eq!(swaps(&second), 8, "routed again from the layout's order");
+}
+
+/// Development only: past the drift budget, a route restores the layout's
+/// order at once, without falling back.
+#[test]
+fn a_drift_past_the_budget_restores_the_order_without_falling_back() {
+    let tuning = RouteTuning {
+        drift_budget_permille: 100,
+        ..RouteTuning::default()
+    };
+    let mut placement = Placement::tuned(6, tuning);
+    let steps = placement.route(vec![cx(0, 5), cx(1, 2)]);
+    assert!(!placement.fell_back());
+    assert_eq!(swaps(&steps), 8, "four to route, four to restore");
+    assert_eq!(last_operator_sites(&steps), [1, 2], "on the layout's order");
 }
