@@ -14,7 +14,7 @@ use qdk_simulators::{
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
     stabilizer_simulator::StabilizerSimulator,
 };
-use qsc_data_structures::{index_map::IndexMap, measurement::OneQubitMeasurement};
+use qsc_data_structures::{index_map::IndexMap, measurement::MeasurementBasis};
 use qsc_fir::fir::PackageStoreLookup;
 use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
@@ -840,7 +840,7 @@ impl Backend for SparseSim {
             self.lost_qubits.set_bit(q as u64, false);
             return Ok(val::Result::Loss);
         }
-        let res = self.sim.measure_single_pauli(q, OneQubitMeasurement::X);
+        let res = self.sim.measure_single_pauli(q, MeasurementBasis::X);
         Ok(val::Result::Val(res))
     }
 
@@ -850,7 +850,7 @@ impl Backend for SparseSim {
             self.lost_qubits.set_bit(q as u64, false);
             return Ok(val::Result::Loss);
         }
-        let res = self.sim.measure_single_pauli(q, OneQubitMeasurement::Y);
+        let res = self.sim.measure_single_pauli(q, MeasurementBasis::Y);
         Ok(val::Result::Val(res))
     }
 

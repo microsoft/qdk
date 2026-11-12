@@ -4,7 +4,7 @@
 //! Helpers for testing measurement in the X, Y and Z bases with different lazily queued gates.
 
 use super::{FlushLevel, SparseStateSim};
-use qsc_data_structures::measurement::OneQubitMeasurement;
+use qsc_data_structures::measurement::MeasurementBasis;
 
 /// Lazily queued single-qubit gates used to set up the pending state before a Pauli measurement.
 #[derive(Clone, Copy, Debug)]
@@ -30,11 +30,11 @@ fn apply_pending(sim: &mut SparseStateSim, q: usize, gates: &[Pending], inverse:
 }
 
 /// Maps |z⟩ in the computational basis to |b⟩ in the eigenbasis of `pauli`.
-fn to_basis(sim: &mut SparseStateSim, q: usize, pauli: OneQubitMeasurement) {
+fn to_basis(sim: &mut SparseStateSim, q: usize, pauli: MeasurementBasis) {
     match pauli {
-        OneQubitMeasurement::Z => {}
-        OneQubitMeasurement::X => sim.h(q),
-        OneQubitMeasurement::Y => {
+        MeasurementBasis::Z => {}
+        MeasurementBasis::X => sim.h(q),
+        MeasurementBasis::Y => {
             sim.h(q);
             sim.s(q);
         }
@@ -42,11 +42,11 @@ fn to_basis(sim: &mut SparseStateSim, q: usize, pauli: OneQubitMeasurement) {
 }
 
 /// Maps |b⟩ in the eigenbasis of `pauli` to |z⟩ in the computational Z basis.
-fn from_basis(sim: &mut SparseStateSim, q: usize, pauli: OneQubitMeasurement) {
+fn from_basis(sim: &mut SparseStateSim, q: usize, pauli: MeasurementBasis) {
     match pauli {
-        OneQubitMeasurement::Z => {}
-        OneQubitMeasurement::X => sim.h(q),
-        OneQubitMeasurement::Y => {
+        MeasurementBasis::Z => {}
+        MeasurementBasis::X => sim.h(q),
+        MeasurementBasis::Y => {
             sim.sadj(q);
             sim.h(q);
         }
@@ -56,7 +56,7 @@ fn from_basis(sim: &mut SparseStateSim, q: usize, pauli: OneQubitMeasurement) {
 /// Prepares the Bell pair (|00⟩ + |11⟩)/√2 with each qubit in the eigenbasis of its Pauli in `paulis`,
 /// leaves `gates` pending on both qubits without changing the logical state, then checks that the
 /// two `measure_pauli` results agree, are repeatable, and leave each qubit in the matching eigenstate.
-pub(super) fn check_measure_pauli(paulis: [OneQubitMeasurement; 2], gates: &[Pending]) {
+pub(super) fn check_measure_pauli(paulis: [MeasurementBasis; 2], gates: &[Pending]) {
     let mut sim = SparseStateSim::default();
     sim.set_rng_seed(42);
 

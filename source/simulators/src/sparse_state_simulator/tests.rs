@@ -113,14 +113,14 @@ fn test_measure_pauli() {
         &[Rx(0.6), Ry(0.9)],
     ] {
         for p1 in [
-            OneQubitMeasurement::Z,
-            OneQubitMeasurement::X,
-            OneQubitMeasurement::Y,
+            MeasurementBasis::Z,
+            MeasurementBasis::X,
+            MeasurementBasis::Y,
         ] {
             for p2 in [
-                OneQubitMeasurement::Z,
-                OneQubitMeasurement::X,
-                OneQubitMeasurement::Y,
+                MeasurementBasis::Z,
+                MeasurementBasis::X,
+                MeasurementBasis::Y,
             ] {
                 check_measure_pauli([p1, p2], gates);
             }
