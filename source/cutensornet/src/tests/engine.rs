@@ -9,6 +9,7 @@
 //! object is released.
 //! Numerical behaviour on a GPU is not tested here.
 
+mod dev_tuning;
 mod device_session;
 mod native_calls;
 

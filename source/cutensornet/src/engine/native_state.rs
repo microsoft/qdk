@@ -56,7 +56,7 @@ use super::{
     native_calls::{
         NativeCalls, OpaqueHandle,
         complex::{Complex64Abi, complex_bytes},
-        state_calls::{MpsLayout, NativeCapacity},
+        state_calls::{MpsLayout, NativeCapacity, StateI32Configuration, convert_layout},
     },
 };
 use expectation::{ProductTerm, diagonal_term, normalize_expectation, positive_squared_norm};
@@ -111,6 +111,15 @@ pub(super) struct NativeState {
     last_probability_of_one: Option<(usize, f64)>,
     poisoned: Option<String>,
     closed: bool,
+    /// Development only (`DevTuning::pooled_buffers`): freed device
+    /// buffers by size, and the size of every buffer the pool may take
+    /// back.
+    pool: BTreeMap<usize, Vec<OpaqueHandle>>,
+    pooled_bytes: BTreeMap<OpaqueHandle, usize>,
+    /// Development only: the canonical centre the state is configured
+    /// with, and the one its last compute was made with.
+    canonical_centre: Option<usize>,
+    computed_centre: Option<usize>,
 }
 
 impl NativeState {
@@ -150,6 +159,10 @@ impl NativeState {
             last_probability_of_one: None,
             poisoned: None,
             closed: false,
+            pool: BTreeMap::new(),
+            pooled_bytes: BTreeMap::new(),
+            canonical_centre: None,
+            computed_centre: None,
         };
         match device_session.calls().create_workspace(handle) {
             Ok(workspace) => native.workspace = Some(workspace),
@@ -192,9 +205,90 @@ impl NativeState {
     pub(super) fn probability_of_one(&mut self, site: usize) -> Result<f64, EngineError> {
         self.check_live()?;
         self.ensure_computed()?;
-        let probability = self.probability(site, true)?;
+        let probability = if self.device_session.dev_tuning().canonical_centre_reads {
+            if self.computed_centre == Some(site) {
+                self.canonical_probability_of_one(site)?
+            } else {
+                self.device_session
+                    .record_dev_time(|times| times.canonical_fallbacks += 1);
+                self.probability(site, true)?
+            }
+        } else {
+            self.probability(site, true)?
+        };
         self.last_probability_of_one = Some((site, probability));
         Ok(probability)
+    }
+
+    /// Development only: configures the canonical centre of the next
+    /// computes (`CuTensorNetEngine::dev_set_canonical_centre`).
+    pub(super) fn set_canonical_centre(&mut self, site: usize) -> Result<(), EngineError> {
+        self.check_live()?;
+        self.canonical_centre = Some(site);
+        if self.finalized {
+            let (handle, state) = (self.handle(), self.state()?);
+            let centre = mode(site)?;
+            self.poison_on_error(|native| {
+                native.device_session.calls().configure_state_i32(
+                    handle,
+                    state,
+                    StateI32Configuration::MpsCanonicalCentre(centre),
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Development only: P(One) of `site`, the computed MPS's canonical
+    /// centre, from its tensor alone: the tensors left of the centre are
+    /// left-orthonormal and those right of it right-orthonormal, so
+    /// P(One) = Σ|A[…, 1, …]|² / Σ|A|², the physical mode being the
+    /// first of the first site's tensor and the second of the others'.
+    fn canonical_probability_of_one(&mut self, site: usize) -> Result<f64, EngineError> {
+        let started = std::time::Instant::now();
+        let layout = self
+            .computed_layout
+            .as_ref()
+            .expect("a computed state has the layout of its outputs");
+        let extents = convert_layout("extent", &[layout.extents[site].clone()])?;
+        let strides = convert_layout("stride", &[layout.strides[site].clone()])?;
+        let (extents, strides) = (&extents[0], &strides[0]);
+        let elements = 1 + extents
+            .iter()
+            .zip(strides)
+            .map(|(extent, stride)| (extent - 1) * stride)
+            .sum::<usize>();
+        let mut tensor = vec![Complex64Abi::new(0.0, 0.0); elements];
+        self.device_session
+            .calls()
+            .copy_to_host(&mut tensor, self.computed_buffers[site])?;
+        let physical = usize::from(site != 0);
+        let (mut one, mut total) = (0.0, 0.0);
+        let mut index = vec![0usize; extents.len()];
+        loop {
+            let offset: usize = index.iter().zip(strides).map(|(i, s)| i * s).sum();
+            let value = Complex64::from(tensor[offset]).norm_sqr();
+            total += value;
+            if index[physical] == 1 {
+                one += value;
+            }
+            let mut mode = 0;
+            loop {
+                if mode == index.len() {
+                    let probability = positive_squared_norm(Complex64::new(total, 0.0))
+                        .map(|total| (one / total).clamp(0.0, 1.0));
+                    self.device_session
+                        .record_dev_time(|times| times.canonical_read.add_since(started));
+                    return probability;
+                }
+                index[mode] += 1;
+                if index[mode] < extents[mode] {
+                    break;
+                }
+                index[mode] = 0;
+                mode += 1;
+            }
+        }
     }
 
     /// P(One) of `site` given `given`: ⟨Π·Π₁⟩ / ⟨Π⟩ with Π the product of
@@ -278,6 +372,7 @@ impl NativeState {
         let device_session = Rc::clone(&self.device_session);
         let calls = device_session.calls();
         let mut fork = Self::new(&device_session, self.capacity.requested())?;
+        fork.canonical_centre = self.canonical_centre;
         let elements = self.capacity.native_shape().element_counts();
         let mut copies = Vec::with_capacity(elements.len());
         for (&source, &count) in self.computed_buffers.iter().zip(&elements) {
@@ -406,9 +501,38 @@ impl NativeState {
         resource: &'static str,
     ) -> Result<OpaqueHandle, EngineError> {
         let bytes = complex_bytes(elements, resource)?;
-        let allocation = self.device_session.calls().allocate(bytes)?;
+        let allocation = self.take_buffer(bytes)?;
         self.allocations.push(allocation);
         Ok(allocation)
+    }
+
+    /// A device buffer of `bytes`: a new one, or with
+    /// `DevTuning::pooled_buffers` one of that size from the pool.
+    fn take_buffer(&mut self, bytes: usize) -> Result<OpaqueHandle, EngineError> {
+        let pooled = self.device_session.dev_tuning().pooled_buffers;
+        if pooled && let Some(buffer) = self.pool.get_mut(&bytes).and_then(Vec::pop) {
+            self.device_session
+                .record_dev_time(|times| times.pool_hits += 1);
+            return Ok(buffer);
+        }
+        let buffer = self.device_session.calls().allocate(bytes)?;
+        self.device_session
+            .record_dev_time(|times| times.allocations += 1);
+        if pooled {
+            self.pooled_bytes.insert(buffer, bytes);
+        }
+        Ok(buffer)
+    }
+
+    /// Frees a buffer `take_buffer` gave, or returns it to the pool.
+    fn release_buffer(&mut self, buffer: OpaqueHandle) -> Result<(), EngineError> {
+        match self.pooled_bytes.get(&buffer) {
+            Some(&bytes) => {
+                self.pool.entry(bytes).or_default().push(buffer);
+                Ok(())
+            }
+            None => self.device_session.calls().free(buffer),
+        }
     }
 
     /// Releases every native object and buffer of the state, the
@@ -441,6 +565,9 @@ impl NativeState {
         self.allocations.append(&mut self.retired_scratch);
         self.allocations
             .extend(self.scratch.take().map(|(scratch, _)| scratch));
+        self.allocations
+            .extend(std::mem::take(&mut self.pool).into_values().flatten());
+        self.pooled_bytes.clear();
         while let Some(allocation) = self.allocations.pop() {
             released.push(calls.free(allocation));
         }

@@ -97,6 +97,21 @@ impl MemoryCalls for FakeLibraries {
         Ok(())
     }
 
+    fn copy_to_host(
+        &self,
+        destination: &mut [Complex64Abi],
+        source: OpaqueHandle,
+    ) -> Result<(), EngineError> {
+        let inner = self.call("copy_to_host")?;
+        match inner.objects.get(&id(source)) {
+            Some(Object::Buffer(buffer)) if buffer.len() >= destination.len() => {
+                destination.copy_from_slice(&buffer[..destination.len()]);
+                Ok(())
+            }
+            _ => Err(failed("copy_to_host", "no such buffer of that size")),
+        }
+    }
+
     fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, EngineError> {
         self.call("create_workspace")?.create_on(
             handle,

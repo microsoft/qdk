@@ -32,6 +32,7 @@
 //!   compute asks for over a long shot (`policy.rs`).
 
 use super::NativeState;
+use crate::engine::dev_tuning::SvdAlgorithm;
 use crate::engine::{
     EngineError,
     error::{combine_execution_and_cleanup, first_failure},
@@ -39,13 +40,13 @@ use crate::engine::{
         OpaqueHandle,
         complex::{Complex64Abi, complex_bytes},
         state_calls::{
-            MpsLayout, StateF64Configuration, StateU32Configuration, convert_layout,
-            validate_realized_chain,
+            MpsLayout, StateF64Configuration, StateI32Configuration, StateU32Configuration,
+            convert_layout, validate_realized_chain,
         },
     },
     policy::{DISCARDED_WEIGHT_CUTOFF, RESTART_PERIOD},
 };
-use std::rc::Rc;
+use std::{rc::Rc, time::Instant};
 use tensornet::MpsShape;
 
 impl NativeState {
@@ -87,6 +88,7 @@ impl NativeState {
             outputs.push(self.allocate_complex(elements, "MPS output")?);
         }
         let workspace = self.workspace()?;
+        let prepare_started = Instant::now();
         let available = self.available_workspace_bytes()?;
         calls.prepare_state(handle, state, available, workspace, stream)?;
         let bytes = calls.workspace_size(handle, workspace)?;
@@ -96,10 +98,14 @@ impl NativeState {
             });
         }
         self.attach_scratch(workspace, bytes, "device workspace")?;
+        device_session.record_dev_time(|times| times.state_prepare.add_since(prepare_started));
+        let compute_started = Instant::now();
         calls.synchronize_copies()?;
         let mut layout = MpsLayout::new(&self.capacity);
         calls.compute_state(handle, state, workspace, &mut layout, &mut outputs, stream)?;
         calls.synchronize_stream(stream)?;
+        device_session.record_dev_time(|times| times.state_compute.add_since(compute_started));
+        let capture_started = Instant::now();
         // The library reports the shape it produced and, separately, the
         // strides it used to write it. Only the shape is part of the state.
         let realized =
@@ -111,6 +117,7 @@ impl NativeState {
         validate_realized_chain(&realized, self.capacity.native_shape())?;
         calls.capture_mps(handle, state)?;
         self.computes_since_restart += 1;
+        self.computed_centre = self.canonical_centre;
         // The state now refers to the new buffers, as its computed MPS and,
         // captured, as its start; the stream has finished with the old
         // ones, and a restart or fork whose state read them has computed
@@ -120,7 +127,14 @@ impl NativeState {
         self.computed_layout = Some(layout);
         self.allocations
             .retain(|allocation| !previous.contains(allocation));
-        first_failure(previous.into_iter().map(|old| calls.free(old))).map(|()| realized)
+        let released = first_failure(
+            previous
+                .into_iter()
+                .map(|old| self.release_buffer(old))
+                .collect::<Vec<_>>(),
+        );
+        device_session.record_dev_time(|times| times.capture.add_since(capture_started));
+        released.map(|()| realized)
     }
 
     /// The truncation and factorization every state of the engine is
@@ -135,8 +149,24 @@ impl NativeState {
         // No normalization is the library default, pinned so the norm stays
         // the retained weight whichever default a future release picks.
         calls.configure_state_u32(handle, state, StateU32Configuration::SvdNormalizationNone)?;
-        calls.configure_state_u32(handle, state, StateU32Configuration::SvdAlgorithmGesvd)?;
-        calls.configure_state_u32(handle, state, StateU32Configuration::MpsGaugeSimple)
+        let algorithm = match self.device_session.dev_tuning().svd_algorithm {
+            SvdAlgorithm::Gesvd => StateU32Configuration::SvdAlgorithmGesvd,
+            SvdAlgorithm::Gesvdj => StateU32Configuration::SvdAlgorithmGesvdj,
+            SvdAlgorithm::Gesvdr => StateU32Configuration::SvdAlgorithmGesvdr,
+        };
+        calls.configure_state_u32(handle, state, algorithm)?;
+        calls.configure_state_u32(handle, state, StateU32Configuration::MpsGaugeSimple)?;
+        if let Some(centre) = self.canonical_centre {
+            let centre = i32::try_from(centre).map_err(|_| EngineError::ResourceSizeOverflow {
+                resource: "native mode",
+            })?;
+            calls.configure_state_i32(
+                handle,
+                state,
+                StateI32Configuration::MpsCanonicalCentre(centre),
+            )?;
+        }
+        Ok(())
     }
 
     /// Uploads `matrix` and applies it to `modes` of the state. The matrix
@@ -152,19 +182,23 @@ impl NativeState {
         matrix: &[Complex64Abi],
         unitary: bool,
     ) -> Result<(), EngineError> {
-        if self.realized.is_some() && self.computes_since_restart >= RESTART_PERIOD {
-            self.restart()?;
-        }
         let device_session = Rc::clone(&self.device_session);
+        if self.realized.is_some() && self.computes_since_restart >= RESTART_PERIOD {
+            let restart_started = Instant::now();
+            self.restart()?;
+            device_session.record_dev_time(|times| times.restart.add_since(restart_started));
+        }
+        let apply_started = Instant::now();
         let calls = device_session.calls();
         let bytes = complex_bytes(matrix.len(), "operator tensor")?;
-        let tensor = calls.allocate(bytes)?;
+        let tensor = self.take_buffer(bytes)?;
         self.operator_tensors.push(tensor);
         calls.copy_to_device(tensor, matrix)?;
         self.realized = None;
         self.last_probability_of_one = None;
         calls.apply_tensor_operator(self.handle(), self.state()?, &modes, tensor, unitary)?;
         self.operator_modes.push(modes);
+        device_session.record_dev_time(|times| times.apply.add_since(apply_started));
         Ok(())
     }
 
@@ -212,7 +246,7 @@ impl NativeState {
         }
         self.operator_modes.clear();
         for tensor in std::mem::take(&mut self.operator_tensors) {
-            released.push(calls.free(tensor));
+            released.push(self.release_buffer(tensor));
         }
         if let Some(previous) = self.own_handle.replace(handle) {
             released.push(calls.destroy_handle(previous));

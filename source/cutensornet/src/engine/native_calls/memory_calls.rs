@@ -49,6 +49,14 @@ pub(crate) trait MemoryCalls {
         source: OpaqueHandle,
         bytes: usize,
     ) -> Result<(), EngineError>;
+    /// Development only (the tuning bench): copies `destination.len()`
+    /// elements of a device allocation the engine's stream has finished
+    /// writing to the host; synchronous.
+    fn copy_to_host(
+        &self,
+        destination: &mut [Complex64Abi],
+        source: OpaqueHandle,
+    ) -> Result<(), EngineError>;
     /// Waits for every copy made so far (`cudaStreamSynchronize` on
     /// `cudaStreamLegacy`).
     fn synchronize_copies(&self) -> Result<(), EngineError>;

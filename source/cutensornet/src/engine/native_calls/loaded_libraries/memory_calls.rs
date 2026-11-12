@@ -83,6 +83,27 @@ impl MemoryCalls for LoadedLibraries {
         self.check_cuda("cudaMemcpy(D2D)", status)
     }
 
+    fn copy_to_host(
+        &self,
+        destination: &mut [Complex64Abi],
+        source: OpaqueHandle,
+    ) -> Result<(), EngineError> {
+        let bytes = complex_bytes(destination.len(), "complex tensor")?;
+        // SAFETY: the source allocation is live and at least `bytes` long
+        // (the caller's contract), the stream that wrote it has been
+        // synchronized, and `destination` is a writable host slice of
+        // `bytes`; a device-to-host copy to pageable memory is synchronous.
+        let status = unsafe {
+            (self.cuda_runtime.functions.memcpy)(
+                destination.as_mut_ptr().cast(),
+                source.as_ptr(),
+                bytes,
+                cudart_12::cudaMemcpyKind_cudaMemcpyDeviceToHost,
+            )
+        };
+        self.check_cuda("cudaMemcpy(D2H)", status)
+    }
+
     fn synchronize_copies(&self) -> Result<(), EngineError> {
         let legacy = std::ptr::without_provenance_mut(cuda_runtime::STREAM_LEGACY);
         // SAFETY: `cudaStreamLegacy` is a valid stream for every CUDA

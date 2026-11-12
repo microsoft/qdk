@@ -204,6 +204,19 @@ pub(crate) enum StateU32Configuration {
     SvdAlgorithmGesvd,
     /// The simple-update gauge (`policy.rs` says why).
     MpsGaugeSimple,
+    /// Development only (the tuning bench): cuSOLVER's Jacobi SVD.
+    SvdAlgorithmGesvdj,
+    /// Development only (the tuning bench): cuSOLVER's randomized SVD.
+    SvdAlgorithmGesvdr,
+}
+
+/// Development only (the tuning bench): a state's signed 32-bit
+/// configuration (`cutensornetStateConfigure`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StateI32Configuration {
+    /// The site the computed MPS is made canonical around, or -1 for none
+    /// (`CUTENSORNET_STATE_CONFIG_MPS_CANONICAL_CENTER`).
+    MpsCanonicalCentre(i32),
 }
 
 /// The cuTensorNet calls on a native state (the State/MPS API), as the
@@ -262,6 +275,12 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
         handle: OpaqueHandle,
         state: OpaqueHandle,
         configuration: StateU32Configuration,
+    ) -> Result<(), EngineError>;
+    fn configure_state_i32(
+        &self,
+        handle: OpaqueHandle,
+        state: OpaqueHandle,
+        configuration: StateI32Configuration,
     ) -> Result<(), EngineError>;
     fn prepare_state(
         &self,

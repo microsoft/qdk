@@ -10,7 +10,8 @@ use crate::engine::{
         OpaqueHandle, Stream,
         complex::Complex64Abi,
         state_calls::{
-            MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateU32Configuration,
+            MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateI32Configuration,
+            StateU32Configuration,
         },
     },
 };
@@ -208,6 +209,14 @@ impl StateCalls for LoadedLibraries {
                 v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_GAUGE_OPTION,
                 v2_13::cutensornetStateMPSGaugeOption_t_CUTENSORNET_STATE_MPS_GAUGE_SIMPLE,
             ),
+            StateU32Configuration::SvdAlgorithmGesvdj => (
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_ALGO,
+                v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDJ,
+            ),
+            StateU32Configuration::SvdAlgorithmGesvdr => (
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_ALGO,
+                v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDR,
+            ),
         };
         // SAFETY: the attribute is paired with its audited 32-bit enum
         // representation, and cuTensorNet copies the value before returning.
@@ -221,6 +230,32 @@ impl StateCalls for LoadedLibraries {
             )
         };
         self.check_cutensornet("cutensornetStateConfigure(u32)", status)
+    }
+
+    fn configure_state_i32(
+        &self,
+        handle: OpaqueHandle,
+        state: OpaqueHandle,
+        configuration: StateI32Configuration,
+    ) -> Result<(), EngineError> {
+        let (attribute, value) = match configuration {
+            StateI32Configuration::MpsCanonicalCentre(site) => (
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_CANONICAL_CENTER,
+                site,
+            ),
+        };
+        // SAFETY: the attribute's value is an `int32_t`, and cuTensorNet
+        // copies the call-local value before returning.
+        let status = unsafe {
+            (self.cutensornet.functions.state_configure)(
+                handle.as_ptr(),
+                state.as_ptr(),
+                attribute,
+                (&raw const value).cast(),
+                size_of::<i32>(),
+            )
+        };
+        self.check_cutensornet("cutensornetStateConfigure(i32)", status)
     }
 
     fn prepare_state(

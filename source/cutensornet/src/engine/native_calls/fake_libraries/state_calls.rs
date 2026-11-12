@@ -13,7 +13,8 @@ use crate::engine::{
     native_calls::{
         OpaqueHandle, Stream,
         state_calls::{
-            MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateU32Configuration,
+            MpsLayout, NativeCapacity, StateCalls, StateF64Configuration, StateI32Configuration,
+            StateU32Configuration,
         },
     },
 };
@@ -136,6 +137,21 @@ impl StateCalls for FakeLibraries {
         }
         fake_state.configurations += 1;
         inner.u32_configurations.push((id(state), configuration));
+        Ok(())
+    }
+
+    fn configure_state_i32(
+        &self,
+        handle: OpaqueHandle,
+        state: OpaqueHandle,
+        _configuration: StateI32Configuration,
+    ) -> Result<(), EngineError> {
+        let mut inner = self.call("configure_state_i32")?;
+        inner.owned(handle, state, "configure_state_i32")?;
+        let fake_state = inner.state(state, "configure_state_i32")?;
+        if fake_state.bonds.is_none() {
+            return Err(failed("configure_state_i32", "configured before finalize"));
+        }
         Ok(())
     }
 

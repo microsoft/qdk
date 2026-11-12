@@ -47,12 +47,15 @@
 //! require_send::<qdk_cutensornet::CuTensorNetState>();
 //! ```
 
+mod dev_tuning;
 mod device_session;
 mod error;
 pub(crate) mod native_calls;
 mod native_state;
 mod policy;
 
+#[doc(hidden)]
+pub use dev_tuning::{DevTimes, DevTuning, PhaseClock, SvdAlgorithm};
 pub use error::EngineError;
 
 // What the tests under `src/tests` name of the engine's private modules:
@@ -137,6 +140,50 @@ impl CuTensorNetEngine {
                 policy::DEVICE_ORDINAL,
             )?),
         })
+    }
+
+    /// Development only (the tuning bench): the engine with `tuning`'s
+    /// knobs instead of its fixed choices (`dev_tuning.rs`).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_dev_tuning(self, tuning: DevTuning) -> Self {
+        self.device_session.set_dev_tuning(tuning);
+        self
+    }
+
+    /// Development only: the time spent in each phase since the engine was
+    /// made or `dev_reset_times` was called.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn dev_times(&self) -> DevTimes {
+        self.device_session.dev_times()
+    }
+
+    /// Development only: restarts the clocks of `dev_times`.
+    #[doc(hidden)]
+    pub fn dev_reset_times(&self) {
+        self.device_session.reset_dev_times();
+    }
+
+    /// Development only (the tuning bench): asks cuTensorNet to make the
+    /// next compute of `state` canonical around `site`, so that
+    /// `DevTuning::canonical_centre_reads` can read P(One) there from the
+    /// site's tensor. It keeps the centre across restarts.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the site is out of range, or if cuTensorNet refuses the
+    /// configuration (the state is then unusable).
+    #[doc(hidden)]
+    pub fn dev_set_canonical_centre(
+        &self,
+        state: &CuTensorNetState,
+        site: usize,
+    ) -> Result<(), EngineError> {
+        self.native_state(state, |site_count| {
+            checks::probability_of_one(site_count, site)
+        })?
+        .set_canonical_centre(site)
     }
 
     /// The native state of `state`, if this engine created it and `check`,

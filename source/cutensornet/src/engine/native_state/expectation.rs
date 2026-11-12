@@ -10,7 +10,6 @@ use crate::engine::{
     EngineError,
     error::{combine_execution_and_cleanup, first_failure},
     native_calls::{OpaqueHandle, complex::Complex64Abi},
-    policy::EXPECTATION_HYPER_SAMPLES,
 };
 use num_complex::Complex64;
 use std::{collections::BTreeMap, rc::Rc};
@@ -27,9 +26,12 @@ impl NativeState {
         &mut self,
         terms: &[ProductTerm],
     ) -> Result<(Complex64, Complex64), EngineError> {
+        let started = std::time::Instant::now();
         let mark = self.allocations.len();
         let query = self.open_query(terms);
         let release = self.release_query(mark);
+        self.device_session
+            .record_dev_time(|times| times.expectation.add_since(started));
         combine_execution_and_cleanup(query, release)
     }
 
@@ -86,7 +88,7 @@ impl NativeState {
         calls.configure_expectation_hyper_samples(
             handle,
             expectation,
-            EXPECTATION_HYPER_SAMPLES,
+            device_session.dev_tuning().expectation_hyper_samples,
         )?;
         let query_workspace = calls.create_workspace(handle)?;
         self.query_workspace = Some(query_workspace);
@@ -142,11 +144,11 @@ impl NativeState {
         let calls = device_session.calls();
         let synchronized = calls.synchronize_stream(device_session.stream());
         let since_mark = mark.min(self.allocations.len());
-        let freed = self
-            .allocations
-            .drain(since_mark..)
-            .rev()
-            .map(|allocation| calls.free(allocation));
+        let drained: Vec<_> = self.allocations.drain(since_mark..).rev().collect();
+        let freed: Vec<_> = drained
+            .into_iter()
+            .map(|allocation| self.release_buffer(allocation))
+            .collect();
         first_failure(std::iter::once(synchronized).chain(freed))
     }
 }

@@ -21,12 +21,13 @@
 //! so the engine and its states do too. It makes its native calls through
 //! `SessionCalls` (`native_calls/session_calls.rs`).
 
+use super::dev_tuning::{DevTimes, DevTuning};
 use super::{
     EngineError,
     error::{combine_execution_and_cleanup, first_failure, report_failed_release},
     native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls},
 };
-use std::{marker::PhantomData, rc::Rc, sync::Arc};
+use std::{cell::Cell, marker::PhantomData, rc::Rc, sync::Arc};
 
 /// The engine's CUDA stream and cuTensorNet handle on one device, created
 /// on the calling thread and released when dropped, the handle first.
@@ -40,6 +41,9 @@ pub(crate) struct DeviceSession<Calls: SessionCalls + ?Sized> {
     device_ordinal: i32,
     stream: Option<Stream>,
     handle: Option<OpaqueHandle>,
+    /// Development only: the tuning bench's knobs and clocks.
+    dev_tuning: Cell<DevTuning>,
+    dev_times: Cell<DevTimes>,
     _bound_to_its_thread: PhantomData<Rc<()>>,
 }
 
@@ -59,6 +63,8 @@ impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
             device_ordinal,
             stream: Some(stream),
             handle: None,
+            dev_tuning: Cell::new(DevTuning::default()),
+            dev_times: Cell::new(DevTimes::default()),
             _bound_to_its_thread: PhantomData,
         };
         match session.calls.create_handle() {
@@ -88,6 +94,30 @@ impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
     pub(crate) fn handle(&self) -> OpaqueHandle {
         self.handle
             .expect("a live session always owns its cuTensorNet handle")
+    }
+
+    /// Development only: the tuning bench's knobs.
+    pub(crate) fn dev_tuning(&self) -> DevTuning {
+        self.dev_tuning.get()
+    }
+
+    pub(crate) fn set_dev_tuning(&self, tuning: DevTuning) {
+        self.dev_tuning.set(tuning);
+    }
+
+    /// Development only: the tuning bench's clocks.
+    pub(crate) fn dev_times(&self) -> DevTimes {
+        self.dev_times.get()
+    }
+
+    pub(crate) fn reset_dev_times(&self) {
+        self.dev_times.set(DevTimes::default());
+    }
+
+    pub(crate) fn record_dev_time(&self, update: impl FnOnce(&mut DevTimes)) {
+        let mut times = self.dev_times.get();
+        update(&mut times);
+        self.dev_times.set(times);
     }
 
     fn release(&mut self) -> Result<(), EngineError> {

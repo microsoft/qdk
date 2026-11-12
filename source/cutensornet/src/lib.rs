@@ -70,6 +70,8 @@ pub use discovery::{
     Availability, discover, discover_with, error::AvailabilityError, report::AvailabilityReport,
 };
 pub use engine::{CuTensorNetEngine, CuTensorNetState, EngineError};
+#[doc(hidden)]
+pub use engine::{DevTimes, DevTuning, PhaseClock, SvdAlgorithm};
 pub use libraries::{
     PackagedLibraries,
     report::{LibraryFault, LibraryReport, Version},
