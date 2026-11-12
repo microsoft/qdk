@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`GateFusion`]: how the MPS simulation method groups a batch's gates
-//! into the operators the engine applies.
+//! [`GateFusion`]: the rewrite that groups each run of gates into fewer,
+//! larger operators; it keeps the contract of [`Rewrite`] (in
+//! `rewrites.rs`).
 //!
 //! An engine's time goes to its operators (one per
 //! [`MpsEngine::apply`](tensornet::MpsEngine::apply)), so fewer, larger
@@ -10,20 +11,15 @@
 //! method, on an NVIDIA A100 through cuTensorNet, ran H₂'s first 100
 //! measurements in 131 s with gates fused in pairs and in 176 s unfused,
 //! with 4.5× fewer operators (measured during development; no test times
-//! fusion). Fusion is exact: the product of a run's operators, in order,
-//! is the product of its gates, to rounding. Under truncation an engine
-//! truncates after each operator, so fused and unfused runs may differ
-//! within the truncation error.
-//!
-//! A run of gates ends at each measurement and reset, so no operator spans
-//! one; each run is fused on its own.
+//! fusion).
 
 use std::collections::BTreeMap;
 
 use crate::qir::OperatorMatrix;
 use num_complex::Complex64;
 
-use super::lowering::{Operator, Step};
+use super::Rewrite;
+use crate::mps_simulator::resumer::lowering::Operator;
 
 /// How the MPS simulation method groups the gates of each run between
 /// measurements and resets into the engine's operators.
@@ -41,28 +37,14 @@ pub enum GateFusion {
     Pairs,
 }
 
-impl GateFusion {
-    /// `steps` with each run of [`Step::Apply`] grouped as this fusion
-    /// says; measurements and resets kept in place.
-    pub(crate) fn fuse(self, steps: Vec<Step>) -> Vec<Step> {
+impl Rewrite for GateFusion {
+    /// `run`'s gates grouped as this fusion says: unchanged when
+    /// [`Unfused`](Self::Unfused), in blocks of at most two sites when
+    /// [`Pairs`](Self::Pairs).
+    fn rewrite(&self, run: Vec<Operator>) -> Vec<Operator> {
         match self {
-            Self::Unfused => steps,
-            Self::Pairs => {
-                let mut fused = Vec::with_capacity(steps.len());
-                let mut run = Vec::new();
-                for step in steps {
-                    match step {
-                        Step::Apply(operator) => run.push(operator),
-                        other => {
-                            fused.extend(pairs(&run).into_iter().map(Step::Apply));
-                            run.clear();
-                            fused.push(other);
-                        }
-                    }
-                }
-                fused.extend(pairs(&run).into_iter().map(Step::Apply));
-                fused
-            }
+            Self::Unfused => run,
+            Self::Pairs => pairs(&run),
         }
     }
 }

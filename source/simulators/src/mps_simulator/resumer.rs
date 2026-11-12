@@ -21,18 +21,18 @@ use crate::OutputRecord;
 use crate::qir::{QirMachine, QirResumeError, QirResumer, QirShotId};
 use tensornet::MpsEngine;
 
-pub(super) mod fusion;
 mod grouped_run;
 pub(crate) mod layout;
 pub(crate) mod lowering;
 pub(super) mod report;
 pub(super) mod resumer_error;
+pub(crate) mod rewrites;
 pub(crate) mod shot_stream;
 
-use fusion::GateFusion;
 use grouped_run::GroupedRun;
 use report::MpsRunReport;
 use resumer_error::MpsResumerError;
+use rewrites::fusion::GateFusion;
 
 /// Runs a QIR program's shots on matrix product states held by the engine
 /// `E`, shots that drew the same values sharing one state (how: the header

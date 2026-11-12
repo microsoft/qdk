@@ -9,11 +9,11 @@
 //! the stream each draws from in `resumer/shot_stream.rs`, the calls
 //! refused in `resumer/lowering.rs`.
 
-mod fusion;
 mod grouped_run;
 mod layout;
 mod lowering;
 mod report;
+mod rewrites;
 mod shot_stream;
 
 use std::num::NonZeroUsize;

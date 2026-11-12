@@ -23,7 +23,8 @@
 //! layout, the qubit order (`layout.rs`), and the capacity. Then a group's
 //! context is resumed to its next batch ([`QirMachine::resume`]), whose
 //! calls are lowered to steps on sites (`lower`, in `lowering.rs`) and
-//! fused ([`GateFusion::fuse`]). Each step runs on the group's state, which
+//! rewritten (`Rewrite::rewrite`, called by `rewrite_runs` in
+//! `rewrites.rs`, with the resumer's gate fusion). Each step runs on the group's state, which
 //! `prepare` makes within the capacity at the first step: `apply` applies
 //! an operator; at a measurement or reset, `read_bond` reads the largest
 //! bond for the report, `draw` reads each shot's value, splitting the
@@ -58,11 +59,12 @@ use tensornet::{MpsEngine, MpsShape};
 
 #[cfg(doc)]
 use super::MpsResumer;
-use super::fusion::GateFusion;
 use super::layout::QubitOrder;
 use super::lowering::{Operator, Step, lower};
 use super::report::MpsRunReport;
 use super::resumer_error::MpsResumerError;
+use super::rewrites::fusion::GateFusion;
+use super::rewrites::rewrite_runs;
 use super::shot_stream::{SplitMix64, shot_stream};
 
 /// One run of an [`MpsResumer`]: what every group of the run shares, the
@@ -222,7 +224,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     return Ok(records.to_vec());
                 }
                 QirStop::Batch(calls) => {
-                    group.steps = self.fusion.fuse(lower(calls, &self.layout)?).into();
+                    group.steps = rewrite_runs(lower(calls, &self.layout)?, &self.fusion).into();
                     group.next = 0;
                     group.outcomes.clear();
                 }
