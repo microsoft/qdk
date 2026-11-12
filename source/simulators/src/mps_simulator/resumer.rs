@@ -62,9 +62,9 @@ pub struct MpsResumer<E: MpsEngine> {
     last_run: MpsRunReport,
 }
 
-/// The max bond dimension χ by default: 128. H₂'s phase estimation, run on
-/// a CPU engine during development, kept every bond it needed within it
-/// (its largest was 24).
+/// The max bond dimension χ by default: 128. H₂'s iterative phase
+/// estimation (29 qubits), run on a CPU engine with this default, kept
+/// every bond it needed within it (its largest was 24).
 pub const DEFAULT_MAX_BOND_DIMENSION: NonZeroUsize =
     NonZeroUsize::new(128).expect("128 is not zero");
 

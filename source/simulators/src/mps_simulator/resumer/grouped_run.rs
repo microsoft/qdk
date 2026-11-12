@@ -282,7 +282,9 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             .map_err(engine_failure)?;
         // A uniform is in [0, 1): One only when P(One) > 0, Zero only when
         // P(One) < 1; a P(One) rounded past 0 or 1 draws as a P(One) of 0
-        // or 1 would.
+        // or 1 would. An impossible value that rounding gives a tiny
+        // probability needs no threshold: a shot draws it with that tiny
+        // probability only, as a measurement draws and does not post-select.
         let draws: Vec<bool> = group
             .shots
             .iter_mut()

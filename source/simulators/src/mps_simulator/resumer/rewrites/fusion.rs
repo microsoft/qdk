@@ -8,10 +8,10 @@
 //! An engine's time goes to its operators (one per
 //! [`MpsEngine::apply`](tensornet::MpsEngine::apply)), so fewer, larger
 //! operators may cost less: an earlier version of this MPS simulation
-//! method, on an NVIDIA A100 through cuTensorNet, ran H₂'s first 100
-//! measurements in 131 s with gates fused in pairs and in 176 s unfused,
-//! with 4.5× fewer operators (measured during development; no test times
-//! fusion).
+//! method, on an NVIDIA A100 through cuTensorNet, ran the first 100
+//! measurements of H₂'s iterative phase estimation (29 qubits, about
+//! 392,000 gates) in 131 s with gates fused in pairs and in 176 s unfused,
+//! with 4.5× fewer operators (no test times fusion).
 
 use std::collections::BTreeMap;
 

@@ -8,9 +8,10 @@
 //! order: its instance is the qubit order ([`QubitOrder`]), chosen from
 //! the program's two-qubit gates ([`QubitOrder::for_program`]).
 //!
-//! An MPS is a chain, so its cost depends on where the qubits sit: a gate
-//! on distant sites is routed through swaps, and each bond is the Schmidt
-//! rank across its cut, which depends on which qubits fall on each side.
+//! An MPS is a chain, so its cost depends on where the qubits sit: an
+//! engine applies a gate on distant sites at more cost (through swaps, for
+//! instance), and each bond is the Schmidt rank across its cut, which
+//! depends on which qubits fall on each side.
 //! Every order holds the same state (to rounding, and within the
 //! truncation error of an engine that truncates), so on an exact engine a
 //! shot's draws and records do not depend on it; the bonds, the time and
@@ -19,10 +20,10 @@
 //! call it hands the engine, it never reaches the caller.
 //!
 //! The choice is a local search for the minimum linear arrangement of the
-//! program's interaction graph. On H₂'s phase estimation it lowered the
-//! weighted span from 628,526 to 216,950, in 2 ms on one core (measured
-//! during development; the tests check the search's rules, not these
-//! figures).
+//! program's interaction graph. On H₂'s iterative phase estimation (29
+//! qubits, about 89,000 two-qubit gates) this search lowered the weighted
+//! span from 628,526 to 216,950, in 2 ms on one core (the tests check the
+//! search's rules, not these figures).
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, VecDeque};
@@ -94,9 +95,10 @@ impl InteractionWeights {
         Self { qubits, pairs }
     }
 
-    /// Σ gates · |site(a) − site(b)| over the pairs: a proxy for the swaps
-    /// the gates cost on the chain under `order`, as a gate on sites d apart
-    /// is routed through d − 1 swaps each way.
+    /// Σ gates · |site(a) − site(b)| over the pairs: a proxy for what the
+    /// gates cost on the chain under `order`, as an engine applies a gate on
+    /// distant sites at more cost (through swaps, for instance: d − 1 each
+    /// way for sites d apart).
     pub(crate) fn span(&self, order: &QubitOrder) -> u64 {
         self.pairs
             .iter()

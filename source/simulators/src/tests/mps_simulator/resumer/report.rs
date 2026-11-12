@@ -84,6 +84,29 @@ fn the_bond_is_read_once_per_run_of_operators() {
     assert_eq!(resumer.engine().shapes(), 2);
 }
 
+/// A split adds no read: the part that waits holds a state whose bond was
+/// read before the draw, with no operator since. Eight shots of a Bell
+/// pair, both qubits read, then an H gate, split at the first measurement:
+/// the bond is read once before it, then once per part after the H.
+#[test]
+fn a_split_reads_the_bond_of_neither_part_again_before_an_operator() {
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
+    let program = program(
+        2,
+        &[&[
+            gate1(OPID_H, 0),
+            gate2(OPID_CX, 0, 1),
+            mz(0),
+            mz(1),
+            gate1(OPID_H, 1),
+            ret(),
+        ]],
+    );
+    run(&mut resumer, &program, &QirShotId::first(8)).expect("the program runs");
+    assert_eq!(resumer.engine().forks(), 1, "the shots drew both values");
+    assert_eq!(resumer.engine().shapes(), 3);
+}
+
 /// The report shows a bond above the max bond dimension, which an engine
 /// that does not truncate holds: a GHZ state on the exact reference, with
 /// χ set to 1, holds bonds of 2.
