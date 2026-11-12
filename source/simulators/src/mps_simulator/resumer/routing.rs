@@ -36,8 +36,9 @@
 //!   operator's routed steps on the bound, and a step whose bound passes
 //!   the capacity is at risk. At risk with a bound walked since the last
 //!   read, the segment ends before the operator, and the group reads the
-//!   state's bonds (a re-read) before the next segment; at risk on a bound
-//!   just read, the policy acts ([`GuardPolicy`]). A segment also ends at
+//!   state's bonds (a re-read) before the next segment, unless the policy
+//!   acts on the bound as walked; at risk on a bound just read, the
+//!   policy acts ([`GuardPolicy`]). A segment also ends at
 //!   each draw, where the group reads the bonds anyway.
 //! - **The length threshold** (development only,
 //!   [`RouteTuning::cut_after_routed`]): the order is restored after a
@@ -80,8 +81,9 @@ pub struct RoutingTrace {
     pub max_drift_permille: u32,
     /// The bond guard: the reads of the state's bonds it added (re-reads),
     /// the operators at risk where its policy acted (on a bound just read,
-    /// or in the layout's order under `Cut`), the restores policy `Cut`
-    /// made, and the batches policy `HandOver` handed to the engine.
+    /// in the layout's order under `Cut`, or on any bound under
+    /// `HandOverUnread`), the restores policy `Cut` made, and the batches
+    /// policies `HandOver` and `HandOverUnread` handed to the engine.
     pub guard_rereads: u64,
     pub guard_at_risk: u64,
     pub guard_cuts: u64,
@@ -261,6 +263,10 @@ pub enum GuardPolicy {
     /// the engine as it is ([`Routing::Engine`]); the next batch is routed
     /// again.
     HandOver,
+    /// As `HandOver`, but on the bound as walked: a stale bound is never
+    /// re-read, so the guard adds no `shape` call, and hands over at every
+    /// operator the walked bound puts at risk, false alarms included.
+    HandOverUnread,
 }
 
 /// Development only: a segment of a batch, routed
@@ -483,7 +489,12 @@ impl Placement {
         *self = before;
         TRACE.with(|cell| cell.set(trace_before));
         routed.truncate(start);
-        if !read && (policy != GuardPolicy::Cut || !in_order) {
+        let acts_unread = match policy {
+            GuardPolicy::Cut => in_order,
+            GuardPolicy::HandOver => false,
+            GuardPolicy::HandOverUnread => true,
+        };
+        if !read && !acts_unread {
             return false;
         }
         trace(|t| t.guard_at_risk += 1);
@@ -494,7 +505,7 @@ impl Placement {
                     self.restore(routed);
                 }
             }
-            GuardPolicy::HandOver => {
+            GuardPolicy::HandOver | GuardPolicy::HandOverUnread => {
                 trace(|t| t.guard_handovers += 1);
                 self.restore(routed);
                 self.handed_over = true;

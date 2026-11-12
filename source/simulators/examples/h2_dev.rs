@@ -347,7 +347,12 @@ impl Options {
                                 None | Some("none") => None,
                                 Some("cut") => Some(GuardPolicy::Cut),
                                 Some("handover") => Some(GuardPolicy::HandOver),
-                                Some(other) => panic!("--guard {other}: none, cut or handover"),
+                                Some("handover-unread") => Some(GuardPolicy::HandOverUnread),
+                                Some(other) => {
+                                    panic!(
+                                        "--guard {other}: none, cut, handover or handover-unread"
+                                    )
+                                }
                             },
                             cut_after_routed: small("--cut-after", 0),
                             check_bound: match value("--check-bound").as_deref() {

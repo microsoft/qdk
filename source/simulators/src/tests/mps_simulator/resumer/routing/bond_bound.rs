@@ -331,6 +331,24 @@ fn hand_over_restores_the_order_and_sends_the_rest_of_the_batch_as_is() {
     assert_eq!(swaps(&segment.steps), 4, "routed again");
 }
 
+/// Policy `HandOverUnread` hands over at risk on a bound walked since the
+/// last read, without asking for a read.
+#[test]
+fn hand_over_unread_hands_over_on_a_walked_bound_without_a_read() {
+    reset_routing_trace();
+    let mut placement = guarded(GuardPolicy::HandOverUnread);
+    let segment = placement.route_segment(&[cx(0, 5), cx(1, 4)]);
+    assert!(!segment.needs_read);
+    assert_eq!(segment.routed, 2);
+    assert_eq!(
+        swaps(&segment.steps),
+        8,
+        "(0, 5)'s route, then the restore's SWAPs"
+    );
+    let trace = routing_trace();
+    assert_eq!((trace.guard_at_risk, trace.guard_handovers), (1, 1));
+}
+
 /// Under `Cut`, an operator at risk in the layout's order has nothing to
 /// restore: it is routed without a read.
 #[test]
@@ -402,6 +420,10 @@ fn guarded_routings() -> Vec<Routing> {
         }),
         tuned(RouteTuning {
             guard: Some(GuardPolicy::HandOver),
+            ..RouteTuning::default()
+        }),
+        tuned(RouteTuning {
+            guard: Some(GuardPolicy::HandOverUnread),
             ..RouteTuning::default()
         }),
         tuned(RouteTuning {

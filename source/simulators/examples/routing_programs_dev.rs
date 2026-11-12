@@ -22,7 +22,8 @@
 //!   record what the exact reference records; `rb-db250` is `rb` that also
 //!   restores the order when a route leaves the drift above 0.25, and
 //!   `rb-eK` restores it every K routed operators, within a batch too;
-//!   `guard-a`/`guard-b` are `rb` with the bond guard's policies, `thr-L`
+//!   `guard-a`/`guard-b`/`guard-b-unread` are `rb` with the bond guard's
+//!   policies, `thr-L`
 //!   `rb` with the length threshold, `rb-check` and `rb-check-apply` `rb`
 //!   checking its bond bound. `--routings a,b` keeps those routings.
 //! - `--part need-log --qubits N --chi X --shots S`: where the
@@ -380,7 +381,8 @@ fn adversarial_programs(n: usize) -> Vec<(String, usize, QirProgram)> {
 
 /// `Engine`, `rb`, `rb` with a drift budget of 0.25 (`rb-db250`), `rb`
 /// restoring every K routed operators within a batch too (`rb-eK`), `rb`
-/// with the bond guard's policies (`guard-a`: cut, `guard-b`: hand over),
+/// with the bond guard's policies (`guard-a`: cut, `guard-b`: hand over,
+/// `guard-b-unread`: hand over on the bound as walked, never re-read),
 /// `rb` with the length threshold (`thr-L`: restored after L routed
 /// operators with no draw between), and `rb` checking its bond bound at
 /// every read (`rb-check`) and after every operator (`rb-check-apply`).
@@ -410,6 +412,7 @@ fn adversarial_routings() -> Vec<(String, Routing)> {
     for (name, policy) in [
         ("guard-a", GuardPolicy::Cut),
         ("guard-b", GuardPolicy::HandOver),
+        ("guard-b-unread", GuardPolicy::HandOverUnread),
     ] {
         all.push((
             name.to_string(),
