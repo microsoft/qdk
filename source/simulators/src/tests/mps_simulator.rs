@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 //! The tests of [`crate::mps_simulator`], one file per file with behaviour,
-//! all on `tensornet`'s exact reference engine; `programs.rs` writes the QIR
-//! programs they run, and `reference_spy.rs` the test spy over the
-//! reference.
+//! all on `tensornet`'s exact reference engine, or on `reference_spy.rs`'s
+//! spy over it, which records the calls and stands in for an engine that
+//! truncates or fails; `programs.rs` writes the QIR programs they run.
 
 mod fusion;
 mod programs;
