@@ -537,7 +537,7 @@ fn arguments_select_colors_and_the_qodec_file() {
 
 #[test]
 fn ill_typed_instructions_leave_the_shot_intact() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
     let qodec = Qodec::load(dir.join("c422-c832-arch/qodec.yaml")).expect("example should load");
     let text = transcript(
         &qodec,
@@ -603,7 +603,7 @@ fn examples_lower_their_programs() {
             "prepare_z 0; prepare_z 1; idle 0; merge_zz 0 1; measure_merged_z 0",
         ),
     ];
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
     let mut text = String::new();
     for (path, program) in examples {
         let qodec = Qodec::load(dir.join(path)).expect("example should load");

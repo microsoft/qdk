@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Time per bottom-ISA instruction, for every example qodec in `examples/`,
+//! Time per bottom-ISA instruction, for every example qodec in `../examples/`,
 //! in two groups that lower the same programs:
 //!
 //! - `compile_throughput`: a [`Compiler`], the encoders of every layer without
@@ -182,7 +182,7 @@ struct Example {
 }
 
 fn load_examples() -> Vec<Example> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
     examples()
         .into_iter()
         .map(|(path, program)| {
