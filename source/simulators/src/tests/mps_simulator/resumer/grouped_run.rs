@@ -2,10 +2,10 @@
 // Licensed under the MIT License.
 
 //! The grouped run's rules: a shot reads One only where One has a
-//! probability; shots that draw the same values share one state; a split
-//! forks it once and keeps few states at once; and a run names its first
-//! failing shot in the order of its shots, whichever part of a split goes
-//! on.
+//! probability; shots that draw the same values share one state, prepared
+//! only when a shot first needs it; a split forks it once and keeps few
+//! states at once; and a run names its first failing shot in the order of
+//! its shots, whichever part of a split goes on.
 
 use crate::bytecode::Instruction;
 use crate::mps_simulator::{MpsResumer, MpsResumerError};
@@ -52,6 +52,30 @@ fn shots_with_the_same_draws_share_one_state() {
         (resumer.engine().prepared().len(), resumer.engine().forks()),
         (1, 0)
     );
+}
+
+/// A state is prepared only when a shot first needs it: a program of two
+/// qubits whose quantum part runs only when a classical flag is set, here
+/// clear, so its shots end with no quantum call, prepares no state.
+#[test]
+fn a_shot_with_no_quantum_call_prepares_no_state() {
+    let (quantum, done) = (1, 2);
+    let program = program(
+        2,
+        &[
+            &[set(0, 0), branch(0, quantum, done)],
+            &[gate1(OPID_H, 0), mz(0), jump(done)],
+            &[ret()],
+        ],
+    );
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
+    let records = run(&mut resumer, &program, &ids(&[0, 1])).expect("the program runs");
+    assert_eq!(
+        records,
+        vec![results(&[0, 0]); 2],
+        "no shot took the quantum part"
+    );
+    assert!(resumer.engine().prepared().is_empty());
 }
 
 /// Shots whose draws differ fork the state where they differ: one coin

@@ -1,13 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The resumer's rules: what a shot records, wherever the order places its
-//! qubits; that its records do not depend on the shots beside it or on
-//! earlier runs; the capacity each state is prepared within; and a run's
-//! edges (no shots, no qubits, a max bond dimension that makes no chain).
-//! How shots draw, share states and fail is in `resumer/grouped_run.rs`,
-//! the stream each draws from in `resumer/shot_stream.rs`, the calls
-//! refused in `resumer/lowering.rs`.
+//! The resumer's rules: what a shot records; that its records do not
+//! depend on the shots beside it or on earlier runs; the layout and the
+//! capacity each run starts with, and the gate fusion its gates reach the
+//! engine with; and a run's edges (no shots, no qubits, a max bond
+//! dimension that makes no chain). How shots draw, share states and fail
+//! is in `resumer/grouped_run.rs`, the stream each draws from in
+//! `resumer/shot_stream.rs`, the calls' sites and refusals in
+//! `resumer/lowering.rs`.
 
 mod grouped_run;
 mod layout;
@@ -18,21 +19,20 @@ mod shot_stream;
 
 use std::num::NonZeroUsize;
 
-use crate::bytecode::Instruction;
 use crate::qir::{QirMachine, QirProgram, QirResumeError, QirResumer, QirShotId, expect_ready};
 use crate::{MeasurementResult, OutputRecord};
 use tensornet::reference::ExactReference;
 use tensornet::{MpsEngine, MpsShape};
 
 use super::programs::{
-    coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, program_with, reset, ret,
+    coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, reset, ret,
 };
 use super::reference_spy::ReferenceSpy;
 use crate::bytecode::encoding::{
-    OPID_CX, OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_SWAP, OPID_X,
+    OPID_CX, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_SWAP, OPID_X,
 };
 use crate::mps_simulator::resumer::layout::QubitOrder;
-use crate::mps_simulator::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsResumerError};
+use crate::mps_simulator::{DEFAULT_MAX_BOND_DIMENSION, GateFusion, MpsResumer, MpsResumerError};
 
 type RunResult<E> = Result<Vec<Vec<OutputRecord>>, QirResumeError<MpsResumerError<E>>>;
 
@@ -102,75 +102,58 @@ fn a_deterministic_program_records_its_basis_state() {
     assert_eq!(records, vec![results(&[1, 0, 1, 1]); 2]);
 }
 
-/// The values of qubits 0 to 3 in [`moved`]'s programs.
-const MOVED_VALUES: [u8; 4] = [1, 0, 0, 1];
+/// The run places the qubits where the layout it chose from the program
+/// puts them: two Bell pairs, one on qubits 0 and 3 and one on qubits 1
+/// and 2, as a program that entangles qubits far apart in its numbering.
+/// The layout puts each pair on neighbouring sites, so no bond holds more
+/// than 2; on the identity order, both pairs would cross the middle bond,
+/// of 4.
+#[test]
+fn the_run_places_the_qubits_by_the_layout_it_chose() {
+    let program = program(
+        4,
+        &[&[
+            gate1(OPID_H, 0),
+            gate2(OPID_CX, 0, 3),
+            gate1(OPID_H, 1),
+            gate2(OPID_CX, 1, 2),
+            mz(0),
+            mz(1),
+            mz(2),
+            mz(3),
+            ret(),
+        ]],
+    );
+    let mut resumer = MpsResumer::new(ExactReference::new(), 7);
+    run(&mut resumer, &program, &ids(&[0])).expect("the program runs");
+    assert_eq!(resumer.last_run().largest_bond, 2);
+}
 
-/// A program on four qubits whose `cz`s (no change to a basis state) make
-/// the order move every qubit to a site that, in the identity order, holds
-/// a qubit of the other value; `x`s give the qubits [`MOVED_VALUES`]; then
-/// `tail`, into 4 results.
-fn moved(tail: &[Instruction<u64>]) -> QirProgram {
-    let mut block = vec![gate1(OPID_X, 0), gate1(OPID_X, 3)];
-    for (a, b) in [(1, 3), (3, 0), (0, 2)] {
-        block.extend([
-            gate2(OPID_CZ, a, b),
-            gate2(OPID_CZ, a, b),
-            gate2(OPID_CZ, a, b),
-        ]);
+/// The resumer's gate fusion reaches the engine, `Pairs` by default: a Bell
+/// pair turned to the X basis (H on qubit 0, CX, H on qubit 1), then read.
+/// Fused in pairs, its three gates reach the engine as one operator; set
+/// `Unfused`, as three.
+#[test]
+fn gates_reach_the_engine_grouped_as_the_gate_fusion_says() {
+    let program = program(
+        2,
+        &[&[
+            gate1(OPID_H, 0),
+            gate2(OPID_CX, 0, 1),
+            gate1(OPID_H, 1),
+            mz(0),
+            mz(1),
+            ret(),
+        ]],
+    );
+    for (fusion, applies) in [(None, 1), (Some(GateFusion::Unfused), 3)] {
+        let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7);
+        if let Some(fusion) = fusion {
+            resumer = resumer.with_gate_fusion(fusion);
+        }
+        run(&mut resumer, &program, &ids(&[0])).expect("the program runs");
+        assert_eq!(resumer.engine().applies(), applies, "{fusion:?}");
     }
-    block.extend_from_slice(tail);
-    block.push(ret());
-    let program = program_with(4, 4, &[], &[&block]);
-    let order = QubitOrder::for_program(&program);
-    for qubit in 0..4 {
-        let site = order.site(qubit);
-        assert_ne!(
-            MOVED_VALUES[qubit as usize], MOVED_VALUES[site],
-            "qubit {qubit} sits on site {site}, whose qubit in the identity order has the other value"
-        );
-    }
-    program
-}
-
-/// `mz` reads each qubit where the order placed it.
-#[test]
-fn a_measurement_reads_its_qubit_where_the_order_placed_it() {
-    let program = moved(&[mz(0), mz(1), mz(2), mz(3)]);
-    let records = run(
-        &mut MpsResumer::new(ExactReference::new(), 7),
-        &program,
-        &ids(&[0]),
-    )
-    .expect("the program runs");
-    assert_eq!(records, vec![results(&MOVED_VALUES)]);
-}
-
-/// `mresetz` reads and resets its qubit where the order placed it: qubit 3
-/// reads 1, then 0.
-#[test]
-fn a_measure_reset_acts_on_its_qubit_where_the_order_placed_it() {
-    let program = moved(&[measure(OPID_MRESETZ, 3, 0), measure(OPID_MZ, 3, 1)]);
-    let records = run(
-        &mut MpsResumer::new(ExactReference::new(), 7),
-        &program,
-        &ids(&[0]),
-    )
-    .expect("the program runs");
-    assert_eq!(records, vec![results(&[1, 0, 0, 0])]);
-}
-
-/// `reset` resets its qubit where the order placed it: qubit 0 reads 0
-/// after it, and qubit 3 keeps its 1.
-#[test]
-fn a_reset_acts_on_its_qubit_where_the_order_placed_it() {
-    let program = moved(&[reset(0), measure(OPID_MZ, 0, 0), measure(OPID_MZ, 3, 1)]);
-    let records = run(
-        &mut MpsResumer::new(ExactReference::new(), 7),
-        &program,
-        &ids(&[0]),
-    )
-    .expect("the program runs");
-    assert_eq!(records, vec![results(&[0, 1, 0, 0])]);
 }
 
 /// A Bell pair's two readouts agree in every shot, and both values occur

@@ -17,7 +17,9 @@ use crate::mps_simulator::resumer::shot_stream::SplitMix64;
 use crate::mps_simulator::{GateFusion, MpsResumer};
 
 /// Consecutive gates on one pair of sites, and the one-site gates on them,
-/// make one operator.
+/// make one operator: a step of a CX ladder that returns to the pair on
+/// sites 2 and 0 (H on site 2, CX, S on site 0, CZ) reaches the engine as
+/// one 4×4.
 #[test]
 fn gates_on_one_pair_make_one_operator() {
     let on = |gate: QirGate, sites: [usize; 2]| Operator {
@@ -66,9 +68,12 @@ fn unfused_keeps_one_operator_per_gate() {
     assert_eq!(GateFusion::Unfused.rewrite(run.clone()), run);
 }
 
-/// A shot records the same with gates fused or not.
+/// A shot records the same with gates fused in pairs or unfused: a layer
+/// of a variational ansatz on three qubits (H, rotations, CXs and an Rzz
+/// entangling them), read at the end, gives each of 32 shots the same
+/// records either way.
 #[test]
-fn fusion_never_changes_a_shots_records() {
+fn fusion_keeps_a_shots_records() {
     let mut block = vec![
         gate1(OPID_H, 0),
         gate(OPID_RX, 1, 0, 0.7),

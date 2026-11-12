@@ -3,8 +3,9 @@
 
 //! The layout, today the qubit order: a permutation, never of more span
 //! than the identity, the same for the same gates; the search improving on
-//! both of its starts; the identity on a tie; and the gates whose qubits
-//! are in registers not weighed.
+//! the identity, and the search from reverse Cuthill–McKee kept when it
+//! spans less; the identity on a tie; and the gates whose qubits are in
+//! registers not weighed.
 
 use super::super::below;
 use super::super::programs::{gate2, gate2_from_register, program, ret, set};
@@ -48,14 +49,37 @@ fn a_chain_of_gates_is_placed_on_neighbouring_sites() {
     );
 }
 
-/// The search improves on both of its starts: on these gates the identity
-/// spans 9 and reverse Cuthill–McKee 10, and the search finds 8.
+/// The search improves on the identity, weighing each pair by its gates:
+/// qubit 2 meets each of the others, qubit 0 twice, and qubit 0 meets 1;
+/// the identity spans 9, and the search finds 8.
 #[test]
-fn the_search_improves_on_both_of_its_starts() {
+fn the_search_improves_on_the_identity() {
     let gates = [(0, 2), (0, 2), (1, 2), (2, 3), (2, 4), (0, 1)];
     let weights = InteractionWeights::from_gates(5, gates);
     assert_eq!(weights.span(&QubitOrder::identity(5)), 9);
     assert_eq!(weights.span(&local_search_order(&weights)), 8);
+}
+
+/// The search from reverse Cuthill–McKee is kept when it spans less than
+/// the search from the identity: qubits 1 and 2 meet in three gates, 1 and
+/// 3 and 0 and 2 in two each, 0 and 3 in one. The identity spans 14, and
+/// the search from it stops at 12; reverse Cuthill–McKee also spans 12,
+/// and the search from it finds 10, which only that start reaches here.
+#[test]
+fn the_search_from_reverse_cuthill_mckee_is_kept_when_it_spans_less() {
+    let gates = [
+        (1, 2),
+        (3, 1),
+        (2, 0),
+        (1, 2),
+        (3, 1),
+        (2, 1),
+        (2, 0),
+        (0, 3),
+    ];
+    let weights = InteractionWeights::from_gates(4, gates);
+    assert_eq!(weights.span(&QubitOrder::identity(4)), 14);
+    assert_eq!(weights.span(&local_search_order(&weights)), 10);
 }
 
 /// When both starts end at the same span, the identity's order is kept: a

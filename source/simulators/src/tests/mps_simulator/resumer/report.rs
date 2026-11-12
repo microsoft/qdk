@@ -41,6 +41,20 @@ fn the_report_gives_the_largest_bond_before_the_readout() {
     assert_eq!(resumer.last_run().largest_bond, 2);
 }
 
+/// Gates after a shot's last measurement count in the largest bond: a
+/// program that reads qubit 2, then entangles qubits 0 and 1 into a Bell
+/// pair and ends without reading them, reports the pair's bond of 2.
+#[test]
+fn gates_after_the_last_measurement_count_in_the_largest_bond() {
+    let mut resumer = MpsResumer::new(ExactReference::new(), 7);
+    let program = program(
+        3,
+        &[&[mz(2), gate1(OPID_H, 0), gate2(OPID_CX, 0, 1), ret()]],
+    );
+    run_once(&mut resumer, &program);
+    assert_eq!(resumer.last_run().largest_bond, 2);
+}
+
 /// A failed run's report keeps what the run read before it failed: GHZ
 /// shots, on an engine whose projections on One fail, report the bond of 2
 /// read before the readout, as a run that ends would.
