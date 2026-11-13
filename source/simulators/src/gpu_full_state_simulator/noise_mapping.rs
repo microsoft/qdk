@@ -67,7 +67,6 @@ fn noise_table_for<'a>(
     noise_config: &'a NoiseConfig<f32, f64>,
 ) -> Option<&'a NoiseTable<f32>> {
     let noise_table = match op.id {
-        ops::ID => &noise_config.i,
         ops::X => &noise_config.x,
         ops::Y => &noise_config.y,
         ops::Z => &noise_config.z,
