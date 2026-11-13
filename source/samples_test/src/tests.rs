@@ -51,6 +51,9 @@ fn compile_and_run_debug(sources: SourceMap) -> String {
 }
 
 fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
+    let is_shor = sources
+        .iter()
+        .any(|source| source.name.as_ref() == "Shor.qs");
     // when we load the project, need to set these
     let (std_id, store) = compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
@@ -91,7 +94,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
         }
     };
 
-    interpreter.set_classical_seed(Some(1));
+    interpreter.set_classical_seed(Some(2));
     interpreter.set_quantum_seed(Some(1));
 
     let mut output = Vec::new();
@@ -105,7 +108,15 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
             panic!("execution failed (first error: {})", errors[0]);
         }
     };
-    String::from_utf8(output).expect("output should be valid UTF-8") + &val.to_string()
+    let output =
+        String::from_utf8(output).expect("output should be valid UTF-8") + &val.to_string();
+    if is_shor {
+        assert!(
+            output.contains("Estimating frequency"),
+            "Shor must execute quantum period finding, not just guess a divisor: {output}"
+        );
+    }
+    output
 }
 
 fn compile_and_run_qasm(source: &str) -> String {

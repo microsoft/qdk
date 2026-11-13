@@ -7,26 +7,26 @@ use expect_test::{Expect, expect};
 // have matching expect strings in this file. If new samples are added, this file will
 // fail to compile until the new expect strings are added.
 pub const SIMPLE2DISINGORDER2_EXPECT: Expect =
-    expect!["[Zero, Zero, One, Zero, One, One, Zero, Zero, One]"];
+    expect!["[One, One, One, One, Zero, Zero, Zero, Zero, Zero]"];
 pub const SIMPLE2DISINGORDER2_EXPECT_DEBUG: Expect =
-    expect!["[Zero, Zero, One, Zero, One, One, Zero, Zero, One]"];
+    expect!["[One, One, One, One, Zero, Zero, Zero, Zero, Zero]"];
 pub const SIMPLE2DISINGORDER2_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 24940"];
 pub const SIMPLE2DISINGORDER2_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 20849"];
 pub const SIMPLE2DISINGORDER2_EXPECT_QIR_ADAPTIVE: Expect =
     expect!["generated QIR of length 14715"];
 pub const SIMPLE1DISINGORDER1_EXPECT: Expect =
-    expect!["[Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero]"];
+    expect!["[Zero, One, One, One, Zero, Zero, Zero, Zero, Zero]"];
 pub const SIMPLE1DISINGORDER1_EXPECT_DEBUG: Expect =
-    expect!["[Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero]"];
+    expect!["[Zero, One, One, One, Zero, Zero, Zero, Zero, Zero]"];
 pub const SIMPLE1DISINGORDER1_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 12317"];
 pub const SIMPLE1DISINGORDER1_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 18408"];
 pub const SIMPLE1DISINGORDER1_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 7458"];
 pub const SIMPLE2DISINGORDER1_EXPECT: Expect =
-    expect!["[One, Zero, One, One, Zero, One, One, Zero, Zero]"];
+    expect!["[One, One, One, One, One, Zero, Zero, Zero, Zero]"];
 pub const SIMPLE2DISINGORDER1_EXPECT_DEBUG: Expect =
-    expect!["[One, Zero, One, One, Zero, One, One, Zero, Zero]"];
+    expect!["[One, One, One, One, One, Zero, Zero, Zero, Zero]"];
 pub const SIMPLE2DISINGORDER1_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 24085"];
 pub const SIMPLE2DISINGORDER1_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 16214"];
