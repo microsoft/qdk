@@ -35,7 +35,7 @@ use num_bigint::BigUint;
 use num_complex::Complex;
 use qdk_simulators::{
     noise_config::NoiseConfig,
-    seed::{Stream, derive_seed},
+    seed::{RngRole, derive_seed},
 };
 use qsc_circuit::{
     Circuit, CircuitTracer, TracerConfig,
@@ -1098,13 +1098,13 @@ impl Interpreter {
         let evaluation = self.classical_evaluations;
         self.classical_evaluations += 1;
         self.classical_seed
-            .map(|seed| derive_seed(seed, Stream::Evaluation(evaluation)))
+            .map(|seed| derive_seed(seed, RngRole::Evaluation(evaluation)))
     }
 
     /// Returns the quantum and classical seeds of shot `shot` of a run. Both derive from `seed` if
     /// it is given, and otherwise from the interpreter's quantum and classical seeds.
     fn shot_seeds(&self, seed: Option<u64>, shot: u64) -> (Option<u64>, Option<u64>) {
-        let derive = |seed: Option<u64>| seed.map(|seed| derive_seed(seed, Stream::Shot(shot)));
+        let derive = |seed: Option<u64>| seed.map(|seed| derive_seed(seed, RngRole::Shot(shot)));
         match seed {
             Some(_) => (derive(seed), derive(seed)),
             None => (derive(self.quantum_seed), derive(self.classical_seed)),

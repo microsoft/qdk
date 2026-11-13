@@ -13,7 +13,7 @@ use qdk_simulators::{
     bytecode::{self, runtime::run_shot as adaptive_run_shot},
     cpu_full_state_simulator::FullStateSimulator,
     noise_config::{self, CumulativeNoiseConfig},
-    seed::{Stream, derive_seed, entropy_seed},
+    seed::{RngRole, derive_seed, entropy_seed},
     stabilizer_simulator::StabilizerSimulator,
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -188,7 +188,7 @@ where
     (0..shots)
         .into_par_iter()
         .map(|shot| {
-            let shot_seed = derive_seed(seed, Stream::Shot(shot.into()));
+            let shot_seed = derive_seed(seed, RngRole::Shot(shot.into()));
             let mut simulator = make_simulator(num_qubits, num_results, shot_seed, noise.clone());
             let records = run_shot(instructions, &mut simulator);
             if has_output_recording {
@@ -366,7 +366,7 @@ where
     (0..shots)
         .into_par_iter()
         .map(|shot| {
-            let shot_seed = derive_seed(seed, Stream::Shot(shot.into()));
+            let shot_seed = derive_seed(seed, RngRole::Shot(shot.into()));
             let mut simulator = make_simulator(num_qubits, num_results, shot_seed, noise.clone());
             let records = adaptive_run_shot(program, &mut simulator);
             if has_output_recording {

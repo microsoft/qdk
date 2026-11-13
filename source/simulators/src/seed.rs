@@ -3,30 +3,30 @@
 
 //! Derives the seeds of independent random number generators from a single seed.
 //!
-//! A seeded run uses several random number generators: one per shot and, within a shot, one each
-//! for measurement outcomes, noise faults, and classical draws such as `DrawRandomInt`. Seeding two
-//! of them with the same value makes their streams identical, so draws that should be independent
-//! are correlated (for example, a noise fault becomes a function of an earlier measurement
-//! outcome). Seeding shot `k` with `seed + k` makes runs with nearby seeds share shots.
+//! A seeded run gives each shot its own seed. Within a shot, random number generators have distinct
+//! roles: measurement outcomes, noise faults, and classical draws such as `DrawRandomInt`. Seeding
+//! generators for different roles with the same value makes their draws identical, correlating
+//! outcomes that should be independent (for example, a noise fault becomes a function of an earlier
+//! measurement outcome). Seeding shot `k` with `seed + k` makes runs with nearby seeds share shots.
 //!
 //! To avoid both problems, a component that owns a random number generator creates it with
-//! [`stream_rng`], passing the seed it was given together with the [`Stream`] that names the
-//! generator's role. Components pass the seed they were given on to their subcomponents unchanged;
+//! [`rng_for_role`], passing the seed it was given together with the [`RngRole`] that names the
+//! generator's purpose. Components pass the seed they were given on to their subcomponents unchanged;
 //! only the generator's owner derives. A component that runs several shots or evaluations gives
-//! each its own seed with [`derive_seed`].
+//! each its own seed with [`derive_seed`], using [`RngRole::Shot`] or [`RngRole::Evaluation`].
 
 use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
 
 #[cfg(test)]
 mod tests;
 
-/// The role of a random number generator seeded from a shared seed.
+/// The role of a random number generator or derived seed within a seeded execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stream {
-    /// The seed of the `n`th of several executions that share a seed, such as the shots of a run.
+pub enum RngRole {
+    /// The seed of the `n`th shot of a run.
     Shot(u64),
-    /// The seed of the `n`th evaluation in a long-lived session, such as successive `eval`
-    /// calls on one interpreter. Distinct from [`Stream::Shot`], so evaluations and the shots
+    /// The classical seed of the `n`th evaluation in a long-lived session, such as successive `eval`
+    /// calls on one interpreter. Distinct from [`RngRole::Shot`], so evaluations and the shots
     /// of runs don't repeat each other's draws.
     Evaluation(u64),
     /// Sampling of the quantum state, such as measurement outcomes.
@@ -37,14 +37,14 @@ pub enum Stream {
     Classical,
 }
 
-impl Stream {
+impl RngRole {
     fn label(self) -> (u64, u64) {
         match self {
-            Stream::Shot(n) => (1, n),
-            Stream::Measurement => (2, 0),
-            Stream::Noise => (3, 0),
-            Stream::Classical => (4, 0),
-            Stream::Evaluation(n) => (5, n),
+            RngRole::Shot(n) => (1, n),
+            RngRole::Measurement => (2, 0),
+            RngRole::Noise => (3, 0),
+            RngRole::Classical => (4, 0),
+            RngRole::Evaluation(n) => (5, n),
         }
     }
 }
@@ -56,11 +56,11 @@ enum Output {
     Seed = 1,
 }
 
-/// An injective encoding of `(seed, stream, output)` as a generator key, so that every
+/// An injective encoding of `(seed, role, output)` as a generator key, so that every
 /// generator and derived seed comes from a distinct key.
-fn key(seed: u64, stream: Stream, output: Output) -> [u8; 32] {
+fn key(seed: u64, role: RngRole, output: Output) -> [u8; 32] {
     const DOMAIN: u64 = u64::from_le_bytes(*b"qdk-seed");
-    let (kind, index) = stream.label();
+    let (kind, index) = role.label();
     let mut key = [0; 32];
     for (chunk, word) in
         key.chunks_exact_mut(8)
@@ -71,21 +71,21 @@ fn key(seed: u64, stream: Stream, output: Output) -> [u8; 32] {
     key
 }
 
-/// Derives a seed for a subcomponent, such as one shot of a run, from `seed`.
+/// Derives a seed for `role`, such as one shot of a run, from `seed`.
 ///
-/// Distinct `(seed, stream)` pairs give unrelated seeds.
+/// Distinct `(seed, role)` pairs give unrelated seeds.
 #[must_use]
-pub fn derive_seed(seed: u64, stream: Stream) -> u64 {
-    StdRng::from_seed(key(seed, stream, Output::Seed)).next_u64()
+pub fn derive_seed(seed: u64, role: RngRole) -> u64 {
+    StdRng::from_seed(key(seed, role, Output::Seed)).next_u64()
 }
 
-/// Creates the generator for `stream`, keyed by `seed`.
+/// Creates the generator for `role`, keyed by `seed`.
 ///
-/// Distinct `(seed, stream)` pairs give generators with distinct keys, so no two generators
-/// share a stream.
+/// Distinct `(seed, role)` pairs give generators with distinct keys, so no two generators
+/// share a random number stream.
 #[must_use]
-pub fn stream_rng(seed: u64, stream: Stream) -> StdRng {
-    StdRng::from_seed(key(seed, stream, Output::Generator))
+pub fn rng_for_role(seed: u64, role: RngRole) -> StdRng {
+    StdRng::from_seed(key(seed, role, Output::Generator))
 }
 
 /// Returns a seed drawn from system entropy, for runs that were not given a seed.

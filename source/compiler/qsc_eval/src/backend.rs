@@ -12,7 +12,7 @@ use num_traits::Zero;
 use qdk_simulators::{
     MeasurementResult, Simulator as _, SparseStateSim,
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
-    seed::{Stream, entropy_seed, stream_rng},
+    seed::{RngRole, entropy_seed, rng_for_role},
     stabilizer_simulator::StabilizerSimulator,
 };
 use qsc_data_structures::index_map::IndexMap;
@@ -573,12 +573,12 @@ impl SparseSim {
     pub fn new() -> Self {
         let seed = entropy_seed();
         Self {
-            sim: SparseStateSim::new(Some(stream_rng(seed, Stream::Measurement))),
+            sim: SparseStateSim::new(Some(rng_for_role(seed, RngRole::Measurement))),
             noise_config: None,
             noise: PauliNoise::default(),
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
-            rng: stream_rng(seed, Stream::Noise),
+            rng: rng_for_role(seed, RngRole::Noise),
             noisy: false,
         }
     }
@@ -1170,8 +1170,8 @@ impl Backend for SparseSim {
 
     fn set_seed(&mut self, seed: Option<u64>) {
         let seed = seed.unwrap_or_else(entropy_seed);
-        self.rng = stream_rng(seed, Stream::Noise);
-        self.sim.set_rng(stream_rng(seed, Stream::Measurement));
+        self.rng = rng_for_role(seed, RngRole::Noise);
+        self.sim.set_rng(rng_for_role(seed, RngRole::Measurement));
     }
 }
 

@@ -6,7 +6,7 @@ use crate::{
     noise_config::{
         CumulativeNoiseConfig, CumulativeNoiseTable, Fault, FaultTerm, IntrinsicID, LossPolicy,
     },
-    seed::{Stream, stream_rng},
+    seed::{RngRole, rng_for_role},
 };
 use core::f64;
 use nalgebra::Complex;
@@ -491,10 +491,10 @@ impl Simulator for FullStateSimulator {
     fn new(num_qubits: usize, num_results: usize, seed: u64, noise_config: Self::Noise) -> Self {
         Self {
             noise_config,
-            rng: stream_rng(seed, Stream::Noise),
+            rng: rng_for_role(seed, RngRole::Noise),
             state: StateVectorSimulator::new_with_rng(
                 num_qubits,
-                stream_rng(seed, Stream::Measurement),
+                rng_for_role(seed, RngRole::Measurement),
             ),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],

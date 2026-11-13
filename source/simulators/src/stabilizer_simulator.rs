@@ -11,7 +11,7 @@ use crate::{
     noise_config::{
         CumulativeNoiseConfig, CumulativeNoiseTable, Fault, FaultTerm, IntrinsicID, LossPolicy,
     },
-    seed::{Stream, stream_rng},
+    seed::{RngRole, rng_for_role},
 };
 use branching_state::BranchingState;
 use operation::Operation;
@@ -54,8 +54,8 @@ impl StabilizerSimulator {
 
     /// Sets the random seed of the simulator.
     pub fn set_seed(&mut self, seed: u64) {
-        self.rng = stream_rng(seed, Stream::Noise);
-        self.measurement_rng = stream_rng(seed, Stream::Measurement);
+        self.rng = rng_for_role(seed, RngRole::Noise);
+        self.measurement_rng = rng_for_role(seed, RngRole::Measurement);
     }
 
     /// Increment the simulation time by one.
@@ -370,8 +370,8 @@ impl Simulator for StabilizerSimulator {
     fn new(num_qubits: usize, num_results: usize, seed: u64, noise_config: Self::Noise) -> Self {
         Self {
             noise_config,
-            rng: stream_rng(seed, Stream::Noise),
-            measurement_rng: stream_rng(seed, Stream::Measurement),
+            rng: rng_for_role(seed, RngRole::Noise),
+            measurement_rng: rng_for_role(seed, RngRole::Measurement),
             state: BranchingState::new(num_qubits),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
