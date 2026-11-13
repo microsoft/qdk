@@ -604,6 +604,7 @@ impl Simulator for FullStateSimulator {
                             .apply_operation(&SWAP, &[q1, q2])
                             .expect("apply_operation should succeed");
                         self.loss.swap(q1, q2);
+                        self.last_operation_time.swap(q1, q2);
                     }
                 }
             }
