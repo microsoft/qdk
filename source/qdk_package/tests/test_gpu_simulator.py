@@ -644,3 +644,14 @@ def test_gpu_reset_preserves_distribution():
     assert (
         abs(q1_one / shots - 0.067) < 0.05
     ), f"Expected ~6.7% |1⟩ for q1, got {q1_one}/{shots}"
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gpu_zero_shots_returns_empty_results():
+    """Requesting zero shots must return no results instead of panicking
+    with a division by zero during batch computation."""
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval("operation Main() : Result { use q = Qubit(); H(q); MResetZ(q) }")
+    qir = str(qsharp.compile("Main()"))
+
+    assert run_qir_gpu(qir, shots=0) == []

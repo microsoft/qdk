@@ -204,6 +204,17 @@ impl GpuContext {
         self.batch_data_is_dirty = true;
     }
 
+    /// Results for a run with zero shots: no shots, no diagnostics, and success.
+    fn empty_run_results() -> RunResults {
+        RunResults {
+            shot_results: Vec::new(),
+            shot_result_codes: Vec::new(),
+            shot_output_records: Vec::new(),
+            diagnostics: None,
+            success: true,
+        }
+    }
+
     pub fn run_shots_sync(
         &mut self,
         shot_count: i32,
@@ -223,6 +234,10 @@ impl GpuContext {
     ) -> Result<RunResults, String> {
         if self.program.is_empty() {
             return Err("No program has been set".to_string());
+        }
+        // Nothing to run. Return early so batch sizing never divides by zero.
+        if shot_count <= 0 {
+            return Ok(Self::empty_run_results());
         }
         // Update all the parameters we need for GPU resources based on current program, noise, shots, etc.
         self.update_run_params(shot_count);
@@ -782,6 +797,11 @@ impl GpuContext {
         start_shot_id: i32,
     ) -> Result<RunResults, String> {
         const MAX_ROUNDS_PER_BATCH: u32 = 100_000;
+
+        // Nothing to run. Return early so batch sizing never divides by zero.
+        if shot_count <= 0 {
+            return Ok(Self::empty_run_results());
+        }
 
         // 1. Update run params.
         self.update_run_params(shot_count);
