@@ -14,7 +14,7 @@
 //!     [--fusion unfused|pairs|seq|seq3] [--apply engine|mpo] \
 //!     [--layout program|identity|interleave-centre] [--segments] \
 //!     [--variant base|seq3-mpo] [--order resumer|identity|interleave-centre] \
-//!     [--qr-moves] [--svd-algo gesvd|gesvdj]
+//!     [--no-qr-moves] [--svd-algo gesvd|gesvdj]
 //! ```
 //!
 //! `--variant` and `--order` (development only) are the flags the polyene
@@ -37,9 +37,11 @@
 //! `--engine cuda-mps|cutensornet` runs `CudaMpsEngine` or
 //! `CuTensorNetEngine` on a GPU (Linux x86-64); `--apply mpo` gives the
 //! first `with_dev_mpo_far` and the second `with_dev_wide_operators`
-//! (three-site operators passed to cuTensorNet as one MPO); `--qr-moves`
-//! (`with_dev_qr_moves`) and `--svd-algo` (`with_dev_svd_algo`) set
-//! `cuda-mps`'s centre moves and SVD algorithm. `--engine reference` runs
+//! (three-site operators passed to cuTensorNet as one MPO). `cuda-mps`
+//! moves its centre by QR moves (`with_dev_qr_moves`, its default;
+//! `--qr-moves` is accepted and changes nothing); `--no-qr-moves` moves it
+//! by `GateSplit`s instead, for comparison; `--svd-algo`
+//! (`with_dev_svd_algo`) sets its SVD algorithm. `--engine reference` runs
 //! the exact state vector (`ExactReference`),
 //! whose bond reads are replaced by a constant (its Schmidt ranks cost
 //! seconds at 17 qubits and change no draw). `--segments` prints one line
@@ -83,8 +85,8 @@ struct Options {
     layout: String,
     segments: bool,
     print_reads: bool,
-    /// `cuda-mps`'s centre moves by QR (`--qr-moves`) and its SVD
-    /// algorithm (`--svd-algo`, its default if `None`).
+    /// `cuda-mps`'s centre moves by QR (on unless `--no-qr-moves`) and its
+    /// SVD algorithm (`--svd-algo`, its default if `None`).
     qr_moves: bool,
     svd_algo: Option<String>,
 }
@@ -163,7 +165,7 @@ impl Options {
             layout,
             segments: args.iter().any(|arg| arg == "--segments"),
             print_reads: args.iter().any(|arg| arg == "--print-reads"),
-            qr_moves: args.iter().any(|arg| arg == "--qr-moves"),
+            qr_moves: !args.iter().any(|arg| arg == "--no-qr-moves"),
             svd_algo: flag("--svd-algo"),
         }
     }
@@ -357,12 +359,12 @@ fn main() {
         options.in_order,
         options.mpo,
         options.layout,
-        options.qr_moves,
+        options.engine == "cuda-mps" && options.qr_moves,
         options.svd_algo.as_deref().unwrap_or("default"),
     );
     assert!(
-        options.engine == "cuda-mps" || !options.qr_moves && options.svd_algo.is_none(),
-        "--qr-moves and --svd-algo: --engine cuda-mps only"
+        options.engine == "cuda-mps" || options.qr_moves && options.svd_algo.is_none(),
+        "--no-qr-moves and --svd-algo: --engine cuda-mps only"
     );
     let cpu = || qdk_cpu_mps::CpuMpsEngine::default().with_dev_mpo_far(options.mpo);
     let reference = || NoShape(tensornet::reference::ExactReference::new());

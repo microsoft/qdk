@@ -252,12 +252,13 @@ if wanted kit; then
 fi
 
 # --- The runs ----------------------------------------------------------------
-# The flags of combination $1 (qr-on-gesvdj: --qr-moves --svd-algo gesvdj).
+# The flags of combination $1 (qr-off-gesvdj: --no-qr-moves --svd-algo
+# gesvdj); QR moves are the engine's default.
 combo_flags() {
   local qr=${1%-*} algo=${1##*-}
   case "$qr" in
-  qr-on) echo "--qr-moves --svd-algo $algo" ;;
-  *) echo "--svd-algo $algo" ;;
+  qr-on) echo "--svd-algo $algo" ;;
+  *) echo "--no-qr-moves --svd-algo $algo" ;;
   esac
 }
 

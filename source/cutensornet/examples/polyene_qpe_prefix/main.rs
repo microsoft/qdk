@@ -31,7 +31,7 @@
 //!     --engine cutensornet|cuda-mps|cpu --n 8|12|16|20 --chi 128 \
 //!     [--order identity|interleave-centre] [--variant base|seq3-mpo] \
 //!     [--reference ppp8.exact.reference] [--steps 32] \
-//!     [--weight-reads-per-step 1] [--qr-moves] [--svd-algo gesvd|gesvdj]
+//!     [--weight-reads-per-step 1] [--no-qr-moves] [--svd-algo gesvd|gesvdj]
 //! ```
 //!
 //! `--order` places the qubits on the chain, as `simulators`'
@@ -51,8 +51,10 @@
 //! than the program's (a quick test; the reference is then not checked).
 //! `--weight-reads-per-step K` reads W `K` times per step, so that
 //! `CuTensorNetEngine` computes a step's operators in `K` parts.
-//! `--qr-moves` (`with_dev_qr_moves`) and `--svd-algo`
-//! (`with_dev_svd_algo`) set `cuda-mps`'s centre moves and SVD algorithm.
+//! `cuda-mps` moves its centre by QR moves (`with_dev_qr_moves`, its
+//! default; `--qr-moves` is accepted and changes nothing); `--no-qr-moves`
+//! moves it by `GateSplit`s instead, for comparison. `--svd-algo`
+//! (`with_dev_svd_algo`) sets its SVD algorithm.
 
 mod inputs;
 mod order;
@@ -87,8 +89,11 @@ struct Options {
     engine: String,
     order: String,
     seq3_mpo: bool,
-    /// `--qr-moves`: the `CudaMpsEngine`'s centre moves by QR.
+    /// The `CudaMpsEngine`'s centre moves by QR: on unless
+    /// `--no-qr-moves`, and false for the other engines.
     qr_moves: bool,
+    /// `--no-qr-moves` was given.
+    no_qr_moves: bool,
     /// `--svd-algo`: the `CudaMpsEngine`'s SVD algorithm, its default if
     /// `None`.
     svd_algo: Option<String>,
@@ -131,7 +136,9 @@ impl Options {
                 "seq3-mpo" => true,
                 other => return Err(format!("--variant {other}: base or seq3-mpo").into()),
             },
-            qr_moves: args.iter().any(|arg| arg == "--qr-moves"),
+            qr_moves: flag("--engine").as_deref() == Some("cuda-mps")
+                && !args.iter().any(|arg| arg == "--no-qr-moves"),
+            no_qr_moves: args.iter().any(|arg| arg == "--no-qr-moves"),
             svd_algo: flag("--svd-algo"),
             n: number("--n")?.ok_or("--n 8|12|16|20")?,
             chi: number("--chi")?.ok_or("--chi <bond>")?,
@@ -202,8 +209,8 @@ fn run_case() -> Res<()> {
         options.qr_moves,
         options.svd_algo.as_deref().unwrap_or("default"),
     );
-    if options.engine != "cuda-mps" && (options.qr_moves || options.svd_algo.is_some()) {
-        return Err("--qr-moves and --svd-algo: --engine cuda-mps only".into());
+    if options.engine != "cuda-mps" && (options.no_qr_moves || options.svd_algo.is_some()) {
+        return Err("--no-qr-moves and --svd-algo: --engine cuda-mps only".into());
     }
     let case = Case {
         prefix,

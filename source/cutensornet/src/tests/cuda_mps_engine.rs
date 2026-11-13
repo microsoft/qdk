@@ -5,8 +5,8 @@
 //! [`HostTensors`], its tensor calls on the host: the conformance kit,
 //! operators applied as an MPO (`with_dev_mpo_far`) against the exact
 //! state and against the CPU engine whose MPO path it ports, and the QR
-//! moves (`with_dev_qr_moves`) against the `GateSplit` moves and the CPU
-//! engine.
+//! moves (`with_dev_qr_moves`, on by default) against the `GateSplit`
+//! moves and the CPU engine.
 
 mod host_tensors;
 
@@ -291,6 +291,14 @@ fn the_engine_on_host_tensors_conforms_to_the_kit() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// With its centre moved by `GateSplit`s, not by its default QR moves, the
+/// engine conforms too.
+#[test]
+fn the_engine_with_gate_split_moves_conforms_to_the_kit() {
+    let failures = tensornet::conformance::check(&on_host().with_dev_qr_moves(false));
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 /// Below the capacity an operator applied as an MPO, on three sites in any
 /// order or on a distant pair, leaves the state its gates applied in turn
 /// leave: the exact state's reads.
@@ -347,10 +355,10 @@ fn without_the_flag_an_operator_on_three_sites_is_refused() {
 /// exact, so rounding apart.
 const QR_TOLERANCE: f64 = 1e-12;
 
-/// QR moves leave the state the `GateSplit` moves leave, below the
-/// capacity and at a capped bond, through routed pairs and operators as an
-/// MPO alike; and with them every centre move is a QR move and every
-/// `GateSplit` a truncating split.
+/// QR moves (the default) leave the state the `GateSplit` moves leave,
+/// below the capacity and at a capped bond, through routed pairs and
+/// operators as an MPO alike; and with them every centre move is a QR move
+/// and every `GateSplit` a truncating split.
 #[test]
 fn qr_moves_read_as_gate_split_moves() {
     for bond in [64, 3] {
@@ -358,8 +366,8 @@ fn qr_moves_read_as_gate_split_moves() {
         for seed in [11, 12] {
             let (fused, in_turn) = circuit(7, 40, seed);
             for (gates, mpo) in [(&fused, true), (&in_turn, false)] {
-                let by_split = on_host().with_dev_mpo_far(mpo);
-                let by_qr = on_host().with_dev_mpo_far(mpo).with_dev_qr_moves(true);
+                let by_split = on_host().with_dev_mpo_far(mpo).with_dev_qr_moves(false);
+                let by_qr = on_host().with_dev_mpo_far(mpo);
                 let split_reads = run(&by_split, &capacity, gates);
                 let qr_reads = run(&by_qr, &capacity, gates);
                 assert_values_agree_within(&qr_reads, &split_reads, QR_TOLERANCE);
@@ -380,7 +388,7 @@ fn qr_moves_at_a_capped_bond_read_as_the_cpu_engine() {
     let capacity = MpsShape::qubit_chain(7, 3).expect("a qubit chain");
     for seed in [13, 14] {
         let (_, in_turn) = circuit(7, 40, seed);
-        let port = run(&on_host().with_dev_qr_moves(true), &capacity, &in_turn);
+        let port = run(&on_host(), &capacity, &in_turn);
         let cpu = run(&CpuMpsEngine::default(), &capacity, &in_turn);
         assert!(port.retained_weight < 1.0, "the cap truncates");
         assert_eq!(port.shape, cpu.shape, "the chain's shape");
@@ -395,9 +403,9 @@ fn qr_moves_at_a_capped_bond_read_as_the_cpu_engine() {
 fn qr_moves_read_as_gate_split_moves_on_the_polyene_prefix() {
     let gates = polyene_prefix(300);
     let capacity = MpsShape::qubit_chain(17, 64).expect("a qubit chain");
-    let by_qr = on_host().with_dev_qr_moves(true);
+    let by_qr = on_host();
     let qr_reads = run(&by_qr, &capacity, &gates);
-    let split_reads = run(&on_host(), &capacity, &gates);
+    let split_reads = run(&on_host().with_dev_qr_moves(false), &capacity, &gates);
     assert_values_agree_within(&qr_reads, &split_reads, QR_TOLERANCE);
     assert!(by_qr.counters().qr_moves > 0, "the centre moved");
 }

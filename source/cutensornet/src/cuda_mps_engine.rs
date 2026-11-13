@@ -28,10 +28,11 @@
 //! - one-site gates wait on the host, per site, until the next `GateSplit`
 //!   on the site takes them into its gate, or a read applies them to its
 //!   downloaded copy;
-//! - the centre moves by a `GateSplit` with no cutoff, whose bond is at
-//!   most `min(2·left, 2·right)` and the old bond, not by a QR (EXPERIMENTAL:
-//!   by the CPU's QR with [`CudaMpsEngine::with_dev_qr_moves`], a
-//!   `TensorQR` and a contraction on the device);
+//! - the centre moves by the CPU's QR, as a `TensorQR` and a contraction
+//!   on the device (EXPERIMENTAL; by default, since the A100 runs H₂ about
+//!   twice as fast so), or, with [`CudaMpsEngine::with_dev_qr_moves`] off,
+//!   by a `GateSplit` with no cutoff, whose bond is at most
+//!   `min(2·left, 2·right)` and the old bond;
 //! - reads download the centre site (and, for an expectation, the sites
 //!   between the observable and the centre) and compute on the host.
 //!
@@ -148,14 +149,15 @@ impl CudaMpsEngine<DeviceTensors> {
 }
 
 impl<T: TensorCalls> CudaMpsEngine<T> {
-    /// The engine on `tensors`, with the cutoff `1e-14`.
+    /// The engine on `tensors`, with the cutoff `1e-14` and its centre
+    /// moved by QR moves ([`Self::with_dev_qr_moves`]).
     #[doc(hidden)]
     pub fn with_tensors(tensors: T) -> Self {
         Self {
             tensors,
             cutoff: crate::engine::policy::DISCARDED_WEIGHT_CUTOFF,
             dev_mpo_far: false,
-            dev_qr_moves: false,
+            dev_qr_moves: true,
             counters: Cell::new(CudaMpsCounters::default()),
         }
     }
@@ -179,10 +181,12 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
     /// EXPERIMENTAL, development only (not for review): the same engine,
     /// whose centre moves are the CPU engine's, one QR of the site the
     /// centre leaves and one contraction of the small factor into its
-    /// neighbour ([`TensorCalls::qr_move`]), instead of one `GateSplit`
-    /// each; when `on`. The state is the same up to rounding, its bonds
-    /// the CPU engine's moves' (`min(bond, 2·left)` moving right,
-    /// `min(bond, 2·right)` moving left).
+    /// neighbour ([`TensorCalls::qr_move`]), when `on` (the default); one
+    /// `GateSplit` each when off, kept to compare the two. The state is
+    /// the same up to rounding, its bonds the CPU engine's moves'
+    /// (`min(bond, 2·left)` moving right, `min(bond, 2·right)` moving
+    /// left) when on. On the A100 (H₂, one shot), QR moves took 299 s
+    /// against 573 s with `GateSplit` moves.
     #[doc(hidden)]
     #[must_use]
     pub fn with_dev_qr_moves(self, on: bool) -> Self {

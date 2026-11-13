@@ -14,15 +14,15 @@
 //! - with the centre in the span, each site of the span is downloaded, its
 //!   pending gate applied, multiplied by its MPO tensor on the host, and
 //!   uploaded: the bonds inside the span grow by the MPO's;
-//! - a sweep of exact centre moves (the engine's `GateSplit` with no cutoff,
-//!   in place of the CPU's QRs, or the CPU's QR moves with
-//!   `with_dev_qr_moves`) from the span's first site to its last but one
-//!   makes the span left-orthonormal;
+//! - a sweep of exact centre moves (the CPU's QR moves by default, or the
+//!   engine's `GateSplit` with no cutoff with `with_dev_qr_moves` off) from
+//!   the span's first site to its last but one makes the span
+//!   left-orthonormal;
 //! - a sweep of truncating splits back (the cutoff, then the capacity's
 //!   bond, as a gate's split at rest) compresses each cut of the span.
 //!
-//! So an operator on a span of `d + 1` sites costs `2d − 1` `GateSplit`s,
-//! or `d − 1` QR moves and `d` `GateSplit`s (the CPU: `d` QRs and `d`
+//! So an operator on a span of `d + 1` sites costs `d − 1` QR moves and
+//! `d` `GateSplit`s, or `2d − 1` `GateSplit`s (the CPU: `d` QRs and `d`
 //! SVDs): the last move of the CPU's QR sweep is not needed, because a
 //! `GateSplit` contracts the pair it splits.
 

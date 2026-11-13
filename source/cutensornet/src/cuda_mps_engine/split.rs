@@ -1,24 +1,26 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Development only (not for review): splits and centre moves, each one
-//! `GateSplit` (or, with `with_dev_qr_moves`, each move one QR move), as
-//! `qdk_cpu_mps`'s `engine/split.rs` and `engine/canonical_form.rs`.
+//! Development only (not for review): splits and centre moves, each split
+//! one `GateSplit` and each move one QR move (one `GateSplit` with
+//! `with_dev_qr_moves` off), as `qdk_cpu_mps`'s `engine/split.rs` and
+//! `engine/canonical_form.rs`.
 //!
 //! - A truncating split (the fused pair's) applies the cutoff, then the
 //!   capacity's bond unless an outbound SWAP's, and multiplies the
 //!   retained weight by `1 − discarded` when it dropped a value.
-//! - A centre move is a `GateSplit` of the centre and its neighbour with no
-//!   cutoff and the pair's bond as the largest extent: exact, as the CPU's
-//!   QR is, its bond at most the CPU's (`min(2·left, 2·right)` and the old
-//!   bond), and it takes the two sites' pending gates with it.
-//! - EXPERIMENTAL, with `with_dev_qr_moves`: a centre move is the CPU's
-//!   instead, one QR of the site the centre leaves (its pending gate
-//!   applied first) and one contraction of the small factor into the new
-//!   centre ([`TensorCalls::qr_move`]), its bond the CPU's
+//! - EXPERIMENTAL, with `with_dev_qr_moves` on (the default): a centre
+//!   move is the CPU's, one QR of the site the centre leaves (its pending
+//!   gate applied first) and one contraction of the small factor into the
+//!   new centre ([`TensorCalls::qr_move`]), its bond the CPU's
 //!   (`min(2·left, bond)` rightward, `min(bond, 2·right)` leftward). A move
 //!   never carries a two-site gate: every caller splits the fused pair
 //!   first.
+//! - With `with_dev_qr_moves` off: a centre move is a `GateSplit` of the
+//!   centre and its neighbour with no cutoff and the pair's bond as the
+//!   largest extent: exact, as the CPU's QR is, its bond at most the CPU's
+//!   (`min(2·left, 2·right)` and the old bond), and it takes the two sites'
+//!   pending gates with it.
 
 use super::device_chain::{DeviceChain, DeviceSite, FusedGate, Truncation};
 use super::{CudaMpsEngine, CudaMpsError, GateSplitCall, Partition, QrMoveCall, TensorCalls};

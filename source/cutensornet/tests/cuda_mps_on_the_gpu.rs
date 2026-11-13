@@ -7,8 +7,9 @@
 //! ports, on random circuits of seven sites (distant gates, projections,
 //! a capped bond), to 1e-10; and, with `with_dev_mpo_far`, operators on
 //! three sites applied as an MPO, against the CPU engine's MPO path; and
-//! the QR moves (`with_dev_qr_moves`) and the Jacobi SVD
-//! (`with_dev_svd_algo`) against the CPU engine.
+//! the `GateSplit` centre moves (`with_dev_qr_moves(false)`; the default
+//! moves are QR moves) and the Jacobi SVD (`with_dev_svd_algo`) against
+//! the CPU engine.
 //!
 //! It needs an NVIDIA GPU, the CUDA Runtime 12.9 and cuTensorNet 2.13, so
 //! every test is ignored by default; run them with `--ignored --nocapture`
@@ -410,25 +411,27 @@ fn operators_as_an_mpo_read_as_on_the_cpu_engine() {
     }
 }
 
-/// With `with_dev_qr_moves`, every exact centre move a `TensorQR` and a
-/// contraction on the device, routed gates, projections and operators as
-/// an MPO read as on the CPU engine, whose moves they port, below the
-/// capacity and capped.
+/// With `with_dev_qr_moves(false)`, every exact centre move a `GateSplit`
+/// with no cutoff instead of the default QR move, routed gates,
+/// projections and operators as an MPO read as on the CPU engine, below
+/// the capacity and capped; the other tests run the default QR moves.
 #[test]
 #[ignore = "requires an NVIDIA GPU with the audited CUDA Runtime 12.9 and cuTensorNet 2.13"]
-fn qr_moves_read_as_on_the_cpu_engine() {
+fn gate_split_moves_read_as_on_the_cpu_engine() {
     for max_bond in [64, 3] {
         let capacity = MpsShape::qubit_chain(7, max_bond).expect("a qubit chain");
         for seed in [12, 13] {
             let operations = circuit(7, 60, seed, true);
-            let engine = on_the_gpu().with_dev_qr_moves(true);
+            let engine = on_the_gpu().with_dev_qr_moves(false);
             let port = run(&engine, &capacity, &operations);
             let cpu = run(&CpuMpsEngine::default(), &capacity, &operations);
             assert_agree(&port, &cpu);
-            assert!(engine.counters().qr_moves > 0, "the centre moved by QR");
+            let counters = engine.counters();
+            assert!(counters.centre_moves > 0, "the centre moved");
+            assert_eq!(counters.qr_moves, 0, "by GateSplits only");
             let operations = fused_circuit(7, 40, seed);
             let port = run(
-                &on_the_gpu().with_dev_mpo_far(true).with_dev_qr_moves(true),
+                &on_the_gpu().with_dev_mpo_far(true).with_dev_qr_moves(false),
                 &capacity,
                 &operations,
             );

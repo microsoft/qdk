@@ -33,7 +33,7 @@
 //!     [--routing engine|meet-halfway|meet-halfway-after-fusion] \
 //!     [--fusion pairs|unfused|seq|seq3] [--apply engine|mpo] \
 //!     [--reset split|merge] [--variant base|seq3-mpo] \
-//!     [--order resumer|identity] [--qr-moves] [--svd-algo gesvd|gesvdj]
+//!     [--order resumer|identity] [--no-qr-moves] [--svd-algo gesvd|gesvdj]
 //! ```
 //!
 //! `--variant` (development only) names a pair of `--fusion` and `--apply`
@@ -52,10 +52,12 @@
 //! MPO
 //! (`CuTensorNetEngine::with_dev_wide_operators`); `--reset merge` keeps a
 //! grouped call's shots together at a run of resets that settles every site
-//! (`DevResetHandling::Merge`; it acts only with `--group`). `--qr-moves`
-//! (`CudaMpsEngine::with_dev_qr_moves`) and `--svd-algo`
-//! (`with_dev_svd_algo`) set `cuda-mps`'s centre moves and SVD algorithm;
-//! the variant's name shows them. With `cuda-mps`, each `SHOT` and `CALL`
+//! (`DevResetHandling::Merge`; it acts only with `--group`). `cuda-mps`
+//! moves its centre by QR moves (`CudaMpsEngine::with_dev_qr_moves`, its
+//! default; `--qr-moves` is accepted and changes nothing); `--no-qr-moves`
+//! moves it by `GateSplit`s instead, for comparison. `--svd-algo`
+//! (`with_dev_svd_algo`) sets its SVD algorithm. The variant's name shows
+//! both when they are not the defaults. With `cuda-mps`, each `SHOT` and `CALL`
 //! line ends with the engine's counters (`gate_splits`, `qr_moves`, their
 //! seconds, `mpo_seconds`, …).
 //!
@@ -467,8 +469,9 @@ struct Options {
     variant: String,
     /// Development only: `--order identity` (qubit `q` on site `q`).
     identity_layout: bool,
-    /// Development only: `cuda-mps`'s centre moves by QR (`--qr-moves`)
-    /// and its SVD algorithm (`--svd-algo`, its default if `None`).
+    /// Development only: `cuda-mps`'s centre moves by QR (on unless
+    /// `--no-qr-moves`) and its SVD algorithm (`--svd-algo`, its default
+    /// if `None`).
     #[cfg_attr(
         not(all(target_os = "linux", target_arch = "x86_64")),
         expect(dead_code, reason = "read only where cuda-mps builds")
@@ -519,11 +522,11 @@ impl Options {
             ),
         };
         let reset = value("--reset").unwrap_or_else(|| "split".to_string());
-        let qr_moves = args.iter().any(|arg| arg == "--qr-moves");
+        let qr_moves = !args.iter().any(|arg| arg == "--no-qr-moves");
         let svd_algo = value("--svd-algo");
         assert!(
-            value("--engine").as_deref() == Some("cuda-mps") || !qr_moves && svd_algo.is_none(),
-            "--qr-moves and --svd-algo: --engine cuda-mps only"
+            value("--engine").as_deref() == Some("cuda-mps") || qr_moves && svd_algo.is_none(),
+            "--no-qr-moves and --svd-algo: --engine cuda-mps only"
         );
         assert!(fusion != "seq3" || apply == "mpo", "seq3 needs --apply mpo");
         Self {
@@ -607,7 +610,7 @@ impl Options {
             variant: format!(
                 "{fusion}/{apply}/{reset}{}{}{}",
                 if identity_layout { "/identity" } else { "" },
-                if qr_moves { "/qr-moves" } else { "" },
+                if qr_moves { "" } else { "/gate-split-moves" },
                 svd_algo
                     .as_deref()
                     .map_or(String::new(), |algo| format!("/{algo}")),
