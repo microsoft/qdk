@@ -17,11 +17,17 @@
 #
 # Each part has its own log and one line per run in summary.txt; a run that
 # fails or times out does not stop the next. The whole session keeps within
-# BUDGET_SECONDS (6 h): each run's limit is the smaller of its own and what
-# is left, and a run with under a minute left is skipped, its summary line
-# saying so. The parts, in order, with ESTIMATED durations (not measured:
-# from the A100's GateSplit at b = 64, 128, 256: 12.3, 26.1, 64.7 ms, and
-# the CPU's runs):
+# BUDGET_SECONDS (5 h by default): each run's limit is the smaller of its
+# own and what is left, and a run with under a minute left is skipped, its
+# summary line saying so. This is CudaMpsEngine's first run on the A100, so
+# the session opens with cuda-mps-dev.sh's checks (kit, then each engine's
+# base variant against the exact state and on one H2 shot), then the SVD
+# bench, then seq3-mpo against base. The default PARTS leave out full, and
+# the default TIMING_CASES N = 20 (the 6 h session: PARTS="build kit
+# correctness svd-bench h2 timing orders full" TIMING_CASES="16/64 16/128
+# 16/256 20/128 20/256" BUDGET_SECONDS=21600). The parts in the order they
+# run, with ESTIMATED durations (not measured: from the A100's GateSplit at
+# b = 64, 128, 256: 12.3, 26.1, 64.7 ms, and the CPU's runs):
 #
 #   build        release builds of polyene_qpe_prefix, gate_split_bench,
 #                h2_dev, polyene_shots_dev and the kit's test binary; about
@@ -31,31 +37,43 @@
 #                with the CPU engine to 1e-10 on random 7-site circuits, and
 #                the MPO path (with_dev_mpo_far) against the CPU's. Pass:
 #                every test passes, no SELF_CHECK passed=false. 1-5 min.
-#   svd-bench    gate_split_bench: every SVD algorithm, both gate-split
-#                algorithms, bonds 8 to 512. Under 5 min (the reduced-only
-#                bench took 12 s on 2026-11-12).
-#   correctness  before any timing, for each engine x variant: polyene
+#   correctness  before any timing, for each engine x variant, base first
+#                (svd-bench runs between base and seq3-mpo): polyene
 #                N = 8 chi 128 in the identity order against
 #                ppp8.exact.reference (pass: verdict=AgreesWithExact; the
 #                interleave-centre order disagrees with the exact state at
-#                chi 128 on the CPU too, so it is not the check), and one H2
-#                shot (pass: records=01010, draws=1414, tvd <= 1e-9). A
-#                variant that fails either is skipped in the parts after;
-#                one that timed out runs, marked unverified. Estimates:
-#                polyene 5-45 min each (State API base 27.9 s/step: 15 min),
-#                H2 3-20 min each (State API default: about 18 min). Boxed
-#                at 20-30 min each; 1.5-2.5 h in all.
-#   timing       the polyene prefix in interleave-centre at N = 16, chi 64,
-#                128, 256 and N = 20, chi 128, 256, each engine x variant,
-#                TIMING_STEPS (32) steps or the run's box: 8-12 min for
-#                seq3-mpo, 3 min for base (seq3-mpo first, so the deadline
-#                cuts base). Per run: the steps reached, the GPU's seconds
-#                to that step, the CPU's at the same step (one core, same
-#                order and variant) and their ratio. About 2.2 h at most.
+#                chi 128 on the CPU too, so it is not the check: see
+#                orders), and one H2 shot in the resumer's order (pass:
+#                records=01010, draws=1414, tvd <= 1e-9). A variant that
+#                fails either is skipped in the parts after; one that timed
+#                out runs, marked unverified. Estimates: polyene 5-45 min
+#                each (State API base 27.9 s/step: 15 min), H2 3-20 min
+#                each (State API base: about 18 min). Boxed at 15-30 min
+#                each; about 2 h in all (base about 1.3 h).
+#   svd-bench    gate_split_bench: every SVD algorithm, both gate-split
+#                algorithms, bonds 8 to 512. Under 5 min (the reduced-only
+#                bench took 12 s on 2026-11-12).
 #   h2           one line per engine x variant: the H2 shot's seconds (from
 #                the correctness part, or run here if that part did not
-#                run) against the CPU's 84.8 s (default) and 12.6 s
+#                run) against the CPU's 84.8 s (base) and 12.6 s
 #                (seq3-mpo).
+#   timing       the polyene prefix in interleave-centre at TIMING_CASES
+#                (N/chi; default N = 16, chi 64, 128, 256), each engine x
+#                variant, TIMING_STEPS (32) steps or the run's box: 8-12
+#                min for seq3-mpo, 3 min for base (seq3-mpo first, so the
+#                deadline cuts base). Per run: the steps reached, the GPU's
+#                seconds to that step, the CPU's at the same step (one
+#                core, same order and variant) and their ratio. About 1.3 h
+#                at most for N = 16.
+#   orders       the other orders, after the timing, for each engine x
+#                variant: polyene N = 8 chi 128 in interleave-centre
+#                against ppp8.exact.reference (informational: its largest
+#                gap beside the CPU's, 5.893e-5 for seq3-mpo; Disagrees is
+#                expected), and one H2 shot in the identity order, seq3-mpo
+#                only (pass as in correctness: the draws do not depend on
+#                the order; the CPU takes 174.5 s, 12 times the resumer's
+#                order, so base would only time out). Boxed at 15-30 min
+#                each; what the budget leaves.
 #   full         the full polyene program, N = 16, S = 64, Merge + seq3-mpo
 #                in interleave-centre, chi 64 and 128, on the faster engine
 #                at timing's N = 16 chi 64 seq3-mpo; boxed at 25 min each
@@ -68,11 +86,14 @@
 #
 # Environment (all optional):
 #   OUT           the output directory (default $HOME/gpu-mpo-<date>)
-#   PARTS         the parts to run (default: all, in the order above)
+#   PARTS         the parts to run (default "build kit correctness
+#                 svd-bench h2 timing orders")
 #   ENGINES       the GPU engines (default "cutensornet cuda-mps")
 #   VARIANTS      the variants (default "base seq3-mpo")
-#   BUDGET_SECONDS the session's budget (default 21600, 6 h)
+#   BUDGET_SECONDS the session's budget (default 18000, 5 h)
 #   LIMIT_PERCENT the runs' own limits in percent (default 100)
+#   TIMING_CASES  the timing part's N/chi cases (default "16/64 16/128
+#                 16/256"; N = 20 has 20/128 and 20/256)
 #   TIMING_STEPS  the timing part's steps (default 32)
 #   FULL_SHOTS    the full program's shots (default 64)
 #   H2            H2's bytecode JSON (default /data/domingom/h2.bytecode.json)
@@ -88,11 +109,12 @@ set -u
 
 REPO=$(readlink -f "$(dirname "$(readlink -f "$0")")/../../..")
 OUT=${OUT:-$HOME/gpu-mpo-$(date +%Y%m%d-%H%M)}
-PARTS=${PARTS:-build kit svd-bench correctness timing h2 full}
+PARTS=${PARTS:-build kit correctness svd-bench h2 timing orders}
 ENGINES=${ENGINES:-cutensornet cuda-mps}
 VARIANTS=${VARIANTS:-base seq3-mpo}
-BUDGET_SECONDS=${BUDGET_SECONDS:-21600}
+BUDGET_SECONDS=${BUDGET_SECONDS:-18000}
 LIMIT_PERCENT=${LIMIT_PERCENT:-100}
+TIMING_CASES=${TIMING_CASES:-16/64 16/128 16/256}
 TIMING_STEPS=${TIMING_STEPS:-32}
 FULL_SHOTS=${FULL_SHOTS:-64}
 H2=${H2:-/data/domingom/h2.bytecode.json}
@@ -142,6 +164,9 @@ STATE_API_N16_ID_CHI256=377.2
 # routing 1,102 s, tuned routing 610 s.
 CPU_H2_BASE=84.8
 CPU_H2_SEQ3=12.6
+# seq3-mpo in the identity order (gpu-mpo's run, 2026-11-13; 14.1 s in the
+# resumer's order that run): largest bond 86 against 24.
+CPU_H2_SEQ3_IDENTITY=174.5
 # The full program, N = 16, S = 64, Merge + seq3-mpo in interleave-centre,
 # one CPU core (L): chi 64 1,000.4 s; chi 128 is a SLOT.
 CPU_FULL_N16_CHI64=${CPU_FULL_N16_CHI64:-1000.4}
@@ -239,7 +264,7 @@ ratio() {
 {
   date
   echo "repo=$REPO out=$OUT parts=$PARTS engines=$ENGINES variants=$VARIANTS"
-  echo "budget_seconds=$BUDGET_SECONDS limit_percent=$LIMIT_PERCENT timing_steps=$TIMING_STEPS full_shots=$FULL_SHOTS"
+  echo "budget_seconds=$BUDGET_SECONDS limit_percent=$LIMIT_PERCENT timing_cases=$TIMING_CASES timing_steps=$TIMING_STEPS full_shots=$FULL_SHOTS"
   git -C "$REPO" log --oneline -1
   nvidia-smi
   rustc --version
@@ -295,14 +320,16 @@ if wanted kit; then
 fi
 
 # --- svd-bench: gate_split_bench's SVD algorithms -----------------------------
-if wanted svd-bench; then
+# Run after the base variant's correctness (below), so that the engines'
+# first checks come first.
+svd_bench() {
   log=$OUT/svd-bench.log
   run_part "$(box 900)" "$log" "$BIN/gate_split_bench" --engine cutensornet \
-    --bonds 8,16,24,64,128,256,512 --gate-split-algos reduced,direct
+    --bonds 8,16,24,32,48,64,128,256,512 --gate-split-algos reduced,direct
   best=$(grep '^BEST ' "$log" | awk '{printf "%s%s", sep, $0; sep = " | "}')
   summary svd-bench "$STATUS" "$SECONDS_TAKEN" \
     "gatesplit_ok=$(grep -c '^GATESPLIT status=ok' "$log") disagrees=$(grep -c 'status=disagrees' "$log") refused=$(grep -c 'status=refused' "$log") best: ${best:-none} (see svd-bench.log)"
-fi
+}
 
 # --- The runs ----------------------------------------------------------------
 # The variant's flags for polyene_qpe_prefix, h2_dev and polyene_shots_dev.
@@ -364,14 +391,15 @@ polyene_run() {
   [ -n "$error" ] && [ "$P_VERDICT" = error ] && P_DETAIL="$P_DETAIL error=\"$error\""
 }
 
-# One H2 shot: name $1, engine $2, variant $3, limit $4. Sets H_VERDICT
-# (pass, fail, timed-out, skipped), H_SECONDS and H_DETAIL.
+# One H2 shot: name $1, engine $2, variant $3, order $4 (resumer or
+# identity), limit $5. Sets H_VERDICT (pass, fail, timed-out, skipped),
+# H_SECONDS and H_DETAIL.
 h2_run() {
-  local name=$1 engine=$2 variant=$3 limit=$4
+  local name=$1 engine=$2 variant=$3 order=$4 limit=$5
   local log=$OUT/$name.log
   # shellcheck disable=SC2046
   run_part "$limit" "$log" "$BIN/h2_dev" --engine "$engine" --bytecode "$H2" --readout "$TABLE" \
-    --seed 1 --chi 128 --first-shot 0 --shots 1 $(variant_flags "$variant")
+    --seed 1 --chi 128 --first-shot 0 --shots 1 --order "$order" $(variant_flags "$variant")
   local shot
   shot=$(grep -m1 '^SHOT ' "$log" || true)
   H_SECONDS=-
@@ -395,7 +423,7 @@ h2_run() {
     H_DETAIL="no SHOT line before the limit"
   else
     H_VERDICT=fail
-    H_DETAIL="no SHOT line, error=\"$(grep -E 'panicked|error' "$log" | tail -1 | cut -c1-200)\""
+    H_DETAIL="no SHOT line, error=\"$(grep -E -A1 'panicked|error' "$log" | tail -2 | tr '\n' ' ' | cut -c1-300)\""
   fi
 }
 
@@ -411,53 +439,73 @@ mark() {
   esac
 }
 
+# The limits of the N = 8 polyene run and of the H2 shot for engine/variant
+# $1.
+n8_box() {
+  case "$1" in
+  cuda-mps/base) echo 1800 ;;
+  *) echo 1200 ;;
+  esac
+}
+h2_box() {
+  case "$1" in
+  cutensornet/base) echo 1500 ;;
+  cuda-mps/base) echo 1200 ;;
+  *) echo 900 ;;
+  esac
+}
+
 # --- correctness: polyene N = 8 against the exact state, and one H2 shot ------
 # The H2 shots' seconds, kept for the h2 part.
 declare -A H2_SECONDS H2_VERDICT
-if wanted correctness; then
+# The correctness runs of variant $1 on each engine: polyene N = 8, then
+# one H2 shot.
+correctness_of() {
+  local variant=$1 engine key name cpu cpu_at line
   for engine in $ENGINES; do
-    for variant in $VARIANTS; do
-      key=$engine/$variant
-      case "$engine/$variant" in
-      cuda-mps/base) want=1800 ;;
-      *) want=1200 ;;
-      esac
-      polyene_run "correctness-n8-$engine-$variant" "$engine" "$variant" identity 8 128 \
-        "$(box $want)" "" ppp8.exact.reference
-      case "$P_VERDICT" in
-      AgreesWithExact) mark "$key" pass ;;
-      timed-out | skipped) mark "$key" unverified ;;
-      *) mark "$key" fail ;;
-      esac
-      if [ "$variant" = seq3-mpo ]; then cpu=$CPU_N8_CHI128_SEQ3_ID; else cpu=$CPU_N8_CHI128_BASE_ID; fi
-      cpu_at=$(at_step "$cpu" "$P_STEPS")
-      line="verdict=$([ "$P_VERDICT" = AgreesWithExact ] && echo pass || echo "fail-or-unverified ($P_VERDICT)")"
-      line="$line step=correctness-n8 engine=$engine variant=$variant order=identity n=8 chi=128"
-      line="$line steps_done=$P_STEPS gpu_seconds=$P_SECONDS cpu_seconds_same_step=$cpu_at"
-      line="$line gpu_over_cpu=$(ratio "$P_SECONDS" "$cpu_at")"
-      line="$line state_api_base_s_per_step=$STATE_API_N8_CHI128_ID $P_DETAIL"
-      summary "correctness-n8-$engine-$variant" "$STATUS" "$SECONDS_TAKEN" "$line"
-    done
+    key=$engine/$variant
+    name=correctness-n8-$engine-$variant
+    polyene_run "$name" "$engine" "$variant" identity 8 128 \
+      "$(box "$(n8_box "$key")")" "" ppp8.exact.reference
+    case "$P_VERDICT" in
+    AgreesWithExact) mark "$key" pass ;;
+    timed-out | skipped) mark "$key" unverified ;;
+    *) mark "$key" fail ;;
+    esac
+    if [ "$variant" = seq3-mpo ]; then cpu=$CPU_N8_CHI128_SEQ3_ID; else cpu=$CPU_N8_CHI128_BASE_ID; fi
+    cpu_at=$(at_step "$cpu" "$P_STEPS")
+    line="verdict=$([ "$P_VERDICT" = AgreesWithExact ] && echo pass || echo "fail-or-unverified ($P_VERDICT)")"
+    line="$line step=correctness-n8 engine=$engine variant=$variant order=identity n=8 chi=128"
+    line="$line steps_done=$P_STEPS gpu_seconds=$P_SECONDS cpu_seconds_same_step=$cpu_at"
+    line="$line gpu_over_cpu=$(ratio "$P_SECONDS" "$cpu_at")"
+    line="$line state_api_base_s_per_step=$STATE_API_N8_CHI128_ID $P_DETAIL"
+    summary "$name" "$STATUS" "$SECONDS_TAKEN" "$line"
   done
   for engine in $ENGINES; do
-    for variant in $VARIANTS; do
-      key=$engine/$variant
-      case "$engine/$variant" in
-      cutensornet/base) want=1500 ;;
-      cuda-mps/base) want=1200 ;;
-      *) want=900 ;;
-      esac
-      h2_run "correctness-h2-$engine-$variant" "$engine" "$variant" "$(box $want)"
-      H2_SECONDS[$key]=$H_SECONDS
-      H2_VERDICT[$key]=$H_VERDICT
-      case "$H_VERDICT" in
-      pass) mark "$key" pass ;;
-      timed-out | skipped) mark "$key" unverified ;;
-      *) mark "$key" fail ;;
-      esac
-      summary "correctness-h2-$engine-$variant" "$STATUS" "$SECONDS_TAKEN" \
-        "verdict=$H_VERDICT step=correctness-h2 engine=$engine variant=$variant shot_seconds=$H_SECONDS $H_DETAIL"
-    done
+    key=$engine/$variant
+    name=correctness-h2-$engine-$variant
+    h2_run "$name" "$engine" "$variant" resumer "$(box "$(h2_box "$key")")"
+    H2_SECONDS[$key]=$H_SECONDS
+    H2_VERDICT[$key]=$H_VERDICT
+    case "$H_VERDICT" in
+    pass) mark "$key" pass ;;
+    timed-out | skipped) mark "$key" unverified ;;
+    *) mark "$key" fail ;;
+    esac
+    summary "$name" "$STATUS" "$SECONDS_TAKEN" \
+      "verdict=$H_VERDICT step=correctness-h2 engine=$engine variant=$variant order=resumer shot_seconds=$H_SECONDS $H_DETAIL"
+  done
+}
+
+# The base variant first (the engines' first checks on the A100), then
+# svd-bench, then the other variants.
+if wanted correctness; then
+  case " $VARIANTS " in *" base "*) correctness_of base ;; esac
+fi
+wanted svd-bench && svd_bench
+if wanted correctness; then
+  for variant in $VARIANTS; do
+    [ "$variant" = base ] || correctness_of "$variant"
   done
   for engine in $ENGINES; do
     for variant in $VARIANTS; do
@@ -478,6 +526,34 @@ may_time() {
   esac
   return 0
 }
+
+# --- h2: one shot per engine x variant, against the CPU -----------------------
+if wanted h2; then
+  for engine in $ENGINES; do
+    for variant in $VARIANTS; do
+      key=$engine/$variant
+      name=h2-$engine-$variant
+      if [ -n "${H2_VERDICT[$key]:-}" ]; then
+        verdict=${H2_VERDICT[$key]}
+        seconds=${H2_SECONDS[$key]}
+        exit_=from-correctness
+        taken=0
+      elif ! why=$(may_time "$key"); then
+        summary "$name" skipped 0 "verdict=$why"
+        continue
+      else
+        h2_run "$name" "$engine" "$variant" resumer "$(box "$(h2_box "$key")")"
+        verdict=$H_VERDICT
+        seconds=$H_SECONDS
+        exit_=$STATUS
+        taken=$SECONDS_TAKEN
+      fi
+      if [ "$variant" = seq3-mpo ]; then cpu=$CPU_H2_SEQ3; else cpu=$CPU_H2_BASE; fi
+      summary "$name" "$exit_" "$taken" \
+        "verdict=$verdict engine=$engine variant=$variant order=resumer shot_seconds=$seconds cpu_seconds=$cpu gpu_over_cpu=$(ratio "$seconds" "$cpu") state_api_2026_11_12=engine-routing:1102,tuned:610"
+    done
+  done
+fi
 
 # --- timing: the polyene prefix in interleave-centre --------------------------
 # The CPU timeline at N $1, chi $2, variant $3 (interleave-centre).
@@ -511,8 +587,9 @@ declare -A FASTEST_INPUT
 if wanted timing; then
   for variant in seq3-mpo base; do
     case " $VARIANTS " in *" $variant "*) ;; *) continue ;; esac
-    for case_ in "16 64" "16 128" "16 256" "20 128" "20 256"; do
-      read -r n chi <<< "$case_"
+    for case_ in $TIMING_CASES; do
+      n=${case_%/*}
+      chi=${case_#*/}
       for engine in $ENGINES; do
         key=$engine/$variant
         name=timing-n$n-chi$chi-$engine-$variant
@@ -548,31 +625,38 @@ if wanted timing; then
   done
 fi
 
-# --- h2: one shot per engine x variant, against the CPU -----------------------
-if wanted h2; then
+# --- orders: polyene N = 8 in interleave-centre, H2 in the identity order -----
+# The CPU's largest gap at N = 8 chi 128 in interleave-centre, seq3-mpo,
+# against the exact readings (base: not measured).
+CPU_N8_CHI128_SEQ3_IC_GAP=5.893e-5
+if wanted orders; then
   for engine in $ENGINES; do
     for variant in $VARIANTS; do
       key=$engine/$variant
-      name=h2-$engine-$variant
-      if [ -n "${H2_VERDICT[$key]:-}" ]; then
-        verdict=${H2_VERDICT[$key]}
-        seconds=${H2_SECONDS[$key]}
-        exit_=from-correctness
-        taken=0
-      elif ! why=$(may_time "$key"); then
+      name=orders-n8-ic-$engine-$variant
+      if ! why=$(may_time "$key"); then
         summary "$name" skipped 0 "verdict=$why"
         continue
-      else
-        h2_run "$name" "$engine" "$variant" "$(box 1500)"
-        verdict=$H_VERDICT
-        seconds=$H_SECONDS
-        exit_=$STATUS
-        taken=$SECONDS_TAKEN
       fi
-      if [ "$variant" = seq3-mpo ]; then cpu=$CPU_H2_SEQ3; else cpu=$CPU_H2_BASE; fi
-      summary "$name" "$exit_" "$taken" \
-        "verdict=$verdict engine=$engine variant=$variant shot_seconds=$seconds cpu_seconds=$cpu gpu_over_cpu=$(ratio "$seconds" "$cpu") state_api_2026_11_12=engine-routing:1102,tuned:610"
+      polyene_run "$name" "$engine" "$variant" interleave-centre 8 128 \
+        "$(box "$(n8_box "$key")")" "" ppp8.exact.reference
+      if [ "$variant" = seq3-mpo ]; then cpu_gap=$CPU_N8_CHI128_SEQ3_IC_GAP; else cpu_gap=-; fi
+      summary "$name" "$STATUS" "$SECONDS_TAKEN" \
+        "verdict=$P_VERDICT (informational: Disagrees expected) engine=$engine variant=$variant order=interleave-centre n=8 chi=128 steps_done=$P_STEPS gpu_seconds=$P_SECONDS cpu_largest_gap=$cpu_gap $P_DETAIL"
     done
+  done
+  for engine in $ENGINES; do
+    variant=seq3-mpo
+    case " $VARIANTS " in *" $variant "*) ;; *) continue ;; esac
+    key=$engine/$variant
+    name=orders-h2-identity-$engine-$variant
+    if ! why=$(may_time "$key"); then
+      summary "$name" skipped 0 "verdict=$why"
+      continue
+    fi
+    h2_run "$name" "$engine" "$variant" identity "$(box "$(h2_box "$key")")"
+    summary "$name" "$STATUS" "$SECONDS_TAKEN" \
+      "verdict=$H_VERDICT engine=$engine variant=$variant order=identity shot_seconds=$H_SECONDS cpu_seconds=$CPU_H2_SEQ3_IDENTITY gpu_over_cpu=$(ratio "$H_SECONDS" "$CPU_H2_SEQ3_IDENTITY") resumer_order_seconds=${H2_SECONDS[$key]:--} $H_DETAIL"
   done
 fi
 
