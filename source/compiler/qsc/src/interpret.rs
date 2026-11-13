@@ -11,6 +11,8 @@ mod debugger_tests;
 #[cfg(test)]
 mod package_tests;
 #[cfg(test)]
+mod seed_tests;
+#[cfg(test)]
 mod tests;
 
 use std::{cell::RefCell, rc::Rc};
@@ -1096,7 +1098,7 @@ impl Interpreter {
         let evaluation = self.classical_evaluations;
         self.classical_evaluations += 1;
         self.classical_seed
-            .map(|seed| derive_seed(seed, Stream::Shot(evaluation)))
+            .map(|seed| derive_seed(seed, Stream::Evaluation(evaluation)))
     }
 
     /// Returns the quantum and classical seeds of shot `shot` of a run. Both derive from `seed` if
@@ -1152,21 +1154,24 @@ impl Interpreter {
         )
     }
 
-    /// Executes the entry expression until the end of execution, using the given simulator backend
-    /// and a new instance of the environment.
+    /// Executes the entry expression until the end of execution, as shot `shot` of a run, using
+    /// the given simulator backend and a new instance of the environment. The shot derives its
+    /// seeds from the interpreter's quantum and classical seeds, if they are set.
     pub fn eval_entry_with_sim(
         &mut self,
         sim: &mut impl Backend,
         receiver: &mut impl Receiver,
+        shot: u64,
     ) -> InterpretResult {
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
-        if self.quantum_seed.is_some() {
-            sim.set_seed(self.quantum_seed);
+        let (quantum_seed, classical_seed) = self.shot_seeds(None, shot);
+        if quantum_seed.is_some() {
+            sim.set_seed(quantum_seed);
         }
         eval(
             self.source_package,
-            self.classical_seed,
+            classical_seed,
             graph,
             self.eval_config,
             self.compiler.package_store(),

@@ -392,3 +392,34 @@ fn end_repeat_without_begin_fails() {
         "unexpected error message: {err}"
     );
 }
+
+#[test]
+fn quantum_seed_makes_measurement_dependent_traces_reproducible() {
+    let source = indoc! {
+        "
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use target = Qubit();
+                for _ in 1..64 {
+                    use q = Qubit();
+                    H(q);
+                    if MResetZ(q) == One { X(target); } else { Z(target); }
+                }
+                Reset(target);
+            }
+        }
+        "
+    };
+    let trace = || {
+        let mut interpreter = build_interpreter(source).expect("interpreter should be created");
+        interpreter.set_quantum_seed(Some(1));
+        trace_expr(&mut interpreter, "Test.Main()")
+            .unwrap_or_else(|err| panic!("{}", format_errors(err)))
+            .to_string()
+    };
+    let first = trace();
+    // Guards against passing vacuously: both branches appear.
+    assert!(first.contains("X(") && first.contains("Z("), "{first}");
+    assert_eq!(first, trace());
+}

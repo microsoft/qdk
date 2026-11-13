@@ -80,6 +80,19 @@ def test_cpu_seeding_no_noise():
     }
 
 
+def test_cpu_nearby_seeds_produce_unrelated_shots():
+    qsharp.init(target_profile=TargetProfile.Adaptive_RI)
+    qsharp.eval(
+        "operation Coins() : Result[] { use q = Qubit(); mutable rs = []; for _ in 1..32 { H(q); set rs += [MResetZ(q)]; } rs }"
+    )
+    qir = str(qsharp.compile("Coins()"))
+
+    first = [str(shot) for shot in run_qir_cpu(qir, 10, None, 42)]
+    second = [str(shot) for shot in run_qir_cpu(qir, 10, None, 43)]
+    assert len(set(first)) == len(first)
+    assert not set(first) & set(second)
+
+
 def test_cpu_no_noise():
     """Simple test that CPU simulator works without noise."""
     qsharp.init(target_profile=TargetProfile.Base)

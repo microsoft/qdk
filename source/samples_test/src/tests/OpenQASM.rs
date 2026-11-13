@@ -6,8 +6,8 @@ use expect_test::{Expect, expect};
 // Each file in the samples/OpenQASM folder is compiled and run as two tests and should
 // have matching expect strings in this file. If new samples are added, this file will
 // fail to compile until the new expect strings are added.
-pub const BELLPAIR_EXPECT: Expect = expect!["(Zero, Zero)"];
-pub const BELLPAIR_EXPECT_DEBUG: Expect = expect!["(Zero, Zero)"];
+pub const BELLPAIR_EXPECT: Expect = expect!["(One, One)"];
+pub const BELLPAIR_EXPECT_DEBUG: Expect = expect!["(One, One)"];
 pub const BELLPAIR_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 412"];
 pub const BELLPAIR_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 2214"];
 pub const BELLPAIR_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2598"];
@@ -28,15 +28,15 @@ pub const GROVER_EXPECT_DEBUG: Expect = expect!["[Zero, One, Zero, One, Zero]"];
 pub const GROVER_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 33215"];
 pub const GROVER_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 20376"];
 pub const GROVER_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 22709"];
-pub const RANDOMNUMBER_EXPECT: Expect = expect!["20"];
-pub const RANDOMNUMBER_EXPECT_DEBUG: Expect = expect!["20"];
+pub const RANDOMNUMBER_EXPECT: Expect = expect!["5"];
+pub const RANDOMNUMBER_EXPECT_DEBUG: Expect = expect!["5"];
 pub const RANDOMNUMBER_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3559"];
 pub const RANDOMNUMBER_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 4114"];
 pub const RANDOMNUMBER_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3018"];
 pub const SIMPLE1DISINGORDER1_EXPECT: Expect =
-    expect!["[Zero, One, Zero, Zero, Zero, Zero, Zero, Zero, Zero]"];
+    expect!["[One, Zero, One, One, One, Zero, One, Zero, Zero]"];
 pub const SIMPLE1DISINGORDER1_EXPECT_DEBUG: Expect =
-    expect!["[Zero, One, Zero, Zero, Zero, Zero, Zero, Zero, Zero]"];
+    expect!["[One, Zero, One, One, One, Zero, One, Zero, Zero]"];
 pub const SIMPLE1DISINGORDER1_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 12465"];
 pub const SIMPLE1DISINGORDER1_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 18979"];

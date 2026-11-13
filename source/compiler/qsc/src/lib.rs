@@ -81,6 +81,8 @@ pub mod parse {
     pub use qsc_parse::{completion, top_level_nodes};
 }
 
+pub use qdk_simulators::seed;
+
 pub mod partial_eval {
     pub use qsc_partial_eval::Error;
 }

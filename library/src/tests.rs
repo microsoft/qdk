@@ -105,7 +105,7 @@ fn eval_expression_with_lib_and_profile_and_sim(
     .expect("test should compile");
 
     interpreter
-        .eval_entry_with_sim(sim, receiver)
+        .eval_entry_with_sim(sim, receiver, 0)
         .expect("test should run successfully")
 }
 
@@ -154,7 +154,7 @@ pub fn test_expression_fails_with_lib_and_profile_and_sim(
     .expect("test should compile");
 
     let result = interpreter
-        .eval_entry_with_sim(sim, &mut out)
+        .eval_entry_with_sim(sim, &mut out, 0)
         .expect_err("test should run successfully");
 
     assert!(

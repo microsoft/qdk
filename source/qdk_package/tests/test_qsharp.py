@@ -589,18 +589,19 @@ def test_dump_operation() -> None:
 
 
 def test_run_with_noise_produces_noisy_results() -> None:
+    # With 50% noise, a run with fewer than 6 errors is astronomically unlikely for any seed.
     qsharp.init()
     result = qsharp.run(
         "{ mutable errors=0; for _ in 0..100 { use q1=Qubit(); use q2=Qubit(); H(q1); CNOT(q1, q2); if MResetZ(q1) != MResetZ(q2) { errors+=1; } } errors }",
         shots=1,
-        noise=qsharp.BitFlipNoise(0.1),
+        noise=qsharp.BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5
     result = qsharp.run(
         "{ mutable errors=0; for _ in 0..100 { use q=Qubit(); if MResetZ(q) != Zero { errors+=1; } } errors }",
         shots=1,
-        noise=qsharp.BitFlipNoise(0.1),
+        noise=qsharp.BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5
@@ -667,6 +668,24 @@ def test_run_shots_are_independent_under_run_and_context_seeds(entry: str) -> No
     assert by_context_seeds == shots(context_seed=1)
     # Runs with nearby seeds must not share shots.
     assert not set(by_run_seed) & set(shots(seed=2))
+
+
+def test_eval_continues_seeded_random_sequences() -> None:
+    qsharp.init()
+    qsharp.eval(
+        "operation Rand() : (Int, Int) { use qs = Qubit[32]; for q in qs { H(q); }; (MeasureInteger(qs), Std.Random.DrawRandomInt(0, 1 <<< 62)) }"
+    )
+
+    def evaluate():
+        qsharp.set_quantum_seed(42)
+        qsharp.set_classical_seed(42)
+        return [qsharp.eval("Rand()") for _ in range(3)]
+
+    result = evaluate()
+    measured, drawn = zip(*result)
+    assert len(set(measured)) == len(result)
+    assert len(set(drawn)) == len(result)
+    assert result == evaluate()
 
 
 def test_compile_qir_input_data() -> None:

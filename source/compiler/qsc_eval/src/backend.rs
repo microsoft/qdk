@@ -12,7 +12,7 @@ use num_traits::Zero;
 use qdk_simulators::{
     MeasurementResult, Simulator as _, SparseStateSim,
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
-    seed::{Stream, derive_seed, entropy_seed, stream_rng},
+    seed::{Stream, entropy_seed, stream_rng},
     stabilizer_simulator::StabilizerSimulator,
 };
 use qsc_data_structures::index_map::IndexMap;
@@ -1171,8 +1171,7 @@ impl Backend for SparseSim {
     fn set_seed(&mut self, seed: Option<u64>) {
         let seed = seed.unwrap_or_else(entropy_seed);
         self.rng = stream_rng(seed, Stream::Noise);
-        self.sim
-            .set_rng_seed(derive_seed(seed, Stream::Measurement));
+        self.sim.set_rng(stream_rng(seed, Stream::Measurement));
     }
 }
 

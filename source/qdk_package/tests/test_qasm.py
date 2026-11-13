@@ -44,6 +44,7 @@ _BROADCAST_SOURCE = """
 
 
 def test_run_with_noise_produces_noisy_results() -> None:
+    # With 50% noise, a run with fewer than 6 errors is astronomically unlikely for any seed.
     result = run(
         """
         include "stdgates.inc";
@@ -62,7 +63,7 @@ def test_run_with_noise_produces_noisy_results() -> None:
         }
         """,
         shots=1,
-        noise=BitFlipNoise(0.1),
+        noise=BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5
@@ -78,7 +79,7 @@ def test_run_with_noise_produces_noisy_results() -> None:
         }
         """,
         shots=1,
-        noise=BitFlipNoise(0.1),
+        noise=BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5
@@ -245,6 +246,7 @@ def test_import_can_declare_files_with_namespaces() -> None:
 
 
 def test_run_imported_with_noise_produces_noisy_results() -> None:
+    # With 50% noise, a run with fewer than 6 errors is astronomically unlikely for any seed.
     init()
     import_openqasm(
         """
@@ -268,7 +270,7 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
     result = qsharp_run(
         "{ use (q1, q2) = (Qubit(), Qubit()); Program0(q1, q2) }",
         shots=1,
-        noise=BitFlipNoise(0.1),
+        noise=BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5
@@ -289,7 +291,7 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
     result = qsharp_run(
         "{ use q = Qubit(); Program1(q) }",
         shots=1,
-        noise=BitFlipNoise(0.1),
+        noise=BitFlipNoise(0.5),
         seed=0,
     )
     assert result[0] > 5

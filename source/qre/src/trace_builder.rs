@@ -7,8 +7,9 @@ mod tests;
 use qsc::{
     Backend, BackendResult,
     interpret::{self, GenericReceiver, Interpreter, Value},
+    seed::{Stream, entropy_seed, stream_rng},
 };
-use rand::RngExt;
+use rand::{RngExt, rngs::StdRng};
 use rustc_hash::FxHashMap;
 
 use crate::{Trace, instruction_ids};
@@ -23,6 +24,16 @@ pub struct TraceBuilder {
     next_free: usize,
     live_qubits: usize,
     max_live_qubits: usize,
+    measurement_rng: MeasurementRng,
+}
+
+/// Chooses the outcomes of measurements that aren't post-selected.
+struct MeasurementRng(StdRng);
+
+impl Default for MeasurementRng {
+    fn default() -> Self {
+        Self(stream_rng(entropy_seed(), Stream::Measurement))
+    }
 }
 
 enum PendingOperation {
@@ -115,7 +126,7 @@ impl TraceBuilder {
     fn measurement_result(&mut self, q: usize) -> bool {
         self.post_select_measurements
             .remove(&q)
-            .unwrap_or_else(|| rand::rng().random_bool(0.5))
+            .unwrap_or_else(|| self.measurement_rng.0.random_bool(0.5))
     }
 }
 
@@ -382,6 +393,11 @@ impl Backend for TraceBuilder {
             }
             _ => None,
         }
+    }
+
+    fn set_seed(&mut self, seed: Option<u64>) {
+        let seed = seed.unwrap_or_else(entropy_seed);
+        self.measurement_rng = MeasurementRng(stream_rng(seed, Stream::Measurement));
     }
 }
 
