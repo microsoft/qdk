@@ -35,8 +35,11 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
     let mut vars_to_alloca = IndexMap::default();
     let mut visited_blocks = FxHashSet::default();
     let mut loaded_var_ids = FxHashSet::default();
-    let mut blocks_to_visit = vec![entry_block_id];
-    while let Some(block_id) = blocks_to_visit.pop() {
+    let mut blocks_to_visit_list = vec![entry_block_id];
+    let mut blocks_to_visit_set = FxHashSet::default();
+    blocks_to_visit_set.insert(entry_block_id);
+    while let Some(block_id) = blocks_to_visit_list.pop() {
+        blocks_to_visit_set.remove(&block_id);
         if !visited_blocks.insert(block_id) {
             continue;
         }
@@ -48,8 +51,11 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
             &mut loaded_var_ids,
         );
         for successor_id in get_block_successors(program.get_block(block_id)) {
-            if !visited_blocks.contains(&successor_id) && !blocks_to_visit.contains(&successor_id) {
-                blocks_to_visit.push(successor_id);
+            if !visited_blocks.contains(&successor_id)
+                && !blocks_to_visit_set.contains(&successor_id)
+            {
+                blocks_to_visit_list.push(successor_id);
+                blocks_to_visit_set.insert(successor_id);
             }
         }
     }
