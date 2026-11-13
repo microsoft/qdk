@@ -8238,7 +8238,7 @@ fn flow_unrelated_writes_keep_guarded_calls_resolvable() {
     let (mut store, package) = compile_to_monomorphized_fir(source);
     let result = super::run_prepass_and_analysis(&mut store, package);
     assert_eq!(result.direct_call_sites.len(), 2);
-    assert!(result.unresolved_direct_call_sites.is_empty());
+    assert_eq!(result.unresolved_direct_call_sites.len(), 0);
     check_flow_value(source, 1);
 }
 

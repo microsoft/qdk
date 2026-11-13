@@ -174,9 +174,7 @@ impl LogicalCounter {
     fn global_barrier(&mut self) -> usize {
         let depth = self.layers.len();
 
-        for layer in &mut self.max_layer {
-            *layer = depth;
-        }
+        self.max_layer.fill(depth);
 
         self.allocation_barrier = depth;
         depth

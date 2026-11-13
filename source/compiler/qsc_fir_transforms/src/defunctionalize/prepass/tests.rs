@@ -216,7 +216,7 @@ fn shared_conditional_constructor_is_normalized_once_without_unbound_locals() {
     let package = store.get(entry);
     crate::invariants::check_local_var_consistency(package, find_callable(package, "Main"));
     let normalized = format!("{package:?}");
-    assert!(normalize_scalar_inputs(store.get_mut(entry)).is_empty());
+    assert_eq!(normalize_scalar_inputs(store.get_mut(entry)).len(), 0);
     assert_eq!(format!("{:?}", store.get(entry)), normalized);
     assert_normalized_result(&mut store, entry, 4);
 }
@@ -388,7 +388,7 @@ fn immediate_scalar_constructor_normalization_is_idempotent_after_callee_rewrite
     ));
     let normalized = format!("{package:?}");
 
-    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(normalize_scalar_inputs(package).len(), 0);
     assert_eq!(format!("{package:?}"), normalized);
 }
 
@@ -410,7 +410,7 @@ fn conditional_scalar_constructor_normalization_is_idempotent() {
     assert_eq!(normalize_scalar_inputs(package).len(), 2);
     let normalized = format!("{package:?}");
 
-    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(normalize_scalar_inputs(package).len(), 0);
     assert_eq!(format!("{package:?}"), normalized);
     assert_normalized_result(&mut store, entry, 4);
 }
@@ -432,7 +432,7 @@ fn immediate_scalar_constructor_with_effectful_producer_is_unchanged() {
     let package = store.get_mut(entry);
     let original = format!("{package:?}");
 
-    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(normalize_scalar_inputs(package).len(), 0);
     assert_eq!(format!("{package:?}"), original);
 }
 
@@ -460,7 +460,7 @@ fn immediate_scalar_constructor_with_fallible_returned_body_is_unchanged() {
     ));
     let original = format!("{package:?}");
 
-    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(normalize_scalar_inputs(package).len(), 0);
     assert_eq!(format!("{package:?}"), original);
 }
 
@@ -479,7 +479,7 @@ fn immediate_scalar_constructor_with_recursive_returned_body_is_unchanged() {
     let package = store.get_mut(entry);
     let original = format!("{package:?}");
 
-    assert!(normalize_scalar_inputs(package).is_empty());
+    assert_eq!(normalize_scalar_inputs(package).len(), 0);
     assert_eq!(format!("{package:?}"), original);
 }
 

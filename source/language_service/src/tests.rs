@@ -273,7 +273,7 @@ async fn completions_requested_before_document_load() {
     // a document hasn't fully loaded
 
     // this should be empty, because the doc hasn't loaded
-    assert!(
+    assert_eq!(
         ls.get_completions(
             "foo.qs",
             Position {
@@ -282,7 +282,8 @@ async fn completions_requested_before_document_load() {
             }
         )
         .items
-        .is_empty()
+        .len(),
+        0
     );
 }
 

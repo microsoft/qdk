@@ -45,7 +45,7 @@ fn check(source_with_markers: &str, include_declaration: bool) {
             "expected {actual:?} to contain {target:?}"
         );
     }
-    assert!(target_spans.len() == actual.len());
+    assert_eq!(target_spans.len(), actual.len());
 }
 
 fn check_include_decl(source_with_markers: &str) {
@@ -69,7 +69,7 @@ fn check_notebook_exclude_decl(cells_with_markers: &[(&str, &str)]) {
             "expected {actual:?} to contain {target:?}"
         );
     }
-    assert!(target_spans.len() == actual.len());
+    assert_eq!(target_spans.len(), actual.len());
 }
 
 #[test]

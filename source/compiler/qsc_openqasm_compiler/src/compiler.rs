@@ -428,7 +428,7 @@ impl QasmCompiler {
         name: S,
         whole_span: Span,
     ) -> (qsast::Item, OperationSignature) {
-        let stmts = self.stmts.drain(..).collect::<Vec<_>>();
+        let stmts = std::mem::take(&mut self.stmts);
         let mut input = self.symbols.get_input();
 
         if self.config.program_ty == ProgramType::Operation {

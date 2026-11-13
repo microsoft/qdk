@@ -91,7 +91,7 @@ impl Overhead for LogicalResourceCounts {
         budget: &mut ErrorBudget,
         strategy: ErrorBudgetStrategy,
     ) -> Result<(), String> {
-        if matches![strategy, ErrorBudgetStrategy::PruneLogicalAndRotations]
+        if matches!(strategy, ErrorBudgetStrategy::PruneLogicalAndRotations)
             && let Some(num_ts_per_rotation) = self.num_ts_per_rotation(budget.rotations())
         {
             let new_rotations_budget = (self.rotation_count as f64)

@@ -141,7 +141,7 @@ fn attributed_entry_ignores_unselected_generic_main() {
             panic!("entry declaration");
         };
         assert_eq!(declaration.name.name.as_ref(), "Run");
-        assert!(arguments.is_empty());
+        assert_eq!(arguments.as_slice(), []);
     }
 }
 

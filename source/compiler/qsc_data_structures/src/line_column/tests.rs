@@ -45,7 +45,7 @@ fn position_out_of_bounds() {
     };
     let offset = pos.to_utf8_byte_offset(Encoding::Utf8, contents);
     // Should return the <eof> offset
-    assert!(offset == contents.len() as u32);
+    assert_eq!(offset, contents.len() as u32);
 }
 
 #[test]
@@ -391,8 +391,14 @@ fn check_all_offsets(contents: &str, expected: &expect_test::Expect) {
     // also validate that we correctly map back to the original utf-8 byte offset
     for (offset, utf8pos, utf16pos) in positions {
         if contents.is_char_boundary(offset) {
-            assert!(utf8pos.to_utf8_byte_offset(Encoding::Utf8, contents) == offset as u32);
-            assert!(utf16pos.to_utf8_byte_offset(Encoding::Utf16, contents) == offset as u32);
+            assert_eq!(
+                utf8pos.to_utf8_byte_offset(Encoding::Utf8, contents),
+                offset as u32
+            );
+            assert_eq!(
+                utf16pos.to_utf8_byte_offset(Encoding::Utf16, contents),
+                offset as u32
+            );
         }
     }
 }

@@ -143,9 +143,7 @@ impl<'a> Context<'a> {
             or as an importable, as there is syntactic differentiation."
                 ),
             },
-            TyKind::Param(TypeParameter {
-                ty, constraints: _, ..
-            }) => match self.names.get(ty.id) {
+            TyKind::Param(TypeParameter { ty, .. }) => match self.names.get(ty.id) {
                 Some(Res::Param { id, bounds }) => {
                     let (bounds, errs) = convert::class_constraints_from_ast(
                         self.names,

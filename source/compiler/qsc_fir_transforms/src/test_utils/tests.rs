@@ -27,7 +27,7 @@ fn observable_evaluation_records_messages_in_order() {
     let (store, package) = compile_to_fir(source);
     let (result, trace, output) = eval_fir_entry_with_observables(&store, package);
     assert_eq!(result, Ok(qsc_eval::val::Value::Int(42)));
-    assert!(trace.is_empty());
+    assert_eq!(trace.len(), 0);
     assert_eq!(output, b"first\nsecond\n");
     check_semantic_equivalence_with_expected_output(
         source,
@@ -120,7 +120,7 @@ fn observable_equivalence_rejects_changed_prefix_with_equal_failures() {
     let (store, package) = compile_to_fir_with_library(library, entry);
     let expected = eval_fir_entry_with_observables(&store, package);
     assert!(expected.0.is_err());
-    assert!(!expected.1.is_empty());
+    assert_ne!(expected.1.len(), 0);
     assert_eq!(expected.2, b"before failure\n");
     let mut changed_trace = expected.clone();
     changed_trace.1.clear();

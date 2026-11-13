@@ -314,8 +314,7 @@ fn entry_point_profile_in_project_causes_error() {
     package_graph_sources
         .root
         .sources
-        .iter_mut()
-        .next()
+        .first_mut()
         .expect("expected at least one source in the mock program")
         .1 = "@EntryPoint(Base) operation Main() : Unit { }".into();
 

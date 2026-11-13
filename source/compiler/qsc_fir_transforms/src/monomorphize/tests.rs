@@ -222,7 +222,7 @@ fn type_expansion_accepts_exact_node_and_depth_limits_and_rejects_the_next() {
                 panic!("specialization must be a callable");
             };
             assert_eq!(store.get(package).get_pat(decl.input).ty, ty);
-            assert!(refs.is_empty());
+            assert_eq!(refs.len(), 0);
         } else {
             assert!(matches!(result, Err(Error::TypeExpansionLimit(_))));
             assert_eq!(store.get(package).items.iter().count(), before);
@@ -3370,7 +3370,7 @@ fn generated_entries_preserve_concrete_generic_dependencies() {
             panic!("entry callee");
         };
         let original = *original;
-        assert!(arguments.is_empty());
+        assert_eq!(arguments.len(), 0);
         let entry_type = package.get_expr(entry_id).ty.clone();
         let mut assigners = PackageAssigners::new(&store, package_id);
         monomorphize(&mut store, package_id, &mut assigners)
@@ -3380,7 +3380,7 @@ fn generated_entries_preserve_concrete_generic_dependencies() {
             panic!("entry remains a direct call");
         };
         assert_eq!(*target, original);
-        assert!(arguments.is_empty());
+        assert_eq!(arguments.len(), 0);
         assert_eq!(package.get_expr(entry_id).ty, entry_type);
         assert_unique_reachable_specializations(
             &store,

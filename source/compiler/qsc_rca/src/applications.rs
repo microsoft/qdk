@@ -191,9 +191,9 @@ impl GeneratorSetsBuilder {
                 .get(main_block_id)
                 .expect("block applications generator should exist")
                 .clone();
-            assert!(
-                applications_generator.dynamic_param_applications.len()
-                    == dynamic_param_applications_compute_properties.len()
+            assert_eq!(
+                applications_generator.dynamic_param_applications.len(),
+                dynamic_param_applications_compute_properties.len()
             );
 
             // Update the value kind of the generator's inherent compute kind.
@@ -289,7 +289,7 @@ impl GeneratorSetsBuilder {
 
     fn close_inherent(&mut self) -> ApplicationInstanceComputeProperties {
         // The inherent param application is always the first one.
-        let mut variants = self.application_instances[0].drain(..).collect::<Vec<_>>();
+        let mut variants = std::mem::take(&mut self.application_instances[0]);
         let inherent_application_instance = variants
             .pop()
             .expect("inherent application instance could not be popped");
@@ -303,9 +303,7 @@ impl GeneratorSetsBuilder {
         // We need to offset the index since the first top-level vector in application instances is reserved for the
         // inherent variant.
         let variants_index = usize::from(param_index) + 1usize;
-        let variants = &mut self.application_instances[variants_index]
-            .drain(..)
-            .collect::<Vec<_>>();
+        let variants = &mut std::mem::take(&mut self.application_instances[variants_index]);
 
         // The kind of parameter application we create depends on the number of variants that the parameter has.
         if variants.len() == DYNAMIC_ELEMENTS_PARAM_VARIANTS {

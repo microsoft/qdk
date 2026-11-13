@@ -285,7 +285,7 @@ impl<'a> Visitor<'a> for Checker<'a> {
             self.set_current_callable(item.id);
             self.visit_callable_decl(callable_decl);
             let callable_id = self.clear_current_callable();
-            assert!(item.id == callable_id);
+            assert_eq!(item.id, callable_id);
         }
     }
 
@@ -323,7 +323,7 @@ impl<'a> Checker<'a> {
         self.set_current_callable(callable);
         self.visit_callable_decl(callable_decl);
         let callable_id = self.clear_current_callable();
-        assert!(callable == callable_id);
+        assert_eq!(callable, callable_id);
         self.check_callable_output(callable_decl);
         self.generate_errors()
     }

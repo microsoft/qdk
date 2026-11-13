@@ -676,9 +676,8 @@ impl<'a> Lexer<'a> {
             Single::At => {
                 if self.beginning_of_file {
                     unreachable!("annotations at the beginning of a file are handled in cook")
-                } else {
-                    Ok(TokenKind::At)
                 }
+                Ok(TokenKind::At)
             }
             Single::Bang => {
                 if self.next_if_eq_single(Single::Eq) {

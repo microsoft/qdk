@@ -357,7 +357,7 @@ impl<'a> PartialEvaluator<'a> {
             }
             PatKind::Tuple(pats) => {
                 let tuple = value.unwrap_tuple();
-                assert!(pats.len() == tuple.len());
+                assert_eq!(pats.len(), tuple.len());
                 for (pat_id, value) in pats.iter().zip(tuple.iter()) {
                     self.bind_value_to_pat(mutability, *pat_id, value.clone());
                 }
