@@ -1,0 +1,10 @@
+[
+  {
+    "id": "intentional-type-error",
+    "source": "operation Main() : Result {\n    let unused1 = 1;\n    let unused2 = 2;\n    42\n}\n",
+    "entry": "Main()",
+    "profiles": ["Base"],
+    "oracle": { "kind": "compile_only" },
+    "notes": "Intentional negative fixture for reduction; not a compiler issue."
+  }
+]
