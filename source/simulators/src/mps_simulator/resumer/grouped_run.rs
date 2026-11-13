@@ -179,6 +179,19 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         self
     }
 
+    /// EXPERIMENTAL, development only: the run placing qubit `q` on site
+    /// `q` when `identity` is set, instead of the program's order, to
+    /// measure what the order saves. Under the census, prints the order.
+    pub(super) fn with_identity_layout(mut self, identity: bool) -> Self {
+        if identity {
+            self.layout = QubitOrder::identity(self.layout.sites().len());
+        }
+        if self.census {
+            eprintln!("LAYOUT identity={identity} sites={:?}", self.layout.sites());
+        }
+        self
+    }
+
     /// Runs the groups one at a time, the last split off first, until none
     /// waits, and gives each shot's records, or the first failing shot.
     pub(super) fn run(

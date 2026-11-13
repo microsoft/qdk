@@ -11,8 +11,11 @@
 //!     --bytecode ppp8_m6.bytecode.json [--params ppp8.params.json] \
 //!     [--engine cpu|reference] [--chi 64] [--shots 8] [--first-shot 0] \
 //!     [--seed 1] [--mode grouped|per-shot] [--reset split|merge|fresh] \
-//!     [--fusion unfused|pairs] [--segments]
+//!     [--fusion unfused|pairs] [--layout program|identity] [--segments]
 //! ```
+//!
+//! `--layout identity` places qubit `q` on site `q` instead of the
+//! resumer's order for the program; the `LAYOUT` line gives the order used.
 //!
 //! `--engine reference` runs the exact state vector (`ExactReference`),
 //! whose bond reads are replaced by a constant (its Schmidt ranks cost
@@ -49,6 +52,7 @@ struct Options {
     per_shot: bool,
     reset: DevResetHandling,
     fusion: GateFusion,
+    identity_layout: bool,
     segments: bool,
 }
 
@@ -79,6 +83,11 @@ impl Options {
             "per-shot" => true,
             other => panic!("--mode {other}: grouped or per-shot"),
         };
+        let identity_layout = match flag("--layout").as_deref().unwrap_or("program") {
+            "program" => false,
+            "identity" => true,
+            other => panic!("--layout {other}: program or identity"),
+        };
         Self {
             bytecode: flag("--bytecode").expect("--bytecode <path>"),
             params: flag("--params"),
@@ -91,6 +100,7 @@ impl Options {
             per_shot,
             reset,
             fusion,
+            identity_layout,
             segments: args.iter().any(|arg| arg == "--segments"),
         }
     }
@@ -233,6 +243,9 @@ where
         .with_gate_fusion(options.fusion)
         .with_routing(Routing::Engine)
         .with_dev_reset_handling(options.reset);
+    if options.identity_layout {
+        resumer = resumer.with_dev_identity_layout();
+    }
     let machine = QirMachine::new(program);
     let shots: Vec<QirShotId> = (options.first_shot..options.first_shot + options.shots)
         .map(|id| QirShotId(u32::try_from(id).expect("a shot id fits a u32")))

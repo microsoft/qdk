@@ -67,6 +67,7 @@ pub struct MpsResumer<E: MpsEngine> {
     stop: Option<Arc<AtomicBool>>,
     routing: Routing,
     reset_handling: dev_census::DevResetHandling,
+    identity_layout: bool,
     last_run: MpsRunReport,
 }
 
@@ -89,6 +90,7 @@ impl<E: MpsEngine> MpsResumer<E> {
             stop: None,
             routing: Routing::default(),
             reset_handling: dev_census::DevResetHandling::Split,
+            identity_layout: false,
             last_run: MpsRunReport::new(DEFAULT_MAX_BOND_DIMENSION.get()),
         }
     }
@@ -139,6 +141,15 @@ impl<E: MpsEngine> MpsResumer<E> {
     #[must_use]
     pub fn with_dev_reset_handling(mut self, handling: dev_census::DevResetHandling) -> Self {
         self.reset_handling = handling;
+        self
+    }
+
+    /// EXPERIMENTAL, development only: the resumer placing qubit `q` on
+    /// site `q` instead of the program's order, to measure what the order
+    /// saves.
+    #[must_use]
+    pub fn with_dev_identity_layout(mut self) -> Self {
+        self.identity_layout = true;
         self
     }
 
@@ -194,6 +205,7 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
         )?
         .with_stop(self.stop.as_deref())
         .with_reset_handling(self.reset_handling)
+        .with_identity_layout(self.identity_layout)
         .run()
     }
 }

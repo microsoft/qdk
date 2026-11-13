@@ -65,7 +65,6 @@ impl QubitOrder {
     }
 
     /// The site of each qubit, qubit 0 first.
-    #[cfg(test)]
     pub(crate) fn sites(&self) -> &[usize] {
         &self.sites
     }
