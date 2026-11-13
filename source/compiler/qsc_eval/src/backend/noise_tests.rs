@@ -266,6 +266,30 @@ fn noisy_simulator() {
 }
 
 #[test]
+fn noise_status_tracks_configuration_changes() {
+    let mut sim = SparseSim::new();
+    assert!(sim.is_noiseless());
+
+    sim.noise = PauliNoise::from_probabilities(0.5, 0.0, 0.0).expect("noise is valid");
+    assert!(!sim.is_noiseless());
+    sim.noise = PauliNoise::default();
+    assert!(sim.is_noiseless());
+
+    sim.loss = 0.5;
+    assert!(!sim.is_noiseless());
+    sim.loss = 0.0;
+    assert!(sim.is_noiseless());
+
+    sim.noise_config = Some(NoiseConfig::NOISELESS.into());
+    assert!(!sim.is_noiseless());
+    sim.set_noise(&PauliNoise::default());
+    sim.set_loss(0.0);
+    assert!(!sim.is_noiseless());
+    sim.noise_config = None;
+    assert!(sim.is_noiseless());
+}
+
+#[test]
 fn noiseless_gate() {
     let noise = PauliNoise::from_probabilities(0.0, 0.0, 0.0)
         .expect("noiseless Pauli noise should be constructable.");

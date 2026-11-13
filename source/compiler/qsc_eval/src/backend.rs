@@ -556,10 +556,8 @@ pub struct SparseSim {
     /// A bit vector that tracks which qubits were lost.
     pub lost_qubits: BigUint,
     /// Random number generator to sample any noise.
+    /// Retained while noise is disabled to preserve its seed and position when noise is re-enabled.
     rng: StdRng,
-    /// Whether noise is applied. Configuring noise changes this flag but keeps `rng`, so noise
-    /// configured during a seeded run is still sampled from the seeded stream.
-    noisy: bool,
 }
 
 impl Default for SparseSim {
@@ -579,7 +577,6 @@ impl SparseSim {
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
             rng: make_rng(seed, RngRole::Noise),
-            noisy: false,
         }
     }
 
@@ -594,24 +591,21 @@ impl SparseSim {
     pub fn new_with_noise_config(noise_config: CumulativeNoiseConfig) -> Self {
         Self {
             noise_config: Some(noise_config),
-            noisy: true,
             ..Self::new()
         }
     }
 
     fn set_noise(&mut self, noise: &PauliNoise) {
         self.noise = *noise;
-        self.noisy = !noise.is_noiseless() || !self.loss.is_zero();
     }
 
     pub fn set_loss(&mut self, loss: f64) {
         self.loss = loss;
-        self.noisy = !loss.is_zero() || !self.noise.is_noiseless();
     }
 
     #[must_use]
     fn is_noiseless(&self) -> bool {
-        !self.noisy
+        self.noise_config.is_none() && self.noise.is_noiseless() && self.loss.is_zero()
     }
 
     fn apply_faults(
