@@ -14,18 +14,25 @@
 //!   batch's end (`rb`), and writes one trace per shot to `DIR`: each
 //!   batch's keys, draws and splits ([`trace`], recorded by [`probe`]).
 //!   With `--fault-p P`, the resumer injects Pauli faults after each
-//!   two-qubit gate (EXPERIMENTAL `PauliFaults`).
+//!   two-qubit gate (EXPERIMENTAL `PauliFaults`). With `--batch-limit B`,
+//!   the probe stops applying operators from batch B on, so a shot whose
+//!   bonds grow (faults) ends fast, and its trace keeps its first B
+//!   batches.
 //! - `--analyze DIR`: replays the traces of the shots
 //!   `--first-shot..+--shots` breadth-first, batch by batch ([`cohorts`]),
 //!   and prints the census, with the per-round table to `--csv FILE`.
+//!   `--rounds R` keeps each trace's first R batches, to compare with
+//!   traces recorded with `--batch-limit R`.
 //!
 //! ```text
 //! cargo run --release -p qdk_simulators --example lockstep_census -- \
 //!     --record DIR --bytecode H2.bytecode.json [--seed 1] [--chi 128] \
 //!     [--first-shot 0] [--shots 1] [--threads 1] [--fault-p P] \
-//!     [--fault-seed 1] [--deadline-seconds S] [--dump-batch B]
+//!     [--fault-seed 1] [--deadline-seconds S] [--dump-batch B] \
+//!     [--batch-limit B]
 //! cargo run --release -p qdk_simulators --example lockstep_census -- \
-//!     --analyze DIR [--first-shot 0] [--shots N] [--wave 108] [--csv FILE]
+//!     --analyze DIR [--first-shot 0] [--shots N] [--wave 108] [--csv FILE] \
+//!     [--rounds R]
 //! ```
 
 // Counts and sizes become f64 for ratios; they stay far below 2^52.
@@ -144,6 +151,9 @@ fn record(options: &Options, dir: &Path) {
     let dump: Option<usize> = options
         .value("--dump-batch")
         .map(|b| b.parse().expect("--dump-batch: a batch index"));
+    let batch_limit: Option<usize> = options
+        .value("--batch-limit")
+        .map(|b| b.parse().expect("--batch-limit: a batch count"));
     let deadline = options
         .value("--deadline-seconds")
         .map(|s| s.parse::<f64>().expect("--deadline-seconds: a number"));
@@ -153,6 +163,15 @@ fn record(options: &Options, dir: &Path) {
         program.qubits(),
         program.two_qubit_gates().len(),
     );
+    let setup = Recording {
+        program: &program,
+        seed,
+        chi,
+        faults,
+        dump,
+        batch_limit,
+        dir,
+    };
     let started = Instant::now();
     let next = AtomicU32::new(first);
     let ok = AtomicBool::new(true);
@@ -171,7 +190,7 @@ fn record(options: &Options, dir: &Path) {
                         println!("SKIP shot={shot} (traced)");
                         continue;
                     }
-                    if !record_shot(&program, seed, chi, faults, dump, dir, shot) {
+                    if !record_shot(&setup, shot) {
                         ok.store(false, Ordering::Relaxed);
                     }
                 }
@@ -183,22 +202,34 @@ fn record(options: &Options, dir: &Path) {
     }
 }
 
-/// Runs shot `shot` alone and writes its trace; whether it succeeded.
-fn record_shot(
-    program: &QirProgram,
+/// What every recorded shot shares: the program, the simulation's
+/// settings, and where the traces go.
+struct Recording<'a> {
+    program: &'a QirProgram,
     seed: u64,
     chi: NonZeroUsize,
     faults: Option<PauliFaults>,
     dump: Option<usize>,
-    dir: &Path,
-    shot: u32,
-) -> bool {
+    batch_limit: Option<usize>,
+    dir: &'a Path,
+}
+
+/// Runs shot `shot` alone, as `setup` says, and writes its trace; whether
+/// it succeeded.
+fn record_shot(setup: &Recording, shot: u32) -> bool {
+    let &Recording {
+        program,
+        seed,
+        chi,
+        faults,
+        dump,
+        batch_limit,
+        dir,
+    } = setup;
     qdk_cpu_mps::dev_trace::reset();
     qdk_cpu_mps::dev_trace::start_log();
     reset_routing_trace();
-    let recorder = Rc::new(RefCell::new(BatchRecorder::new(
-        dump.map(|batch| (batch, shot)),
-    )));
+    let recorder = Rc::new(RefCell::new(BatchRecorder::new(shot, dump, batch_limit)));
     let probe = CensusProbe {
         inner: CpuMpsEngine::default(),
         recorder: Rc::clone(&recorder),
@@ -270,10 +301,17 @@ fn analyze(options: &Options, dir: &Path) {
     let first: u32 = options.number("--first-shot", 0);
     let count: u32 = options.number("--shots", 64);
     let wave: usize = options.number("--wave", A100_WAVE);
+    let rounds: Option<usize> = options
+        .value("--rounds")
+        .map(|r| r.parse().expect("--rounds: a batch count"));
     let traces: Vec<ShotTrace> = (first..first + count)
         .map(|shot| {
-            ShotTrace::read(&ShotTrace::path(dir, shot))
-                .unwrap_or_else(|error| panic!("shot {shot}'s trace: {error}"))
+            let mut trace = ShotTrace::read(&ShotTrace::path(dir, shot))
+                .unwrap_or_else(|error| panic!("shot {shot}'s trace: {error}"));
+            if let Some(rounds) = rounds {
+                trace.batches.truncate(rounds);
+            }
+            trace
         })
         .collect();
     let census = census(&traces, wave);
@@ -344,15 +382,18 @@ fn cohort_lines(out: &mut String, name: &str, cost: &CohortCost, census: &cohort
     let _ = writeln!(
         out,
         "{name} launches_per_shot={:.1} waves_per_shot={:.1} draw_launches_per_shot={:.1} \
-         K={k:.2} shots_per_launch={shots_per_launch:.2} eta={eta:.3} K_eta={:.2} largest_K={} \
-         cut_mismatch_launches={} count_mismatch_cohorts={}",
+         K={k:.2} K_by_updates={:.2} shots_per_launch={shots_per_launch:.2} eta={eta:.3} \
+         K_eta={:.2} largest_K={} \
+         cut_mismatch_launches={} count_mismatch_cohorts={} b_cubed_per_update={:.0}",
         cost.launches as f64 / n,
         cost.waves as f64 / n,
         cost.draw_launches as f64 / n,
+        cost.updates_k / cost.updates as f64,
         k * eta,
         cost.largest_k,
         cost.cut_mismatches,
         cost.count_mismatches,
+        cost.cubes / cost.updates as f64,
     );
     let total: f64 = cost.eta_bins.iter().sum();
     let bins: Vec<String> = cost

@@ -61,6 +61,8 @@ pub struct CohortCost {
     pub waves: u64,
     /// Σ K over the launches: the updates of distinct states.
     pub updates: u64,
+    /// Σ K² over the launches: with `updates`, the mean K an update sees.
+    pub updates_k: f64,
     /// Σ shots over the launches.
     pub shot_updates: u64,
     /// Σ b³ and Σ K · `b_max`³ over the launches.
@@ -235,6 +237,7 @@ fn run_cohort(
         cost.launches += 1;
         cost.waves += k.div_ceil(wave) as u64;
         cost.updates += k as u64;
+        cost.updates_k += (k * k) as f64;
         cost.shot_updates += shots;
         cost.cubes += cubes;
         cost.padded_cubes += padded;
@@ -270,6 +273,7 @@ fn add(total: &mut CohortCost, part: &CohortCost) {
     total.launches += part.launches;
     total.waves += part.waves;
     total.updates += part.updates;
+    total.updates_k += part.updates_k;
     total.shot_updates += part.shot_updates;
     total.cubes += part.cubes;
     total.padded_cubes += part.padded_cubes;

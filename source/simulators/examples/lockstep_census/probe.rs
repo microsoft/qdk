@@ -14,6 +14,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Instant;
 
 use num_complex::Complex64;
 use qdk_cpu_mps::dev_trace;
@@ -44,10 +45,19 @@ pub struct BatchRecorder {
     x: Vec<Complex64>,
     /// The batch whose calls are printed, and the shot's id.
     dump: Option<(usize, u32)>,
+    /// The shot's id and start, for a progress line every
+    /// `PROGRESS_EVERY` batches.
+    progress: (u32, Instant),
+    /// The batches recorded; from this batch on the probe stops applying
+    /// operators (the state is frozen, so the shot ends fast) and the
+    /// trace keeps only the batches before it.
+    batch_limit: Option<usize>,
 }
 
+const PROGRESS_EVERY: usize = 100;
+
 impl BatchRecorder {
-    pub fn new(dump: Option<(usize, u32)>) -> Self {
+    pub fn new(shot: u32, dump: Option<usize>, batch_limit: Option<usize>) -> Self {
         Self {
             batches: Vec::new(),
             current: None,
@@ -57,8 +67,18 @@ impl BatchRecorder {
             splits: Vec::new(),
             flipped_site: None,
             x: QirGate::X.matrix_at(None).row_major().to_vec(),
-            dump,
+            dump: dump.map(|batch| (batch, shot)),
+            progress: (shot, Instant::now()),
+            batch_limit,
         }
+    }
+
+    /// Whether the batch under way is past the limit: its operators are
+    /// not applied.
+    fn frozen(&self) -> bool {
+        self.batch_limit
+            .zip(self.current)
+            .is_some_and(|(limit, batch)| batch >= limit)
     }
 
     /// Prints `call` when the batch under way is the one dumped.
@@ -94,6 +114,25 @@ impl BatchRecorder {
                 draws: std::mem::take(&mut self.draws),
                 splits: std::mem::take(&mut self.splits),
             });
+            let done = self.batches.len();
+            if done.is_multiple_of(PROGRESS_EVERY) {
+                let last = &self.batches[done - PROGRESS_EVERY..];
+                let largest = |side: fn(&dev_trace::SplitEvent) -> u16| {
+                    last.iter()
+                        .flat_map(|b| &b.splits)
+                        .map(side)
+                        .max()
+                        .unwrap_or(0)
+                };
+                let (shot, start) = self.progress;
+                eprintln!(
+                    "PROGRESS shot={shot} batches={done} seconds={:.1} largest_kept={} \
+                     largest_side={}",
+                    start.elapsed().as_secs_f64(),
+                    largest(|s| s.kept),
+                    largest(|s| s.left.max(s.right)),
+                );
+            }
         }
     }
 
@@ -103,6 +142,9 @@ impl BatchRecorder {
         let batches = usize::try_from(batches).expect("a batch count fits a usize");
         while self.batches.len() < batches {
             self.batches.push(BatchTrace::default());
+        }
+        if let Some(limit) = self.batch_limit {
+            self.batches.truncate(limit);
         }
         self.batches
     }
@@ -207,7 +249,12 @@ impl<E: MpsEngine> MpsEngine for CensusProbe<E> {
         sites: &[usize],
         matrix: &[Complex64],
     ) -> Result<(), E::Error> {
-        self.recorder.borrow_mut().apply(sites, matrix);
+        let mut recorder = self.recorder.borrow_mut();
+        recorder.apply(sites, matrix);
+        if recorder.frozen() {
+            return Ok(());
+        }
+        drop(recorder);
         self.inner.apply(state, sites, matrix)
     }
 
