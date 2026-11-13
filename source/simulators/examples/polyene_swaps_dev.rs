@@ -32,14 +32,17 @@
 //!
 //! ```text
 //! cargo run --release -p qdk_simulators --example polyene_swaps_dev -- \
-//!     --variant base|fuse|seq/swap|seq/mpo|seq3/mpo|... --n 8|12|16 \
+//!     --variant base|fuse|seq/swap|seq/mpo|seq3/mpo|... --n 8|12|16|20 \
 //!     --chi 128 [--order identity] [--reference ppp8.exact.reference] \
-//!     [--steps 32]
+//!     [--steps 32] [--print-readings]
 //! ```
 //!
 //! Every line starts with `POLYENE`; `step` lines add the split counts, the
 //! capacity-bound splits and the split time by kind
-//! (`qdk_cpu_mps::dev_trace`), cumulative.
+//! (`qdk_cpu_mps::dev_trace`), cumulative; a `cp` line follows every step.
+//! `--print-readings` prints, at the end, one `reading` line per value a
+//! reference file holds (on program qubits, whatever the order), with the
+//! Pauli strings of the harness's observables dump, to write a reference.
 
 #[path = "../../cutensornet/examples/polyene_qpe_prefix/inputs.rs"]
 mod inputs;
@@ -91,6 +94,7 @@ struct Options {
     chi: usize,
     reference: Option<String>,
     steps: Option<usize>,
+    print_readings: bool,
 }
 
 impl Options {
@@ -137,10 +141,11 @@ impl Options {
             variant,
             pipeline,
             order: flag("--order").unwrap_or_else(|| "identity".to_string()),
-            n: number("--n")?.ok_or("--n 8|12|16")?,
+            n: number("--n")?.ok_or("--n 8|12|16|20")?,
             chi: number("--chi")?.ok_or("--chi <bond>")?,
             reference: flag("--reference"),
             steps: number("--steps")?,
+            print_readings: args.iter().any(|arg| arg == "--print-readings"),
         })
     }
 }
@@ -151,6 +156,8 @@ struct Case {
     prefix: QpePrefix,
     hamiltonian: Hamiltonian,
     reference: Option<(String, Reference)>,
+    /// The site of each program qubit.
+    position: Vec<usize>,
 }
 
 fn main() {
@@ -209,6 +216,7 @@ fn run_case() -> Res<()> {
         prefix,
         hamiltonian,
         reference,
+        position,
     };
     let verdict = run(&case, &options)?;
     if verdict == Verdict::Disagrees {
@@ -514,17 +522,15 @@ fn run(case: &Case, options: &Options) -> Res<Verdict> {
             time.mpo_seconds,
             time.mpo_work,
         );
-        if p.is_power_of_two() || p == prefix.steps {
-            let (c, ancilla_z) = hadamard_test(&engine, &state, ancilla)?;
-            println!(
-                "POLYENE cp p={p} re={:.9} im={:.9} ancilla_z={ancilla_z:+.3e} \
-                 one_minus_w={:.4e} seconds={:.1}",
-                c.re,
-                c.im,
-                1.0 - weight,
-                started.elapsed().as_secs_f64(),
-            );
-        }
+        let (c, ancilla_z) = hadamard_test(&engine, &state, ancilla)?;
+        println!(
+            "POLYENE cp p={p} re={:.9} im={:.9} ancilla_z={ancilla_z:+.3e} \
+             one_minus_w={:.4e} seconds={:.1}",
+            c.re,
+            c.im,
+            1.0 - weight,
+            started.elapsed().as_secs_f64(),
+        );
     }
     apply_batch(&engine, &mut state, &mut router, pipeline, &hadamard)?;
     let one_minus_w = 1.0 - engine.retained_weight(&state)?;
@@ -548,6 +554,9 @@ fn run(case: &Case, options: &Options) -> Res<Verdict> {
         statistics.splits(),
         statistics.swaps(),
     );
+    if options.print_readings {
+        print_readings(&engine, &state, &end, &case.position)?;
+    }
     let verdict = match &case.reference {
         Some(reference) => check(
             &engine,
@@ -582,6 +591,73 @@ fn hadamard_test<E: MpsEngine>(
         Complex64::new(read(Pauli::X)?, read(Pauli::Y)?),
         read(Pauli::Z)?,
     ))
+}
+
+/// Prints what a reference file holds, on program qubits: ⟨H⟩, `⟨N_α⟩`,
+/// `⟨N_β⟩`, every qubit's P(One), and the observables dump's Pauli strings.
+fn print_readings<E: MpsEngine>(
+    engine: &E,
+    state: &E::State,
+    end: &Readings,
+    position: &[usize],
+) -> Res<()> {
+    println!("POLYENE reading energy {:?}", end.energy);
+    println!("POLYENE reading n_alpha {:?}", end.n_alpha);
+    println!("POLYENE reading n_beta {:?}", end.n_beta);
+    for (qubit, &site) in position.iter().enumerate() {
+        let one = engine.probability_of_one(state, site)?;
+        println!("POLYENE reading one {qubit} {one:?}");
+    }
+    for factors in dump_strings(position.len()) {
+        let on_sites = factors
+            .iter()
+            .map(|&(qubit, letter)| {
+                let pauli = match letter {
+                    'X' => Pauli::X,
+                    'Y' => Pauli::Y,
+                    _ => Pauli::Z,
+                };
+                (position[qubit], pauli)
+            })
+            .collect();
+        let value = engine.expectation(state, &pauli_string(on_sites)?)?.re;
+        let named: Vec<String> = factors
+            .iter()
+            .map(|(qubit, letter)| format!("{letter}:{qubit}"))
+            .collect();
+        println!("POLYENE reading pauli {value:?} {}", named.join(" "));
+    }
+    Ok(())
+}
+
+/// The Pauli strings of the harness's observables dump on `qubits` program
+/// qubits: `3 · qubits` strings of weight 1–4, drawn by `SplitMix64` from a
+/// fixed seed, as the committed references' strings were.
+fn dump_strings(qubits: usize) -> Vec<Vec<(usize, char)>> {
+    let mut state: u64 = 0x0B5E_57A7 ^ 0x5DEE_CE66_D1CE_4E5B;
+    let mut below = |bound: usize| -> usize {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+        let bound = u64::try_from(bound).expect("a qubit count fits in u64");
+        usize::try_from(z % bound).expect("below a usize bound")
+    };
+    (0..3 * qubits)
+        .map(|_| {
+            let weight = 1 + below(qubits.min(4));
+            let mut order: Vec<usize> = (0..qubits).collect();
+            for i in (1..qubits).rev() {
+                let j = below(i + 1);
+                order.swap(i, j);
+            }
+            order[..weight]
+                .iter()
+                .map(|&qubit| (qubit, ['X', 'Y', 'Z'][below(3)]))
+                .collect()
+        })
+        .collect()
 }
 
 /// One Pauli string, as an observable.
