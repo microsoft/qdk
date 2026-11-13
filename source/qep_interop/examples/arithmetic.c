@@ -15,11 +15,11 @@ static void fail(const char *message) {
 
 /* Checks the representable constants, register widths, and workspace range. */
 static void validate_arguments(
-    int64_t constant, const size_t *qubits, size_t width, size_t workspace
+    const mpz_t constant, const size_t *qubits, size_t width, size_t workspace
 ) {
-    if (constant < 0) fail("constant must be nonnegative");
+    if (mpz_sgn(constant) < 0) fail("constant must be nonnegative");
     if (qubits == NULL) fail("register must not be null");
-    if (width == 0 || width > ARITHMETIC_MAX_BITS) fail("register width must be between 1 and 63");
+    if (width == 0 || width > ARITHMETIC_MAX_BITS) fail("register width must be between 1 and 2049");
     if (workspace > SIZE_MAX - width) fail("workspace qubit IDs overflow");
 }
 
@@ -80,29 +80,25 @@ static void ripple_carry_ttk_inc_by_le(
 
 /* Prepares a constant register, runs the TTK adder, and unprepares it. */
 void inc_by_i(
-    int64_t constant, const size_t *targets, size_t width,
+    const mpz_t constant, const size_t *targets, size_t width,
     size_t control, bool adjoint, size_t workspace
 ) {
     validate_arguments(constant, targets, width, workspace);
-    if ((uint64_t)constant >= (UINT64_C(1) << width)) fail("constant does not fit the register");
-    if (constant == 0) return;
+    if (mpz_sizeinbase(constant, 2) > width) fail("constant does not fit the register");
+    if (mpz_sgn(constant) == 0) return;
 
-    uint64_t normalized = (uint64_t)constant;
-    size_t trailing_zeros = 0;
-    while ((normalized & 1) == 0) {
-        normalized >>= 1;
-        ++trailing_zeros;
-    }
+    size_t trailing_zeros = (size_t)mpz_scan1(constant, 0);
+    if (trailing_zeros >= width) fail("constant does not fit the register");
     size_t count = width - trailing_zeros;
-    size_t xs[ARITHMETIC_MAX_BITS] = {0};
+    size_t xs[ARITHMETIC_MAX_BITS];
     for (size_t i = 0; i < count; ++i) {
         xs[i] = workspace + i;
-        if (((normalized >> i) & 1) != 0) qdk_x(xs[i]);
+        if (mpz_tstbit(constant, trailing_zeros + i) != 0) qdk_x(xs[i]);
     }
     ripple_carry_ttk_inc_by_le(xs, targets + trailing_zeros, count, control, adjoint);
     // ApplyXorInPlace is adjoint self, including the ascending gate order.
     for (size_t i = 0; i < count; ++i) {
-        if (((normalized >> i) & 1) != 0) qdk_x(xs[i]);
+        if (mpz_tstbit(constant, trailing_zeros + i) != 0) qdk_x(xs[i]);
     }
 }
 
@@ -132,27 +128,22 @@ static void comparison_step(size_t a, size_t b, size_t target, bool is_and, bool
 
 /* Computes the library's comparison chain, controls X, then uncomputes it. */
 void apply_if_less_or_equal_l(
-    int64_t constant, const size_t *register_qubits, size_t width,
+    const mpz_t constant, const size_t *register_qubits, size_t width,
     size_t target, size_t control, size_t workspace
 ) {
     validate_arguments(constant, register_qubits, width, workspace);
-    if (constant == 0) {
+    if (mpz_sgn(constant) == 0) {
         controlled_x(control, target);
         return;
     }
-    if ((uint64_t)constant >= (UINT64_C(1) << width)) return;
+    if (mpz_sizeinbase(constant, 2) > width) return;
 
-    uint64_t normalized = (uint64_t)constant;
-    size_t trailing_zeros = 0;
-    while ((normalized & 1) == 0) {
-        normalized >>= 1;
-        ++trailing_zeros;
-    }
+    size_t trailing_zeros = (size_t)mpz_scan1(constant, 0);
     const size_t *xs = register_qubits + trailing_zeros;
     size_t count = width - trailing_zeros - 1;
     for (size_t i = 0; i < count; ++i) {
         size_t previous = i == 0 ? xs[0] : workspace + i - 1;
-        bool is_and = ((normalized >> (i + 1)) & 1) != 0;
+        bool is_and = mpz_tstbit(constant, trailing_zeros + i + 1) != 0;
         comparison_step(previous, xs[i + 1], workspace + i, is_and, false);
     }
     size_t predicate = count == 0 ? register_qubits[width - 1] : workspace + count - 1;
@@ -160,7 +151,7 @@ void apply_if_less_or_equal_l(
     for (size_t i = count; i > 0; --i) {
         size_t index = i - 1;
         size_t previous = index == 0 ? xs[0] : workspace + index - 1;
-        bool is_and = ((normalized >> (index + 1)) & 1) != 0;
+        bool is_and = mpz_tstbit(constant, trailing_zeros + index + 1) != 0;
         comparison_step(previous, xs[index + 1], workspace + index, is_and, true);
     }
 }

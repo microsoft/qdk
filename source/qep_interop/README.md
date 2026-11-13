@@ -132,6 +132,10 @@ Profiling uses `counting_profiler`; its measurement results are bogus, so the
 factorization result is ignored rather than retried. The Fortran example
 uses `sparse_sim` and defaults to factoring **187 = 11 \* 17**.
 
+The C example requires the GMP development headers and library (on Ubuntu/Debian,
+install `libgmp-dev`). Its classical arithmetic supports numbers up to 2048 bits;
+the Fortran example retains its existing fixed-width implementation.
+
 Build both examples from the repository root on Linux:
 
 ```sh
@@ -139,7 +143,7 @@ cargo build --release -p qep_interop
 cc -std=c11 -O2 -Wall -Wextra -Werror \
     -Isource/qep_interop/include source/qep_interop/examples/shor.c \
     source/qep_interop/examples/arithmetic.c \
-    target/release/libqep_interop.a -ldl -lpthread -lm \
+    target/release/libqep_interop.a -lgmp -ldl -lpthread -lm \
     -o target/release/shor_c
 gfortran -std=f2008 -O2 -Wall -Wextra -Werror \
     -Isource/qep_interop/include source/qep_interop/examples/shor.f90 \
@@ -150,12 +154,19 @@ gfortran -std=f2008 -O2 -Wall -Wextra -Werror \
 The C CLI accepts exactly one of these modes:
 
 - `--self-test`: run arithmetic regression tests on `sparse_sim`, with no other arguments.
-- `--factor <number>`: factor the required integer in `[4, 2^30)` on `sparse_sim`.
-- `--profile <bitlen>`: profile one shot using an even bit length from 4 to 30.
+- `--factor <number>`: factor the required decimal integer in `[4, 2^2048)` on `sparse_sim`.
+- `--profile <bitlen>`: profile one shot using an even bit length from 4 to 2048.
+
+Supporting large integers does not make generic 2048-bit quantum simulation
+practical. Use profiling mode for large circuits, and expect very long runtimes:
+the current gate-emitting implementation scales roughly cubically with bit length.
 
 In profiling mode, each random prime has half the requested bit length;
 their product can be one bit shorter than the requested length. Output is
-written to `target/shor_profile_<bitlen>.json`. The example reads the saved operation count and
+written to `source/qep/profile_viewer/profiles/shor_c_<bitlen>.json`; the parent
+directory must already exist. Prime generation uses GMP probable-prime testing
+with 25 repetitions and a time-seeded random generator intended for benchmarking,
+not cryptography. The example reads the saved operation count and
 reports elapsed wall-clock time and nanoseconds per counted operation. Timing
 covers only `shors_shot`, excluding prime generation, backend initialization,
 and saving (including the final buffer flush).
@@ -184,3 +195,6 @@ These exhaustively check controlled modular addition and coprime multiplication
 on basis states for moduli 3 through 7, including disabled controls and cleanup
 of all scratch qubits. They also check coherent compute/uncompute with controls
 in superposition, continued fractions, and period-to-factor recovery.
+The C self-test additionally checks 64-, 65-, 2048-, and 2049-bit addition,
+comparison, controls, wraparound, and workspace cleanup on basis states, as well
+as large modular powers, 4097-bit phase postprocessing, and 1024-bit prime generation.
