@@ -396,6 +396,15 @@ impl DeviceTensors {
                 };
                 check_tensor("cutensornetWorkspaceGetMemorySize", status).map_err(failed)?;
                 let bytes = usize::try_from(size).unwrap_or(0);
+                // A size of 0 with a pointer is an invalid workspace
+                // (`cutensornetWorkspaceSetMemory`: status 7 on the A100),
+                // so a kind this call does not need is left as it is: unset,
+                // or still pointing at the live buffer an earlier call set,
+                // since a held buffer is replaced only just before it is set
+                // again below.
+                if bytes == 0 {
+                    continue;
+                }
                 let pointer =
                     if memspace == v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_DEVICE {
                         let held = &mut workspace.device[slot];
