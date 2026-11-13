@@ -14,10 +14,10 @@ import shutil
 from pathlib import Path
 
 python_ver = (3, 11)  # Python support for Windows on ARM64 requires v3.11 or later
-rust_ver = (1, 95, 0)  # Ensure Rust version 1.95 or later is installed
+rust_ver = (1, 99, 1)  # Ensure Rust version 1.99 or later is installed
 node_ver = (22, 14, 0)
-rust_fmt_ver = (1, 9, 0)  # Current version when Rust 1.95 shipped
-clippy_ver = (0, 1, 95)
+rust_fmt_ver = (1, 10, 0)  # Current version when Rust 1.99 shipped
+clippy_ver = (0, 1, 99)
 wasm_bindgen_ver = (0, 2, 127)
 binaryen_ver = 123
 
