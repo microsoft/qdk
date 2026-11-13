@@ -47,6 +47,7 @@
 
 mod canonical_form;
 mod dev_mpo;
+mod dev_schmidt;
 mod gates;
 mod reads;
 mod split;
@@ -214,6 +215,17 @@ impl CpuMpsEngine {
     ) -> Result<(), CpuMpsError> {
         let chain = state.chain.get_mut();
         self.0.dev_apply_operator(chain, sites, matrix)
+    }
+
+    /// EXPERIMENTAL, development only (not for review): the Schmidt values
+    /// of `state` at each cut `k | k + 1`, nonincreasing, their squares
+    /// summing to 1; computed on a copy, without truncation.
+    ///
+    /// # Errors
+    ///
+    /// When an SVD fails.
+    pub fn dev_schmidt_values(&self, state: &CanonicalMps) -> Result<Vec<Vec<f64>>, CpuMpsError> {
+        self.0.dev_schmidt_values(&state.chain.borrow())
     }
 
     /// EXPERIMENTAL, development only (not for review): the same engine,

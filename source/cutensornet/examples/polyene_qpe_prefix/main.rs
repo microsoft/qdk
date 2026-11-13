@@ -33,8 +33,10 @@
 //!     [--weight-reads-per-step 1]
 //! ```
 //!
-//! `--reference` names a file in this folder. `--steps` runs fewer steps
-//! than the program's (a quick test; the reference is then not checked).
+//! `--reference` names a file in this folder. `--steps` runs fewer or more
+//! steps than the program's (a quick test, or a longer evolution: each step
+//! applies the file's step body once more; the reference is then not
+//! checked).
 //! `--weight-reads-per-step K` reads W `K` times per step, so that
 //! `CuTensorNetEngine` computes a step's operators in `K` parts.
 

@@ -34,7 +34,7 @@
 //! cargo run --release -p qdk_simulators --example polyene_swaps_dev -- \
 //!     --variant base|fuse|seq/swap|seq/mpo|seq3/mpo|... --n 8|12|16|20 \
 //!     --chi 128 [--order identity] [--reference ppp8.exact.reference] \
-//!     [--steps 32] [--print-readings]
+//!     [--steps 32] [--print-readings] [--schmidt]
 //! ```
 //!
 //! Every line starts with `POLYENE`; `step` lines add the split counts, the
@@ -43,6 +43,21 @@
 //! `--print-readings` prints, at the end, one `reading` line per value a
 //! reference file holds (on program qubits, whatever the order), with the
 //! Pauli strings of the harness's observables dump, to write a reference.
+//!
+//! `--steps` sets how many controlled steps run, fewer or more than the
+//! file's: each step applies the file's step body once more, so `c_p` after
+//! step `p` is ⟨K|U^p|K⟩ for any `p`. With another count than the file's the
+//! reference is not checked (verdict `NotChecked`): none exists beyond it.
+//! `--schmidt` adds, after every step, a `schmidt` line: the Schmidt values
+//! at every cut (`CpuMpsEngine::dev_schmidt_values`, on a copy) and, for a
+//! discarded weight of at most 1e-4, 1e-6 and 1e-8 at a cut, the bond each
+//! cut needs, its largest, and the largest entanglement entropy (bits).
+//!
+//! `--dense` runs the same prefix on a dense state vector instead (exact to
+//! rounding; `--chi` is ignored; 2^25 amplitudes, 512 MB, at `--n 12`),
+//! the gates fused up to `--dense-fusion` sites (default 3), printing `c_p`
+//! after every step; `--dump-every K --dump-dir D` writes the state after
+//! every `K`-th step, to read its Schmidt values offline.
 
 #[path = "../../cutensornet/examples/polyene_qpe_prefix/inputs.rs"]
 mod inputs;
@@ -95,6 +110,11 @@ struct Options {
     reference: Option<String>,
     steps: Option<usize>,
     print_readings: bool,
+    schmidt: bool,
+    dense: bool,
+    dump_every: Option<usize>,
+    dump_dir: Option<String>,
+    dense_fusion: usize,
 }
 
 impl Options {
@@ -146,6 +166,11 @@ impl Options {
             reference: flag("--reference"),
             steps: number("--steps")?,
             print_readings: args.iter().any(|arg| arg == "--print-readings"),
+            schmidt: args.iter().any(|arg| arg == "--schmidt"),
+            dense: args.iter().any(|arg| arg == "--dense"),
+            dump_every: number("--dump-every")?,
+            dump_dir: flag("--dump-dir"),
+            dense_fusion: number("--dense-fusion")?.unwrap_or(3),
         })
     }
 }
@@ -218,7 +243,11 @@ fn run_case() -> Res<()> {
         reference,
         position,
     };
-    let verdict = run(&case, &options)?;
+    let verdict = if options.dense {
+        run_dense(&case, &options)?
+    } else {
+        run(&case, &options)?
+    };
     if verdict == Verdict::Disagrees {
         std::process::exit(2);
     }
@@ -531,6 +560,9 @@ fn run(case: &Case, options: &Options) -> Res<Verdict> {
             1.0 - weight,
             started.elapsed().as_secs_f64(),
         );
+        if options.schmidt {
+            print_schmidt(p, &engine.dev_schmidt_values(&state)?);
+        }
     }
     apply_batch(&engine, &mut state, &mut router, pipeline, &hadamard)?;
     let one_minus_w = 1.0 - engine.retained_weight(&state)?;
@@ -574,6 +606,190 @@ fn run(case: &Case, options: &Options) -> Res<Verdict> {
         started.elapsed().as_secs_f64()
     );
     Ok(verdict)
+}
+
+/// The discarded weights a `schmidt` line reads the bond needed for.
+const DISCARDED_WEIGHTS: [f64; 3] = [1e-4, 1e-6, 1e-8];
+
+/// Prints, for step `p`, the bond each cut needs to discard at most each of
+/// [`DISCARDED_WEIGHTS`] (the fewest values whose tail's squares sum to at
+/// most it), the largest over the cuts, and the largest entanglement
+/// entropy, from the cuts' Schmidt values `spectra`.
+fn print_schmidt(p: usize, spectra: &[Vec<f64>]) {
+    use std::fmt::Write as _;
+    let need = |values: &[f64], discarded: f64| {
+        let mut tail = 0.0;
+        let mut kept = values.len();
+        while kept > 1 && tail + values[kept - 1] * values[kept - 1] <= discarded {
+            tail += values[kept - 1] * values[kept - 1];
+            kept -= 1;
+        }
+        kept
+    };
+    let entropy = |values: &[f64]| -> f64 {
+        values
+            .iter()
+            .map(|s| s * s)
+            .filter(|&w| w > 0.0)
+            .map(|w| -w * w.log2())
+            .sum()
+    };
+    let largest_entropy = spectra.iter().map(|v| entropy(v)).fold(0.0, f64::max);
+    let mut line = format!("POLYENE schmidt p={p} entropy_max={largest_entropy:.4}");
+    for discarded in DISCARDED_WEIGHTS {
+        let needs: Vec<usize> = spectra.iter().map(|v| need(v, discarded)).collect();
+        let largest = needs.iter().max().unwrap_or(&1);
+        write!(
+            line,
+            " need_{discarded:e}={largest} cuts_{discarded:e}={needs:?}"
+        )
+        .expect("writing to a String cannot fail");
+    }
+    let bonds: Vec<usize> = spectra.iter().map(Vec::len).collect();
+    write!(line, " bonds={bonds:?}").expect("writing to a String cannot fail");
+    println!("{}", line.replace(", ", ","));
+}
+
+/// The prefix on a dense state vector, exact to rounding: the reference
+/// for `c_p` at any step count, and, with `--dump-every K --dump-dir D`, the
+/// state after every `K`-th step written to `D/n<N>-p<p>.c128` (amplitudes as
+/// little-endian `re, im` pairs of `f64`, site 0 the most significant bit
+/// of the index), to read the Schmidt values at every cut offline. `--chi`
+/// is ignored.
+fn run_dense(case: &Case, options: &Options) -> Res<Verdict> {
+    let (prefix, hamiltonian) = (&case.prefix, &case.hamiltonian);
+    let n = prefix.qubits;
+    let ancilla = hamiltonian.ancilla;
+    let started = Instant::now();
+    let mut state = vec![Complex64::ZERO; 1 << n];
+    state[0] = Complex64::ONE;
+    let trial = fuse(&prefix.trial, Fusion::Seq(options.dense_fusion));
+    let step = fuse(&prefix.controlled_step, Fusion::Seq(options.dense_fusion));
+    let hadamard = fuse(&[inputs::hadamard(ancilla)], Fusion::None);
+    for block in trial.iter().chain(&hadamard) {
+        apply_dense(&mut state, n, block);
+    }
+    println!(
+        "POLYENE dense qubits={n} trial_operators={} step_operators={} seconds={:.1}",
+        trial.len(),
+        step.len(),
+        started.elapsed().as_secs_f64()
+    );
+    let bit = 1 << (n - 1 - ancilla);
+    for p in 1..=prefix.steps {
+        let step_started = Instant::now();
+        for block in &step {
+            apply_dense(&mut state, n, block);
+        }
+        let step_seconds = step_started.elapsed().as_secs_f64();
+        let (mut overlap, mut norm) = (Complex64::ZERO, 0.0);
+        for (index, amplitude) in state.iter().enumerate() {
+            norm += amplitude.norm_sqr();
+            if index & bit == 0 {
+                overlap += amplitude.conj() * state[index | bit];
+            }
+        }
+        let c = Complex64::new(2.0 * overlap.re, 2.0 * overlap.im);
+        println!(
+            "POLYENE cp p={p} re={:.9} im={:.9} norm_minus_1={:+.3e} step_seconds={step_seconds:.2} \
+             seconds={:.1}",
+            c.re,
+            c.im,
+            norm - 1.0,
+            started.elapsed().as_secs_f64(),
+        );
+        if let (Some(every), Some(dir)) = (options.dump_every, &options.dump_dir)
+            && p % every == 0
+        {
+            let file = std::fs::File::create(format!("{dir}/n{}-p{p}.c128", options.n))?;
+            let mut writer = std::io::BufWriter::new(file);
+            for amplitude in &state {
+                std::io::Write::write_all(&mut writer, &amplitude.re.to_le_bytes())?;
+                std::io::Write::write_all(&mut writer, &amplitude.im.to_le_bytes())?;
+            }
+            std::io::Write::flush(&mut writer)?;
+        }
+    }
+    println!(
+        "POLYENE done verdict=NotChecked dense seconds={:.1}",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(Verdict::NotChecked)
+}
+
+/// Applies `block` to the dense `state` of `n` sites, site 0 the most
+/// significant bit of the index.
+fn apply_dense(state: &mut [Complex64], n: usize, block: &Block) {
+    match block.sites.len() {
+        1 => apply_dense_fixed::<1, 2>(state, n, block),
+        2 => apply_dense_fixed::<2, 4>(state, n, block),
+        3 => apply_dense_fixed::<3, 8>(state, n, block),
+        4 => apply_dense_fixed::<4, 16>(state, n, block),
+        5 => apply_dense_fixed::<5, 32>(state, n, block),
+        _ => apply_dense_any(state, n, block),
+    }
+}
+
+/// [`apply_dense`] for `K` sites (`D = 2^K`), with fixed-size buffers and
+/// the bases enumerated directly, for speed.
+fn apply_dense_fixed<const K: usize, const D: usize>(
+    state: &mut [Complex64],
+    n: usize,
+    block: &Block,
+) {
+    let bits: [usize; K] = std::array::from_fn(|j| 1 << (n - 1 - block.sites[j]));
+    let offsets: [usize; D] = std::array::from_fn(|local| {
+        (0..K)
+            .filter(|&j| (local >> (K - 1 - j)) & 1 == 1)
+            .map(|j| bits[j])
+            .sum()
+    });
+    let mut sorted = bits;
+    sorted.sort_unstable();
+    let matrix: [[Complex64; D]; D] =
+        std::array::from_fn(|row| std::array::from_fn(|col| block.matrix[row * D + col]));
+    for i in 0..state.len() >> K {
+        let mut base = i;
+        for &b in &sorted {
+            base = ((base & !(b - 1)) << 1) | (base & (b - 1));
+        }
+        let gathered: [Complex64; D] = std::array::from_fn(|c| state[base + offsets[c]]);
+        for (row, &offset) in offsets.iter().enumerate() {
+            let mut sum = Complex64::ZERO;
+            for (x, y) in matrix[row].iter().zip(&gathered) {
+                sum += x * y;
+            }
+            state[base + offset] = sum;
+        }
+    }
+}
+
+fn apply_dense_any(state: &mut [Complex64], n: usize, block: &Block) {
+    let k = block.sites.len();
+    let dim = 1 << k;
+    let bits: Vec<usize> = block.sites.iter().map(|&s| 1 << (n - 1 - s)).collect();
+    let mask: usize = bits.iter().sum();
+    let offsets: Vec<usize> = (0..dim)
+        .map(|local| {
+            (0..k)
+                .filter(|&j| (local >> (k - 1 - j)) & 1 == 1)
+                .map(|j| bits[j])
+                .sum()
+        })
+        .collect();
+    let mut gathered = vec![Complex64::ZERO; dim];
+    for base in 0..state.len() {
+        if base & mask != 0 {
+            continue;
+        }
+        for (slot, &offset) in gathered.iter_mut().zip(&offsets) {
+            *slot = state[base + offset];
+        }
+        for (row, &offset) in offsets.iter().enumerate() {
+            let m = &block.matrix[row * dim..(row + 1) * dim];
+            state[base + offset] = m.iter().zip(&gathered).map(|(x, y)| x * y).sum();
+        }
+    }
 }
 
 /// The ancilla's `c_p` = ⟨X⟩ + i⟨Y⟩, and its ⟨Z⟩.
