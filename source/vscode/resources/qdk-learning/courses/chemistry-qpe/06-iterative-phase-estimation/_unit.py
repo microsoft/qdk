@@ -13,6 +13,7 @@ from _course_lib import (  # noqa: E402, F401
     register_exercise,
     register_value_exercise,
 )
+from _learning_output import quiz, register_quiz_notebook  # noqa: E402, F401
 
 # The selected grid point 010000 is k=16 on the 64-point six-bit grid.
 MEASURED_PHASE = register_value_exercise("measured_phase", expected=0.25)
@@ -46,4 +47,72 @@ VALIDATE_CIRCUIT = register_exercise(
         "Correct. Twelve compute qubits plus one readout ancilla, "
         "rebuilt for each of the six iterations."
     ),
+)
+
+
+# ---------------------------------------------------------------------------
+# Self-check questions
+# ---------------------------------------------------------------------------
+
+# Quiz content lives in the authored notebook; bind ID-only learner reruns
+# to its saved output in this same course copy.
+
+register_quiz_notebook(
+    "iqpe-grid-target",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-state-prep",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-grid-control",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-readout-ancilla",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-circuit-shape",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-bit-feedback",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-aggregation",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-energy-comparison",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-observed-result",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-target-met",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-more-bits",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
+)
+
+register_quiz_notebook(
+    "iqpe-more-shots",
+    Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb"),
 )
