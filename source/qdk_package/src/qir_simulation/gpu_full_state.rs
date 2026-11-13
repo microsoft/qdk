@@ -69,7 +69,7 @@ pub fn run_parallel_shots<'py>(
 
     let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
 
-    let rng_seed = seed.unwrap_or(0xfeed_face);
+    let rng_seed = seed.unwrap_or_else(rand::random);
 
     let sim_results =
         qdk_simulators::run_shots_sync(qubit_count, result_count, &ops, &noise, shots, rng_seed, 0)
@@ -537,7 +537,7 @@ pub fn run_adaptive_parallel_shots<'py>(
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
     let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
-    let rng_seed = seed.unwrap_or(0xfeed_face);
+    let rng_seed = seed.unwrap_or_else(rand::random);
     let program = adaptive_program_from_pydict(input)?;
     let record_types = output_record_types(&program);
     let sim_results = qdk_simulators::run_adaptive_shots_sync(program, &noise, shots, rng_seed, 0)

@@ -44,7 +44,7 @@ pub fn estimate_entry(interpreter: &mut Interpreter, params: &str) -> Result<Str
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .eval_entry_with_sim(&mut counter, &mut out)
+        .eval_entry_with_sim(&mut counter, &mut out, 0)
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     estimate_physical_resources(counter.logical_resources(), params)
         .map_err(|e| vec![Error::Estimation(e)])

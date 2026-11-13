@@ -583,11 +583,11 @@ fn run_interpreter<F>(
 ) where
     F: FnMut(&str),
 {
-    for _ in 0..shots {
+    for shot in 0..shots {
         let result = {
             let mut sim = SparseSim::new_with_noise(pauliNoise);
             sim.set_loss(qubitLoss);
-            interpreter.eval_entry_with_sim(&mut sim, out)
+            interpreter.eval_entry_with_sim(&mut sim, out, shot.into())
         };
         let mut success = true;
         let msg: serde_json::Value = match result {

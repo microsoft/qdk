@@ -16,7 +16,7 @@ mod bench {
     };
     use std::{hint::black_box, sync::Arc};
 
-    const SEED: u32 = 1000;
+    const SEED: u64 = 1000;
 
     fn setup(gates: Vec<Operation>) -> (StabilizerSimulator, Vec<Operation>) {
         const NUM_QUBITS: usize = 1224;

@@ -28,15 +28,15 @@ pub const GROVER_EXPECT_DEBUG: Expect = expect!["[Zero, One, Zero, One, Zero]"];
 pub const GROVER_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 33215"];
 pub const GROVER_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 20376"];
 pub const GROVER_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 22709"];
-pub const RANDOMNUMBER_EXPECT: Expect = expect!["9"];
-pub const RANDOMNUMBER_EXPECT_DEBUG: Expect = expect!["9"];
+pub const RANDOMNUMBER_EXPECT: Expect = expect!["16"];
+pub const RANDOMNUMBER_EXPECT_DEBUG: Expect = expect!["16"];
 pub const RANDOMNUMBER_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3559"];
 pub const RANDOMNUMBER_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 4114"];
 pub const RANDOMNUMBER_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3018"];
 pub const SIMPLE1DISINGORDER1_EXPECT: Expect =
-    expect!["[Zero, One, One, Zero, Zero, One, One, One, One]"];
+    expect!["[Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero]"];
 pub const SIMPLE1DISINGORDER1_EXPECT_DEBUG: Expect =
-    expect!["[Zero, One, One, Zero, Zero, One, One, One, One]"];
+    expect!["[Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero]"];
 pub const SIMPLE1DISINGORDER1_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 12465"];
 pub const SIMPLE1DISINGORDER1_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 18979"];

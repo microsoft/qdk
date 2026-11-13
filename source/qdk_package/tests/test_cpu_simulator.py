@@ -17,6 +17,7 @@ from qdk import openqasm
 
 from qdk.simulation import NoiseConfig
 from qdk.simulation._simulation import OutputRecordingPass, run_qir_cpu
+from simulator_test_utils import statistical_tolerance
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -64,22 +65,32 @@ def test_cpu_seeding_no_noise():
 
     qir = str(qsharp.compile("BellTest()"))
 
-    results = [run_qir_cpu(qir, 1, None, seed)[0] for seed in range(100)]
-    print(results)
+    def run(seeds) -> list:
+        return [run_qir_cpu(qir, 1, None, seed)[0] for seed in seeds]
 
-    # Results will be an array of 100 lists [Result, Result]
-    # Each result should be [Zero, Zero] or [One, One]
-    # As evident from a manual experiment running with the seeds of 0..99
-    # gives 41:59 results split. Experiment should be repeatable for fixed seeds.
+    # Each run is reproducible from its seed.
+    seeds = [*range(100), 2**32 - 1]
+    results = run(seeds)
+    assert results == run(seeds)
+    # Every shot of a Bell pair is 00 or 11, and with 101 shots both occur
+    # (P(all equal) = 2^-100 for any seeds).
+    assert set(map(tuple, results)) == {
+        (Result.Zero, Result.Zero),
+        (Result.One, Result.One),
+    }
 
-    # Verify we have 6 of each result
-    count_00 = sum(1 for r in results if r == [Result.Zero, Result.Zero])
-    count_11 = sum(1 for r in results if r == [Result.One, Result.One])
-    assert count_00 == 41
-    assert count_11 == 100 - 41
-    # TODO: count_00 is always suspiciously lower than count_11 for MANY ranges of seeds.
-    # Investigate if there's some bias in the simulator. Technically this isn't indication of a fault:
-    # we need roughly equal counts for shots, not for seeds.
+
+def test_cpu_nearby_seeds_produce_unrelated_shots():
+    qsharp.init(target_profile=TargetProfile.Adaptive_RI)
+    qsharp.eval(
+        "operation Coins() : Result[] { use q = Qubit(); mutable rs = []; for _ in 1..32 { H(q); set rs += [MResetZ(q)]; } rs }"
+    )
+    qir = str(qsharp.compile("Coins()"))
+
+    first = [str(shot) for shot in run_qir_cpu(qir, 10, None, 42)]
+    second = [str(shot) for shot in run_qir_cpu(qir, 10, None, 43)]
+    assert len(set(first)) == len(first)
+    assert not set(first) & set(second)
 
 
 def test_cpu_no_noise():
@@ -266,9 +277,10 @@ def test_cpu_x_chain(
     error_percent = [abs(a - b) * 100.0 / n_shots for (a, b) in zip(histogram, p_N)]
     print(", ".join(f"{a} (Δ≈{b:.1f}%)" for (a, b) in zip(histogram, error_percent)))
 
-    # We tolerate configured percentage error.
+    # We tolerate configured percentage error, or more if the shot count requires it.
     assert all(
-        err < max_percent for err in error_percent
+        err / 100.0 <= statistical_tolerance(n_shots, b / n_shots, max_percent / 100.0)
+        for (err, b) in zip(error_percent, p_N)
     ), f"Error percent too high: {error_percent}"
 
 
@@ -435,9 +447,12 @@ operation tiny_coeffs() : Result[] {{
     print(summary_msg)
     for pattern, expected_count in allowed:
         actual_count = counts[pattern]
+        allowed_deviation = n_shots * statistical_tolerance(
+            n_shots, expected_count / n_shots, tolerance_percent / 100.0
+        )
         assert (
-            abs(actual_count - expected_count) <= tolerance
-        ), f"Count for {pattern} off by more than {tolerance_percent:.1f}% of shots. Actual={actual_count}, Expected={expected_count:.0f}, noise#{noise_number}, Program={program}."
+            abs(actual_count - expected_count) <= allowed_deviation
+        ), f"Count for {pattern} off by more than {allowed_deviation:.0f} shots. Actual={actual_count}, Expected={expected_count:.0f}, noise#{noise_number}, Program={program}."
 
 
 def test_ccx_gate_gets_decomposed():

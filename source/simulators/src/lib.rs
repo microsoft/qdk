@@ -6,6 +6,7 @@ pub mod cpu_full_state_simulator;
 #[cfg(feature = "gpu")]
 mod gpu_full_state_simulator;
 pub mod noise_config;
+pub mod seed;
 pub mod sparse_state_simulator;
 pub mod stabilizer_simulator;
 
@@ -42,8 +43,9 @@ pub trait Simulator {
     type Noise: Default;
     type StateDumpData;
 
-    /// Creates a new simulator.
-    fn new(num_qubits: usize, num_results: usize, seed: u32, noise: Self::Noise) -> Self;
+    /// Creates a new simulator. Implementations derive the seeds of their random number
+    /// generators from `seed` with [`seed::derive_seed`].
+    fn new(num_qubits: usize, num_results: usize, seed: u64, noise: Self::Noise) -> Self;
 
     /// Single qubit X gate.
     fn x(&mut self, target: QubitID);

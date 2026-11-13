@@ -672,7 +672,9 @@ class Context:
             Pauli error probabilities, a :class:`~qdk.qsharp.PauliNoise` subclass, or a
             :class:`~qdk.simulation.NoiseConfig` for per-gate noise configuration.
         :param qubit_loss: The probability of qubit loss in simulation.
-        :param seed: The seed to use for the random number generator in simulation, if any.
+        :param seed: The seed for the run, if any. Each shot derives its own seed from it, so
+            runs are reproducible and runs with different seeds are independent. If None, shots
+            derive their seeds from the quantum and classical seeds, if they are set.
         :param type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
             Note that the "stabilizer" simulator has replaced the type "clifford", but the "clifford" type is still available for backward compatibility.
         :param num_qubits: The number of qubits to use for the simulation type "stabilizer".
@@ -739,14 +741,7 @@ class Context:
             noise_config = noise
             noise = None
 
-        shot_seed = seed
         for shot in range(shots):
-            # We also don't want every shot to return the same results, so we update the seed for
-            # the next shot with the shot number. This keeps the behavior deterministic if a seed
-            # was provided.
-            if seed is not None:
-                shot_seed = shot + seed
-
             results.append(
                 {
                     "result": None,
@@ -764,9 +759,10 @@ class Context:
                 qubit_loss,
                 callable,
                 args,
-                shot_seed,
+                seed,
                 type,
                 num_qubits,
+                shot,
             )
             run_results = self._qsharp_value_to_python_value(run_results)
             results[-1]["result"] = run_results
@@ -1002,6 +998,8 @@ class Context:
 
         :param seed: The seed to use for the quantum random number generator.
             If None, the seed will be generated from entropy.
+            Each shot of a run derives its own seed from this seed, and successive
+            evaluations continue the random sequence instead of restarting it.
         """
         self._interpreter.set_quantum_seed(seed)
 
@@ -1013,6 +1011,8 @@ class Context:
 
         :param seed: The seed to use for the classical random number generator.
             If None, the seed will be generated from entropy.
+            Each shot of a run derives its own seed from this seed, and successive
+            evaluations continue the random sequence instead of restarting it.
         """
         self._interpreter.set_classical_seed(seed)
 

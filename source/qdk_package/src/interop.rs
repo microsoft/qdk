@@ -22,6 +22,7 @@ use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use qdk_simulators::seed::{SeedRole, make_seed};
 use qsc::circuit::TracerConfig;
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
@@ -31,7 +32,7 @@ use qsc::openqasm::semantic::AnalysisResult;
 use qsc::openqasm::{OperationSignature, QubitSemantics};
 use qsc::project::ProjectType;
 use qsc::target::Profile;
-use qsc::{Backend, CliffordSim, PackageType, PauliNoise, SparseSim};
+use qsc::{CliffordSim, PackageType, PauliNoise, SparseSim};
 use qsc::{
     LanguageFeatures, SourceMap, ast::Package, error::WithSource, interpret, project::FileSystem,
 };
@@ -175,6 +176,8 @@ pub(crate) fn run_ast(
     sim_type: SimType,
 ) -> Result<Vec<qsc::interpret::Value>, Vec<interpret::Error>> {
     let mut results = Vec::with_capacity(shots);
+    // Each shot derives its own seed, so shots differ but the run is reproducible.
+    let shot_seed = |shot: usize| seed.map(|seed| make_seed(seed, SeedRole::Shot(shot as u64)));
     for i in 0..shots {
         let result = match sim_type {
             SimType::Sparse => {
@@ -191,10 +194,7 @@ pub(crate) fn run_ast(
                 if loss > 0.0 {
                     sim.set_loss(loss);
                 }
-                // If seed is provided, we want to use a different seed for each shot
-                // so that the results are different for each shot, but still deterministic
-                sim.set_seed(seed.map(|s| s + i as u64));
-                interpreter.run_with_sim(&mut sim, receiver, None, None)?
+                interpreter.run_with_sim(&mut sim, receiver, None, shot_seed(i))?
             }
             SimType::Clifford(num_qubits) => {
                 let mut sim = match noise_config {
@@ -203,10 +203,7 @@ pub(crate) fn run_ast(
                         CliffordSim::new_with_noise_config(num_qubits, noise_config.clone().into())
                     }
                 };
-                // If seed is provided, we want to use a different seed for each shot
-                // so that the results are different for each shot, but still deterministic
-                sim.set_seed(seed.map(|s| s + i as u64));
-                interpreter.run_with_sim(&mut sim, receiver, None, None)?
+                interpreter.run_with_sim(&mut sim, receiver, None, shot_seed(i))?
             }
         };
 

@@ -47,7 +47,7 @@ fn run_logical_counts_result(
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
 
-    match interpreter.eval_entry_with_sim(&mut counter, &mut out) {
+    match interpreter.eval_entry_with_sim(&mut counter, &mut out, 0) {
         Ok(_) => Ok(counter.logical_resources()),
         Err(err) => {
             let mut messages = Vec::new();
