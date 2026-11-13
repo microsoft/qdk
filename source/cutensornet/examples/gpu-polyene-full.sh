@@ -255,7 +255,7 @@ H2_OK=no
 if [ -f "$H2" ] && [ "$(sha256sum "$H2" | awk '{print $1}')" = "$H2_SHA256" ]; then
   H2_OK=yes
 fi
-summary h2-bytecode - 0 "verdict=$([ "$H2_OK" = yes ] && echo pass || echo fail) step=h2-bytecode path=$H2 sha256_expected=$H2_SHA256 (fail: the H2 runs are skipped)"
+summary h2-bytecode - 0 "verdict=$([ "$H2_OK" = yes ] && echo pass || echo fail) step=h2-bytecode path=$H2 sha256_expected=$H2_SHA256 (on a fail, the H2 runs are skipped)"
 
 # The MPS daemon off: every run is one process alone on the GPU.
 pgrep -a nvidia-cuda-mps || true
@@ -286,7 +286,9 @@ if wanted kit; then
   checks=$(grep -c '^SELF_CHECK ' "$log")
   failed=$(grep -c '^SELF_CHECK .* passed=false' "$log")
   failed_names=$(grep '^SELF_CHECK .* passed=false' "$log" | awk '{printf "%s%s", sep, $2; sep = ","}')
-  failed_tests=$(grep -E '^test .* FAILED$' "$log" | awk '{printf "%s%s", sep, $2; sep = ","}')
+  # From libtest's closing list: with --nocapture a test's printed lines
+  # may split its "test ... FAILED" line.
+  failed_tests=$(awk '/^failures:$/ {n++; next} n == 2 && /^    [a-z_]/ {printf "%s%s", sep, $1; sep = ","}' "$log")
   result=$(grep '^test result: ' "$log" | tail -1)
   tests_passed=$(printf '%s\n' "$result" | sed -nE 's/.* ([0-9]+) passed.*/\1/p')
   tests_failed=$(printf '%s\n' "$result" | sed -nE 's/.* ([0-9]+) failed.*/\1/p')
@@ -312,7 +314,10 @@ if wanted diagnostic; then
       "verdict=error step=diagnostic engine=cutensornet no MPO_DIAGNOSTIC line, error=\"$(grep -E 'panicked|error' "$log" | head -2 | tr '\n' ' ' | cut -c1-300)\""
   fi
   grep '^MPO_DIAGNOSTIC ' "$log" | while read -r line; do
-    case_=$(field case "$line")
+    # Not $(field case …): bash before 5.2 reads that `case` as the keyword
+    # and looks for its esac.
+    case_=${line#* case=}
+    case_=${case_%% *}
     difference=$(field max_diff "$line")
     verdict=$(awk -v d="$difference" 'BEGIN {print (d != "" && d + 0 <= 1e-9) ? "agrees" : "differs"}')
     summary "diagnostic-$case_" "$STATUS" "$SECONDS_TAKEN" \
