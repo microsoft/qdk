@@ -7,6 +7,13 @@
 //! Run: `cargo run --release -p qdk_simulators --example wgpu_probe [backend]`
 //! where backend is `all` (default), `gl`, `vulkan`.
 
+// Spike code: the crate's pedantic lints are relaxed here.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names
+)]
+
 use std::time::Instant;
 
 const ROUND_TRIPS: usize = 200;
@@ -182,8 +189,15 @@ fn round_trip(device: &wgpu::Device, queue: &wgpu::Queue) {
         last = once();
     }
     let per = ms(t) / ROUND_TRIPS as f64;
-    assert_eq!(last, first + ROUND_TRIPS as u32, "the counter counts every dispatch");
-    println!("   round trip (dispatch + 4-byte read): first {first_ms:.2} ms, then {:.1} µs each", per * 1e3);
+    assert_eq!(
+        last,
+        first + ROUND_TRIPS as u32,
+        "the counter counts every dispatch"
+    );
+    println!(
+        "   round trip (dispatch + 4-byte read): first {first_ms:.2} ms, then {:.1} µs each",
+        per * 1e3
+    );
 }
 
 fn bandwidth(device: &wgpu::Device, queue: &wgpu::Queue) {
@@ -277,7 +291,11 @@ fn cmul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> { return vec2(a.x*b.x - a.y*b.y
         .collect();
     let groups = u32::try_from((n / 2).div_ceil(64)).expect("fits");
     let max = device.limits().max_compute_workgroups_per_dimension;
-    let (gx, gy) = if groups <= max { (groups, 1) } else { (max, groups.div_ceil(max)) };
+    let (gx, gy) = if groups <= max {
+        (groups, 1)
+    } else {
+        (max, groups.div_ceil(max))
+    };
     let rb = readback(device, 8);
     let run = |count: u32| {
         let mut enc = device.create_command_encoder(&Default::default());

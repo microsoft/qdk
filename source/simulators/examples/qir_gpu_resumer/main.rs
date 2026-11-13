@@ -13,11 +13,24 @@
 //!   what the tests expect and the CPU's distribution;
 //! - `bench,<programs.json>,<qubits>:<shots>:<strategy>,...`: the bench
 //!   program, a warm-up then the best of 3, with the time's breakdown;
+//! - `compare,<programs.json>,<qubits|name>:<shots>[:<p>[:gates]],...`: the
+//!   current GPU simulator and the resumer on the same program and noise,
+//!   timed alike in this process, interleaved;
 //! - `profile,<qubits>:<shots>,...`: the GPU time of each kind of pass;
 //! - `state,<qubits>:<shots>:<gates>,...`: the state after a random batch
 //!   of every gate kind, for each strategy, against an f64 reference.
 //!
 //! GL processes hang at exit here: every mode ends with libc's `_exit`.
+
+// Spike code: the crate's pedantic lints are relaxed for the harness.
+#![allow(
+    clippy::bool_to_int_with_if,
+    clippy::cast_possible_truncation,
+    clippy::items_after_statements,
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    clippy::too_many_lines
+)]
 
 #[path = "../../tests/run_shot_compatibility/bytecode_json.rs"]
 mod bytecode_json;
@@ -33,7 +46,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use num_complex::Complex64;
+use qdk_simulators::bytecode::{
+    AdaptiveProgram, Block, Function, Instruction, Op as BytecodeOp, PhiNodeEntry, SwitchCase,
+};
 use qdk_simulators::cpu_full_state_simulator::FullStateSimulator;
+use qdk_simulators::gpu_context::GpuContext;
 use qdk_simulators::noise_config::{CumulativeNoiseConfig, LossPolicy, NoiseConfig, NoiseTable};
 use qdk_simulators::qir::{
     OperatorMatrix, QirCall, QirGate, QirMachine, QirOutcome, QirProgram, QirResumer, QirShotId,
@@ -86,6 +103,7 @@ fn main() {
         "tests" => tests_mode(&gpu, words[1]),
         "noisy" => noisy_mode(&gpu, &words[1..]),
         "bench" => bench_mode(&gpu, &words[1..]),
+        "compare" => compare_mode(&gpu, &words[1..]),
         "profile" => profile_mode(&gpu, &words[1..]),
         "state" => state_mode(&gpu, &words[1..]),
         other => {
@@ -192,8 +210,8 @@ fn cpu_noisy_shots(
         )
     };
     let per_shot = 16u64 << machine.program().qubits();
-    let chunk = u32::try_from(((2u64 << 30) / per_shot).clamp(1, u64::from(shots.max(1))))
-        .expect("fits");
+    let chunk =
+        u32::try_from(((2u64 << 30) / per_shot).clamp(1, u64::from(shots.max(1)))).expect("fits");
     let mut records = Vec::new();
     for first in (0..shots).step_by(chunk as usize) {
         let ids: Vec<QirShotId> = (first..(first + chunk).min(shots)).map(QirShotId).collect();
@@ -470,6 +488,10 @@ struct Programs {
 struct Named {
     name: String,
     bytecode: Bytecode,
+    /// The same program in the current GPU simulator's 32-bit encoding
+    /// (`Bytecode.Bit32`: f32 angles), for the timed workloads only.
+    #[serde(default)]
+    bytecode32: Option<Bytecode>,
 }
 
 fn load_programs(paths: &str) -> Vec<(String, QirProgram)> {
@@ -742,6 +764,314 @@ fn bench_one(
     );
 }
 
+/// The timed runs of each simulator in `compare` mode, after its warm-up.
+const COMPARE_RUNS: usize = 5;
+
+/// A timed run: its seconds and every shot's records, or why it failed.
+type TimedRun<'a> = Box<dyn FnMut() -> Result<(f64, Vec<Vec<OutputRecord>>), String> + 'a>;
+
+/// `compare,<programs>,<qubits|name>:<shots>[:<p>[:gates]],...`: for each
+/// configuration, the current GPU simulator (`GpuContext`'s adaptive path,
+/// on the program's 32-bit bytecode) and the resumer with strategies `all`
+/// (which drops the final `ResetAll`) and `notail` (which runs it), all
+/// under `depolarizing(p)`, or with `gates` under `depolarizing_gates(p)`
+/// (no noise on measurements).
+///
+/// Every timer spans the same work: one call that runs every shot of the
+/// loaded program and returns each shot's results, in this process (no
+/// compilation, no Python). Each simulator runs once to warm up (the current
+/// simulator's first run compiles its shader; the resumer compiles its
+/// pipelines before any run), then `COMPARE_RUNS` times, interleaved, the
+/// order rotating each round. Prints each one's best, median and worst, the
+/// ratios of best to best and median to median, and how far the current
+/// simulator's outcomes are from each resumer's (z above 5 fails). When a
+/// shot of the current simulator fails, prints why and times the resumer
+/// alone.
+#[allow(clippy::too_many_lines)]
+fn compare_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
+    let programs = load_programs(words[0]);
+    let programs32 = load_programs32(words[0]);
+    let mut ok = true;
+    for config in &words[1..] {
+        let parts: Vec<&str> = config.split(':').collect();
+        let name = match parts[0].parse::<u32>() {
+            Ok(n) => format!("bench_{n}"),
+            Err(_) => parts[0].to_string(),
+        };
+        let shots: u32 = parts[1].parse().expect("shots");
+        let p: f64 = parts.get(2).map_or(0.0, |p| p.parse().expect("a rate"));
+        let (noise, model) = match parts.get(3) {
+            None => (depolarizing(p), "every gate, move and measurement"),
+            Some(&"gates") => (depolarizing_gates(p), "every gate and move"),
+            Some(other) => panic!("unknown noise model {other}"),
+        };
+        let label = format!("{name} shots={shots} p={p:e} on {model}");
+        let (_, program) = programs
+            .iter()
+            .find(|(n, _)| *n == name)
+            .expect("the program");
+        let (_, bytecode32) = programs32
+            .iter()
+            .find(|(n, _)| *n == name)
+            .expect("the program's 32-bit bytecode");
+        let machine = QirMachine::new(program);
+        let ids = QirShotId::first(shots);
+        let shot_count = i32::try_from(shots).expect("the shots fit in an i32");
+
+        // As `qdk_simulators::run_adaptive_shots_sync` sets it up: noise,
+        // then the program.
+        let mut current = GpuContext::adaptive();
+        current.set_noise_config(noise_f32(&noise));
+        current
+            .set_adaptive_program(narrow(&bytecode32.program()))
+            .expect("the current simulator takes the program");
+        let run_current = move || {
+            let t = Instant::now();
+            let results = current.run_adaptive_shots_sync(shot_count, 7, 0)?;
+            let seconds = t.elapsed().as_secs_f64();
+            let failed: BTreeMap<u32, usize> = results
+                .shot_result_codes
+                .iter()
+                .filter(|&&code| code != 0)
+                .fold(BTreeMap::new(), |mut counts, &code| {
+                    *counts.entry(code).or_default() += 1;
+                    counts
+                });
+            if !failed.is_empty() {
+                return Err(format!("failed shots by error code: {failed:?}"));
+            }
+            let records = results
+                .shot_output_records
+                .iter()
+                .map(|values| {
+                    values
+                        .iter()
+                        .map(|&v| {
+                            OutputRecord::Result(match v {
+                                0 => MeasurementResult::Zero,
+                                1 => MeasurementResult::One,
+                                _ => MeasurementResult::Loss,
+                            })
+                        })
+                        .collect()
+                })
+                .collect();
+            Ok((seconds, records))
+        };
+        let resumer = |strategy: &str| -> TimedRun<'_> {
+            let mut resumer =
+                QirGpuResumer::new(gpu.clone(), Strategy::named(strategy).expect("a strategy"))
+                    .with_noise(&noise)
+                    .with_seed(7);
+            let (machine, ids) = (&machine, &ids);
+            Box::new(move || {
+                let t = Instant::now();
+                let records = expect_ready(resumer.run(machine, ids)).expect("the resumer runs");
+                Ok((t.elapsed().as_secs_f64(), records))
+            })
+        };
+        let mut runs: Vec<(&str, TimedRun<'_>)> = vec![
+            ("current", Box::new(run_current)),
+            ("resumer", resumer("all")),
+            ("resumer+reset", resumer("notail")),
+        ];
+
+        let mut first = Vec::new();
+        let mut outcomes = Vec::new();
+        let mut kept = Vec::new();
+        for (who, run) in runs.drain(..) {
+            let mut run = run;
+            match run() {
+                Ok((seconds, records)) => {
+                    assert_eq!(records.len(), shots as usize, "one result per shot");
+                    first.push(seconds);
+                    outcomes.push(records);
+                    kept.push((who, run));
+                }
+                Err(why) => println!("FAILS {label}: {who}: {why}"),
+            }
+        }
+        let mut runs = kept;
+        let mut times = vec![Vec::new(); runs.len()];
+        for round in 0..COMPARE_RUNS {
+            for j in 0..runs.len() {
+                let i = (j + round) % runs.len();
+                let (seconds, records) = (runs[i].1)().expect("a run that warmed up runs again");
+                assert_eq!(records.len(), shots as usize, "one result per shot");
+                times[i].push(seconds);
+            }
+        }
+        let summary: Vec<(f64, f64, f64)> = times
+            .iter_mut()
+            .map(|t| {
+                t.sort_by(f64::total_cmp);
+                (t[0], t[t.len() / 2], t[t.len() - 1])
+            })
+            .collect();
+        println!(
+            "COMPARE {label}: {}",
+            runs.iter()
+                .zip(&summary)
+                .zip(&first)
+                .map(|(((who, _), (best, median, worst)), first)| format!(
+                    "{who} best {best:.4} s, median {median:.4} s, worst {worst:.4} s \
+                     (warm-up {first:.3} s)"
+                ))
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        if runs.len() == 3 {
+            println!(
+                "RATIO {label}: reset kept {:.2}x best, {:.2}x median; \
+                 reset dropped {:.2}x best, {:.2}x median",
+                summary[0].0 / summary[2].0,
+                summary[0].1 / summary[2].1,
+                summary[0].0 / summary[1].0,
+                summary[0].1 / summary[1].1,
+            );
+            for i in 1..3 {
+                let (tvd, z) = compare(&outcomes[0], &outcomes[i]);
+                let agree = z <= 5.0;
+                ok &= agree;
+                println!(
+                    "OUTCOMES {label}: current vs {}: tvd {tvd:.4}, z {z:.2}: {}",
+                    runs[i].0,
+                    if agree { "ok" } else { "DIFFER" }
+                );
+            }
+        }
+        drop(runs);
+    }
+    ok
+}
+
+/// The programs' 32-bit bytecode, by name, for those that have it.
+fn load_programs32(paths: &str) -> Vec<(String, Bytecode)> {
+    paths
+        .split('+')
+        .flat_map(|path| {
+            let text = std::fs::read_to_string(path).expect("the programs file reads");
+            let programs: Programs = serde_json::from_str(&text).expect("the programs parse");
+            programs.programs
+        })
+        .filter_map(|p| Some((p.name, p.bytecode32?)))
+        .collect()
+}
+
+/// A 32-bit bytecode program (read through the 64-bit JSON reader) in the
+/// word type the current GPU simulator takes.
+fn narrow(p: &AdaptiveProgram<u64>) -> AdaptiveProgram<u32> {
+    let w = |v: u64| u32::try_from(v).expect("a word of 32-bit bytecode fits in 32 bits");
+    AdaptiveProgram {
+        num_qubits: p.num_qubits,
+        num_results: p.num_results,
+        num_registers: p.num_registers,
+        entry_block: w(p.entry_block),
+        instructions: p
+            .instructions
+            .iter()
+            .map(|i| Instruction {
+                opcode: w(i.opcode),
+                dst: w(i.dst),
+                src0: w(i.src0),
+                src1: w(i.src1),
+                aux0: w(i.aux0),
+                aux1: w(i.aux1),
+                aux2: w(i.aux2),
+                aux3: w(i.aux3),
+            })
+            .collect(),
+        block_table: p
+            .block_table
+            .iter()
+            .map(|b| Block {
+                instr_offset: w(b.instr_offset),
+                instr_count: w(b.instr_count),
+            })
+            .collect(),
+        function_table: p
+            .function_table
+            .iter()
+            .map(|f| Function {
+                entry_block_id: w(f.entry_block_id),
+                param_count: w(f.param_count),
+                param_base_reg: w(f.param_base_reg),
+                reserved: w(f.reserved),
+            })
+            .collect(),
+        phi_entries: p
+            .phi_entries
+            .iter()
+            .map(|e| PhiNodeEntry {
+                block_id: w(e.block_id),
+                val_reg: w(e.val_reg),
+            })
+            .collect(),
+        switch_cases: p
+            .switch_cases
+            .iter()
+            .map(|c| SwitchCase {
+                case_val: w(c.case_val),
+                target_block: w(c.target_block),
+            })
+            .collect(),
+        call_args: p.call_args.iter().map(|&v| w(v)).collect(),
+        constant_data: p.constant_data.iter().map(|&v| w(v)).collect(),
+        quantum_ops: p
+            .quantum_ops
+            .iter()
+            .map(|op| BytecodeOp {
+                op_id: w(op.op_id),
+                q1: w(op.q1),
+                q2: w(op.q2),
+                q3: w(op.q3),
+                angle: w(op.angle),
+            })
+            .collect(),
+    }
+}
+
+/// `config` with f32 probabilities, as the Python `NoiseConfig` hands it to
+/// the current GPU simulator.
+fn noise_f32(config: &NoiseConfig<f64, f64>) -> NoiseConfig<f32, f64> {
+    #[allow(clippy::cast_possible_truncation)]
+    let t = |table: &NoiseTable<f64>| NoiseTable {
+        qubits: table.qubits,
+        pauli_strings: table.pauli_strings.clone(),
+        probabilities: table.probabilities.iter().map(|&p| p as f32).collect(),
+        on_loss: table.on_loss,
+    };
+    NoiseConfig {
+        i: t(&config.i),
+        x: t(&config.x),
+        y: t(&config.y),
+        z: t(&config.z),
+        h: t(&config.h),
+        s: t(&config.s),
+        s_adj: t(&config.s_adj),
+        t: t(&config.t),
+        t_adj: t(&config.t_adj),
+        sx: t(&config.sx),
+        sx_adj: t(&config.sx_adj),
+        rx: t(&config.rx),
+        ry: t(&config.ry),
+        rz: t(&config.rz),
+        cx: t(&config.cx),
+        cy: t(&config.cy),
+        cz: t(&config.cz),
+        rxx: t(&config.rxx),
+        ryy: t(&config.ryy),
+        rzz: t(&config.rzz),
+        swap: t(&config.swap),
+        ccx: t(&config.ccx),
+        mov: t(&config.mov),
+        mz: t(&config.mz),
+        mresetz: t(&config.mresetz),
+        idle: config.idle,
+        intrinsics: config.intrinsics.clone(),
+    }
+}
+
 /// `profile,n:shots,...`: milliseconds per pass of each kind.
 fn profile_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
     let mut resumer = QirGpuResumer::new(gpu.clone(), Strategy::ALL);
@@ -918,6 +1248,14 @@ fn state_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
     ok
 }
 
+/// `depolarizing(p)` without noise on measurements (`mz`, `mresetz`).
+fn depolarizing_gates(p: f64) -> NoiseConfig<f64, f64> {
+    let mut config = depolarizing(p);
+    config.mz = NoiseTable::noiseless(1);
+    config.mresetz = NoiseTable::noiseless(1);
+    config
+}
+
 /// Depolarizing noise of rate `p` after every gate, measurement and move
 /// (`set_depolarizing(p)` on each table, as the Python `NoiseConfig` sets
 /// it: each non-identity Pauli string of the table's qubits with
@@ -1031,14 +1369,19 @@ fn noisy_mode(gpu: &Rc<Gpu>, words: &[&str]) -> bool {
             .find(|(p, _)| p == name)
             .expect("the program");
         let machine = QirMachine::new(program);
-        let mut resumer =
-            QirGpuResumer::new(gpu.clone(), Strategy::named(strategy_name).expect("a strategy"))
-                .with_noise(&config);
+        let mut resumer = QirGpuResumer::new(
+            gpu.clone(),
+            Strategy::named(strategy_name).expect("a strategy"),
+        )
+        .with_noise(&config);
         let t = Instant::now();
         let gpu_shots = match expect_ready(resumer.run(&machine, &QirShotId::first(shots))) {
             Ok(records) => records,
             Err(error) => {
-                println!("NOISY {name} {} {strategy_name}: refused: {error}", words[1]);
+                println!(
+                    "NOISY {name} {} {strategy_name}: refused: {error}",
+                    words[1]
+                );
                 continue;
             }
         };
@@ -1147,7 +1490,11 @@ fn groups_mode(words: &[&str]) -> bool {
                     for s in 0..n {
                         if let Some(g) = assign[s] {
                             outcomes[s].clear();
-                            simulator_resumer::run_batch(&mut sims[s], &batches[g], &mut outcomes[s]);
+                            simulator_resumer::run_batch(
+                                &mut sims[s],
+                                &batches[g],
+                                &mut outcomes[s],
+                            );
                         }
                     }
                     if rounds.len() <= round {
@@ -1169,12 +1516,7 @@ fn groups_mode(words: &[&str]) -> bool {
                 } else {
                     gpu_resumer::common_ends(batches)
                 };
-                calls += pre
-                    + suf
-                    + batches
-                        .iter()
-                        .map(|b| b.len() - pre - suf)
-                        .sum::<usize>();
+                calls += pre + suf + batches.iter().map(|b| b.len() - pre - suf).sum::<usize>();
                 all_calls += batches.iter().map(Vec::len).sum::<usize>();
                 per_round.push(batches.len());
             }

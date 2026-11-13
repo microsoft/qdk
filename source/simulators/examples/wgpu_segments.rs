@@ -15,6 +15,14 @@
 //!
 //! Run: `cargo run --release -p qdk_simulators --example wgpu_segments -- 12,1024 20,1`
 
+// Spike code: the crate's pedantic lints are relaxed here.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names,
+    clippy::similar_names
+)]
+
 use std::time::Instant;
 
 const ROUNDS: usize = 8;
@@ -266,7 +274,12 @@ fn reference(n: u32, ones: &[Vec<bool>]) -> Vec<Vec<f64>> {
                     }
                 }
             }
-            let p1: f64 = s.iter().skip(1).step_by(2).map(|a| a[0] * a[0] + a[1] * a[1]).sum();
+            let p1: f64 = s
+                .iter()
+                .skip(1)
+                .step_by(2)
+                .map(|a| a[0] * a[0] + a[1] * a[1])
+                .sum();
             all[r][shot] = p1;
             let one = ones[r][shot];
             let inv = 1.0 / (if one { p1 } else { 1.0 - p1 }).sqrt();
@@ -371,32 +384,47 @@ impl Gpu {
             mapped_at_creation: false,
         });
         self.queue.write_buffer(&uniforms, 0, &bytes);
-        let bind = |p: &wgpu::ComputePipeline, slot: u64, size: u64, extra: Option<&wgpu::Buffer>| {
-            let mut entries = vec![
-                wgpu::BindGroupEntry { binding: 0, resource: state.as_entire_binding() },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &uniforms,
-                        offset: slot * SLOT,
-                        size: std::num::NonZeroU64::new(size),
-                    }),
-                },
-            ];
-            if let Some(b) = extra {
-                entries.push(wgpu::BindGroupEntry { binding: 2, resource: b.as_entire_binding() });
-            }
-            d.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &p.get_bind_group_layout(0),
-                entries: &entries,
-            })
-        };
+        let bind =
+            |p: &wgpu::ComputePipeline, slot: u64, size: u64, extra: Option<&wgpu::Buffer>| {
+                let mut entries = vec![
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: state.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &uniforms,
+                            offset: slot * SLOT,
+                            size: std::num::NonZeroU64::new(size),
+                        }),
+                    },
+                ];
+                if let Some(b) = extra {
+                    entries.push(wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: b.as_entire_binding(),
+                    });
+                }
+                d.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: &p.get_bind_group_layout(0),
+                    entries: &entries,
+                })
+            };
         let gate_bgs: Vec<Vec<_>> = (0..ROUNDS)
-            .map(|r| (0..n).map(|q| bind(&self.gate1, gate_slot(r, q), 48, None)).collect())
+            .map(|r| {
+                (0..n)
+                    .map(|q| bind(&self.gate1, gate_slot(r, q), 48, None))
+                    .collect()
+            })
             .collect();
-        let cz_bgs: Vec<_> = (0..n - 1).map(|q| bind(&self.cz1, cz_slot(q), 48, None)).collect();
-        let block_bgs: Vec<_> = (0..ROUNDS).map(|r| bind(&self.block, block_slot(r), 320, None)).collect();
+        let cz_bgs: Vec<_> = (0..n - 1)
+            .map(|q| bind(&self.cz1, cz_slot(q), 48, None))
+            .collect();
+        let block_bgs: Vec<_> = (0..ROUNDS)
+            .map(|r| bind(&self.block, block_slot(r), 320, None))
+            .collect();
         let chain_bg = bind(&self.czchain, 0, 48, None);
         let prob_bg = bind(&self.prob, 0, 48, Some(&partial));
         let collapse_bg = bind(&self.collapse, 0, 48, Some(&flags));
@@ -411,22 +439,28 @@ impl Gpu {
         let max = d.limits().max_compute_workgroups_per_dimension;
         let shape = |groups: u64| {
             let groups = u32::try_from(groups).expect("fits");
-            if groups <= max { (groups, 1) } else { (max, groups.div_ceil(max)) }
+            if groups <= max {
+                (groups, 1)
+            } else {
+                (max, groups.div_ceil(max))
+            }
         };
         let threads = |count: u64| shape(count.div_ceil(u64::from(WG)));
 
-        self.queue.write_buffer(&state, 0, bytemuck::cast_slice(&init));
+        self.queue
+            .write_buffer(&state, 0, bytemuck::cast_slice(&init));
         self.queue.submit([]);
         wait(d);
         let started = Instant::now();
         for r in 0..=ROUNDS {
             let mut enc = d.create_command_encoder(&Default::default());
-            let mut pass_with = |p: &wgpu::ComputePipeline, bg: &wgpu::BindGroup, dims: (u32, u32)| {
-                let mut pass = enc.begin_compute_pass(&Default::default());
-                pass.set_pipeline(p);
-                pass.set_bind_group(0, bg, &[]);
-                pass.dispatch_workgroups(dims.0, dims.1, 1);
-            };
+            let mut pass_with =
+                |p: &wgpu::ComputePipeline, bg: &wgpu::BindGroup, dims: (u32, u32)| {
+                    let mut pass = enc.begin_compute_pass(&Default::default());
+                    pass.set_pipeline(p);
+                    pass.set_bind_group(0, bg, &[]);
+                    pass.dispatch_workgroups(dims.0, dims.1, 1);
+                };
             if r > 0 {
                 if strategy == Strategy::PerGate {
                     pass_with(&self.collapse, &collapse_bg, threads(amps / 2));
@@ -484,7 +518,11 @@ impl Gpu {
             p1s.push(p1);
             ones_all.push(ones);
         }
-        Outcome { seconds: started.elapsed().as_secs_f64(), p1: p1s, ones: ones_all }
+        Outcome {
+            seconds: started.elapsed().as_secs_f64(),
+            p1: p1s,
+            ones: ones_all,
+        }
     }
 }
 
@@ -493,7 +531,9 @@ fn ms(t: Instant) -> f64 {
 }
 
 fn wait(device: &wgpu::Device) {
-    device.poll(wgpu::PollType::wait_indefinitely()).expect("poll");
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("poll");
 }
 
 fn read_back(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
@@ -509,7 +549,9 @@ fn storage(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_SRC
+            | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
 }

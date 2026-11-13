@@ -322,8 +322,7 @@ impl GpuResources {
                 // Note that mappable primary buffers are a native-only feature, but using here to
                 // workaround the Xcode bug described in https://github.com/gfx-rs/wgpu/issues/8111.
                 // This will need to be revisited for web support.
-                required_features: wgpu::Features::MAPPABLE_PRIMARY_BUFFERS
-                    & adapter.features(), // TODO: Can remove this?
+                required_features: wgpu::Features::MAPPABLE_PRIMARY_BUFFERS & adapter.features(), // TODO: Can remove this?
                 required_limits,
                 memory_hints: wgpu::MemoryHints::Performance,
                 ..Default::default()
