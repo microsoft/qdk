@@ -52,7 +52,7 @@ mod device_chain;
 mod device_tensors;
 mod error;
 mod gates;
-mod mpo;
+pub(crate) mod mpo;
 mod reads;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod self_checks;

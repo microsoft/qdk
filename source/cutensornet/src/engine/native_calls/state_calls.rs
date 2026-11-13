@@ -313,6 +313,30 @@ pub(crate) trait StateCalls: super::memory_calls::MemoryCalls {
         factor_modes: &[Box<[i32]>],
         factor_tensors: &[OpaqueHandle],
     ) -> Result<(), EngineError>;
+    /// Development only (`with_dev_wide_operators`):
+    /// `cutensornetNetworkOperatorAppendMPO`, an open-boundary MPO on
+    /// `modes`, one tensor per mode with default (column-major) strides,
+    /// modes `(previous bond, ket, next bond, bra)`, the first without its
+    /// previous bond and the last without its next. The tensors must stay
+    /// allocated as long as the operator.
+    fn append_mpo(
+        &self,
+        handle: OpaqueHandle,
+        operator: OpaqueHandle,
+        modes: &[i32],
+        tensor_extents: &[Box<[i64]>],
+        tensors: &[OpaqueHandle],
+    ) -> Result<(), EngineError>;
+    /// Development only (`with_dev_wide_operators`):
+    /// `cutensornetStateApplyNetworkOperator`, immutable, as the library
+    /// requires. The operator must stay alive as long as the state.
+    fn apply_network_operator(
+        &self,
+        handle: OpaqueHandle,
+        state: OpaqueHandle,
+        operator: OpaqueHandle,
+        unitary: bool,
+    ) -> Result<(), EngineError>;
     fn create_expectation(
         &self,
         handle: OpaqueHandle,

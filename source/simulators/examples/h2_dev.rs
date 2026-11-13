@@ -48,7 +48,8 @@
 //! with `--routing engine` only); `--apply mpo` makes the CPU engine and
 //! `cuda-mps` apply every operator on non-adjacent sites as an MPO
 //! (`CpuMpsEngine::with_dev_mpo_far`, `CudaMpsEngine::with_dev_mpo_far`),
-//! and makes `cutensornet` pass three-site operators to the library
+//! and makes `cutensornet` pass three-site operators to the library as one
+//! MPO
 //! (`CuTensorNetEngine::with_dev_wide_operators`); `--reset merge` keeps a
 //! grouped call's shots together at a run of resets that settles every site
 //! (`DevResetHandling::Merge`; it acts only with `--group`). `--qr-moves`

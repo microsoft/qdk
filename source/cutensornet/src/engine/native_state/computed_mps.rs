@@ -183,11 +183,7 @@ impl NativeState {
         unitary: bool,
     ) -> Result<(), EngineError> {
         let device_session = Rc::clone(&self.device_session);
-        if self.realized.is_some() && self.computes_since_restart >= RESTART_PERIOD {
-            let restart_started = Instant::now();
-            self.restart()?;
-            device_session.record_dev_time(|times| times.restart.add_since(restart_started));
-        }
+        self.restart_if_due()?;
         let apply_started = Instant::now();
         let calls = device_session.calls();
         let bytes = complex_bytes(matrix.len(), "operator tensor")?;
@@ -199,6 +195,62 @@ impl NativeState {
         calls.apply_tensor_operator(self.handle(), self.state()?, &modes, tensor, unitary)?;
         self.operator_modes.push(modes);
         device_session.record_dev_time(|times| times.apply.add_since(apply_started));
+        Ok(())
+    }
+
+    /// Development only (`with_dev_wide_operators`): uploads each MPO
+    /// tensor (its extents and its column-major elements), appends them to
+    /// a new network operator as one open-boundary MPO on `modes`, and
+    /// applies it to the state as a unitary. The operator and its tensors
+    /// are kept as long as the native state, as a tensor operator's are.
+    pub(super) fn apply_mpo(
+        &mut self,
+        modes: Box<[i32]>,
+        tensors: Vec<(Box<[i64]>, Vec<Complex64Abi>)>,
+    ) -> Result<(), EngineError> {
+        let device_session = Rc::clone(&self.device_session);
+        self.restart_if_due()?;
+        let apply_started = Instant::now();
+        let calls = device_session.calls();
+        let mut buffers = Vec::with_capacity(tensors.len());
+        let mut extents = Vec::with_capacity(tensors.len());
+        for (tensor_extents, elements) in tensors {
+            let bytes = complex_bytes(elements.len(), "MPO tensor")?;
+            let buffer = self.take_buffer(bytes)?;
+            self.operator_tensors.push(buffer);
+            calls.copy_to_device(buffer, &elements)?;
+            buffers.push(buffer);
+            extents.push(tensor_extents);
+        }
+        let handle = self.handle();
+        let operator = calls.create_network_operator(handle, &self.state_extents)?;
+        self.mpo_operators.push(operator);
+        self.realized = None;
+        self.last_probability_of_one = None;
+        let first = self.mpo_extents.len();
+        self.mpo_extents.extend(extents);
+        calls.append_mpo(
+            handle,
+            operator,
+            &modes,
+            &self.mpo_extents[first..],
+            &buffers,
+        )?;
+        calls.apply_network_operator(handle, self.state()?, operator, true)?;
+        self.operator_modes.push(modes);
+        device_session.record_dev_time(|times| times.apply.add_since(apply_started));
+        Ok(())
+    }
+
+    /// Restarts the native state if `RESTART_PERIOD` computes have passed
+    /// since the last restart and it is computed.
+    fn restart_if_due(&mut self) -> Result<(), EngineError> {
+        if self.realized.is_some() && self.computes_since_restart >= RESTART_PERIOD {
+            let device_session = Rc::clone(&self.device_session);
+            let restart_started = Instant::now();
+            self.restart()?;
+            device_session.record_dev_time(|times| times.restart.add_since(restart_started));
+        }
         Ok(())
     }
 
@@ -244,6 +296,10 @@ impl NativeState {
         if let Some(previous) = self.workspace.replace(workspace) {
             released.push(calls.destroy_workspace(previous));
         }
+        for operator in std::mem::take(&mut self.mpo_operators) {
+            released.push(calls.destroy_network_operator(operator));
+        }
+        self.mpo_extents.clear();
         self.operator_modes.clear();
         for tensor in std::mem::take(&mut self.operator_tensors) {
             released.push(self.release_buffer(tensor));

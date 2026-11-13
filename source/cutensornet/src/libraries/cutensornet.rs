@@ -169,6 +169,11 @@ super::loader::function_table! {
         required get_version: context::GetVersionFn = cutensornetGetVersion,
         required apply_tensor_operator: state::ApplyTensorOperatorFn =
             cutensornetStateApplyTensorOperator,
+        // Development only: `with_dev_wide_operators`' MPOs; discovery
+        // does not need them.
+        optional apply_network_operator: state::ApplyNetworkOperatorFn =
+            cutensornetStateApplyNetworkOperator,
+        optional append_mpo: operator::AppendMpoFn = cutensornetNetworkOperatorAppendMPO,
         required capture_mps: state::CaptureMpsFn = cutensornetStateCaptureMPS,
         required create_state: state::CreateStateFn = cutensornetCreateState,
         required destroy_state: state::DestroyStateFn = cutensornetDestroyState,

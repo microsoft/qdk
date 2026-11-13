@@ -90,6 +90,11 @@ pub(super) struct NativeState {
     /// and their modes, released with it.
     operator_tensors: Vec<OpaqueHandle>,
     operator_modes: Vec<Box<[i32]>>,
+    /// Development only (`with_dev_wide_operators`): the network operators
+    /// (one MPO each) applied to the native state, and their tensors'
+    /// extents, released with it.
+    mpo_operators: Vec<OpaqueHandle>,
+    mpo_extents: Vec<Box<[i64]>>,
     /// The outputs of the last compute, one per site, also in `allocations`.
     computed_buffers: Vec<OpaqueHandle>,
     /// The extents and strides the last compute wrote its outputs with,
@@ -148,6 +153,8 @@ impl NativeState {
             allocations: Vec::new(),
             operator_tensors: Vec::new(),
             operator_modes: Vec::new(),
+            mpo_operators: Vec::new(),
+            mpo_extents: Vec::new(),
             computed_buffers: Vec::new(),
             computed_layout: None,
             computes_since_restart: 0,
@@ -198,6 +205,60 @@ impl NativeState {
             .collect::<Result<Box<[i32]>, _>>()?;
         let matrix: Box<[Complex64Abi]> = matrix.iter().copied().map(Complex64Abi::from).collect();
         self.poison_on_error(|native| native.apply_operator(modes, &matrix, true))
+    }
+
+    /// Development only (`with_dev_wide_operators`): applies a unitary on
+    /// three sites or more (distinct, in any order, `sites[0]` the most
+    /// significant bit) as one MPO, since cuTensorNet's MPS simulation
+    /// takes tensor operators on one or two modes only. The MPO is the
+    /// operator's exact decomposition by host SVDs on the sites ascending
+    /// (`cuda_mps_engine::mpo::operator_mpo`), in cuTensorNet's layout.
+    pub(super) fn apply_wide(
+        &mut self,
+        sites: &[usize],
+        matrix: &[Complex64],
+    ) -> Result<(), EngineError> {
+        self.check_live()?;
+        let (sorted, permuted) = crate::cuda_mps_engine::mpo::ascending(sites, matrix);
+        let factors = crate::cuda_mps_engine::mpo::operator_mpo(&permuted, sorted.len()).map_err(
+            |error| EngineError::InvalidNativeCall {
+                reason: format!("the operator's MPO: {error}"),
+            },
+        )?;
+        let modes = sorted
+            .iter()
+            .map(|&site| mode(site))
+            .collect::<Result<Box<[i32]>, _>>()?;
+        let last = factors.len() - 1;
+        let mut tensors = Vec::with_capacity(factors.len());
+        for (at, factor) in factors.iter().enumerate() {
+            let (left, right) = (factor.left, factor.right);
+            let extent = |value: usize| {
+                i64::try_from(value).map_err(|_| EngineError::ResourceSizeOverflow {
+                    resource: "MPO bond",
+                })
+            };
+            let extents: Box<[i64]> = if at == 0 {
+                Box::new([2, extent(right)?, 2])
+            } else if at == last {
+                Box::new([extent(left)?, 2, 2])
+            } else {
+                Box::new([extent(left)?, 2, extent(right)?, 2])
+            };
+            // From `W[kl, 2·out + in, kr]` to cuTensorNet's column-major
+            // `(kl, in = ket, kr, out = bra)`.
+            let mut elements = vec![Complex64Abi::from(Complex64::ZERO); left * 4 * right];
+            for (kl, kr, out, input) in (0..left).flat_map(|kl| {
+                (0..right).flat_map(move |kr| {
+                    (0..2).flat_map(move |out| (0..2).map(move |input| (kl, kr, out, input)))
+                })
+            }) {
+                elements[kl + left * (input + 2 * (kr + right * out))] =
+                    Complex64Abi::from(factor.w[kl + left * (2 * out + input + 4 * kr)]);
+            }
+            tensors.push((extents, elements));
+        }
+        self.poison_on_error(|native| native.apply_mpo(modes, tensors))
     }
 
     /// P(One) of `site`: ⟨Π₁⟩ / ⟨ψ|ψ⟩, one expectation on the computed
@@ -559,6 +620,10 @@ impl NativeState {
         if let Some(state) = self.state.take() {
             released.push(calls.destroy_state(state));
         }
+        for operator in std::mem::take(&mut self.mpo_operators) {
+            released.push(calls.destroy_network_operator(operator));
+        }
+        self.mpo_extents.clear();
         self.computed_buffers.clear();
         self.operator_modes.clear();
         self.allocations.append(&mut self.operator_tensors);

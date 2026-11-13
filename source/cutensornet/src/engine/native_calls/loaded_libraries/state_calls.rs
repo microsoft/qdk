@@ -418,6 +418,92 @@ impl StateCalls for LoadedLibraries {
         self.check_cutensornet("cutensornetNetworkOperatorAppendProduct", status)
     }
 
+    fn append_mpo(
+        &self,
+        handle: OpaqueHandle,
+        operator: OpaqueHandle,
+        modes: &[i32],
+        tensor_extents: &[Box<[i64]>],
+        tensors: &[OpaqueHandle],
+    ) -> Result<(), EngineError> {
+        let append_mpo = self.cutensornet.functions.append_mpo.ok_or_else(|| {
+            EngineError::InvalidNativeCall {
+                reason: "this cuTensorNet has no cutensornetNetworkOperatorAppendMPO".to_string(),
+            }
+        })?;
+        if modes.len() < 2 || modes.len() != tensor_extents.len() || modes.len() != tensors.len() {
+            return Err(EngineError::InvalidNativeCall {
+                reason: "an MPO needs two sites or more, one tensor and extents per site"
+                    .to_string(),
+            });
+        }
+        let mode_count =
+            i32::try_from(modes.len()).map_err(|_| EngineError::ResourceSizeOverflow {
+                resource: "MPO mode count",
+            })?;
+        let mut extent_pointers = tensor_extents
+            .iter()
+            .map(|extents| extents.as_ptr())
+            .collect::<Vec<_>>();
+        let mut tensor_pointers = tensors
+            .iter()
+            .map(|tensor| tensor.as_ptr().cast_const())
+            .collect::<Vec<_>>();
+        let mut component_id = 0;
+        // SAFETY: the handle and operator are live; `modes`, the extent and
+        // tensor tables have `mode_count` entries, retained by the caller;
+        // the tensors stay allocated until the operator is destroyed. Null
+        // strides select the default column-major layout. cuTensorNet
+        // declares the tables `*mut` but only reads them.
+        let status = unsafe {
+            append_mpo(
+                handle.as_ptr(),
+                operator.as_ptr(),
+                v2_13::double2 { x: 1.0, y: 0.0 },
+                mode_count,
+                modes.as_ptr(),
+                extent_pointers.as_mut_ptr(),
+                std::ptr::null_mut(),
+                tensor_pointers.as_mut_ptr(),
+                v2_13::cutensornetBoundaryCondition_t_CUTENSORNET_BOUNDARY_CONDITION_OPEN,
+                &raw mut component_id,
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkOperatorAppendMPO", status)
+    }
+
+    fn apply_network_operator(
+        &self,
+        handle: OpaqueHandle,
+        state: OpaqueHandle,
+        operator: OpaqueHandle,
+        unitary: bool,
+    ) -> Result<(), EngineError> {
+        let apply = self
+            .cutensornet
+            .functions
+            .apply_network_operator
+            .ok_or_else(|| EngineError::InvalidNativeCall {
+                reason: "this cuTensorNet has no cutensornetStateApplyNetworkOperator".to_string(),
+            })?;
+        let mut operator_id = 0;
+        // SAFETY: the handle, state and operator are live, and the caller
+        // keeps the operator alive as long as the state. Immutable (1), as
+        // the library requires; not adjoint (0).
+        let status = unsafe {
+            apply(
+                handle.as_ptr(),
+                state.as_ptr(),
+                operator.as_ptr(),
+                1,
+                0,
+                i32::from(unitary),
+                &raw mut operator_id,
+            )
+        };
+        self.check_cutensornet("cutensornetStateApplyNetworkOperator", status)
+    }
+
     fn create_expectation(
         &self,
         handle: OpaqueHandle,

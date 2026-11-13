@@ -37,7 +37,7 @@
 //! `--engine cuda-mps|cutensornet` runs `CudaMpsEngine` or
 //! `CuTensorNetEngine` on a GPU (Linux x86-64); `--apply mpo` gives the
 //! first `with_dev_mpo_far` and the second `with_dev_wide_operators`
-//! (three-site operators passed to cuTensorNet); `--qr-moves`
+//! (three-site operators passed to cuTensorNet as one MPO); `--qr-moves`
 //! (`with_dev_qr_moves`) and `--svd-algo` (`with_dev_svd_algo`) set
 //! `cuda-mps`'s centre moves and SVD algorithm. `--engine reference` runs
 //! the exact state vector (`ExactReference`),

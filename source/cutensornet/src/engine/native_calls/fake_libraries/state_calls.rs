@@ -5,7 +5,7 @@
 //! computes, network operators and expectations.
 
 use super::{
-    Computed, FakeLibraries, FakeState, Object, failed, id,
+    Computed, FakeLibraries, FakeOperator, FakeState, Object, failed, id,
     state_vector::{StateVector, truncate},
 };
 use crate::engine::{
@@ -62,6 +62,11 @@ impl StateCalls for FakeLibraries {
         let mut inner = self.call(OPERATION)?;
         inner.owned(handle, state, OPERATION)?;
         inner.buffer(id(tensor), OPERATION)?;
+        // cuTensorNet's MPS simulation takes operators on one or two modes
+        // only: on more, its state prepare fails (an internal error).
+        if modes.len() > 2 {
+            return Err(failed(OPERATION, "an operator on more than two modes"));
+        }
         let sites = modes
             .iter()
             .map(|&mode| usize::try_from(mode).map_err(|_| failed(OPERATION, "negative mode")))
@@ -71,7 +76,9 @@ impl StateCalls for FakeLibraries {
         if sites.iter().any(|&site| site >= target.sites) {
             return Err(failed(OPERATION, "a mode outside the state"));
         }
-        target.operators.push((sites, id(tensor)));
+        target
+            .operators
+            .push(FakeOperator::Tensor(sites, id(tensor)));
         Ok(())
     }
 
@@ -221,8 +228,8 @@ impl StateCalls for FakeLibraries {
         } else {
             StateVector::zero(sites)
         };
-        for (sites, tensor) in &operators {
-            inner.apply(&mut computed, sites, *tensor, OPERATION)?;
+        for operator in &operators {
+            inner.apply(&mut computed, operator, OPERATION)?;
         }
         for (cut, &bond) in bonds.iter().enumerate() {
             // Only where a value is dropped: the eigenvectors of a nearly
@@ -358,7 +365,7 @@ impl StateCalls for FakeLibraries {
     fn destroy_network_operator(&self, operator: OpaqueHandle) -> Result<(), EngineError> {
         self.call("destroy_network_operator")?
             .destroy(operator, "destroy_network_operator", |o| {
-                matches!(o, Object::Operator(_))
+                matches!(o, Object::Operator(_) | Object::Mpo { .. })
             })
     }
 
@@ -392,6 +399,71 @@ impl StateCalls for FakeLibraries {
             }
             _ => Err(failed(OPERATION, "no such operator")),
         }
+    }
+
+    fn append_mpo(
+        &self,
+        handle: OpaqueHandle,
+        operator: OpaqueHandle,
+        modes: &[i32],
+        tensor_extents: &[Box<[i64]>],
+        tensors: &[OpaqueHandle],
+    ) -> Result<(), EngineError> {
+        const OPERATION: &str = "append_mpo";
+        let mut inner = self.call(OPERATION)?;
+        inner.owned(handle, operator, OPERATION)?;
+        if modes.len() < 2 || modes.len() != tensor_extents.len() || modes.len() != tensors.len() {
+            return Err(failed(OPERATION, "one tensor and extents per mode"));
+        }
+        for tensor in tensors {
+            inner.buffer(id(*tensor), OPERATION)?;
+        }
+        let sites = modes
+            .iter()
+            .map(|&mode| usize::try_from(mode).map_err(|_| failed(OPERATION, "negative mode")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let tensors = tensors
+            .iter()
+            .zip(tensor_extents)
+            .map(|(tensor, extents)| (id(*tensor), extents.clone()))
+            .collect();
+        let object = inner.objects.get_mut(&id(operator));
+        let Some(object @ Object::Operator(_)) = object else {
+            return Err(failed(OPERATION, "not a network operator"));
+        };
+        if !matches!(object, Object::Operator(products) if products.is_empty()) {
+            return Err(failed(OPERATION, "not an empty network operator"));
+        }
+        *object = Object::Mpo { sites, tensors };
+        Ok(())
+    }
+
+    fn apply_network_operator(
+        &self,
+        handle: OpaqueHandle,
+        state: OpaqueHandle,
+        operator: OpaqueHandle,
+        unitary: bool,
+    ) -> Result<(), EngineError> {
+        const OPERATION: &str = "apply_network_operator";
+        let mut inner = self.call(OPERATION)?;
+        inner.owned(handle, state, OPERATION)?;
+        inner.owned(handle, operator, OPERATION)?;
+        let Some(Object::Mpo { sites, .. }) = inner.objects.get(&id(operator)) else {
+            return Err(failed(OPERATION, "the fake applies an MPO only"));
+        };
+        let sites = sites.clone();
+        let modes = sites
+            .iter()
+            .map(|&site| i32::try_from(site).map_err(|_| failed(OPERATION, "mode overflow")))
+            .collect::<Result<Vec<_>, _>>()?;
+        inner.applied.push((modes, unitary));
+        let target = inner.state(state, OPERATION)?;
+        if sites.iter().any(|&site| site >= target.sites) {
+            return Err(failed(OPERATION, "a mode outside the state"));
+        }
+        target.operators.push(FakeOperator::Mpo(id(operator)));
+        Ok(())
     }
 
     fn create_expectation(
@@ -501,7 +573,11 @@ impl StateCalls for FakeLibraries {
         for (coefficient, factors) in products {
             let mut ket = computed.clone();
             for &(mode, tensor) in factors {
-                inner.apply(&mut ket, &[mode], tensor, OPERATION)?;
+                inner.apply(
+                    &mut ket,
+                    &FakeOperator::Tensor(vec![mode], tensor),
+                    OPERATION,
+                )?;
             }
             value += coefficient * computed.inner(&ket);
         }

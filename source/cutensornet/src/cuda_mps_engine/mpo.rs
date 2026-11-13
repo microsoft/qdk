@@ -45,11 +45,12 @@ use t4a_faer::{
 const OPERATOR_RANK_CUTOFF: f64 = 1e-12;
 
 /// One site's MPO tensor `W[kl, p, kr]`, `p = 2·out + in`, at
-/// `kl + left·(p + 4·kr)`.
-struct MpoSite {
-    left: usize,
-    right: usize,
-    w: Vec<Complex64>,
+/// `kl + left·(p + 4·kr)`. Also `CuTensorNetEngine::with_dev_wide_operators`'
+/// MPOs.
+pub(crate) struct MpoSite {
+    pub(crate) left: usize,
+    pub(crate) right: usize,
+    pub(crate) w: Vec<Complex64>,
 }
 
 impl MpoSite {
@@ -155,7 +156,7 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
 /// The MPO of a dense operator (row-major, the first site the most
 /// significant bit) on `k` sites, one tensor per site, by `k − 1` thin
 /// SVDs, as `qdk_cpu_mps`'s `operator_mpo`.
-fn operator_mpo(matrix: &[Complex64], k: usize) -> Result<Vec<MpoSite>, CudaMpsError> {
+pub(crate) fn operator_mpo(matrix: &[Complex64], k: usize) -> Result<Vec<MpoSite>, CudaMpsError> {
     let dim = 1usize << k;
     // Index Σ_j p_j·4^j, p_j = 2·out_j + in_j, site 0 the fastest.
     let mut rest = vec![Complex64::ZERO; dim * dim];
@@ -243,7 +244,7 @@ fn multiply_site(site: &mut HostSite, w: &MpoSite) {
 /// `matrix` on `sites` (row-major, the first site the most significant
 /// bit), as the same operator on the sites ascending, as `qdk_cpu_mps`'s
 /// `dev_ascending`.
-fn ascending(sites: &[usize], matrix: &[Complex64]) -> (Vec<usize>, Vec<Complex64>) {
+pub(crate) fn ascending(sites: &[usize], matrix: &[Complex64]) -> (Vec<usize>, Vec<Complex64>) {
     let k = sites.len();
     let dim = 1usize << k;
     let mut order: Vec<usize> = (0..k).collect();

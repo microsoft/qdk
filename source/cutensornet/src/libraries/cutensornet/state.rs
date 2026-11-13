@@ -21,6 +21,17 @@ pub(crate) type ApplyTensorOperatorFn = unsafe extern "C" fn(
     *mut i64,
 ) -> v2_13::cutensornetStatus_t;
 
+/// Function pointer for `cutensornetStateApplyNetworkOperator`.
+pub(crate) type ApplyNetworkOperatorFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetState_t,
+    v2_13::cutensornetNetworkOperator_t,
+    i32,
+    i32,
+    i32,
+    *mut i64,
+) -> v2_13::cutensornetStatus_t;
+
 /// Function pointer for `cutensornetStateCaptureMPS`.
 pub(crate) type CaptureMpsFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,

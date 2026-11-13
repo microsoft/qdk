@@ -148,11 +148,13 @@ impl CuTensorNetEngine {
     /// EXPERIMENTAL, development only (not for review): the same engine,
     /// whose `apply` also takes an operator on three distinct sites, in any
     /// order and any distance apart, and passes it to cuTensorNet as one
-    /// tensor operator on their three modes, instead of refusing it; when
-    /// `on`. NVIDIA documents operators on non-adjacent modes in MPS mode
-    /// (the 2.x release notes: improved accuracy for tensor operators,
-    /// controlled operators and MPOs on non-adjacent qudits); the gate's
-    /// unitarity is not checked.
+    /// MPO on their three modes (its exact decomposition by host SVDs),
+    /// instead of refusing it; when `on`. Not as one tensor operator:
+    /// cuTensorNet's MPS simulation takes tensor operators on one or two
+    /// modes only (NVIDIA's `NetworkState.apply_tensor_operator`: "For MPS
+    /// simulation, the size of `modes` shall be restricted to no larger
+    /// than 2"), and a three-mode one fails the state prepare with an
+    /// internal error on an A100. The gate's unitarity is not checked.
     ///
     /// # Panics
     ///
@@ -279,7 +281,9 @@ impl MpsEngine for CuTensorNetEngine {
                     .iter()
                     .try_for_each(|&site| checks::probability_of_one(site_count, site))
             };
-            return self.native_state(state, in_range)?.apply(sites, matrix);
+            return self
+                .native_state(state, in_range)?
+                .apply_wide(sites, matrix);
         }
         self.native_state(state, |site_count| checks::apply(site_count, sites, matrix))?
             .apply(sites, matrix)

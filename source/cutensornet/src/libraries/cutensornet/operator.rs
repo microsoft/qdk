@@ -19,6 +19,20 @@ pub(crate) type AppendProductFn = unsafe extern "C" fn(
     *mut i64,
 ) -> v2_13::cutensornetStatus_t;
 
+/// Function pointer for `cutensornetNetworkOperatorAppendMPO`.
+pub(crate) type AppendMpoFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkOperator_t,
+    v2_13::cuDoubleComplex,
+    i32,
+    *const i32,
+    *mut *const i64,
+    *mut *const i64,
+    *mut *const ::std::os::raw::c_void,
+    v2_13::cutensornetBoundaryCondition_t,
+    *mut i64,
+) -> v2_13::cutensornetStatus_t;
+
 /// Function pointer for `cutensornetCreateNetworkOperator`.
 pub(crate) type CreateNetworkOperatorFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,

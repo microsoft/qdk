@@ -175,6 +175,12 @@ enum Object {
     },
     State(FakeState),
     Operator(Vec<(Complex64, Vec<(usize, usize)>)>),
+    /// Development only: a network operator made of one MPO, its sites in
+    /// order and each site's tensor buffer and extents.
+    Mpo {
+        sites: Vec<usize>,
+        tensors: Vec<(usize, Box<[i64]>)>,
+    },
     Expectation {
         state: usize,
         operator: usize,
@@ -188,7 +194,7 @@ struct FakeState {
     /// captured state and the output buffers it is read from.
     start: Option<Computed>,
     /// The operators applied since the start.
-    operators: Vec<(Vec<usize>, usize)>,
+    operators: Vec<FakeOperator>,
     /// The native capacity's bonds, once finalized.
     bonds: Option<Vec<usize>>,
     configurations: usize,
@@ -196,6 +202,15 @@ struct FakeState {
     prepared_at: Option<usize>,
     /// The last compute, and how many operators the state had then.
     computed: Option<(Computed, usize)>,
+}
+
+/// An operator applied to a state, read when the state is computed.
+#[derive(Clone)]
+enum FakeOperator {
+    /// A tensor operator: its sites and its buffer.
+    Tensor(Vec<usize>, usize),
+    /// Development only: a network operator made of one MPO.
+    Mpo(usize),
 }
 
 /// A computed state and the output buffers the library wrote it to.
@@ -525,25 +540,85 @@ impl Inner {
         Ok(())
     }
 
-    /// A copy of `state` with the matrix in buffer `tensor` applied to
-    /// `sites`.
+    /// `state` with `operator` applied, its tensors read now.
     fn apply(
         &self,
         state: &mut StateVector,
-        sites: &[usize],
-        tensor: usize,
+        operator: &FakeOperator,
         operation: &'static str,
     ) -> Result<(), EngineError> {
-        let elements = 1 << (2 * sites.len());
-        let matrix: Vec<Complex64> = self
-            .buffer(tensor, operation)?
-            .get(..elements)
-            .ok_or_else(|| failed(operation, "the operator buffer is too small"))?
-            .iter()
-            .copied()
-            .map(Complex64::from)
-            .collect();
-        state.apply(sites, &matrix);
+        match operator {
+            FakeOperator::Tensor(sites, tensor) => {
+                let elements = 1 << (2 * sites.len());
+                let matrix: Vec<Complex64> = self
+                    .buffer(*tensor, operation)?
+                    .get(..elements)
+                    .ok_or_else(|| failed(operation, "the operator buffer is too small"))?
+                    .iter()
+                    .copied()
+                    .map(Complex64::from)
+                    .collect();
+                state.apply(sites, &matrix);
+            }
+            FakeOperator::Mpo(operator) => {
+                let Some(Object::Mpo { sites, tensors }) = self.objects.get(operator) else {
+                    return Err(failed(operation, "an applied MPO was destroyed"));
+                };
+                let matrix = self.contract_mpo(tensors, operation)?;
+                state.apply(sites, &matrix);
+            }
+        }
         Ok(())
+    }
+
+    /// The dense matrix (row-major, the first site the most significant
+    /// bit) of an open-boundary MPO whose tensors have cuTensorNet's modes
+    /// `(previous bond, ket, next bond, bra)`, column-major, the first
+    /// without its previous bond and the last without its next.
+    fn contract_mpo(
+        &self,
+        tensors: &[(usize, Box<[i64]>)],
+        operation: &'static str,
+    ) -> Result<Vec<Complex64>, EngineError> {
+        let last = tensors.len() - 1;
+        // partial[(o, i, bond)] at o + dim·(i + dim·bond), dim = 2^sites.
+        let (mut partial, mut dim, mut bond) = (vec![Complex64::ONE], 1, 1);
+        for (at, (tensor, extents)) in tensors.iter().enumerate() {
+            let extents = extents
+                .iter()
+                .map(|&extent| to_usize(extent))
+                .collect::<Result<Vec<_>, _>>()?;
+            let (left, ket, right, bra) = match (at, extents.as_slice()) {
+                (0, &[ket, right, bra]) => (1, ket, right, bra),
+                (at, &[left, ket, bra]) if at == last => (left, ket, 1, bra),
+                (_, &[left, ket, right, bra]) => (left, ket, right, bra),
+                _ => return Err(failed(operation, "an MPO tensor of the wrong rank")),
+            };
+            if left != bond || ket != 2 || bra != 2 {
+                return Err(failed(operation, "an MPO tensor's extents do not chain"));
+            }
+            let elements = self.buffer(*tensor, operation)?;
+            if elements.len() < left * 4 * right {
+                return Err(failed(operation, "an MPO tensor's buffer is too small"));
+            }
+            let next_dim = 2 * dim;
+            let mut next = vec![Complex64::ZERO; next_dim * next_dim * right];
+            for (kl, kr, input, out) in (0..left).flat_map(|kl| {
+                (0..right).flat_map(move |kr| {
+                    (0..2).flat_map(move |input| (0..2).map(move |out| (kl, kr, input, out)))
+                })
+            }) {
+                let w = Complex64::from(elements[kl + left * (input + 2 * (kr + right * out))]);
+                for (o, i) in (0..dim).flat_map(|o| (0..dim).map(move |i| (o, i))) {
+                    let to = (2 * o + out) + next_dim * ((2 * i + input) + next_dim * kr);
+                    next[to] += partial[o + dim * (i + dim * kl)] * w;
+                }
+            }
+            (partial, dim, bond) = (next, next_dim, right);
+        }
+        Ok((0..dim)
+            .flat_map(|o| (0..dim).map(move |i| (o, i)))
+            .map(|(o, i)| partial[o + dim * i])
+            .collect())
     }
 }

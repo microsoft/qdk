@@ -44,7 +44,7 @@
 //! and applies each through the engine's `apply`, the engine made to take
 //! them: the CPU engine and `CudaMpsEngine` with `with_dev_mpo_far` (far
 //! operators as an MPO), `CuTensorNetEngine` with `with_dev_wide_operators`
-//! (three-site operators passed to cuTensorNet). `base` (the default)
+//! (three-site operators passed to cuTensorNet as one MPO). `base` (the default)
 //! applies the gates one by one on the engines as they are.
 //!
 //! `--reference` names a file in this folder. `--steps` runs fewer steps
