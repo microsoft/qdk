@@ -15,14 +15,16 @@
 //!   pending gate applied, multiplied by its MPO tensor on the host, and
 //!   uploaded: the bonds inside the span grow by the MPO's;
 //! - a sweep of exact centre moves (the engine's `GateSplit` with no cutoff,
-//!   in place of the CPU's QRs) from the span's first site to its last but
-//!   one makes the span left-orthonormal;
+//!   in place of the CPU's QRs, or the CPU's QR moves with
+//!   `with_dev_qr_moves`) from the span's first site to its last but one
+//!   makes the span left-orthonormal;
 //! - a sweep of truncating splits back (the cutoff, then the capacity's
 //!   bond, as a gate's split at rest) compresses each cut of the span.
 //!
-//! So an operator on a span of `d + 1` sites costs `2d − 1` `GateSplit`s
-//! (the CPU: `d` QRs and `d` SVDs): the last move of the CPU's QR sweep is
-//! not needed, because a `GateSplit` contracts the pair it splits.
+//! So an operator on a span of `d + 1` sites costs `2d − 1` `GateSplit`s,
+//! or `d − 1` QR moves and `d` `GateSplit`s (the CPU: `d` QRs and `d`
+//! SVDs): the last move of the CPU's QR sweep is not needed, because a
+//! `GateSplit` contracts the pair it splits.
 
 use super::device_chain::{
     DeviceChain, DeviceSite, FusedGate, HostSite, IDENTITY, Truncation, kron,

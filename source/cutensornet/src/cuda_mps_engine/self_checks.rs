@@ -16,12 +16,16 @@
 //! - informational: whether the singular values are written under a
 //!   US/SV partition and the cutoff kept no more values than it needs; at
 //!   a tie (a Bell pair, two equal values, the cutoff at half the weight),
-//!   which way the device rounds.
+//!   which way the device rounds;
+//! - EXPERIMENTAL, the QR moves (`with_dev_qr_moves`), with and without a
+//!   one-site gate, either way: the new pair's product is the old pair's
+//!   with the gate applied, the site the centre left is an isometry, and
+//!   the bond is the CPU engine's.
 //!
 //! Agreement with the CPU engine's own SVD is checked by the engine-level
 //! tests on the GPU, against `CpuMpsEngine`.
 
-use super::{DeviceTensors, GateSplitCall, Partition, TensorCalls};
+use super::{DeviceTensors, GateSplitCall, Partition, QrMoveCall, TensorCalls};
 use num_complex::Complex64;
 
 /// One check's outcome: its name, whether it held, and what it measured.
@@ -87,7 +91,103 @@ pub fn self_check(device: &DeviceTensors) -> Vec<SelfCheck> {
             .push_str(" informational=tie-rounds-either-way");
         checks.push(check);
     }
+    for &(l, m, r) in &[(1, 1, 1), (2, 2, 4), (2, 8, 3), (8, 8, 8), (16, 12, 8), (32, 32, 32)] {
+        let left = random.complex_vec(l * 2 * m);
+        let right = random.complex_vec(m * 2 * r);
+        let one_site: [Complex64; 4] = std::array::from_fn(|_| random.complex());
+        for gate in [None, Some(one_site)] {
+            for partition in [Partition::Us, Partition::Sv] {
+                let case = if gate.is_some() { "gate" } else { "no-gate" };
+                let name = format!("qr-move-l{l}-m{m}-r{r}-{case}-{partition:?}");
+                checks.push(compare_qr_move(
+                    device, &name, &left, &right, [l, m, r], gate, partition,
+                ));
+            }
+        }
+    }
     checks
+}
+
+/// A QR move on the device against the pair it factors: the new pair's
+/// product is the old pair's (the gate applied), the site the centre left
+/// is an isometry, and the bond is `min(bond, 2·left)` (moving right) or
+/// `min(bond, 2·right)` (moving left).
+#[allow(clippy::many_single_char_names, reason = "the tensors' extents")]
+fn compare_qr_move(
+    device: &DeviceTensors,
+    name: &str,
+    left: &[Complex64],
+    right: &[Complex64],
+    [l, m, r]: [usize; 3],
+    gate: Option<[Complex64; 4]>,
+    partition: Partition,
+) -> SelfCheck {
+    let outcome = (|| {
+        let device_left = device.upload(left)?;
+        let device_right = device.upload(right)?;
+        let moved = device.qr_move(&QrMoveCall {
+            left: &device_left,
+            right: &device_right,
+            left_extent: l,
+            bond: m,
+            right_extent: r,
+            gate,
+            partition,
+        })?;
+        let k = moved.bond;
+        let new_left = device.download(&moved.left, l * 2 * k)?;
+        let new_right = device.download(&moved.right, k * 2 * r)?;
+        Ok::<_, super::CudaMpsError>((k, new_left, new_right))
+    })();
+    let (k, new_left, new_right) = match outcome {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            return SelfCheck {
+                name: name.to_owned(),
+                passed: false,
+                detail: format!("error={error}"),
+            };
+        }
+    };
+    let (mut gated_left, mut gated_right) = (left.to_vec(), right.to_vec());
+    if let Some(gate) = gate {
+        // The gate on the site the centre leaves: the left one moving
+        // right, the right one moving left.
+        let (site, outer, inner) = match partition {
+            Partition::Sv => (&mut gated_left, m, l),
+            Partition::Us => (&mut gated_right, r, m),
+        };
+        for b in 0..outer {
+            for a in 0..inner {
+                let at = |s: usize| a + inner * (s + 2 * b);
+                let (zero, one) = (site[at(0)], site[at(1)]);
+                site[at(0)] = gate[0] * zero + gate[1] * one;
+                site[at(1)] = gate[2] * zero + gate[3] * one;
+            }
+        }
+    }
+    let expected = product(&gated_left, &gated_right, 2 * l, m, 2 * r);
+    let moved = product(&new_left, &new_right, 2 * l, k, 2 * r);
+    let norm = expected.iter().map(Complex64::norm_sqr).sum::<f64>().sqrt();
+    let product_error = expected
+        .iter()
+        .zip(&moved)
+        .map(|(e, p)| (e - p).norm_sqr())
+        .sum::<f64>()
+        .sqrt()
+        / norm;
+    let (isometry, expected_bond) = match partition {
+        Partition::Sv => (left_isometry_error(&new_left, 2 * l, k), m.min(2 * l)),
+        Partition::Us => (right_isometry_error(&new_right, k, 2 * r), m.min(2 * r)),
+    };
+    SelfCheck {
+        name: name.to_owned(),
+        passed: product_error < 1e-10 && isometry < 1e-10 && k == expected_bond,
+        detail: format!(
+            "bond={k} expected_bond={expected_bond} product_error={product_error:.2e} \
+             isometry_error={isometry:.2e}"
+        ),
+    }
 }
 
 #[allow(
@@ -325,9 +425,11 @@ impl SplitMix {
     }
 
     fn complex_vec(&mut self, count: usize) -> Vec<Complex64> {
-        (0..count)
-            .map(|_| Complex64::new(self.next(), self.next()))
-            .collect()
+        (0..count).map(|_| self.complex()).collect()
+    }
+
+    fn complex(&mut self) -> Complex64 {
+        Complex64::new(self.next(), self.next())
     }
 
     fn gate(&mut self) -> [Complex64; 16] {

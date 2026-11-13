@@ -479,7 +479,7 @@ impl TensorSvdAlgo {
         Self::ALL.into_iter().find(|algo| algo.name() == name)
     }
 
-    fn raw(self) -> v2_13::cutensornetTensorSVDAlgo_t {
+    pub(crate) fn raw(self) -> v2_13::cutensornetTensorSVDAlgo_t {
         match self {
             Self::Gesvd => v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD,
             Self::Gesvdj => v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDJ,

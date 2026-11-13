@@ -3,8 +3,9 @@
 
 //! Development only (not for review): the tensor calls [`CudaMpsEngine`]
 //! makes, behind one trait, implemented today by `DeviceTensors` on the GPU
-//! (cuTensorNet's `GateSplit`), so that the engine's rules are written once
-//! over buffers whatever holds them.
+//! (cuTensorNet's `GateSplit`, `TensorQR` and a pairwise contraction), so
+//! that the engine's rules are written once over buffers whatever holds
+//! them.
 //!
 //! Every tensor is complex double, its first mode fastest (Fortran order):
 //! a site `T[a, s, b]` of extents `[left, 2, right]` sits at
@@ -16,7 +17,8 @@ use super::CudaMpsError;
 use num_complex::Complex64;
 
 /// The calls an MPS engine on cuTensorNet's tensor API needs: moving
-/// tensors between the host and where they live, and one `GateSplit`.
+/// tensors between the host and where they live, one `GateSplit`, and one
+/// QR move of the centre.
 #[doc(hidden)]
 pub trait TensorCalls {
     /// Where a tensor lives: device memory, or a host vector.
@@ -57,6 +59,66 @@ pub trait TensorCalls {
         &self,
         call: &GateSplitCall<'_, Self::Buffer>,
     ) -> Result<SplitOutcome<Self::Buffer>, CudaMpsError>;
+
+    /// A QR move of the orthogonality centre across the pair's bond, as
+    /// `qdk_cpu_mps`'s `shift_centre_right` and `shift_centre_left`: the
+    /// site the centre leaves (its one-site `gate` applied first) is
+    /// factored by one QR into an isometry, which it keeps, and a small
+    /// factor, contracted into the other site, which becomes the centre.
+    /// Exact: nothing is truncated, and the bond becomes
+    /// `min(bond, 2·left)` (moving right) or `min(bond, 2·right)` (moving
+    /// left).
+    ///
+    /// # Errors
+    ///
+    /// When a call fails.
+    fn qr_move(
+        &self,
+        call: &QrMoveCall<'_, Self::Buffer>,
+    ) -> Result<QrMoveOutcome<Self::Buffer>, CudaMpsError>;
+}
+
+/// One QR move of the centre across the bond of `A[a, p, j]` and
+/// `B[j, q, b]`.
+///
+/// Rightward (`partition` [`Partition::Sv`]): `A·G` read as a
+/// `(2·left) × bond` matrix (rows `(a, p)`) is `Q·R`; `A` becomes `Q`
+/// (`[left, 2, k]`) and `B` becomes `R·B` (`[k, 2, right]`).
+///
+/// Leftward ([`Partition::Us`]): `G·B` read as a `bond × (2·right)`
+/// matrix (columns `(q, b)`) is `L·Q`, `Q`'s rows orthonormal, from the QR
+/// of its adjoint; `B` becomes `Q` (`[k, 2, right]`) and `A` becomes `A·L`
+/// (`[left, 2, k]`).
+#[doc(hidden)]
+pub struct QrMoveCall<'b, B> {
+    /// `A`, of extents `[left, 2, bond]`.
+    pub left: &'b B,
+    /// `B`, of extents `[bond, 2, right]`.
+    pub right: &'b B,
+    /// `A`'s left extent.
+    pub left_extent: usize,
+    /// The shared bond's extent before the move.
+    pub bond: usize,
+    /// `B`'s right extent.
+    pub right_extent: usize,
+    /// The one-site gate `G` (row-major, `G[s, p]` at `2s + p`) on the
+    /// site the centre leaves, applied to it before its QR; `None`: no
+    /// gate.
+    pub gate: Option<[Complex64; 4]>,
+    /// The side that holds the centre afterwards: [`Partition::Sv`] moves
+    /// it right, [`Partition::Us`] left.
+    pub partition: Partition,
+}
+
+/// What one QR move returned.
+#[doc(hidden)]
+pub struct QrMoveOutcome<B> {
+    /// The new `A`, of extents `[left, 2, bond]`, packed.
+    pub left: B,
+    /// The new `B`, of extents `[bond, 2, right]`, packed.
+    pub right: B,
+    /// The new bond.
+    pub bond: usize,
 }
 
 /// One `GateSplit`: `θ[a, s, t, b] = Σ G[(s, t), (p, q)] · A[a, p, j] ·

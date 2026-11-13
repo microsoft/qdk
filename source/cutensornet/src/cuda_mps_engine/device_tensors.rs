@@ -2,42 +2,49 @@
 // Licensed under the MIT License.
 
 //! Development only (not for review): [`DeviceTensors`], the tensor calls
-//! on the GPU: device buffers, and `cutensornetGateSplit` with GESVD and
-//! the `REDUCED` gate-split algorithm (`policy` below), on the libraries an
+//! on the GPU: device buffers, `cutensornetGateSplit` with GESVD (or
+//! another SVD, [`DeviceTensors::set_dev_svd_algo`]) and the `REDUCED`
+//! gate-split algorithm (`policy` below), and the QR moves (`TensorQR` and
+//! the contractions of `contraction.rs`), on the libraries an
 //! [`Availability`](crate::Availability) loaded.
 //!
 //! Per call it creates the five tensor descriptors (`GateSplit` overwrites
 //! U's and V's when the cutoff reduces the bond), reuses one SVD config per
-//! cutoff and partition, one SVD info, and one workspace whose memory only
-//! grows. U and V are allocated at the descriptors' extent; after a
+//! SVD, cutoff and partition, one SVD info, and one workspace whose memory
+//! only grows. U and V are allocated at the descriptors' extent; after a
 //! reduction cuTensorNet packs them at the reduced extent, the layout the
 //! engine reads (its documentation; checked on the device by
 //! [`self_check`](super::self_check)).
 
-use super::{CudaMpsError, GateSplitCall, Partition, SplitOutcome, TensorCalls};
+mod contraction;
+
+use super::{
+    CudaMpsError, GateSplitCall, Partition, QrMoveCall, QrMoveOutcome, SplitOutcome, TensorCalls,
+};
 use crate::dev_gate_split::{
     BenchCudaFunctions, BenchTensorFunctions, Descriptor, DeviceBuffer, SvdConfig, SvdInfo,
-    check_cuda, check_tensor, cuda_failure,
+    TensorSvdAlgo, check_cuda, check_tensor, cuda_failure,
 };
 use crate::libraries::LoadedLibraries;
 use crate::libraries::cuda_runtime::cudart_12;
 use crate::libraries::cutensornet::v2_13;
 use crate::libraries::loader::FunctionTable;
+use contraction::{ContractionFunctions, Operand, Output, Plans};
 use num_complex::Complex64;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::{c_uint, c_void};
 use std::rc::Rc;
 use std::sync::Arc;
 
 /// The choices of the device's `GateSplit`.
 mod policy {
-    use super::v2_13;
+    use super::{TensorSvdAlgo, v2_13};
 
     /// GESVD: cuTensorNet's default and the most accurate of its SVDs; the
     /// gate-split bench measured the others no faster at the bonds that
-    /// matter, and GESVDJ less accurate.
-    pub(super) const SVD_ALGO: v2_13::cutensornetTensorSVDAlgo_t =
-        v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD;
+    /// matter, and GESVDJ less accurate. EXPERIMENTAL: GESVDJ by
+    /// `DeviceTensors::set_dev_svd_algo`, to measure it in whole runs.
+    pub(super) const SVD_ALGO: TensorSvdAlgo = TensorSvdAlgo::Gesvd;
 
     /// `REDUCED`: QR of each input, then the SVD of the small middle
     /// tensor; the bench measured it faster than `DIRECT` at every bond.
@@ -48,16 +55,19 @@ mod policy {
 /// The tensor calls on device 0.
 pub struct DeviceTensors {
     configs: RefCell<Vec<(ConfigKey, SvdConfig)>>,
+    svd_algo: Cell<TensorSvdAlgo>,
     info: SvdInfo,
     workspace: RefCell<GrowingWorkspace>,
     values: RefCell<Option<DeviceBuffer>>,
     gate: DeviceBuffer,
+    contraction: ContractionFunctions,
+    plans: RefCell<Plans>,
     // Last: the handle and the stream outlive every object above.
     context: Rc<DeviceContext>,
 }
 
-/// The cutoff's bits and the partition an SVD config holds.
-type ConfigKey = (Option<u64>, Partition);
+/// The SVD, the cutoff's bits and the partition an SVD config holds.
+type ConfigKey = (TensorSvdAlgo, Option<u64>, Partition);
 
 /// The handle, the stream, and the functions, shared with every buffer so
 /// that the libraries stay loaded until the last one is freed.
@@ -118,6 +128,8 @@ impl DeviceTensors {
         let libraries = Arc::clone(availability.libraries());
         let tensor = BenchTensorFunctions::resolve(&libraries.cutensornet.library)
             .map_err(|missing| failed(format!("cuTensorNet lacks {missing:?}")))?;
+        let contraction = ContractionFunctions::resolve(&libraries.cutensornet.library)
+            .map_err(|missing| failed(format!("cuTensorNet lacks {missing:?}")))?;
         let cuda = BenchCudaFunctions::resolve(&libraries.cuda_runtime.library)
             .map_err(|missing| failed(format!("the CUDA Runtime lacks {missing:?}")))?;
         libraries
@@ -170,12 +182,38 @@ impl DeviceTensors {
         let gate = DeviceBuffer::new(&context.libraries, 256).map_err(failed)?;
         Ok(Self {
             configs: RefCell::new(Vec::new()),
+            svd_algo: Cell::new(policy::SVD_ALGO),
             info,
             workspace: RefCell::new(workspace),
             values: RefCell::new(None),
             gate,
+            contraction,
+            plans: RefCell::new(Plans::new()),
             context,
         })
+    }
+
+    /// EXPERIMENTAL, development only (not for review): the SVD of every
+    /// later `GateSplit`, GESVD (`policy::SVD_ALGO`) or GESVDJ.
+    ///
+    /// # Errors
+    ///
+    /// For GESVDP and GESVDR: on the A100, GESVDP failed the H₂ run with
+    /// `CUTENSORNET_STATUS_INTERNAL_ERROR` at its 39th measurement, and
+    /// GESVDR takes a fixed extent only, so it cannot apply the
+    /// discarded-weight cutoff.
+    #[doc(hidden)]
+    pub fn set_dev_svd_algo(&self, algo: TensorSvdAlgo) -> Result<(), CudaMpsError> {
+        match algo {
+            TensorSvdAlgo::Gesvd | TensorSvdAlgo::Gesvdj => {
+                self.svd_algo.set(algo);
+                Ok(())
+            }
+            TensorSvdAlgo::Gesvdp | TensorSvdAlgo::Gesvdr => Err(failed(format!(
+                "the engine refuses the SVD {}: only gesvd and gesvdj run its splits",
+                algo.name()
+            ))),
+        }
     }
 
     fn synchronize(&self) -> Result<(), CudaMpsError> {
@@ -242,13 +280,15 @@ impl DeviceTensors {
         })
     }
 
-    /// The SVD config for `cutoff` and `partition`, made on first use.
+    /// The SVD config for the current SVD, `cutoff` and `partition`, made
+    /// on first use.
     fn config(
         &self,
         cutoff: Option<f64>,
         partition: Partition,
     ) -> Result<v2_13::cutensornetTensorSVDConfig_t, CudaMpsError> {
-        let key = (cutoff.map(f64::to_bits), partition);
+        let algo = self.svd_algo.get();
+        let key = (algo, cutoff.map(f64::to_bits), partition);
         if let Some((_, config)) = self.configs.borrow().iter().find(|(k, _)| *k == key) {
             return Ok(config.config);
         }
@@ -262,7 +302,7 @@ impl DeviceTensors {
             config,
             destroy: self.context.tensor.destroy_svd_config,
         };
-        let algo = policy::SVD_ALGO;
+        let algo = algo.raw();
         self.set_config(&config, attribute::ALGO, &algo, "ALGO")?;
         let normalization: v2_13::cutensornetTensorSVDNormalization_t =
             v2_13::cutensornetTensorSVDNormalization_t_CUTENSORNET_TENSOR_SVD_NORMALIZATION_L2;
@@ -606,5 +646,178 @@ impl TensorCalls for DeviceTensors {
             discarded_weight,
             singular_values,
         })
+    }
+
+    /// One `TensorQR` and one contraction (`contraction.rs`), after one
+    /// more contraction for the gate, each waited for.
+    fn qr_move(
+        &self,
+        call: &QrMoveCall<'_, DeviceArray>,
+    ) -> Result<QrMoveOutcome<DeviceArray>, CudaMpsError> {
+        let (l, m, r) = (call.left_extent, call.bond, call.right_extent);
+        let bytes = |count: usize| count * size_of::<Complex64>();
+        let outcome = match call.partition {
+            Partition::Sv => {
+                let k = m.min(2 * l);
+                let gated = self.gated(call.left, [l, 2, m], call.gate.as_ref())?;
+                let input = gated.as_ref().unwrap_or(call.left);
+                let q = self.allocate(bytes(l * 2 * k))?;
+                let factor = self.allocate(bytes(k * m))?;
+                self.tensor_qr(
+                    (input, &[l, 2, m], b"ipj"),
+                    (&q, &[l, 2, k], b"ips"),
+                    (&factor, &[k, m], b"sj"),
+                )?;
+                let right = self.allocate(bytes(k * 2 * r))?;
+                self.contract(
+                    &Operand {
+                        data: factor.buffer.pointer,
+                        extents: &[k, m],
+                        modes: b"sj",
+                    },
+                    &Operand {
+                        data: call.right.buffer.pointer,
+                        extents: &[m, 2, r],
+                        modes: b"jqk",
+                    },
+                    &Output {
+                        data: right.buffer.pointer,
+                        extents: &[k, 2, r],
+                        modes: b"sqk",
+                    },
+                )?;
+                QrMoveOutcome {
+                    left: q,
+                    right,
+                    bond: k,
+                }
+            }
+            Partition::Us => {
+                let k = m.min(2 * r);
+                let gated = self.gated(call.right, [m, 2, r], call.gate.as_ref())?;
+                let input = gated.as_ref().unwrap_or(call.right);
+                let q = self.allocate(bytes(k * 2 * r))?;
+                let factor = self.allocate(bytes(m * k))?;
+                self.tensor_qr(
+                    (input, &[m, 2, r], b"jqk"),
+                    (&q, &[k, 2, r], b"sqk"),
+                    (&factor, &[m, k], b"js"),
+                )?;
+                let left = self.allocate(bytes(l * 2 * k))?;
+                self.contract(
+                    &Operand {
+                        data: call.left.buffer.pointer,
+                        extents: &[l, 2, m],
+                        modes: b"ipj",
+                    },
+                    &Operand {
+                        data: factor.buffer.pointer,
+                        extents: &[m, k],
+                        modes: b"js",
+                    },
+                    &Output {
+                        data: left.buffer.pointer,
+                        extents: &[l, 2, k],
+                        modes: b"ips",
+                    },
+                )?;
+                QrMoveOutcome {
+                    left,
+                    right: q,
+                    bond: k,
+                }
+            }
+        };
+        Ok(outcome)
+    }
+}
+
+impl DeviceTensors {
+    /// `site` (`[left, 2, right]`) with the one-site `gate` (row-major)
+    /// applied, waited for; `None` when there is no gate.
+    fn gated(
+        &self,
+        site: &DeviceArray,
+        extents: [usize; 3],
+        gate: Option<&[Complex64; 4]>,
+    ) -> Result<Option<DeviceArray>, CudaMpsError> {
+        let Some(gate) = gate else {
+            return Ok(None);
+        };
+        // `G[P, p]` at `P + 2p`, the output mode first.
+        let fortran: [Complex64; 4] = std::array::from_fn(|at| gate[2 * (at & 1) + (at >> 1)]);
+        self.copy(
+            self.gate.pointer,
+            fortran.as_ptr().cast(),
+            size_of_val(&fortran),
+            cudart_12::cudaMemcpyKind_cudaMemcpyHostToDevice,
+        )?;
+        let out = self.allocate(extents.iter().product::<usize>() * size_of::<Complex64>())?;
+        self.contract(
+            &Operand {
+                data: self.gate.pointer,
+                extents: &[2, 2],
+                modes: b"Pp",
+            },
+            &Operand {
+                data: site.buffer.pointer,
+                extents: &extents,
+                modes: b"ipj",
+            },
+            &Output {
+                data: out.buffer.pointer,
+                extents: &extents,
+                modes: b"iPj",
+            },
+        )?;
+        Ok(Some(out))
+    }
+
+    /// `cutensornetTensorQR` of `input` into `q` and `r`, each given with
+    /// its extents and modes (the shared mode in `q` and `r` only), waited
+    /// for.
+    fn tensor_qr(
+        &self,
+        input: (&DeviceArray, &[usize], &[u8]),
+        q: (&DeviceArray, &[usize], &[u8]),
+        r: (&DeviceArray, &[usize], &[u8]),
+    ) -> Result<(), CudaMpsError> {
+        let descriptors = [
+            self.descriptor(input.1, input.2)?,
+            self.descriptor(q.1, q.2)?,
+            self.descriptor(r.1, r.2)?,
+        ];
+        let [input_mode, q_mode, r_mode] = &descriptors;
+        let workspace = self.prepare_workspace(|workspace| {
+            // SAFETY: the three descriptors are live.
+            unsafe {
+                (self.context.tensor.workspace_qr_sizes)(
+                    self.context.handle,
+                    input_mode.descriptor,
+                    q_mode.descriptor,
+                    r_mode.descriptor,
+                    workspace,
+                )
+            }
+        })?;
+        // SAFETY: every descriptor, buffer and the workspace are live and
+        // sized for these descriptors.
+        let status = unsafe {
+            (self.context.tensor.tensor_qr)(
+                self.context.handle,
+                input_mode.descriptor,
+                input.0.buffer.pointer,
+                q_mode.descriptor,
+                q.0.buffer.pointer,
+                r_mode.descriptor,
+                r.0.buffer.pointer,
+                workspace,
+                self.context.stream,
+            )
+        };
+        check_tensor("cutensornetTensorQR", status).map_err(failed)?;
+        // The next call may resize the workspace this one uses, and the
+        // descriptors drop here.
+        self.synchronize()
     }
 }

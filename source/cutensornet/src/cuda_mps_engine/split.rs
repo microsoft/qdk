@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! Development only (not for review): splits and centre moves, each one
-//! `GateSplit`, as `qdk_cpu_mps`'s `engine/split.rs` and
-//! `engine/canonical_form.rs`.
+//! `GateSplit` (or, with `with_dev_qr_moves`, each move one QR move), as
+//! `qdk_cpu_mps`'s `engine/split.rs` and `engine/canonical_form.rs`.
 //!
 //! - A truncating split (the fused pair's) applies the cutoff, then the
 //!   capacity's bond unless an outbound SWAP's, and multiplies the
@@ -12,9 +12,16 @@
 //!   cutoff and the pair's bond as the largest extent: exact, as the CPU's
 //!   QR is, its bond at most the CPU's (`min(2·left, 2·right)` and the old
 //!   bond), and it takes the two sites' pending gates with it.
+//! - EXPERIMENTAL, with `with_dev_qr_moves`: a centre move is the CPU's
+//!   instead, one QR of the site the centre leaves (its pending gate
+//!   applied first) and one contraction of the small factor into the new
+//!   centre ([`TensorCalls::qr_move`]), its bond the CPU's
+//!   (`min(2·left, bond)` rightward, `min(bond, 2·right)` leftward). A move
+//!   never carries a two-site gate: every caller splits the fused pair
+//!   first.
 
 use super::device_chain::{DeviceChain, DeviceSite, FusedGate, Truncation};
-use super::{CudaMpsEngine, CudaMpsError, GateSplitCall, Partition, TensorCalls};
+use super::{CudaMpsEngine, CudaMpsError, GateSplitCall, Partition, QrMoveCall, TensorCalls};
 use num_complex::Complex64;
 
 /// Where a split leaves the orthogonality centre, as `qdk_cpu_mps`'s
@@ -93,7 +100,8 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
         Ok(())
     }
 
-    /// Moves the centre to `to`, one site at a time.
+    /// Moves the centre to `to`, one site at a time: by a QR move when
+    /// `with_dev_qr_moves` is on, by an exact `GateSplit` otherwise.
     pub(super) fn move_centre(
         &self,
         chain: &mut DeviceChain<T::Buffer>,
@@ -105,12 +113,56 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
             } else {
                 (chain.centre - 1, Partition::Us, chain.centre - 1)
             };
-            let gate = chain.take_pending_pair(cut);
-            let bond = chain.sites[cut].right;
-            self.split_sites(chain, cut, gate, bond, None, partition)?;
+            if self.dev_qr_moves {
+                self.qr_move(chain, cut, partition)?;
+            } else {
+                let gate = chain.take_pending_pair(cut);
+                let bond = chain.sites[cut].right;
+                self.split_sites(chain, cut, gate, bond, None, partition)?;
+            }
             chain.centre = next;
             self.count(|counters| counters.centre_moves += 1);
         }
+        Ok(())
+    }
+
+    /// One QR move of the centre across `cut`, toward the side `partition`
+    /// names, as `qdk_cpu_mps`'s `shift_centre_right` and
+    /// `shift_centre_left`. The site the centre leaves takes its pending
+    /// gate into its QR, since it must be an isometry with it; the new
+    /// centre's pending gate stays pending.
+    fn qr_move(
+        &self,
+        chain: &mut DeviceChain<T::Buffer>,
+        cut: usize,
+        partition: Partition,
+    ) -> Result<(), CudaMpsError> {
+        let leaving = match partition {
+            Partition::Sv => cut,
+            Partition::Us => cut + 1,
+        };
+        let gate = chain.pending[leaving].take();
+        let (left_site, right_site) = (&chain.sites[cut], &chain.sites[cut + 1]);
+        let (left, right) = (left_site.left, right_site.right);
+        let outcome = self.timed_qr_move(&QrMoveCall {
+            left: &left_site.buffer,
+            right: &right_site.buffer,
+            left_extent: left,
+            bond: left_site.right,
+            right_extent: right,
+            gate,
+            partition,
+        })?;
+        chain.sites[cut] = DeviceSite {
+            left,
+            right: outcome.bond,
+            buffer: outcome.left,
+        };
+        chain.sites[cut + 1] = DeviceSite {
+            left: outcome.bond,
+            right,
+            buffer: outcome.right,
+        };
         Ok(())
     }
 

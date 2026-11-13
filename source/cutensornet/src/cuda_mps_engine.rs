@@ -29,7 +29,9 @@
 //!   on the site takes them into its gate, or a read applies them to its
 //!   downloaded copy;
 //! - the centre moves by a `GateSplit` with no cutoff, whose bond is at
-//!   most `min(2·left, 2·right)` and the old bond, not by a QR;
+//!   most `min(2·left, 2·right)` and the old bond, not by a QR (EXPERIMENTAL:
+//!   by the CPU's QR with [`CudaMpsEngine::with_dev_qr_moves`], a
+//!   `TensorQR` and a contraction on the device);
 //! - reads download the centre site (and, for an expectation, the sites
 //!   between the observable and the centre) and compute on the host.
 //!
@@ -63,7 +65,9 @@ pub use device_tensors::DeviceTensors;
 pub use error::CudaMpsError;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub use self_checks::{SelfCheck, self_check};
-pub use tensor_calls::{GateSplitCall, Partition, SplitOutcome, TensorCalls};
+pub use tensor_calls::{
+    GateSplitCall, Partition, QrMoveCall, QrMoveOutcome, SplitOutcome, TensorCalls,
+};
 
 use device_chain::DeviceChain;
 use num_complex::Complex64;
@@ -77,6 +81,7 @@ pub struct CudaMpsEngine<T> {
     tensors: T,
     cutoff: f64,
     dev_mpo_far: bool,
+    dev_qr_moves: bool,
     counters: Cell<CudaMpsCounters>,
 }
 
@@ -91,8 +96,15 @@ pub struct CudaMpsCounters {
     pub centre_moves: u64,
     /// The route's SWAPs.
     pub swaps: u64,
+    /// The `GateSplit` calls, splits and moves.
+    pub gate_splits: u64,
     /// The seconds spent in `GateSplit` calls, splits and moves.
     pub gate_split_seconds: f64,
+    /// Of [`Self::centre_moves`], those made by a QR move
+    /// (`with_dev_qr_moves`).
+    pub qr_moves: u64,
+    /// The seconds spent in QR moves.
+    pub qr_move_seconds: f64,
     /// The seconds spent in reads, downloads and host work included.
     pub read_seconds: f64,
     /// The largest bond a split kept.
@@ -117,6 +129,22 @@ impl CudaMpsEngine<DeviceTensors> {
     pub fn new(availability: &crate::Availability) -> Result<Self, CudaMpsError> {
         Ok(Self::with_tensors(DeviceTensors::open(availability)?))
     }
+
+    /// EXPERIMENTAL, development only (not for review): the same engine,
+    /// whose splits use the SVD `algo` (`gesvd`, the default, or `gesvdj`);
+    /// see [`DeviceTensors::set_dev_svd_algo`].
+    ///
+    /// # Errors
+    ///
+    /// For an SVD the engine refuses.
+    #[doc(hidden)]
+    pub fn with_dev_svd_algo(
+        self,
+        algo: crate::dev_gate_split::TensorSvdAlgo,
+    ) -> Result<Self, CudaMpsError> {
+        self.tensors.set_dev_svd_algo(algo)?;
+        Ok(self)
+    }
 }
 
 impl<T: TensorCalls> CudaMpsEngine<T> {
@@ -127,6 +155,7 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
             tensors,
             cutoff: crate::engine::policy::DISCARDED_WEIGHT_CUTOFF,
             dev_mpo_far: false,
+            dev_qr_moves: false,
             counters: Cell::new(CudaMpsCounters::default()),
         }
     }
@@ -143,6 +172,22 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
     pub fn with_dev_mpo_far(self, on: bool) -> Self {
         Self {
             dev_mpo_far: on,
+            ..self
+        }
+    }
+
+    /// EXPERIMENTAL, development only (not for review): the same engine,
+    /// whose centre moves are the CPU engine's, one QR of the site the
+    /// centre leaves and one contraction of the small factor into its
+    /// neighbour ([`TensorCalls::qr_move`]), instead of one `GateSplit`
+    /// each; when `on`. The state is the same up to rounding, its bonds
+    /// the CPU engine's moves' (`min(bond, 2·left)` moving right,
+    /// `min(bond, 2·right)` moving left).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_dev_qr_moves(self, on: bool) -> Self {
+        Self {
+            dev_qr_moves: on,
             ..self
         }
     }
@@ -173,7 +218,25 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
         let started = Instant::now();
         let outcome = self.tensors.gate_split(call)?;
         let seconds = started.elapsed().as_secs_f64();
-        self.count(|counters| counters.gate_split_seconds += seconds);
+        self.count(|counters| {
+            counters.gate_splits += 1;
+            counters.gate_split_seconds += seconds;
+        });
+        Ok(outcome)
+    }
+
+    /// One QR move, timed.
+    fn timed_qr_move(
+        &self,
+        call: &QrMoveCall<'_, T::Buffer>,
+    ) -> Result<QrMoveOutcome<T::Buffer>, CudaMpsError> {
+        let started = Instant::now();
+        let outcome = self.tensors.qr_move(call)?;
+        let seconds = started.elapsed().as_secs_f64();
+        self.count(|counters| {
+            counters.qr_moves += 1;
+            counters.qr_move_seconds += seconds;
+        });
         Ok(outcome)
     }
 
