@@ -4,7 +4,9 @@
 //! Development branch only (not for review): H₂'s phase estimation (or any
 //! Adaptive Profile bytecode) through `MpsResumer`, on the engine a flag
 //! chooses: the exact reference (at most 20 qubits, so not H₂), the CPU
-//! engine, or cuTensorNet on a GPU (Linux x86-64).
+//! engine, or cuTensorNet on a GPU (Linux x86-64): its state API
+//! (`cutensornet`), or the CPU engine's algorithm on its tensor API
+//! (`cuda-mps`).
 //!
 //! Each shot of the slice `--first-shot N --shots M` runs alone (per shot),
 //! on its own engine, `--threads` at a time. The shot ids are global, so
@@ -24,7 +26,8 @@
 //!
 //! ```text
 //! cargo run --release -p qdk_simulators --example h2_dev -- \
-//!     --engine cpu|cutensornet|reference --bytecode H2.bytecode.json \
+//!     --engine cpu|cutensornet|cuda-mps|reference \
+//!     --bytecode H2.bytecode.json \
 //!     [--readout TABLE] [--readout-first-draw 1399] [--seed 1] [--chi 128] \
 //!     [--first-shot 0] [--shots 1] [--threads 1] [--group 1] \
 //!     [--routing engine|meet-halfway|meet-halfway-after-fusion]
@@ -830,7 +833,8 @@ fn main() {
         ),
         "cpu" => run_slice(&options, &program, &qdk_cpu_mps::CpuMpsEngine::default),
         "cutensornet" => run_on_cutensornet(&options, &program),
-        other => panic!("--engine {other}: reference, cpu or cutensornet"),
+        "cuda-mps" => run_on_cuda_mps(&options, &program),
+        other => panic!("--engine {other}: reference, cpu, cutensornet or cuda-mps"),
     };
     if !ok {
         std::process::exit(1);
@@ -851,4 +855,19 @@ fn run_on_cutensornet(options: &Options, program: &QirProgram) -> bool {
 fn run_on_cutensornet(_options: &Options, _program: &QirProgram) -> bool {
     let error = qdk_cutensornet::discover().expect_err("off Linux x86-64");
     panic!("cuTensorNet runs on Linux x86-64 only: {error}");
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn run_on_cuda_mps(options: &Options, program: &QirProgram) -> bool {
+    let availability = qdk_cutensornet::discover().expect("cuTensorNet and the CUDA Runtime load");
+    println!("AVAILABILITY {:?}", availability.report());
+    let make = || {
+        qdk_cutensornet::CudaMpsEngine::new(&availability).expect("the tensor API on CUDA device 0")
+    };
+    run_slice(options, program, &make)
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+fn run_on_cuda_mps(_options: &Options, _program: &QirProgram) -> bool {
+    panic!("cuda-mps runs on Linux x86-64 only");
 }

@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! Development only (not for review): the polyene QPE prefix on an MPS
-//! engine, `CuTensorNetEngine` or the CPU engine, read and checked.
+//! engine, `CuTensorNetEngine`, `CudaMpsEngine` (`cuda-mps`, on the GPU) or
+//! the CPU engine, read and checked.
 //!
 //! Polyene (the PPP model of a carbon chain, `N` sites, `2N + 1` qubits) is
 //! a development case for large bonds, and a candidate relevant case,
@@ -27,7 +28,7 @@
 //!
 //! ```text
 //! cargo run --release -p qdk_cutensornet --example polyene_qpe_prefix -- \
-//!     --engine cutensornet|cpu --n 8|12|16 --chi 128 \
+//!     --engine cutensornet|cuda-mps|cpu --n 8|12|16 --chi 128 \
 //!     [--reference ppp8.exact.reference] [--steps 32] \
 //!     [--weight-reads-per-step 1]
 //! ```
@@ -89,7 +90,7 @@ impl Options {
                 .map_err(|error| format!("{name}: {error}").into())
         };
         Ok(Self {
-            engine: flag("--engine").ok_or("--engine cutensornet|cpu")?,
+            engine: flag("--engine").ok_or("--engine cutensornet|cuda-mps|cpu")?,
             n: number("--n")?.ok_or("--n 8|12|16")?,
             chi: number("--chi")?.ok_or("--chi <bond>")?,
             reference: flag("--reference"),
@@ -154,9 +155,17 @@ fn run_case() -> Res<()> {
         reference,
     };
     let verdict = match options.engine.as_str() {
-        "cpu" => run(&qdk_cpu_mps::CpuMpsEngine::default(), &case, &options)?,
+        "cpu" => run(
+            &qdk_cpu_mps::CpuMpsEngine::default(),
+            &case,
+            &options,
+            &|| {},
+        )?,
         "cutensornet" => run_on_cutensornet(&case, &options)?,
-        other => return Err(format!("--engine {other}: cutensornet or cpu").into()),
+        "cuda-mps" => run_on_cuda_mps(&case, &options)?,
+        other => {
+            return Err(format!("--engine {other}: cutensornet, cuda-mps or cpu").into());
+        }
     };
     if verdict == Verdict::Disagrees {
         std::process::exit(2);
@@ -170,7 +179,7 @@ fn run_on_cutensornet(case: &Case, options: &Options) -> Res<Verdict> {
     println!("POLYENE availability {:?}", availability.report());
     let engine = qdk_cutensornet::CuTensorNetEngine::new(&availability)?;
     engine.dev_reset_times();
-    let verdict = run(&engine, case, options)?;
+    let verdict = run(&engine, case, options, &|| {})?;
     let times = engine.dev_times();
     let clock = |name: &str, clock: &qdk_cutensornet::PhaseClock| {
         format!("{name}={:.3}s/{}", clock.seconds, clock.count)
@@ -196,9 +205,46 @@ fn run_on_cutensornet(_case: &Case, _options: &Options) -> Res<Verdict> {
     Err(format!("cuTensorNet runs on Linux x86-64 only: {error:?}").into())
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn run_on_cuda_mps(case: &Case, options: &Options) -> Res<Verdict> {
+    let availability = qdk_cutensornet::discover()?;
+    println!("POLYENE availability {:?}", availability.report());
+    let engine = qdk_cutensornet::CudaMpsEngine::new(&availability)?;
+    run(&engine, case, options, &|| print_cuda_mps_counters(&engine))
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+fn run_on_cuda_mps(_case: &Case, _options: &Options) -> Res<Verdict> {
+    Err("cuda-mps runs on Linux x86-64 only".into())
+}
+
+/// What a `CudaMpsEngine` has done so far in the run, printed after each
+/// step so that a run stopped by its time limit still reports it.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn print_cuda_mps_counters<T: qdk_cutensornet::cuda_mps_engine::TensorCalls>(
+    engine: &qdk_cutensornet::CudaMpsEngine<T>,
+) {
+    let counters = engine.counters();
+    println!(
+        "POLYENE cuda_mps_counters splits={} centre_moves={} swaps={} \
+         gate_split_seconds={:.3} read_seconds={:.3} largest_bond={}",
+        counters.splits,
+        counters.centre_moves,
+        counters.swaps,
+        counters.gate_split_seconds,
+        counters.read_seconds,
+        counters.largest_bond,
+    );
+}
+
 /// The prefix on `engine`, with every reading printed, checked against the
-/// case's reference.
-fn run<E: MpsEngine>(engine: &E, case: &Case, options: &Options) -> Res<Verdict> {
+/// case's reference; `after_step` runs after each step's line.
+fn run<E: MpsEngine>(
+    engine: &E,
+    case: &Case,
+    options: &Options,
+    after_step: &dyn Fn(),
+) -> Res<Verdict> {
     let (prefix, hamiltonian) = (&case.prefix, &case.hamiltonian);
     let ancilla = hamiltonian.ancilla;
     let hadamard = inputs::hadamard(ancilla);
@@ -239,6 +285,7 @@ fn run<E: MpsEngine>(engine: &E, case: &Case, options: &Options) -> Res<Verdict>
             1.0 - weight,
             bonds.iter().max().unwrap_or(&1),
         );
+        after_step();
         if p.is_power_of_two() || p == prefix.steps {
             let (c, ancilla_z) = hadamard_test(engine, &state, ancilla)?;
             println!(
