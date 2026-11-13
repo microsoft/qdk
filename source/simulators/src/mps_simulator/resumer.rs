@@ -23,6 +23,7 @@ use crate::OutputRecord;
 use crate::qir::{QirMachine, QirResumeError, QirResumer, QirShotId};
 use tensornet::MpsEngine;
 
+pub(crate) mod dev_batches;
 mod grouped_run;
 pub(crate) mod layout;
 pub(crate) mod lowering;
