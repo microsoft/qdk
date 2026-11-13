@@ -6,7 +6,10 @@ mod given_interpreter {
     use expect_test::Expect;
     use miette::Diagnostic;
     use qsc_data_structures::source::SourceMap;
-    use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+    use qsc_data_structures::{
+        language_features::LanguageFeatures,
+        target::{Profile, TargetCapabilityFlags},
+    };
     use qsc_eval::{output::CursorReceiver, val::Value};
     use qsc_passes::PackageType;
     use rustc_hash::FxHashMap;
@@ -2410,6 +2413,89 @@ mod given_interpreter {
                 !qir.contains("call void @__quantum__rt__int_record_output(i64 0,"),
                 "expected source entrypoint QIR generation to avoid stale literal outputs, got:\n{qir}"
             );
+        }
+
+        #[test]
+        fn adaptive_qirgen_relabels_statically_allocated_qubits_in_retry_loop() {
+            let mut interpreter = get_interpreter_with_capabilities(Profile::Adaptive.into());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    @EntryPoint(Adaptive)
+                    operation Main() : Result[] {
+                        use data = Qubit[2];
+                        mutable retry = true;
+                        while retry {
+                            Relabel([data[0], data[1]], [data[1], data[0]]);
+                            set retry = MResetZ(data[0]) == One;
+                        }
+                        MResetEachZ(data)
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let callable = user_global(&interpreter, "Main");
+            let from_expression = interpreter.qirgen("Main()").expect("QIR generation");
+            let from_callable = interpreter
+                .qirgen_from_callable(&callable, Value::unit())
+                .expect("callable QIR generation");
+            for qir in [from_expression.qir, from_callable.qir] {
+                assert!(qir.contains("\"required_num_qubits\"=\"2\""), "{qir}");
+                assert!(qir.contains("store ptr"), "{qir}");
+                assert!(qir.contains("load ptr"), "{qir}");
+                assert!(!qir.contains("__quantum__qis__swap"), "{qir}");
+                assert!(!qir.contains("PermuteLabels"), "{qir}");
+                assert!(
+                    qir.contains("!\"dynamic_qubit_management\", i1 false"),
+                    "{qir}"
+                );
+            }
+        }
+
+        #[test]
+        fn adaptive_qirgen_resolves_indexed_aliases_after_conditional_relabeling() {
+            let mut interpreter = get_interpreter_with_capabilities(Profile::Adaptive.into());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation TestRelabel(takeBranch : Bool) : (Result, Result[]) {
+                        use qs = Qubit[4];
+                        X(qs[0]);
+                        if takeBranch { X(qs[3]); }
+                        let condition = MResetZ(qs[3]) == One;
+                        let index = condition ? 2 | 0;
+                        let alias = qs[index];
+                        if condition {
+                            Relabel(qs[0..2], [qs[1], qs[2], qs[0]]);
+                        }
+                        (MResetZ(alias), MResetEachZ(qs))
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            for argument in ["false", "true"] {
+                let expression = format!("TestRelabel({argument})");
+                let (result, output) = run(&mut interpreter, &expression);
+                is_only_value(
+                    &result,
+                    &output,
+                    &Value::Tuple(
+                        vec![
+                            Value::Result(qsc_eval::val::Result::Val(true)),
+                            Value::Array(
+                                vec![Value::Result(qsc_eval::val::Result::Val(false)); 4].into(),
+                            ),
+                        ]
+                        .into(),
+                        None,
+                    ),
+                );
+                let qir = interpreter.qirgen(&expression).expect("QIR generation").qir;
+                assert!(qir.contains("ptrtoint ptr"), "{qir}");
+                assert!(qir.contains("getelementptr [4 x ptr]"), "{qir}");
+                assert!(!qir.contains("__quantum__qis__swap"), "{qir}");
+            }
         }
 
         #[test]

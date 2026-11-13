@@ -4,8 +4,8 @@
 #![allow(clippy::too_many_lines)]
 
 use super::{
-    assert_block_instructions, assert_callable, assert_error, get_partial_evaluation_error,
-    get_rir_program,
+    assert_block_instructions, assert_blocks, assert_callable, assert_error,
+    get_partial_evaluation_error, get_rir_program,
 };
 use crate::tests::get_rir_program_with_capabilities;
 use expect_test::expect;
@@ -492,8 +492,8 @@ fn qubit_double_release_triggers_runtime_error() {
 }
 
 #[test]
-fn qubit_relabel_in_dynamic_block_triggers_capability_error() {
-    let error = get_partial_evaluation_error(indoc! {
+fn qubit_relabel_in_dynamic_block() {
+    let mut program = get_rir_program(indoc! {
         r#"
         operation Main() : Result {
             use qs = Qubit[2];
@@ -505,11 +505,88 @@ fn qubit_relabel_in_dynamic_block_triggers_capability_error() {
         "#,
     });
 
-    assert_error(
-        &error,
-        &expect![
-            "CapabilityError(UseOfDynamicQubit(PackageSpan { package: PackageId(1), span: Span { lo: 67160, hi: 67173 } }))"
-        ],
+    qsc_rir::passes::check_and_transform(&mut program);
+    assert_eq!(program.num_qubits, 2);
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(3), args( Result(0), )
+            Branch Variable(1, Boolean), 1, 2
+        Block 1:Block:
+            Jump(2)
+        Block 2:Block:
+            Variable(7, Qubit) = Phi ( [Qubit(0), 0], [Qubit(1), 1], )
+            Variable(6, Qubit) = Phi ( [Qubit(1), 0], [Qubit(0), 1], )
+            Call id(4), args( Variable(6, Qubit), Result(1), )
+            Call id(5), args( Result(1), Tag(0, 3), )
+            Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn qubit_relabel_in_measurement_dependent_loop() {
+    let mut program = get_rir_program_with_capabilities(
+        indoc! {
+            r#"
+            @EntryPoint(Adaptive)
+            operation Main() : Result[] {
+                use data = Qubit[2];
+                mutable retry = true;
+                while retry {
+                    Relabel([data[0], data[1]], [data[1], data[0]]);
+                    set retry = MResetZ(data[0]) == One;
+                }
+                MResetEachZ(data)
+            }
+            "#,
+        },
+        Profile::Adaptive.into(),
+    );
+    qsc_rir::passes::check_and_transform(&mut program);
+    assert_eq!(program.num_qubits, 2);
+    assert!(!program.use_dynamic_qubit_management);
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Variable(1, Boolean) = Alloca
+            Variable(2, Qubit) = Alloca
+            Variable(3, Qubit) = Alloca
+            Variable(4, Qubit) = Alloca
+            Call id(1), args( Pointer, )
+            Variable(2, Qubit) = Store Qubit(0)
+            Variable(3, Qubit) = Store Qubit(1)
+            Variable(1, Boolean) = Store Bool(true)
+            Jump(1)
+        Block 1:Block:
+            Variable(9, Boolean) = Load Variable(1, Boolean)
+            Branch Variable(9, Boolean), 2, 3
+        Block 2:Block:
+            Variable(12, Qubit) = Load Variable(2, Qubit)
+            Variable(4, Qubit) = Store Variable(12, Qubit)
+            Variable(14, Qubit) = Load Variable(3, Qubit)
+            Variable(2, Qubit) = Store Variable(14, Qubit)
+            Variable(16, Qubit) = Load Variable(4, Qubit)
+            Variable(3, Qubit) = Store Variable(16, Qubit)
+            Variable(18, Qubit) = Load Variable(2, Qubit)
+            Call id(2), args( Variable(18, Qubit), Result(0), )
+            Variable(5, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Store Variable(5, Boolean)
+            Jump(1)
+        Block 3:Block:
+            Variable(10, Qubit) = Load Variable(2, Qubit)
+            Call id(2), args( Variable(10, Qubit), Result(1), )
+            Variable(11, Qubit) = Load Variable(3, Qubit)
+            Call id(2), args( Variable(11, Qubit), Result(2), )
+            Call id(4), args( Integer(2), Tag(0, 3), )
+            Call id(5), args( Result(1), Tag(1, 5), )
+            Call id(5), args( Result(2), Tag(2, 5), )
+            Return Integer(0)"#]],
     );
 }
 

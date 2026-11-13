@@ -624,6 +624,31 @@ def test_bell_loop_inttoptr_emits_mov():
     assert OP_MOV in primaries, "Missing OP_MOV for inttoptr"
 
 
+@pytest.mark.parametrize("bytecode", [Bytecode.Bit32, Bytecode.Bit64])
+def test_qubit_label_ptrtoint_emits_integer_mov(bytecode):
+    ir = BELL_LOOP_QIR.replace(
+        "  %i1 = add i64 %i, 1",
+        "  %label = ptrtoint %Qubit* %q0 to i64\n"
+        "  %i1 = add i64 %label, 1",
+    )
+    module = pyqir.Module.from_ir(pyqir.Context(), ir, "qubit-label.ll")
+    result = AdaptiveProfilePass(bytecode).run(module)
+    casts = [
+        instruction
+        for instruction in result.instructions
+        if _primary(instruction.opcode) == OP_MOV
+        and not instruction.opcode & FLAG_SRC0_IMM
+        and result.register_types[instruction.src0] == REG_TYPE_PTR
+    ]
+    assert len(casts) == 1
+    assert result.register_types[casts[0].dst] == REG_TYPE_I64
+    assert any(
+        _primary(instruction.opcode) == OP_ADD
+        and instruction.src0 == casts[0].dst
+        for instruction in result.instructions
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test: Bell loop with IR-defined function calls
 # ---------------------------------------------------------------------------

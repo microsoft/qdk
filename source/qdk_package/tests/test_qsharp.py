@@ -710,6 +710,63 @@ def test_compiled_array_update_assignment_preserves_index_effects() -> None:
     assert compiled == [[False, True]]
 
 
+def test_conditional_relabel_preserves_runtime_indexed_aliases() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    # This Q# source is a fixed test fixture, not untrusted input.
+    qsharp.eval(  # DevSkim: ignore DS189424
+        """
+        operation TestRelabel(takeBranch : Bool) : (Result, Result[]) {
+            use qs = Qubit[4];
+            X(qs[0]);
+            if takeBranch { X(qs[3]); }
+            let condition = MResetZ(qs[3]) == One;
+            let index = condition ? 2 | 0;
+            let alias = qs[index];
+            if condition {
+                Relabel(qs[0..2], [qs[1], qs[2], qs[0]]);
+            }
+            (MResetZ(alias), MResetEachZ(qs))
+        }
+        """
+    )
+
+    expected = (qsharp.Result.One, [qsharp.Result.Zero] * 4)
+    for argument in ("false", "true"):
+        expression = f"TestRelabel({argument})"
+        assert qsharp.eval(expression) == expected  # DevSkim: ignore DS189424
+        qir = str(qsharp.compile(expression))
+        assert "__quantum__qis__swap" not in qir
+        assert run_qir(qir, shots=1, type="cpu") == [expected]
+
+
+def test_relabel_in_measurement_dependent_retry_loop() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    # This Q# source is a fixed test fixture, not untrusted input.
+    qsharp.eval(  # DevSkim: ignore DS189424
+        """
+        @EntryPoint(Adaptive)
+        operation Main() : (Int, Result[]) {
+            use data = Qubit[2];
+            X(data[1]);
+            mutable retry = true;
+            mutable attempts = 0;
+            while retry {
+                Relabel([data[0], data[1]], [data[1], data[0]]);
+                set attempts += 1;
+                set retry = MResetZ(data[0]) == One;
+            }
+            (attempts, MResetEachZ(data))
+        }
+        """
+    )
+
+    expected = (2, [qsharp.Result.Zero] * 2)
+    assert qsharp.eval("Main()") == expected  # DevSkim: ignore DS189424
+    qir = str(qsharp.compile("Main()"))
+    assert "__quantum__qis__swap" not in qir
+    assert run_qir(qir, shots=1, type="cpu") == [expected]
+
+
 @pytest.mark.parametrize(
     "target_profile",
     [qsharp.TargetProfile.Adaptive, qsharp.TargetProfile.Adaptive_RIF],

@@ -16,6 +16,7 @@ mod misc;
 mod operators;
 mod output_recording;
 mod parallel;
+mod qubit_relabel;
 mod qubits;
 mod results;
 mod returns;

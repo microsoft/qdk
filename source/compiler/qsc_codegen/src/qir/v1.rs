@@ -254,6 +254,7 @@ fn convert_to_qir(
     let convert_instr = match (operand_ty, var_ty) {
         ("i64", "double") => "sitofp i64",
         ("double", "i64") => "fptosi double",
+        ("%Qubit*", "i64") => "ptrtoint %Qubit*",
         _ => panic!("unsupported conversion from {operand_ty} to {var_ty} in convert instruction"),
     };
 
