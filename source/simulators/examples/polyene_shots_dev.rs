@@ -11,16 +11,26 @@
 //!     --bytecode ppp8_m6.bytecode.json [--params ppp8.params.json] \
 //!     [--engine cpu|reference] [--chi 64] [--shots 8] [--first-shot 0] \
 //!     [--seed 1] [--mode grouped|per-shot] [--reset split|merge|fresh] \
-//!     [--fusion unfused|pairs] [--layout program|identity] [--segments]
+//!     [--fusion unfused|pairs|seq|seq3] [--apply engine|mpo] \
+//!     [--layout program|identity|interleave-centre] [--segments]
 //! ```
 //!
 //! `--layout identity` places qubit `q` on site `q` instead of the
-//! resumer's order for the program; the `LAYOUT` line gives the order used.
+//! resumer's order for the program; `interleave-centre` places the modes
+//! α₀ β₀ α₁ β₁ … (qubit 1 + i is αᵢ, 1 + N + i is βᵢ) with the ancilla
+//! (qubit 0) in the middle; the `LAYOUT` line gives the order used.
+//!
+//! `--fusion seq|seq3` fuses each run of gates in order, one block open at
+//! a time, into blocks of at most 2 or 3 sites (the resumer's dev in-order
+//! fusion); `--apply mpo` makes the CPU engine apply every operator on
+//! non-adjacent sites (every 3-site block) as an MPO
+//! (`CpuMpsEngine::with_dev_mpo_far`). `seq3` needs `--apply mpo`.
 //!
 //! `--engine reference` runs the exact state vector (`ExactReference`),
 //! whose bond reads are replaced by a constant (its Schmidt ranks cost
 //! seconds at 17 qubits and change no draw). `--segments` prints one line
-//! per segment (what one group ran of one batch).
+//! per segment (what one group ran of one batch). `--print-reads` prints
+//! one `READ` line per P(One) the engine answers, in the run's order.
 //!
 //! Lines: `PROGRAM`, then one `SHOT` per shot (its bits in record order and
 //! k = Σ r[j]·2^j), one `ROUND` per round (results drawn before / 2), and
@@ -41,6 +51,8 @@ use tensornet::{MpsEngine, MpsShape, PauliSum};
 #[path = "../tests/run_shot_compatibility/bytecode_json.rs"]
 mod bytecode_json;
 
+// The driver's on/off flags, one bool each.
+#[allow(clippy::struct_excessive_bools)]
 struct Options {
     bytecode: String,
     params: Option<String>,
@@ -52,8 +64,11 @@ struct Options {
     per_shot: bool,
     reset: DevResetHandling,
     fusion: GateFusion,
-    identity_layout: bool,
+    in_order: Option<usize>,
+    mpo: bool,
+    layout: String,
     segments: bool,
+    print_reads: bool,
 }
 
 impl Options {
@@ -73,21 +88,29 @@ impl Options {
             "fresh" => DevResetHandling::Fresh,
             other => panic!("--reset {other}: split, merge or fresh"),
         };
-        let fusion = match flag("--fusion").as_deref().unwrap_or("unfused") {
-            "unfused" => GateFusion::Unfused,
-            "pairs" => GateFusion::Pairs,
-            other => panic!("--fusion {other}: unfused or pairs"),
+        let (fusion, in_order) = match flag("--fusion").as_deref().unwrap_or("unfused") {
+            "unfused" => (GateFusion::Unfused, None),
+            "pairs" => (GateFusion::Pairs, None),
+            "seq" => (GateFusion::Unfused, Some(2)),
+            "seq3" => (GateFusion::Unfused, Some(3)),
+            other => panic!("--fusion {other}: unfused, pairs, seq or seq3"),
         };
+        let mpo = match flag("--apply").as_deref().unwrap_or("engine") {
+            "engine" => false,
+            "mpo" => true,
+            other => panic!("--apply {other}: engine or mpo"),
+        };
+        assert!(in_order != Some(3) || mpo, "seq3 needs --apply mpo");
         let per_shot = match flag("--mode").as_deref().unwrap_or("grouped") {
             "grouped" => false,
             "per-shot" => true,
             other => panic!("--mode {other}: grouped or per-shot"),
         };
-        let identity_layout = match flag("--layout").as_deref().unwrap_or("program") {
-            "program" => false,
-            "identity" => true,
-            other => panic!("--layout {other}: program or identity"),
-        };
+        let layout = flag("--layout").unwrap_or_else(|| "program".to_string());
+        assert!(
+            ["program", "identity", "interleave-centre"].contains(&layout.as_str()),
+            "--layout {layout}: program, identity or interleave-centre"
+        );
         Self {
             bytecode: flag("--bytecode").expect("--bytecode <path>"),
             params: flag("--params"),
@@ -100,8 +123,11 @@ impl Options {
             per_shot,
             reset,
             fusion,
-            identity_layout,
+            in_order,
+            mpo,
+            layout,
             segments: args.iter().any(|arg| arg == "--segments"),
+            print_reads: args.iter().any(|arg| arg == "--print-reads"),
         }
     }
 }
@@ -169,6 +195,76 @@ impl<E: MpsEngine> MpsEngine for NoShape<E> {
     }
 }
 
+/// The site of each qubit in the `interleave-centre` order: α₀ β₀ α₁ β₁ …
+/// with the ancilla (qubit 0) in the middle, where qubit 1 + i is αᵢ and
+/// qubit 1 + N + i is βᵢ (the params' mode m on qubit 1 + m).
+fn interleave_centre(qubits: usize) -> Vec<usize> {
+    let n = (qubits - 1) / 2;
+    assert_eq!(2 * n + 1, qubits, "an ancilla and 2N modes");
+    let mut order: Vec<usize> = (0..n).flat_map(|i| [1 + i, 1 + n + i]).collect();
+    order.insert(order.len() / 2, 0);
+    let mut sites = vec![0; qubits];
+    for (site, &qubit) in order.iter().enumerate() {
+        sites[qubit] = site;
+    }
+    sites
+}
+
+/// Development only: an engine printing each P(One) it answers
+/// (`--print-reads`), in the order the run reads them, to compare two
+/// engines read by read.
+struct PrintReads<E>(E);
+
+impl<E: MpsEngine> MpsEngine for PrintReads<E> {
+    type State = E::State;
+    type Error = E::Error;
+
+    fn prepare(&self, capacity: &MpsShape) -> Result<Self::State, E::Error> {
+        self.0.prepare(capacity)
+    }
+    fn apply(
+        &self,
+        state: &mut Self::State,
+        sites: &[usize],
+        matrix: &[Complex64],
+    ) -> Result<(), E::Error> {
+        self.0.apply(state, sites, matrix)
+    }
+    fn probability_of_one(&self, state: &Self::State, site: usize) -> Result<f64, E::Error> {
+        let p = self.0.probability_of_one(state, site)?;
+        println!("READ site={site} p={p:.9}");
+        Ok(p)
+    }
+    fn project(&self, state: &mut Self::State, site: usize, one: bool) -> Result<f64, E::Error> {
+        self.0.project(state, site, one)
+    }
+    fn fork(&self, state: &Self::State) -> Result<Self::State, E::Error> {
+        self.0.fork(state)
+    }
+    fn sample(
+        &self,
+        state: &Self::State,
+        sites: &[usize],
+        shots: usize,
+        seed: u64,
+    ) -> Result<Vec<bool>, E::Error> {
+        self.0.sample(state, sites, shots, seed)
+    }
+    fn expectation(
+        &self,
+        state: &Self::State,
+        observable: &PauliSum,
+    ) -> Result<Complex64, E::Error> {
+        self.0.expectation(state, observable)
+    }
+    fn shape(&self, state: &Self::State) -> Result<MpsShape, E::Error> {
+        self.0.shape(state)
+    }
+    fn retained_weight(&self, state: &Self::State) -> Result<f64, E::Error> {
+        self.0.retained_weight(state)
+    }
+}
+
 fn bits(records: &[OutputRecord]) -> Vec<bool> {
     records
         .iter()
@@ -206,7 +302,7 @@ fn main() {
     let program = QirProgram::new(bytecode.program()).expect("the program builds");
     println!(
         "PROGRAM qubits={} two_qubit_gates={} engine={} chi={} seed={} first_shot={} shots={} \
-         mode={} reset={:?} fusion={:?}",
+         mode={} reset={:?} fusion={:?} in_order={:?} mpo={} layout={}",
         program.qubits(),
         program.two_qubit_gates().len(),
         options.engine,
@@ -221,15 +317,18 @@ fn main() {
         },
         options.reset,
         options.fusion,
+        options.in_order,
+        options.mpo,
+        options.layout,
     );
-    match options.engine.as_str() {
-        "cpu" => run(&options, &program, qdk_cpu_mps::CpuMpsEngine::default()),
-        "reference" => run(
-            &options,
-            &program,
-            NoShape(tensornet::reference::ExactReference::new()),
-        ),
-        other => panic!("--engine {other}: cpu or reference"),
+    let cpu = || qdk_cpu_mps::CpuMpsEngine::default().with_dev_mpo_far(options.mpo);
+    let reference = || NoShape(tensornet::reference::ExactReference::new());
+    match (options.engine.as_str(), options.print_reads) {
+        ("cpu", false) => run(&options, &program, cpu()),
+        ("cpu", true) => run(&options, &program, PrintReads(cpu())),
+        ("reference", false) => run(&options, &program, reference()),
+        ("reference", true) => run(&options, &program, PrintReads(reference())),
+        (other, _) => panic!("--engine {other}: cpu or reference"),
     }
 }
 
@@ -243,8 +342,15 @@ where
         .with_gate_fusion(options.fusion)
         .with_routing(Routing::Engine)
         .with_dev_reset_handling(options.reset);
-    if options.identity_layout {
-        resumer = resumer.with_dev_identity_layout();
+    match options.layout.as_str() {
+        "identity" => resumer = resumer.with_dev_identity_layout(),
+        "interleave-centre" => {
+            resumer = resumer.with_dev_layout(interleave_centre(program.qubits() as usize));
+        }
+        _ => {}
+    }
+    if let Some(max_sites) = options.in_order {
+        resumer = resumer.with_dev_in_order_fusion(max_sites);
     }
     let machine = QirMachine::new(program);
     let shots: Vec<QirShotId> = (options.first_shot..options.first_shot + options.shots)

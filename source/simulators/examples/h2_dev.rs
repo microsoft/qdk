@@ -30,13 +30,25 @@
 //!     --bytecode H2.bytecode.json \
 //!     [--readout TABLE] [--readout-first-draw 1399] [--seed 1] [--chi 128] \
 //!     [--first-shot 0] [--shots 1] [--threads 1] [--group 1] \
-//!     [--routing engine|meet-halfway|meet-halfway-after-fusion]
+//!     [--routing engine|meet-halfway|meet-halfway-after-fusion] \
+//!     [--fusion pairs|unfused|seq|seq3] [--apply engine|mpo] \
+//!     [--reset split|merge]
 //! ```
+//!
+//! Development only: `--fusion seq|seq3` fuses each run of gates in order
+//! into blocks of at most 2 or 3 sites (the resumer's dev in-order fusion,
+//! with `--routing engine` only); `--apply mpo` makes the CPU engine apply
+//! every operator on non-adjacent sites as an MPO
+//! (`CpuMpsEngine::with_dev_mpo_far`); `--reset merge` keeps a grouped
+//! call's shots together at a run of resets that settles every site
+//! (`DevResetHandling::Merge`; it acts only with `--group`).
 //!
 //! `--group K` (development only) runs each K consecutive shots of the slice
 //! in one `run` call, so that they share a state until a draw splits them:
 //! one `CALL` line per call (time, forks, the TVD of each state that reached
-//! the readout) and one `GSHOT` line per shot (its records).
+//! the readout) and one `GSHOT` line per shot (its records). `--census`
+//! (development only) adds one `CENSUS` line per call: its resets, the
+//! draws that split it, and the resets `--reset merge` merged.
 //!
 //! `--routing` (EXPERIMENTAL) chooses the resumer's `Routing` of distant
 //! two-qubit gates; `engine`, the default, is the resumer's behaviour
@@ -70,7 +82,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use num_complex::Complex64;
 use qdk_simulators::mps_simulator::{
-    MpsResumer, Restore, RouteTuning, Routing, reset_routing_trace, routing_trace,
+    DevResetHandling, GateFusion, MpsResumer, Restore, RouteTuning, Routing, reset_routing_trace,
+    routing_trace,
 };
 use qdk_simulators::qir::{QirMachine, QirProgram, QirResumer, QirShotId, expect_ready};
 use qdk_simulators::{MeasurementResult, OutputRecord};
@@ -420,9 +433,18 @@ struct Options {
     threads: usize,
     /// Development only: the shots of one `run` call (1: each shot alone).
     group: u32,
+    census: bool,
     routing: (String, Routing),
     /// Development only: `--record-calls FILE` and `--record-draws N`.
     record_calls: Option<(String, usize)>,
+    /// Development only: the gate fusion, the in-order fusion's largest
+    /// block (replacing it), the CPU engine's MPO path, the reset handling,
+    /// and their name.
+    fusion: GateFusion,
+    in_order: Option<usize>,
+    mpo: bool,
+    reset: DevResetHandling,
+    variant: String,
 }
 
 impl Options {
@@ -441,6 +463,10 @@ impl Options {
             })
         };
         let as_usize = |n: u64| usize::try_from(n).expect("fits a usize");
+        let fusion = value("--fusion").unwrap_or_else(|| "pairs".to_string());
+        let apply = value("--apply").unwrap_or_else(|| "engine".to_string());
+        let reset = value("--reset").unwrap_or_else(|| "split".to_string());
+        assert!(fusion != "seq3" || apply == "mpo", "seq3 needs --apply mpo");
         Self {
             engine: value("--engine").unwrap_or_else(|| "cpu".to_string()),
             bytecode: value("--bytecode").expect("--bytecode FILE: the program's bytecode JSON"),
@@ -451,6 +477,7 @@ impl Options {
             first_shot: u32::try_from(number("--first-shot", 0)).expect("a shot id"),
             shots: u32::try_from(number("--shots", 1)).expect("a shot count"),
             threads: as_usize(number("--threads", 1)).max(1),
+            census: args.iter().any(|arg| arg == "--census"),
             group: u32::try_from(number("--group", 1))
                 .expect("a shot count")
                 .max(1),
@@ -498,7 +525,41 @@ impl Options {
             },
             record_calls: value("--record-calls")
                 .map(|path| (path, as_usize(number("--record-draws", 300)))),
+            fusion: match fusion.as_str() {
+                "unfused" => GateFusion::Unfused,
+                _ => GateFusion::Pairs,
+            },
+            in_order: match fusion.as_str() {
+                "pairs" | "unfused" => None,
+                "seq" => Some(2),
+                "seq3" => Some(3),
+                other => panic!("--fusion {other}: pairs, unfused, seq or seq3"),
+            },
+            mpo: match apply.as_str() {
+                "engine" => false,
+                "mpo" => true,
+                other => panic!("--apply {other}: engine or mpo"),
+            },
+            reset: match reset.as_str() {
+                "split" => DevResetHandling::Split,
+                "merge" => DevResetHandling::Merge,
+                other => panic!("--reset {other}: split or merge"),
+            },
+            variant: format!("{fusion}/{apply}/{reset}"),
         }
+    }
+
+    /// The resumer these options configure, on `engine`.
+    fn resumer<E: MpsEngine>(&self, engine: E) -> MpsResumer<E> {
+        let mut resumer = MpsResumer::new(engine, self.seed)
+            .with_max_bond_dimension(self.chi)
+            .with_routing(self.routing.1)
+            .with_gate_fusion(self.fusion)
+            .with_dev_reset_handling(self.reset);
+        if let Some(max_sites) = self.in_order {
+            resumer = resumer.with_dev_in_order_fusion(max_sites);
+        }
+        resumer
     }
 }
 
@@ -535,9 +596,7 @@ where
         inner: Rc::clone(&engine),
         seen: Rc::clone(&seen),
     };
-    let mut resumer = MpsResumer::new(probe, options.seed)
-        .with_max_bond_dimension(options.chi)
-        .with_routing(options.routing.1);
+    let mut resumer = options.resumer(probe);
     let (start, started) = (unix_seconds(), Instant::now());
     let run = expect_ready(resumer.run(&QirMachine::new(program), &[QirShotId(shot)]));
     let seconds = started.elapsed().as_secs_f64();
@@ -552,10 +611,11 @@ where
     let report = *resumer.last_run();
     let (splits, routing) = (qdk_cpu_mps::dev_trace::get(), routing_trace());
     let mut line = format!(
-        "SHOT shot={shot} engine={} routing={} chi={} seed={} start_unix={start:.3} end_unix={end:.3} \
+        "SHOT shot={shot} engine={} routing={} variant={} chi={} seed={} start_unix={start:.3} end_unix={end:.3} \
          seconds={seconds:.1} records={records} draws={} largest_bond={} lost_weight={:.3e}",
         options.engine,
         options.routing.0,
+        options.variant,
         options.chi,
         options.seed,
         seen.draws.get(),
@@ -696,13 +756,17 @@ where
         inner: Rc::clone(&engine),
         seen: Rc::clone(&seen),
     };
-    let mut resumer = MpsResumer::new(probe, options.seed)
-        .with_max_bond_dimension(options.chi)
-        .with_routing(options.routing.1);
+    let mut resumer = options.resumer(probe);
     let shots: Vec<QirShotId> = (first..first + count).map(QirShotId).collect();
+    if options.census {
+        qdk_simulators::mps_simulator::start_census();
+    }
     let started = Instant::now();
     let run = expect_ready(resumer.run(&QirMachine::new(program), &shots));
     let seconds = started.elapsed().as_secs_f64();
+    if options.census {
+        print_census(first);
+    }
     let records = match run {
         Ok(records) => records,
         Err(error) => {
@@ -728,12 +792,13 @@ where
         .map(|t| t.parse::<f64>().expect("a number"))
         .fold(0.0, f64::max);
     println!(
-        "CALL first={first} shots={count} engine={} routing={} chi={} seed={} seconds={seconds:.1} \
+        "CALL first={first} shots={count} engine={} routing={} variant={} chi={} seed={} seconds={seconds:.1} \
          draws={} forks={} readouts={} max_tvd={max_tvd:.3e} tvds={} peaks={} largest_bond={} \
          lost_weight={:.3e} splits={} cap_bound={} need_max={} batches={} route_swaps={} \
          restore_swaps={} drift_fb={} bond_fb={}",
         options.engine,
         options.routing.0,
+        options.variant,
         options.chi,
         options.seed,
         seen.draws.get(),
@@ -763,6 +828,24 @@ where
     seen.readouts.borrow_mut().clear();
     drop(resumer);
     true
+}
+
+/// Prints the `CENSUS` line of the call that started at shot `first`.
+fn print_census(first: u32) {
+    let segments = qdk_simulators::mps_simulator::take_census();
+    let sum = |field: fn(&qdk_simulators::mps_simulator::SegmentCensus) -> u64| {
+        segments.iter().map(field).sum::<u64>()
+    };
+    println!(
+        "CENSUS call={first} segments={} resets={} measure_splits={} reset_splits={} \
+         reset_merges={} forks={}",
+        segments.len(),
+        sum(|s| s.resets),
+        sum(|s| s.measure_splits),
+        sum(|s| s.reset_splits),
+        sum(|s| s.reset_merges),
+        sum(|s| s.forks),
+    );
 }
 
 /// Runs the slice's shots, `options.threads` at a time. Whether all
@@ -831,7 +914,9 @@ fn main() {
             &program,
             &tensornet::reference::ExactReference::new,
         ),
-        "cpu" => run_slice(&options, &program, &qdk_cpu_mps::CpuMpsEngine::default),
+        "cpu" => run_slice(&options, &program, &|| {
+            qdk_cpu_mps::CpuMpsEngine::default().with_dev_mpo_far(options.mpo)
+        }),
         "cutensornet" => run_on_cutensornet(&options, &program),
         "cuda-mps" => run_on_cuda_mps(&options, &program),
         other => panic!("--engine {other}: reference, cpu, cutensornet or cuda-mps"),

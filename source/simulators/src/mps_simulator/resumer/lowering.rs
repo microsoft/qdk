@@ -40,6 +40,20 @@ pub(crate) enum Step {
     },
     /// Draws the value of `site`, projects on it, and returns it to |0⟩.
     Reset { site: usize },
+    /// EXPERIMENTAL, development only: a unitary on three or more sites,
+    /// which only the dev in-order fusion emits
+    /// ([`MpsResumer::with_dev_in_order_fusion`](super::super::MpsResumer::with_dev_in_order_fusion)),
+    /// for an engine that applies such operators (the CPU engine with its
+    /// dev MPO path). Shared, so that cloning a step allocates nothing.
+    DevWide(std::rc::Rc<DevWideOperator>),
+}
+
+/// EXPERIMENTAL, development only: a unitary on ascending sites, row-major,
+/// the first site the most significant bit.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct DevWideOperator {
+    pub(crate) sites: Vec<usize>,
+    pub(crate) matrix: Vec<num_complex::Complex64>,
 }
 
 /// A unitary on one or two distinct sites, as the engine takes it: the

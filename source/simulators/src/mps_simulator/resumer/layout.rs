@@ -59,6 +59,24 @@ impl QubitOrder {
         local_search_order(&InteractionWeights::from_gates(qubits, gates))
     }
 
+    /// EXPERIMENTAL, development only: qubit `q` on site `sites[q]`.
+    ///
+    /// # Panics
+    ///
+    /// When `sites` is not a permutation of `0..sites.len()`.
+    pub(crate) fn dev_from_sites(sites: Vec<usize>) -> Self {
+        let mut seen = vec![false; sites.len()];
+        for &site in &sites {
+            assert!(
+                site < sites.len() && !seen[site],
+                "a dev layout is a permutation of 0..{}",
+                sites.len()
+            );
+            seen[site] = true;
+        }
+        Self { sites }
+    }
+
     /// The site of `qubit`, which is below the order's qubits.
     pub(crate) fn site(&self, qubit: u32) -> usize {
         self.sites[qubit as usize]

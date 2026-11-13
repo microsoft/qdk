@@ -284,6 +284,9 @@ impl Placement {
                         site: self.position[site],
                     });
                 }
+                Step::DevWide(_) => {
+                    panic!("development only: the dev in-order fusion runs without routing")
+                }
             }
         }
         if self.tuning.restore != Restore::Never {

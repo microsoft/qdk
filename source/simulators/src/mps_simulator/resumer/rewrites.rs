@@ -22,6 +22,7 @@
 //! a measurement or a reset, since [`rewrite_runs`] hands it one run of
 //! operators at a time and keeps each draw in its place.
 
+pub(in crate::mps_simulator) mod dev_in_order;
 pub(in crate::mps_simulator) mod fusion;
 
 use super::lowering::{Operator, Step};
@@ -42,7 +43,7 @@ pub(crate) fn rewrite_runs(steps: Vec<Step>, rewrite: &(impl Rewrite + ?Sized)) 
     for step in steps {
         match step {
             Step::Apply(operator) => run.push(operator),
-            draw @ (Step::Measure { .. } | Step::Reset { .. }) => {
+            draw @ (Step::Measure { .. } | Step::Reset { .. } | Step::DevWide(_)) => {
                 let operators = rewrite.rewrite(std::mem::take(&mut run));
                 rewritten.extend(operators.into_iter().map(Step::Apply));
                 rewritten.push(draw);

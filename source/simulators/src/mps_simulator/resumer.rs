@@ -68,6 +68,8 @@ pub struct MpsResumer<E: MpsEngine> {
     routing: Routing,
     reset_handling: dev_census::DevResetHandling,
     identity_layout: bool,
+    dev_in_order: Option<usize>,
+    dev_layout: Option<Vec<usize>>,
     last_run: MpsRunReport,
 }
 
@@ -91,6 +93,8 @@ impl<E: MpsEngine> MpsResumer<E> {
             routing: Routing::default(),
             reset_handling: dev_census::DevResetHandling::Split,
             identity_layout: false,
+            dev_in_order: None,
+            dev_layout: None,
             last_run: MpsRunReport::new(DEFAULT_MAX_BOND_DIMENSION.get()),
         }
     }
@@ -153,6 +157,31 @@ impl<E: MpsEngine> MpsResumer<E> {
         self
     }
 
+    /// EXPERIMENTAL, development only: the resumer fusing each run of gates
+    /// in order, one block open at a time, into blocks of at most
+    /// `max_sites` sites (at least 2), instead of by its gate fusion. A
+    /// block of three sites or more reaches the engine as one operator, so
+    /// it needs an engine that applies such operators (the CPU engine with
+    /// its dev MPO path). Not with a tuned routing.
+    #[must_use]
+    pub fn with_dev_in_order_fusion(mut self, max_sites: usize) -> Self {
+        assert!(
+            max_sites >= 2,
+            "in-order fusion holds blocks of 2 sites or more"
+        );
+        self.dev_in_order = Some(max_sites);
+        self
+    }
+
+    /// EXPERIMENTAL, development only: the resumer placing qubit `q` on
+    /// site `sites[q]` (a permutation of the program's qubits) instead of
+    /// the program's order.
+    #[must_use]
+    pub fn with_dev_layout(mut self, sites: Vec<usize>) -> Self {
+        self.dev_layout = Some(sites);
+        self
+    }
+
     /// What the last run cost: the largest bond any of its states held
     /// where a run of gates ended, and the least weight kept by a shot that
     /// ended, with the warning they call for
@@ -206,6 +235,7 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
         .with_stop(self.stop.as_deref())
         .with_reset_handling(self.reset_handling)
         .with_identity_layout(self.identity_layout)
+        .with_dev_settings(self.dev_in_order, self.dev_layout.as_deref())
         .run()
     }
 }

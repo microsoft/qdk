@@ -215,6 +215,21 @@ impl CpuMpsEngine {
         let chain = state.chain.get_mut();
         self.0.dev_apply_operator(chain, sites, matrix)
     }
+
+    /// EXPERIMENTAL, development only (not for review): the same engine,
+    /// whose [`MpsEngine::apply`] sends every operator on two sites or more
+    /// that are not adjacent (sites spanning two cuts or more, so every
+    /// operator on three sites) through
+    /// [`dev_apply_operator`](Self::dev_apply_operator), in any site order,
+    /// instead of refusing more than two sites and routing distant pairs by
+    /// SWAPs; when `on`.
+    #[must_use]
+    pub fn with_dev_mpo_far(self, on: bool) -> Self {
+        Self(Engine {
+            dev_mpo_far: on,
+            ..self.0
+        })
+    }
 }
 
 impl MpsEngine for CpuMpsEngine {
@@ -328,6 +343,9 @@ pub(crate) struct Engine<A> {
     algebra: A,
     cutoff: f64,
     fuses: bool,
+    /// EXPERIMENTAL, development only: see
+    /// [`CpuMpsEngine::with_dev_mpo_far`].
+    dev_mpo_far: bool,
 }
 
 impl<A: LinearAlgebra> Engine<A> {
@@ -351,6 +369,7 @@ impl<A: LinearAlgebra> Engine<A> {
             algebra,
             cutoff,
             fuses: true,
+            dev_mpo_far: false,
         }
     }
 
@@ -385,6 +404,30 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
         matrix: &[Complex64],
     ) -> Result<(), CpuMpsError> {
         let chain = state.chain.get_mut();
+        if self.dev_mpo_far && sites.len() >= 2 {
+            let (low, high) = sites
+                .iter()
+                .fold((usize::MAX, 0), |(lo, hi), &s| (lo.min(s), hi.max(s)));
+            if high - low >= 2 {
+                if sites.len() == 2 {
+                    checks::apply(chain.sites.len(), sites, matrix)?;
+                } else {
+                    let mut sorted = sites.to_vec();
+                    sorted.sort_unstable();
+                    sorted.dedup();
+                    assert!(
+                        sorted.len() == sites.len() && high < chain.sites.len(),
+                        "development only: a wide operator on distinct sites of the chain"
+                    );
+                }
+                return if sites.windows(2).all(|pair| pair[0] < pair[1]) {
+                    self.dev_apply_operator(chain, sites, matrix)
+                } else {
+                    let (sorted, permuted) = dev_ascending(sites, matrix);
+                    self.dev_apply_operator(chain, &sorted, &permuted)
+                };
+            }
+        }
         checks::apply(chain.sites.len(), sites, matrix)?;
         match *sites {
             [site] => {
@@ -480,4 +523,31 @@ impl<A: LinearAlgebra> MpsEngine for Engine<A> {
         self.split_pair_toward(&mut chain, centre)?;
         Ok(chain.retained_weight)
     }
+}
+
+/// EXPERIMENTAL, development only: `matrix` on `sites` (row-major, the first
+/// site the most significant bit), as the same operator on the sites
+/// ascending.
+fn dev_ascending(sites: &[usize], matrix: &[Complex64]) -> (Vec<usize>, Vec<Complex64>) {
+    let k = sites.len();
+    let dim = 1usize << k;
+    let mut order: Vec<usize> = (0..k).collect();
+    order.sort_by_key(|&i| sites[i]);
+    let sorted: Vec<usize> = order.iter().map(|&i| sites[i]).collect();
+    // The index in the old order of index `new` in the sorted order: the
+    // sorted position j holds old position order[j].
+    let old_index = |new: usize| {
+        (0..k).fold(0, |old, j| {
+            let bit = (new >> (k - 1 - j)) & 1;
+            old | (bit << (k - 1 - order[j]))
+        })
+    };
+    let map: Vec<usize> = (0..dim).map(old_index).collect();
+    let mut permuted = vec![Complex64::ZERO; dim * dim];
+    for row in 0..dim {
+        for column in 0..dim {
+            permuted[row * dim + column] = matrix[map[row] * dim + map[column]];
+        }
+    }
+    (sorted, permuted)
 }

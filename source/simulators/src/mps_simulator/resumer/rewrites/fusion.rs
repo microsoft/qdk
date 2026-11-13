@@ -125,14 +125,14 @@ fn pairs(run: &[Operator]) -> Vec<Operator> {
 
 /// A block of gates being multiplied: its sites, ascending, and the product
 /// so far, row-major on them, the first site the most significant.
-struct Block {
-    sites: Vec<usize>,
-    matrix: Vec<Complex64>,
+pub(super) struct Block {
+    pub(super) sites: Vec<usize>,
+    pub(super) matrix: Vec<Complex64>,
 }
 
 impl Block {
     /// The identity on `sites` (ascending).
-    fn identity(sites: Vec<usize>) -> Self {
+    pub(super) fn identity(sites: Vec<usize>) -> Self {
         let dimension = 1 << sites.len();
         let mut matrix = vec![Complex64::ZERO; dimension * dimension];
         for i in 0..dimension {
@@ -144,7 +144,7 @@ impl Block {
     /// Multiplies `gate`, on `on` (some of the block's sites, in the gate's
     /// order, the first its most significant bit), after the product so
     /// far: M ← G·M, with G embedded on the block's sites.
-    fn multiply(&mut self, on: &[usize], gate: &[Complex64]) {
+    pub(super) fn multiply(&mut self, on: &[usize], gate: &[Complex64]) {
         let n = self.sites.len();
         let dimension = 1usize << n;
         // The bit of each of the gate's sites in the block's index.
@@ -186,7 +186,7 @@ impl Block {
         }
     }
 
-    fn into_operator(self) -> Operator {
+    pub(super) fn into_operator(self) -> Operator {
         let matrix = match self.sites.len() {
             1 => OperatorMatrix::One(self.matrix.try_into().expect("a 2×2 block")),
             _ => OperatorMatrix::Two(self.matrix.try_into().expect("a 4×4 block")),

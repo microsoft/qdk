@@ -13,7 +13,7 @@
 
 use std::cell::RefCell;
 
-use super::lowering::{Operator, Step};
+use super::lowering::{DevWideOperator, Operator, Step};
 
 /// EXPERIMENTAL, development only: what a group did with a reset whose
 /// shots drew both values.
@@ -131,6 +131,24 @@ pub(super) fn mix(hash: u64, operator: &Operator) -> u64 {
         eat(site as u64);
     }
     for value in operator.matrix.row_major() {
+        eat(value.re.to_bits());
+        eat(value.im.to_bits());
+    }
+    hash
+}
+
+/// Mixes a dev wide operator into `hash`, as [`mix`] does an operator.
+pub(super) fn mix_wide(hash: u64, wide: &DevWideOperator) -> u64 {
+    const PRIME: u64 = 0x0100_0000_01b3;
+    let mut hash = hash;
+    let mut eat = |word: u64| {
+        hash ^= word;
+        hash = hash.wrapping_mul(PRIME);
+    };
+    for &site in &wide.sites {
+        eat(site as u64);
+    }
+    for value in &wide.matrix {
         eat(value.re.to_bits());
         eat(value.im.to_bits());
     }

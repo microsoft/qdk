@@ -93,8 +93,8 @@ impl DevBatchRouter {
                     operator.sites().to_vec(),
                     operator.matrix.row_major().to_vec(),
                 ),
-                Step::Measure { .. } | Step::Reset { .. } => {
-                    unreachable!("a batch of gates has no draws")
+                Step::Measure { .. } | Step::Reset { .. } | Step::DevWide(_) => {
+                    unreachable!("a batch of gates has no draws, and no dev wide steps")
                 }
             })
             .collect()

@@ -45,11 +45,11 @@ use tensornet::{MpsEngine, MpsShape};
 use super::MpsResumer;
 use super::dev_census::{self, DevResetHandling, SegmentCensus};
 use super::layout::QubitOrder;
-use super::lowering::{Operator, Step, lower};
+use super::lowering::{DevWideOperator, Operator, Step, lower};
 use super::report::MpsRunReport;
 use super::resumer_error::MpsResumerError;
 use super::rewrites::fusion::GateFusion;
-use super::rewrites::rewrite_runs;
+use super::rewrites::{dev_in_order, rewrite_runs};
 use super::routing::{Placement, Routing};
 use super::shot_stream::{SplitMix64, shot_stream};
 
@@ -85,6 +85,9 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
     reset_handling: DevResetHandling,
     census: bool,
     segment: SegmentCensus,
+    /// EXPERIMENTAL, development only: the in-order fusion's largest block,
+    /// when it replaces [`Self::fusion`].
+    in_order: Option<usize>,
 }
 
 impl<'r, E: MpsEngine> GroupedRun<'r, E> {
@@ -162,6 +165,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             reset_handling: DevResetHandling::Split,
             census: dev_census::census_on(),
             segment: SegmentCensus::default(),
+            in_order: None,
         })
     }
 
@@ -188,6 +192,29 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         }
         if self.census {
             eprintln!("LAYOUT identity={identity} sites={:?}", self.layout.sites());
+        }
+        self
+    }
+
+    /// EXPERIMENTAL, development only: the run fusing each batch in order
+    /// into blocks of at most `max_sites` sites instead of by its fusion,
+    /// when given; and placing each qubit `q` on site `layout[q]`, when
+    /// given. In-order fusion runs without the resumer's routing.
+    pub(super) fn with_dev_settings(
+        mut self,
+        in_order: Option<usize>,
+        layout: Option<&[usize]>,
+    ) -> Self {
+        assert!(
+            in_order.is_none() || self.routing.tuning().is_none(),
+            "development only: the dev in-order fusion runs without routing"
+        );
+        self.in_order = in_order;
+        if let Some(layout) = layout {
+            self.layout = QubitOrder::dev_from_sites(layout.to_vec());
+            if self.census {
+                eprintln!("LAYOUT dev sites={:?}", self.layout.sites());
+            }
         }
         self
     }
@@ -276,6 +303,9 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 QirStop::Batch(calls) => {
                     let steps = lower(calls, &self.layout)?;
                     group.steps = match (self.routing.tuning(), group.placement.as_mut()) {
+                        _ if self.in_order.is_some() => {
+                            dev_in_order::fuse_runs(steps, self.in_order.expect("in-order fusion"))
+                        }
                         (Some(tuning), Some(placement)) if !tuning.after_fusion => {
                             rewrite_runs(placement.route(steps), &self.fusion)
                         }
@@ -343,6 +373,12 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     group.known[site] = None;
                 }
                 self.apply(group, operator)
+            }
+            Step::DevWide(ref wide) => {
+                for &site in &wide.sites {
+                    group.known[site] = None;
+                }
+                self.apply_wide(group, wide)
             }
             Step::Measure {
                 site,
@@ -434,6 +470,31 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                 segment.two_site += 1;
                 segment.hash_two_site = dev_census::mix(segment.hash_two_site, operator);
             }
+        }
+        applied
+    }
+
+    /// EXPERIMENTAL, development only: applies a wide operator, as
+    /// [`Self::apply`] does an operator.
+    fn apply_wide(
+        &mut self,
+        group: &mut Group<E::State>,
+        wide: &DevWideOperator,
+    ) -> Result<(), GroupFailure<E::Error>> {
+        let state = self.prepare(&mut group.state)?;
+        group.bond_unread = true;
+        let started = Instant::now();
+        let applied = self
+            .engine
+            .apply(state, &wide.sites, &wide.matrix)
+            .map_err(engine_failure);
+        if self.census {
+            let segment = &mut self.segment;
+            segment.apply_ns += elapsed_ns(started);
+            segment.applies += 1;
+            segment.two_site += 1;
+            segment.hash_all = dev_census::mix_wide(segment.hash_all, wide);
+            segment.hash_two_site = dev_census::mix_wide(segment.hash_two_site, wide);
         }
         applied
     }
