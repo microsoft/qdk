@@ -3,9 +3,10 @@
 
 //! Development only (not for review): the device calls of the
 //! `gate_split_bench` example, which measures what one MPS update costs
-//! when it is made of cuTensorNet's tensor calls (`GateSplit`, `TensorQR`)
-//! or of cuSOLVER's batched SVDs, rather than of the state API the engine
-//! uses. The example checks each call's answer on the host, then times it.
+//! when it is made of cuTensorNet's tensor calls (`GateSplit`, with each
+//! of its SVD and gate-split algorithms, and `TensorQR`) or of cuSOLVER's
+//! batched SVDs, rather than of the state API the engine uses. The example
+//! checks each call's answer on the host, then times it.
 //!
 //! The bench opens nothing of its own on cuTensorNet and the CUDA Runtime:
 //! it resolves the extra functions it needs (`BenchTensorFunctions`,
@@ -253,34 +254,44 @@ impl BenchDevice {
         Ok(workspace)
     }
 
-    /// `cutensornetGateSplit` (`REDUCED`) of `gate` applied to the bond
-    /// between `left` and `right`, each `bond × 2 × bond`, the first mode
-    /// fastest: the shared bond keeps at most `bond` values, fewer when the
-    /// discarded weight allows (`discarded_weight_cutoff`). `gate` is
+    /// `cutensornetGateSplit` of `gate` applied to the bond between `left`
+    /// and `right`, each `bond × 2 × bond`, the first mode fastest, with
+    /// the SVD algorithm `svd`, the gate-split algorithm `split` and the
+    /// truncation `truncation` (see [`Truncation`]). `gate` is
     /// `2 × 2 × 2 × 2`, its output modes first. Runs once, so that the
     /// outcome can be read.
     ///
     /// # Errors
     ///
-    /// When a call fails.
+    /// When a call fails, the library's refusal of a combination included.
     pub fn gate_split(
         &self,
         bond: usize,
-        discarded_weight_cutoff: f64,
-        left: &[Complex64],
-        right: &[Complex64],
-        gate: &[Complex64],
+        svd: TensorSvdAlgo,
+        split: GateSplitAlgo,
+        truncation: Truncation,
+        problem: GateSplitInputs<'_>,
     ) -> Result<GateSplit<'_>, String> {
         let b = i64::try_from(bond).expect("a bond fits in i64");
+        let shared = match truncation {
+            Truncation::DiscardedWeight(_) => b,
+            Truncation::FixedExtent(extent) => {
+                assert!(
+                    (1..=bond).contains(&extent),
+                    "a fixed extent lies in 1..=bond"
+                );
+                i64::try_from(extent).expect("an extent fits in i64")
+            }
+        };
         let started = Instant::now();
         let descriptors = [
             self.descriptor(&[b, 2, b], b"ipj")?,
             self.descriptor(&[b, 2, b], b"jqk")?,
             self.descriptor(&[2, 2, 2, 2], b"PQpq")?,
-            self.descriptor(&[b, 2, b], b"iPs")?,
-            self.descriptor(&[b, 2, b], b"sQk")?,
+            self.descriptor(&[b, 2, shared], b"iPs")?,
+            self.descriptor(&[shared, 2, b], b"sQk")?,
         ];
-        let config = self.svd_config(discarded_weight_cutoff)?;
+        let config = self.svd_config(svd, truncation)?;
         let mut info = std::ptr::null_mut();
         // SAFETY: `info` is a valid out-pointer; the handle is live.
         let status = unsafe { (self.tensor.create_svd_info)(self.handle, &raw mut info) };
@@ -301,7 +312,7 @@ impl BenchDevice {
                         gate_mode.descriptor,
                         u_mode.descriptor,
                         v_mode.descriptor,
-                        v2_13::cutensornetGateSplitAlgo_t_CUTENSORNET_GATE_SPLIT_ALGO_REDUCED,
+                        split.raw(),
                         config.config,
                         v2_13::cutensornetComputeType_t_CUTENSORNET_COMPUTE_64F,
                         workspace,
@@ -311,12 +322,14 @@ impl BenchDevice {
             "cutensornetWorkspaceComputeGateSplitSizes",
         )?;
         let setup_seconds = started.elapsed().as_secs_f64();
-        let mut split = GateSplit {
+        let mut prepared = GateSplit {
             device: self,
             bond,
-            left: self.upload(left)?,
-            right: self.upload(right)?,
-            gate: self.upload(gate)?,
+            svd,
+            split,
+            left: self.upload(problem.left)?,
+            right: self.upload(problem.right)?,
+            gate: self.upload(problem.gate)?,
             u: DeviceBuffer::new(&self.libraries, 2 * bond * bond * 16)?,
             s: DeviceBuffer::new(&self.libraries, bond * 8)?,
             v: DeviceBuffer::new(&self.libraries, 2 * bond * bond * 16)?,
@@ -326,13 +339,15 @@ impl BenchDevice {
             workspace,
             setup_seconds,
         };
-        split.run()?;
-        Ok(split)
+        prepared.run()?;
+        Ok(prepared)
     }
 
-    /// An SVD config with `discarded_weight_cutoff`, cuTensorNet's default
-    /// algorithm (GESVD) and no normalisation of the singular values.
-    fn svd_config(&self, discarded_weight_cutoff: f64) -> Result<SvdConfig, String> {
+    /// An SVD config with the algorithm `svd`, the library's default
+    /// parameters for it (`CONFIG_ALGO_PARAMS` is not set), the
+    /// discarded-weight cutoff when `truncation` has one, and no
+    /// normalisation of the singular values.
+    fn svd_config(&self, svd: TensorSvdAlgo, truncation: Truncation) -> Result<SvdConfig, String> {
         let mut config = std::ptr::null_mut();
         // SAFETY: `config` is a valid out-pointer; the handle is live.
         let status = unsafe { (self.tensor.create_svd_config)(self.handle, &raw mut config) };
@@ -341,17 +356,35 @@ impl BenchDevice {
             config,
             destroy: self.tensor.destroy_svd_config,
         };
-        // SAFETY: the attribute is a `double`, passed with its size.
+        let algo = svd.raw();
+        // SAFETY: the attribute is a `cutensornetTensorSVDAlgo_t`, passed
+        // with its size.
         let status = unsafe {
             (self.tensor.svd_config_set_attribute)(
                 self.handle,
                 config.config,
-                v2_13::cutensornetTensorSVDConfigAttributes_t_CUTENSORNET_TENSOR_SVD_CONFIG_DISCARDED_WEIGHT_CUTOFF,
-                (&raw const discarded_weight_cutoff).cast(),
-                size_of::<f64>(),
+                v2_13::cutensornetTensorSVDConfigAttributes_t_CUTENSORNET_TENSOR_SVD_CONFIG_ALGO,
+                (&raw const algo).cast(),
+                size_of::<v2_13::cutensornetTensorSVDAlgo_t>(),
             )
         };
-        check_tensor("cutensornetTensorSVDConfigSetAttribute", status)?;
+        check_tensor("cutensornetTensorSVDConfigSetAttribute(ALGO)", status)?;
+        if let Truncation::DiscardedWeight(cutoff) = truncation {
+            // SAFETY: the attribute is a `double`, passed with its size.
+            let status = unsafe {
+                (self.tensor.svd_config_set_attribute)(
+                    self.handle,
+                    config.config,
+                    v2_13::cutensornetTensorSVDConfigAttributes_t_CUTENSORNET_TENSOR_SVD_CONFIG_DISCARDED_WEIGHT_CUTOFF,
+                    (&raw const cutoff).cast(),
+                    size_of::<f64>(),
+                )
+            };
+            check_tensor(
+                "cutensornetTensorSVDConfigSetAttribute(DISCARDED_WEIGHT_CUTOFF)",
+                status,
+            )?;
+        }
         Ok(config)
     }
 
@@ -410,11 +443,117 @@ impl Drop for BenchDevice {
     }
 }
 
+/// cuTensorNet's SVD algorithms (`cutensornetTensorSVDAlgo_t`), each a
+/// cuSOLVER routine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TensorSvdAlgo {
+    /// `cusolverDnGesvd`, cuTensorNet's default.
+    Gesvd,
+    /// `cusolverDnGesvdj`, Jacobi sweeps.
+    Gesvdj,
+    /// `cusolverDnXgesvdp`, through a polar decomposition.
+    Gesvdp,
+    /// `cusolverDnXgesvdr`, randomized: a fixed extent only, no
+    /// discarded-weight cutoff.
+    Gesvdr,
+}
+
+impl TensorSvdAlgo {
+    /// Every algorithm, the default first.
+    pub const ALL: [Self; 4] = [Self::Gesvd, Self::Gesvdj, Self::Gesvdp, Self::Gesvdr];
+
+    /// The name the bench's flags and lines use (`gesvdj`).
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Gesvd => "gesvd",
+            Self::Gesvdj => "gesvdj",
+            Self::Gesvdp => "gesvdp",
+            Self::Gesvdr => "gesvdr",
+        }
+    }
+
+    /// The algorithm named `name`, as [`Self::name`] writes it.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|algo| algo.name() == name)
+    }
+
+    fn raw(self) -> v2_13::cutensornetTensorSVDAlgo_t {
+        match self {
+            Self::Gesvd => v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD,
+            Self::Gesvdj => v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDJ,
+            Self::Gesvdp => v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDP,
+            Self::Gesvdr => v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDR,
+        }
+    }
+}
+
+/// cuTensorNet's gate-split algorithms (`cutensornetGateSplitAlgo_t`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GateSplitAlgo {
+    /// QR of each input first, then the SVD of the small middle tensor.
+    Reduced,
+    /// The contraction of the inputs and the gate, then its SVD.
+    Direct,
+}
+
+impl GateSplitAlgo {
+    /// Every algorithm.
+    pub const ALL: [Self; 2] = [Self::Reduced, Self::Direct];
+
+    /// The name the bench's flags and lines use (`reduced`).
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Reduced => "reduced",
+            Self::Direct => "direct",
+        }
+    }
+
+    /// The algorithm named `name`, as [`Self::name`] writes it.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|algo| algo.name() == name)
+    }
+
+    fn raw(self) -> v2_13::cutensornetGateSplitAlgo_t {
+        match self {
+            Self::Reduced => v2_13::cutensornetGateSplitAlgo_t_CUTENSORNET_GATE_SPLIT_ALGO_REDUCED,
+            Self::Direct => v2_13::cutensornetGateSplitAlgo_t_CUTENSORNET_GATE_SPLIT_ALGO_DIRECT,
+        }
+    }
+}
+
+/// How a gate split truncates the shared bond.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Truncation {
+    /// At most `bond` values, fewer when the discarded weight stays within
+    /// this cutoff (`CONFIG_DISCARDED_WEIGHT_CUTOFF`), as the engine does.
+    DiscardedWeight(f64),
+    /// Exactly this many values, set as the shared mode's extent in the
+    /// output descriptors: the only truncation GESVDR accepts.
+    FixedExtent(usize),
+}
+
+/// The tensors one gate split reads, on the host.
+#[derive(Clone, Copy)]
+pub struct GateSplitInputs<'a> {
+    /// `bond × 2 × bond`, modes `(i, p, j)`, the first fastest.
+    pub left: &'a [Complex64],
+    /// `bond × 2 × bond`, modes `(j, q, k)`.
+    pub right: &'a [Complex64],
+    /// `2 × 2 × 2 × 2`, modes `(P, Q, p, q)`, its output modes first.
+    pub gate: &'a [Complex64],
+}
+
 /// A prepared `cutensornetGateSplit`: its descriptors, config, workspace
 /// and buffers, made once, so that [`GateSplit::run`] times the call alone.
 pub struct GateSplit<'d> {
     device: &'d BenchDevice,
     bond: usize,
+    svd: TensorSvdAlgo,
+    split: GateSplitAlgo,
     left: DeviceBuffer,
     right: DeviceBuffer,
     gate: DeviceBuffer,
@@ -436,8 +575,9 @@ pub struct GateSplitOutcome {
     pub full_extent: i64,
     /// The shared bond's extent after truncation.
     pub reduced_extent: i64,
-    /// The truncation's discarded weight, as cuTensorNet reports it.
-    pub discarded_weight: f64,
+    /// The truncation's discarded weight, as cuTensorNet reports it; `None`
+    /// for GESVDR, whose fixed-extent truncation does not compute it.
+    pub discarded_weight: Option<f64>,
 }
 
 impl GateSplit<'_> {
@@ -466,7 +606,7 @@ impl GateSplit<'_> {
                 self.s.pointer,
                 v_mode.descriptor,
                 self.v.pointer,
-                v2_13::cutensornetGateSplitAlgo_t_CUTENSORNET_GATE_SPLIT_ALGO_REDUCED,
+                self.split.raw(),
                 self.config.config,
                 v2_13::cutensornetComputeType_t_CUTENSORNET_COMPUTE_64F,
                 self.info.info,
@@ -493,12 +633,17 @@ impl GateSplit<'_> {
         let full_extent = self.info_i64(
             v2_13::cutensornetTensorSVDInfoAttributes_t_CUTENSORNET_TENSOR_SVD_INFO_FULL_EXTENT,
         )?;
-        let mut discarded_weight = 0.0_f64;
-        self.read_info(
-            v2_13::cutensornetTensorSVDInfoAttributes_t_CUTENSORNET_TENSOR_SVD_INFO_DISCARDED_WEIGHT,
-            (&raw mut discarded_weight).cast(),
-            size_of::<f64>(),
-        )?;
+        let discarded_weight = if self.svd == TensorSvdAlgo::Gesvdr {
+            None
+        } else {
+            let mut weight = 0.0_f64;
+            self.read_info(
+                v2_13::cutensornetTensorSVDInfoAttributes_t_CUTENSORNET_TENSOR_SVD_INFO_DISCARDED_WEIGHT,
+                (&raw mut weight).cast(),
+                size_of::<f64>(),
+            )?;
+            Some(weight)
+        };
         let kept = usize::try_from(reduced_extent).unwrap_or(0).min(self.bond);
         Ok(GateSplitOutcome {
             singular_values: self.device.download(&self.s, kept)?,
@@ -506,6 +651,46 @@ impl GateSplit<'_> {
             reduced_extent,
             discarded_weight,
         })
+    }
+
+    /// What the last run's SVD algorithm reports of its own accuracy
+    /// (`INFO_ALGO_STATUS`), as `key=value` pairs: GESVDJ's residual and
+    /// sweeps, GESVDP's perturbation; `None` for the algorithms that
+    /// report nothing.
+    ///
+    /// # Errors
+    ///
+    /// When the read fails.
+    pub fn algo_status(&self) -> Result<Option<String>, String> {
+        let attribute =
+            v2_13::cutensornetTensorSVDInfoAttributes_t_CUTENSORNET_TENSOR_SVD_INFO_ALGO_STATUS;
+        match self.svd {
+            TensorSvdAlgo::Gesvdj => {
+                let mut status = v2_13::cutensornetGesvdjStatus_t {
+                    residual: 0.0,
+                    sweeps: 0,
+                };
+                self.read_info(
+                    attribute,
+                    (&raw mut status).cast(),
+                    size_of::<v2_13::cutensornetGesvdjStatus_t>(),
+                )?;
+                Ok(Some(format!(
+                    "gesvdj_residual={:.2e} gesvdj_sweeps={}",
+                    status.residual, status.sweeps
+                )))
+            }
+            TensorSvdAlgo::Gesvdp => {
+                let mut status = v2_13::cutensornetGesvdpStatus_t { errSigma: 0.0 };
+                self.read_info(
+                    attribute,
+                    (&raw mut status).cast(),
+                    size_of::<v2_13::cutensornetGesvdpStatus_t>(),
+                )?;
+                Ok(Some(format!("gesvdp_err_sigma={:.2e}", status.errSigma)))
+            }
+            TensorSvdAlgo::Gesvd | TensorSvdAlgo::Gesvdr => Ok(None),
+        }
     }
 
     /// The seconds spent creating the descriptors, the config, the info and

@@ -8,9 +8,16 @@
 //!
 //! - the floor: waiting for an idle stream, and the smallest launch (a
 //!   4-byte `cudaMemsetAsync`) with its wait;
-//! - `cutensornetGateSplit` (`REDUCED`, the engine's discarded-weight
-//!   cutoff, at most `b` kept) of a two-qubit gate on two `b × 2 × b`
-//!   tensors, with the read of the reduced extent: stage 1's update;
+//! - `cutensornetGateSplit` of a two-qubit gate on two `b × 2 × b`
+//!   tensors, with the read of the reduced extent (stage 1's update), once
+//!   for each pair of an SVD algorithm (`--svd-algos`: `gesvd`,
+//!   cuTensorNet's default, `gesvdj`, `gesvdp`, `gesvdr`) and a gate-split
+//!   algorithm (`--gate-split-algos`: `reduced`, `direct`). Every SVD
+//!   algorithm runs with the library's default parameters. All but GESVDR
+//!   keep at most `b` values under the engine's discarded-weight cutoff
+//!   (`truncation=discarded-weight`); GESVDR accepts no such cutoff, so it
+//!   keeps exactly the CPU split's count, set as the shared mode's extent
+//!   (`truncation=fixed-extent`), and reports no discarded weight;
 //! - `cutensornetTensorQR` of one `b × 2 × b` tensor: moving the centre;
 //! - cuSOLVER's `gesvdjBatched` (`2b ≤ 32`) and `gesvdaStridedBatched`
 //!   (the `b` largest of `2b × 2b`) for `K` matrices in one launch.
@@ -18,19 +25,32 @@
 //! The tensors are random, with left and right bonds whose weights decay
 //! as an MPS's Schmidt values do. Each call's answer is checked on the
 //! host before it is timed: singular values against faer's within 1e-12,
-//! the kept weight against the CPU split's (the same truncation rule on
-//! faer's values), `Q·R` against the input and `Q`'s orthonormality. A call
-//! that disagrees prints its deviation and no time.
+//! the kept weight and the reduced extent against the CPU split's (the
+//! same truncation rule on faer's values), `Q·R` against the input and
+//! `Q`'s orthonormality. A call that disagrees prints its deviation and no
+//! time, with one exception: a GESVDJ split whose singular values and kept
+//! weight are within 1e-10 (and its extent right) is also timed, its line
+//! marked `timed_despite_disagreement`, so that the cost of Jacobi's
+//! looser convergence is known.
+//!
+//! Per bond, a `BEST` line names the fastest gate split that agreed, and
+//! its median over GESVD with `reduced` (`vs_gesvd`, below 1 is faster).
+//! The `DECISION` line, PLAN §2.2's rule at `b = 24`, reads GESVD with
+//! `reduced` only, as before.
 //!
 //! ```text
 //! cargo run --release -p qdk_cutensornet --example gate_split_bench -- \
 //!     [--engine cutensornet|cpu] [--bonds 8,16,24] [--batches 1,4,16] \
+//!     [--svd-algos gesvd,gesvdj,gesvdp,gesvdr] \
+//!     [--gate-split-algos reduced,direct] \
 //!     [--cusolver /path/to/libcusolver.so.11]
 //! ```
 //!
-//! cuSOLVER's path may also come from `QDK_CUSOLVER_LIBRARY`; without one
-//! its lines say `skipped`. `--engine cpu` builds the problems and runs the
-//! CPU reference only, which checks the bench anywhere.
+//! The defaults: every SVD algorithm, `reduced` only. cuSOLVER's path may
+//! also come from `QDK_CUSOLVER_LIBRARY`; without one its lines say
+//! `skipped`. `--engine cpu` builds the problems and runs the CPU
+//! reference only, which checks the bench anywhere; it ignores the
+//! algorithm flags.
 
 // The device parts exist on Linux x86-64 only; elsewhere the CPU
 // reference runs and their helpers are unused.
@@ -45,6 +65,10 @@ use t4a_faer::{Mat, Par};
 
 /// The agreement of singular values, kept weights and factors.
 const TOLERANCE: f64 = 1e-12;
+
+/// The agreement within which a GESVDJ split that misses [`TOLERANCE`] is
+/// still timed.
+const GESVDJ_TIMING_TOLERANCE: f64 = 1e-10;
 
 /// The engine's discarded-weight cutoff (`policy.rs`).
 const DISCARDED_WEIGHT_CUTOFF: f64 = 1e-14;
@@ -62,6 +86,10 @@ struct Options {
     on_gpu: bool,
     bonds: Vec<usize>,
     batches: Vec<usize>,
+    /// The SVD algorithms' names, checked when the GPU run starts.
+    svd_algos: Vec<String>,
+    /// The gate-split algorithms' names, checked likewise.
+    gate_split_algos: Vec<String>,
     cusolver: Option<std::path::PathBuf>,
 }
 
@@ -88,6 +116,8 @@ fn parse_options() -> Options {
         on_gpu: true,
         bonds: vec![8, 16, 24, 32, 48, 64, 128],
         batches: vec![1, 4, 16, 64, 256, 1024],
+        svd_algos: names("gesvd,gesvdj,gesvdp,gesvdr"),
+        gate_split_algos: names("reduced"),
         cusolver: std::env::var_os("QDK_CUSOLVER_LIBRARY").map(Into::into),
     };
     let mut arguments = std::env::args().skip(1);
@@ -99,6 +129,8 @@ fn parse_options() -> Options {
             "--engine" => options.on_gpu = value != "cpu",
             "--bonds" => options.bonds = list(&value),
             "--batches" => options.batches = list(&value),
+            "--svd-algos" => options.svd_algos = names(&value),
+            "--gate-split-algos" => options.gate_split_algos = names(&value),
             "--cusolver" => options.cusolver = Some(value.into()),
             _ => panic!("unknown flag {flag}"),
         }
@@ -111,6 +143,10 @@ fn list(value: &str) -> Vec<usize> {
         .split(',')
         .map(|item| item.parse().expect("a list of integers"))
         .collect()
+}
+
+fn names(value: &str) -> Vec<String> {
+    value.split(',').map(str::to_owned).collect()
 }
 
 /// A gate applied to the bond between two MPS tensors, with the matrix it
@@ -347,8 +383,24 @@ fn run_on_gpu(_options: &Options) -> bool {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn run_on_gpu(options: &Options) -> bool {
-    use qdk_cutensornet::dev_gate_split::{BenchDevice, Cusolver};
+    use qdk_cutensornet::dev_gate_split::{BenchDevice, Cusolver, GateSplitAlgo, TensorSvdAlgo};
 
+    let svd_algos: Vec<TensorSvdAlgo> = options
+        .svd_algos
+        .iter()
+        .map(|name| {
+            TensorSvdAlgo::from_name(name)
+                .unwrap_or_else(|| panic!("--svd-algos: unknown algorithm {name}"))
+        })
+        .collect();
+    let split_algos: Vec<GateSplitAlgo> = options
+        .gate_split_algos
+        .iter()
+        .map(|name| {
+            GateSplitAlgo::from_name(name)
+                .unwrap_or_else(|| panic!("--gate-split-algos: unknown algorithm {name}"))
+        })
+        .collect();
     let availability = match qdk_cutensornet::discover() {
         Ok(availability) => availability,
         Err(error) => {
@@ -369,11 +421,24 @@ fn run_on_gpu(options: &Options) -> bool {
     for &bond in &options.bonds {
         let problem = Problem::new(bond, &mut random);
         let reference = reference_singular_values(2 * bond, 2 * bond, &problem.theta);
-        if let Some(median) = report_gate_split(&device, &problem, &reference)
-            && bond == DECIDING_BOND
-        {
-            deciding = Some(median);
+        let mut agreed = Vec::new();
+        for &svd in &svd_algos {
+            for &split in &split_algos {
+                if let Some(median) = report_gate_split(&device, &problem, &reference, svd, split) {
+                    agreed.push((svd, split, median));
+                }
+            }
         }
+        let baseline = agreed
+            .iter()
+            .find(|&&(svd, split, _)| {
+                svd == TensorSvdAlgo::Gesvd && split == GateSplitAlgo::Reduced
+            })
+            .map(|&(_, _, median)| median);
+        if bond == DECIDING_BOND {
+            deciding = baseline;
+        }
+        report_best(bond, &agreed, baseline);
         report_qr(&device, &problem);
     }
     match &options.cusolver {
@@ -405,47 +470,85 @@ fn report_gate_split(
     device: &qdk_cutensornet::dev_gate_split::BenchDevice,
     problem: &Problem,
     reference: &[f64],
+    svd: qdk_cutensornet::dev_gate_split::TensorSvdAlgo,
+    split: qdk_cutensornet::dev_gate_split::GateSplitAlgo,
 ) -> Option<f64> {
+    use qdk_cutensornet::dev_gate_split::{GateSplitInputs, TensorSvdAlgo, Truncation};
+
     let bond = problem.bond;
-    let mut split = match device.gate_split(
-        bond,
-        DISCARDED_WEIGHT_CUTOFF,
-        &problem.left,
-        &problem.right,
-        &problem.gate,
-    ) {
-        Ok(split) => split,
+    let (kept, kept_weight) = cpu_split(bond, reference);
+    let (truncation, truncation_name) = if svd == TensorSvdAlgo::Gesvdr {
+        (Truncation::FixedExtent(kept), "fixed-extent")
+    } else {
+        (
+            Truncation::DiscardedWeight(DISCARDED_WEIGHT_CUTOFF),
+            "discarded-weight",
+        )
+    };
+    let pair = format!(
+        "b={bond} svd={} split={} truncation={truncation_name}",
+        svd.name(),
+        split.name()
+    );
+    let inputs = GateSplitInputs {
+        left: &problem.left,
+        right: &problem.right,
+        gate: &problem.gate,
+    };
+    let mut prepared = match device.gate_split(bond, svd, split, truncation, inputs) {
+        Ok(prepared) => prepared,
         Err(error) => {
-            println!("GATESPLIT b={bond} status=refused reason={error}");
+            println!("GATESPLIT status=refused {pair} reason={error}");
             return None;
         }
     };
-    let outcome = match split.outcome() {
+    let outcome = match prepared.outcome() {
         Ok(outcome) => outcome,
         Err(error) => {
-            println!("GATESPLIT b={bond} status=refused reason={error}");
+            println!("GATESPLIT status=refused {pair} reason={error}");
             return None;
         }
     };
-    let (kept, kept_weight) = cpu_split(bond, reference);
     let values = &outcome.singular_values;
     let value_deviation = deviation(values, reference);
     let weight: f64 = values.iter().map(|value| value * value).sum();
     let weight_deviation = (weight - kept_weight).abs();
     let extent_agrees = usize::try_from(outcome.reduced_extent) == Ok(kept);
+    let discarded = outcome.discarded_weight.map_or_else(
+        || "not-computed".to_owned(),
+        |weight| format!("{weight:.3e}"),
+    );
+    let algo_status = match prepared.algo_status() {
+        Ok(None) => String::new(),
+        Ok(Some(status)) => format!(" {status}"),
+        Err(error) => format!(" algo_status=unreadable({error})"),
+    };
     let facts = format!(
-        "b={bond} full={} reduced={} cpu_kept={kept} sv_dev={value_deviation:.2e} kept_weight_dev={weight_deviation:.2e} discarded_weight={:.3e} cpu_discarded={:.3e} setup_ms={:.3}",
+        "{pair} full={} reduced={} cpu_kept={kept} sv_dev={value_deviation:.2e} kept_weight_dev={weight_deviation:.2e} discarded_weight={discarded} cpu_discarded={:.3e}{algo_status} setup_ms={:.3}",
         outcome.full_extent,
         outcome.reduced_extent,
-        outcome.discarded_weight,
         1.0 - kept_weight,
-        split.setup_seconds() * 1e3,
+        prepared.setup_seconds() * 1e3,
     );
-    if !extent_agrees || value_deviation > TOLERANCE || weight_deviation > TOLERANCE {
-        println!("GATESPLIT status=disagrees {facts}");
+    let within = |tolerance: f64| {
+        extent_agrees && value_deviation <= tolerance && weight_deviation <= tolerance
+    };
+    if !within(TOLERANCE) {
+        if svd == TensorSvdAlgo::Gesvdj && within(GESVDJ_TIMING_TOLERANCE) {
+            match Timing::of(|| prepared.run().map(|_| ())) {
+                Ok(timing) => {
+                    println!(
+                        "GATESPLIT status=disagrees {facts} timed_despite_disagreement {timing}"
+                    );
+                }
+                Err(error) => println!("GATESPLIT status=disagrees {facts} reason={error}"),
+            }
+        } else {
+            println!("GATESPLIT status=disagrees {facts}");
+        }
         return None;
     }
-    match Timing::of(|| split.run().map(|_| ())) {
+    match Timing::of(|| prepared.run().map(|_| ())) {
         Ok(timing) => {
             println!("GATESPLIT status=ok {facts} {timing}");
             Some(timing.median)
@@ -455,6 +558,36 @@ fn report_gate_split(
             None
         }
     }
+}
+
+/// The fastest gate split of `bond` that agreed, against GESVD with
+/// `reduced` (`baseline`, its median when it agreed).
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn report_best(
+    bond: usize,
+    agreed: &[(
+        qdk_cutensornet::dev_gate_split::TensorSvdAlgo,
+        qdk_cutensornet::dev_gate_split::GateSplitAlgo,
+        f64,
+    )],
+    baseline: Option<f64>,
+) {
+    let Some(&(svd, split, median)) = agreed
+        .iter()
+        .min_by(|left, right| left.2.total_cmp(&right.2))
+    else {
+        println!("BEST b={bond} status=none-agreed");
+        return;
+    };
+    let versus = baseline.map_or_else(
+        || "unmeasured".to_owned(),
+        |baseline| format!("{:.3}", median / baseline),
+    );
+    println!(
+        "BEST b={bond} svd={} split={} ms_median={median:.4} vs_gesvd={versus}",
+        svd.name(),
+        split.name()
+    );
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
