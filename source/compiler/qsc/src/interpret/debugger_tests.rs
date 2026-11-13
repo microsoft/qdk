@@ -26,7 +26,7 @@ fn expect_return(mut debugger: Debugger, expected: &str) {
 fn expect_bp(debugger: &mut Debugger, ids: &[StmtId], expected_id: StmtId) {
     let r = step_next(debugger, ids);
     match r.0 {
-        Ok(StepResult::BreakpointHit(actual_id)) => assert!(actual_id == expected_id),
+        Ok(StepResult::BreakpointHit(actual_id)) => assert_eq!(actual_id, expected_id),
         Ok(v) => panic!("Expected BP, got {v:?}"),
         Err(e) => panic!("Expected BP, got {e:?}"),
     }

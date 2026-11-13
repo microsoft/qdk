@@ -647,7 +647,7 @@ impl SparseSim {
             .sample(self.rng.as_mut().expect("RNG should be present"));
 
         if let Some(fault) = fault {
-            assert!(fault.0.len() == qs.len());
+            assert_eq!(fault.0.len(), qs.len());
             for (&q, term) in qs.iter().zip(fault.0.iter()) {
                 if self.is_qubit_lost(q) {
                     continue;

@@ -1,7 +1,6 @@
 [package]
 name = "allocator"
 authors.workspace = true
-homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true

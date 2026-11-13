@@ -951,7 +951,7 @@ impl State {
                     // This means we should pop the execution graph but not the current environment scope,
                     // so bound variables are still accessible after completion.
                     self.exec_graph_stack.pop();
-                    assert!(self.exec_graph_stack.is_empty());
+                    assert_eq!(self.exec_graph_stack.len(), 0);
                     continue;
                 }
             };

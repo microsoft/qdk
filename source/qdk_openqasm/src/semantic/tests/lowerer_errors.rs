@@ -52,7 +52,7 @@ fn error_typed_gate_operand_does_not_add_cascading_diagnostic() {
 fn annotation_on_include_is_accepted_without_propagation() {
     let source = "OPENQASM 3.0;\n@vendor.note payload\ninclude \"stdgates.inc\";\nbit flag;";
     let (syntax_program, parse_errors) = crate::parser::parse(source);
-    assert!(parse_errors.is_empty());
+    assert_eq!(parse_errors.len(), 0);
 
     let include = &syntax_program.statements[0];
     assert!(matches!(

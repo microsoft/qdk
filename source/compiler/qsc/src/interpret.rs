@@ -2135,7 +2135,7 @@ impl Interpreter {
         // The AST and HIR packages in `increment` only contain an entry
         // expression and no statements. The HIR *can* contain items if the entry
         // expression defined any items.
-        assert!(increment.hir.stmts.is_empty());
+        assert_eq!(increment.hir.stmts.len(), 0);
         assert!(increment.ast.package.nodes.is_empty());
 
         // Updating the compiler state with the new AST/HIR nodes

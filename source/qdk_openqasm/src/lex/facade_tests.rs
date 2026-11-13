@@ -116,7 +116,7 @@ fn invalid_lexical_forms_are_visible_through_facade() {
 
 #[test]
 fn empty_source_has_no_raw_tokens() {
-    assert!(tokenize("").is_empty());
+    assert_eq!(tokenize("").len(), 0);
 }
 
 #[test]

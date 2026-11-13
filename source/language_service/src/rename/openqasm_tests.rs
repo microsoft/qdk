@@ -17,7 +17,7 @@ fn check(source_with_markers: &str) {
     for target in &target_spans {
         assert!(actual.contains(target));
     }
-    assert!(target_spans.len() == actual.len());
+    assert_eq!(target_spans.len(), actual.len());
 }
 
 /// Asserts that the prepare rename given at the cursor position returns None.

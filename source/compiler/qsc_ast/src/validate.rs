@@ -22,9 +22,8 @@ impl Validator {
             panic!("default node ID should be replaced: {node}")
         } else if self.ids.contains_key(id) {
             panic!("duplicate node ID: {node}");
-        } else {
-            self.ids.insert(id, ());
         }
+        self.ids.insert(id, ());
     }
 }
 

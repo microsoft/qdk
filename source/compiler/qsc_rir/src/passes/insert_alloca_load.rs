@@ -81,7 +81,7 @@ fn add_alloca_load_to_block(
     loaded_var_ids: &mut FxHashSet<VariableId>,
 ) {
     let block = program.get_block_mut(block_id);
-    let instrs = block.0.drain(..).collect::<Vec<_>>();
+    let instrs = std::mem::take(&mut block.0);
     let mut var_map = FxHashMap::default();
     for mut instr in instrs {
         match &mut instr {

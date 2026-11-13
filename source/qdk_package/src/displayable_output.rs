@@ -62,7 +62,7 @@ impl DisplayableState {
         } else {
             format!(
                 include_str!("state_header_template.html"),
-                "<tr><td>No qubits allocated</td></tr>".to_string()
+                "<tr><td>No qubits allocated</td></tr>"
             )
         }
     }

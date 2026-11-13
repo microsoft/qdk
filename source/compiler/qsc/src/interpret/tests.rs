@@ -1048,13 +1048,13 @@ mod given_interpreter {
             let items = interpreter.user_globals();
             assert_eq!(items.len(), 2);
             // No namespace for top-level items
-            assert!(items[0].namespace.is_empty());
+            assert_eq!(items[0].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Foo"
             "#]]
             .assert_debug_eq(&items[0].name);
             // No namespace for top-level items
-            assert!(items[1].namespace.is_empty());
+            assert_eq!(items[1].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Bar"
             "#]]
@@ -1111,25 +1111,25 @@ mod given_interpreter {
             let items = interpreter.user_globals();
             assert_eq!(items.len(), 4);
             // No namespace for top-level items
-            assert!(items[0].namespace.is_empty());
+            assert_eq!(items[0].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Foo"
             "#]]
             .assert_debug_eq(&items[0].name);
             // No namespace for top-level items
-            assert!(items[1].namespace.is_empty());
+            assert_eq!(items[1].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Bar"
             "#]]
             .assert_debug_eq(&items[1].name);
             // No namespace for top-level items
-            assert!(items[2].namespace.is_empty());
+            assert_eq!(items[2].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Baz"
             "#]]
             .assert_debug_eq(&items[2].name);
             // No namespace for top-level items
-            assert!(items[3].namespace.is_empty());
+            assert_eq!(items[3].namespace, [] as [std::rc::Rc<str>; 0]);
             expect![[r#"
                 "Qux"
             "#]]

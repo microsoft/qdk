@@ -20,7 +20,7 @@ schedules:
 variables:
   CARGO_TERM_COLOR: always
   QDK_LIB_OVERRIDE_MICROSOFT_QDK: $(Build.SourcesDirectory)
-  RUST_TOOLCHAIN_VERSION: "1.95"
+  RUST_TOOLCHAIN_VERSION: "1.99"
   # CFS requires that we have a .npmrc next to each package.json.  If we set this variable, it will
   # synthesize everything it requires during the pipeline run, leaving our external contributors
   # free to continue using the default npmjs.org registry.

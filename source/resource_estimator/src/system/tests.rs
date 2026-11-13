@@ -890,13 +890,13 @@ fn build_frontier_test() {
             .estimate_with_max_duration(&budget, max_duration)
             .expect("failed to estimate");
 
-        assert!(
+        assert_eq!(
             points
                 .iter()
                 .filter(|point| point.runtime() <= result.runtime()
                     && point.physical_qubits() == result.physical_qubits())
-                .count()
-                == 1
+                .count(),
+            1
         );
     }
 
@@ -908,13 +908,13 @@ fn build_frontier_test() {
         let result = estimation.estimate_with_max_num_qubits(&budget, max_num_qubits);
 
         if let Ok(result) = result {
-            assert!(
+            assert_eq!(
                 points
                     .iter()
                     .filter(|point| point.runtime() <= result.runtime()
                         && point.physical_qubits() == result.physical_qubits())
-                    .count()
-                    == 1
+                    .count(),
+                1
             );
         }
     }

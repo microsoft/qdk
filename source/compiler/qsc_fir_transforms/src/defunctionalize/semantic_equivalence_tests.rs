@@ -5431,7 +5431,7 @@ fn deep_controlled_payload_preserves_active_inactive_controls_and_snapshot() {
             .to_string(),
         "(Zero, One, Zero, One)"
     );
-    assert!(!expected_trace.is_empty());
+    assert_ne!(expected_trace.len(), 0);
     let (normalized, normalized_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
     assert!(
         normalized.get(normalized_id).pats.iter().any(|(_, pat)| {

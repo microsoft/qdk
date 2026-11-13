@@ -257,7 +257,7 @@ fn test_matrix() {
         1,
     );
     assert!(result.is_ok());
-    assert!(count.get() == 1);
+    assert_eq!(count.get(), 1);
 }
 
 #[test]

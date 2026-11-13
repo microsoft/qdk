@@ -7302,7 +7302,7 @@ fn runtime_normalization_preserves_bounds_and_templates() {
     let FirItemKind::Callable(lambda) = &package.get_item(lambda_id.item).kind else {
         panic!("lifted lambda should exist");
     };
-    assert!(lambda.generics.is_empty());
+    assert_eq!(lambda.generics, [] as [qsc_fir::ty::TypeParameter; 0]);
     let lambda_inputs = patterns(package, vec![lambda.input]);
     let control_inputs = patterns(package, controls(lambda));
     assert!(
@@ -7321,7 +7321,7 @@ fn runtime_normalization_preserves_bounds_and_templates() {
     let FirItemKind::Callable(generic) = &package.get_item(generic_id.item).kind else {
         panic!("generic callable should exist");
     };
-    assert!(!generic.generics.is_empty());
+    assert_ne!(generic.generics, [] as [qsc_fir::ty::TypeParameter; 0]);
     let mut generic_roots = controls(generic);
     generic_roots.push(generic.input);
     let generic_inputs = patterns(package, generic_roots);

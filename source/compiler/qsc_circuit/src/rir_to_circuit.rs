@@ -1497,7 +1497,7 @@ fn callable_spec<'a>(
                 o => {
                     return Err(Error::UnsupportedFeature(format!(
                         "unsupported operand for custom gate {}: {o:?}",
-                        &callable.name
+                        callable.name
                     )));
                 }
             }

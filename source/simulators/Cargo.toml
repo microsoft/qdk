@@ -4,7 +4,6 @@ name = "qdk_simulators"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-homepage.workspace = true
 license.workspace = true
 repository.workspace = true
 
@@ -27,7 +26,6 @@ qsc_data_structures = { path = "../compiler/qsc_data_structures" }
 regex-lite = { workspace = true }
 rustc-hash = { workspace = true }
 paulimer = { workspace = true }
-pauliverse = { workspace = true }
 index_map = { path = "../index_map" }
 noisy_simulator = { path = "../noisy_simulator" }
 
