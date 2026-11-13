@@ -1,0 +1,7 @@
+github.com
+api.github.com
+.githubcopilot.com
+.individual.githubcopilot.com
+.business.githubcopilot.com
+.enterprise.githubcopilot.com
+copilot-proxy.githubusercontent.com
