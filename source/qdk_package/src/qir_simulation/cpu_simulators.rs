@@ -13,7 +13,7 @@ use qdk_simulators::{
     bytecode::{self, runtime::run_shot as adaptive_run_shot},
     cpu_full_state_simulator::FullStateSimulator,
     noise_config::{self, CumulativeNoiseConfig},
-    seed::{RngRole, derive_seed, entropy_seed},
+    seed::{SeedRole, make_seed, make_system_seed},
     stabilizer_simulator::StabilizerSimulator,
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -184,11 +184,11 @@ where
         .iter()
         .any(|inst| matches!(inst, QirInstruction::OutputRecording(..)));
 
-    let seed = seed.map_or_else(entropy_seed, u64::from);
+    let seed = seed.map_or_else(make_system_seed, u64::from);
     (0..shots)
         .into_par_iter()
         .map(|shot| {
-            let shot_seed = derive_seed(seed, RngRole::Shot(shot.into()));
+            let shot_seed = make_seed(seed, SeedRole::Shot(shot.into()));
             let mut simulator = make_simulator(num_qubits, num_results, shot_seed, noise.clone());
             let records = run_shot(instructions, &mut simulator);
             if has_output_recording {
@@ -362,11 +362,11 @@ where
         .iter()
         .any(|inst| inst.primary_opcode() == OP_RECORD_OUTPUT);
 
-    let seed = seed.map_or_else(entropy_seed, u64::from);
+    let seed = seed.map_or_else(make_system_seed, u64::from);
     (0..shots)
         .into_par_iter()
         .map(|shot| {
-            let shot_seed = derive_seed(seed, RngRole::Shot(shot.into()));
+            let shot_seed = make_seed(seed, SeedRole::Shot(shot.into()));
             let mut simulator = make_simulator(num_qubits, num_results, shot_seed, noise.clone());
             let records = adaptive_run_shot(program, &mut simulator);
             if has_output_recording {

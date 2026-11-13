@@ -12,7 +12,7 @@ use num_traits::Zero;
 use qdk_simulators::{
     MeasurementResult, Simulator as _, SparseStateSim,
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
-    seed::{RngRole, entropy_seed, rng_for_role},
+    seed::{RngRole, make_rng, make_system_seed},
     stabilizer_simulator::StabilizerSimulator,
 };
 use qsc_data_structures::index_map::IndexMap;
@@ -571,14 +571,14 @@ impl Default for SparseSim {
 impl SparseSim {
     #[must_use]
     pub fn new() -> Self {
-        let seed = entropy_seed();
+        let seed = make_system_seed();
         Self {
-            sim: SparseStateSim::new(Some(rng_for_role(seed, RngRole::Measurement))),
+            sim: SparseStateSim::new(Some(make_rng(seed, RngRole::Measurement))),
             noise_config: None,
             noise: PauliNoise::default(),
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
-            rng: rng_for_role(seed, RngRole::Noise),
+            rng: make_rng(seed, RngRole::Noise),
             noisy: false,
         }
     }
@@ -1169,9 +1169,9 @@ impl Backend for SparseSim {
     }
 
     fn set_seed(&mut self, seed: Option<u64>) {
-        let seed = seed.unwrap_or_else(entropy_seed);
-        self.rng = rng_for_role(seed, RngRole::Noise);
-        self.sim.set_rng(rng_for_role(seed, RngRole::Measurement));
+        let seed = seed.unwrap_or_else(make_system_seed);
+        self.rng = make_rng(seed, RngRole::Noise);
+        self.sim.set_rng(make_rng(seed, RngRole::Measurement));
     }
 }
 
@@ -1186,7 +1186,7 @@ pub struct CliffordSim {
 impl CliffordSim {
     #[must_use]
     pub fn new(num_qubits: usize) -> Self {
-        let seed = entropy_seed();
+        let seed = make_system_seed();
         Self {
             sim: StabilizerSimulator::new(
                 num_qubits,
@@ -1202,7 +1202,7 @@ impl CliffordSim {
 
     #[must_use]
     pub fn new_with_noise_config(num_qubits: usize, noise_config: CumulativeNoiseConfig) -> Self {
-        let seed = entropy_seed();
+        let seed = make_system_seed();
         Self {
             sim: StabilizerSimulator::new(num_qubits, 1, seed, noise_config.into()),
             num_qubits,
@@ -1445,7 +1445,7 @@ impl Backend for CliffordSim {
     }
 
     fn set_seed(&mut self, seed: Option<u64>) {
-        self.sim.set_seed(seed.unwrap_or_else(entropy_seed));
+        self.sim.set_seed(seed.unwrap_or_else(make_system_seed));
     }
 }
 

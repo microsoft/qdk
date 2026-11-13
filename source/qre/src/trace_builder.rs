@@ -7,7 +7,7 @@ mod tests;
 use qsc::{
     Backend, BackendResult,
     interpret::{self, GenericReceiver, Interpreter, Value},
-    seed::{RngRole, entropy_seed, rng_for_role},
+    seed::{RngRole, make_rng, make_system_seed},
 };
 use rand::{RngExt, rngs::StdRng};
 use rustc_hash::FxHashMap;
@@ -32,7 +32,7 @@ struct MeasurementRng(StdRng);
 
 impl Default for MeasurementRng {
     fn default() -> Self {
-        Self(rng_for_role(entropy_seed(), RngRole::Measurement))
+        Self(make_rng(make_system_seed(), RngRole::Measurement))
     }
 }
 
@@ -396,8 +396,8 @@ impl Backend for TraceBuilder {
     }
 
     fn set_seed(&mut self, seed: Option<u64>) {
-        let seed = seed.unwrap_or_else(entropy_seed);
-        self.measurement_rng = MeasurementRng(rng_for_role(seed, RngRole::Measurement));
+        let seed = seed.unwrap_or_else(make_system_seed);
+        self.measurement_rng = MeasurementRng(make_rng(seed, RngRole::Measurement));
     }
 }
 

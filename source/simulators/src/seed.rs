@@ -10,61 +10,65 @@
 //! measurement outcome). Seeding shot `k` with `seed + k` makes runs with nearby seeds share shots.
 //!
 //! To avoid both problems, a component that owns a random number generator creates it with
-//! [`rng_for_role`], passing the seed it was given together with the [`RngRole`] that names the
+//! [`make_rng`], passing the seed it was given together with the [`RngRole`] that names the
 //! generator's purpose. Components pass the seed they were given on to their subcomponents unchanged;
 //! only the generator's owner derives. A component that runs several shots or evaluations gives
-//! each its own seed with [`derive_seed`], using [`RngRole::Shot`] or [`RngRole::Evaluation`].
+//! each its own seed with [`make_seed`], using [`SeedRole::Shot`] or [`SeedRole::Evaluation`].
 
 use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
 
 #[cfg(test)]
 mod tests;
 
-/// The role of a random number generator or derived seed within a seeded execution.
+/// The role of a seed derived for an execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RngRole {
+pub enum SeedRole {
     /// The seed of the `n`th shot of a run.
     Shot(u64),
     /// The classical seed of the `n`th evaluation in a long-lived session, such as successive `eval`
-    /// calls on one interpreter. Distinct from [`RngRole::Shot`], so evaluations and the shots
+    /// calls on one interpreter. Distinct from [`SeedRole::Shot`], so evaluations and the shots
     /// of runs don't repeat each other's draws.
     Evaluation(u64),
-    /// Sampling of the quantum state, such as measurement outcomes.
-    Measurement,
-    /// Noise faults, including qubit loss.
-    Noise,
-    /// Classical random draws made by the program, such as `DrawRandomInt`.
-    Classical,
 }
 
-impl RngRole {
-    fn label(self) -> (u64, u64) {
+impl SeedRole {
+    fn extract(self) -> (u64, u64) {
         match self {
-            RngRole::Shot(n) => (1, n),
-            RngRole::Measurement => (2, 0),
-            RngRole::Noise => (3, 0),
-            RngRole::Classical => (4, 0),
-            RngRole::Evaluation(n) => (5, n),
+            SeedRole::Shot(index) => (0, index),
+            SeedRole::Evaluation(index) => (1, index),
         }
     }
 }
 
-/// What a key is used for: a generator, or a seed to pass to a subcomponent.
+/// The role of a random number generator within a seeded execution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RngRole {
+    /// Sampling of the quantum state, such as measurement outcomes.
+    Measurement = 0,
+    /// Noise faults, including qubit loss.
+    Noise = 1,
+    /// Classical random draws made by the program, such as `DrawRandomInt`.
+    Classical = 2,
+}
+
+/// Separates generator and derived-seed keys, allowing their role labels to overlap.
 #[derive(Clone, Copy)]
-enum Output {
+enum KeyKind {
     Generator = 0,
     Seed = 1,
 }
 
-/// An injective encoding of `(seed, role, output)` as a generator key, so that every
-/// generator and derived seed comes from a distinct key.
-fn key(seed: u64, role: RngRole, output: Output) -> [u8; 32] {
+/// Encodes the seed, role label, execution index, and key kind as a generator key.
+///
+/// The kind distinguishes the seed and generator namespaces, even when their role labels match.
+///
+/// Note: a key is really a kind of seed, but it helps to use a different word.
+fn make_key(seed: u64, role: u64, index: u64, kind: KeyKind) -> [u8; 32] {
     const DOMAIN: u64 = u64::from_le_bytes(*b"qdk-seed");
-    let (kind, index) = role.label();
     let mut key = [0; 32];
     for (chunk, word) in
         key.chunks_exact_mut(8)
-            .zip([DOMAIN, seed, index, (kind << 8) | output as u64])
+            .zip([DOMAIN, seed, index, (role << 8) | kind as u64])
     {
         chunk.copy_from_slice(&word.to_le_bytes());
     }
@@ -73,24 +77,24 @@ fn key(seed: u64, role: RngRole, output: Output) -> [u8; 32] {
 
 /// Derives a seed for `role`, such as one shot of a run, from `seed`.
 ///
-/// Distinct `(seed, role)` pairs give unrelated seeds.
+/// Distinct `(seed, role)` pairs derive independently, though the resulting 64-bit seeds can collide.
 #[must_use]
-pub fn derive_seed(seed: u64, role: RngRole) -> u64 {
-    StdRng::from_seed(key(seed, role, Output::Seed)).next_u64()
+pub fn make_seed(seed: u64, role: SeedRole) -> u64 {
+    let (role, index) = role.extract();
+    StdRng::from_seed(make_key(seed, role, index, KeyKind::Seed)).next_u64()
 }
 
 /// Creates the generator for `role`, keyed by `seed`.
 ///
-/// Distinct `(seed, role)` pairs give generators with distinct keys, so no two generators
-/// share a random number stream.
+/// Distinct `(seed, role)` pairs give independently keyed generators.
 #[must_use]
-pub fn rng_for_role(seed: u64, role: RngRole) -> StdRng {
-    StdRng::from_seed(key(seed, role, Output::Generator))
+pub fn make_rng(seed: u64, role: RngRole) -> StdRng {
+    StdRng::from_seed(make_key(seed, role as u64, 0, KeyKind::Generator))
 }
 
 /// Returns a seed drawn from system entropy, for runs that were not given a seed.
 #[must_use]
-pub fn entropy_seed() -> u64 {
+pub fn make_system_seed() -> u64 {
     rand::rng().next_u64()
 }
 

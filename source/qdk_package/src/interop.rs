@@ -22,7 +22,7 @@ use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use qdk_simulators::seed::{RngRole, derive_seed};
+use qdk_simulators::seed::{SeedRole, make_seed};
 use qsc::circuit::TracerConfig;
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
@@ -177,7 +177,7 @@ pub(crate) fn run_ast(
 ) -> Result<Vec<qsc::interpret::Value>, Vec<interpret::Error>> {
     let mut results = Vec::with_capacity(shots);
     // Each shot derives its own seed, so shots differ but the run is reproducible.
-    let shot_seed = |shot: usize| seed.map(|seed| derive_seed(seed, RngRole::Shot(shot as u64)));
+    let shot_seed = |shot: usize| seed.map(|seed| make_seed(seed, SeedRole::Shot(shot as u64)));
     for i in 0..shots {
         let result = match sim_type {
             SimType::Sparse => {

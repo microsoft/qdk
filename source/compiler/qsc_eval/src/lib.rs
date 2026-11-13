@@ -37,7 +37,7 @@ use debug::{CallStack, Frame};
 use miette::Diagnostic;
 use num_bigint::BigInt;
 use output::Receiver;
-use qdk_simulators::seed::{RngRole, entropy_seed, rng_for_role};
+use qdk_simulators::seed::{RngRole, make_system_seed, make_rng};
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
     self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
@@ -620,8 +620,8 @@ impl State {
         classical_seed: Option<u64>,
         error_behavior: ErrorBehavior,
     ) -> Self {
-        let rng = RefCell::new(rng_for_role(
-            classical_seed.unwrap_or_else(entropy_seed),
+        let rng = RefCell::new(make_rng(
+            classical_seed.unwrap_or_else(make_system_seed),
             RngRole::Classical,
         ));
         Self {
