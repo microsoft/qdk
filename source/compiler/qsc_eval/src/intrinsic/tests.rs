@@ -1614,6 +1614,69 @@ fn m() {
 }
 
 #[test]
+fn mx() {
+    check_intrinsic_output(
+        "",
+        indoc! {r#"{
+            use q = Qubit();
+            H(q);
+            let res1 = QIR.Intrinsic.__quantum__qis__mx__body(q);
+            if One == res1 {
+                fail "Qubit should measure Zero"
+            }
+            Microsoft.Quantum.Diagnostics.DumpMachine();
+            Z(q);
+            let res2 = QIR.Intrinsic.__quantum__qis__mx__body(q);
+            if Zero == res2 {
+                fail "Qubit should measure One"
+            }
+            Microsoft.Quantum.Diagnostics.DumpMachine();
+            Reset(q);
+        }"#},
+        &expect![[r#"
+            STATE:
+            |0⟩: 0.7071+0.0000𝑖
+            |1⟩: 0.7071+0.0000𝑖
+            STATE:
+            |0⟩: 0.7071+0.0000𝑖
+            |1⟩: −0.7071+0.0000𝑖
+        "#]],
+    );
+}
+
+#[test]
+fn my() {
+    check_intrinsic_output(
+        "",
+        indoc! {r#"{
+            use q = Qubit();
+            H(q);
+            S(q);
+            let res1 = QIR.Intrinsic.__quantum__qis__my__body(q);
+            if One == res1 {
+                fail "Qubit should measure Zero"
+            }
+            Microsoft.Quantum.Diagnostics.DumpMachine();
+            Z(q);
+            let res2 = QIR.Intrinsic.__quantum__qis__my__body(q);
+            if Zero == res2 {
+                fail "Qubit should measure One"
+            }
+            Microsoft.Quantum.Diagnostics.DumpMachine();
+            Reset(q);
+        }"#},
+        &expect![[r#"
+            STATE:
+            |0⟩: 0.7071+0.0000𝑖
+            |1⟩: 0.0000+0.7071𝑖
+            STATE:
+            |0⟩: 0.7071+0.0000𝑖
+            |1⟩: 0.0000−0.7071𝑖
+        "#]],
+    );
+}
+
+#[test]
 fn m_qubit_already_released_fails() {
     check_intrinsic_result(
         "",

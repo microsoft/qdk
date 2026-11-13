@@ -97,6 +97,14 @@ operation __quantum__qis__m__body(target : Qubit) : Result {
     body intrinsic;
 }
 
+operation __quantum__qis__mx__body(target : Qubit) : Result {
+    body intrinsic;
+}
+
+operation __quantum__qis__my__body(target : Qubit) : Result {
+    body intrinsic;
+}
+
 operation __quantum__qis__reset__body(target : Qubit) : Unit {
     body intrinsic;
 }
@@ -127,5 +135,7 @@ export
     __quantum__qis__z__body,
     __quantum__qis__swap__body,
     __quantum__qis__m__body,
+    __quantum__qis__mx__body,
+    __quantum__qis__my__body,
     __quantum__qis__reset__body,
     __quantum__qis__mresetz__body;
