@@ -63,10 +63,24 @@ export function registerLearningCommands(
             await service.switchCourse(location.courseId, "tree");
           }
           await service.goTo(location, "tree");
+        } else {
+          // Invoked from the notebook toolbar: point the stored position at the
+          // notebook the learner is actually looking at before we reset by
+          // position, so a not-yet-synced editor switch can't reset a different
+          // unit than the visible one. If we can't confirm which workbook is
+          // active, don't guess at a destructive reset — abort.
+          const activeNotebook =
+            vscode.window.activeNotebookEditor?.notebook.uri;
+          if (
+            !activeNotebook ||
+            !(await service.syncToWorkbook(activeNotebook))
+          ) {
+            return;
+          }
         }
 
         const confirmed = await vscode.window.showWarningMessage(
-          "Reset this unit to the original notebook? Your current work will be lost.",
+          "Reset this unit to its original state? Your current work in this unit will be lost.",
           { modal: true },
           "Reset",
         );
@@ -74,11 +88,29 @@ export function registerLearningCommands(
           return;
         }
 
-        await service.resetExercise();
-        // The whole unit was reset, so the learner's old position no longer
-        // means anything — start them at the top of the fresh notebook.
+        await service.resetUnit(
+          location ? { unitId: location.unitId } : undefined,
+          location ? "tree" : "notebook",
+        );
+
+        // Unit reset is notebook-only and closes the workbook, so re-open the
+        // fresh copy at the top.
         await openCourseNotebook(service, { reveal: "top" });
         vscode.window.showInformationMessage("Unit has been reset.");
+      },
+    ),
+
+    // Used by the chat tool to re-open a notebook it closed during a reset.
+    vscode.commands.registerCommand(
+      "qsharp-vscode.learningOpenNotebook",
+      async () => {
+        if (
+          !service.initialized ||
+          !isNotebookCourse(service.getActiveCourseInfo())
+        ) {
+          return;
+        }
+        await openCourseNotebook(service, { reveal: "top" });
       },
     ),
 
