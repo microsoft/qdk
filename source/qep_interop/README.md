@@ -7,15 +7,16 @@ It allows you to write code that drives QuantumBackend by calling C-style functi
 All exposed functions use the `qdk_` prefix (for example, `qdk_x` applies an X gate).
 
 Typical usage:
- * Write code for a quantum application in a language (e.g., C, C++, or Fortran)
-   that calls the corresponding function exposed by the library for each quantum
-   instruction (gate or measurement).
- * At the beginning of the code, call `qdk_init()` to instantiate a backend (which can
-   be a simulator or profiler).
- * When using a profiler, call `qdk_save_profile()` at the end to save the profile to a
-   JSON file (which will contain a resource estimate based on profiling).
- * Compile your code, statically linking it against the library provided by this package.
- * Execute the resulting binary.
+
+- Write code for a quantum application in a language (e.g., C, C++, or Fortran)
+  that calls the corresponding function exposed by the library for each quantum
+  instruction (gate or measurement).
+- At the beginning of the code, call `qdk_init()` to instantiate a backend (which can
+  be a simulator or profiler).
+- When using a profiler, call `qdk_save_profile()` at the end to save the profile to a
+  JSON file (which will contain a resource estimate based on profiling).
+- Compile your code, statically linking it against the library provided by this package.
+- Execute the resulting binary.
 
 At runtime, function calls will be turned into calls to the QuantumBackend interface.
 
@@ -24,17 +25,17 @@ See [qep_interop.h](include/qep_interop.h) for the full list of exposed function
 ## Supported backends in qdk_init()
 
 For now, we support only three backends, specified by name:
- * "sparse_sim" - a sparse simulator.
- * "counting_profiler" - CountingProfiler with default parameters.
- * "temporal_profiler" - TemporalProfiler with default parameters, result-register support,
-   and default instruction transpilers. Combined measurement/reset is profiled as separate
-   measurement and reset operations.
+
+- "sparse_sim" - a sparse simulator.
+- "counting_profiler" - CountingProfiler with default parameters.
+- "temporal_profiler" - TemporalProfiler with default parameters, result-register support,
+  and default instruction transpilers. Combined measurement/reset is profiled as separate
+  measurement and reset operations.
 
 Coming soon: profilers will load configuration from a file. Meanwhile, if you need
-to instantiate backend with custom parameters, define custom backend name (e.g. 
+to instantiate backend with custom parameters, define custom backend name (e.g.
 "custom_profiler") and add implementation for it in `qdk_init()` in
 [src/lib.rs](src/lib.rs).
-
 
 ## Supported languages
 
@@ -126,7 +127,10 @@ gfortran -std=f2008 -Wall -Wextra -Werror -Isource/qep_interop/include source/qe
 
 [examples/shor.c](examples/shor.c) and [examples/shor.f90](examples/shor.f90)
 port [the Q# Shor sample](../../samples/algorithms/Shor.qs) to the interop API.
-Both select `sparse_sim` and default to factoring **187 = 11 * 17**.
+The C example provides explicit self-test, factorization, and profiling modes.
+Profiling uses `counting_profiler`; its measurement results are bogus, so the
+factorization result is ignored rather than retried. The Fortran example
+uses `sparse_sim` and defaults to factoring **187 = 11 \* 17**.
 
 Build both examples from the repository root on Linux:
 
@@ -143,12 +147,29 @@ gfortran -std=f2008 -O2 -Wall -Wextra -Werror \
     -o target/release/shor_fortran
 ```
 
-Run with no argument for 187, or supply a smaller composite for a quicker run:
+The C CLI accepts exactly one of these modes:
+
+- `--self-test`: run arithmetic regression tests on `sparse_sim`, with no other arguments.
+- `--factor <number>`: factor the required integer in `[4, 2^30)` on `sparse_sim`.
+- `--profile <bitlen>`: profile one shot using an even bit length from 4 to 30.
+
+In profiling mode, each random prime has half the requested bit length;
+their product can be one bit shorter than the requested length. Output is
+written to `target/shor_profile_<bitlen>.json`. The example reads the saved operation count and
+reports elapsed wall-clock time and nanoseconds per counted operation. Timing
+covers only `shors_shot`, excluding prime generation, backend initialization,
+and saving (including the final buffer flush).
 
 ```sh
-./target/release/shor_c
+./target/release/shor_c --profile 20
+```
+
+The Fortran example accepts the number directly and defaults to 187:
+
+```sh
+./target/release/shor_c --factor 187
 ./target/release/shor_fortran
-./target/release/shor_c 15
+./target/release/shor_c --factor 15
 ./target/release/shor_fortran 21
 ```
 

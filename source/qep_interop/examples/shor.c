@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#define _POSIX_C_SOURCE 200809L
+
 #include <errno.h>
 #include <inttypes.h>
 #include <math.h>
@@ -14,7 +16,7 @@
 #include "arithmetic.h"
 #include "qep_interop.h"
 
-enum { MAX_BITS = 15, MAX_ATTEMPTS = 100 };
+enum { MAX_BITS = 30, MAX_ATTEMPTS = 100 };
 
 typedef struct {
     int bits;
@@ -170,24 +172,31 @@ static int64_t factor_from_period(int64_t number, int64_t generator, int64_t per
     return factor > 1 && factor < number ? factor : 1;
 }
 
-/* Factors an input with quantum order finding and at most 100 generator attempts. */
-static int64_t factor_semiprime(int64_t number) {
+/* Runs one generator attempt, returning 1 when no nontrivial factor is found. */
+static int64_t shors_shot(int64_t number, int64_t generator) {
     if (number % 2 == 0) return 2;
     int bits = 0;
     for (int64_t value = number; value != 0; value >>= 1) ++bits;
+    int64_t factor = gcd(generator, number);
+    if (factor == 1) {
+        int64_t frequency = estimate_frequency(generator, number, bits);
+        int64_t period = period_from_frequency(number, frequency, 2 * bits + 1);
+        printf("Estimated period=%" PRId64 "\n", period);
+        factor = factor_from_period(number, generator, period);
+    } else {
+        printf("Guessed a divisor by accident: %" PRId64 "\n", factor);
+    }
+    return factor > 1 && factor < number ? factor : 1;
+}
+
+/* Factors an input with quantum order finding and at most 100 generator attempts. */
+static int64_t factor_semiprime(int64_t number) {
+    if (number % 2 == 0) return 2;
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; ++attempt) {
         // Start with a coprime base for odd inputs so the example exercises quantum order finding.
         int64_t generator = attempt == 1 ? 2 : 1 + rand() % (number - 1);
         printf("Factorizing %" PRId64 ", attempt %d, generator=%" PRId64 "\n", number, attempt, generator);
-        int64_t factor = gcd(generator, number);
-        if (factor == 1) {
-            int64_t frequency = estimate_frequency(generator, number, bits);
-            int64_t period = period_from_frequency(number, frequency, 2 * bits + 1);
-            printf("Estimated period=%" PRId64 "\n", period);
-            factor = factor_from_period(number, generator, period);
-        } else {
-            printf("Guessed a divisor by accident: %" PRId64 "\n", factor);
-        }
+        int64_t factor = shors_shot(number, generator);
         if (factor > 1 && factor < number) return factor;
     }
     fail("failed to find factors after 100 attempts");
@@ -253,24 +262,120 @@ static void self_test(void) {
     puts("Arithmetic self-test passed.");
 }
 
-/* Runs the sample's default factorization or the reversible-arithmetic regression tests. */
+/* Tests primality by trial division for the small prime factors used here. */
+static bool is_prime(int64_t number) {
+    if (number < 2) return false;
+    if (number % 2 == 0) return number == 2;
+    for (int64_t divisor = 3; divisor <= number / divisor; divisor += 2) {
+        if (number % divisor == 0) return false;
+    }
+    return true;
+}
+
+/* Samples an odd prime with exactly the requested number of bits. */
+static int64_t random_prime(int bits) {
+    int64_t lower = INT64_C(1) << (bits - 1);
+    for (;;) {
+        int64_t candidate = (lower + rand() % lower) | 1;
+        if (is_prime(candidate)) return candidate;
+    }
+}
+
+/* Reads the integer count from the pretty-printed JSON produced by this profiler. */
+static uint64_t read_operation_count(const char *path) {
+    FILE *file = fopen(path, "r");
+    if (file == NULL) fail("could not open saved profile");
+    const char key[] = "\"total_operations_count\"";
+    char line[512];
+    bool found = false;
+    uintmax_t count = 0;
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char *field = line + strspn(line, " \t\r\n");
+        if (strncmp(field, key, sizeof(key) - 1) != 0) continue;
+        field += sizeof(key) - 1;
+        field += strspn(field, " \t");
+        if (*field++ != ':') fail("invalid operation count in saved profile");
+        field += strspn(field, " \t");
+        if (*field < '0' || *field > '9') fail("invalid operation count in saved profile");
+        char *end = NULL;
+        errno = 0;
+        count = strtoumax(field, &end, 10);
+        end += strspn(end, " \t\r\n");
+        if (errno != 0 || count > UINT64_MAX || (*end != ',' && *end != '}')) {
+            fail("invalid operation count in saved profile");
+        }
+        found = true;
+        break;
+    }
+    if (ferror(file)) fail("could not read saved profile");
+    if (fclose(file) != 0) fail("could not close saved profile");
+    if (!found) fail("saved profile is missing total_operations_count");
+    return (uint64_t)count;
+}
+
+/* Profiles one shot on a random semiprime, saves JSON, and reports time per operation. */
+static void profile_shors_shot(int bit_len) {
+    char path[64];
+    int length = snprintf(path, sizeof(path), "source/qep/profile_viewer/profiles/shor_c_%d.json", bit_len);
+    if (length < 0 || (size_t)length >= sizeof(path)) fail("could not format profile path");
+    srand((unsigned)time(NULL));
+    int64_t p = random_prime(bit_len / 2), q = random_prime(bit_len / 2);
+    int64_t number = p * q;
+    printf("Profiling %" PRId64 " = %" PRId64 " * %" PRId64
+           " (%d-bit primes), generator=2\n", number, p, q, bit_len / 2);
+    qdk_init("counting_profiler");
+    struct timespec start, end;
+    if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) fail("could not start profiling timer");
+    (void)shors_shot(number, 2);
+    if (clock_gettime(CLOCK_MONOTONIC, &end) != 0) fail("could not stop profiling timer");
+    double elapsed_ns = (double)(end.tv_sec - start.tv_sec) * 1e9 +
+                        (double)(end.tv_nsec - start.tv_nsec);
+    qdk_save_profile(path);
+    uint64_t count = read_operation_count(path);
+    if (count == 0) fail("profile counted no operations");
+    puts("Profiling measurements are bogus; the factorization result is ignored.");
+    printf("Total operations count: %" PRIu64 "\n", count);
+    printf("Profiling time: %.9f s\n", elapsed_ns / 1e9);
+    printf("Profiling speed: %.3f ns/op\n", elapsed_ns / (double)count);
+}
+
+/* CLI modes (all arguments are required exactly as shown):
+   --self-test       Run arithmetic regression tests on sparse_sim; no extra arguments.
+   --factor <number> Factor an integer in [4, 2^30) on sparse_sim, retrying as needed.
+   --profile <bitlen> Profile one shot on counting_profiler using two random primes,
+                      each of bitlen/2 bits; bitlen must be even and in [4, 2048].
+                      Save to target/shor_profile_<bitlen>.json and print operation count, elapsed
+                      shot time, and ns/op. Bogus profiling measurements are ignored.
+   Profiling timing excludes initialization, prime generation, and saving the file. */
 int main(int argc, char **argv) {
-    if (argc > 2) fail("usage: shor [number | --self-test]");
-    qdk_init("sparse_sim");
     if (argc == 2 && strcmp(argv[1], "--self-test") == 0) {
+        qdk_init("sparse_sim");
         self_test();
         return EXIT_SUCCESS;
     }
-    int64_t number = 187;
-    if (argc == 2) {
+    if (argc != 3) fail("usage: shor --self-test | --factor <number> | --profile <bitlen>");
+    if (strcmp(argv[1], "--factor") == 0) {
         char *end = NULL;
         errno = 0;
-        number = strtoll(argv[1], &end, 10);
-        if (errno != 0 || *end != '\0' || end == argv[1]) fail("number must be an integer");
+        int64_t number = strtoll(argv[2], &end, 10);
+        if (errno != 0 || *end != '\0' || end == argv[2]) fail("number must be an integer");
+        if (number < 4 || number >= (INT64_C(1) << MAX_BITS)) fail("number must be in [4, 2^30)");
+        srand((unsigned)time(NULL));
+        qdk_init("sparse_sim");
+        int64_t factor = factor_semiprime(number);
+        printf("Found factorization %" PRId64 " = %" PRId64 " * %" PRId64 "\n", number, factor, number / factor);
+        return EXIT_SUCCESS;
     }
-    if (number < 4 || number >= (INT64_C(1) << MAX_BITS)) fail("number must be in [4, 32767]");
-    srand((unsigned)time(NULL));
-    int64_t factor = factor_semiprime(number);
-    printf("Found factorization %" PRId64 " = %" PRId64 " * %" PRId64 "\n", number, factor, number / factor);
-    return EXIT_SUCCESS;
+    if (strcmp(argv[1], "--profile") == 0) {
+        char *parsed_end = NULL;
+        errno = 0;
+        long parsed = strtol(argv[2], &parsed_end, 10);
+        if (errno != 0 || parsed_end == argv[2] || *parsed_end != '\0' ||
+            parsed < 4 || parsed > MAX_BITS || parsed % 2 != 0) {
+            fail("bit length must be an even integer in [4, 30]");
+        }
+        profile_shors_shot((int)parsed);
+        return EXIT_SUCCESS;
+    }
+    fail("usage: shor --self-test | --factor <number> | --profile <bitlen>");
 }
