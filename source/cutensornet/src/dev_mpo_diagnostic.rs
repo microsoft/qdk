@@ -32,11 +32,56 @@
 //!   a read, with a projection halfway: more computes than the engine's
 //!   restart period, so the MPOs cross restarts and a projection.
 //!
-//! Expected reading: `far` or `unordered` failing while `adjacent` passes
-//! points at the library; every case failing, or every case matching `Uᵀ`,
-//! points at our tensors; `sequence` failing alone points at the engine's
-//! handling across restarts or projections.
+//! On the A100 the first four agreed and `sequence` differed, so the cases
+//! below separate what `sequence` mixes. Each starts and ends with its own
+//! preparation and readout layers; a read computes the state if an operator
+//! was applied since the last compute, and the readout ends with one.
+//! - `two-mpos-no-read`: two MPOs, one compute;
+//! - `two-mpos-read-between`: an MPO, a read, another MPO: two computes, no
+//!   restart, no projection;
+//! - `mpo-then-narrow-after-read`: an MPO, a read, a two-site operator:
+//!   whether the MPO comes back at the compute after its own;
+//! - `mpo-after-read`: a read, then an MPO, on a captured state (a
+//!   control: no MPO before the first compute);
+//! - `mpo-after-restart`: `RESTART_PERIOD` two-site operators each followed
+//!   by a read, then an MPO, the first operator of the restarted state;
+//! - `mpo-then-restart`: an MPO, a read, then `RESTART_PERIOD` two-site
+//!   operators each followed by a read, across a restart;
+//! - `mpo-across-projection`: an MPO, a read, a projection of the read
+//!   site, another MPO;
+//! - `projection-then-mpo`: a read, a projection, an MPO, with no MPO
+//!   before the projection.
+//!
+//! Hypothesis (a), the reapplied column: `cutensornetStateCaptureMPS` is
+//! documented to delete "all tensor operators and tensor network operators
+//! that have been applied to the state"; if it kept the network operators,
+//! each later compute would start from the captured MPS, then apply the
+//! kept MPOs again in the order they were applied, then the operators
+//! applied since the last compute (one list in application order, the
+//! tensor operators taken out). A restart's new state has none of them.
+//! The reads after a compute see its output only, as the single-MPO cases'
+//! agreement shows. The reference run under that hypothesis applies the
+//! kept MPOs on the CPU at the first operator after each compute, after the
+//! engine's restart if one is due; a projection's probability is read
+//! before them, as the engine reads it on the computed state.
+//!
+//! Expected reading:
+//! - `far` or `unordered` failing while `adjacent` passes points at the
+//!   library's MPO on non-adjacent sites; every case failing, or every case
+//!   matching `Uᵀ`, points at our tensors;
+//! - a case whose engine run matches the reapplied column (its difference
+//!   within 1e-9) while differing from the reference is hypothesis (a), a
+//!   cuTensorNet bug: `two-mpos-read-between` and
+//!   `mpo-then-narrow-after-read` then reproduce it with one restart-free,
+//!   projection-free program;
+//! - `two-mpos-no-read` failing points at several MPOs in one compute;
+//!   `mpo-after-read` failing, at an MPO on a captured state;
+//!   `mpo-after-restart` failing alone, at the restart (our code or the
+//!   library's start from our MPS); `projection-then-mpo` failing alone,
+//!   at an MPO after a non-unitary operator;
+//! - a case failing that matches neither column is unexplained.
 
+use crate::engine::policy::RESTART_PERIOD;
 use num_complex::Complex64;
 use tensornet::{MpsEngine, MpsShape};
 
@@ -56,6 +101,11 @@ pub struct MpoCaseResult {
     /// The same against the reference run with every three-site operator
     /// transposed.
     pub max_difference_transposed: f64,
+    /// The same against the reference run under hypothesis (a) (the module
+    /// doc): every MPO applied again at each later compute until the
+    /// engine's next restart. `None` when that hypothesis applies no MPO
+    /// again, so that it predicts the reference itself.
+    pub max_difference_reapplied: Option<f64>,
     /// `max|U - Uᵀ|` of its (first) three-site operator: far from zero, so
     /// the transposed run differs.
     pub asymmetry: f64,
@@ -96,39 +146,116 @@ pub fn run_cases<E: MpsEngine, R: MpsEngine>(
         }
     }
     cases.push(("sequence", sequence));
+    // The cases above draw their steps first, then each its preparation and
+    // readout, so their numbers stay those of earlier runs; the cases below
+    // draw after them.
     for (case, steps) in cases {
         let prepare = layer(&mut rng);
         let readout = layer(&mut rng);
-        let program = |transposed: bool| {
-            prepare
-                .iter()
-                .cloned()
-                .chain(steps.iter().map(|step| match step {
-                    Step::Wide(sites, unitary) if transposed => {
-                        Step::Wide(sites.clone(), transpose(unitary))
-                    }
-                    other => other.clone(),
-                }))
-                .chain(readout.iter().cloned())
-                .collect::<Vec<_>>()
-        };
-        let fail = |error: String| format!("{case}: {error}");
-        let on_engine = run(engine, &program(false)).map_err(fail)?;
-        let on_reference = run(reference, &program(false)).map_err(fail)?;
-        let on_transposed = run(reference, &program(true)).map_err(fail)?;
-        let (sites, asymmetry) = match &steps[0] {
-            Step::Wide(sites, unitary) => (sites.clone(), asymmetry(unitary)),
-            _ => unreachable!("every case starts with a three-site operator"),
-        };
-        results.push(MpoCaseResult {
+        results.push(run_case(
+            engine,
+            reference,
             case,
-            sites,
-            max_difference: largest_difference(&on_engine, &on_reference),
-            max_difference_transposed: largest_difference(&on_engine, &on_transposed),
-            asymmetry,
-        });
+            &[prepare, steps, readout].concat(),
+        )?);
+    }
+    let wide = |rng: &mut SplitMix| {
+        let sites = distinct_triple(rng);
+        (sites[0], Step::Wide(sites.to_vec(), random_unitary(8, rng)))
+    };
+    let narrow = |rng: &mut SplitMix| {
+        let site = usize::try_from(rng.next() % (SITES - 1) as u64).unwrap_or(0);
+        Step::Narrow(vec![site, site + 1], random_unitary(4, rng))
+    };
+    let mut separating: Vec<(&'static str, Vec<Step>)> = Vec::new();
+    let (_, first) = wide(&mut rng);
+    let (_, second) = wide(&mut rng);
+    separating.push(("two-mpos-no-read", vec![first, second]));
+    let (site, first) = wide(&mut rng);
+    let (_, second) = wide(&mut rng);
+    separating.push((
+        "two-mpos-read-between",
+        vec![first, Step::Read(site), second],
+    ));
+    let (site, first) = wide(&mut rng);
+    separating.push((
+        "mpo-then-narrow-after-read",
+        vec![first, Step::Read(site), narrow(&mut rng)],
+    ));
+    let (site, first) = wide(&mut rng);
+    separating.push(("mpo-after-read", vec![Step::Read(site), first]));
+    let mut steps = Vec::new();
+    for at in 0..RESTART_PERIOD {
+        steps.extend([narrow(&mut rng), Step::Read(at % SITES)]);
+    }
+    steps.push(wide(&mut rng).1);
+    separating.push(("mpo-after-restart", steps));
+    let (site, first) = wide(&mut rng);
+    let mut steps = vec![first, Step::Read(site)];
+    for at in 0..RESTART_PERIOD {
+        steps.extend([narrow(&mut rng), Step::Read(at % SITES)]);
+    }
+    separating.push(("mpo-then-restart", steps));
+    let (site, first) = wide(&mut rng);
+    let (_, second) = wide(&mut rng);
+    separating.push((
+        "mpo-across-projection",
+        vec![first, Step::Read(site), Step::Project(site, false), second],
+    ));
+    let (_, first) = wide(&mut rng);
+    separating.push((
+        "projection-then-mpo",
+        vec![Step::Read(3), Step::Project(3, false), first],
+    ));
+    for (case, steps) in separating {
+        let prepare = layer(&mut rng);
+        let readout = layer(&mut rng);
+        results.push(run_case(
+            engine,
+            reference,
+            case,
+            &[prepare, steps, readout].concat(),
+        )?);
     }
     Ok(results)
+}
+
+/// Runs `program` on `engine`, and on `reference` as given, with its
+/// three-site operators transposed, and under hypothesis (a).
+fn run_case<E: MpsEngine, R: MpsEngine>(
+    engine: &E,
+    reference: &R,
+    case: &'static str,
+    program: &[Step],
+) -> Result<MpoCaseResult, String> {
+    let transposed: Vec<Step> = program
+        .iter()
+        .map(|step| match step {
+            Step::Wide(sites, unitary) => Step::Wide(sites.clone(), transpose(unitary)),
+            other => other.clone(),
+        })
+        .collect();
+    let fail = |error: String| format!("{case}: {error}");
+    let (on_engine, _) = run(engine, program, Library::AsDocumented).map_err(fail)?;
+    let (on_reference, _) = run(reference, program, Library::AsDocumented).map_err(fail)?;
+    let (on_transposed, _) = run(reference, &transposed, Library::AsDocumented).map_err(fail)?;
+    let (on_reapplied, reapplied) =
+        run(reference, program, Library::KeepsNetworkOperators).map_err(fail)?;
+    let (sites, asymmetry) = program
+        .iter()
+        .find_map(|step| match step {
+            Step::Wide(sites, unitary) => Some((sites.clone(), asymmetry(unitary))),
+            _ => None,
+        })
+        .expect("every case has a three-site operator");
+    Ok(MpoCaseResult {
+        case,
+        sites,
+        max_difference: largest_difference(&on_engine, &on_reference),
+        max_difference_transposed: largest_difference(&on_engine, &on_transposed),
+        max_difference_reapplied: reapplied.then(|| largest_difference(&on_engine, &on_reapplied)),
+        asymmetry,
+    })
 }
 
 #[derive(Clone)]
@@ -155,29 +282,135 @@ fn layer(rng: &mut SplitMix) -> Vec<Step> {
     steps
 }
 
+/// What a run assumes of cuTensorNet, as `CuTensorNetEngine` drives it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Library {
+    /// The engine's own calls, or the reference run exactly: capture deletes
+    /// every operator, as documented.
+    AsDocumented,
+    /// Hypothesis (a): capture deletes the tensor operators but keeps the
+    /// network operators (the MPOs), so each later compute applies every
+    /// MPO kept since the native state's last restart, in the order they
+    /// were applied, before the operators applied since the last compute.
+    KeepsNetworkOperators,
+}
+
+/// The engine's computes and restarts, followed step by step: a compute
+/// at each read that follows an operator (the first read included), a
+/// restart before the first operator after `RESTART_PERIOD` computes;
+/// and, under `Library::KeepsNetworkOperators`, the MPOs kept since.
+#[derive(Default)]
+struct Computes {
+    computed: bool,
+    since_restart: usize,
+    /// The three-site operators applied since the last compute.
+    window: Vec<(Vec<usize>, Vec<Complex64>)>,
+    /// The three-site operators of earlier computes since the restart.
+    kept: Vec<(Vec<usize>, Vec<Complex64>)>,
+    /// Whether a kept operator was applied again.
+    reapplied: bool,
+}
+
+impl Computes {
+    /// A read: the engine computes and captures if an operator was applied
+    /// since its last compute.
+    fn read(&mut self) {
+        if !self.computed {
+            self.computed = true;
+            self.since_restart += 1;
+            self.kept.append(&mut self.window);
+        }
+    }
+
+    /// Before an operator (a projector included): the engine restarts if
+    /// due; the first operator after a compute is where the library, under
+    /// hypothesis (a), would apply the kept MPOs, before this window's
+    /// operators.
+    fn before_operator<E: MpsEngine>(
+        &mut self,
+        engine: &E,
+        state: &mut E::State,
+        library: Library,
+    ) -> Result<(), String> {
+        if !self.computed {
+            return Ok(());
+        }
+        self.computed = false;
+        if self.since_restart >= RESTART_PERIOD {
+            self.kept.clear();
+            self.since_restart = 0;
+        }
+        if library == Library::KeepsNetworkOperators {
+            for (sites, matrix) in &self.kept {
+                engine
+                    .apply(state, sites, matrix)
+                    .map_err(|error| error.to_string())?;
+                self.reapplied = true;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Runs `steps` from the product state of `SITES` zeros, exact (bond 64),
-/// and returns the reads, then every basis state's probability.
-fn run<E: MpsEngine>(engine: &E, steps: &[Step]) -> Result<Vec<f64>, String> {
+/// and returns the reads, then every basis state's probability; and, under
+/// `Library::KeepsNetworkOperators`, whether a kept MPO was applied again.
+fn run<E: MpsEngine>(
+    engine: &E,
+    steps: &[Step],
+    library: Library,
+) -> Result<(Vec<f64>, bool), String> {
     let capacity = MpsShape::qubit_chain(SITES, 64).map_err(|error| error.to_string())?;
     let mut state = engine
         .prepare(&capacity)
         .map_err(|error| error.to_string())?;
+    let mut computes = Computes::default();
     let mut values = Vec::new();
     for step in steps {
         match step {
-            Step::Narrow(sites, matrix) | Step::Wide(sites, matrix) => engine
-                .apply(&mut state, sites, matrix)
-                .map_err(|error| error.to_string())?,
-            Step::Read(site) => values.push(
+            Step::Narrow(sites, matrix) | Step::Wide(sites, matrix) => {
+                computes.before_operator(engine, &mut state, library)?;
                 engine
+                    .apply(&mut state, sites, matrix)
+                    .map_err(|error| error.to_string())?;
+                if let Step::Wide(..) = step {
+                    computes.window.push((sites.clone(), matrix.clone()));
+                }
+            }
+            Step::Read(site) => {
+                computes.read();
+                values.push(
+                    engine
+                        .probability_of_one(&state, *site)
+                        .map_err(|error| error.to_string())?,
+                );
+            }
+            // The engine reads the value's probability on the computed
+            // state, then applies the projector, which the library would
+            // apply after the kept MPOs; so under hypothesis (a) the
+            // probability is read before the kept MPOs are applied, and the
+            // reference's own (after them) only scales the state, which
+            // every read normalizes.
+            Step::Project(site, one) if library == Library::KeepsNetworkOperators => {
+                computes.read();
+                let p_one = engine
                     .probability_of_one(&state, *site)
-                    .map_err(|error| error.to_string())?,
-            ),
-            Step::Project(site, one) => values.push(
+                    .map_err(|error| error.to_string())?;
+                computes.before_operator(engine, &mut state, library)?;
                 engine
                     .project(&mut state, *site, *one)
-                    .map_err(|error| error.to_string())?,
-            ),
+                    .map_err(|error| error.to_string())?;
+                values.push(if *one { p_one } else { 1.0 - p_one });
+            }
+            Step::Project(site, one) => {
+                computes.read();
+                computes.before_operator(engine, &mut state, library)?;
+                values.push(
+                    engine
+                        .project(&mut state, *site, *one)
+                        .map_err(|error| error.to_string())?,
+                );
+            }
         }
     }
     let mut prefixes = vec![1.0];
@@ -199,7 +432,7 @@ fn run<E: MpsEngine>(engine: &E, steps: &[Step]) -> Result<Vec<f64>, String> {
         prefixes = next;
     }
     values.extend(prefixes);
-    Ok(values)
+    Ok((values, computes.reapplied))
 }
 
 /// The largest `|left - right|`, NaN if any is (`f64::max` would drop it).

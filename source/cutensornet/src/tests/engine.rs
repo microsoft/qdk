@@ -239,12 +239,16 @@ fn with_the_dev_flag_an_operator_on_three_sites_applies_as_one_mpo() {
 }
 
 /// Development only: on the fake libraries, which contract the MPO tensors
-/// as our layout means them, every case of the MPO diagnostic
-/// (`dev_mpo_diagnostic`, random non-symmetric three-site unitaries on
-/// adjacent, far, unordered sites, a padded two-site operator, and a
-/// sequence across restarts and a projection) reads as on the CPU engine,
-/// and not as the CPU engine with the operators transposed; so a GPU run
-/// that disagrees is not our tensors' layout as the fake reads it.
+/// as our layout means them and delete every operator at a capture, as
+/// cuTensorNet documents, every case of the MPO diagnostic
+/// (`dev_mpo_diagnostic`: random non-symmetric three-site unitaries on
+/// adjacent, far, unordered sites, a padded two-site operator, a sequence
+/// across restarts and a projection, and the cases that separate them)
+/// reads as on the CPU engine, and not as the CPU engine with the
+/// operators transposed, nor, where it differs, as the CPU engine with
+/// every MPO applied again at each later compute; so a GPU run that
+/// disagrees is not our tensors' layout as the fake reads it, and a GPU
+/// run that matches the reapplied column is the library keeping its MPOs.
 #[test]
 fn the_mpo_diagnostic_reads_as_on_the_cpu_engine_on_the_fake_libraries() {
     let (engine, _) = engine();
@@ -252,9 +256,38 @@ fn the_mpo_diagnostic_reads_as_on_the_cpu_engine_on_the_fake_libraries() {
     let reference = qdk_cpu_mps::CpuMpsEngine::default().with_dev_mpo_far(true);
     let results = crate::dev_mpo_diagnostic::run_cases(&engine, &reference)
         .unwrap_or_else(|error| panic!("every case runs: {error}"));
-    assert_eq!(results.len(), 5, "five cases");
+    let cases: Vec<&str> = results.iter().map(|result| result.case).collect();
+    assert_eq!(
+        cases,
+        [
+            "adjacent",
+            "far",
+            "unordered",
+            "two-site-padded",
+            "sequence",
+            "two-mpos-no-read",
+            "two-mpos-read-between",
+            "mpo-then-narrow-after-read",
+            "mpo-after-read",
+            "mpo-after-restart",
+            "mpo-then-restart",
+            "mpo-across-projection",
+            "projection-then-mpo",
+        ],
+        "the cases, in order"
+    );
+    // The cases with an MPO before a later compute, before any restart.
+    let reapplied = [
+        "sequence",
+        "two-mpos-read-between",
+        "mpo-then-narrow-after-read",
+        "mpo-then-restart",
+        "mpo-across-projection",
+    ];
     for result in &results {
         println!("{result:?}");
+    }
+    for result in &results {
         assert!(
             result.max_difference < 1e-10,
             "{}: {} from the CPU engine",
@@ -267,6 +300,22 @@ fn the_mpo_diagnostic_reads_as_on_the_cpu_engine_on_the_fake_libraries() {
             result.case,
             result.max_difference_transposed
         );
+        if reapplied.contains(&result.case) {
+            assert!(
+                result
+                    .max_difference_reapplied
+                    .is_some_and(|difference| difference > 1e-3),
+                "{}: the reapplied run differs, {:?}",
+                result.case,
+                result.max_difference_reapplied
+            );
+        } else {
+            assert_eq!(
+                result.max_difference_reapplied, None,
+                "{}: no MPO is applied again",
+                result.case
+            );
+        }
     }
 }
 

@@ -6,7 +6,9 @@
 //! `CuTensorNetEngine::with_dev_wide_operators` on the real cuTensorNet,
 //! against the CPU engine. It prints one `MPO_DIAGNOSTIC` line per case
 //! (the largest probability difference from the CPU engine with the
-//! operator as given and transposed) and the cuTensorNet version, then
+//! operator as given and transposed, the cuTensorNet version, the same
+//! difference from the CPU engine with every MPO applied again at each
+//! later compute, and which of the three the engine reads as), then
 //! fails if any case differs, so the run's log is the reproducer's
 //! evidence. The same cases agree with the CPU engine on the fake
 //! libraries (`src/tests/engine.rs`).
@@ -31,17 +33,31 @@ fn every_mpo_case_reads_as_on_the_cpu_engine() {
     let results = qdk_cutensornet::dev_mpo_diagnostic::run_cases(&engine, &reference)
         .unwrap_or_else(|error| panic!("every case runs: {error}"));
     let mut failed = Vec::new();
+    let within = |difference: f64| difference <= 1e-9;
     for result in &results {
+        let reading = if within(result.max_difference) {
+            "reference"
+        } else if result.max_difference_reapplied.is_some_and(within) {
+            "reapplied"
+        } else if within(result.max_difference_transposed) {
+            "transposed"
+        } else {
+            "unexplained"
+        };
+        let reapplied = result
+            .max_difference_reapplied
+            .map_or_else(|| "-".to_string(), |difference| format!("{difference:.3e}"));
         println!(
             "MPO_DIAGNOSTIC case={} sites={:?} max_diff={:.3e} max_diff_transposed={:.3e} \
-             asymmetry={:.3} cutensornet_versions={versions}",
+             asymmetry={:.3} cutensornet_versions={versions} max_diff_reapplied={reapplied} \
+             reading={reading}",
             result.case,
             result.sites,
             result.max_difference,
             result.max_difference_transposed,
             result.asymmetry,
         );
-        if result.max_difference.is_nan() || result.max_difference > 1e-9 {
+        if !within(result.max_difference) {
             failed.push(result.case);
         }
     }

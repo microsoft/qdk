@@ -8,6 +8,7 @@
 # H2 shot) and running the diagnostic of CuTensorNetEngine's three-site
 # MPOs (a reproducer for NVIDIA, not a fix). cuda-mps runs with its
 # defaults: QR centre moves on, GESVD; GESVDP is checked beside it.
+# The diagnostic alone: PARTS="build diagnostic" (Run, below).
 #
 # Polyene (the PPP model, N carbon sites, 2N + 1 qubits) is a development
 # case and a candidate relevant case, pending the chemistry team; H2 is a
@@ -31,12 +32,20 @@
 #                15 min; about 4 min.
 #   diagnostic   CuTensorNetEngine's three-site operators as one MPO
 #                (tests/cutensornet_mpo_on_the_gpu.rs) against the CPU
-#                engine, five cases (adjacent, far, unordered,
-#                two-site-padded, sequence); one summary line per case with
-#                the largest probability difference, as given and with the
-#                operator transposed, and the cuTensorNet version. A
-#                failure here is the expected evidence, not a stop. Limit
-#                10 min; 1-2 min.
+#                engine, thirteen cases (adjacent, far, unordered,
+#                two-site-padded, sequence, then the cases that separate
+#                what sequence mixes: two-mpos-no-read,
+#                two-mpos-read-between, mpo-then-narrow-after-read,
+#                mpo-after-read, mpo-after-restart, mpo-then-restart,
+#                mpo-across-projection, projection-then-mpo); one summary
+#                line per case with the largest probability difference, as
+#                given, with the operator transposed, and with every MPO
+#                applied again at each later compute (max_diff_reapplied,
+#                "-" where that applies none again), which of them the
+#                engine reads as (reading=reference, reapplied, transposed
+#                or unexplained), and the cuTensorNet version. A failure
+#                here is the expected evidence, not a stop. Limit 10 min;
+#                1-2 min.
 #   correctness  for each combination of COMBOS (qr-on-gesvd, the
 #                defaults, and qr-on-gesvdp): polyene N = 8 chi 128 in the
 #                identity order against ppp8.exact.reference (pass:
@@ -80,6 +89,10 @@
 # Run from anywhere, on the branch's checkout:
 #
 #   bash source/cutensornet/examples/gpu-polyene-full.sh
+#
+# The diagnostic alone (with the build it needs), a few minutes:
+#
+#   PARTS="build diagnostic" bash source/cutensornet/examples/gpu-polyene-full.sh
 #
 # Environment (all optional):
 #   OUT            the output directory (default $HOME/gpu-polyene-full-<date>)
@@ -227,6 +240,13 @@ field() {
   printf '%s\n' "$2" | tr ' ' '\n' | awk -F= -v key="$1" '$1 == key {print $2; exit}'
 }
 
+# The lines of a test's log $2 that hold marker $1, each from the marker
+# on. Not '^MARKER': with --nocapture libtest prints "test <name> ... "
+# without a newline, so a test's first printed line follows it.
+marked() {
+  grep -o "$1 .*" "$2"
+}
+
 # Whether part $1 is in PARTS.
 wanted() {
   case " $PARTS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
@@ -283,16 +303,16 @@ if wanted kit; then
   log=$OUT/kit.log
   run_part "$(box "$KIT_BOX")" "$log" cargo test --manifest-path "$REPO/Cargo.toml" --release \
     $CARGO_FLAGS -p qdk_cutensornet --test cuda_mps_on_the_gpu -- --ignored --nocapture --test-threads=1
-  checks=$(grep -c '^SELF_CHECK ' "$log")
-  failed=$(grep -c '^SELF_CHECK .* passed=false' "$log")
-  failed_names=$(grep '^SELF_CHECK .* passed=false' "$log" | awk '{printf "%s%s", sep, $2; sep = ","}')
+  checks=$(marked SELF_CHECK "$log" | grep -c .)
+  failed=$(marked SELF_CHECK "$log" | grep -c '^SELF_CHECK .* passed=false')
+  failed_names=$(marked SELF_CHECK "$log" | grep '^SELF_CHECK .* passed=false' | awk '{printf "%s%s", sep, $2; sep = ","}')
   # From libtest's closing list: with --nocapture a test's printed lines
   # may split its "test ... FAILED" line.
   failed_tests=$(awk '/^failures:$/ {n++; next} n == 2 && /^    [a-z_]/ {printf "%s%s", sep, $1; sep = ","}' "$log")
   result=$(grep '^test result: ' "$log" | tail -1)
   tests_passed=$(printf '%s\n' "$result" | sed -nE 's/.* ([0-9]+) passed.*/\1/p')
   tests_failed=$(printf '%s\n' "$result" | sed -nE 's/.* ([0-9]+) failed.*/\1/p')
-  perturbation=$(grep '^GESVDP_PERTURBATION ' "$log" |
+  perturbation=$(marked GESVDP_PERTURBATION "$log" |
     awk '{for (i = 1; i <= NF; i++) if ($i ~ /^largest=/) {split($i, kv, "="); if (kv[2] + 0 > best) best = kv[2] + 0}} END {printf "%.3e", best + 0}')
   verdict=fail
   if [ "$STATUS" = 0 ] && [ "$checks" -gt 0 ] && [ "$failed" = 0 ]; then
@@ -308,12 +328,12 @@ if wanted diagnostic; then
   run_part "$(box "$DIAGNOSTIC_BOX")" "$log" cargo test --manifest-path "$REPO/Cargo.toml" \
     --release $CARGO_FLAGS -p qdk_cutensornet --test cutensornet_mpo_on_the_gpu -- --ignored \
     --nocapture --test-threads=1
-  lines=$(grep -c '^MPO_DIAGNOSTIC ' "$log")
+  lines=$(marked MPO_DIAGNOSTIC "$log" | grep -c .)
   if [ "$lines" = 0 ]; then
     summary diagnostic "$STATUS" "$SECONDS_TAKEN" \
       "verdict=error step=diagnostic engine=cutensornet no MPO_DIAGNOSTIC line, error=\"$(grep -E 'panicked|error' "$log" | head -2 | tr '\n' ' ' | cut -c1-300)\""
   fi
-  grep '^MPO_DIAGNOSTIC ' "$log" | while read -r line; do
+  marked MPO_DIAGNOSTIC "$log" | while read -r line; do
     # Not $(field case …): bash before 5.2 reads that `case` as the keyword
     # and looks for its esac.
     case_=${line#* case=}
