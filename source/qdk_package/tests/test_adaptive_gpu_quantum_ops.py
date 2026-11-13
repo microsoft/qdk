@@ -747,3 +747,26 @@ def test_dynamic_rotation_angle():
     assert count_1 > 1400, f"Expected ~15% '1' results, got {count_1}"
     assert count_0 > 8400, f"Expected ~85% '0' results, got {count_0}"
     assert count_0 + count_1 == 10_000, "All shots should produce a result"
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_seeded_runs_are_reproducible_on_reused_simulator():
+    """A reused simulator must not carry per-shot state (e.g. RNG) between runs.
+
+    Regression test for the DX12 backend, where the per-shot reset skipped the
+    RNG counter, so results depended on previously run programs.
+    """
+    reused = GpuSimulator()
+    reused.set_program(DYNAMIC_ROTATION_ANGLE_QIR)
+    first = reused.run_shots(5_000, seed=7)["shot_results"]
+    reused.set_program(MEASURE_AND_CORRECT_QIR)
+    reused.run_shots(5_000, seed=7)
+    reused.set_program(DYNAMIC_ROTATION_ANGLE_QIR)
+    second = reused.run_shots(5_000, seed=7)["shot_results"]
+
+    fresh = GpuSimulator()
+    fresh.set_program(DYNAMIC_ROTATION_ANGLE_QIR)
+    expected = fresh.run_shots(5_000, seed=7)["shot_results"]
+
+    assert first == expected
+    assert second == expected

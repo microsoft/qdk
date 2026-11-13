@@ -743,6 +743,7 @@ fn reset_all(shot_idx: i32) {
     // After init, start execution from the first op
     shot.next_op_idx = 0u;
 
+    shot.rng_state.counter = 0u;
     shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot_id);
     shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot_id + 1);
     shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot_id + 2);
