@@ -13674,3 +13674,57 @@ fn return_in_while_condition_emits_forty_two_in_base_and_adaptive_qir() {
         42,
     );
 }
+
+/// Applying `Controlled` or `Adjoint` to a callable that is selected at runtime
+/// and wrapped in nested array closures must fail gracefully instead of
+/// panicking in the evaluator. The unit placeholder that partial evaluation
+/// produces for elements of arrays of dynamic callables propagates through the
+/// functor application, and the error surfaces only when the placeholder is
+/// directly called (`call to dynamic callee`). Regression for #4225.
+#[test]
+fn functor_on_dynamically_selected_callable_fails_gracefully() {
+    let source = indoc::indoc! {r#"
+        operation T0(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[0]); }
+        operation T1(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[1]); }
+        operation ApplyOne(op : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl { op(qs); }
+        operation ApplyAll(ops : (Qubit[] => Unit is Adj + Ctl)[], qs : Qubit[]) : Unit is Adj + Ctl { for op in ops { op(qs); } }
+        function MkAll(ops : (Qubit[] => Unit is Adj + Ctl)[]) : (Qubit[] => Unit is Adj + Ctl) { ApplyAll(ops, _) }
+        operation Main() : Result[] {
+            use qs = Qubit[2];
+            use (f, ctl) = (Qubit(), Qubit());
+            X(f);
+            let r = MResetZ(f);
+            let g = if r == One { T0 } else { T1 };
+            let all = MkAll([MkAll([T1]), MkAll([g])]);
+            X(ctl);
+            Controlled ApplyOne([ctl], (all, qs));
+            Reset(ctl);
+            MResetEachZ(qs)
+        }
+    "#};
+
+    // Base rejects the measurement-selected callable up front; its rejection is
+    // unchanged by this fix.
+    let base_errors = compile_source_to_qir_result(source, Profile::Base.into())
+        .expect_err("expected graceful failure");
+    let base_rendered = format_interpret_errors(base_errors);
+    assert!(
+        base_rendered.contains("cannot use a dynamic bool value"),
+        "expected the Base capability rejection, got:\n{base_rendered}"
+    );
+
+    for capabilities in [
+        Profile::AdaptiveRI.into(),
+        Profile::AdaptiveRIF.into(),
+        Profile::Adaptive.into(),
+    ] {
+        let errors = compile_source_to_qir_result(source, capabilities)
+            .expect_err("expected graceful failure, not a panic");
+        let rendered = format_interpret_errors(errors);
+        assert!(
+            rendered.contains("call to dynamic callee"),
+            "expected the existing call-to-dynamic-callee failure for capabilities \
+             {capabilities:?}, got:\n{rendered}"
+        );
+    }
+}
