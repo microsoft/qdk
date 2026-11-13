@@ -33,15 +33,24 @@
 //! - reads download the centre site (and, for an expectation, the sites
 //!   between the observable and the centre) and compute on the host.
 //!
+//! EXPERIMENTAL, development only: with
+//! [`CudaMpsEngine::with_dev_mpo_far`], an operator on two sites or more
+//! spanning two cuts or more (so every operator on three sites) is applied
+//! as an MPO across its span (`mpo.rs`), as the CPU engine's
+//! `with_dev_mpo_far`, instead of refused or routed by SWAPs.
+//!
 //! The tensor calls are behind [`TensorCalls`], whose one implementation
 //! is `DeviceTensors` on the GPU ([`CudaMpsEngine::new`]). The engine is
-//! tested on the GPU only (`tests/cuda_mps_on_the_gpu.rs`).
+//! tested on the GPU (`tests/cuda_mps_on_the_gpu.rs`), and its MPO path on
+//! the host too, on host tensor calls the unit tests define
+//! (`src/tests/cuda_mps_engine.rs`), against the CPU engine.
 
 mod device_chain;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod device_tensors;
 mod error;
 mod gates;
+mod mpo;
 mod reads;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod self_checks;
@@ -67,6 +76,7 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 pub struct CudaMpsEngine<T> {
     tensors: T,
     cutoff: f64,
+    dev_mpo_far: bool,
     counters: Cell<CudaMpsCounters>,
 }
 
@@ -87,6 +97,13 @@ pub struct CudaMpsCounters {
     pub read_seconds: f64,
     /// The largest bond a split kept.
     pub largest_bond: usize,
+    /// The operators applied as an MPO (`with_dev_mpo_far`).
+    pub mpo_operators: u64,
+    /// The seconds spent applying them, their splits and moves included.
+    pub mpo_seconds: f64,
+    /// Of [`Self::mpo_seconds`], the seconds spent multiplying the span's
+    /// sites by the MPO on the host, downloads and uploads included.
+    pub mpo_host_seconds: f64,
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -109,7 +126,24 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
         Self {
             tensors,
             cutoff: crate::engine::policy::DISCARDED_WEIGHT_CUTOFF,
+            dev_mpo_far: false,
             counters: Cell::new(CudaMpsCounters::default()),
+        }
+    }
+
+    /// EXPERIMENTAL, development only (not for review): the same engine,
+    /// whose [`MpsEngine::apply`] sends every operator on two sites or more
+    /// that are not adjacent (sites spanning two cuts or more, so every
+    /// operator on three sites) through an MPO across their span, in any
+    /// site order, instead of refusing more than two sites and routing
+    /// distant pairs by SWAPs; when `on`. As `qdk_cpu_mps`'s
+    /// `CpuMpsEngine::with_dev_mpo_far`.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_dev_mpo_far(self, on: bool) -> Self {
+        Self {
+            dev_mpo_far: on,
+            ..self
         }
     }
 
@@ -184,6 +218,25 @@ impl<T: TensorCalls> MpsEngine for CudaMpsEngine<T> {
         matrix: &[Complex64],
     ) -> Result<(), CudaMpsError> {
         let chain = state.chain.get_mut();
+        if self.dev_mpo_far && sites.len() >= 2 {
+            let (low, high) = sites
+                .iter()
+                .fold((usize::MAX, 0), |(lo, hi), &s| (lo.min(s), hi.max(s)));
+            if high - low >= 2 {
+                if sites.len() == 2 {
+                    checks::apply(chain.sites.len(), sites, matrix)?;
+                } else {
+                    let mut sorted = sites.to_vec();
+                    sorted.sort_unstable();
+                    sorted.dedup();
+                    assert!(
+                        sorted.len() == sites.len() && high < chain.sites.len(),
+                        "development only: a wide operator on distinct sites of the chain"
+                    );
+                }
+                return self.apply_wide(chain, sites, matrix);
+            }
+        }
         checks::apply(chain.sites.len(), sites, matrix)?;
         match *sites {
             [site] => {

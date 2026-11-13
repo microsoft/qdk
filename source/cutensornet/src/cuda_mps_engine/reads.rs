@@ -117,7 +117,7 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
     }
 
     /// The site `at` on the host, its pending gate applied.
-    fn host_site(
+    pub(super) fn host_site(
         &self,
         chain: &DeviceChain<T::Buffer>,
         at: usize,

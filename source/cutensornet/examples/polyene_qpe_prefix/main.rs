@@ -28,10 +28,24 @@
 //!
 //! ```text
 //! cargo run --release -p qdk_cutensornet --example polyene_qpe_prefix -- \
-//!     --engine cutensornet|cuda-mps|cpu --n 8|12|16 --chi 128 \
+//!     --engine cutensornet|cuda-mps|cpu --n 8|12|16|20 --chi 128 \
+//!     [--order identity|interleave-centre] [--variant base|seq3-mpo] \
 //!     [--reference ppp8.exact.reference] [--steps 32] \
 //!     [--weight-reads-per-step 1]
 //! ```
+//!
+//! `--order` places the qubits on the chain, as `simulators`'
+//! `polyene_swaps_dev` does: `identity` (qubit `i` on site `i`, the
+//! default) or `interleave-centre` (α and β modes alternate, the ancilla in
+//! the middle); the gates, the Hamiltonian and the reference are relabelled
+//! alike, so every reading is the same observable. `--variant seq3-mpo`
+//! fuses the gates in order into operators on up to three sites (a whole
+//! controlled Pauli rotation of weight two, `polyene_swaps_dev`'s `seq3`)
+//! and applies each through the engine's `apply`, the engine made to take
+//! them: the CPU engine and `CudaMpsEngine` with `with_dev_mpo_far` (far
+//! operators as an MPO), `CuTensorNetEngine` with `with_dev_wide_operators`
+//! (three-site operators passed to cuTensorNet). `base` (the default)
+//! applies the gates one by one on the engines as they are.
 //!
 //! `--reference` names a file in this folder. `--steps` runs fewer steps
 //! than the program's (a quick test; the reference is then not checked).
@@ -39,8 +53,9 @@
 //! `CuTensorNetEngine` computes a step's operators in `K` parts.
 
 mod inputs;
+mod order;
 
-use inputs::{Hamiltonian, QpePrefix, Reference, ReferenceKind, Res, number_sums};
+use inputs::{Gate, Hamiltonian, QpePrefix, Reference, ReferenceKind, Res, number_sums};
 use num_complex::Complex64;
 use std::time::Instant;
 use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm};
@@ -68,6 +83,8 @@ const ERRORS_PER_LOST_WEIGHT_OBSERVED: f64 = 1.4;
 
 struct Options {
     engine: String,
+    order: String,
+    seq3_mpo: bool,
     n: usize,
     chi: usize,
     reference: Option<String>,
@@ -91,7 +108,23 @@ impl Options {
         };
         Ok(Self {
             engine: flag("--engine").ok_or("--engine cutensornet|cuda-mps|cpu")?,
-            n: number("--n")?.ok_or("--n 8|12|16")?,
+            order: match flag("--order").as_deref().unwrap_or("identity") {
+                order @ ("identity" | "interleave-centre") => order.to_string(),
+                "resumer" => {
+                    return Err("--order resumer: not built here, this binary applies the \
+                                prefix's gates without the resumer (polyene_shots_dev has it)"
+                        .into());
+                }
+                other => {
+                    return Err(format!("--order {other}: identity or interleave-centre").into());
+                }
+            },
+            seq3_mpo: match flag("--variant").as_deref().unwrap_or("base") {
+                "base" => false,
+                "seq3-mpo" => true,
+                other => return Err(format!("--variant {other}: base or seq3-mpo").into()),
+            },
+            n: number("--n")?.ok_or("--n 8|12|16|20")?,
             chi: number("--chi")?.ok_or("--chi <bond>")?,
             reference: flag("--reference"),
             steps: number("--steps")?,
@@ -122,8 +155,8 @@ fn run_case() -> Res<()> {
     if let Some(steps) = options.steps {
         prefix.steps = steps;
     }
-    let hamiltonian = Hamiltonian::read(&format!("{INPUTS}/ppp{}.ham", options.n))?;
-    let reference = match &options.reference {
+    let mut hamiltonian = Hamiltonian::read(&format!("{INPUTS}/ppp{}.ham", options.n))?;
+    let mut reference = match &options.reference {
         Some(name) if prefix.steps == program_steps => {
             Some((name.clone(), Reference::read(&format!("{INPUTS}/{name}"))?))
         }
@@ -136,14 +169,23 @@ fn run_case() -> Res<()> {
         }
         None => None,
     };
+    let position = order::positions(&options.order, &hamiltonian, prefix.qubits)?;
+    order::relabel(
+        &position,
+        &mut prefix,
+        &mut hamiltonian,
+        reference.as_mut().map(|(_, reference)| reference),
+    );
     println!(
-        "POLYENE case n={} qubits={} chi={} engine={} steps={} gates={} two_qubit={} \
-         weight_reads_per_step={} label=development-case-for-large-bonds,\
+        "POLYENE case n={} qubits={} chi={} engine={} order={} variant={} steps={} gates={} \
+         two_qubit={} weight_reads_per_step={} label=development-case-for-large-bonds,\
          candidate-relevant-case-pending-the-chemistry-team",
         options.n,
         prefix.qubits,
         options.chi,
         options.engine,
+        options.order,
+        if options.seq3_mpo { "seq3-mpo" } else { "base" },
         prefix.steps,
         prefix.gate_count(),
         prefix.two_qubit_count(),
@@ -156,7 +198,7 @@ fn run_case() -> Res<()> {
     };
     let verdict = match options.engine.as_str() {
         "cpu" => run(
-            &qdk_cpu_mps::CpuMpsEngine::default(),
+            &qdk_cpu_mps::CpuMpsEngine::default().with_dev_mpo_far(options.seq3_mpo),
             &case,
             &options,
             &|| {},
@@ -177,7 +219,8 @@ fn run_case() -> Res<()> {
 fn run_on_cutensornet(case: &Case, options: &Options) -> Res<Verdict> {
     let availability = qdk_cutensornet::discover()?;
     println!("POLYENE availability {:?}", availability.report());
-    let engine = qdk_cutensornet::CuTensorNetEngine::new(&availability)?;
+    let engine = qdk_cutensornet::CuTensorNetEngine::new(&availability)?
+        .with_dev_wide_operators(options.seq3_mpo);
     engine.dev_reset_times();
     let verdict = run(&engine, case, options, &|| {})?;
     let times = engine.dev_times();
@@ -209,7 +252,8 @@ fn run_on_cutensornet(_case: &Case, _options: &Options) -> Res<Verdict> {
 fn run_on_cuda_mps(case: &Case, options: &Options) -> Res<Verdict> {
     let availability = qdk_cutensornet::discover()?;
     println!("POLYENE availability {:?}", availability.report());
-    let engine = qdk_cutensornet::CudaMpsEngine::new(&availability)?;
+    let engine =
+        qdk_cutensornet::CudaMpsEngine::new(&availability)?.with_dev_mpo_far(options.seq3_mpo);
     run(&engine, case, options, &|| print_cuda_mps_counters(&engine))
 }
 
@@ -227,18 +271,26 @@ fn print_cuda_mps_counters<T: qdk_cutensornet::cuda_mps_engine::TensorCalls>(
     let counters = engine.counters();
     println!(
         "POLYENE cuda_mps_counters splits={} centre_moves={} swaps={} \
-         gate_split_seconds={:.3} read_seconds={:.3} largest_bond={}",
+         gate_split_seconds={:.3} read_seconds={:.3} largest_bond={} mpo_operators={} \
+         mpo_seconds={:.3} mpo_host_seconds={:.3}",
         counters.splits,
         counters.centre_moves,
         counters.swaps,
         counters.gate_split_seconds,
         counters.read_seconds,
         counters.largest_bond,
+        counters.mpo_operators,
+        counters.mpo_seconds,
+        counters.mpo_host_seconds,
     );
 }
 
 /// The prefix on `engine`, with every reading printed, checked against the
 /// case's reference; `after_step` runs after each step's line.
+#[expect(
+    clippy::too_many_lines,
+    reason = "development only: one run, read top to bottom"
+)]
 fn run<E: MpsEngine>(
     engine: &E,
     case: &Case,
@@ -248,9 +300,24 @@ fn run<E: MpsEngine>(
     let (prefix, hamiltonian) = (&case.prefix, &case.hamiltonian);
     let ancilla = hamiltonian.ancilla;
     let hadamard = inputs::hadamard(ancilla);
+    let fused = options.seq3_mpo.then(|| {
+        (
+            order::seq3(&prefix.trial),
+            order::seq3(&prefix.controlled_step),
+        )
+    });
+    let (trial_gates, step_gates): (&[Gate], &[Gate]) = match &fused {
+        Some((trial, step)) => (trial, step),
+        None => (&prefix.trial, &prefix.controlled_step),
+    };
+    println!(
+        "POLYENE operators trial={} step={}",
+        trial_gates.len(),
+        step_gates.len()
+    );
     let started = Instant::now();
     let mut state = engine.prepare(&MpsShape::qubit_chain(prefix.qubits, options.chi)?)?;
-    for gate in &prefix.trial {
+    for gate in trial_gates {
         engine.apply(&mut state, &gate.qubits, &gate.matrix)?;
     }
     let trial = Readings::of(engine, &state, hamiltonian)?;
@@ -264,15 +331,14 @@ fn run<E: MpsEngine>(
         trial.n_beta,
     );
     engine.apply(&mut state, &hadamard.qubits, &hadamard.matrix)?;
-    let part_length = prefix
-        .controlled_step
+    let part_length = step_gates
         .len()
         .div_ceil(options.weight_reads_per_step)
         .max(1);
     let mut last_c = None;
     for p in 1..=prefix.steps {
         let mut weight = 1.0;
-        for part in prefix.controlled_step.chunks(part_length) {
+        for part in step_gates.chunks(part_length) {
             for gate in part {
                 engine.apply(&mut state, &gate.qubits, &gate.matrix)?;
             }

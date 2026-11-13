@@ -54,7 +54,7 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
     }
 
     /// Splits the fused pair, truncated, and leaves the centre on `side`.
-    fn split_pair(
+    pub(super) fn split_pair(
         &self,
         chain: &mut DeviceChain<T::Buffer>,
         side: CentreSide,

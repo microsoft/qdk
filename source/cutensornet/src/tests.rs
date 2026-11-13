@@ -17,6 +17,7 @@
 //! only, where it is always present. They, and the loader's tests, rely on
 //! the host's system loader.
 
+mod cuda_mps_engine;
 mod devices;
 mod diagnosis;
 mod discovery;

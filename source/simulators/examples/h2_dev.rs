@@ -32,15 +32,25 @@
 //!     [--first-shot 0] [--shots 1] [--threads 1] [--group 1] \
 //!     [--routing engine|meet-halfway|meet-halfway-after-fusion] \
 //!     [--fusion pairs|unfused|seq|seq3] [--apply engine|mpo] \
-//!     [--reset split|merge]
+//!     [--reset split|merge] [--variant base|seq3-mpo] \
+//!     [--order resumer|identity]
 //! ```
+//!
+//! `--variant` (development only) names a pair of `--fusion` and `--apply`
+//! the polyene harnesses share: `base` is `pairs` and `engine` (the
+//! defaults), `seq3-mpo` is `seq3` and `mpo`; it replaces them. `--order`
+//! (development only) places the qubits: `resumer` (the resumer's order
+//! for the program, the default) or `identity` (qubit `q` on site `q`);
+//! polyene's `interleave-centre` is refused, having no meaning for H₂.
 //!
 //! Development only: `--fusion seq|seq3` fuses each run of gates in order
 //! into blocks of at most 2 or 3 sites (the resumer's dev in-order fusion,
-//! with `--routing engine` only); `--apply mpo` makes the CPU engine apply
-//! every operator on non-adjacent sites as an MPO
-//! (`CpuMpsEngine::with_dev_mpo_far`); `--reset merge` keeps a grouped
-//! call's shots together at a run of resets that settles every site
+//! with `--routing engine` only); `--apply mpo` makes the CPU engine and
+//! `cuda-mps` apply every operator on non-adjacent sites as an MPO
+//! (`CpuMpsEngine::with_dev_mpo_far`, `CudaMpsEngine::with_dev_mpo_far`),
+//! and makes `cutensornet` pass three-site operators to the library
+//! (`CuTensorNetEngine::with_dev_wide_operators`); `--reset merge` keeps a
+//! grouped call's shots together at a run of resets that settles every site
 //! (`DevResetHandling::Merge`; it acts only with `--group`).
 //!
 //! `--group K` (development only) runs each K consecutive shots of the slice
@@ -445,9 +455,12 @@ struct Options {
     mpo: bool,
     reset: DevResetHandling,
     variant: String,
+    /// Development only: `--order identity` (qubit `q` on site `q`).
+    identity_layout: bool,
 }
 
 impl Options {
+    #[expect(clippy::too_many_lines, reason = "one flag after another")]
     fn parse() -> Self {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let value = |flag: &str| {
@@ -463,8 +476,26 @@ impl Options {
             })
         };
         let as_usize = |n: u64| usize::try_from(n).expect("fits a usize");
-        let fusion = value("--fusion").unwrap_or_else(|| "pairs".to_string());
-        let apply = value("--apply").unwrap_or_else(|| "engine".to_string());
+        let (fusion, apply) = match value("--variant").as_deref() {
+            None => (
+                value("--fusion").unwrap_or_else(|| "pairs".to_string()),
+                value("--apply").unwrap_or_else(|| "engine".to_string()),
+            ),
+            Some(_) if value("--fusion").is_some() || value("--apply").is_some() => {
+                panic!("--variant replaces --fusion and --apply: give one or the other")
+            }
+            Some("base") => ("pairs".to_string(), "engine".to_string()),
+            Some("seq3-mpo") => ("seq3".to_string(), "mpo".to_string()),
+            Some(other) => panic!("--variant {other}: base or seq3-mpo"),
+        };
+        let identity_layout = match value("--order").as_deref() {
+            None | Some("resumer") => false,
+            Some("identity") => true,
+            Some(other) => panic!(
+                "--order {other}: resumer or identity (interleave-centre is polyene's, \
+                 not built for H₂)"
+            ),
+        };
         let reset = value("--reset").unwrap_or_else(|| "split".to_string());
         assert!(fusion != "seq3" || apply == "mpo", "seq3 needs --apply mpo");
         Self {
@@ -545,7 +576,11 @@ impl Options {
                 "merge" => DevResetHandling::Merge,
                 other => panic!("--reset {other}: split or merge"),
             },
-            variant: format!("{fusion}/{apply}/{reset}"),
+            variant: format!(
+                "{fusion}/{apply}/{reset}{}",
+                if identity_layout { "/identity" } else { "" }
+            ),
+            identity_layout,
         }
     }
 
@@ -558,6 +593,9 @@ impl Options {
             .with_dev_reset_handling(self.reset);
         if let Some(max_sites) = self.in_order {
             resumer = resumer.with_dev_in_order_fusion(max_sites);
+        }
+        if self.identity_layout {
+            resumer = resumer.with_dev_identity_layout();
         }
         resumer
     }
@@ -931,7 +969,9 @@ fn run_on_cutensornet(options: &Options, program: &QirProgram) -> bool {
     let availability = qdk_cutensornet::discover().expect("cuTensorNet and the CUDA Runtime load");
     println!("AVAILABILITY {:?}", availability.report());
     let make = || {
-        qdk_cutensornet::CuTensorNetEngine::new(&availability).expect("an engine on CUDA device 0")
+        qdk_cutensornet::CuTensorNetEngine::new(&availability)
+            .expect("an engine on CUDA device 0")
+            .with_dev_wide_operators(options.mpo)
     };
     run_slice(options, program, &make)
 }
@@ -947,7 +987,9 @@ fn run_on_cuda_mps(options: &Options, program: &QirProgram) -> bool {
     let availability = qdk_cutensornet::discover().expect("cuTensorNet and the CUDA Runtime load");
     println!("AVAILABILITY {:?}", availability.report());
     let make = || {
-        qdk_cutensornet::CudaMpsEngine::new(&availability).expect("the tensor API on CUDA device 0")
+        qdk_cutensornet::CudaMpsEngine::new(&availability)
+            .expect("the tensor API on CUDA device 0")
+            .with_dev_mpo_far(options.mpo)
     };
     run_slice(options, program, &make)
 }

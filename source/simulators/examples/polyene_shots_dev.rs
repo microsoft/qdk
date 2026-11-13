@@ -9,11 +9,18 @@
 //! ```text
 //! cargo run --release -p qdk_simulators --example polyene_shots_dev -- \
 //!     --bytecode ppp8_m6.bytecode.json [--params ppp8.params.json] \
-//!     [--engine cpu|reference] [--chi 64] [--shots 8] [--first-shot 0] \
+//!     [--engine cpu|reference|cuda-mps|cutensornet] [--chi 64] [--shots 8] [--first-shot 0] \
 //!     [--seed 1] [--mode grouped|per-shot] [--reset split|merge|fresh] \
 //!     [--fusion unfused|pairs|seq|seq3] [--apply engine|mpo] \
-//!     [--layout program|identity|interleave-centre] [--segments]
+//!     [--layout program|identity|interleave-centre] [--segments] \
+//!     [--variant base|seq3-mpo] [--order resumer|identity|interleave-centre]
 //! ```
+//!
+//! `--variant` and `--order` (development only) are the flags the polyene
+//! and H₂ harnesses share: `--variant base` is `--fusion unfused --apply
+//! engine` (the defaults), `seq3-mpo` is `--fusion seq3 --apply mpo`;
+//! `--order resumer` is `--layout program`, the others the layouts of the
+//! same name. Each replaces the flags it names.
 //!
 //! `--layout identity` places qubit `q` on site `q` instead of the
 //! resumer's order for the program; `interleave-centre` places the modes
@@ -26,7 +33,11 @@
 //! non-adjacent sites (every 3-site block) as an MPO
 //! (`CpuMpsEngine::with_dev_mpo_far`). `seq3` needs `--apply mpo`.
 //!
-//! `--engine reference` runs the exact state vector (`ExactReference`),
+//! `--engine cuda-mps|cutensornet` runs `CudaMpsEngine` or
+//! `CuTensorNetEngine` on a GPU (Linux x86-64); `--apply mpo` gives the
+//! first `with_dev_mpo_far` and the second `with_dev_wide_operators`
+//! (three-site operators passed to cuTensorNet). `--engine reference` runs
+//! the exact state vector (`ExactReference`),
 //! whose bond reads are replaced by a constant (its Schmidt ranks cost
 //! seconds at 17 qubits and change no draw). `--segments` prints one line
 //! per segment (what one group ran of one batch). `--print-reads` prints
@@ -88,14 +99,26 @@ impl Options {
             "fresh" => DevResetHandling::Fresh,
             other => panic!("--reset {other}: split, merge or fresh"),
         };
-        let (fusion, in_order) = match flag("--fusion").as_deref().unwrap_or("unfused") {
+        let (fusion_name, apply_name) = match flag("--variant").as_deref() {
+            None => (
+                flag("--fusion").unwrap_or_else(|| "unfused".to_string()),
+                flag("--apply").unwrap_or_else(|| "engine".to_string()),
+            ),
+            Some(_) if flag("--fusion").is_some() || flag("--apply").is_some() => {
+                panic!("--variant replaces --fusion and --apply: give one or the other")
+            }
+            Some("base") => ("unfused".to_string(), "engine".to_string()),
+            Some("seq3-mpo") => ("seq3".to_string(), "mpo".to_string()),
+            Some(other) => panic!("--variant {other}: base or seq3-mpo"),
+        };
+        let (fusion, in_order) = match fusion_name.as_str() {
             "unfused" => (GateFusion::Unfused, None),
             "pairs" => (GateFusion::Pairs, None),
             "seq" => (GateFusion::Unfused, Some(2)),
             "seq3" => (GateFusion::Unfused, Some(3)),
             other => panic!("--fusion {other}: unfused, pairs, seq or seq3"),
         };
-        let mpo = match flag("--apply").as_deref().unwrap_or("engine") {
+        let mpo = match apply_name.as_str() {
             "engine" => false,
             "mpo" => true,
             other => panic!("--apply {other}: engine or mpo"),
@@ -106,7 +129,12 @@ impl Options {
             "per-shot" => true,
             other => panic!("--mode {other}: grouped or per-shot"),
         };
-        let layout = flag("--layout").unwrap_or_else(|| "program".to_string());
+        let layout = match (flag("--order").as_deref(), flag("--layout")) {
+            (Some(_), Some(_)) => panic!("--order replaces --layout: give one or the other"),
+            (Some("resumer"), None) => "program".to_string(),
+            (Some(order), None) => order.to_string(),
+            (None, layout) => layout.unwrap_or_else(|| "program".to_string()),
+        };
         assert!(
             ["program", "identity", "interleave-centre"].contains(&layout.as_str()),
             "--layout {layout}: program, identity or interleave-centre"
@@ -328,8 +356,36 @@ fn main() {
         ("cpu", true) => run(&options, &program, PrintReads(cpu())),
         ("reference", false) => run(&options, &program, reference()),
         ("reference", true) => run(&options, &program, PrintReads(reference())),
-        (other, _) => panic!("--engine {other}: cpu or reference"),
+        ("cuda-mps" | "cutensornet", false) => run_on_gpu(&options, &program),
+        (other, _) => panic!(
+            "--engine {other}: cpu, reference, cuda-mps or cutensornet \
+             (--print-reads on cpu or reference only)"
+        ),
     }
+}
+
+/// The run on `CudaMpsEngine` (`cuda-mps`) or `CuTensorNetEngine`
+/// (`cutensornet`), `--apply mpo` choosing their development flags.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn run_on_gpu(options: &Options, program: &QirProgram) {
+    let availability = qdk_cutensornet::discover().expect("cuTensorNet and the CUDA Runtime load");
+    println!("AVAILABILITY {:?}", availability.report());
+    if options.engine == "cuda-mps" {
+        let engine = qdk_cutensornet::CudaMpsEngine::new(&availability)
+            .expect("the tensor API on CUDA device 0")
+            .with_dev_mpo_far(options.mpo);
+        run(options, program, engine);
+    } else {
+        let engine = qdk_cutensornet::CuTensorNetEngine::new(&availability)
+            .expect("an engine on CUDA device 0")
+            .with_dev_wide_operators(options.mpo);
+        run(options, program, engine);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+fn run_on_gpu(options: &Options, _program: &QirProgram) {
+    panic!("--engine {}: runs on Linux x86-64 only", options.engine);
 }
 
 #[allow(clippy::too_many_lines)] // a development driver, printed in one place

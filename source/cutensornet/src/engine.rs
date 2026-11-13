@@ -81,6 +81,8 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, Refusal, checks};
 /// not tunable (`policy.rs`).
 pub struct CuTensorNetEngine {
     device_session: Rc<device_session::DeviceSession<dyn NativeCalls>>,
+    /// Development only: `with_dev_wide_operators`.
+    dev_wide_operators: bool,
 }
 
 /// One MPS state of a [`CuTensorNetEngine`]: a cuTensorNet state, its
@@ -139,7 +141,30 @@ impl CuTensorNetEngine {
                 native_calls,
                 policy::DEVICE_ORDINAL,
             )?),
+            dev_wide_operators: false,
         })
+    }
+
+    /// EXPERIMENTAL, development only (not for review): the same engine,
+    /// whose `apply` also takes an operator on three distinct sites, in any
+    /// order and any distance apart, and passes it to cuTensorNet as one
+    /// tensor operator on their three modes, instead of refusing it; when
+    /// `on`. NVIDIA documents operators on non-adjacent modes in MPS mode
+    /// (the 2.x release notes: improved accuracy for tensor operators,
+    /// controlled operators and MPOs on non-adjacent qudits); the gate's
+    /// unitarity is not checked.
+    ///
+    /// # Panics
+    ///
+    /// In `apply`, when the three sites are not distinct or the matrix is
+    /// not 8×8.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_dev_wide_operators(self, on: bool) -> Self {
+        Self {
+            dev_wide_operators: on,
+            ..self
+        }
     }
 
     /// Development only (the tuning bench): the engine with `tuning`'s
@@ -243,6 +268,19 @@ impl MpsEngine for CuTensorNetEngine {
         sites: &[usize],
         matrix: &[Complex64],
     ) -> Result<(), EngineError> {
+        if self.dev_wide_operators && sites.len() == 3 {
+            assert!(
+                sites[0] != sites[1] && sites[0] != sites[2] && sites[1] != sites[2],
+                "development only: a wide operator on distinct sites"
+            );
+            assert_eq!(matrix.len(), 64, "development only: an 8×8 operator");
+            let in_range = |site_count| {
+                sites
+                    .iter()
+                    .try_for_each(|&site| checks::probability_of_one(site_count, site))
+            };
+            return self.native_state(state, in_range)?.apply(sites, matrix);
+        }
         self.native_state(state, |site_count| checks::apply(site_count, sites, matrix))?
             .apply(sites, matrix)
     }

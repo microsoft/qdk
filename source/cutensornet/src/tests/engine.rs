@@ -190,6 +190,40 @@ fn an_operator_on_three_sites_is_refused_as_too_many_sites() {
     assert!(libraries.applied().is_empty());
 }
 
+/// Development only: with `with_dev_wide_operators`, an operator on three
+/// sites far apart and out of order goes to the library as one operator on
+/// their modes, `sites[0]` its most significant bit: a product of rotations
+/// by three angles leaves each site the P(One) of its own angle.
+#[test]
+fn with_the_dev_flag_an_operator_on_three_sites_applies_on_their_modes() {
+    let (engine, libraries) = engine();
+    let engine = engine.with_dev_wide_operators(true);
+    let mut state = ok(engine.prepare(&uniform_capacity(5, 4)));
+    let angles = [0.3, 1.1, 2.0];
+    let factors: Vec<Vec<Complex64>> = angles.iter().map(|&theta| ry(theta)).collect();
+    let mut matrix = vec![c(0.0); 64];
+    for (row, col) in (0..8).flat_map(|row| (0..8).map(move |col| (row, col))) {
+        let bit = |x: usize, at: usize| (x >> (2 - at)) & 1;
+        matrix[row * 8 + col] = (0..3)
+            .map(|at| factors[at][2 * bit(row, at) + bit(col, at)])
+            .product();
+    }
+    ok(engine.apply(&mut state, &[4, 0, 2], &matrix));
+    assert_eq!(
+        libraries.applied(),
+        vec![(vec![4, 0, 2], true)],
+        "one operator"
+    );
+    for (site, theta) in [4, 0, 2].into_iter().zip(angles) {
+        let expected = (theta / 2.0_f64).sin().powi(2);
+        let p = ok(engine.probability_of_one(&state, site));
+        assert!(
+            (p - expected).abs() < 1e-12,
+            "site {site}: {p}, not {expected}"
+        );
+    }
+}
+
 /// The engine's sites are qubits: a capacity of qutrits is refused by the
 /// contract's check before any native state is created.
 #[test]

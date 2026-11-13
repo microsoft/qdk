@@ -5,7 +5,8 @@
 //! cuTensorNet, on CUDA device 0: its `GateSplit` self-checks, `tensornet`'s
 //! conformance kit, and agreement with the CPU engine whose algorithm it
 //! ports, on random circuits of seven sites (distant gates, projections,
-//! a capped bond), to 1e-10.
+//! a capped bond), to 1e-10; and, with `with_dev_mpo_far`, operators on
+//! three sites applied as an MPO, against the CPU engine's MPO path.
 //!
 //! It needs an NVIDIA GPU, the CUDA Runtime 12.9 and cuTensorNet 2.13, so
 //! every test is ignored by default; run them with `--ignored --nocapture`
@@ -106,11 +107,69 @@ fn kron(a: &[Complex64; 4], b: &[Complex64; 4]) -> Vec<Complex64> {
 }
 
 fn multiply(a: &[Complex64], b: &[Complex64]) -> Vec<Complex64> {
-    let mut product = vec![c(0.0, 0.0); 16];
-    for (row, col) in (0..4).flat_map(|row| (0..4).map(move |col| (row, col))) {
-        product[row * 4 + col] = (0..4).map(|k| a[row * 4 + k] * b[k * 4 + col]).sum();
+    multiply_square(a, b, 4)
+}
+
+/// `a·b` of two row-major `dim × dim` matrices.
+fn multiply_square(a: &[Complex64], b: &[Complex64], dim: usize) -> Vec<Complex64> {
+    let mut product = vec![c(0.0, 0.0); dim * dim];
+    for (row, col) in (0..dim).flat_map(|row| (0..dim).map(move |col| (row, col))) {
+        product[row * dim + col] = (0..dim).map(|k| a[row * dim + k] * b[k * dim + col]).sum();
     }
     product
+}
+
+/// The two-site `gate` on the operands `first` and `second` (positions of
+/// three, `first` its most significant bit) as an 8×8 matrix on the three,
+/// row-major, position 0 the most significant bit.
+fn on_three(gate: &[Complex64], first: usize, second: usize) -> Vec<Complex64> {
+    let bit = |x: usize, position: usize| (x >> (2 - position)) & 1;
+    let other = 3 - first - second;
+    let mut matrix = vec![c(0.0, 0.0); 64];
+    for row in 0..8 {
+        for col in 0..8 {
+            if bit(row, other) == bit(col, other) {
+                let r = 2 * bit(row, first) + bit(row, second);
+                let k = 2 * bit(col, first) + bit(col, second);
+                matrix[row * 8 + col] = gate[r * 4 + k];
+            }
+        }
+    }
+    matrix
+}
+
+/// A random circuit of fused operators on `sites`: one-site gates, two-site
+/// gates on any pair, and three-site operators on any three sites in any
+/// order, each the product of two two-site gates sharing a site (a
+/// controlled Pauli rotation of weight two fused in order).
+fn fused_circuit(sites: usize, operations: usize, seed: u64) -> Vec<Operation> {
+    let mut random = SplitMix(seed);
+    let mut distinct = |count: usize| {
+        let mut chosen = Vec::with_capacity(count);
+        while chosen.len() < count {
+            let site = random.below(sites);
+            if !chosen.contains(&site) {
+                chosen.push(site);
+            }
+        }
+        chosen
+    };
+    let mut kinds = SplitMix(seed ^ 0x5eed);
+    let mut gates = SplitMix(seed.wrapping_mul(31));
+    (0..operations)
+        .map(|_| {
+            let kind = kinds.next();
+            if kind < 0.2 {
+                Operation::Gate(distinct(1), gates.one_site().to_vec())
+            } else if kind < 0.55 {
+                Operation::Gate(distinct(2), gates.two_site())
+            } else {
+                let (first, second) = (gates.two_site(), gates.two_site());
+                let block = multiply_square(&on_three(&second, 1, 2), &on_three(&first, 0, 1), 8);
+                Operation::Gate(distinct(3), block)
+            }
+        })
+        .collect()
 }
 
 /// One operation of a circuit.
@@ -317,6 +376,27 @@ fn projections_between_gates_read_as_on_the_cpu_engine() {
             let port = run(&on_the_gpu(), &capacity, &operations);
             let cpu = run(&CpuMpsEngine::default(), &capacity, &operations);
             assert!(!port.projections.is_empty(), "a projection ran");
+            assert_agree(&port, &cpu);
+        }
+    }
+}
+
+/// With `with_dev_mpo_far`, operators on three sites in any order and on
+/// distant pairs, applied as an MPO with `GateSplit`s on the device, read
+/// as the CPU engine's MPO path reads them, below the capacity and capped.
+#[test]
+#[ignore = "requires an NVIDIA GPU with the audited CUDA Runtime 12.9 and cuTensorNet 2.13"]
+fn operators_as_an_mpo_read_as_on_the_cpu_engine() {
+    for max_bond in [64, 3] {
+        let capacity = MpsShape::qubit_chain(7, max_bond).expect("a qubit chain");
+        for seed in [9, 10, 11] {
+            let operations = fused_circuit(7, 40, seed);
+            let port = run(&on_the_gpu().with_dev_mpo_far(true), &capacity, &operations);
+            let cpu = run(
+                &CpuMpsEngine::default().with_dev_mpo_far(true),
+                &capacity,
+                &operations,
+            );
             assert_agree(&port, &cpu);
         }
     }
