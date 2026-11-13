@@ -1783,6 +1783,15 @@ impl State {
                         global.type_args.clone(),
                     ));
                 }
+                // An empty tuple is the placeholder that partial evaluation
+                // produces for a value it cannot resolve at compile time, e.g.
+                // an element of an array of dynamic callables. Propagate it
+                // upward: computing or passing around an unresolved callable is
+                // not an error; only directly calling one is, which the call
+                // evaluation reports.
+                Value::Tuple(inner, None) if inner.is_empty() => {
+                    self.set_val_register(Value::Tuple(inner, None));
+                }
                 _ => panic!("value should be callable"),
             },
             UnOp::Neg => match val {

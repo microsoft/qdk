@@ -5417,6 +5417,13 @@ fn eval_un_op_with_literals(un_op: UnOp, value: Value) -> Value {
                     global.type_args,
                 )
             }
+            // An empty tuple is the placeholder that partial evaluation
+            // produces for a value it cannot resolve at compile time, e.g. an
+            // element of an array of dynamic callables. Propagate it upward:
+            // computing or passing around an unresolved callable is not an
+            // error; only directly calling one is, which `eval_expr_call`
+            // reports.
+            Value::Tuple(inner, None) if inner.is_empty() => Value::Tuple(inner, None),
             _ => panic!("value should be callable"),
         },
         UnOp::Pos | UnOp::Unwrap => value,
