@@ -236,24 +236,13 @@ export class LearningTools {
   // ─── Navigation & actions (show the active learning surface) ───
 
   /**
-   * Preserve selected notebook activity or markdown context, otherwise show the saved activity.
+   * Reveal the saved learning activity without changing the saved position.
    */
   async show(): Promise<StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
-      const selected = this.notebookLearningState();
-      const editor = vscode.window.activeNotebookEditor;
-      if (
-        selected &&
-        (selected.position.content.type === "exercise" ||
-          selected.position.content.type === "code-cell" ||
-          editor?.notebook.cellAt(editor.selection.start).kind ===
-            vscode.NotebookCellKind.Markup)
-      ) {
-        return { state: this.serializeState(true) };
-      }
       await this.showActivity();
-      return { state: this.serializeState(true) }; // Use the notebook editor position when available
+      return { state: this.serializeState(false) }; // Report the saved destination, not the selected cell.
     });
   }
 

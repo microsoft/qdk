@@ -32,7 +32,7 @@ The tools refer to each kata as a "unit". In other courses, there are no katas, 
 
 Call `get-state` first. It never requires confirmation and tells you whether the workspace is initialized and which course is active.
 
-- **If `initialized: true` and `courseSelected: true`** — you have the current position, active course, and progress. Greet the user briefly, then call `show` to open the active learning surface. Direct the user's attention to the Lesson panel for a Q# course or the workbook for a notebook course so they can continue where they left off.
+- **If `initialized: true` and `courseSelected: true`** — when the user asks to start or resume learning, call `show` to reveal the saved activity and use its returned state for your greeting. Direct the user's attention to the Lesson panel for a Q# course or the workbook for a notebook course. If the user instead asks about the selected cell or requests a hint or explanation, use `get-state` and handle that request without calling `show`.
 - **If `initialized: true` and `courseSelected: false`** — the workspace is set up but the user hasn't picked a course yet. Call `list-courses` and present the available courses so the user can choose. Once they pick one, call `switch-course`, which opens the selected course's learning surface. Do **not** auto-select a course.
 - **If `initialized: false`** — the workspace hasn't been set up yet. Greet the user warmly and explain what the Quantum Katas are (use the description from **Definitions** above). Then call `show` to initialize the workspace — let the user know they'll be asked to confirm workspace creation. Once initialized, call `list-courses` and present the available courses so the user can choose one.
 
@@ -87,7 +87,9 @@ The panel routes these messages to chat. Always call `get-state` first to unders
 
 ### 1. Show Activity
 
-Call `show`. Use the returned state for your greeting. Don't call on every turn — use `get-state` for silent reads between turns.
+Call `show` when the user asks to start, resume, or show the current learning activity. It reveals the saved position, not the selected notebook cell, and does not change the saved destination. Use the returned state to describe where they landed.
+
+Use `get-state` for "Where am I?" and selected-cell questions without moving the notebook. Its selected-cell context may differ from the saved resume position. Don't call `show` for contextual questions or on every turn.
 
 To start a specific unit: `list-units` → find `unitId` → `goto`.
 
