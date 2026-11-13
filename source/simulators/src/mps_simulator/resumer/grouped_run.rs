@@ -32,6 +32,7 @@
 use std::num::NonZeroUsize;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use crate::OutputRecord;
 use crate::qir::{
@@ -42,6 +43,7 @@ use tensornet::{MpsEngine, MpsShape};
 
 #[cfg(doc)]
 use super::MpsResumer;
+use super::dev_census::{self, DevResetHandling, SegmentCensus};
 use super::layout::QubitOrder;
 use super::lowering::{Operator, Step, lower};
 use super::report::MpsRunReport;
@@ -78,6 +80,11 @@ pub(super) struct GroupedRun<'r, E: MpsEngine> {
     /// The first failing shot's place in the order of the run's shots, and
     /// why it failed.
     failure: Option<(usize, GroupFailure<E::Error>)>,
+    /// EXPERIMENTAL, development only: what a reset whose shots drew both
+    /// values does, and the census of the segment under way.
+    reset_handling: DevResetHandling,
+    census: bool,
+    segment: SegmentCensus,
 }
 
 impl<'r, E: MpsEngine> GroupedRun<'r, E> {
@@ -134,6 +141,9 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             next: 0,
             bond_unread: false,
             placement,
+            results_drawn: 0,
+            batches: 0,
+            known: vec![Some(false); capacity.as_ref().map_or(0, MpsShape::site_count)],
         }];
         Ok(Self {
             engine,
@@ -149,6 +159,9 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             waiting,
             records: vec![None; shots.len()],
             failure: None,
+            reset_handling: DevResetHandling::Split,
+            census: dev_census::census_on(),
+            segment: SegmentCensus::default(),
         })
     }
 
@@ -156,6 +169,13 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// ([`MpsResumer::with_stop`]).
     pub(super) fn with_stop(mut self, stop: Option<&'r AtomicBool>) -> Self {
         self.stop = stop;
+        self
+    }
+
+    /// EXPERIMENTAL, development only: the run handling a reset whose shots
+    /// drew both values as `handling` says.
+    pub(super) fn with_reset_handling(mut self, handling: DevResetHandling) -> Self {
+        self.reset_handling = handling;
         self
     }
 
@@ -220,19 +240,25 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     ) -> Result<Vec<OutputRecord>, GroupFailure<E::Error>> {
         loop {
             self.check_stop()?;
+            self.begin_segment(group);
             while let Some(step) = group.steps.get(group.next).cloned() {
                 group.next += 1;
                 self.run_step(&step, group)?;
             }
             self.read_bond(group)?;
+            let host = Instant::now();
             match self
                 .machine
                 .resume(&mut group.context, &group.outcomes)
                 .map_err(GroupFailure::Trapped)?
             {
                 QirStop::Ended(records) => {
+                    let records = records.to_vec();
+                    self.segment.host_ns += elapsed_ns(host);
                     self.end(group.state.as_ref())?;
-                    return Ok(records.to_vec());
+                    self.segment.ended = true;
+                    self.end_segment(group);
+                    return Ok(records);
                 }
                 QirStop::Batch(calls) => {
                     let steps = lower(calls, &self.layout)?;
@@ -248,8 +274,38 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     .into();
                     group.next = 0;
                     group.outcomes.clear();
+                    self.segment.host_ns += elapsed_ns(host);
+                    self.end_segment(group);
+                    group.batches += 1;
                 }
             }
+        }
+    }
+
+    /// EXPERIMENTAL, development only: starts the census of the segment
+    /// `group` runs from its next step.
+    fn begin_segment(&mut self, group: &Group<E::State>) {
+        if self.census {
+            self.segment = SegmentCensus {
+                results_before: group.results_drawn,
+                batch: group.batches,
+                start: group.next,
+                batch_steps: group.steps.len(),
+                shots: group.shots.len(),
+                had_state: group.state.is_some(),
+                hash_all: dev_census::HASH_START,
+                hash_two_site: dev_census::HASH_START,
+                ..SegmentCensus::default()
+            };
+        }
+    }
+
+    /// EXPERIMENTAL, development only: records the segment under way.
+    fn end_segment(&mut self, group: &Group<E::State>) {
+        if self.census {
+            let mut segment = std::mem::take(&mut self.segment);
+            segment.shots_at_end = group.shots.len();
+            dev_census::record(segment);
         }
     }
 
@@ -269,28 +325,104 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         group: &mut Group<E::State>,
     ) -> Result<(), GroupFailure<E::Error>> {
         match *step {
-            Step::Apply(ref operator) => self.apply(group, operator),
+            Step::Apply(ref operator) => {
+                for &site in operator.sites() {
+                    group.known[site] = None;
+                }
+                self.apply(group, operator)
+            }
             Step::Measure {
                 site,
                 result,
                 reset,
             } => self.draw(group, site, reset, Some(result)),
-            Step::Reset { site } => self.draw(group, site, true, None),
+            Step::Reset { site } => {
+                if self.reset_handling == DevResetHandling::Fresh
+                    && dev_census::run_of_resets_settles(
+                        &group.known,
+                        site,
+                        &group.steps,
+                        group.next,
+                    )
+                {
+                    self.make_fresh(group)
+                } else {
+                    self.draw(group, site, true, None)
+                }
+            }
         }
+    }
+
+    /// EXPERIMENTAL, development only: replaces the run of resets that
+    /// starts at the step just taken, which leaves every site in a known
+    /// basis state, with a fresh state holding those values. Each shot
+    /// takes one uniform per reset skipped, as its draws would.
+    fn make_fresh(&mut self, group: &mut Group<E::State>) -> Result<(), GroupFailure<E::Error>> {
+        let started = Instant::now();
+        let first = group.next - 1;
+        let mut after = first;
+        while let Some(&Step::Reset { site }) = group.steps.get(after) {
+            group.known[site] = Some(false);
+            after += 1;
+        }
+        let skipped = after - first;
+        for shot in &mut group.shots {
+            for _ in 0..skipped {
+                shot.stream.next_uniform();
+            }
+        }
+        group.next = after;
+        if let Some(old) = group.state.take() {
+            // The weight the old state kept is the least so far, or not.
+            self.end(Some(&old))?;
+            let capacity = self
+                .capacity
+                .as_ref()
+                .expect("a group with a state has a capacity");
+            let mut fresh = self.engine.prepare(capacity).map_err(engine_failure)?;
+            let x = QirGate::X.matrix_at(None);
+            for (site, &value) in group.known.iter().enumerate() {
+                if value == Some(true) {
+                    self.engine
+                        .apply(&mut fresh, &[site], x.row_major())
+                        .map_err(engine_failure)?;
+                }
+            }
+            group.state = Some(fresh);
+            group.bond_unread = false;
+        }
+        self.segment.fresh_windows += 1;
+        self.segment.fresh_skipped += skipped as u64;
+        self.segment.resets += skipped as u64;
+        self.segment.fresh_ns += elapsed_ns(started);
+        Ok(())
     }
 
     /// Applies `operator` to `group`'s state, prepared at the group's first
     /// step.
     fn apply(
-        &self,
+        &mut self,
         group: &mut Group<E::State>,
         operator: &Operator,
     ) -> Result<(), GroupFailure<E::Error>> {
         let state = self.prepare(&mut group.state)?;
         group.bond_unread = true;
-        self.engine
+        let started = Instant::now();
+        let applied = self
+            .engine
             .apply(state, operator.sites(), operator.matrix.row_major())
-            .map_err(engine_failure)
+            .map_err(engine_failure);
+        if self.census {
+            let segment = &mut self.segment;
+            segment.apply_ns += elapsed_ns(started);
+            segment.applies += 1;
+            segment.hash_all = dev_census::mix(segment.hash_all, operator);
+            if operator.sites().len() == 2 {
+                segment.two_site += 1;
+                segment.hash_two_site = dev_census::mix(segment.hash_two_site, operator);
+            }
+        }
+        applied
     }
 
     /// Each shot of `group` draws the value of `site`; when they drew both
@@ -305,12 +437,14 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         result: Option<u32>,
     ) -> Result<(), GroupFailure<E::Error>> {
         self.read_bond(group)?;
+        let started = Instant::now();
         let state = self.prepare(&mut group.state)?;
         let p_one = self
             .engine
             .probability_of_one(state, site)
             .map_err(engine_failure)?
             .clamp(0.0, 1.0);
+        self.segment.probability_reads += 1;
         // A uniform is in [0, 1): One only when P(One) > 0, Zero only when
         // P(One) < 1.
         let draws: Vec<bool> = group
@@ -318,13 +452,36 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             .iter_mut()
             .map(|shot| shot.stream.next_uniform() < p_one)
             .collect();
-        let one = value_going_on(&draws);
+        let mut one = value_going_on(&draws);
+        if result.is_some() {
+            self.segment.measures += 1;
+            group.results_drawn += 1;
+        } else {
+            self.segment.resets += 1;
+        }
         if draws.iter().any(|&drew| drew != one) {
-            self.split(group, &draws, one, site, reset, result);
+            let merge = result.is_none()
+                && self.reset_handling != DevResetHandling::Split
+                && dev_census::run_of_resets_settles(&group.known, site, &group.steps, group.next);
+            if merge {
+                // Either value leaves the same product state once the run
+                // of resets ends; the more probable one is the steadier.
+                one = p_one > 0.5;
+                self.segment.reset_merges += 1;
+            } else {
+                if result.is_some() {
+                    self.segment.measure_splits += 1;
+                } else {
+                    self.segment.reset_splits += 1;
+                }
+                self.split(group, &draws, one, site, reset, result);
+            }
         }
         let state = group.state.as_mut().expect("prepared above");
         self.settle(state, site, one, reset)?;
+        group.known[site] = Some(one && !reset);
         group.outcomes.extend(answer(result, one));
+        self.segment.draw_ns += elapsed_ns(started);
         Ok(())
     }
 
@@ -355,10 +512,13 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             .state
             .as_ref()
             .expect("a group that draws holds a state");
+        let started = Instant::now();
         match self.fork_keeping(state, site, !one, reset) {
             Ok(fork) => {
                 let mut outcomes = group.outcomes.clone();
                 outcomes.extend(answer(result, !one));
+                let mut known = group.known.clone();
+                known[site] = Some(!one && !reset);
                 self.waiting.push(Group {
                     shots: waiting,
                     context: group.context.clone(),
@@ -368,12 +528,17 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
                     next: group.next,
                     bond_unread: false,
                     placement: group.placement.clone(),
+                    results_drawn: group.results_drawn,
+                    batches: group.batches,
+                    known,
                 });
             }
             // Only the shots that wait met the failure: those going on run
             // on, and may end, or fail first in the order.
             Err(failed) => self.fail(waiting[0].place, failed),
         }
+        self.segment.forks += 1;
+        self.segment.fork_ns += elapsed_ns(started);
     }
 
     /// A fork of `state` keeping the value One (`one` true) or Zero (`one`
@@ -381,7 +546,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// `state` is settled, after its P(One) is read: so the fork is the
     /// state a shot alone would project.
     fn fork_keeping(
-        &self,
+        &mut self,
         state: &E::State,
         site: usize,
         one: bool,
@@ -396,7 +561,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// `state`, projecting on it; then, when `reset` and the value is One,
     /// flips `site` back to |0⟩.
     fn settle(
-        &self,
+        &mut self,
         state: &mut E::State,
         site: usize,
         one: bool,
@@ -405,6 +570,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
         self.engine
             .project(state, site, one)
             .map_err(engine_failure)?;
+        self.segment.project_reads += 1;
         if reset && one {
             let x = QirGate::X.matrix_at(None);
             self.engine
@@ -419,11 +585,14 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     /// gates ends, before the draws that may shrink it.
     fn read_bond(&mut self, group: &mut Group<E::State>) -> Result<(), GroupFailure<E::Error>> {
         if let (true, Some(state)) = (group.bond_unread, &group.state) {
+            let started = Instant::now();
             let bond = self
                 .engine
                 .shape(state)
                 .map_err(engine_failure)?
                 .largest_bond();
+            self.segment.bond_ns += elapsed_ns(started);
+            self.segment.shape_reads += 1;
             self.report.largest_bond = self.report.largest_bond.max(bond);
             group.bond_unread = false;
             if let Some(placement) = group.placement.as_mut() {
@@ -454,6 +623,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     fn end(&mut self, state: Option<&E::State>) -> Result<(), GroupFailure<E::Error>> {
         if let Some(state) = state {
             let weight = self.engine.retained_weight(state).map_err(engine_failure)?;
+            self.segment.weight_reads += 1;
+            self.segment.retained_weight = Some(weight);
             let least = &mut self.report.least_retained_weight;
             *least = least.min(weight);
         }
@@ -477,6 +648,12 @@ struct Group<S> {
     /// steps have run, when the run routes ([`Routing`] other than
     /// `Engine`); a fork's is a clone.
     placement: Option<Placement>,
+    /// EXPERIMENTAL, development only: the results drawn so far, the
+    /// batches resumed so far, and each site's value when it is known to be
+    /// in a basis state (`None` once an operator acted on it since).
+    results_drawn: usize,
+    batches: usize,
+    known: Vec<Option<bool>>,
 }
 
 /// A shot of a group: its place among the run's shots and its stream.
@@ -542,6 +719,10 @@ fn answer(result: Option<u32>, one: bool) -> Option<QirOutcome> {
             QirReadout::Zero
         },
     })
+}
+
+fn elapsed_ns(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 fn engine_failure<E>(error: E) -> GroupFailure<E> {

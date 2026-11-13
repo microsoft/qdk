@@ -24,6 +24,7 @@ use crate::qir::{QirMachine, QirResumeError, QirResumer, QirShotId};
 use tensornet::MpsEngine;
 
 pub(crate) mod dev_batches;
+pub(crate) mod dev_census;
 mod grouped_run;
 pub(crate) mod layout;
 pub(crate) mod lowering;
@@ -65,6 +66,7 @@ pub struct MpsResumer<E: MpsEngine> {
     fusion: GateFusion,
     stop: Option<Arc<AtomicBool>>,
     routing: Routing,
+    reset_handling: dev_census::DevResetHandling,
     last_run: MpsRunReport,
 }
 
@@ -86,6 +88,7 @@ impl<E: MpsEngine> MpsResumer<E> {
             fusion: GateFusion::default(),
             stop: None,
             routing: Routing::default(),
+            reset_handling: dev_census::DevResetHandling::Split,
             last_run: MpsRunReport::new(DEFAULT_MAX_BOND_DIMENSION.get()),
         }
     }
@@ -127,6 +130,15 @@ impl<E: MpsEngine> MpsResumer<E> {
     #[must_use]
     pub fn with_routing(mut self, routing: Routing) -> Self {
         self.routing = routing;
+        self
+    }
+
+    /// EXPERIMENTAL, development only: the resumer handling a reset whose
+    /// shots drew both values as `handling` says
+    /// ([`dev_census::DevResetHandling`]); splitting by default.
+    #[must_use]
+    pub fn with_dev_reset_handling(mut self, handling: dev_census::DevResetHandling) -> Self {
+        self.reset_handling = handling;
         self
     }
 
@@ -181,6 +193,7 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
             &mut self.last_run,
         )?
         .with_stop(self.stop.as_deref())
+        .with_reset_handling(self.reset_handling)
         .run()
     }
 }

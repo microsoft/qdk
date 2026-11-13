@@ -51,6 +51,8 @@ pub(crate) mod resumer;
 
 #[doc(hidden)]
 pub use resumer::dev_batches::DevBatchRouter;
+#[doc(hidden)]
+pub use resumer::dev_census::{DevResetHandling, SegmentCensus, start_census, take_census};
 pub use resumer::report::{MpsRunReport, TRUNCATION_TOLERANCE, TruncationWarning};
 pub use resumer::resumer_error::MpsResumerError;
 pub use resumer::rewrites::fusion::GateFusion;
