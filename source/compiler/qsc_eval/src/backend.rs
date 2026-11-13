@@ -10,7 +10,7 @@ use num_bigint::{BigInt, BigUint};
 use num_complex::Complex;
 use num_traits::Zero;
 use qdk_simulators::{
-    MeasurementResult, Simulator as _, SparseStateSim,
+    MeasurementResult, NearlyZero, Simulator as _, SparseStateSim,
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
     stabilizer_simulator::StabilizerSimulator,
 };
@@ -1168,7 +1168,7 @@ impl Backend for SparseSim {
                     panic!("first argument to PostSelectZ should be a measurement result");
                 };
                 let prob = self.sim.force_collapse(val, id);
-                if prob.is_zero() {
+                if prob.is_nearly_zero() {
                     return Some(Err(
                         "post-selection condition has zero probability".to_string()
                     ));

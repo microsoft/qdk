@@ -608,6 +608,60 @@ fn check_post_select_fails_with_non_existent_state() {
 }
 
 #[test]
+fn check_post_select_fails_with_nearly_zero_probability_of_one() {
+    let err = test_expression_fails(
+        "{
+            import Std.Diagnostics.PostSelectZ;
+            use q = Qubit();
+            Ry(2.0e-6, q);
+            PostSelectZ(One, q);
+            MResetZ(q)
+        }",
+    );
+    expect![
+        "intrinsic callable `PostSelectZ` failed: post-selection condition has zero probability"
+    ]
+    .assert_eq(&err);
+}
+
+#[test]
+fn check_post_select_fails_with_nearly_zero_probability_of_zero() {
+    let err = test_expression_fails(
+        "{
+            import Std.Diagnostics.PostSelectZ;
+            use q = Qubit();
+            Ry(2.0e-6, q);
+            X(q);
+            PostSelectZ(Zero, q);
+            MResetZ(q)
+        }",
+    );
+    expect![
+        "intrinsic callable `PostSelectZ` failed: post-selection condition has zero probability"
+    ]
+    .assert_eq(&err);
+}
+
+#[test]
+fn check_post_select_collapses_with_small_probability() {
+    test_expression(
+        "{
+            import Std.Diagnostics.*;
+            use q = Qubit();
+            for result in [Zero, One] {
+                Ry(2.1e-5, q);
+                if result == Zero {
+                    X(q);
+                }
+                PostSelectZ(result, q);
+                Fact(MResetZ(q) == result, \"Unexpected post-selection result\");
+            }
+        }",
+        &Value::unit(),
+    );
+}
+
+#[test]
 fn check_post_select_fails_with_non_existent_state_on_clifford() {
     let err = test_expression_fails_with_lib_and_profile_and_sim(
         "{
