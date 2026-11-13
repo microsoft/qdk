@@ -1,5 +1,5 @@
 ARG BASE_REGISTRY=qdkacr-cfgqhwddajdaebhg.azurecr.io
-ARG UBI8_TAG=8.10-1792646452
+ARG UBI8_TAG=8.10-1794418922
 # To build from upstream ubi8, set BASE_REGISTRY=registry.access.redhat.com
 
 FROM ${BASE_REGISTRY}/ubi8/ubi:${UBI8_TAG}
