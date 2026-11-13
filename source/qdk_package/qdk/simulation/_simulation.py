@@ -10,6 +10,7 @@ from .._native import (
     QirInstruction,
     run_clifford,
     run_clifford_adaptive,
+    run_clifford_adaptive_and_get_tableau,
     run_parallel_shots,
     run_adaptive_parallel_shots,
     run_cpu_adaptive,
@@ -652,6 +653,25 @@ def run_qir_clifford(
         return run_adaptive(run_clifford_adaptive, mod, program, shots, noise, seed)
     else:
         return run_base(run_clifford, mod, shots, noise, seed)
+
+
+def run_qir_clifford_and_get_tableau(
+    input: Union[QirInputData, str, bytes],
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+) -> Optional[Tuple[List[str], List[str], List[Result]]]:
+    """
+    Testing hook: runs one shot of an adaptive profile QIR program on the stabilizer
+    simulator and returns its final tableau and measurement record, as
+    `(destabilizers, stabilizers, measurements)`, or `None` if the final state is not
+    a stabilizer state.
+    """
+    mod, _, noise, seed = preprocess_simulation_input(input, 1, noise, seed)
+    DecomposeCcxPass().run(mod)
+    if not is_adaptive(mod):
+        raise ValueError("expected an adaptive profile QIR program")
+    program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
+    return run_clifford_adaptive_and_get_tableau(program.as_dict(), noise, seed)
 
 
 def run_qir_cpu(

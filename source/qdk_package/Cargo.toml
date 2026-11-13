@@ -19,6 +19,7 @@ qsc = { path = "../compiler/qsc" }
 qdk_openqasm = { path = "../qdk_openqasm" }
 stim_compiler = { path = "../compiler/stim_compiler" }
 qdk_simulators = { path = "../simulators", features = ["gpu"] }
+paulimer = { workspace = true }
 resource_estimator = { path = "../resource_estimator" }
 qre = { path = "../qre" }
 miette = { workspace = true, features = ["fancy"] }

@@ -41,6 +41,24 @@ impl BranchingState {
         self.amplitudes.len()
     }
 
+    /// Returns a Clifford `E` such that the current state is `E|0...0>` up to a global phase.
+    ///
+    /// The single computational-basis branch `|b>` is folded into the shared frame,
+    /// so `E = clifford * X^b`.
+    #[must_use]
+    pub fn stabilizer_state_encoder(&self) -> Option<CliffordUnitary> {
+        if self.amplitudes.len() != 1 {
+            // Not a stabilizer state
+            return None;
+        }
+        let basis = self.amplitudes.keys().next()?;
+        if basis == &BigUint::ZERO {
+            Some(self.clifford.clone())
+        } else {
+            Some(self.clifford_with_basis_state(basis))
+        }
+    }
+
     /// Applies a Clifford operation represented by `UnitaryOp` to the shared frame.
     ///
     /// Despite the general name of `UnitaryOp`, all operations accepted here are
@@ -416,5 +434,56 @@ mod tests {
         assert_eq!(state.branch_count(), 1);
         assert!((state.project(&[paulimer::core::x(0)].into(), true) - 1.0).abs() < 1e-12);
         assert_eq!(state.branch_count(), 1);
+    }
+
+    fn encoder_z_images(state: &BranchingState) -> Option<Vec<String>> {
+        use paulimer::{Clifford, StringLayout, StringNotation};
+
+        let encoder = state.stabilizer_state_encoder()?;
+        let n = encoder.num_qubits();
+        Some(
+            (0..n)
+                .map(|k| {
+                    encoder.image_z(k).to_string_with_size(
+                        StringLayout::Dense,
+                        StringNotation::Ascii,
+                        n,
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn stabilizer_encoder_of_bell_state_has_bell_stabilizers() {
+        let mut state = BranchingState::new(2);
+        state.unitary_op(UnitaryOp::Hadamard, &[0]);
+        state.unitary_op(UnitaryOp::ControlledX, &[0, 1]);
+
+        assert_eq!(
+            encoder_z_images(&state),
+            Some(vec!["XX".to_string(), "ZZ".to_string()])
+        );
+    }
+
+    #[test]
+    fn stabilizer_encoder_folds_nonzero_basis_state() {
+        // H followed by a pi Z-rotation leaves the single branch |1> in an H frame,
+        // i.e. the state H|1> = |->, which is stabilized by -X.
+        let mut state = BranchingState::new(1);
+        state.unitary_op(UnitaryOp::Hadamard, &[0]);
+        state.rotate(std::f64::consts::PI, &z(0));
+
+        assert_eq!(state.branch_count(), 1);
+        assert_eq!(encoder_z_images(&state), Some(vec!["-X".to_string()]));
+    }
+
+    #[test]
+    fn stabilizer_encoder_is_none_for_non_stabilizer_state() {
+        let mut state = BranchingState::new(1);
+        state.unitary_op(UnitaryOp::Hadamard, &[0]);
+        state.rotate(std::f64::consts::FRAC_PI_4, &z(0));
+
+        assert!(state.stabilizer_state_encoder().is_none());
     }
 }
