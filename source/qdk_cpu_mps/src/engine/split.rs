@@ -102,10 +102,12 @@ impl<A: LinearAlgebra> Engine<A> {
             right,
             block,
             truncation,
+            dev_swap,
         }) = chain.pair.take()
         else {
             return Ok(());
         };
+        let started = std::time::Instant::now();
         let svd = self
             .algebra
             .svd(MatrixRef::new(2 * left, 2 * right, &block))?;
@@ -178,6 +180,12 @@ impl<A: LinearAlgebra> Engine<A> {
             right,
             elements: right_site,
         };
+        crate::dev_trace::record_split_time(
+            dev_swap,
+            2 * left,
+            2 * right,
+            started.elapsed().as_secs_f64(),
+        );
         Ok(())
     }
 

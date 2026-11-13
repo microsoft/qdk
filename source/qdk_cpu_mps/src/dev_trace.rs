@@ -32,8 +32,89 @@ pub struct SplitTrace {
     pub first_capacity_bound_split: Option<u64>,
 }
 
+/// EXPERIMENTAL, development only: where the splits' time goes, by kind of
+/// split, on this thread since the last [`reset`]. A split's time is its
+/// SVD and the writing of its two sites.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SplitTime {
+    /// Splits whose last two-site operation was a routing SWAP.
+    pub swap_splits: u64,
+    pub swap_seconds: f64,
+    /// Σ rows·cols·min(rows, cols) over those splits' SVDs.
+    pub swap_work: f64,
+    /// Splits whose last two-site operation was a gate.
+    pub gate_splits: u64,
+    pub gate_seconds: f64,
+    pub gate_work: f64,
+    /// Operators applied as a matrix product operator
+    /// (`CpuMpsEngine::dev_apply_operator`), and their compression's SVDs and
+    /// QRs, the operator's own decomposition, and the centre's move there
+    /// included.
+    pub mpo_operators: u64,
+    pub mpo_svds: u64,
+    pub mpo_qrs: u64,
+    pub mpo_seconds: f64,
+    pub mpo_work: f64,
+}
+
 thread_local! {
     static TRACE: Cell<SplitTrace> = Cell::new(SplitTrace::default());
+    static TIME: Cell<SplitTime> = Cell::new(SplitTime::default());
+    static IN_SWAP: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The split times on this thread.
+#[must_use]
+pub fn time() -> SplitTime {
+    TIME.with(Cell::get)
+}
+
+pub(crate) fn set_in_swap(in_swap: bool) {
+    IN_SWAP.with(|cell| cell.set(in_swap));
+}
+
+pub(crate) fn in_swap() -> bool {
+    IN_SWAP.with(Cell::get)
+}
+
+#[expect(clippy::cast_precision_loss, reason = "a work estimate")]
+fn work(rows: usize, cols: usize) -> f64 {
+    (rows * cols * rows.min(cols)) as f64
+}
+
+/// Records a split of a `rows × cols` block that took `seconds`.
+pub(crate) fn record_split_time(swap: bool, rows: usize, cols: usize, seconds: f64) {
+    TIME.with(|cell| {
+        let mut time = cell.get();
+        if swap {
+            time.swap_splits += 1;
+            time.swap_seconds += seconds;
+            time.swap_work += work(rows, cols);
+        } else {
+            time.gate_splits += 1;
+            time.gate_seconds += seconds;
+            time.gate_work += work(rows, cols);
+        }
+        cell.set(time);
+    });
+}
+
+/// Records one operator applied as a matrix product operator.
+pub(crate) fn record_mpo(svds: u64, qrs: u64, work_sum: f64, seconds: f64) {
+    TIME.with(|cell| {
+        let mut time = cell.get();
+        time.mpo_operators += 1;
+        time.mpo_svds += svds;
+        time.mpo_qrs += qrs;
+        time.mpo_work += work_sum;
+        time.mpo_seconds += seconds;
+        cell.set(time);
+    });
+}
+
+/// The SVD work estimate of a `rows × cols` matrix.
+pub(crate) fn svd_work(rows: usize, cols: usize) -> f64 {
+    work(rows, cols)
 }
 
 /// The counters on this thread.
@@ -45,6 +126,7 @@ pub fn get() -> SplitTrace {
 /// Zeroes the counters on this thread.
 pub fn reset() {
     TRACE.with(|trace| trace.set(SplitTrace::default()));
+    TIME.with(|time| time.set(SplitTime::default()));
 }
 
 /// Records a split of `values` (nonincreasing) that kept `bond` of them,

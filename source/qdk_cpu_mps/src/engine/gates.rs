@@ -152,10 +152,12 @@ impl<A: LinearAlgebra> Engine<A> {
                 right,
                 block,
                 truncation,
+                dev_swap: false,
             });
         }
         let pair = chain.pair.as_mut().expect("a pair at the cut");
         pair.truncation = truncation;
+        pair.dev_swap = crate::dev_trace::in_swap();
         pair.apply(gate);
         if self.fuses {
             Ok(())
@@ -172,7 +174,10 @@ impl<A: LinearAlgebra> Engine<A> {
         side: CentreSide,
         truncation: Truncation,
     ) -> Result<(), CpuMpsError> {
-        self.apply_adjacent(chain, cut, &SWAP, side, truncation)?;
+        crate::dev_trace::set_in_swap(true);
+        let applied = self.apply_adjacent(chain, cut, &SWAP, side, truncation);
+        crate::dev_trace::set_in_swap(false);
+        applied?;
         chain.statistics.swaps += 1;
         Ok(())
     }
