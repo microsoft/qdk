@@ -6,7 +6,7 @@
 # 123 Pauli strings of weight 1-4.
 # Made by polyene_swaps_dev --variant seq3/mpo --order interleave-centre
 # --n 20 --chi 256 --print-readings. The largest bond reached
-# 175 (under the cap: only the cutoff truncated).
+# 184 (175 at the end), under the cap: only the cutoff truncated.
 # The phase estimates c_p = <X_0> + i<Y_0> after each step p, from the
 # same run:
 # cp p=1 re=0.420147880 im=0.902994413
