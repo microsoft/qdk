@@ -11,9 +11,11 @@
 //!   round: one group, its exact batch, and the values of its draws so
 //!   far in the batch (a draw splits a group).
 //! - **Cohort:** the units of a round whose batches are equal, exactly
-//!   (sites, kinds and matrices) or by shape (sites and kinds), or every
-//!   unit of the round (any site: a kernel that takes one block per
-//!   member, wherever it stands). A cohort runs each of its splits as one
+//!   (sites, kinds and matrices), by shape (sites and kinds), by split
+//!   cuts (the same splits at the same cuts and the same draw sites, in
+//!   order: one-site applies may differ, a batched kernel pads them with
+//!   the identity), or every unit of the round (any site: a kernel that
+//!   takes one block per member, wherever it stands). A cohort runs each of its splits as one
 //!   launch of K updates, K its units then: the j-th launch takes each
 //!   member's j-th split.
 //! - **η:** at one launch, Σ b³ / (K · `b_max`³), b a unit's larger side of
@@ -29,16 +31,18 @@ use crate::trace::{BatchTrace, ShotTrace};
 pub enum CohortKey {
     Exact,
     Shape,
+    SplitCuts,
     AnySite,
 }
 
 impl CohortKey {
-    pub const ALL: [Self; 3] = [Self::Exact, Self::Shape, Self::AnySite];
+    pub const ALL: [Self; 4] = [Self::Exact, Self::Shape, Self::SplitCuts, Self::AnySite];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Exact => "EXACT",
             Self::Shape => "SHAPE",
+            Self::SplitCuts => "SPLIT_CUTS",
             Self::AnySite => "ANY_SITE",
         }
     }
@@ -47,6 +51,7 @@ impl CohortKey {
         match self {
             Self::Exact => batch.exact,
             Self::Shape => batch.shape,
+            Self::SplitCuts => split_cuts(batch),
             Self::AnySite => 0,
         }
     }
@@ -87,9 +92,9 @@ pub struct Round {
     pub shot_splits: u64,
     /// By [`CohortKey::ALL`]: the cohorts, the largest one's shots, and
     /// their cost.
-    pub cohorts: [usize; 3],
-    pub largest: [usize; 3],
-    pub cost: [CohortCost; 3],
+    pub cohorts: [usize; 4],
+    pub largest: [usize; 4],
+    pub cost: [CohortCost; 4],
 }
 
 /// The census of a set of shots.
@@ -104,7 +109,7 @@ pub struct Census {
     pub group_splits: u64,
     pub group_draws: u64,
     /// By [`CohortKey::ALL`].
-    pub cost: [CohortCost; 3],
+    pub cost: [CohortCost; 4],
 }
 
 const START: u64 = 0xcbf2_9ce4_8422_2325;
@@ -113,6 +118,21 @@ fn mix(hash: u64, value: u64) -> u64 {
     let mut hash = hash;
     for byte in value.to_le_bytes() {
         hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
+}
+
+/// A hash of a batch's split cuts and draw sites, in order.
+fn split_cuts(batch: &BatchTrace) -> u64 {
+    let mut hash = START;
+    for split in &batch.splits {
+        hash = mix(hash, u64::from(split.cut));
+    }
+    for draw in &batch.draws {
+        hash = mix(
+            hash,
+            (u64::from(draw.site) << 32) | u64::from(draw.after_splits),
+        );
     }
     hash
 }
@@ -140,8 +160,8 @@ pub fn census(traces: &[ShotTrace], wave: usize) -> Census {
             live: live.len(),
             groups,
             shot_splits: live.iter().map(|&s| batch(s).splits.len() as u64).sum(),
-            cohorts: [0; 3],
-            largest: [0; 3],
+            cohorts: [0; 4],
+            largest: [0; 4],
             cost: Default::default(),
         };
         for (k, key) in CohortKey::ALL.into_iter().enumerate() {
@@ -292,7 +312,8 @@ impl Census {
         let mut csv = String::from(
             "round,live,groups,exact_cohorts,shape_cohorts,largest_exact,largest_shape,\
              shot_splits,group_splits,exact_launches,shape_launches,exact_k,shape_k,\
-             shape_eta,draw_launches_shape,any_site_launches,any_site_k,any_site_eta\n",
+             shape_eta,draw_launches_shape,any_site_launches,any_site_k,any_site_eta,\
+             split_cuts_cohorts,split_cuts_launches,split_cuts_k,split_cuts_eta\n",
         );
         for (index, r) in self.rounds.iter().enumerate() {
             let ratio = |a: u64, b: u64| if b == 0 { 0.0 } else { a as f64 / b as f64 };
@@ -303,10 +324,11 @@ impl Census {
                     c.cubes / c.padded_cubes
                 }
             };
-            let [exact, shape, any] = &r.cost;
+            let [exact, shape, cuts, any] = &r.cost;
             writeln!(
                 csv,
-                "{index},{},{},{},{},{},{},{},{},{},{},{:.2},{:.2},{:.3},{},{},{:.2},{:.3}",
+                "{index},{},{},{},{},{},{},{},{},{},{},{:.2},{:.2},{:.3},{},{},{:.2},{:.3},\
+                 {},{},{:.2},{:.3}",
                 r.live,
                 r.groups,
                 r.cohorts[0],
@@ -324,6 +346,10 @@ impl Census {
                 any.launches,
                 ratio(any.updates, any.launches),
                 eta(any),
+                r.cohorts[2],
+                cuts.launches,
+                ratio(cuts.updates, cuts.launches),
+                eta(cuts),
             )
             .expect("a String takes any text");
         }
