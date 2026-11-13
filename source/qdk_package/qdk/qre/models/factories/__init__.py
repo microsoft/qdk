@@ -6,6 +6,7 @@ from ._litinski import Litinski19Factory
 from ._round_based import RoundBasedFactory
 from ._t_to_ccz import GSJ24CCXFactory
 from ._utils import MagicUpToClifford
+from ._generic import BlackBoxFactory
 
 __all__ = [
     "GSJ24Factory",
@@ -13,4 +14,5 @@ __all__ = [
     "Litinski19Factory",
     "MagicUpToClifford",
     "RoundBasedFactory",
+    "BlackBoxFactory",
 ]
