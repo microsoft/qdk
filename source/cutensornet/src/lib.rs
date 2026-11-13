@@ -35,6 +35,8 @@
 //! each one can find, its `docs/engine.md` how the engine calls cuTensorNet,
 //! and its `README.md` the setup check's steps.
 
+#[doc(hidden)]
+pub mod cuda_mps_engine;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[doc(hidden)]
 pub mod dev_gate_split;
@@ -67,6 +69,8 @@ mod libraries;
 #[cfg(test)]
 mod tests;
 
+#[doc(hidden)]
+pub use cuda_mps_engine::{CudaMpsEngine, CudaMpsError, DeviceMps};
 pub use devices::{DeviceReport, MINIMUM_COMPUTE_CAPABILITY};
 pub use diagnosis::{Diagnosis, diagnose};
 pub use discovery::{

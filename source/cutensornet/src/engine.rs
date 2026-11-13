@@ -52,7 +52,7 @@ mod device_session;
 mod error;
 pub(crate) mod native_calls;
 mod native_state;
-mod policy;
+pub(crate) mod policy;
 
 #[doc(hidden)]
 pub use dev_tuning::{DevTimes, DevTuning, PhaseClock, SvdAlgorithm};

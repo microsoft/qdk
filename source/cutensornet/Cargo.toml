@@ -13,14 +13,16 @@ libloading = { workspace = true }
 num-complex = { workspace = true }
 tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
+# Development only (not for review): the CUDA MPS engine's reads (their
+# products on the host, as qdk_cpu_mps computes them); also the gate-split
+# bench's reference SVD.
+t4a_faer = { package = "t4a-faer", version = "=0.31.0", default-features = false, features = ["std", "linalg"] }
 
 [dev-dependencies]
 # Development only: tensornet's conformance kit, on the double and on the GPU.
 tensornet = { path = "../tensornet", features = ["conformance"] }
 # Development only (not for review): the tuning bench's replay check.
 qdk_cpu_mps = { path = "../qdk_cpu_mps" }
-# Development only (not for review): the gate-split bench's reference SVD.
-t4a_faer = { package = "t4a-faer", version = "=0.31.0", default-features = false, features = ["std", "linalg"] }
 
 [lints]
 workspace = true

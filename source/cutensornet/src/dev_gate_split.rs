@@ -776,17 +776,17 @@ impl TensorQr<'_> {
     }
 }
 
-type Status = v2_13::cutensornetStatus_t;
+pub(crate) type Status = v2_13::cutensornetStatus_t;
 
 /// Device memory, freed on drop.
-struct DeviceBuffer {
-    pointer: *mut c_void,
-    bytes: usize,
+pub(crate) struct DeviceBuffer {
+    pub(crate) pointer: *mut c_void,
+    pub(crate) bytes: usize,
     free: crate::libraries::cuda_runtime::FreeFn,
 }
 
 impl DeviceBuffer {
-    fn new(libraries: &LoadedLibraries, bytes: usize) -> Result<Self, String> {
+    pub(crate) fn new(libraries: &LoadedLibraries, bytes: usize) -> Result<Self, String> {
         let mut pointer = std::ptr::null_mut();
         // SAFETY: `pointer` is a valid out-pointer.
         let status = unsafe { (libraries.cuda_runtime.functions.malloc)(&raw mut pointer, bytes) };
@@ -806,9 +806,9 @@ impl Drop for DeviceBuffer {
     }
 }
 
-struct Descriptor {
-    descriptor: v2_13::cutensornetTensorDescriptor_t,
-    destroy: DestroyDescriptorFn,
+pub(crate) struct Descriptor {
+    pub(crate) descriptor: v2_13::cutensornetTensorDescriptor_t,
+    pub(crate) destroy: DestroyDescriptorFn,
 }
 
 impl Drop for Descriptor {
@@ -819,9 +819,9 @@ impl Drop for Descriptor {
     }
 }
 
-struct SvdConfig {
-    config: v2_13::cutensornetTensorSVDConfig_t,
-    destroy: DestroySvdConfigFn,
+pub(crate) struct SvdConfig {
+    pub(crate) config: v2_13::cutensornetTensorSVDConfig_t,
+    pub(crate) destroy: DestroySvdConfigFn,
 }
 
 impl Drop for SvdConfig {
@@ -832,9 +832,9 @@ impl Drop for SvdConfig {
     }
 }
 
-struct SvdInfo {
-    info: v2_13::cutensornetTensorSVDInfo_t,
-    destroy: DestroySvdInfoFn,
+pub(crate) struct SvdInfo {
+    pub(crate) info: v2_13::cutensornetTensorSVDInfo_t,
+    pub(crate) destroy: DestroySvdInfoFn,
 }
 
 impl Drop for SvdInfo {
@@ -862,7 +862,7 @@ impl Drop for Workspace {
     }
 }
 
-fn check_cuda(operation: &str, status: cudart_12::cudaError_t) -> Result<(), String> {
+pub(crate) fn check_cuda(operation: &str, status: cudart_12::cudaError_t) -> Result<(), String> {
     if status == cudart_12::cudaError_cudaSuccess {
         Ok(())
     } else {
@@ -870,14 +870,14 @@ fn check_cuda(operation: &str, status: cudart_12::cudaError_t) -> Result<(), Str
     }
 }
 
-fn cuda_failure(failure: &crate::libraries::cuda_runtime::CudaCallFailed) -> String {
+pub(crate) fn cuda_failure(failure: &crate::libraries::cuda_runtime::CudaCallFailed) -> String {
     format!(
         "{} returned CUDA status {}: {}",
         failure.operation, failure.status, failure.message
     )
 }
 
-fn check_tensor(operation: &str, status: Status) -> Result<(), String> {
+pub(crate) fn check_tensor(operation: &str, status: Status) -> Result<(), String> {
     if status == v2_13::cutensornetStatus_t_CUTENSORNET_STATUS_SUCCESS {
         Ok(())
     } else {
@@ -894,12 +894,14 @@ type CreateDescriptorFn = unsafe extern "C" fn(
     v2_13::cudaDataType_t,
     *mut v2_13::cutensornetTensorDescriptor_t,
 ) -> Status;
-type DestroyDescriptorFn = unsafe extern "C" fn(v2_13::cutensornetTensorDescriptor_t) -> Status;
+pub(crate) type DestroyDescriptorFn =
+    unsafe extern "C" fn(v2_13::cutensornetTensorDescriptor_t) -> Status;
 type CreateSvdConfigFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
     *mut v2_13::cutensornetTensorSVDConfig_t,
 ) -> Status;
-type DestroySvdConfigFn = unsafe extern "C" fn(v2_13::cutensornetTensorSVDConfig_t) -> Status;
+pub(crate) type DestroySvdConfigFn =
+    unsafe extern "C" fn(v2_13::cutensornetTensorSVDConfig_t) -> Status;
 type SvdConfigSetAttributeFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
     v2_13::cutensornetTensorSVDConfig_t,
@@ -911,7 +913,8 @@ type CreateSvdInfoFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
     *mut v2_13::cutensornetTensorSVDInfo_t,
 ) -> Status;
-type DestroySvdInfoFn = unsafe extern "C" fn(v2_13::cutensornetTensorSVDInfo_t) -> Status;
+pub(crate) type DestroySvdInfoFn =
+    unsafe extern "C" fn(v2_13::cutensornetTensorSVDInfo_t) -> Status;
 type SvdInfoGetAttributeFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
     v2_13::cutensornetTensorSVDInfo_t,
