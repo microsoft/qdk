@@ -147,10 +147,10 @@ class Hypergraph:
         best_coloring: Optional[HypergraphEdgeColoring] = None
         least_colors: Optional[int] = None
 
-        for trial in range(num_trials):
-            trial_seed = None if seed is None else seed + trial
-            rng = random.Random(trial_seed)
-
+        # One stream for all trials: seeding trial k with seed + k would make calls with nearby
+        # seeds share trials.
+        rng = random.Random(seed)
+        for _ in range(num_trials):
             edge_order = list(all_edges)
             rng.shuffle(edge_order)
 

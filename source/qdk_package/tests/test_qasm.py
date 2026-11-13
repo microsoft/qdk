@@ -367,6 +367,25 @@ def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> Non
     assert result1 != result3
 
 
+@pytest.mark.parametrize("entry", ["source", "callable"])
+def test_run_with_nearby_seeds_shares_no_shots(entry: str) -> None:
+    # Each shot measures 32 qubits in superposition, so shots that are not reproductions of each
+    # other agree with negligible probability, whatever the seed.
+    source = 'include "stdgates.inc";qubit[32] qs;h qs;bit[32] c = measure qs;'
+    if entry == "callable":
+        init()
+        import_openqasm(source, program_type=ProgramType.File)
+        source = code.qasm_import.program
+
+    def shots(seed: int) -> list:
+        return [str(result) for result in run(source, shots=8, seed=seed)]
+
+    result1 = shots(1)
+    assert len(set(result1)) == len(result1)
+    assert result1 == shots(1)
+    assert not set(result1) & set(shots(2))
+
+
 def test_run_with_invalid_shots_produces_error() -> None:
     init()
     import_openqasm("output bit[2] c;", name="Foo")

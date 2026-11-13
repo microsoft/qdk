@@ -3,7 +3,7 @@
 
 from collections import Counter
 from pathlib import Path
-from typing import Dict, Sequence, cast
+from typing import Sequence, cast
 import math
 import os
 import random
@@ -39,6 +39,7 @@ from qdk import TargetProfile
 from qdk import openqasm
 
 from qdk.simulation import NoiseConfig
+from simulator_test_utils import expect_distribution, statistical_tolerance
 from qdk.simulation._simulation import run_qir_gpu
 
 current_file_path = Path(__file__)
@@ -66,52 +67,6 @@ def result_array_to_string(results: Sequence[Result]) -> str:
     return "".join(chars)
 
 
-def format_expectation(actual: Dict[str, float], expect: Dict[str, float]):
-    return f"Expected distribution:\n  {expect}\n\nActual distribution:\n  {actual}"
-
-
-def assert_err(msg: str, actual: Dict[str, float], expect: Dict[str, float]):
-    return msg + "\n\n" + format_expectation(actual, expect)
-
-
-def assert_distributions_eq(
-    actual: Dict[str, float], expect: Dict[str, float], tolerance: float
-):
-    # Prune values that are smaller than the tolerance.
-    actual = {key: val for key, val in actual.items() if val > tolerance}
-    expect = {key: val for key, val in expect.items() if val > tolerance}
-
-    for key in actual:
-        assert key in expect, assert_err(
-            f"Unexpected measurement string: '{key}'.", actual, expect
-        )
-
-    for key in expect:
-        assert key in actual, assert_err(
-            f"Missing measurement string: '{key}'", actual, expect
-        )
-
-    tolerance_percent = int(tolerance * 100)
-    for key in actual:
-        assert abs(actual[key] - expect[key]) < tolerance, assert_err(
-            f"Probability for {key} outside {tolerance_percent}% tolerance.",
-            actual,
-            expect,
-        )
-
-
-def expect_distribution(
-    results,
-    expected: Dict[str, float],
-    *,
-    tolerance: float = 0.01,
-):
-    histogram = Counter(results)
-    total = sum(histogram.values())
-    actual = {key: val / total for key, val in histogram.items()}
-    assert_distributions_eq(actual, expected, tolerance)
-
-
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_seeding_no_noise():
     qsharp.init(target_profile=TargetProfile.Base)
@@ -126,19 +81,19 @@ def test_gpu_seeding_no_noise():
 
     qir = str(qsharp.compile("BellTest()"))
 
-    results = [run_qir_gpu(qir, 1, None, seed)[0] for seed in range(12)]
-    print(results)
+    def run(seeds) -> list:
+        return [run_qir_gpu(qir, 1, None, seed)[0] for seed in seeds]
 
-    # Results will be an array of 12 lists [Result, Result]
-    # Each result should be [Zero, Zero] or [One, One]
-    # As evident from a manual experiment running with the seeds of 0..11
-    # gives 6 results of each. Experiment should be repeatable for fixed seeds.
-
-    # Verify we have 6 of each result
-    count_00 = sum(1 for r in results if r == [Result.Zero, Result.Zero])
-    count_11 = sum(1 for r in results if r == [Result.One, Result.One])
-    assert count_00 == 6
-    assert count_11 == 6
+    # Each run is reproducible from its seed.
+    seeds = [*range(31), 2**32 - 1]
+    results = run(seeds)
+    assert results == run(seeds)
+    # Every shot of a Bell pair is 00 or 11, and with 32 shots both occur
+    # (P(all equal) = 2^-31 for any seeds).
+    assert set(map(tuple, results)) == {
+        (Result.Zero, Result.Zero),
+        (Result.One, Result.One),
+    }
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
@@ -367,9 +322,10 @@ def test_gpu_x_chain(
     error_percent = [abs(a - b) * 100.0 / n_shots for (a, b) in zip(histogram, p_N)]
     print(", ".join(f"{a} (Δ≈{b:.1f}%)" for (a, b) in zip(histogram, error_percent)))
 
-    # We tolerate configured percentage error.
+    # We tolerate configured percentage error, or more if the shot count requires it.
     assert all(
-        err < max_percent for err in error_percent
+        err / 100.0 <= statistical_tolerance(n_shots, b / n_shots, max_percent / 100.0)
+        for (err, b) in zip(error_percent, p_N)
     ), f"Error percent too high: {error_percent}"
 
 
@@ -561,9 +517,12 @@ operation tiny_coeffs() : Result[] {{
     print(summary_msg)
     for pattern, expected_count in allowed:
         actual_count = counts[pattern]
+        allowed_deviation = n_shots * statistical_tolerance(
+            n_shots, expected_count / n_shots, tolerance_percent / 100.0
+        )
         assert (
-            abs(actual_count - expected_count) <= tolerance
-        ), f"Count for {pattern} off by more than {tolerance_percent:.1f}% of shots. Actual={actual_count}, Expected={expected_count:.0f}, noise#{noise_number}, Program={program}."
+            abs(actual_count - expected_count) <= allowed_deviation
+        ), f"Count for {pattern} off by more than {allowed_deviation:.0f} shots. Actual={actual_count}, Expected={expected_count:.0f}, noise#{noise_number}, Program={program}."
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)

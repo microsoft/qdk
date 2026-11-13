@@ -31,6 +31,7 @@ mod given_interpreter {
             None,
             None,
             None,
+            0,
             Default::default(),
         );
         (res, receiver.dump())
@@ -5875,6 +5876,112 @@ mod given_interpreter {
             // 0 + 1 + 2 = 3 before the break at i == 2 exits the loop.
             let (result, output) = run(&mut interpreter, "DiscardedValueBlockBreak()");
             is_only_value(&result, &output, &Value::Int(3));
+        }
+    }
+
+    // These tests compare runs with each other rather than with expected values, so they do not
+    // depend on particular seeds or on how many random numbers any component draws. Each shot draws
+    // 32 random measurement outcomes and a random 40-bit integer, so two shots that are not
+    // reproductions of each other agree with negligible probability.
+    mod seeds {
+        use super::*;
+        use crate::interpret::SimType;
+        use qsc_eval::output::GenericReceiver;
+
+        const SAMPLE: &str = "
+            operation Sample() : (Result[], Int) {
+                use qs = Qubit[32];
+                ApplyToEach(H, qs);
+                (MResetEachZ(qs), Std.Random.DrawRandomInt(0, 1 <<< 40))
+            }";
+
+        fn seeded_interpreter(quantum_seed: u64, classical_seed: u64) -> Interpreter {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(&mut interpreter, SAMPLE);
+            is_only_value(&result, &output, &Value::unit());
+            interpreter.set_quantum_seed(Some(quantum_seed));
+            interpreter.set_classical_seed(Some(classical_seed));
+            interpreter
+        }
+
+        fn run_shot(interpreter: &mut Interpreter, seed: Option<u64>, shot: u64) -> String {
+            let mut sink = std::io::sink();
+            let mut out = GenericReceiver::new(&mut sink);
+            interpreter
+                .run(
+                    &mut out,
+                    Some("Sample()"),
+                    None,
+                    None,
+                    None,
+                    seed,
+                    shot,
+                    SimType::Sparse,
+                )
+                .expect("run should succeed")
+                .to_string()
+        }
+
+        fn invoke_shot(interpreter: &mut Interpreter, seed: Option<u64>, shot: u64) -> String {
+            let mut sink = std::io::sink();
+            let mut out = GenericReceiver::new(&mut sink);
+            let callable = interpreter
+                .eval_fragments(&mut out, "Sample")
+                .expect("callable should evaluate");
+            interpreter
+                .invoke_with_noise(
+                    &mut out,
+                    callable,
+                    Value::unit(),
+                    None,
+                    None,
+                    None,
+                    seed,
+                    shot,
+                    SimType::Sparse,
+                )
+                .expect("invoke should succeed")
+                .to_string()
+        }
+
+        fn assert_distinct(shots: &[String]) {
+            let distinct = shots.iter().collect::<rustc_hash::FxHashSet<_>>();
+            assert_eq!(distinct.len(), shots.len(), "{shots:#?}");
+        }
+
+        #[test]
+        fn shots_seeded_by_the_interpreter_differ_and_reproduce() {
+            for shot_fn in [run_shot, invoke_shot] {
+                let sample = |seed| {
+                    let mut interpreter = seeded_interpreter(7, 7);
+                    (0..8)
+                        .map(|shot| shot_fn(&mut interpreter, seed, shot))
+                        .collect::<Vec<_>>()
+                };
+                for seed in [None, Some(7)] {
+                    let shots = sample(seed);
+                    assert_distinct(&shots);
+                    assert_eq!(shots, sample(seed));
+                }
+            }
+        }
+
+        #[test]
+        fn successive_evaluations_continue_the_classical_sequence() {
+            let mut interpreter = get_interpreter();
+            let mut draws = || {
+                interpreter.set_classical_seed(Some(7));
+                (0..4)
+                    .map(|_| {
+                        let (result, _) =
+                            line(&mut interpreter, "Std.Random.DrawRandomInt(0, 1 <<< 40)");
+                        result.expect("draw should succeed").to_string()
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let first = draws();
+            assert_distinct(&first);
+            assert_eq!(first, draws());
         }
     }
 }

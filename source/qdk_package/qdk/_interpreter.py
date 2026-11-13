@@ -264,7 +264,9 @@ def run(
         Pauli error probabilities, a :class:`~qdk.qsharp.PauliNoise` subclass, or a
         :class:`~qdk.simulation.NoiseConfig` for per-gate noise configuration.
     :param qubit_loss: The probability of qubit loss in simulation.
-    :param seed: The seed to use for the random number generator in simulation, if any.
+    :param seed: The seed for the run, if any. Each shot derives its own seed from it, so
+        runs are reproducible and runs with different seeds are independent. If None, shots
+        derive their seeds from the quantum and classical seeds, if they are set.
     :param type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
         Note that the "stabilizer" simulator has replaced the type "clifford", but the "clifford" type is still available for backward compatibility.
     :param num_qubits: The number of qubits to use for the simulation type "stabilizer".
@@ -518,6 +520,8 @@ def set_quantum_seed(seed: Optional[int]) -> None:
 
     :param seed: The seed to use for the quantum random number generator.
         If None, the seed will be generated from entropy.
+        Each shot of a run derives its own seed from this seed, and successive
+        evaluations continue the random sequence instead of restarting it.
     """
     _get_default_context().set_quantum_seed(seed)
 
@@ -530,6 +534,8 @@ def set_classical_seed(seed: Optional[int]) -> None:
 
     :param seed: The seed to use for the classical random number generator.
         If None, the seed will be generated from entropy.
+        Each shot of a run derives its own seed from this seed, and successive
+        evaluations continue the random sequence instead of restarting it.
     """
     _get_default_context().set_classical_seed(seed)
 

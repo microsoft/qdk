@@ -37,6 +37,7 @@ use debug::{CallStack, Frame};
 use miette::Diagnostic;
 use num_bigint::BigInt;
 use output::Receiver;
+use qdk_simulators::seed::{Stream, entropy_seed, stream_rng};
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
     self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
@@ -47,7 +48,7 @@ use qsc_fir::fir::{
 use qsc_fir::ty::Ty;
 pub use qsc_hir::hir::PackageSpan;
 use qsc_lowerer::{map_fir_package_span_to_hir, map_fir_package_to_hir};
-use rand::{SeedableRng, rngs::StdRng};
+use rand::rngs::StdRng;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::array;
 use std::collections::VecDeque;
@@ -619,10 +620,10 @@ impl State {
         classical_seed: Option<u64>,
         error_behavior: ErrorBehavior,
     ) -> Self {
-        let rng = match classical_seed {
-            Some(seed) => RefCell::new(StdRng::seed_from_u64(seed)),
-            None => RefCell::new(StdRng::from_rng(&mut rand::rng())),
-        };
+        let rng = RefCell::new(stream_rng(
+            classical_seed.unwrap_or_else(entropy_seed),
+            Stream::Classical,
+        ));
         Self {
             exec_graph_stack: vec![exec_graph.select(exec_graph_config)],
             idx: 0,

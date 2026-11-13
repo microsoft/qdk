@@ -743,11 +743,16 @@ fn reset_all(shot_idx: i32) {
     // After init, start execution from the first op
     shot.next_op_idx = 0u;
 
-    shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot_id);
-    shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot_id + 1);
-    shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot_id + 2);
-    shot.rng_state.x[3] = rng_seed ^ hash_pcg(shot_id + 3);
-    shot.rng_state.x[4] = rng_seed ^ hash_pcg(shot_id + 4);
+    // Hash the seed and the shot id together into each state word. XORing the seed into hashed shot
+    // ids instead would give every run the same state up to a constant XOR, which xorwow's linear
+    // update preserves, so runs with different seeds would draw strongly correlated numbers.
+    let seed_hash = hash_pcg(rng_seed);
+    let first_word = shot_id * 5u;
+    shot.rng_state.x[0] = hash_pcg(seed_hash ^ hash_pcg(first_word));
+    shot.rng_state.x[1] = hash_pcg(seed_hash ^ hash_pcg(first_word + 1u));
+    shot.rng_state.x[2] = hash_pcg(seed_hash ^ hash_pcg(first_word + 2u));
+    shot.rng_state.x[3] = hash_pcg(seed_hash ^ hash_pcg(first_word + 3u));
+    shot.rng_state.x[4] = hash_pcg(seed_hash ^ hash_pcg(first_word + 4u));
 
     shot.op_type = 0;
     shot.op_idx = 0;

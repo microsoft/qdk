@@ -645,6 +645,30 @@ def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> Non
     assert result1 != result3
 
 
+@pytest.mark.parametrize("entry", ["expression", "callable"])
+def test_run_shots_are_independent_under_run_and_context_seeds(entry: str) -> None:
+    # Each shot draws 32 measurement outcomes and a 40-bit integer, so shots that are not
+    # reproductions of each other agree with negligible probability, whatever the seeds.
+    def shots(seed=None, context_seed=None) -> list:
+        qsharp.init()
+        qsharp.eval(
+            "operation Rand() : (Int, Int) { use qs = Qubit[32]; for q in qs { H(q); }; (MeasureInteger(qs), Std.Random.DrawRandomInt(0, 1 <<< 40)) }"
+        )
+        qsharp.set_quantum_seed(context_seed)
+        qsharp.set_classical_seed(context_seed)
+        return qsharp.run(
+            "Rand()" if entry == "expression" else qdk.code.Rand, shots=8, seed=seed
+        )
+
+    by_run_seed = shots(seed=1)
+    by_context_seeds = shots(context_seed=1)
+    for result in (by_run_seed, by_context_seeds):
+        assert len(set(result)) == len(result)
+    assert by_context_seeds == shots(context_seed=1)
+    # Runs with nearby seeds must not share shots.
+    assert not set(by_run_seed) & set(shots(seed=2))
+
+
 def test_compile_qir_input_data() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("operation Program() : Result { use q = Qubit(); return M(q) }")

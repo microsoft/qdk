@@ -154,25 +154,25 @@ pub const PHASEFLIPCODE_EXPECT_DEBUG: Expect = expect![[r#"
 pub const PHASEFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 8247"];
 pub const PHASEFLIPCODE_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 4766"];
 pub const PHASEFLIPCODE_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 9086"];
-pub const QRNG_EXPECT: Expect = expect!["7568811972615905454"];
-pub const QRNG_EXPECT_DEBUG: Expect = expect!["7568811972615905454"];
+pub const QRNG_EXPECT: Expect = expect!["1729797498698059828"];
+pub const QRNG_EXPECT_DEBUG: Expect = expect!["1729797498698059828"];
 pub const QRNG_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 232827"];
 pub const QRNG_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 36579"];
 pub const QRNG_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 16912"];
 pub const SHOR_EXPECT: Expect = expect![[r#"
     *** Factorizing 187, attempt 1.
-    Estimating period of 182.
+    Estimating period of 184.
     Estimating frequency with bitsPrecision=17.
-    Estimated frequency=126158
+    Estimated frequency=11469
     Found period=80
     Found factor=17
     Found factorization 187 = 17 * 11
     (17, 11)"#]];
 pub const SHOR_EXPECT_DEBUG: Expect = expect![[r#"
     *** Factorizing 187, attempt 1.
-    Estimating period of 182.
+    Estimating period of 184.
     Estimating frequency with bitsPrecision=17.
-    Estimated frequency=126158
+    Estimated frequency=11469
     Found period=80
     Found factor=17
     Found factorization 187 = 17 * 11
@@ -192,21 +192,21 @@ pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect =
     expect!["generated QIR of length 12357"];
 pub const SIMPLEVQE_EXPECT: Expect = expect![[r#"
-   Beginning descent from value 0.43300000000000005.
-   Value improved to 0.35300000000000004.
-   Value improved to 0.3454.
-   Value improved to 0.3422.
-   Value improved to 0.3216.
-   Descent done. Attempts: 52, Step: 0.0009765625, Arguments: [1.5, 1.0625], Value: 0.3216.
-   0.3216"#]];
+    Beginning descent from value 0.45920000000000005.
+    Value improved to 0.3781.
+    Value improved to 0.37240000000000006.
+    Value improved to 0.37060000000000004.
+    Value improved to 0.29180000000000006.
+    Descent done. Attempts: 52, Step: 0.0009765625, Arguments: [2.25, 1.5], Value: 0.29180000000000006.
+    0.29180000000000006"#]];
 pub const SIMPLEVQE_EXPECT_DEBUG: Expect = expect![[r#"
-   Beginning descent from value 0.43300000000000005.
-   Value improved to 0.35300000000000004.
-   Value improved to 0.3454.
-   Value improved to 0.3422.
-   Value improved to 0.3216.
-   Descent done. Attempts: 52, Step: 0.0009765625, Arguments: [1.5, 1.0625], Value: 0.3216.
-   0.3216"#]];
+    Beginning descent from value 0.45920000000000005.
+    Value improved to 0.3781.
+    Value improved to 0.37240000000000006.
+    Value improved to 0.37060000000000004.
+    Value improved to 0.29180000000000006.
+    Descent done. Attempts: 52, Step: 0.0009765625, Arguments: [2.25, 1.5], Value: 0.29180000000000006.
+    0.29180000000000006"#]];
 // VQE sample is not expected to produce a circuit as it is too large and complex.
 pub const SIMPLEVQE_EXPECT_CIRCUIT: Expect =
     expect!["compilation error: cannot use a dynamically-sized array"];
@@ -214,8 +214,8 @@ pub const SIMPLEVQE_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["compilation error: cannot use a dynamically-sized array"];
 pub const SIMPLEVQE_EXPECT_QIR_ADAPTIVE: Expect =
     expect!["compilation error: cannot use a dynamically-sized array"];
-pub const SUPERDENSECODING_EXPECT: Expect = expect!["((false, true), (false, true))"];
-pub const SUPERDENSECODING_EXPECT_DEBUG: Expect = expect!["((false, true), (false, true))"];
+pub const SUPERDENSECODING_EXPECT: Expect = expect!["((false, false), (false, false))"];
+pub const SUPERDENSECODING_EXPECT_DEBUG: Expect = expect!["((false, false), (false, false))"];
 pub const SUPERDENSECODING_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4291"];
 pub const SUPERDENSECODING_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 4922"];

@@ -36,7 +36,7 @@ pub const BELLSTATES_EXPECT: Expect = expect![[r#"
     STATE:
     |01⟩: 0.7071+0.0000𝑖
     |10⟩: −0.7071+0.0000𝑖
-    [(Zero, Zero), (One, One), (One, Zero), (One, Zero)]"#]];
+    [(Zero, Zero), (Zero, Zero), (Zero, One), (Zero, One)]"#]];
 pub const BELLSTATES_EXPECT_DEBUG: Expect = expect![[r#"
     Bell state |Φ+〉:
     STATE:
@@ -54,7 +54,7 @@ pub const BELLSTATES_EXPECT_DEBUG: Expect = expect![[r#"
     STATE:
     |01⟩: 0.7071+0.0000𝑖
     |10⟩: −0.7071+0.0000𝑖
-    [(Zero, Zero), (One, One), (One, Zero), (One, Zero)]"#]];
+    [(Zero, Zero), (Zero, Zero), (Zero, One), (Zero, One)]"#]];
 pub const BELLSTATES_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 5533"];
 pub const BELLSTATES_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 5628"];
 pub const BELLSTATES_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 4896"];
@@ -71,19 +71,19 @@ pub const CATSTATES_EXPECT_DEBUG: Expect = expect![[r#"
 pub const CATSTATES_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3172"];
 pub const CATSTATES_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 3311"];
 pub const CATSTATES_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3565"];
-pub const RANDOMBITS_EXPECT: Expect = expect!["[Zero, Zero, One, One, One]"];
-pub const RANDOMBITS_EXPECT_DEBUG: Expect = expect!["[Zero, Zero, One, One, One]"];
+pub const RANDOMBITS_EXPECT: Expect = expect!["[Zero, One, Zero, Zero, One]"];
+pub const RANDOMBITS_EXPECT_DEBUG: Expect = expect!["[Zero, One, Zero, Zero, One]"];
 pub const RANDOMBITS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3486"];
 pub const RANDOMBITS_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 3101"];
 pub const RANDOMBITS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2758"];
 pub const SIMPLETELEPORTATION_EXPECT: Expect = expect![[r#"
     STATE:
-    |000⟩: 1.0000+0.0000𝑖
+    |100⟩: 1.0000+0.0000𝑖
     Teleportation successful: true.
     true"#]];
 pub const SIMPLETELEPORTATION_EXPECT_DEBUG: Expect = expect![[r#"
     STATE:
-    |000⟩: 1.0000+0.0000𝑖
+    |100⟩: 1.0000+0.0000𝑖
     Teleportation successful: true.
     true"#]];
 pub const SIMPLETELEPORTATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 1463"];
@@ -111,10 +111,10 @@ pub const JOINTMEASUREMENT_EXPECT: Expect = expect![[r#"
     |00⟩: 0.7071+0.0000𝑖
     |11⟩: 0.7071+0.0000𝑖
     STATE:
-    |11⟩: 1.0000+0.0000𝑖
+    |00⟩: 1.0000+0.0000𝑖
     STATE:
-    |11⟩: 1.0000+0.0000𝑖
-    (Zero, [One, One])"#]];
+    |00⟩: 1.0000+0.0000𝑖
+    (Zero, [Zero, Zero])"#]];
 pub const JOINTMEASUREMENT_EXPECT_DEBUG: Expect = expect![[r#"
     STATE:
     |00⟩: 0.7071+0.0000𝑖
@@ -123,10 +123,10 @@ pub const JOINTMEASUREMENT_EXPECT_DEBUG: Expect = expect![[r#"
     |00⟩: 0.7071+0.0000𝑖
     |11⟩: 0.7071+0.0000𝑖
     STATE:
-    |11⟩: 1.0000+0.0000𝑖
+    |00⟩: 1.0000+0.0000𝑖
     STATE:
-    |11⟩: 1.0000+0.0000𝑖
-    (Zero, [One, One])"#]];
+    |00⟩: 1.0000+0.0000𝑖
+    (Zero, [Zero, Zero])"#]];
 pub const JOINTMEASUREMENT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 959"];
 pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 3259"];

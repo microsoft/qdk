@@ -17,7 +17,7 @@ use qdk_simulators::{
 use rand::{SeedableRng, distr::Uniform, prelude::Distribution, rngs::StdRng};
 use std::{hint::black_box, sync::Arc};
 
-const SEED: u32 = 1000;
+const SEED: u64 = 1000;
 const NUM_QUBITS: usize = 1_224;
 const NOISE_CONFIG: NoiseConfig<f64, f64> = NoiseConfig {
     idle: IdleNoiseParams {
@@ -74,7 +74,7 @@ fn gate(rng: &mut StdRng) -> Operation {
 }
 
 fn random_gates(num_gates: usize) -> Vec<Operation> {
-    let mut rng = StdRng::seed_from_u64(u64::from(SEED));
+    let mut rng = StdRng::seed_from_u64(SEED);
     let mut gates: Vec<Operation> = Vec::with_capacity(num_gates);
     for _ in 0..num_gates {
         gates.push(gate(&mut rng));

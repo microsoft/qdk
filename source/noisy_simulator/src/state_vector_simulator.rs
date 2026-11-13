@@ -246,6 +246,13 @@ pub struct StateVectorSimulator {
 }
 
 impl StateVectorSimulator {
+    /// The generator that samples measurement outcomes and Kraus operators.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn rng_mut(&mut self) -> &mut StdRng {
+        &mut self.rng
+    }
+
     fn check_out_of_bounds_qubits(&self, qubits: &[usize]) -> Result<(), Error> {
         let number_of_qubits = self.state.as_ref()?.number_of_qubits;
         if let Some(id) = qubits.iter().find(|id| **id >= number_of_qubits) {

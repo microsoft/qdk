@@ -3,7 +3,7 @@
 
 from collections import Counter
 from pathlib import Path
-from typing import Dict, Sequence, cast
+from typing import Sequence, cast
 import math
 import random
 
@@ -17,6 +17,7 @@ from qdk import openqasm
 from qdk.qsharp import run
 
 from qdk.simulation import NoiseConfig
+from simulator_test_utils import expect_distribution, statistical_tolerance
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -41,52 +42,6 @@ def result_array_to_string(results: Sequence[Result]) -> str:
         else:
             chars.append("-")
     return "".join(chars)
-
-
-def format_expectation(actual: Dict[str, float], expect: Dict[str, float]):
-    return f"Expected distribution:\n  {expect}\n\nActual distribution:\n  {actual}"
-
-
-def assert_err(msg: str, actual: Dict[str, float], expect: Dict[str, float]):
-    return msg + "\n\n" + format_expectation(actual, expect)
-
-
-def assert_distributions_eq(
-    actual: Dict[str, float], expect: Dict[str, float], tolerance: float
-):
-    # Prune values that are smaller than the tolerance.
-    actual = {key: val for key, val in actual.items() if val > tolerance}
-    expect = {key: val for key, val in expect.items() if val > tolerance}
-
-    for key in actual:
-        assert key in expect, assert_err(
-            f"Unexpected measurement string: '{key}'.", actual, expect
-        )
-
-    for key in expect:
-        assert key in actual, assert_err(
-            f"Missing measurement string: '{key}'", actual, expect
-        )
-
-    tolerance_percent = int(tolerance * 100)
-    for key in actual:
-        assert abs(actual[key] - expect[key]) < tolerance, assert_err(
-            f"Probability for {key} outside {tolerance_percent}% tolerance.",
-            actual,
-            expect,
-        )
-
-
-def expect_distribution(
-    results,
-    expected: Dict[str, float],
-    *,
-    tolerance: float = 0.01,
-):
-    histogram = Counter(results)
-    total = sum(histogram.values())
-    actual = {key: val / total for key, val in histogram.items()}
-    assert_distributions_eq(actual, expected, tolerance)
 
 
 def test_sparse_no_noise():
@@ -317,9 +272,10 @@ def test_sparse_x_chain(
     error_percent = [abs(a - b) * 100.0 / n_shots for (a, b) in zip(histogram, p_N)]
     print(", ".join(f"{a} (Δ≈{b:.1f}%)" for (a, b) in zip(histogram, error_percent)))
 
-    # We tolerate configured percentage error.
+    # We tolerate configured percentage error, or more if the shot count requires it.
     assert all(
-        err < max_percent for err in error_percent
+        err / 100.0 <= statistical_tolerance(n_shots, b / n_shots, max_percent / 100.0)
+        for (err, b) in zip(error_percent, p_N)
     ), f"Error percent too high: {error_percent}"
 
 

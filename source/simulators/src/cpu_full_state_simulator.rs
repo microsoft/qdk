@@ -6,13 +6,14 @@ use crate::{
     noise_config::{
         CumulativeNoiseConfig, CumulativeNoiseTable, Fault, FaultTerm, IntrinsicID, LossPolicy,
     },
+    seed::{Stream, derive_seed, stream_rng},
 };
 use core::f64;
 use nalgebra::Complex;
 use noisy_simulator::{
     Instrument, NoisySimulator as _, Operation, StateVectorSimulator, operation,
 };
-use rand::{RngExt, SeedableRng as _, rngs::StdRng};
+use rand::{RngExt, rngs::StdRng};
 use std::sync::{Arc, LazyLock};
 
 static X: LazyLock<Operation> = LazyLock::new(|| {
@@ -218,6 +219,11 @@ pub struct FullStateSimulator {
 }
 
 impl FullStateSimulator {
+    #[cfg(test)]
+    pub(crate) fn rngs_mut(&mut self) -> [&mut StdRng; 2] {
+        [&mut self.rng, self.state.rng_mut()]
+    }
+
     /// Increment the simulation time by one.
     /// This is used to compute the idle noise on qubits.
     pub fn step(&mut self) {
@@ -482,11 +488,14 @@ impl Simulator for FullStateSimulator {
     type Noise = Arc<CumulativeNoiseConfig>;
     type StateDumpData = noisy_simulator::StateVector;
 
-    fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
+    fn new(num_qubits: usize, num_results: usize, seed: u64, noise_config: Self::Noise) -> Self {
         Self {
             noise_config,
-            rng: StdRng::seed_from_u64(u64::from(seed)),
-            state: StateVectorSimulator::new_with_seed(num_qubits, seed.into()),
+            rng: stream_rng(seed, Stream::Noise),
+            state: StateVectorSimulator::new_with_seed(
+                num_qubits,
+                derive_seed(seed, Stream::Measurement),
+            ),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
             last_operation_time: vec![0; num_qubits],

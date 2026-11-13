@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
+    ErrorBehavior, State,
     backend::{Backend, SparseSim},
     noise::PauliNoise,
     state::{fmt_complex, format_state_id},
@@ -10,7 +11,11 @@ use crate::{
 use expect_test::{Expect, expect};
 use num_bigint::BigUint;
 use num_complex::Complex;
-use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli};
+use qdk_simulators::{
+    noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli},
+    seed::share_draws,
+};
+use qsc_fir::fir::{ExecGraph, ExecGraphConfig, PackageId};
 use std::fmt::Write;
 
 #[test]
@@ -39,6 +44,53 @@ fn post_select_loss_reports_error() {
     }
     check(&mut SparseSim::new());
     check(&mut crate::backend::CliffordSim::new(1));
+}
+
+#[test]
+fn classical_measurement_and_noise_streams_from_one_seed_share_no_draws() {
+    for seed in [0, 1, u64::MAX] {
+        let mut sim = SparseSim::new_with_noise_config(NoiseConfig::NOISELESS.into());
+        sim.set_seed(Some(seed));
+        let mut measurement = sim.sim.take_rng();
+        // The interpreter seeds the evaluator's classical draws with the same seed as the simulator.
+        let mut state = State::new(
+            PackageId::CORE,
+            ExecGraph::default(),
+            ExecGraphConfig::NoDebug,
+            Some(seed),
+            ErrorBehavior::FailOnError,
+        );
+        assert!(
+            !share_draws([&mut sim.rng, &mut measurement, state.rng.get_mut()]),
+            "seed {seed}"
+        );
+    }
+}
+
+#[test]
+fn noise_configured_after_seeding_uses_the_seeded_stream() {
+    // Configuring noise during a run, as `ConfigurePauliNoise` and `ConfigureQubitLoss` do, must
+    // not replace the seeded noise stream. With 64 coin-flip faults, two runs that are not
+    // reproducible agree with probability 2^-64.
+    let run = |configure: fn(&mut SparseSim)| {
+        let mut sim = SparseSim::new();
+        sim.set_seed(Some(0));
+        configure(&mut sim);
+        (0..64)
+            .map(|_| {
+                let q = sim.qubit_allocate().expect("allocation succeeds");
+                let result = sim.mresetz(q).expect("measurement succeeds");
+                sim.qubit_release(q).expect("release succeeds");
+                result
+            })
+            .collect::<Vec<_>>()
+    };
+    let bit_flips = |sim: &mut SparseSim| {
+        sim.set_noise(&PauliNoise::from_probabilities(0.5, 0.0, 0.0).expect("noise is valid"));
+    };
+    let losses = |sim: &mut SparseSim| sim.set_loss(0.5);
+    assert_eq!(run(bit_flips), run(bit_flips));
+    assert_eq!(run(losses), run(losses));
 }
 
 #[test]

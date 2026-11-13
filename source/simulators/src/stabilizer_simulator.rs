@@ -11,23 +11,16 @@ use crate::{
     noise_config::{
         CumulativeNoiseConfig, CumulativeNoiseTable, Fault, FaultTerm, IntrinsicID, LossPolicy,
     },
+    seed::{Stream, stream_rng},
 };
 use branching_state::BranchingState;
 use operation::Operation;
 use paulimer::{PauliObservable, UnitaryOp, core::PositionedPauliObservable, pauli::SparsePauli};
-use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
+use rand::{RngExt as _, rngs::StdRng};
 use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
     sync::Arc,
 };
-
-fn seeded_randomness(seed: u64) -> (StdRng, StdRng) {
-    let mut seed_rng = StdRng::seed_from_u64(seed);
-    (
-        StdRng::from_rng(&mut seed_rng),
-        StdRng::from_rng(&mut seed_rng),
-    )
-}
 
 fn unsupported_apply_anyway(gate: &str) -> ! {
     unreachable!("the `{gate}` gate does not support the ApplyAnyway loss policy")
@@ -54,11 +47,15 @@ pub struct StabilizerSimulator {
 }
 
 impl StabilizerSimulator {
+    #[cfg(test)]
+    pub(crate) fn rngs_mut(&mut self) -> [&mut StdRng; 2] {
+        [&mut self.rng, &mut self.measurement_rng]
+    }
+
     /// Sets the random seed of the simulator.
     pub fn set_seed(&mut self, seed: u64) {
-        let (noise_rng, measurement_rng) = seeded_randomness(seed);
-        self.rng = noise_rng;
-        self.measurement_rng = measurement_rng;
+        self.rng = stream_rng(seed, Stream::Noise);
+        self.measurement_rng = stream_rng(seed, Stream::Measurement);
     }
 
     /// Increment the simulation time by one.
@@ -370,12 +367,11 @@ impl Simulator for StabilizerSimulator {
     type Noise = Arc<CumulativeNoiseConfig>;
     type StateDumpData = BranchingState;
 
-    fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
-        let (rng, measurement_rng) = seeded_randomness(u64::from(seed));
+    fn new(num_qubits: usize, num_results: usize, seed: u64, noise_config: Self::Noise) -> Self {
         Self {
             noise_config,
-            rng,
-            measurement_rng,
+            rng: stream_rng(seed, Stream::Noise),
+            measurement_rng: stream_rng(seed, Stream::Measurement),
             state: BranchingState::new(num_qubits),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
@@ -745,7 +741,7 @@ mod tests {
     use std::sync::Arc;
 
     fn sample_t_interference<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>(
-        seed: u32,
+        seed: u64,
     ) -> MeasurementResult {
         let mut simulator = S::new(1, 1, seed, Arc::new(CumulativeNoiseConfig::default()));
         simulator.h(0);
@@ -757,14 +753,14 @@ mod tests {
 
     #[test]
     fn t_interference_matches_full_state_simulator() {
-        let shots = 4_096;
-        let stabilizer_ones = (0..shots).fold(0_u32, |count, seed| {
+        let shots = 4_096_u32;
+        let stabilizer_ones = (0..u64::from(shots)).fold(0_u32, |count, seed| {
             count
                 + u32::from(
                     sample_t_interference::<StabilizerSimulator>(seed) == MeasurementResult::One,
                 )
         });
-        let full_state_ones = (0..shots).fold(0_u32, |count, seed| {
+        let full_state_ones = (0..u64::from(shots)).fold(0_u32, |count, seed| {
             count
                 + u32::from(
                     sample_t_interference::<FullStateSimulator>(seed) == MeasurementResult::One,
@@ -780,7 +776,7 @@ mod tests {
     }
 
     fn sample_entangled_t_circuit<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>(
-        seed: u32,
+        seed: u64,
     ) -> usize {
         let mut simulator = S::new(2, 2, seed, Arc::new(CumulativeNoiseConfig::default()));
         simulator.h(0);
@@ -797,10 +793,10 @@ mod tests {
 
     #[test]
     fn entangled_t_circuit_matches_full_state_simulator() {
-        let shots = 8_192;
+        let shots = 8_192_u32;
         let mut stabilizer_counts = [0_u32; 4];
         let mut full_state_counts = [0_u32; 4];
-        for seed in 0..shots {
+        for seed in 0..u64::from(shots) {
             stabilizer_counts[sample_entangled_t_circuit::<StabilizerSimulator>(seed)] += 1;
             full_state_counts[sample_entangled_t_circuit::<FullStateSimulator>(seed)] += 1;
         }
