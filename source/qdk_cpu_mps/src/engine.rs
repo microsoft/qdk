@@ -46,6 +46,7 @@
 //!   chain.
 
 mod canonical_form;
+mod dev_mpo;
 mod gates;
 mod reads;
 mod split;
@@ -190,6 +191,29 @@ impl CpuMpsEngine {
     #[must_use]
     pub(crate) fn with_fusion(self, fuses: bool) -> Self {
         Self(self.0.with_fusion(fuses))
+    }
+
+    /// EXPERIMENTAL, development only (not for review): applies `matrix`
+    /// (row-major, `sites[0]` the most significant bit) to `sites`
+    /// (ascending, at least two, possibly far apart) as a matrix product
+    /// operator across their span, compressed by one QR and one SVD sweep,
+    /// instead of routing it by SWAPs.
+    ///
+    /// # Errors
+    ///
+    /// As a split may.
+    ///
+    /// # Panics
+    ///
+    /// When `sites` are not ascending or `matrix` is not dense on them.
+    pub fn dev_apply_operator(
+        &self,
+        state: &mut CanonicalMps,
+        sites: &[usize],
+        matrix: &[Complex64],
+    ) -> Result<(), CpuMpsError> {
+        let chain = state.chain.get_mut();
+        self.0.dev_apply_operator(chain, sites, matrix)
     }
 }
 

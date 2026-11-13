@@ -255,6 +255,9 @@ pub(crate) struct ContractedPair {
     pub(crate) block: Vec<Complex64>,
     /// What its split discards, set by the last two-site operation applied.
     pub(crate) truncation: Truncation,
+    /// Development only: whether the last two-site operation applied was a
+    /// routing SWAP (`dev_trace::SplitTime`).
+    pub(crate) dev_swap: bool,
 }
 
 impl ContractedPair {
