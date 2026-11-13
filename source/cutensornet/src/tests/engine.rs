@@ -238,6 +238,38 @@ fn with_the_dev_flag_an_operator_on_three_sites_applies_as_one_mpo() {
     assert_eq!(libraries.live_objects(), live, "the MPO released");
 }
 
+/// Development only: on the fake libraries, which contract the MPO tensors
+/// as our layout means them, every case of the MPO diagnostic
+/// (`dev_mpo_diagnostic`, random non-symmetric three-site unitaries on
+/// adjacent, far, unordered sites, a padded two-site operator, and a
+/// sequence across restarts and a projection) reads as on the CPU engine,
+/// and not as the CPU engine with the operators transposed; so a GPU run
+/// that disagrees is not our tensors' layout as the fake reads it.
+#[test]
+fn the_mpo_diagnostic_reads_as_on_the_cpu_engine_on_the_fake_libraries() {
+    let (engine, _) = engine();
+    let engine = engine.with_dev_wide_operators(true);
+    let reference = qdk_cpu_mps::CpuMpsEngine::default().with_dev_mpo_far(true);
+    let results = crate::dev_mpo_diagnostic::run_cases(&engine, &reference)
+        .unwrap_or_else(|error| panic!("every case runs: {error}"));
+    assert_eq!(results.len(), 5, "five cases");
+    for result in &results {
+        println!("{result:?}");
+        assert!(
+            result.max_difference < 1e-10,
+            "{}: {} from the CPU engine",
+            result.case,
+            result.max_difference
+        );
+        assert!(
+            result.max_difference_transposed > 1e-3,
+            "{}: the transposed run differs, {}",
+            result.case,
+            result.max_difference_transposed
+        );
+    }
+}
+
 /// The engine's sites are qubits: a capacity of qutrits is refused by the
 /// contract's check before any native state is created.
 #[test]
