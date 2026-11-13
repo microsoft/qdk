@@ -461,8 +461,8 @@ function NoNoise() : (Double, Double, Double) {
 ///
 /// # Description
 /// During simulation, this operation forces the collapse of the qubit into the state as long
-/// as that state has a non-zero probability of being measured, and will trigger a runtime
-/// failure if the state has zero probability of being measured.
+/// as that state's measurement probability exceeds the simulator's numerical tolerance,
+/// and will trigger a runtime failure otherwise.
 /// During resource estimation, this operation forces the next measurement of the qubit to
 /// return the given result, regardless of any state, allowing for estimation of specific
 /// branches of an adaptive algorithm.
