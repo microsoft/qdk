@@ -367,7 +367,7 @@ pub struct Interpreter {
     /// The number of evaluations in the persistent environment since the classical seed was set.
     /// Each evaluation derives its classical seed from this count, so successive evaluations
     /// continue the random sequence instead of restarting it, as the quantum simulator does.
-    classical_evaluations: u64,
+    classical_evaluation_count: u64,
     /// The evaluator environment.
     env: Env,
     /// The execution graph configuration to use for evaluation.
@@ -670,7 +670,7 @@ impl Interpreter {
             }),
             quantum_seed: None,
             classical_seed: None,
-            classical_evaluations: 0,
+            classical_evaluation_count: 0,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
             eval_config,
@@ -1090,15 +1090,15 @@ impl Interpreter {
 
     pub fn set_classical_seed(&mut self, seed: Option<u64>) {
         self.classical_seed = seed;
-        self.classical_evaluations = 0;
+        self.classical_evaluation_count = 0;
     }
 
     /// Returns the classical seed for the next evaluation in the persistent environment.
     fn next_classical_seed(&mut self) -> Option<u64> {
-        let evaluation = self.classical_evaluations;
-        self.classical_evaluations += 1;
+        let evaluation_count = self.classical_evaluation_count;
+        self.classical_evaluation_count += 1;
         self.classical_seed
-            .map(|seed| make_seed(seed, SeedRole::Evaluation(evaluation)))
+            .map(|seed| make_seed(seed, SeedRole::Evaluation(evaluation_count)))
     }
 
     /// Returns the quantum and classical seeds of shot `shot` of a run. Both derive from `seed` if
