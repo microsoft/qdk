@@ -37,7 +37,7 @@ use debug::{CallStack, Frame};
 use miette::Diagnostic;
 use num_bigint::BigInt;
 use output::Receiver;
-use qdk_simulators::seed::{RngRole, make_system_seed, make_rng};
+use qdk_simulators::seed::{RngRole, make_rng, make_system_seed};
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
     self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
