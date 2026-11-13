@@ -3,7 +3,6 @@
 
 pub mod error;
 
-use core::f64;
 use std::{rc::Rc, str::FromStr, sync::Arc};
 
 use error::CompilerErrorKind;
