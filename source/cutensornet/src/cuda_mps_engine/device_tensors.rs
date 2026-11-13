@@ -40,10 +40,11 @@ use std::sync::Arc;
 mod policy {
     use super::{TensorSvdAlgo, v2_13};
 
-    /// GESVD: cuTensorNet's default and the most accurate of its SVDs; the
-    /// gate-split bench measured the others no faster at the bonds that
-    /// matter, and GESVDJ less accurate. EXPERIMENTAL: GESVDJ by
-    /// `DeviceTensors::set_dev_svd_algo`, to measure it in whole runs.
+    /// GESVD: cuTensorNet's default and the most accurate of its SVDs.
+    /// EXPERIMENTAL: GESVDJ or GESVDP by `DeviceTensors::set_dev_svd_algo`,
+    /// to measure them in whole runs (the gate-split bench measured GESVDP
+    /// 0.39-0.88 of GESVD's time at bonds 8-512 on the A100, its singular
+    /// values and discarded weight the CPU's, on random full-rank pairs).
     pub(super) const SVD_ALGO: TensorSvdAlgo = TensorSvdAlgo::Gesvd;
 
     /// `REDUCED`: QR of each input, then the SVD of the small middle
@@ -194,23 +195,28 @@ impl DeviceTensors {
     }
 
     /// EXPERIMENTAL, development only (not for review): the SVD of every
-    /// later `GateSplit`, GESVD (`policy::SVD_ALGO`) or GESVDJ.
+    /// later `GateSplit`, GESVD (`policy::SVD_ALGO`), GESVDJ or GESVDP.
+    /// GESVDP (a polar decomposition, then an eigensolver) shifts the
+    /// singular values of a rank-deficient pair by a perturbation it
+    /// reports, read after every split into
+    /// [`SplitOutcome::svd_perturbation`], so a run shows how far it may
+    /// be off. (`CuTensorNetEngine`'s failure of H₂ with GESVDP, status 14
+    /// at its 39th measurement, was in the state API's own splits, not in
+    /// `GateSplit`.)
     ///
     /// # Errors
     ///
-    /// For GESVDP and GESVDR: on the A100, GESVDP failed the H₂ run with
-    /// `CUTENSORNET_STATUS_INTERNAL_ERROR` at its 39th measurement, and
-    /// GESVDR takes a fixed extent only, so it cannot apply the
+    /// For GESVDR: it takes a fixed extent only, so it cannot apply the
     /// discarded-weight cutoff.
     #[doc(hidden)]
     pub fn set_dev_svd_algo(&self, algo: TensorSvdAlgo) -> Result<(), CudaMpsError> {
         match algo {
-            TensorSvdAlgo::Gesvd | TensorSvdAlgo::Gesvdj => {
+            TensorSvdAlgo::Gesvd | TensorSvdAlgo::Gesvdj | TensorSvdAlgo::Gesvdp => {
                 self.svd_algo.set(algo);
                 Ok(())
             }
-            TensorSvdAlgo::Gesvdp | TensorSvdAlgo::Gesvdr => Err(failed(format!(
-                "the engine refuses the SVD {}: only gesvd and gesvdj run its splits",
+            TensorSvdAlgo::Gesvdr => Err(failed(format!(
+                "the engine refuses the SVD {}: it cannot apply the discarded-weight cutoff",
                 algo.name()
             ))),
         }
@@ -626,6 +632,17 @@ impl TensorCalls for DeviceTensors {
             (&raw mut discarded_weight).cast(),
             size_of::<f64>(),
         )?;
+        let svd_perturbation = if self.svd_algo.get() == TensorSvdAlgo::Gesvdp {
+            let mut status = v2_13::cutensornetGesvdpStatus_t { errSigma: 0.0 };
+            self.read_info(
+                v2_13::cutensornetTensorSVDInfoAttributes_t_CUTENSORNET_TENSOR_SVD_INFO_ALGO_STATUS,
+                (&raw mut status).cast(),
+                size_of::<v2_13::cutensornetGesvdpStatus_t>(),
+            )?;
+            status.errSigma
+        } else {
+            0.0
+        };
         let reduced = usize::try_from(reduced)
             .ok()
             .filter(|&reduced| (1..=k).contains(&reduced))
@@ -653,6 +670,7 @@ impl TensorCalls for DeviceTensors {
             reduced,
             full: usize::try_from(full).unwrap_or(k),
             discarded_weight,
+            svd_perturbation,
             singular_values,
         })
     }

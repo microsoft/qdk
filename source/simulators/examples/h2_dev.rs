@@ -33,7 +33,7 @@
 //!     [--routing engine|meet-halfway|meet-halfway-after-fusion] \
 //!     [--fusion pairs|unfused|seq|seq3] [--apply engine|mpo] \
 //!     [--reset split|merge] [--variant base|seq3-mpo] \
-//!     [--order resumer|identity] [--no-qr-moves] [--svd-algo gesvd|gesvdj]
+//!     [--order resumer|identity] [--no-qr-moves] [--svd-algo gesvd|gesvdj|gesvdp]
 //! ```
 //!
 //! `--variant` (development only) names a pair of `--fusion` and `--apply`
@@ -1041,7 +1041,7 @@ fn run_on_cuda_mps(options: &Options, program: &QirProgram) -> bool {
     println!("AVAILABILITY {:?}", availability.report());
     let algo = options.svd_algo.as_deref().map(|name| {
         qdk_cutensornet::dev_gate_split::TensorSvdAlgo::from_name(name)
-            .unwrap_or_else(|| panic!("--svd-algo {name}: gesvd or gesvdj"))
+            .unwrap_or_else(|| panic!("--svd-algo {name}: gesvd, gesvdj or gesvdp"))
     });
     let make = || {
         let engine = qdk_cutensornet::CudaMpsEngine::new(&availability)
@@ -1066,7 +1066,8 @@ fn cuda_mps_counters<T: qdk_cutensornet::cuda_mps_engine::TensorCalls>(
     let counters = engine.counters();
     format!(
         " gate_splits={} gate_split_seconds={:.3} qr_moves={} qr_move_seconds={:.3} \
-         centre_moves={} mpo_operators={} mpo_seconds={:.3} mpo_host_seconds={:.3}",
+         centre_moves={} mpo_operators={} mpo_seconds={:.3} mpo_host_seconds={:.3} \
+         largest_svd_perturbation={:.3e}",
         counters.gate_splits,
         counters.gate_split_seconds,
         counters.qr_moves,
@@ -1075,6 +1076,7 @@ fn cuda_mps_counters<T: qdk_cutensornet::cuda_mps_engine::TensorCalls>(
         counters.mpo_operators,
         counters.mpo_seconds,
         counters.mpo_host_seconds,
+        counters.largest_svd_perturbation,
     )
 }
 

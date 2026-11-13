@@ -14,7 +14,7 @@
 //!     [--fusion unfused|pairs|seq|seq3] [--apply engine|mpo] \
 //!     [--layout program|identity|interleave-centre] [--segments] \
 //!     [--variant base|seq3-mpo] [--order resumer|identity|interleave-centre] \
-//!     [--no-qr-moves] [--svd-algo gesvd|gesvdj]
+//!     [--no-qr-moves] [--svd-algo gesvd|gesvdj|gesvdp]
 //! ```
 //!
 //! `--variant` and `--order` (development only) are the flags the polyene
@@ -394,7 +394,7 @@ fn run_on_gpu(options: &Options, program: &QirProgram) {
             .with_dev_qr_moves(options.qr_moves);
         if let Some(name) = &options.svd_algo {
             let algo = qdk_cutensornet::dev_gate_split::TensorSvdAlgo::from_name(name)
-                .unwrap_or_else(|| panic!("--svd-algo {name}: gesvd or gesvdj"));
+                .unwrap_or_else(|| panic!("--svd-algo {name}: gesvd, gesvdj or gesvdp"));
             engine = engine
                 .with_dev_svd_algo(algo)
                 .unwrap_or_else(|error| panic!("--svd-algo {name}: {error}"));

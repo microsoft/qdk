@@ -31,7 +31,7 @@
 //!     --engine cutensornet|cuda-mps|cpu --n 8|12|16|20 --chi 128 \
 //!     [--order identity|interleave-centre] [--variant base|seq3-mpo] \
 //!     [--reference ppp8.exact.reference] [--steps 32] \
-//!     [--weight-reads-per-step 1] [--no-qr-moves] [--svd-algo gesvd|gesvdj]
+//!     [--weight-reads-per-step 1] [--no-qr-moves] [--svd-algo gesvd|gesvdj|gesvdp]
 //! ```
 //!
 //! `--order` places the qubits on the chain, as `simulators`'
@@ -278,7 +278,7 @@ fn run_on_cuda_mps(case: &Case, options: &Options) -> Res<Verdict> {
         .with_dev_qr_moves(options.qr_moves);
     if let Some(name) = &options.svd_algo {
         let algo = qdk_cutensornet::dev_gate_split::TensorSvdAlgo::from_name(name)
-            .ok_or_else(|| format!("--svd-algo {name}: gesvd or gesvdj"))?;
+            .ok_or_else(|| format!("--svd-algo {name}: gesvd, gesvdj or gesvdp"))?;
         engine = engine.with_dev_svd_algo(algo)?;
     }
     run(&engine, case, options, &|| print_cuda_mps_counters(&engine))
@@ -300,7 +300,7 @@ fn print_cuda_mps_counters<T: qdk_cutensornet::cuda_mps_engine::TensorCalls>(
         "POLYENE cuda_mps_counters splits={} centre_moves={} swaps={} \
          gate_split_seconds={:.3} read_seconds={:.3} largest_bond={} mpo_operators={} \
          mpo_seconds={:.3} mpo_host_seconds={:.3} gate_splits={} qr_moves={} \
-         qr_move_seconds={:.3}",
+         qr_move_seconds={:.3} largest_svd_perturbation={:.3e}",
         counters.splits,
         counters.centre_moves,
         counters.swaps,
@@ -313,6 +313,7 @@ fn print_cuda_mps_counters<T: qdk_cutensornet::cuda_mps_engine::TensorCalls>(
         counters.gate_splits,
         counters.qr_moves,
         counters.qr_move_seconds,
+        counters.largest_svd_perturbation,
     );
 }
 

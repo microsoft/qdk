@@ -95,6 +95,7 @@ impl TensorCalls for HostTensors {
             reduced: k,
             full,
             discarded_weight: dropped / total,
+            svd_perturbation: 0.0,
             singular_values: if call.read_values {
                 normalised
             } else {

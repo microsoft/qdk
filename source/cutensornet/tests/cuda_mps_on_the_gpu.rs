@@ -8,8 +8,8 @@
 //! a capped bond), to 1e-10; and, with `with_dev_mpo_far`, operators on
 //! three sites applied as an MPO, against the CPU engine's MPO path; and
 //! the `GateSplit` centre moves (`with_dev_qr_moves(false)`; the default
-//! moves are QR moves) and the Jacobi SVD (`with_dev_svd_algo`) against
-//! the CPU engine.
+//! moves are QR moves) and the Jacobi and polar SVDs (`with_dev_svd_algo`)
+//! against the CPU engine.
 //!
 //! It needs an NVIDIA GPU, the CUDA Runtime 12.9 and cuTensorNet 2.13, so
 //! every test is ignored by default; run them with `--ignored --nocapture`
@@ -446,8 +446,7 @@ fn gate_split_moves_read_as_on_the_cpu_engine() {
 }
 
 /// With `with_dev_svd_algo(Gesvdj)`, cuSOLVER's Jacobi SVD, the engine
-/// reads as the CPU engine below the capacity; GESVDP and GESVDR are
-/// refused.
+/// reads as the CPU engine below the capacity; GESVDR is refused.
 #[test]
 #[ignore = "requires an NVIDIA GPU with the audited CUDA Runtime 12.9 and cuTensorNet 2.13"]
 fn the_jacobi_svd_reads_as_on_the_cpu_engine() {
@@ -461,10 +460,52 @@ fn the_jacobi_svd_reads_as_on_the_cpu_engine() {
         let cpu = run(&CpuMpsEngine::default(), &capacity, &operations);
         assert_agree(&port, &cpu);
     }
-    for refused in [TensorSvdAlgo::Gesvdp, TensorSvdAlgo::Gesvdr] {
-        assert!(
-            on_the_gpu().with_dev_svd_algo(refused).is_err(),
-            "{refused:?} is refused"
-        );
+    assert!(
+        on_the_gpu()
+            .with_dev_svd_algo(TensorSvdAlgo::Gesvdr)
+            .is_err(),
+        "GESVDR is refused"
+    );
+}
+
+/// With `with_dev_svd_algo(Gesvdp)`, cuSOLVER's SVD by a polar
+/// decomposition, which perturbs the singular values of a rank-deficient
+/// pair, routed gates, projections and operators as an MPO read as on the
+/// CPU engine, below the capacity and capped; the largest perturbation is
+/// printed (`GESVDP_PERTURBATION`).
+#[test]
+#[ignore = "requires an NVIDIA GPU with the audited CUDA Runtime 12.9 and cuTensorNet 2.13"]
+fn the_polar_svd_reads_as_on_the_cpu_engine() {
+    let gesvdp = || {
+        on_the_gpu()
+            .with_dev_svd_algo(TensorSvdAlgo::Gesvdp)
+            .expect("GESVDP is accepted")
+    };
+    for max_bond in [64, 3] {
+        let capacity = MpsShape::qubit_chain(7, max_bond).expect("a qubit chain");
+        for seed in [16, 17] {
+            let operations = circuit(7, 60, seed, true);
+            let engine = gesvdp();
+            let port = run(&engine, &capacity, &operations);
+            println!(
+                "GESVDP_PERTURBATION case=routed max_bond={max_bond} seed={seed} largest={:.3e}",
+                engine.counters().largest_svd_perturbation
+            );
+            let cpu = run(&CpuMpsEngine::default(), &capacity, &operations);
+            assert_agree(&port, &cpu);
+            let operations = fused_circuit(7, 40, seed);
+            let engine = gesvdp().with_dev_mpo_far(true);
+            let port = run(&engine, &capacity, &operations);
+            println!(
+                "GESVDP_PERTURBATION case=mpo max_bond={max_bond} seed={seed} largest={:.3e}",
+                engine.counters().largest_svd_perturbation
+            );
+            let cpu = run(
+                &CpuMpsEngine::default().with_dev_mpo_far(true),
+                &capacity,
+                &operations,
+            );
+            assert_agree(&port, &cpu);
+        }
     }
 }

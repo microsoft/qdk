@@ -110,6 +110,10 @@ pub struct CudaMpsCounters {
     pub read_seconds: f64,
     /// The largest bond a split kept.
     pub largest_bond: usize,
+    /// The largest perturbation a `GateSplit`'s SVD added to its singular
+    /// values ([`SplitOutcome::svd_perturbation`]): GESVDP's `errSigma`
+    /// (`with_dev_svd_algo`), zero for GESVD and GESVDJ.
+    pub largest_svd_perturbation: f64,
     /// The operators applied as an MPO (`with_dev_mpo_far`).
     pub mpo_operators: u64,
     /// The seconds spent applying them, their splits and moves included.
@@ -132,8 +136,8 @@ impl CudaMpsEngine<DeviceTensors> {
     }
 
     /// EXPERIMENTAL, development only (not for review): the same engine,
-    /// whose splits use the SVD `algo` (`gesvd`, the default, or `gesvdj`);
-    /// see [`DeviceTensors::set_dev_svd_algo`].
+    /// whose splits use the SVD `algo` (`gesvd`, the default, `gesvdj` or
+    /// `gesvdp`); see [`DeviceTensors::set_dev_svd_algo`].
     ///
     /// # Errors
     ///
@@ -225,6 +229,9 @@ impl<T: TensorCalls> CudaMpsEngine<T> {
         self.count(|counters| {
             counters.gate_splits += 1;
             counters.gate_split_seconds += seconds;
+            counters.largest_svd_perturbation = counters
+                .largest_svd_perturbation
+                .max(outcome.svd_perturbation);
         });
         Ok(outcome)
     }

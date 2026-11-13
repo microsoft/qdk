@@ -177,6 +177,10 @@ pub struct SplitOutcome<B> {
     pub full: usize,
     /// The fraction of the squared singular values the truncation dropped.
     pub discarded_weight: f64,
+    /// The perturbation the SVD added to the singular values, as it reports
+    /// it: GESVDP's `errSigma` (cuSOLVER's `cusolverDnXgesvdp` shifts
+    /// near-zero singular values by it); zero for the SVDs that add none.
+    pub svd_perturbation: f64,
     /// The kept singular values, normalised, largest first, when
     /// [`GateSplitCall::read_values`] asked for them; empty otherwise.
     pub singular_values: Vec<f64>,
