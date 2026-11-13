@@ -22,15 +22,15 @@ export function registerLearningCommands(
     vscode.commands.registerCommand(
       "qsharp-vscode.learningShowActivity",
       async (arg: unknown = undefined): Promise<void> => {
-        // The tree view may supply a context object instead of a reveal option.
-        const reveal: NotebookReveal =
-          arg === "top" ? "top" : "currentActivity";
         // Initializes the service and no-ops for notebook courses.
         await panelManager.show();
         if (
           service.initialized &&
           isNotebookCourse(service.getActiveCourseInfo())
         ) {
+          // The tree view may supply a context object instead of a reveal option.
+          const reveal: NotebookReveal =
+            arg === "top" ? "top" : "currentActivity";
           await openCourseNotebook(service, { reveal });
         }
       },
