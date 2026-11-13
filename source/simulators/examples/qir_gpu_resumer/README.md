@@ -46,7 +46,9 @@ two.
 codes.** The bench program is n qubits, 8 rounds of Rx on every qubit, a CZ
 chain, `MResetZ` on qubit 0 and a conditional X, then `ResetAll`. The
 repetition codes have d data qubits and d−1 ancillas, and 8 rounds of
-syndrome extraction with a decoder that applies X corrections.
+syndrome extraction with a decoder that applies X corrections. The slowdown
+comes from how `QirMachine` builds batches; an opt-in batching policy, not
+built, should remove most of it (below).
 
 Both simulators run the same compiled program, with the same shots, seed and
 noise, timed alike in one process by the `compare` mode (how to run it,
@@ -99,10 +101,22 @@ takes 65 rounds per chunk of 128 shots, about 3.7 passes each, and the run
 costs about 2.6 ms per pass over a 17-qubit chunk here; under noise, shots
 with different syndromes also form more groups, each with its own passes.
 The current simulator runs one host round per quantum operation (below), 274
-per batch of 128 shots at d = 9, at about 1 ms each. Letting `QirMachine`
-hand such a branch to the resumer as a conditional call would cut the
-resumer's rounds (an API change, below); why its passes cost more per round
-at this size was not investigated.
+per batch of 128 shots at d = 9, at about 1 ms each. Why the resumer's passes
+cost more per round at this size was not investigated.
+
+**Closing that gap: a batching policy.** The rounds come from how
+`QirMachine` builds a batch, not from the resumer's design. Today it has one
+policy: a batch holds every quantum call up to the first branch on a
+measurement result, so the batch is as long as it can be without knowing an
+outcome, and the branch ends the round. A second, opt-in policy, chosen by
+the resumer, would let `QirMachine` also put a simple result-conditioned call
+in the batch (for instance "apply X to qubit 3 if results 5 and 6 read 1"),
+and the resumer would evaluate the condition per shot on the GPU without
+ending the round. The decoder's corrections, each conditioned on two
+syndrome bits, would then join the batch, and d = 9 could take one round per
+chunk instead of 65. The default policy stays
+today's; a resumer that cannot evaluate conditions never sees one. It needs a
+small API change in `QirMachine` (estimated below); not built.
 
 **Few shots.** With one shot the ratio is larger, and it measures fixed
 latency, not simulation: 36× at 20 × 1 (25× under noise) and 26× at 12 × 1
@@ -300,12 +314,12 @@ included in its numbers above:
 
 Estimates, not built:
 
-| Item                                                                         | Estimate             |
-| ---------------------------------------------------------------------------- | -------------------- |
-| Qubit loss (loss noise, `PeekLoss`): refused today                           | 2–3 days             |
-| Idle noise: refused today                                                    | about 1 day          |
-| Heavily divergent shots: each group of equal batches costs its passes        | 1–2 weeks            |
-| States over 128 MiB (more than 24 qubits)                                    | about 1 week         |
-| Python integration (`run_qir` on the resumer)                                | 2–3 days             |
-| Conditional calls from `QirMachine` (opt-in), for the repetition codes above | 2–4 days, API change |
-| Other backends (Vulkan, DX12, Metal) and devices                             | not estimated        |
+| Item                                                                      | Estimate             |
+| ------------------------------------------------------------------------- | -------------------- |
+| Qubit loss (loss noise, `PeekLoss`): refused today                        | 2–3 days             |
+| Idle noise: refused today                                                 | about 1 day          |
+| Heavily divergent shots: each group of equal batches costs its passes     | 1–2 weeks            |
+| States over 128 MiB (more than 24 qubits)                                 | about 1 week         |
+| Python integration (`run_qir` on the resumer)                             | 2–3 days             |
+| Batching policy with conditional calls (opt-in), for the repetition codes | 2–4 days, API change |
+| Other backends (Vulkan, DX12, Metal) and devices                          | not estimated        |
