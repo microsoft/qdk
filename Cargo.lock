@@ -2792,6 +2792,7 @@ dependencies = [
  "indoc",
  "miette",
  "qdk_simulators",
+ "qsc",
  "qsc_data_structures",
  "rustc-hash",
  "thiserror",
