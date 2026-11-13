@@ -3,7 +3,8 @@
 
 """Writes the programs the `qir_gpu_resumer` example runs, as Adaptive
 Profile bytecode (`AdaptiveProfilePass(Bytecode.Bit64)`) in JSON, into an
-output directory:
+output directory; the timed workloads (`bench_<n>`, `rep_<d>`) also carry
+their `Bytecode.Bit32` form, which the current GPU simulator takes:
 
 - `programs.json`: the programs of the adaptive GPU tests
   (`source/qdk_package/tests/test_adaptive_gpu_quantum_ops.py`) and the
@@ -154,10 +155,21 @@ TEST_PROGRAMS = (
 TELEPORTED_T = ("TeleportedTEcho", "TeleportedTDistribution", "TeleportedTNoiseReporting")
 
 
-def bytecode(qir, intrinsics=None):
+def bytecode(qir, intrinsics=None, encoding=Bytecode.Bit64):
     mod, _, _, _ = preprocess_simulation_input(str(qir), 1, None, 7)
     DecomposeCcxPass().run(mod)
-    return AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise_intrinsics=intrinsics).as_dict()
+    return AdaptiveProfilePass(encoding).run(mod, noise_intrinsics=intrinsics).as_dict()
+
+
+def timed(name, qir):
+    """A timed workload: the program in both encodings, so that the current
+    GPU simulator (which takes 32-bit words, f32 angles) runs the same
+    program as the resumer in `compare` mode."""
+    return {
+        "name": name,
+        "bytecode": bytecode(qir),
+        "bytecode32": bytecode(qir, encoding=Bytecode.Bit32),
+    }
 
 
 def compile_qsharp(source):
@@ -185,15 +197,12 @@ def main_programs():
         qsharp.eval(consts["TELEPORTED_T_QSHARP"])
         programs.append({"name": op, "bytecode": bytecode(qsharp.compile(f"{op}()"))})
     for n in (4, 12, 16, 20, 22):
-        programs.append({"name": f"bench_{n}", "bytecode": bytecode(compile_qsharp(bench_source(n, 8)))})
+        programs.append(timed(f"bench_{n}", compile_qsharp(bench_source(n, 8))))
     return programs
 
 
 def noise_programs():
-    programs = [
-        {"name": f"rep_{d}", "bytecode": bytecode(compile_qsharp(rep_source(d, 8)))}
-        for d in (3, 5, 7, 9, 11)
-    ]
+    programs = [timed(f"rep_{d}", compile_qsharp(rep_source(d, 8))) for d in (3, 5, 7, 9, 11)]
     programs.append({"name": "readout_branch", "bytecode": bytecode(READOUT)})
     programs.append(
         {"name": "corr_branch", "bytecode": bytecode(CORR, {"test_noise_intrinsic": 0})}

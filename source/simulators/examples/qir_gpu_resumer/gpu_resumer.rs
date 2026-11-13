@@ -24,6 +24,17 @@
 //! shots together (`share`). A gate moves past the earlier gates it
 //! commutes with (disjoint qubits, or both diagonal) to join a pass.
 
+// Spike code: the crate's pedantic lints are relaxed here.
+#![allow(
+    clippy::disallowed_types,
+    clippy::similar_names,
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::unchecked_time_subtraction,
+    clippy::unreadable_literal,
+    clippy::unusual_byte_groupings
+)]
+
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -785,7 +796,11 @@ impl NoiseTables {
         self.code.is_empty() && !self.idle
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     fn add(&mut self, table: &NoiseTable<f64>) -> Option<Table> {
         if !table.has_pauli_noise() {
             return None;
@@ -966,7 +981,10 @@ fn translate(
                 gate,
                 qubits: (q, second),
                 ..
-            } => (noise.gate(*gate), std::iter::once(*q).chain(*second).collect()),
+            } => (
+                noise.gate(*gate),
+                std::iter::once(*q).chain(*second).collect(),
+            ),
             QirCall::Measure { qubit, .. } => (noise.mz, vec![*qubit]),
             QirCall::MeasureReset { qubit, .. } | QirCall::Reset { qubit } => {
                 (noise.mresetz, vec![*qubit])
@@ -1433,11 +1451,7 @@ fn block_code(
 }
 
 /// The block ops' code, one unit per kernel op (count 1 each).
-fn block_units(
-    block_ops: &[Op],
-    kron_in_block: bool,
-    limit: usize,
-) -> Vec<(u32, Vec<[f32; 4]>)> {
+fn block_units(block_ops: &[Op], kron_in_block: bool, limit: usize) -> Vec<(u32, Vec<[f32; 4]>)> {
     let mut encoded: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
     let mut at = 0;
     while at < block_ops.len() {
@@ -1611,7 +1625,11 @@ impl Layout<'_, '_> {
                     // noise of diagonal passes.
                     let kept: Vec<Op>;
                     let diag_ops = if drop_noise("diag") {
-                        kept = diag_ops.iter().filter(|op| !is_noise(op)).cloned().collect();
+                        kept = diag_ops
+                            .iter()
+                            .filter(|op| !is_noise(op))
+                            .cloned()
+                            .collect();
                         &kept
                     } else {
                         diag_ops
@@ -1629,8 +1647,7 @@ impl Layout<'_, '_> {
                     // the code fits the workgroup's fault array. The code is
                     // then preceded by the pass's phase without its noise
                     // (q0 terms), which shots without a fault run alone.
-                    let hoisted =
-                        self.hoist && terms != p.op_len && n >= 8 && code.len() <= 256;
+                    let hoisted = self.hoist && terms != p.op_len && n >= 8 && code.len() <= 256;
                     p.meas = u32::from(hoisted);
                     if hoisted {
                         let merged = phase_terms(diag_ops.iter().filter(|op| is_diag(op)));
@@ -1722,16 +1739,18 @@ impl Layout<'_, '_> {
                     let noisy = local_ops.iter().any(is_noise);
                     let plain = !noisy && self.plain;
                     let limit = if plain { PLAIN_CODE } else { BLOCK_CODE };
-                    let mut pieces =
-                        block_code(&local_ops, self.kron, self.hoist && noisy, limit);
+                    let mut pieces = block_code(&local_ops, self.kron, self.hoist && noisy, limit);
                     // The fault-free variant: with hoisted draws, the block's
                     // code without its noise follows the noisy code, and a
                     // workgroup whose shot has no fault at any site runs it
                     // instead (per_shot: its op count + 1, m0.x: its offset).
                     let mut clean_variant = None;
                     if self.hoist && noisy && self.clean && pieces.len() == 1 {
-                        let clean_ops: Vec<Op> =
-                            local_ops.iter().filter(|op| !is_noise(op)).cloned().collect();
+                        let clean_ops: Vec<Op> = local_ops
+                            .iter()
+                            .filter(|op| !is_noise(op))
+                            .cloned()
+                            .collect();
                         let clean = block_code(&clean_ops, self.kron, false, BLOCK_CODE);
                         let (count, code) = match clean.as_slice() {
                             [] => (0, Vec::new()),
@@ -2203,13 +2222,21 @@ fn answer(
                 } => {
                     let held = shot.register.get(result as usize).copied().unwrap_or(false);
                     let u = cpu_draw(shot.noise_seed, round, site);
-                    if held { u >= one_as_zero } else { u < zero_as_one }
+                    if held {
+                        u >= one_as_zero
+                    } else {
+                        u < zero_as_one
+                    }
                 }
             };
             if let Some(slot) = shot.register.get_mut(result as usize) {
                 *slot = one;
             }
-            let value = if one { QirReadout::One } else { QirReadout::Zero };
+            let value = if one {
+                QirReadout::One
+            } else {
+                QirReadout::Zero
+            };
             shot.outcomes.push(QirOutcome { result, value });
         }
     }
