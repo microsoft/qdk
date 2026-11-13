@@ -340,14 +340,19 @@ fn the_engine_on_the_gpu_conforms_to_the_kit() {
 /// port reads what the CPU engine reads, distant gates routed and fused.
 #[test]
 #[ignore = "requires an NVIDIA GPU with the audited CUDA Runtime 12.9 and cuTensorNet 2.13"]
-#[allow(clippy::float_cmp, reason = "no truncation keeps the weight 1 exactly")]
 fn gates_below_the_capacity_read_as_on_the_cpu_engine() {
     let capacity = MpsShape::qubit_chain(7, 64).expect("a qubit chain");
     for seed in [1, 2, 3] {
         let operations = circuit(7, 60, seed, false);
         let port = run(&on_the_gpu(), &capacity, &operations);
         let cpu = run(&CpuMpsEngine::default(), &capacity, &operations);
-        assert_eq!(port.retained_weight, 1.0, "nothing truncated");
+        // The cutoff may drop rounding-level singular values (a weight of
+        // 1 − 4e-16 on the A100), so the weight is 1 up to rounding.
+        assert!(
+            port.retained_weight > 1.0 - TOLERANCE,
+            "nothing truncated but rounding: {}",
+            port.retained_weight
+        );
         assert_agree(&port, &cpu);
     }
 }
