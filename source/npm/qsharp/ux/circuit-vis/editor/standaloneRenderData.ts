@@ -69,6 +69,7 @@ const toRenderData = (
     }
     case "measurement":
       renderData.type = GateType.Measure;
+      renderData.label = operation.gate;
       renderData.controlsY = [target];
       break;
     case "ket":
