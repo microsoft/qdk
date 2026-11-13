@@ -18,7 +18,7 @@ use crate::dev_gate_split::{Status, check_tensor};
 use crate::libraries::cuda_runtime::cudart_12;
 use crate::libraries::cutensornet::v2_13;
 use crate::libraries::loader::function_table;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::ffi::c_void;
 
 /// The plans kept before the cache is emptied.
@@ -72,25 +72,26 @@ impl DeviceTensors {
             .get_mut(&key)
             .expect("the shape's network was just made");
         let functions = &self.contraction;
-        let workspace = self.prepare_workspace(|workspace| {
-            // SAFETY: the network, its optimizer info and the workspace
-            // descriptor are live.
-            unsafe {
-                (functions.workspace_contraction_sizes)(
-                    self.context.handle,
-                    plan.network,
-                    plan.info,
-                    workspace,
-                )
-            }
-        })?;
+        let workspace =
+            self.prepare_workspace("cutensornetWorkspaceComputeContractionSizes", |workspace| {
+                // SAFETY: the network, its optimizer info and the workspace
+                // descriptor are live.
+                unsafe {
+                    (functions.workspace_contraction_sizes)(
+                        self.context.handle,
+                        plan.descriptor,
+                        plan.info,
+                        workspace,
+                    )
+                }
+            })?;
         if plan.plan.is_null() {
             // SAFETY: the network and its info are live; the workspace
             // descriptor holds the sizes just computed.
             let status = unsafe {
                 (functions.create_plan)(
                     self.context.handle,
-                    plan.network,
+                    plan.descriptor,
                     plan.info,
                     workspace,
                     &raw mut plan.plan,
@@ -141,10 +142,10 @@ impl DeviceTensors {
         let extents_in = [extents[0].as_ptr(), extents[1].as_ptr()];
         let labels_in = [modes[0].as_ptr(), modes[1].as_ptr()];
         let mut network = Network {
-            network: std::ptr::null_mut(),
+            descriptor: std::ptr::null_mut(),
             info: std::ptr::null_mut(),
             plan: std::ptr::null_mut(),
-            destroy_network: functions.destroy_network,
+            destroy_descriptor: functions.destroy_network,
             destroy_info: functions.destroy_info,
             destroy_plan: functions.destroy_plan,
         };
@@ -166,7 +167,7 @@ impl DeviceTensors {
                 modes[2].as_ptr(),
                 v2_13::cudaDataType_t_CUDA_C_64F,
                 v2_13::cutensornetComputeType_t_CUTENSORNET_COMPUTE_64F,
-                &raw mut network.network,
+                &raw mut network.descriptor,
             )
         };
         check_tensor("cutensornetCreateNetworkDescriptor", status).map_err(failed)?;
@@ -180,14 +181,18 @@ impl DeviceTensors {
         check_tensor("cutensornetCreateContractionOptimizerConfig", status).map_err(failed)?;
         // SAFETY: the network is live; `info` is a valid out-pointer.
         let status = unsafe {
-            (functions.create_info)(self.context.handle, network.network, &raw mut network.info)
+            (functions.create_info)(
+                self.context.handle,
+                network.descriptor,
+                &raw mut network.info,
+            )
         };
         check_tensor("cutensornetCreateContractionOptimizerInfo", status).map_err(failed)?;
         // SAFETY: the network, the config and the info are live.
         let status = unsafe {
             (functions.optimize)(
                 self.context.handle,
-                network.network,
+                network.descriptor,
                 config.config,
                 WORKSPACE_LIMIT,
                 network.info,
@@ -202,15 +207,15 @@ impl DeviceTensors {
 type ShapeKey = ([Vec<u8>; 3], [Vec<usize>; 3]);
 
 /// The cached networks, by shape.
-pub(super) type Plans = HashMap<ShapeKey, Network>;
+pub(super) type Plans = BTreeMap<ShapeKey, Network>;
 
 /// A network, its optimised path and, once made, its plan; destroyed in
 /// the reverse order.
 pub(super) struct Network {
-    network: v2_13::cutensornetNetworkDescriptor_t,
+    descriptor: v2_13::cutensornetNetworkDescriptor_t,
     info: v2_13::cutensornetContractionOptimizerInfo_t,
     plan: v2_13::cutensornetContractionPlan_t,
-    destroy_network: DestroyNetworkFn,
+    destroy_descriptor: DestroyNetworkFn,
     destroy_info: DestroyInfoFn,
     destroy_plan: DestroyPlanFn,
 }
@@ -226,8 +231,8 @@ impl Drop for Network {
             if !self.info.is_null() {
                 let _ = (self.destroy_info)(self.info);
             }
-            if !self.network.is_null() {
-                let _ = (self.destroy_network)(self.network);
+            if !self.descriptor.is_null() {
+                let _ = (self.destroy_descriptor)(self.descriptor);
             }
         }
     }

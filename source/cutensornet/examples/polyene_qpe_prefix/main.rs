@@ -31,7 +31,7 @@
 //!     --engine cutensornet|cuda-mps|cpu --n 8|12|16|20 --chi 128 \
 //!     [--order identity|interleave-centre] [--variant base|seq3-mpo] \
 //!     [--reference ppp8.exact.reference] [--steps 32] \
-//!     [--weight-reads-per-step 1]
+//!     [--weight-reads-per-step 1] [--qr-moves] [--svd-algo gesvd|gesvdj]
 //! ```
 //!
 //! `--order` places the qubits on the chain, as `simulators`'
@@ -51,6 +51,8 @@
 //! than the program's (a quick test; the reference is then not checked).
 //! `--weight-reads-per-step K` reads W `K` times per step, so that
 //! `CuTensorNetEngine` computes a step's operators in `K` parts.
+//! `--qr-moves` (`with_dev_qr_moves`) and `--svd-algo`
+//! (`with_dev_svd_algo`) set `cuda-mps`'s centre moves and SVD algorithm.
 
 mod inputs;
 mod order;
@@ -85,6 +87,11 @@ struct Options {
     engine: String,
     order: String,
     seq3_mpo: bool,
+    /// `--qr-moves`: the `CudaMpsEngine`'s centre moves by QR.
+    qr_moves: bool,
+    /// `--svd-algo`: the `CudaMpsEngine`'s SVD algorithm, its default if
+    /// `None`.
+    svd_algo: Option<String>,
     n: usize,
     chi: usize,
     reference: Option<String>,
@@ -124,6 +131,8 @@ impl Options {
                 "seq3-mpo" => true,
                 other => return Err(format!("--variant {other}: base or seq3-mpo").into()),
             },
+            qr_moves: args.iter().any(|arg| arg == "--qr-moves"),
+            svd_algo: flag("--svd-algo"),
             n: number("--n")?.ok_or("--n 8|12|16|20")?,
             chi: number("--chi")?.ok_or("--chi <bond>")?,
             reference: flag("--reference"),
@@ -178,8 +187,8 @@ fn run_case() -> Res<()> {
     );
     println!(
         "POLYENE case n={} qubits={} chi={} engine={} order={} variant={} steps={} gates={} \
-         two_qubit={} weight_reads_per_step={} label=development-case-for-large-bonds,\
-         candidate-relevant-case-pending-the-chemistry-team",
+         two_qubit={} weight_reads_per_step={} qr_moves={} svd_algo={} \
+         label=development-case-for-large-bonds,candidate-relevant-case-pending-the-chemistry-team",
         options.n,
         prefix.qubits,
         options.chi,
@@ -190,7 +199,12 @@ fn run_case() -> Res<()> {
         prefix.gate_count(),
         prefix.two_qubit_count(),
         options.weight_reads_per_step,
+        options.qr_moves,
+        options.svd_algo.as_deref().unwrap_or("default"),
     );
+    if options.engine != "cuda-mps" && (options.qr_moves || options.svd_algo.is_some()) {
+        return Err("--qr-moves and --svd-algo: --engine cuda-mps only".into());
+    }
     let case = Case {
         prefix,
         hamiltonian,
@@ -252,8 +266,14 @@ fn run_on_cutensornet(_case: &Case, _options: &Options) -> Res<Verdict> {
 fn run_on_cuda_mps(case: &Case, options: &Options) -> Res<Verdict> {
     let availability = qdk_cutensornet::discover()?;
     println!("POLYENE availability {:?}", availability.report());
-    let engine =
-        qdk_cutensornet::CudaMpsEngine::new(&availability)?.with_dev_mpo_far(options.seq3_mpo);
+    let mut engine = qdk_cutensornet::CudaMpsEngine::new(&availability)?
+        .with_dev_mpo_far(options.seq3_mpo)
+        .with_dev_qr_moves(options.qr_moves);
+    if let Some(name) = &options.svd_algo {
+        let algo = qdk_cutensornet::dev_gate_split::TensorSvdAlgo::from_name(name)
+            .ok_or_else(|| format!("--svd-algo {name}: gesvd or gesvdj"))?;
+        engine = engine.with_dev_svd_algo(algo)?;
+    }
     run(&engine, case, options, &|| print_cuda_mps_counters(&engine))
 }
 
@@ -272,7 +292,8 @@ fn print_cuda_mps_counters<T: qdk_cutensornet::cuda_mps_engine::TensorCalls>(
     println!(
         "POLYENE cuda_mps_counters splits={} centre_moves={} swaps={} \
          gate_split_seconds={:.3} read_seconds={:.3} largest_bond={} mpo_operators={} \
-         mpo_seconds={:.3} mpo_host_seconds={:.3}",
+         mpo_seconds={:.3} mpo_host_seconds={:.3} gate_splits={} qr_moves={} \
+         qr_move_seconds={:.3}",
         counters.splits,
         counters.centre_moves,
         counters.swaps,
@@ -282,6 +303,9 @@ fn print_cuda_mps_counters<T: qdk_cutensornet::cuda_mps_engine::TensorCalls>(
         counters.mpo_operators,
         counters.mpo_seconds,
         counters.mpo_host_seconds,
+        counters.gate_splits,
+        counters.qr_moves,
+        counters.qr_move_seconds,
     );
 }
 

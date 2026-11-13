@@ -104,6 +104,10 @@ impl TensorCalls for HostTensors {
     }
 
     /// As the CPU engine's moves: t4a-faer's thin QR, then one product.
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "the extents as the trait's docs name them: l, m, r, and the new bond k"
+    )]
     fn qr_move(
         &self,
         call: &QrMoveCall<'_, Self::Buffer>,

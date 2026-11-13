@@ -358,9 +358,12 @@ impl DeviceTensors {
         .map_err(failed)
     }
 
-    /// Sizes the workspace for one `GateSplit` and attaches enough memory.
+    /// Sizes the workspace for one call (`GateSplit`, `TensorQR` or a
+    /// contraction) by `compute_sizes`, the cuTensorNet function `sizes_call`
+    /// names, and attaches enough memory.
     fn prepare_workspace(
         &self,
+        sizes_call: &str,
         compute_sizes: impl FnOnce(
             v2_13::cutensornetWorkspaceDescriptor_t,
         ) -> crate::dev_gate_split::Status,
@@ -368,11 +371,7 @@ impl DeviceTensors {
         let functions = &self.context.libraries.cutensornet.functions;
         let mut workspace = self.workspace.borrow_mut();
         let descriptor = workspace.descriptor;
-        check_tensor(
-            "cutensornetWorkspaceComputeGateSplitSizes",
-            compute_sizes(descriptor),
-        )
-        .map_err(failed)?;
+        check_tensor(sizes_call, compute_sizes(descriptor)).map_err(failed)?;
         let kinds = [
             v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH,
             v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_CACHE,
@@ -568,23 +567,24 @@ impl TensorCalls for DeviceTensors {
             cudart_12::cudaMemcpyKind_cudaMemcpyHostToDevice,
         )?;
         let config = self.config(call.cutoff, call.partition)?;
-        let workspace = self.prepare_workspace(|workspace| {
-            // SAFETY: every descriptor and the config are live.
-            unsafe {
-                (self.context.tensor.workspace_gate_split_sizes)(
-                    self.context.handle,
-                    a_mode.descriptor,
-                    b_mode.descriptor,
-                    g_mode.descriptor,
-                    u_mode.descriptor,
-                    v_mode.descriptor,
-                    policy::GATE_SPLIT_ALGO,
-                    config,
-                    v2_13::cutensornetComputeType_t_CUTENSORNET_COMPUTE_64F,
-                    workspace,
-                )
-            }
-        })?;
+        let workspace =
+            self.prepare_workspace("cutensornetWorkspaceComputeGateSplitSizes", |workspace| {
+                // SAFETY: every descriptor and the config are live.
+                unsafe {
+                    (self.context.tensor.workspace_gate_split_sizes)(
+                        self.context.handle,
+                        a_mode.descriptor,
+                        b_mode.descriptor,
+                        g_mode.descriptor,
+                        u_mode.descriptor,
+                        v_mode.descriptor,
+                        policy::GATE_SPLIT_ALGO,
+                        config,
+                        v2_13::cutensornetComputeType_t_CUTENSORNET_COMPUTE_64F,
+                        workspace,
+                    )
+                }
+            })?;
         let u = self.allocate(l * 2 * k * size_of::<Complex64>())?;
         let v = self.allocate(k * 2 * r * size_of::<Complex64>())?;
         let values = self.values_buffer(k * size_of::<f64>())?;
@@ -659,6 +659,10 @@ impl TensorCalls for DeviceTensors {
 
     /// One `TensorQR` and one contraction (`contraction.rs`), after one
     /// more contraction for the gate, each waited for.
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "the extents as the trait's docs name them: l, m, r, and the new bond k"
+    )]
     fn qr_move(
         &self,
         call: &QrMoveCall<'_, DeviceArray>,
@@ -797,18 +801,19 @@ impl DeviceTensors {
             self.descriptor(r.1, r.2)?,
         ];
         let [input_mode, q_mode, r_mode] = &descriptors;
-        let workspace = self.prepare_workspace(|workspace| {
-            // SAFETY: the three descriptors are live.
-            unsafe {
-                (self.context.tensor.workspace_qr_sizes)(
-                    self.context.handle,
-                    input_mode.descriptor,
-                    q_mode.descriptor,
-                    r_mode.descriptor,
-                    workspace,
-                )
-            }
-        })?;
+        let workspace =
+            self.prepare_workspace("cutensornetWorkspaceComputeQRSizes", |workspace| {
+                // SAFETY: the three descriptors are live.
+                unsafe {
+                    (self.context.tensor.workspace_qr_sizes)(
+                        self.context.handle,
+                        input_mode.descriptor,
+                        q_mode.descriptor,
+                        r_mode.descriptor,
+                        workspace,
+                    )
+                }
+            })?;
         // SAFETY: every descriptor, buffer and the workspace are live and
         // sized for these descriptors.
         let status = unsafe {

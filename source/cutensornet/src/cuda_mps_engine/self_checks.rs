@@ -91,7 +91,14 @@ pub fn self_check(device: &DeviceTensors) -> Vec<SelfCheck> {
             .push_str(" informational=tie-rounds-either-way");
         checks.push(check);
     }
-    for &(l, m, r) in &[(1, 1, 1), (2, 2, 4), (2, 8, 3), (8, 8, 8), (16, 12, 8), (32, 32, 32)] {
+    for &(l, m, r) in &[
+        (1, 1, 1),
+        (2, 2, 4),
+        (2, 8, 3),
+        (8, 8, 8),
+        (16, 12, 8),
+        (32, 32, 32),
+    ] {
         let left = random.complex_vec(l * 2 * m);
         let right = random.complex_vec(m * 2 * r);
         let one_site: [Complex64; 4] = std::array::from_fn(|_| random.complex());
@@ -100,7 +107,13 @@ pub fn self_check(device: &DeviceTensors) -> Vec<SelfCheck> {
                 let case = if gate.is_some() { "gate" } else { "no-gate" };
                 let name = format!("qr-move-l{l}-m{m}-r{r}-{case}-{partition:?}");
                 checks.push(compare_qr_move(
-                    device, &name, &left, &right, [l, m, r], gate, partition,
+                    device,
+                    &name,
+                    &left,
+                    &right,
+                    [l, m, r],
+                    gate,
+                    partition,
                 ));
             }
         }

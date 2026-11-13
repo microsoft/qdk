@@ -244,10 +244,6 @@ where
     }
 }
 
-fn close(a: f64, b: f64) -> bool {
-    close_within(a, b, TOLERANCE)
-}
-
 fn close_within(a: f64, b: f64, tolerance: f64) -> bool {
     (a - b).abs() <= tolerance * b.abs().max(1.0)
 }
@@ -420,9 +416,8 @@ fn polyene_prefix(step_gates: usize) -> Vec<Gate> {
         let qubit = |at: usize| -> usize { words[at].parse().expect("a qubit") };
         let angle = || -> f64 { words[1].parse().expect("an angle") };
         let gate = match words.as_slice() {
-            [] => continue,
             [first, ..] if first.starts_with('#') => continue,
-            ["trial"] => continue,
+            [] | ["trial"] => continue,
             ["controlled_step", _] => {
                 in_step = true;
                 gates.push(Gate(vec![0], [h, h, h, -h].map(real).to_vec()));
@@ -437,6 +432,11 @@ fn polyene_prefix(step_gates: usize) -> Vec<Gate> {
             }
             ["h", _] => Gate(vec![qubit(1)], [h, h, h, -h].map(real).to_vec()),
             ["x", _] => Gate(vec![qubit(1)], [0.0, 1.0, 1.0, 0.0].map(real).to_vec()),
+            ["s" | "sadj", _] => {
+                let phase = if words[0] == "s" { 1.0 } else { -1.0 };
+                let zero = real(0.0);
+                Gate(vec![qubit(1)], vec![real(1.0), zero, zero, c(0.0, phase)])
+            }
             ["rz", _, _] => {
                 let half = angle() / 2.0;
                 let zero = real(0.0);

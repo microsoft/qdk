@@ -6,7 +6,9 @@
 //! conformance kit, and agreement with the CPU engine whose algorithm it
 //! ports, on random circuits of seven sites (distant gates, projections,
 //! a capped bond), to 1e-10; and, with `with_dev_mpo_far`, operators on
-//! three sites applied as an MPO, against the CPU engine's MPO path.
+//! three sites applied as an MPO, against the CPU engine's MPO path; and
+//! the QR moves (`with_dev_qr_moves`) and the Jacobi SVD
+//! (`with_dev_svd_algo`) against the CPU engine.
 //!
 //! It needs an NVIDIA GPU, the CUDA Runtime 12.9 and cuTensorNet 2.13, so
 //! every test is ignored by default; run them with `--ignored --nocapture`
@@ -18,6 +20,7 @@ use num_complex::Complex64;
 use qdk_cpu_mps::CpuMpsEngine;
 use qdk_cutensornet::CudaMpsEngine;
 use qdk_cutensornet::cuda_mps_engine::{DeviceTensors, self_check};
+use qdk_cutensornet::dev_gate_split::TensorSvdAlgo;
 use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm};
 
 /// The engine on device 0.
@@ -399,5 +402,61 @@ fn operators_as_an_mpo_read_as_on_the_cpu_engine() {
             );
             assert_agree(&port, &cpu);
         }
+    }
+}
+
+/// With `with_dev_qr_moves`, every exact centre move a `TensorQR` and a
+/// contraction on the device, routed gates, projections and operators as
+/// an MPO read as on the CPU engine, whose moves they port, below the
+/// capacity and capped.
+#[test]
+#[ignore = "requires an NVIDIA GPU with the audited CUDA Runtime 12.9 and cuTensorNet 2.13"]
+fn qr_moves_read_as_on_the_cpu_engine() {
+    for max_bond in [64, 3] {
+        let capacity = MpsShape::qubit_chain(7, max_bond).expect("a qubit chain");
+        for seed in [12, 13] {
+            let operations = circuit(7, 60, seed, true);
+            let engine = on_the_gpu().with_dev_qr_moves(true);
+            let port = run(&engine, &capacity, &operations);
+            let cpu = run(&CpuMpsEngine::default(), &capacity, &operations);
+            assert_agree(&port, &cpu);
+            assert!(engine.counters().qr_moves > 0, "the centre moved by QR");
+            let operations = fused_circuit(7, 40, seed);
+            let port = run(
+                &on_the_gpu().with_dev_mpo_far(true).with_dev_qr_moves(true),
+                &capacity,
+                &operations,
+            );
+            let cpu = run(
+                &CpuMpsEngine::default().with_dev_mpo_far(true),
+                &capacity,
+                &operations,
+            );
+            assert_agree(&port, &cpu);
+        }
+    }
+}
+
+/// With `with_dev_svd_algo(Gesvdj)`, cuSOLVER's Jacobi SVD, the engine
+/// reads as the CPU engine below the capacity; GESVDP and GESVDR are
+/// refused.
+#[test]
+#[ignore = "requires an NVIDIA GPU with the audited CUDA Runtime 12.9 and cuTensorNet 2.13"]
+fn the_jacobi_svd_reads_as_on_the_cpu_engine() {
+    let capacity = MpsShape::qubit_chain(7, 64).expect("a qubit chain");
+    let engine = on_the_gpu()
+        .with_dev_svd_algo(TensorSvdAlgo::Gesvdj)
+        .expect("GESVDJ is accepted");
+    for seed in [14, 15] {
+        let operations = circuit(7, 60, seed, false);
+        let port = run(&engine, &capacity, &operations);
+        let cpu = run(&CpuMpsEngine::default(), &capacity, &operations);
+        assert_agree(&port, &cpu);
+    }
+    for refused in [TensorSvdAlgo::Gesvdp, TensorSvdAlgo::Gesvdr] {
+        assert!(
+            on_the_gpu().with_dev_svd_algo(refused).is_err(),
+            "{refused:?} is refused"
+        );
     }
 }

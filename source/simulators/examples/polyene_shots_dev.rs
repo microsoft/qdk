@@ -13,7 +13,8 @@
 //!     [--seed 1] [--mode grouped|per-shot] [--reset split|merge|fresh] \
 //!     [--fusion unfused|pairs|seq|seq3] [--apply engine|mpo] \
 //!     [--layout program|identity|interleave-centre] [--segments] \
-//!     [--variant base|seq3-mpo] [--order resumer|identity|interleave-centre]
+//!     [--variant base|seq3-mpo] [--order resumer|identity|interleave-centre] \
+//!     [--qr-moves] [--svd-algo gesvd|gesvdj]
 //! ```
 //!
 //! `--variant` and `--order` (development only) are the flags the polyene
@@ -36,7 +37,9 @@
 //! `--engine cuda-mps|cutensornet` runs `CudaMpsEngine` or
 //! `CuTensorNetEngine` on a GPU (Linux x86-64); `--apply mpo` gives the
 //! first `with_dev_mpo_far` and the second `with_dev_wide_operators`
-//! (three-site operators passed to cuTensorNet). `--engine reference` runs
+//! (three-site operators passed to cuTensorNet); `--qr-moves`
+//! (`with_dev_qr_moves`) and `--svd-algo` (`with_dev_svd_algo`) set
+//! `cuda-mps`'s centre moves and SVD algorithm. `--engine reference` runs
 //! the exact state vector (`ExactReference`),
 //! whose bond reads are replaced by a constant (its Schmidt ranks cost
 //! seconds at 17 qubits and change no draw). `--segments` prints one line
@@ -80,6 +83,10 @@ struct Options {
     layout: String,
     segments: bool,
     print_reads: bool,
+    /// `cuda-mps`'s centre moves by QR (`--qr-moves`) and its SVD
+    /// algorithm (`--svd-algo`, its default if `None`).
+    qr_moves: bool,
+    svd_algo: Option<String>,
 }
 
 impl Options {
@@ -156,6 +163,8 @@ impl Options {
             layout,
             segments: args.iter().any(|arg| arg == "--segments"),
             print_reads: args.iter().any(|arg| arg == "--print-reads"),
+            qr_moves: args.iter().any(|arg| arg == "--qr-moves"),
+            svd_algo: flag("--svd-algo"),
         }
     }
 }
@@ -330,7 +339,7 @@ fn main() {
     let program = QirProgram::new(bytecode.program()).expect("the program builds");
     println!(
         "PROGRAM qubits={} two_qubit_gates={} engine={} chi={} seed={} first_shot={} shots={} \
-         mode={} reset={:?} fusion={:?} in_order={:?} mpo={} layout={}",
+         mode={} reset={:?} fusion={:?} in_order={:?} mpo={} layout={} qr_moves={} svd_algo={}",
         program.qubits(),
         program.two_qubit_gates().len(),
         options.engine,
@@ -348,6 +357,12 @@ fn main() {
         options.in_order,
         options.mpo,
         options.layout,
+        options.qr_moves,
+        options.svd_algo.as_deref().unwrap_or("default"),
+    );
+    assert!(
+        options.engine == "cuda-mps" || !options.qr_moves && options.svd_algo.is_none(),
+        "--qr-moves and --svd-algo: --engine cuda-mps only"
     );
     let cpu = || qdk_cpu_mps::CpuMpsEngine::default().with_dev_mpo_far(options.mpo);
     let reference = || NoShape(tensornet::reference::ExactReference::new());
@@ -371,9 +386,17 @@ fn run_on_gpu(options: &Options, program: &QirProgram) {
     let availability = qdk_cutensornet::discover().expect("cuTensorNet and the CUDA Runtime load");
     println!("AVAILABILITY {:?}", availability.report());
     if options.engine == "cuda-mps" {
-        let engine = qdk_cutensornet::CudaMpsEngine::new(&availability)
+        let mut engine = qdk_cutensornet::CudaMpsEngine::new(&availability)
             .expect("the tensor API on CUDA device 0")
-            .with_dev_mpo_far(options.mpo);
+            .with_dev_mpo_far(options.mpo)
+            .with_dev_qr_moves(options.qr_moves);
+        if let Some(name) = &options.svd_algo {
+            let algo = qdk_cutensornet::dev_gate_split::TensorSvdAlgo::from_name(name)
+                .unwrap_or_else(|| panic!("--svd-algo {name}: gesvd or gesvdj"));
+            engine = engine
+                .with_dev_svd_algo(algo)
+                .unwrap_or_else(|error| panic!("--svd-algo {name}: {error}"));
+        }
         run(options, program, engine);
     } else {
         let engine = qdk_cutensornet::CuTensorNetEngine::new(&availability)
